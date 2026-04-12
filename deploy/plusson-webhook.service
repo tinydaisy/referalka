@@ -1,0 +1,16 @@
+[Unit]
+Description=ПЛЮСОН GitHub Webhook Receiver
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/plusson
+ExecStart=/usr/bin/python3 /var/www/plusson/deploy/webhook.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
