@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -i ~/.ssh/id_rsa root@194.156.119.17 'tail -40 /var/log/plusson-next.log')",
+      "Bash(ssh -i ~/.ssh/id_rsa root@194.156.119.17 'tail -50 /var/log/plusson-next.log')",
+      "Bash(ssh -i ~/.ssh/id_rsa root@194.156.119.17 'free -h ; echo \"---\" ; ps aux | grep -E \"\\(next|node\\)\" | grep -v grep | head -5')",
+      "Bash(ssh -i ~/.ssh/id_rsa root@194.156.119.17 'ls -la /etc/systemd/system/ | grep -i plus')",
+      "Bash(ssh -i ~/.ssh/id_rsa root@194.156.119.17 'cat /etc/systemd/system/plusson-web.service')",
+      "Bash(ssh -i ~/.ssh/id_rsa root@194.156.119.17 'systemctl status plusson-web.service')",
+      "Bash(ssh -i:*)",
+      "Bash(scp -r /Users/macbookair/Documents/projects/referalka/web/next.config.js root@194.156.119.17:/var/www/plusson/web/)",
+      "Bash(scp -i ~/.ssh/id_ed25519 /Users/macbookair/Documents/projects/referalka/web/src/app/\\\\\\(auth\\\\\\)/login/page.tsx root@194.156.119.17:/var/www/plusson/web/src/app/\\\\\\(auth\\\\\\)/login/page.tsx)"
+    ],
+    "additionalDirectories": [
+      "/Users/macbookair/Documents/projects/referalka",
+      "/Users/macbookair/Documents/projects/referalka/web/src/app/l"
+    ]
+  }
+}

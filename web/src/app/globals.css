@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #25455D;
+  --brand-dark: #0a1520;
+  --gold: #FFCFA4;
+  --bg: #F8FAFC;
+  --card: #FFFFFF;
+  --text: #1a2332;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Roboto', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.gradient-bg {
+  background: linear-gradient(45deg, #25455D, #0a1520);
+}
+
+.btn-gold {
+  background: #FFCFA4;
+  color: #0a1520;
+  font-weight: 600;
+  transition: opacity 0.2s;
+}
+.btn-gold:hover { opacity: 0.88; }
+
+.btn-primary {
+  background: linear-gradient(45deg, #25455D, #0a1520);
+  color: white;
+  border: 1px solid rgba(255,207,164,0.4);
+  transition: opacity 0.2s;
+}
+.btn-primary:hover { opacity: 0.9; }
+
+.gold-border { border-color: #FFCFA4; }
+.gold-text { color: #FFCFA4; }
+
+/* Sidebar */
+.sidebar {
+  background: linear-gradient(45deg, #25455D, #0a1520);
+  width: 240px;
+  min-height: 100vh;
+  flex-shrink: 0;
+}
+
+/* Status badges */
+.badge-draft   { background: #f1f5f9; color: #64748b; }
+.badge-active  { background: #dcfce7; color: #16a34a; }
+.badge-ended   { background: #fee2e2; color: #dc2626; }

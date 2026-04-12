@@ -1,0 +1,24 @@
+# systemd сервис для FastAPI
+# Расположение на сервере: /etc/systemd/system/plusson-api.service
+#
+# Команды управления:
+#   systemctl start plusson-api
+#   systemctl stop plusson-api
+#   systemctl restart plusson-api
+#   systemctl status plusson-api
+#   journalctl -u plusson-api -f   ← логи в реальном времени
+
+[Unit]
+Description=PLUSSON FastAPI
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/var/www/plusson/backend
+EnvironmentFile=/var/www/plusson/backend/.env
+ExecStart=/var/www/plusson/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

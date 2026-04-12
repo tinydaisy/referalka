@@ -1,0 +1,17 @@
+# systemd сервис для Telegram Bot (aiogram polling)
+# Расположение на сервере: /etc/systemd/system/plusson-bot.service
+
+[Unit]
+Description=PLUSSON Telegram Bot
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/var/www/plusson/backend
+EnvironmentFile=/var/www/plusson/backend/.env
+ExecStart=/var/www/plusson/venv/bin/python -m bot.main
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
