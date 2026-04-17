@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, Users, Calendar, ChevronRight, Mic } from 'lucide-react'
+import { Plus, Users, Calendar, ChevronRight, Mic, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
@@ -13,6 +13,7 @@ const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
 export default function ConferencesPage() {
   const [events, setEvents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState<number | null>(null)
 
   useEffect(() => {
     api.events.list('conference')
@@ -20,6 +21,21 @@ export default function ConferencesPage() {
       .catch(() => setEvents([]))
       .finally(() => setLoading(false))
   }, [])
+
+  async function handleDelete(e: React.MouseEvent, id: number, title: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm(`Удалить конференцию «${title}»?\n\nВместе с ней удалятся все спикеры, программа, рассылки и данные участников.`)) return
+    setDeleting(id)
+    try {
+      await api.events.delete(id)
+      setEvents(ev => ev.filter(e => e.id !== id))
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   if (loading) {
     return (
@@ -65,39 +81,55 @@ export default function ConferencesPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {events.map(event => {
             const status = STATUS_LABELS[event.status] || STATUS_LABELS.draft
+            const isDeleting = deleting === event.id
             return (
-              <Link
-                key={event.id}
-                href={`/dashboard/events/${event.id}/conference`}
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden group"
-              >
-                <div className="gradient-bg h-24 flex items-end p-4 relative">
-                  {event.poster_url && (
-                    <img src={event.poster_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />
+              <div key={event.id} className="relative group">
+                <Link
+                  href={`/dashboard/events/${event.id}/conference`}
+                  className={`block bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
+                >
+                  <div className="gradient-bg h-24 flex items-end p-4 relative">
+                    {event.poster_url && (
+                      <img src={event.poster_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />
+                    )}
+                    <span className={`badge text-xs px-2.5 py-1 rounded-full ${status.cls}`}>
+                      {status.label}
+                    </span>
+                  </div>
+                  <div className="p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <h3 className="font-semibold text-gray-900 leading-snug flex-1 mr-2 group-hover:text-brand transition-colors">
+                        {event.title}
+                      </h3>
+                      <ChevronRight size={16} className="text-gray-400 shrink-0 mt-0.5" />
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-gray-600">
+                      <span className="flex items-center gap-1.5">
+                        <Users size={14} className="text-gray-400" />
+                        {event.participants_count || 0} участников
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Calendar size={14} className="text-gray-400" />
+                        {event.slug}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+
+                {/* Delete button */}
+                <button
+                  onClick={(e) => handleDelete(e, event.id, event.title)}
+                  disabled={isDeleting}
+                  className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/30 text-white opacity-0 group-hover:opacity-100 hover:bg-red-500 transition-all disabled:opacity-50"
+                  title="Удалить конференцию"
+                >
+                  {isDeleting ? (
+                    <div className="w-4 h-4 border-2 border-white rounded-full border-t-transparent animate-spin" />
+                  ) : (
+                    <Trash2 size={14} />
                   )}
-                  <span className={`badge text-xs px-2.5 py-1 rounded-full ${status.cls}`}>
-                    {status.label}
-                  </span>
-                </div>
-                <div className="p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <h3 className="font-semibold text-gray-900 leading-snug flex-1 mr-2 group-hover:text-brand transition-colors">
-                      {event.title}
-                    </h3>
-                    <ChevronRight size={16} className="text-gray-400 shrink-0 mt-0.5" />
-                  </div>
-                  <div className="flex items-center gap-4 text-sm text-gray-600">
-                    <span className="flex items-center gap-1.5">
-                      <Users size={14} className="text-gray-400" />
-                      {event.participants_count || 0} участников
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Calendar size={14} className="text-gray-400" />
-                      {event.slug}
-                    </span>
-                  </div>
-                </div>
-              </Link>
+                </button>
+              </div>
             )
           })}
 

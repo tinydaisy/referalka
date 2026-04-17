@@ -30,7 +30,7 @@ export default function SpeakerPage({ params }: { params: { id: string } }) {
     try {
       const updates = Object.fromEntries(
         Object.entries(form).filter(([k]) =>
-          ['name','title','company','bio','achievements','photo_url',
+          ['name','title','achievements','photo_url',
            'photo_folder_url','video_folder_url','telegram_url','instagram_url','website_url'].includes(k)
         )
       )
@@ -86,28 +86,11 @@ export default function SpeakerPage({ params }: { params: { id: string } }) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Должность / регалии</label>
-              <input
-                type="text" value={form.title || ''} onChange={set('title')}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Компания</label>
-              <input
-                type="text" value={form.company || ''} onChange={set('company')}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Биография</label>
-            <textarea
-              value={form.bio || ''} onChange={set('bio')} rows={3}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none"
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Должность / регалии</label>
+            <input
+              type="text" value={form.title || ''} onChange={set('title')}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
             />
           </div>
 

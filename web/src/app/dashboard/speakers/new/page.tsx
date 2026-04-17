@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 export default function NewSpeakerPage() {
   const router = useRouter()
   const [form, setForm] = useState({
-    name: '', title: '', company: '', bio: '', achievements: '',
+    name: '', title: '', achievements: '',
     photo_url: '', photo_folder_url: '', video_folder_url: '',
     telegram_url: '', instagram_url: '', website_url: '',
   })
@@ -24,7 +24,7 @@ export default function NewSpeakerPage() {
     setLoading(true); setError('')
     try {
       const res = await api.speakers.create(
-        Object.fromEntries(Object.entries(form).filter(([, v]) => v.trim()))
+        Object.fromEntries(Object.entries(form).filter(([, v]) => (v as string).trim()))
       )
       router.push(`/dashboard/speakers/${res.speaker.id}`)
     } catch (err: any) {
@@ -62,31 +62,12 @@ export default function NewSpeakerPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Должность / регалии</label>
-              <input
-                type="text" value={form.title} onChange={set('title')}
-                placeholder="Коуч по продажам"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Компания</label>
-              <input
-                type="text" value={form.company} onChange={set('company')}
-                placeholder="Forbes Academy"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Биография</label>
-            <textarea
-              value={form.bio} onChange={set('bio')} rows={3}
-              placeholder="Краткое описание эксперта..."
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none"
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Должность / регалии</label>
+            <input
+              type="text" value={form.title} onChange={set('title')}
+              placeholder="Коуч по продажам"
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
             />
           </div>
 

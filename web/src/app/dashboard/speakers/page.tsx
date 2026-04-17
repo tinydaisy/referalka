@@ -115,10 +115,8 @@ export default function SpeakersPage() {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900 truncate">{sp.name}</p>
-                  {(sp.title || sp.company) && (
-                    <p className="text-sm text-gray-500 truncate">
-                      {[sp.title, sp.company].filter(Boolean).join(' · ')}
-                    </p>
+                  {sp.title && (
+                    <p className="text-sm text-gray-500 truncate">{sp.title}</p>
                   )}
                 </div>
 
