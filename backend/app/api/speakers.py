@@ -41,19 +41,23 @@ class SpeakerUpdate(BaseModel):
     website_url: Optional[str] = None
 
 
-@router.get("/", summary="Список всех спикеров в базе")
+@router.get("/", summary="Список спикеров клиента")
 async def list_speakers(
     q: Optional[str] = None,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    client_id = int(client["sub"])
     if q:
         rows = await db.fetch(
-            "SELECT * FROM speakers WHERE name ILIKE $1 ORDER BY name",
-            f"%{q}%"
+            "SELECT * FROM speakers WHERE created_by_client_id = $1 AND name ILIKE $2 ORDER BY name",
+            client_id, f"%{q}%"
         )
     else:
-        rows = await db.fetch("SELECT * FROM speakers ORDER BY name")
+        rows = await db.fetch(
+            "SELECT * FROM speakers WHERE created_by_client_id = $1 ORDER BY name",
+            client_id
+        )
     return {"speakers": [dict(r) for r in rows]}
 
 
@@ -83,7 +87,11 @@ async def get_speaker(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    row = await db.fetchrow("SELECT * FROM speakers WHERE id = $1", speaker_id)
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        "SELECT * FROM speakers WHERE id = $1 AND created_by_client_id = $2",
+        speaker_id, client_id
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Спикер не найден")
     return {"speaker": dict(row)}
@@ -124,6 +132,13 @@ async def delete_speaker(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    client_id = int(client["sub"])
+    sp = await db.fetchrow(
+        "SELECT id FROM speakers WHERE id = $1 AND created_by_client_id = $2",
+        speaker_id, client_id
+    )
+    if not sp:
+        raise HTTPException(status_code=404, detail="Спикер не найден")
     # Проверяем что спикер не участвует ни в каких событиях
     count = await db.fetchval(
         "SELECT COUNT(*) FROM conf_speaker_events WHERE speaker_id = $1", speaker_id
