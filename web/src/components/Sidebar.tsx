@@ -1,18 +1,51 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Calendar, Settings, CreditCard, LogOut, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, Settings, CreditCard, LogOut, Menu, X, Trophy, Award } from 'lucide-react'
 import { useState } from 'react'
 
-const navItems = [
-  { href: '/dashboard', label: 'Мои события', icon: Calendar },
-  { href: '/dashboard/settings', label: 'Настройки', icon: Settings },
-  { href: '/dashboard/billing', label: 'Тарифы', icon: CreditCard },
+type NavSection = {
+  label?: string
+  items: { href: string; label: string; icon: any; exact?: boolean }[]
+}
+
+const sections: NavSection[] = [
+  {
+    items: [
+      { href: '/dashboard', label: 'Дашборд', icon: LayoutDashboard, exact: true },
+    ],
+  },
+  {
+    label: 'РЕФЕРАЛКИ',
+    items: [
+      { href: '/dashboard/referrals', label: 'Мои кампании', icon: Link2 },
+    ],
+  },
+  {
+    label: 'КОНФЕРЕНЦИИ',
+    items: [
+      { href: '/dashboard/conferences', label: 'Мои конференции', icon: Mic },
+      { href: '/dashboard/speakers', label: 'Мои спикеры', icon: Users },
+    ],
+  },
+  {
+    label: 'СКОРО',
+    items: [
+      { href: '#', label: 'Премии', icon: Award },
+      { href: '#', label: 'Турниры', icon: Trophy },
+    ],
+  },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  function isActive(href: string, exact?: boolean) {
+    if (href === '#') return false
+    if (exact) return pathname === href
+    return pathname === href || pathname.startsWith(href + '/')
+  }
 
   const content = (
     <div className="flex flex-col h-full">
@@ -33,29 +66,60 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
-          return (
-            <Link
-              key={href}
-              href={href}
-              onClick={() => setMobileOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-white/20 text-white'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Icon size={18} />
-              {label}
-            </Link>
-          )
-        })}
+      <nav className="flex-1 px-3 py-4 overflow-y-auto">
+        {sections.map((section, si) => (
+          <div key={si} className={si > 0 ? 'mt-4' : ''}>
+            {section.label && (
+              <p className="px-3 pb-1.5 text-[10px] font-semibold tracking-widest text-white/35 uppercase">
+                {section.label}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {section.items.map(({ href, label, icon: Icon, exact }) => {
+                const active = isActive(href, exact)
+                const isComingSoon = href === '#'
+                return (
+                  <Link
+                    key={href + label}
+                    href={href}
+                    onClick={() => !isComingSoon && setMobileOpen(false)}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      isComingSoon
+                        ? 'text-white/30 cursor-default pointer-events-none'
+                        : active
+                        ? 'bg-white/20 text-white'
+                        : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <Icon size={17} />
+                    <span>{label}</span>
+                    {isComingSoon && (
+                      <span className="ml-auto text-[9px] font-semibold bg-white/10 text-white/40 px-1.5 py-0.5 rounded">
+                        скоро
+                      </span>
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
-      {/* Logout */}
-      <div className="px-3 py-4 border-t border-white/10">
+      {/* Bottom */}
+      <div className="px-3 pb-4 pt-3 border-t border-white/10 space-y-0.5">
+        <Link
+          href="/dashboard/settings"
+          onClick={() => setMobileOpen(false)}
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+            pathname.startsWith('/dashboard/settings')
+              ? 'bg-white/20 text-white'
+              : 'text-white/70 hover:bg-white/10 hover:text-white'
+          }`}
+        >
+          <Settings size={17} />
+          Настройки
+        </Link>
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/10 w-full transition-colors"
           onClick={() => {
@@ -63,7 +127,7 @@ export default function Sidebar() {
             window.location.href = '/login'
           }}
         >
-          <LogOut size={18} />
+          <LogOut size={17} />
           Выйти
         </button>
       </div>
