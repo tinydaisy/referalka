@@ -7,6 +7,7 @@ export const en = {
     myConferences: 'My conferences',
     base: 'BASE',
     collaborations: 'Collaborations',
+    clients: 'Clients',
     soon: 'SOON',
     awards: 'Awards',
     tournaments: 'Tournaments',

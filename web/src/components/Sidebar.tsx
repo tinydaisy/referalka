@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, Settings, LogOut, Menu, X, Trophy, Award } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award } from 'lucide-react'
 import { useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 
@@ -38,6 +38,7 @@ export default function Sidebar() {
       label: t.nav.base,
       items: [
         { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users },
+        { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
       ],
     },
     {
