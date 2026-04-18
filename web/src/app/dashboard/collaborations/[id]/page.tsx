@@ -5,9 +5,11 @@ import Link from 'next/link'
 import { ArrowLeft, Save, ExternalLink, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
+import { useLang } from '@/contexts/LangContext'
 
 export default function CollaborationPage({ params }: { params: { id: string } }) {
   const router = useRouter()
+  const { t } = useLang()
   const collaboratorId = parseInt(params.id)
   const [form, setForm] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -72,49 +74,34 @@ export default function CollaborationPage({ params }: { params: { id: string } }
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Основное */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Основная информация</h2>
-
+          <h2 className="font-semibold text-gray-900">{t.fields.basicInfo}</h2>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Имя, фамилия или название <span className="text-red-500">*</span>
+              {t.fields.nameRequired}
             </label>
-            <input
-              type="text" value={form.name || ''} onChange={set('name')}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+            <input type="text" value={form.name || ''} onChange={set('name')}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Должность</label>
-            <input
-              type="text" value={form.title || ''} onChange={set('title')}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.position}</label>
+            <input type="text" value={form.title || ''} onChange={set('title')}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Регалии</label>
-            <textarea
-              value={form.achievements || ''} onChange={set('achievements')} rows={2}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.achievements}</label>
+            <textarea value={form.achievements || ''} onChange={set('achievements')} rows={2}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
           </div>
         </div>
 
-        {/* Медиа */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Фото и материалы</h2>
-
+          <h2 className="font-semibold text-gray-900">{t.fields.media}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка на фото</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.photo}</label>
             <div className="flex gap-2">
-              <input
-                type="url" value={form.photo_url || ''} onChange={set('photo_url')}
-                placeholder="https://..."
-                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
+              <input type="url" value={form.photo_url || ''} onChange={set('photo_url')} placeholder="https://..."
+                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
               {form.photo_url && (
                 <a href={form.photo_url} target="_blank" rel="noopener" className="px-3 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-brand transition-colors">
                   <ExternalLink size={15} />
@@ -122,44 +109,37 @@ export default function CollaborationPage({ params }: { params: { id: string } }
               )}
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Папка с фото</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.photoFolder}</label>
               <input type="url" value={form.photo_folder_url || ''} onChange={set('photo_folder_url')}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Папка с видео</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.videoFolder}</label>
               <input type="url" value={form.video_folder_url || ''} onChange={set('video_folder_url')}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
           </div>
         </div>
 
-        {/* Контакты */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Контакты</h2>
+          <h2 className="font-semibold text-gray-900">{t.fields.contacts}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Telegram</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
             <input type="url" value={form.telegram_url || ''} onChange={set('telegram_url')}
               placeholder="https://t.me/username"
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Instagram</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.instagram}</label>
             <input type="url" value={form.instagram_url || ''} onChange={set('instagram_url')}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Сайт</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.website}</label>
             <input type="url" value={form.website_url || ''} onChange={set('website_url')}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
         </div>
 
@@ -168,19 +148,17 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         )}
 
         <div className="flex gap-3 items-center">
-          <button
-            type="submit" disabled={saving}
-            className={`btn-gold flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}
-          >
-            {saving ? <><Spinner /> Сохраняем...</> : <><Save size={16} /> Сохранить изменения</>}
+          <button type="submit" disabled={saving}
+            className={`btn-gold flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
+            {saving ? <><Spinner /> {t.common.saving}</> : <><Save size={16} /> {t.common.save}</>}
           </button>
           <Link href="/dashboard/collaborations"
             className="px-6 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-            Назад
+            {t.common.back}
           </Link>
           {saved && (
             <span className="flex items-center gap-1.5 text-sm text-green-600">
-              <Check size={15} /> Сохранено
+              <Check size={15} /> {t.common.saved}
             </span>
           )}
         </div>

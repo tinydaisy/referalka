@@ -1,28 +1,18 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Plus, Trash2, User, Calendar, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
+import { useLang } from '@/contexts/LangContext'
 
 type Tab = 'settings' | 'speakers' | 'program'
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'settings', label: 'Настройки' },
-  { id: 'speakers', label: 'Спикеры' },
-  { id: 'program',  label: 'Программа' },
-]
-
-const ROLE_LABELS: Record<string, string> = {
-  organizer: 'Организатор', headliner: 'Хедлайнер',
-  speaker: 'Спикер', partner: 'Партнёр',
-  commercial: 'Коммерческий', general_partner: 'Генеральный партнёр',
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── SaveBar ─────────────────────────────────────────────────────────────────
 
 function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; onSave: () => void }) {
+  const { t } = useLang()
   return (
     <div className="flex items-center gap-3 mt-6">
       <button
@@ -30,13 +20,30 @@ function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; o
         disabled={saving}
         className={`btn-gold px-6 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 ${saving ? 'btn-loading' : ''}`}
       >
-        {saving ? <><Spinner /> Сохраняем...</> : <><Save size={15} /> Сохранить</>}
+        {saving ? <><Spinner /> {t.common.saving}</> : <><Save size={15} /> {t.common.save}</>}
       </button>
       {saved && (
         <span className="flex items-center gap-1.5 text-sm text-green-600">
-          <Check size={15} /> Сохранено
+          <Check size={15} /> {t.common.saved}
         </span>
       )}
+    </div>
+  )
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-bold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors">✕</button>
+        </div>
+        {children}
+      </div>
     </div>
   )
 }
@@ -44,6 +51,7 @@ function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; o
 // ─── Вкладка: Настройки ───────────────────────────────────────────────────────
 
 function SettingsTab({ eventId, conf, event, onConfUpdated }: { eventId: number; conf: any; event: any; onConfUpdated: (c: any) => void }) {
+  const { t } = useLang()
   const [form, setForm] = useState({
     title: event?.title || '',
     description: conf?.description || '',
@@ -61,7 +69,6 @@ function SettingsTab({ eventId, conf, event, onConfUpdated }: { eventId: number;
       .catch(() => {})
   }, [eventId])
 
-  // Синхронизация при обновлении conf снаружи
   useEffect(() => {
     setForm(f => ({
       ...f,
@@ -78,9 +85,7 @@ function SettingsTab({ eventId, conf, event, onConfUpdated }: { eventId: number;
   async function handleSave() {
     setSaving(true); setSaved(false)
     try {
-      // Обновляем название события
       await api.events.update(eventId, { title: form.title })
-      // Обновляем настройки конференции
       const updated = await api.conference.update(eventId, {
         description: form.description || null,
         registration_url: form.registration_url || null,
@@ -97,91 +102,69 @@ function SettingsTab({ eventId, conf, event, onConfUpdated }: { eventId: number;
     }
   }
 
-  // Организаторы — только роль organizer из спикеров события
   const organizers = speakers.filter(s => s.role === 'organizer')
+  const ts = t.conferences.settings
 
   return (
     <div className="space-y-6 max-w-2xl">
-      {/* Название */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <h2 className="font-semibold text-gray-900">Основное</h2>
+        <h2 className="font-semibold text-gray-900">{ts.section}</h2>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Название конференции</label>
-          <input
-            type="text" value={form.title} onChange={set('title')}
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-          />
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">{ts.confTitle}</label>
+          <input type="text" value={form.title} onChange={set('title')}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Описание</label>
-          <textarea
-            value={form.description} onChange={set('description') as any} rows={3}
-            placeholder="Краткое описание конференции..."
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none"
-          />
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">{ts.description}</label>
+          <textarea value={form.description} onChange={set('description') as any} rows={3}
+            placeholder={ts.descPlaceholder}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Ссылка на конференцию
-            <span className="text-gray-400 font-normal ml-1">— лендинг или страница регистрации</span>
+            {ts.confUrl}
+            <span className="text-gray-400 font-normal ml-1">{ts.confUrlHint}</span>
           </label>
-          <input
-            type="url" value={form.registration_url} onChange={set('registration_url')}
+          <input type="url" value={form.registration_url} onChange={set('registration_url')}
             placeholder="https://..."
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-          />
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
         </div>
       </div>
 
-      {/* Организатор */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <h2 className="font-semibold text-gray-900">Организатор</h2>
-        <p className="text-sm text-gray-500">
-          Выберите организатора из спикеров этой конференции. Добавьте спикера с ролью «Организатор» на вкладке Спикеры — он появится здесь.
-        </p>
+        <h2 className="font-semibold text-gray-900">{ts.organizer}</h2>
+        <p className="text-sm text-gray-500">{ts.organizerHint}</p>
         <div>
-          <select
-            value={form.organizer_speaker_id}
-            onChange={set('organizer_speaker_id')}
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white"
-          >
-            <option value="">— не выбран —</option>
-            {organizers.map(sp => (
-              <option key={sp.id} value={sp.id}>{sp.name}</option>
-            ))}
-            {/* Если среди спикеров нет организатора — показываем всех */}
+          <select value={form.organizer_speaker_id} onChange={set('organizer_speaker_id')}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white">
+            <option value="">{ts.organizerNone}</option>
+            {organizers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
             {organizers.length === 0 && speakers.map(sp => (
-              <option key={sp.id} value={sp.id}>{sp.name} ({ROLE_LABELS[sp.role] || sp.role})</option>
+              <option key={sp.id} value={sp.id}>{sp.name} ({t.conferences.speakers.roles[sp.role as keyof typeof t.conferences.speakers.roles] || sp.role})</option>
             ))}
           </select>
           {speakers.length === 0 && (
-            <p className="text-xs text-gray-400 mt-1.5">Сначала добавьте спикеров на вкладке «Спикеры»</p>
+            <p className="text-xs text-gray-400 mt-1.5">{ts.organizerNoSpeakers}</p>
           )}
         </div>
       </div>
 
-      {/* Подписка */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
-        <h2 className="font-semibold text-gray-900">Требование подписки</h2>
-        <p className="text-sm text-gray-500">Участник должен подписаться на канал(ы) перед доступом к реферальной игре.</p>
-
+        <h2 className="font-semibold text-gray-900">{ts.subscription}</h2>
+        <p className="text-sm text-gray-500">{ts.subscriptionHint}</p>
         {[
-          { value: 'none',          label: 'Не требовать подписки', desc: 'Игра доступна сразу' },
-          { value: 'organizer',     label: 'Только канал организатора', desc: 'Подписка на один канал' },
-          { value: 'all_speakers',  label: 'Каналы всех спикеров', desc: 'Подписка на все каналы спикеров события' },
+          { value: 'none',         label: ts.subNone,      desc: ts.subNoneDesc },
+          { value: 'organizer',    label: ts.subOrganizer, desc: ts.subOrganizerDesc },
+          { value: 'all_speakers', label: ts.subAll,       desc: ts.subAllDesc },
         ].map(opt => (
-          <label
-            key={opt.value}
+          <label key={opt.value}
             className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
               form.subscription_mode === opt.value ? 'border-brand bg-brand/5' : 'border-gray-200 hover:border-gray-300'
-            }`}
-          >
-            <input
-              type="radio" name="sub_mode" value={opt.value}
+            }`}>
+            <input type="radio" name="sub_mode" value={opt.value}
               checked={form.subscription_mode === opt.value}
               onChange={() => setForm(f => ({ ...f, subscription_mode: opt.value }))}
-              className="mt-0.5 accent-brand"
-            />
+              className="mt-0.5 accent-brand" />
             <div>
               <p className="text-sm font-medium text-gray-900">{opt.label}</p>
               <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
@@ -198,6 +181,8 @@ function SettingsTab({ eventId, conf, event, onConfUpdated }: { eventId: number;
 // ─── Вкладка: Спикеры ─────────────────────────────────────────────────────────
 
 function SpeakersTab({ eventId }: { eventId: number }) {
+  const { t } = useLang()
+  const ts = t.conferences.speakers
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'new' | 'base' | null>(null)
@@ -220,8 +205,8 @@ function SpeakersTab({ eventId }: { eventId: number }) {
   async function searchBase(q: string) {
     setBaseLoading(true)
     try {
-      const r = await api.speakers.list(q || undefined)
-      setBaseList(r.speakers || [])
+      const r = await api.collaborators.list(q || undefined)
+      setBaseList(r.collaborators || [])
     } finally {
       setBaseLoading(false)
     }
@@ -249,7 +234,7 @@ function SpeakersTab({ eventId }: { eventId: number }) {
   }
 
   async function remove(speakerEventId: number, name: string) {
-    if (!confirm(`Убрать «${name}» из конференции?`)) return
+    if (!confirm(ts.removeConfirm(name))) return
     await api.conference.speakers.delete(eventId, speakerEventId)
     load()
   }
@@ -262,22 +247,22 @@ function SpeakersTab({ eventId }: { eventId: number }) {
   const roleSelect = (val: string, onChange: any) => (
     <select value={val} onChange={onChange}
       className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white">
-      {Object.entries(ROLE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      {Object.entries(ts.roles).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
     </select>
   )
 
   return (
     <div className="max-w-2xl">
       <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-gray-500">{speakers.length} спикеров в конференции</p>
+        <p className="text-sm text-gray-500">{ts.count(speakers.length)}</p>
         <div className="flex gap-2">
           <button onClick={() => setModal('base')}
             className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2">
-            <User size={15} /> Из базы
+            <User size={15} /> {ts.fromBase}
           </button>
           <button onClick={() => setModal('new')}
             className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2">
-            <Plus size={15} /> Новый
+            <Plus size={15} /> {ts.newBtn}
           </button>
         </div>
       </div>
@@ -287,7 +272,7 @@ function SpeakersTab({ eventId }: { eventId: number }) {
       ) : speakers.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400">
           <User size={32} className="mx-auto mb-3 opacity-40" />
-          <p className="text-sm">Спикеры ещё не добавлены</p>
+          <p className="text-sm">{ts.empty}</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -300,7 +285,7 @@ function SpeakersTab({ eventId }: { eventId: number }) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-gray-900 text-sm truncate">{sp.name}</p>
-                <p className="text-xs text-gray-400">{ROLE_LABELS[sp.role] || sp.role}{sp.speaker_topic ? ` · ${sp.speaker_topic}` : ''}</p>
+                <p className="text-xs text-gray-400">{ts.roles[sp.role as keyof typeof ts.roles] || sp.role}{sp.speaker_topic ? ` · ${sp.speaker_topic}` : ''}</p>
               </div>
               <button onClick={() => remove(sp.id, sp.name)}
                 className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
@@ -311,56 +296,53 @@ function SpeakersTab({ eventId }: { eventId: number }) {
         </div>
       )}
 
-      {/* Модал: новый спикер */}
+      {/* Modal: новый */}
       {modal === 'new' && (
-        <Modal title="Новый спикер" onClose={() => setModal(null)}>
+        <Modal title={ts.newModal.title} onClose={() => setModal(null)}>
           <div className="space-y-3">
             <div>
-              <label className="label">Имя и фамилия *</label>
-              <input type="text" value={form.name} onChange={setF('name')} autoFocus className="input" placeholder="Иван Иванов" />
+              <label className="label">{ts.newModal.nameLabel}</label>
+              <input type="text" value={form.name} onChange={setF('name')} autoFocus className="input" placeholder={ts.newModal.namePlaceholder} />
             </div>
             <div>
-              <label className="label">Роль</label>
+              <label className="label">{ts.newModal.role}</label>
               {roleSelect(form.role, setF('role'))}
             </div>
             <div>
-              <label className="label">Тема выступления</label>
+              <label className="label">{ts.newModal.topic}</label>
               <input type="text" value={form.speaker_topic} onChange={setF('speaker_topic')} className="input" />
             </div>
             <div>
-              <label className="label">Подарок (название)</label>
+              <label className="label">{ts.newModal.giftTitle}</label>
               <input type="text" value={form.gift_title} onChange={setF('gift_title')} className="input" />
             </div>
             <div>
-              <label className="label">Ссылка на подарок</label>
+              <label className="label">{ts.newModal.giftUrl}</label>
               <input type="url" value={form.gift_url} onChange={setF('gift_url')} className="input" placeholder="https://..." />
             </div>
           </div>
           <div className="flex gap-3 mt-5">
             <button onClick={createNew} disabled={!form.name.trim() || saving}
               className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
-              {saving ? <><Spinner /> Сохраняем...</> : 'Добавить спикера'}
+              {saving ? <><Spinner /> {t.common.saving}</> : ts.newModal.addBtn}
             </button>
-            <button onClick={() => setModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Отмена</button>
+            <button onClick={() => setModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
           </div>
         </Modal>
       )}
 
-      {/* Модал: из базы */}
+      {/* Modal: из базы */}
       {modal === 'base' && (
-        <Modal title="Добавить из базы спикеров" onClose={() => { setModal(null); setSelectedBase(null) }}>
+        <Modal title={ts.baseModal.title} onClose={() => { setModal(null); setSelectedBase(null) }}>
           {!selectedBase ? (
             <>
-              <input
-                type="text" value={baseQuery} placeholder="Поиск по имени..."
+              <input type="text" value={baseQuery} placeholder={t.common.searchPlaceholder}
                 onChange={e => { setBaseQuery(e.target.value); searchBase(e.target.value) }}
-                autoFocus
-                className="input mb-3"
-              />
+                autoFocus className="input mb-3" />
               {baseLoading ? (
                 <div className="flex justify-center py-6"><Spinner className="text-brand text-xl" /></div>
               ) : baseList.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">Ничего не найдено</p>
+                <p className="text-sm text-gray-400 text-center py-6">{t.common.noResults}</p>
               ) : (
                 <div className="border border-gray-100 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
                   {baseList.map((sp, i) => (
@@ -388,32 +370,32 @@ function SpeakersTab({ eventId }: { eventId: number }) {
                   <p className="font-medium text-sm">{selectedBase.name}</p>
                   {selectedBase.title && <p className="text-xs text-gray-400">{selectedBase.title}</p>}
                 </div>
-                <button onClick={() => setSelectedBase(null)} className="text-gray-400 hover:text-gray-600 text-xs underline">изменить</button>
+                <button onClick={() => setSelectedBase(null)} className="text-gray-400 hover:text-gray-600 text-xs underline">{ts.baseModal.changeBtn}</button>
               </div>
               <div className="space-y-3">
                 <div>
-                  <label className="label">Роль в этой конференции</label>
+                  <label className="label">{ts.baseModal.roleInConf}</label>
                   {roleSelect(baseForm.role, setBF('role'))}
                 </div>
                 <div>
-                  <label className="label">Тема выступления</label>
+                  <label className="label">{ts.baseModal.topic}</label>
                   <input type="text" value={baseForm.speaker_topic} onChange={setBF('speaker_topic')} className="input" />
                 </div>
                 <div>
-                  <label className="label">Подарок (название)</label>
+                  <label className="label">{ts.baseModal.giftTitle}</label>
                   <input type="text" value={baseForm.gift_title} onChange={setBF('gift_title')} className="input" />
                 </div>
                 <div>
-                  <label className="label">Ссылка на подарок</label>
+                  <label className="label">{ts.baseModal.giftUrl}</label>
                   <input type="url" value={baseForm.gift_url} onChange={setBF('gift_url')} className="input" placeholder="https://..." />
                 </div>
               </div>
               <div className="flex gap-3 mt-5">
                 <button onClick={addFromBase} disabled={saving}
                   className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
-                  {saving ? <><Spinner /> Добавляем...</> : 'Добавить в конференцию'}
+                  {saving ? <><Spinner /> {t.common.adding}</> : ts.baseModal.addBtn}
                 </button>
-                <button onClick={() => { setModal(null); setSelectedBase(null) }} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Отмена</button>
+                <button onClick={() => { setModal(null); setSelectedBase(null) }} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
               </div>
             </>
           )}
@@ -426,6 +408,8 @@ function SpeakersTab({ eventId }: { eventId: number }) {
 // ─── Вкладка: Программа ──────────────────────────────────────────────────────
 
 function ProgramTab({ eventId }: { eventId: number }) {
+  const { t } = useLang()
+  const tp = t.conferences.program
   const [days, setDays] = useState<any[]>([])
   const [sessions, setSessions] = useState<any[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
@@ -452,7 +436,6 @@ function ProgramTab({ eventId }: { eventId: number }) {
       setDays(loadedDays)
       setSessions(sRes.sessions || [])
       setSpeakers(spRes.speakers || [])
-      // инициализируем формы дней
       const forms: Record<number, any> = {}
       loadedDays.forEach((d: any) => {
         forms[d.day_number] = { day_date: d.day_date || '', stream_url: d.stream_url || '' }
@@ -474,22 +457,15 @@ function ProgramTab({ eventId }: { eventId: number }) {
     setSavingDay(dayNum)
     try {
       const f = dayForms[dayNum] || {}
-      await api.conference.days.upsert(eventId, dayNum, {
-        day_date: f.day_date || null,
-        stream_url: f.stream_url || null,
-      })
+      await api.conference.days.upsert(eventId, dayNum, { day_date: f.day_date || null, stream_url: f.stream_url || null })
     } catch (err: any) { alert(err.message) } finally { setSavingDay(null) }
   }
 
   async function deleteDay(dayNum: number) {
-    if (!confirm(`Удалить День ${dayNum}? Все сессии этого дня тоже удалятся.`)) return
+    if (!confirm(tp.deleteDayConfirm(dayNum))) return
     const daySessions = sessions.filter((s: any) => s.day === dayNum)
     await Promise.all(daySessions.map((s: any) => api.conference.sessions.delete(eventId, s.id)))
-    // Удаляем день через уpsert с пустыми данными не получится — нет DELETE endpoint.
-    // Перебираем оставшиеся дни с новой нумерацией
-    const remaining = days.filter((d: any) => d.day_number !== dayNum)
-    // Просто обновляем локальное состояние (день без сессий)
-    setDays(remaining)
+    setDays(remaining => remaining.filter((d: any) => d.day_number !== dayNum))
     setSessions(prev => prev.filter((s: any) => s.day !== dayNum))
   }
 
@@ -525,7 +501,7 @@ function ProgramTab({ eventId }: { eventId: number }) {
     setImportingJson(true)
     try {
       const slots = JSON.parse(jsonInput)
-      if (!Array.isArray(slots)) throw new Error('Ожидается массив объектов')
+      if (!Array.isArray(slots)) throw new Error(tp.jsonModal.errorExpected)
       const date = dayForms[jsonDay]?.day_date || '2000-01-01'
       for (const slot of slots) {
         await api.conference.sessions.create(eventId, {
@@ -538,7 +514,7 @@ function ProgramTab({ eventId }: { eventId: number }) {
       setJsonModal(false); setJsonInput('')
       load()
     } catch (err: any) {
-      alert('Ошибка в JSON: ' + err.message)
+      alert(tp.jsonModal.errorPrefix + err.message)
     } finally {
       setImportingJson(false)
     }
@@ -551,9 +527,9 @@ function ProgramTab({ eventId }: { eventId: number }) {
       {days.length === 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400">
           <Calendar size={32} className="mx-auto mb-3 opacity-40" />
-          <p className="text-sm mb-4">Дни конференции ещё не добавлены</p>
+          <p className="text-sm mb-4">{tp.noDays}</p>
           <button onClick={addDay} className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 mx-auto">
-            <Plus size={15} /> Добавить День 1
+            <Plus size={15} /> {tp.addDay1}
           </button>
         </div>
       )}
@@ -566,50 +542,37 @@ function ProgramTab({ eventId }: { eventId: number }) {
 
         return (
           <div key={dayNum} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            {/* Day header */}
             <div className="gradient-bg px-5 py-3.5 flex items-center justify-between">
-              <span className="text-white font-semibold">День {dayNum}</span>
+              <span className="text-white font-semibold">{tp.day(dayNum)}</span>
               <button onClick={() => deleteDay(dayNum)} className="text-white/50 hover:text-red-300 transition-colors">
                 <Trash2 size={15} />
               </button>
             </div>
 
-            {/* Day settings */}
             <div className="px-5 py-4 border-b border-gray-50 flex flex-col sm:flex-row gap-3">
               <div className="flex-1">
-                <label className="label">Дата</label>
-                <input
-                  type="date"
-                  value={df.day_date || ''}
+                <label className="label">{tp.date}</label>
+                <input type="date" value={df.day_date || ''}
                   onChange={e => setDayForms(f => ({ ...f, [dayNum]: { ...df, day_date: e.target.value } }))}
-                  className="input"
-                />
+                  className="input" />
               </div>
               <div className="flex-1">
-                <label className="label">Ссылка на вебинарную комнату</label>
-                <input
-                  type="url"
-                  value={df.stream_url || ''}
-                  placeholder="https://..."
+                <label className="label">{tp.streamUrl}</label>
+                <input type="url" value={df.stream_url || ''} placeholder="https://..."
                   onChange={e => setDayForms(f => ({ ...f, [dayNum]: { ...df, stream_url: e.target.value } }))}
-                  className="input"
-                />
+                  className="input" />
               </div>
               <div className="flex items-end">
-                <button
-                  onClick={() => saveDay(dayNum)}
-                  disabled={isSavingThis}
-                  className={`h-10 px-4 rounded-xl border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors ${isSavingThis ? 'btn-loading' : ''}`}
-                >
+                <button onClick={() => saveDay(dayNum)} disabled={isSavingThis}
+                  className={`h-10 px-4 rounded-xl border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors ${isSavingThis ? 'btn-loading' : ''}`}>
                   {isSavingThis ? <Spinner /> : <Save size={14} />}
                 </button>
               </div>
             </div>
 
-            {/* Sessions */}
             <div className="px-5 py-3">
               {daySessions.length === 0 ? (
-                <p className="text-xs text-gray-400 text-center py-3">Сессии не добавлены</p>
+                <p className="text-xs text-gray-400 text-center py-3">{tp.noSessions}</p>
               ) : (
                 <div className="space-y-1.5 mb-3">
                   {daySessions.map((s: any) => (
@@ -630,20 +593,15 @@ function ProgramTab({ eventId }: { eventId: number }) {
                 </div>
               )}
 
-              {/* Add session buttons */}
               <div className="flex gap-2 pt-1 pb-1">
-                <button
-                  onClick={() => setSessionModal({ day: dayNum })}
-                  className="text-xs text-brand hover:text-brand/80 flex items-center gap-1.5 transition-colors"
-                >
-                  <Plus size={13} /> Добавить сессию
+                <button onClick={() => setSessionModal({ day: dayNum })}
+                  className="text-xs text-brand hover:text-brand/80 flex items-center gap-1.5 transition-colors">
+                  <Plus size={13} /> {tp.addSession}
                 </button>
                 <span className="text-gray-300">·</span>
-                <button
-                  onClick={() => { setJsonDay(dayNum); setJsonModal(true) }}
-                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1.5 transition-colors"
-                >
-                  Импорт из JSON
+                <button onClick={() => { setJsonDay(dayNum); setJsonModal(true) }}
+                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1.5 transition-colors">
+                  {tp.importJson}
                 </button>
               </div>
             </div>
@@ -654,40 +612,38 @@ function ProgramTab({ eventId }: { eventId: number }) {
       {days.length > 0 && (
         <button onClick={addDay}
           className="w-full py-3 rounded-2xl border-2 border-dashed border-gray-200 text-sm text-gray-400 hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2">
-          <Plus size={16} /> Добавить ещё день
+          <Plus size={16} /> {tp.addDayMore}
         </button>
       )}
 
-      {/* Модал: добавить сессию */}
+      {/* Modal: сессия */}
       {sessionModal && (
-        <Modal title={`Новая сессия — День ${sessionModal.day}`} onClose={() => setSessionModal(null)}>
+        <Modal title={tp.sessionModal.title(sessionModal.day)} onClose={() => setSessionModal(null)}>
           <div className="space-y-3">
             <div>
-              <label className="label">Название / тема *</label>
+              <label className="label">{tp.sessionModal.topicLabel}</label>
               <input type="text" value={sessionForm.title} autoFocus
                 onChange={e => setSessionForm(f => ({ ...f, title: e.target.value }))}
-                className="input" placeholder="Тема выступления или блока" />
+                className="input" placeholder={tp.sessionModal.topicPlaceholder} />
             </div>
             <div>
-              <label className="label">Спикер</label>
+              <label className="label">{tp.sessionModal.speaker}</label>
               <select value={sessionForm.speaker_id}
                 onChange={e => setSessionForm(f => ({ ...f, speaker_id: e.target.value }))}
                 className="input bg-white">
-                <option value="">— без спикера —</option>
-                {speakers.map(sp => (
-                  <option key={sp.id} value={sp.id}>{sp.name}</option>
-                ))}
+                <option value="">{tp.sessionModal.noSpeaker}</option>
+                {speakers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label">Начало</label>
+                <label className="label">{tp.sessionModal.start}</label>
                 <input type="time" value={sessionForm.start_time}
                   onChange={e => setSessionForm(f => ({ ...f, start_time: e.target.value }))}
                   className="input" />
               </div>
               <div>
-                <label className="label">Конец</label>
+                <label className="label">{tp.sessionModal.end}</label>
                 <input type="time" value={sessionForm.end_time}
                   onChange={e => setSessionForm(f => ({ ...f, end_time: e.target.value }))}
                   className="input" />
@@ -697,51 +653,32 @@ function ProgramTab({ eventId }: { eventId: number }) {
           <div className="flex gap-3 mt-5">
             <button onClick={addSession} disabled={!sessionForm.title.trim() || savingSession}
               className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${savingSession ? 'btn-loading' : ''}`}>
-              {savingSession ? <><Spinner /> Сохраняем...</> : 'Добавить'}
+              {savingSession ? <><Spinner /> {t.common.saving}</> : tp.sessionModal.addBtn}
             </button>
-            <button onClick={() => setSessionModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Отмена</button>
+            <button onClick={() => setSessionModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
           </div>
         </Modal>
       )}
 
-      {/* Модал: импорт JSON */}
+      {/* Modal: JSON */}
       {jsonModal && (
-        <Modal title="Импорт программы из JSON" onClose={() => setJsonModal(false)}>
+        <Modal title={tp.jsonModal.title} onClose={() => setJsonModal(false)}>
           <p className="text-xs text-gray-500 mb-3">
-            Вставьте массив объектов. Поддерживаемые поля: <code className="bg-gray-100 px-1 rounded">title</code> (или <code className="bg-gray-100 px-1 rounded">topic</code>), <code className="bg-gray-100 px-1 rounded">time</code> (HH:MM).
+            {tp.jsonModal.hint} <code className="bg-gray-100 px-1 rounded">title</code> ({t.lang === 'ru' ? 'или' : 'or'} <code className="bg-gray-100 px-1 rounded">topic</code>), <code className="bg-gray-100 px-1 rounded">time</code> (HH:MM).
           </p>
-          <p className="text-xs text-gray-400 mb-2">Пример: <code className="bg-gray-100 px-1 rounded">[&#123;"time":"10:00","title":"Открытие"&#125;]</code></p>
-          <textarea
-            value={jsonInput} onChange={e => setJsonInput(e.target.value)}
-            rows={6} autoFocus placeholder='[{"time":"10:00","title":"Открытие"}]'
-            className="input resize-none font-mono text-xs"
-          />
+          <p className="text-xs text-gray-400 mb-2">{tp.jsonModal.example} <code className="bg-gray-100 px-1 rounded">{tp.jsonModal.placeholder}</code></p>
+          <textarea value={jsonInput} onChange={e => setJsonInput(e.target.value)}
+            rows={6} autoFocus placeholder={tp.jsonModal.placeholder}
+            className="input resize-none font-mono text-xs" />
           <div className="flex gap-3 mt-4">
             <button onClick={importJson} disabled={!jsonInput.trim() || importingJson}
               className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${importingJson ? 'btn-loading' : ''}`}>
-              {importingJson ? <><Spinner /> Импортируем...</> : 'Импортировать'}
+              {importingJson ? <><Spinner /> {t.common.importing}</> : tp.jsonModal.importBtn}
             </button>
-            <button onClick={() => setJsonModal(false)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Отмена</button>
+            <button onClick={() => setJsonModal(false)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
           </div>
         </Modal>
       )}
-    </div>
-  )
-}
-
-// ─── Modal wrapper ────────────────────────────────────────────────────────────
-
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="font-bold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors">✕</button>
-        </div>
-        {children}
-      </div>
     </div>
   )
 }
@@ -751,10 +688,17 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 export default function ConferencePage() {
   const { id } = useParams()
   const eventId = Number(id)
+  const { t } = useLang()
   const [tab, setTab] = useState<Tab>('settings')
   const [event, setEvent] = useState<any>(null)
   const [conf, setConf] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: 'settings', label: t.conferences.tabs.settings },
+    { id: 'speakers', label: t.conferences.tabs.speakers },
+    { id: 'program',  label: t.conferences.tabs.program },
+  ]
 
   useEffect(() => {
     Promise.all([
@@ -776,36 +720,30 @@ export default function ConferencePage() {
 
   return (
     <div>
-      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Link href="/dashboard/conferences" className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
           <ArrowLeft size={18} />
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900 truncate">{event?.title || 'Конференция'}</h1>
-          <p className="text-gray-400 text-sm">{conf?.status === 'active' ? 'Активна' : 'Черновик'}</p>
+          <h1 className="text-2xl font-bold text-gray-900 truncate">{event?.title || t.conferences.header.defaultTitle}</h1>
+          <p className="text-gray-400 text-sm">
+            {conf?.status === 'active' ? t.conferences.header.active : t.conferences.header.draft}
+          </p>
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
+        {TABS.map(tb => (
+          <button key={tb.id} onClick={() => setTab(tb.id)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {t.label}
+              tab === tb.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}>
+            {tb.label}
           </button>
         ))}
       </div>
 
-      {/* Content */}
-      {tab === 'settings' && (
-        <SettingsTab eventId={eventId} conf={conf} event={event} onConfUpdated={setConf} />
-      )}
+      {tab === 'settings' && <SettingsTab eventId={eventId} conf={conf} event={event} onConfUpdated={setConf} />}
       {tab === 'speakers' && <SpeakersTab eventId={eventId} />}
       {tab === 'program'  && <ProgramTab  eventId={eventId} />}
     </div>

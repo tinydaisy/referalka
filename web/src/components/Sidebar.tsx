@@ -1,56 +1,53 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, Settings, CreditCard, LogOut, Menu, X, Trophy, Award } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, Settings, LogOut, Menu, X, Trophy, Award } from 'lucide-react'
 import { useState } from 'react'
-
-type NavSection = {
-  label?: string
-  items: { href: string; label: string; icon: any; exact?: boolean }[]
-}
-
-const sections: NavSection[] = [
-  {
-    items: [
-      { href: '/dashboard', label: 'Дашборд', icon: LayoutDashboard, exact: true },
-    ],
-  },
-  {
-    label: 'РЕФЕРАЛКИ',
-    items: [
-      { href: '/dashboard/referrals', label: 'Мои кампании', icon: Link2 },
-    ],
-  },
-  {
-    label: 'КОНФЕРЕНЦИИ',
-    items: [
-      { href: '/dashboard/conferences', label: 'Мои конференции', icon: Mic },
-    ],
-  },
-  {
-    label: 'БАЗА',
-    items: [
-      { href: '/dashboard/collaborations', label: 'Коллаборации', icon: Users },
-    ],
-  },
-  {
-    label: 'СКОРО',
-    items: [
-      { href: '#', label: 'Премии', icon: Award },
-      { href: '#', label: 'Турниры', icon: Trophy },
-    ],
-  },
-]
+import { useLang } from '@/contexts/LangContext'
 
 export default function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { t, lang, setLang } = useLang()
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
     if (exact) return pathname === href
     return pathname === href || pathname.startsWith(href + '/')
   }
+
+  const sections = [
+    {
+      items: [
+        { href: '/dashboard', label: t.nav.dashboard, icon: LayoutDashboard, exact: true },
+      ],
+    },
+    {
+      label: t.nav.referrals,
+      items: [
+        { href: '/dashboard/referrals', label: t.nav.myCampaigns, icon: Link2 },
+      ],
+    },
+    {
+      label: t.nav.conferences,
+      items: [
+        { href: '/dashboard/conferences', label: t.nav.myConferences, icon: Mic },
+      ],
+    },
+    {
+      label: t.nav.base,
+      items: [
+        { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users },
+      ],
+    },
+    {
+      label: t.nav.soon,
+      items: [
+        { href: '#', label: t.nav.awards, icon: Award },
+        { href: '#', label: t.nav.tournaments, icon: Trophy },
+      ],
+    },
+  ]
 
   const content = (
     <div className="flex flex-col h-full">
@@ -100,7 +97,7 @@ export default function Sidebar() {
                     <span>{label}</span>
                     {isComingSoon && (
                       <span className="ml-auto text-[9px] font-semibold bg-white/10 text-white/40 px-1.5 py-0.5 rounded">
-                        скоро
+                        {t.nav.comingSoon}
                       </span>
                     )}
                   </Link>
@@ -113,6 +110,15 @@ export default function Sidebar() {
 
       {/* Bottom */}
       <div className="px-3 pb-4 pt-3 border-t border-white/10 space-y-0.5">
+        {/* Language toggle */}
+        <button
+          onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')}
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-white/50 hover:text-white hover:bg-white/10 w-full transition-colors"
+        >
+          <span className="text-base leading-none">🌐</span>
+          <span>{t.nav.switchLang}</span>
+        </button>
+
         <Link
           href="/dashboard/settings"
           onClick={() => setMobileOpen(false)}
@@ -123,7 +129,7 @@ export default function Sidebar() {
           }`}
         >
           <Settings size={17} />
-          Настройки
+          {t.nav.settings}
         </Link>
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/10 w-full transition-colors"
@@ -133,7 +139,7 @@ export default function Sidebar() {
           }}
         >
           <LogOut size={17} />
-          Выйти
+          {t.nav.logout}
         </button>
       </div>
     </div>

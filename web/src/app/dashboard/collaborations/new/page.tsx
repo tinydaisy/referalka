@@ -5,9 +5,12 @@ import Link from 'next/link'
 import { ArrowLeft, Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
+import { useLang } from '@/contexts/LangContext'
 
 export default function NewCollaborationPage() {
   const router = useRouter()
+  const { t } = useLang()
+  const tc = t.collaborations
   const [form, setForm] = useState({
     name: '', title: '', achievements: '',
     photo_url: '', photo_folder_url: '', video_folder_url: '',
@@ -21,7 +24,7 @@ export default function NewCollaborationPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.name.trim()) { setError('Введите имя или название'); return }
+    if (!form.name.trim()) { setError(tc.new.errorRequired); return }
     setLoading(true); setError('')
     try {
       const res = await api.collaborators.create(
@@ -42,125 +45,90 @@ export default function NewCollaborationPage() {
           <ArrowLeft size={18} />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Новая коллаборация</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Сохранится в вашу базу коллабораций</p>
+          <h1 className="text-2xl font-bold text-gray-900">{tc.new.title}</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{tc.new.subtitle}</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Основное */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Основная информация</h2>
-
+          <h2 className="font-semibold text-gray-900">{t.fields.basicInfo}</h2>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Имя, фамилия или название <span className="text-red-500">*</span>
+              {t.fields.nameRequired}
             </label>
-            <input
-              type="text" value={form.name} onChange={set('name')}
-              placeholder="Маргарита Форбс или Компания ООО"
-              autoFocus
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+            <input type="text" value={form.name} onChange={set('name')}
+              placeholder={t.fields.namePlaceholder} autoFocus
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Должность</label>
-            <input
-              type="text" value={form.title} onChange={set('title')}
-              placeholder="Коуч по продажам"
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.position}</label>
+            <input type="text" value={form.title} onChange={set('title')}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Регалии</label>
-            <textarea
-              value={form.achievements} onChange={set('achievements')} rows={2}
-              placeholder="Автор 3 книг, 15 лет в продажах..."
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.achievements}</label>
+            <textarea value={form.achievements} onChange={set('achievements')} rows={2}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
           </div>
         </div>
 
-        {/* Медиа */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Фото и материалы</h2>
-
+          <h2 className="font-semibold text-gray-900">{t.fields.media}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка на фото</label>
-            <input
-              type="url" value={form.photo_url} onChange={set('photo_url')}
-              placeholder="https://..."
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.photo}</label>
+            <input type="url" value={form.photo_url} onChange={set('photo_url')} placeholder="https://..."
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Папка с фото</label>
-              <input
-                type="url" value={form.photo_folder_url} onChange={set('photo_folder_url')}
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.photoFolder}</label>
+              <input type="url" value={form.photo_folder_url} onChange={set('photo_folder_url')}
                 placeholder="https://drive.google.com/..."
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Папка с видео</label>
-              <input
-                type="url" value={form.video_folder_url} onChange={set('video_folder_url')}
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.videoFolder}</label>
+              <input type="url" value={form.video_folder_url} onChange={set('video_folder_url')}
                 placeholder="https://drive.google.com/..."
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-              />
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
           </div>
         </div>
 
-        {/* Контакты */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Контакты</h2>
+          <h2 className="font-semibold text-gray-900">{t.fields.contacts}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Telegram</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
             <input type="url" value={form.telegram_url} onChange={set('telegram_url')}
               placeholder="https://t.me/username"
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Instagram</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.instagram}</label>
             <input type="url" value={form.instagram_url} onChange={set('instagram_url')}
               placeholder="https://instagram.com/..."
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Сайт</label>
-            <input type="url" value={form.website_url} onChange={set('website_url')}
-              placeholder="https://..."
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.website}</label>
+            <input type="url" value={form.website_url} onChange={set('website_url')} placeholder="https://..."
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">
-            {error}
-          </div>
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">{error}</div>
         )}
 
         <div className="flex gap-3">
-          <button
-            type="submit"
-            disabled={loading}
-            className={`btn-gold flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${loading ? 'btn-loading' : ''}`}
-          >
-            {loading ? <><Spinner /> Сохраняем...</> : <><Save size={16} /> Сохранить</>}
+          <button type="submit" disabled={loading}
+            className={`btn-gold flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${loading ? 'btn-loading' : ''}`}>
+            {loading ? <><Spinner /> {t.common.saving}</> : <><Save size={16} /> {t.common.save}</>}
           </button>
-          <Link
-            href="/dashboard/collaborations"
-            className="px-6 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            Отмена
+          <Link href="/dashboard/collaborations"
+            className="px-6 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+            {t.common.cancel}
           </Link>
         </div>
       </form>
