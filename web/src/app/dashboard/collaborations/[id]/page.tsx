@@ -6,7 +6,7 @@ import { ArrowLeft, Save, ExternalLink, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
-import { ImageThumb } from '@/components/ImageThumb'
+import { ImageThumb } from '@/components/ImagePreview'
 
 export default function CollaborationPage({ params }: { params: { id: string } }) {
   const router = useRouter()
