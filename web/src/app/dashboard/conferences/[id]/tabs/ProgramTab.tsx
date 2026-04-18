@@ -31,6 +31,8 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
   const [dayForms, setDayForms] = useState<Record<number, any>>({})
   const [sessionModal, setSessionModal] = useState<{ day: number } | null>(null)
   const [sessionForm, setSessionForm] = useState({ title: '', speaker_id: '', start_time: '', end_time: '' })
+  const [speakerTopics, setSpeakerTopics] = useState<string[]>([])
+  const [customTitle, setCustomTitle] = useState(false)
   const [savingSession, setSavingSession] = useState(false)
   const [jsonModal, setJsonModal] = useState(false)
   const [jsonInput, setJsonInput] = useState('')
@@ -82,6 +84,18 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
     setSessions(prev => prev.filter((s: any) => s.day !== dayNum))
   }
 
+  function onSpeakerChange(speakerId: string) {
+    const sp = speakers.find((s: any) => String(s.id) === speakerId)
+    const topics: string[] = sp?.topics && sp.topics.length > 0
+      ? sp.topics
+      : (sp?.speaker_topic ? [sp.speaker_topic] : [])
+    setSpeakerTopics(topics)
+    setCustomTitle(false)
+    // Если у спикера ровно одна тема — подставляем сразу
+    const autoTitle = topics.length === 1 ? topics[0] : ''
+    setSessionForm(f => ({ ...f, speaker_id: speakerId, title: autoTitle }))
+  }
+
   async function addSession() {
     if (!sessionModal || !sessionForm.title.trim()) return
     setSavingSession(true)
@@ -101,6 +115,8 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
       })
       setSessionModal(null)
       setSessionForm({ title: '', speaker_id: '', start_time: '', end_time: '' })
+      setSpeakerTopics([])
+      setCustomTitle(false)
       load()
     } catch (err: any) { alert(err.message) } finally { setSavingSession(false) }
   }
@@ -190,8 +206,9 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                 <div className="space-y-1.5 mb-3">
                   {daySessions.map((s: any) => (
                     <div key={s.id} className="flex items-start gap-3 group py-1.5">
-                      <span className="text-xs text-gray-400 w-12 shrink-0 pt-0.5 font-mono">
+                      <span className="text-xs text-gray-400 w-24 shrink-0 pt-0.5 font-mono">
                         {s.start_datetime ? new Date(s.start_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '—:——'}
+                        {s.end_datetime ? ` — ${new Date(s.end_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}` : ''}
                       </span>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-900">{s.title}</p>
@@ -230,22 +247,52 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
       )}
 
       {sessionModal && (
-        <Modal title={tp.sessionModal.title(sessionModal.day)} onClose={() => setSessionModal(null)}>
+        <Modal title={tp.sessionModal.title(sessionModal.day)} onClose={() => { setSessionModal(null); setSpeakerTopics([]); setCustomTitle(false) }}>
           <div className="space-y-3">
-            <div>
-              <label className="label">{tp.sessionModal.topicLabel}</label>
-              <input type="text" value={sessionForm.title} autoFocus
-                onChange={e => setSessionForm(f => ({ ...f, title: e.target.value }))}
-                className="input" placeholder={tp.sessionModal.topicPlaceholder} />
-            </div>
             <div>
               <label className="label">{tp.sessionModal.speaker}</label>
               <select value={sessionForm.speaker_id}
-                onChange={e => setSessionForm(f => ({ ...f, speaker_id: e.target.value }))}
-                className="input bg-white">
+                onChange={e => onSpeakerChange(e.target.value)}
+                className="input bg-white" autoFocus>
                 <option value="">{tp.sessionModal.noSpeaker}</option>
                 {speakers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
+            </div>
+            <div>
+              <label className="label">{tp.sessionModal.topicLabel}</label>
+              {speakerTopics.length > 1 && !customTitle ? (
+                <>
+                  <select
+                    onChange={e => {
+                      if (e.target.value === '__custom__') {
+                        setCustomTitle(true)
+                        setSessionForm(f => ({ ...f, title: '' }))
+                      } else {
+                        setSessionForm(f => ({ ...f, title: e.target.value }))
+                      }
+                    }}
+                    value={sessionForm.title}
+                    className="input bg-white">
+                    <option value="">— выберите тему —</option>
+                    {speakerTopics.map((topic, i) => (
+                      <option key={i} value={topic}>{topic}</option>
+                    ))}
+                    <option value="__custom__">Другая тема...</option>
+                  </select>
+                </>
+              ) : (
+                <div>
+                  <input type="text" value={sessionForm.title}
+                    onChange={e => setSessionForm(f => ({ ...f, title: e.target.value }))}
+                    className="input" placeholder={tp.sessionModal.topicPlaceholder} />
+                  {speakerTopics.length > 1 && (
+                    <button type="button" onClick={() => { setCustomTitle(false); setSessionForm(f => ({ ...f, title: '' })) }}
+                      className="text-xs text-gray-400 hover:text-brand mt-1 transition-colors">
+                      ← выбрать из тем спикера
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
