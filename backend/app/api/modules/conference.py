@@ -234,7 +234,8 @@ class SpeakerAddToEvent(BaseModel):
     """Добавить спикера из глобальной базы в событие."""
     speaker_id: int
     role: str = "speaker"
-    speaker_topic: Optional[str] = None
+    speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
+    topics: Optional[List[str]] = None
     gift_title: Optional[str] = None
     gift_url: Optional[str] = None
     poster_url: Optional[str] = None
@@ -258,7 +259,8 @@ class SpeakerCreateAndAdd(BaseModel):
     website_url: Optional[str] = None
     # Данные участия в этом событии
     role: str = "speaker"
-    speaker_topic: Optional[str] = None
+    speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
+    topics: Optional[List[str]] = None
     gift_title: Optional[str] = None
     gift_url: Optional[str] = None
     poster_url: Optional[str] = None
@@ -272,7 +274,8 @@ class SpeakerCreateAndAdd(BaseModel):
 class SpeakerEventUpdate(BaseModel):
     """Обновить данные участия спикера в событии (тема, подарок, роль и т.д.)"""
     role: Optional[str] = None
-    speaker_topic: Optional[str] = None
+    speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
+    topics: Optional[List[str]] = None
     gift_title: Optional[str] = None
     gift_url: Optional[str] = None
     poster_url: Optional[str] = None
@@ -289,6 +292,31 @@ def _speaker_row_to_dict(row) -> dict:
     return d
 
 
+async def _load_topics(cse_ids: list, db) -> dict:
+    """Загружает темы для списка conf_speaker_events.id. Возвращает {cse_id: [topic, ...]}."""
+    if not cse_ids:
+        return {}
+    rows = await db.fetch(
+        "SELECT cse_id, topic FROM conf_speaker_topics WHERE cse_id = ANY($1::int[]) ORDER BY cse_id, sort_order",
+        cse_ids
+    )
+    result: dict = {}
+    for r in rows:
+        result.setdefault(r["cse_id"], []).append(r["topic"])
+    return result
+
+
+async def _save_topics(cse_id: int, topics: list, db) -> None:
+    """Полностью заменяет темы спикера в событии."""
+    await db.execute("DELETE FROM conf_speaker_topics WHERE cse_id = $1", cse_id)
+    for i, topic in enumerate(topics):
+        if topic.strip():
+            await db.execute(
+                "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, $2, $3)",
+                cse_id, topic.strip(), i
+            )
+
+
 @router.get("/speakers", summary="Спикеры события")
 async def list_event_speakers(
     event_id: int,
@@ -300,7 +328,7 @@ async def list_event_speakers(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_title, cse.gift_url,
                   cse.poster_url, cse.partner_url, cse.extra_info,
-                  cse.ref_code, cse.is_visible, cse.sort_order,
+                  cse.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url
@@ -310,7 +338,13 @@ async def list_event_speakers(
            ORDER BY cse.sort_order, cse.id""",
         event_id
     )
-    return {"speakers": [dict(r) for r in rows]}
+    topics_map = await _load_topics([r["id"] for r in rows], db)
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["topics"] = topics_map.get(d["id"], [])
+        result.append(d)
+    return {"speakers": result}
 
 
 @router.get("/speakers/public", summary="Спикеры для Mini App")
@@ -324,7 +358,13 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
            ORDER BY cse.sort_order""",
         event_id
     )
-    return {"speakers": [dict(r) for r in rows]}
+    topics_map = await _load_topics([r["id"] for r in rows], db)
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["topics"] = topics_map.get(d["id"], [])
+        result.append(d)
+    return {"speakers": result}
 
 
 @router.post("/speakers/add-from-base", summary="Добавить спикера из базы в событие")
@@ -350,15 +390,22 @@ async def add_speaker_from_base(
     import random, string
     ref_code = "sp_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
+    # Определяем темы: если передан topics — используем его, иначе speaker_topic
+    topics_list = data.topics if data.topics is not None else (
+        [data.speaker_topic] if data.speaker_topic else []
+    )
+    first_topic = topics_list[0] if topics_list else None
+
     cse = await db.fetchrow(
         """INSERT INTO conf_speaker_events
            (speaker_id, event_id, role, speaker_topic, gift_title, gift_url,
             poster_url, partner_url, extra_info, ref_code, is_commercial, is_visible, sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
-        data.speaker_id, event_id, data.role, data.speaker_topic, data.gift_title,
+        data.speaker_id, event_id, data.role, first_topic, data.gift_title,
         data.gift_url, data.poster_url, data.partner_url, data.extra_info,
         ref_code, data.is_commercial, data.is_visible, data.sort_order
     )
+    await _save_topics(cse["id"], topics_list, db)
     # Возвращаем с данными из глобальной базы
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
@@ -368,8 +415,10 @@ async def add_speaker_from_base(
            WHERE cse.id = $1""",
         cse["id"]
     )
+    d = dict(row)
+    d["topics"] = topics_list
     await regenerate_landing_data(event_id, db)
-    return {"speaker": dict(row)}
+    return {"speaker": d}
 
 
 @router.post("/speakers", summary="Создать нового спикера и добавить в событие")
@@ -398,17 +447,23 @@ async def create_and_add_speaker(
     import random, string
     ref_code = "sp_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
+    topics_list = data.topics if data.topics is not None else (
+        [data.speaker_topic] if data.speaker_topic else []
+    )
+    first_topic = topics_list[0] if topics_list else None
+
     cse = await db.fetchrow(
         """INSERT INTO conf_speaker_events
            (speaker_id, event_id, role, speaker_topic, gift_title, gift_url,
             poster_url, partner_url, extra_info, ref_code, is_commercial, is_visible, sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
-        sp["id"], event_id, data.role, data.speaker_topic, data.gift_title,
+        sp["id"], event_id, data.role, first_topic, data.gift_title,
         data.gift_url, data.poster_url, data.partner_url, data.extra_info,
         ref_code, data.is_commercial, data.is_visible, data.sort_order
     )
+    await _save_topics(cse["id"], topics_list, db)
 
-    result = {**dict(sp), **dict(cse), "speaker_id": sp["id"]}
+    result = {**dict(sp), **dict(cse), "speaker_id": sp["id"], "topics": topics_list}
     await regenerate_landing_data(event_id, db)
     return {"speaker": result}
 
@@ -422,12 +477,23 @@ async def update_speaker_event(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
-    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    raw = data.model_dump()
+    topics_list = raw.pop("topics", None)
+    # Не обновляем speaker_topic через общий механизм — управляем темами отдельно
+    raw.pop("speaker_topic", None)
+    updates = {k: v for k, v in raw.items() if v is not None}
     if updates:
         set_parts = [f"{k} = ${i+3}" for i, k in enumerate(updates.keys())]
         await db.execute(
             f"UPDATE conf_speaker_events SET {', '.join(set_parts)} WHERE id=$1 AND event_id=$2",
             speaker_event_id, event_id, *updates.values()
+        )
+    if topics_list is not None:
+        await _save_topics(speaker_event_id, topics_list, db)
+        first_topic = topics_list[0] if topics_list else None
+        await db.execute(
+            "UPDATE conf_speaker_events SET speaker_topic=$1 WHERE id=$2",
+            first_topic, speaker_event_id
         )
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
@@ -439,8 +505,11 @@ async def update_speaker_event(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Спикер не найден в событии")
+    topics_map = await _load_topics([speaker_event_id], db)
+    d = dict(row)
+    d["topics"] = topics_map.get(speaker_event_id, [])
     await regenerate_landing_data(event_id, db)
-    return {"speaker": dict(row)}
+    return {"speaker": d}
 
 
 @router.delete("/speakers/{speaker_event_id}", summary="Убрать спикера из события")

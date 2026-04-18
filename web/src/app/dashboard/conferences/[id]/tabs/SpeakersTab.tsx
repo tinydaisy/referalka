@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, User, Trash2, Pencil } from 'lucide-react'
+import { Plus, User, Trash2, Pencil, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -22,6 +22,55 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   )
 }
 
+/** Компонент для редактирования списка тем */
+function TopicsEditor({ topics, onChange }: { topics: string[]; onChange: (topics: string[]) => void }) {
+  function updateTopic(i: number, val: string) {
+    const next = [...topics]
+    next[i] = val
+    onChange(next)
+  }
+  function removeTopic(i: number) {
+    onChange(topics.filter((_, idx) => idx !== i))
+  }
+  function addTopic() {
+    onChange([...topics, ''])
+  }
+
+  return (
+    <div className="space-y-2">
+      {topics.map((t, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <textarea
+            value={t}
+            onChange={e => updateTopic(i, e.target.value)}
+            rows={2}
+            placeholder={`Тема ${i + 1}`}
+            className="input flex-1 resize-none text-sm"
+          />
+          {topics.length > 1 && (
+            <button
+              type="button"
+              onClick={() => removeTopic(i)}
+              className="mt-1 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addTopic}
+        className="flex items-center gap-1.5 text-xs text-brand hover:text-brand/80 transition-colors py-1"
+      >
+        <Plus size={13} /> Добавить тему
+      </button>
+    </div>
+  )
+}
+
+const emptyEventForm = { role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false }
+
 export default function SpeakersTab({ eventId }: { eventId: number }) {
   const { t } = useLang()
   const ts = t.conferences.speakers
@@ -29,13 +78,13 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'new' | 'base' | 'edit' | null>(null)
   const [editSpeaker, setEditSpeaker] = useState<any>(null)
-  const [editForm, setEditForm] = useState({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
-  const [form, setForm] = useState({ name: '', role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
+  const [editForm, setEditForm] = useState({ role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
+  const [form, setForm] = useState({ name: '', role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
   const [baseQuery, setBaseQuery] = useState('')
   const [baseList, setBaseList] = useState<any[]>([])
   const [baseLoading, setBaseLoading] = useState(false)
   const [selectedBase, setSelectedBase] = useState<any>(null)
-  const [baseForm, setBaseForm] = useState({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
+  const [baseForm, setBaseForm] = useState({ role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
   const [saving, setSaving] = useState(false)
 
   function load() {
@@ -61,8 +110,10 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
     if (!form.name.trim()) return
     setSaving(true)
     try {
-      await api.conference.speakers.create(eventId, { ...form })
-      setModal(null); setForm({ name: '', role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
+      const topics = form.topics.filter(t => t.trim())
+      await api.conference.speakers.create(eventId, { ...form, topics })
+      setModal(null)
+      setForm({ name: '', role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
       load()
     } catch (err: any) { alert(err.message) } finally { setSaving(false) }
   }
@@ -71,8 +122,11 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
     if (!selectedBase) return
     setSaving(true)
     try {
-      await api.conference.speakers.addFromBase(eventId, { speaker_id: selectedBase.id, ...baseForm })
-      setModal(null); setSelectedBase(null); setBaseForm({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
+      const topics = baseForm.topics.filter(t => t.trim())
+      await api.conference.speakers.addFromBase(eventId, { speaker_id: selectedBase.id, ...baseForm, topics })
+      setModal(null)
+      setSelectedBase(null)
+      setBaseForm({ role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
       load()
     } catch (err: any) { alert(err.message) } finally { setSaving(false) }
   }
@@ -85,7 +139,14 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
 
   function openEdit(sp: any) {
     setEditSpeaker(sp)
-    setEditForm({ role: sp.role, speaker_topic: sp.speaker_topic || '', gift_title: sp.gift_title || '', gift_url: sp.gift_url || '', is_commercial: sp.is_commercial || false })
+    const topics = sp.topics && sp.topics.length > 0 ? sp.topics : (sp.speaker_topic ? [sp.speaker_topic] : [''])
+    setEditForm({
+      role: sp.role,
+      topics,
+      gift_title: sp.gift_title || '',
+      gift_url: sp.gift_url || '',
+      is_commercial: sp.is_commercial || false
+    })
     setModal('edit')
   }
 
@@ -93,8 +154,10 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
     if (!editSpeaker) return
     setSaving(true)
     try {
-      await api.conference.speakers.update(eventId, editSpeaker.id, editForm)
-      setModal(null); setEditSpeaker(null)
+      const topics = editForm.topics.filter(t => t.trim())
+      await api.conference.speakers.update(eventId, editSpeaker.id, { ...editForm, topics })
+      setModal(null)
+      setEditSpeaker(null)
       load()
     } catch (err: any) { alert(err.message) } finally { setSaving(false) }
   }
@@ -136,41 +199,55 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {speakers.map((sp, i) => (
-            <div key={sp.id} className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors ${i > 0 ? 'border-t border-gray-50' : ''}`}>
-              <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
-                {sp.photo_url
-                  ? <ImageThumb url={sp.photo_url} alt={sp.name} className="w-full h-full block" />
-                  : <User size={16} className="text-gray-400" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <Link href={`/dashboard/collaborations/${sp.speaker_id}`} className="font-medium text-gray-900 text-sm truncate hover:text-brand transition-colors">
-                  {sp.name}
-                </Link>
-                <p className="text-xs text-gray-400">
-                  {ts.roles[sp.role as keyof typeof ts.roles] || sp.role}
-                  {sp.is_commercial && <span className="ml-1 text-amber-500">· коммерч.</span>}
-                  {sp.speaker_topic ? ` · ${sp.speaker_topic}` : ''}
-                </p>
-              </div>
-              {sp.poster_url && (
-                <div className="w-8 shrink-0">
-                  <ImageThumb url={sp.poster_url} alt={`Афиша ${sp.name}`}
-                    className="w-8 h-12 rounded overflow-hidden block bg-gray-100" />
+          {speakers.map((sp, i) => {
+            const topics: string[] = sp.topics && sp.topics.length > 0
+              ? sp.topics
+              : (sp.speaker_topic ? [sp.speaker_topic] : [])
+            return (
+              <div key={sp.id} className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors ${i > 0 ? 'border-t border-gray-50' : ''}`}>
+                <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
+                  {sp.photo_url
+                    ? <ImageThumb url={sp.photo_url} alt={sp.name} className="w-full h-full block" />
+                    : <User size={16} className="text-gray-400" />}
                 </div>
-              )}
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                <button onClick={() => openEdit(sp)}
-                  className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">
-                  <Pencil size={14} />
-                </button>
-                <button onClick={() => remove(sp.id, sp.name)}
-                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex-1 min-w-0">
+                  <Link href={`/dashboard/collaborations/${sp.speaker_id}`} className="font-medium text-gray-900 text-sm truncate hover:text-brand transition-colors">
+                    {sp.name}
+                  </Link>
+                  <p className="text-xs text-gray-400">
+                    {ts.roles[sp.role as keyof typeof ts.roles] || sp.role}
+                    {sp.is_commercial && <span className="ml-1 text-amber-500">· коммерч.</span>}
+                  </p>
+                  {topics.length > 0 && (
+                    <div className="mt-0.5 space-y-0.5">
+                      {topics.map((topic, ti) => (
+                        <p key={ti} className="text-xs text-gray-500 truncate">
+                          {topics.length > 1 && <span className="text-gray-300 mr-1">{ti + 1}.</span>}
+                          {topic}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {sp.poster_url && (
+                  <div className="w-8 shrink-0">
+                    <ImageThumb url={sp.poster_url} alt={`Афиша ${sp.name}`}
+                      className="w-8 h-12 rounded overflow-hidden block bg-gray-100" />
+                  </div>
+                )}
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <button onClick={() => openEdit(sp)}
+                    className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">
+                    <Pencil size={14} />
+                  </button>
+                  <button onClick={() => remove(sp.id, sp.name)}
+                    className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -187,7 +264,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
             </div>
             <div>
               <label className="label">{ts.newModal.topic}</label>
-              <input type="text" value={form.speaker_topic} onChange={setF('speaker_topic')} className="input" />
+              <TopicsEditor topics={form.topics} onChange={topics => setForm(f => ({ ...f, topics }))} />
             </div>
             <div>
               <label className="label">{ts.newModal.giftTitle}</label>
@@ -260,7 +337,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                 </div>
                 <div>
                   <label className="label">{ts.baseModal.topic}</label>
-                  <input type="text" value={baseForm.speaker_topic} onChange={setBF('speaker_topic')} className="input" />
+                  <TopicsEditor topics={baseForm.topics} onChange={topics => setBaseForm(f => ({ ...f, topics }))} />
                 </div>
                 <div>
                   <label className="label">{ts.baseModal.giftTitle}</label>
@@ -297,8 +374,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
             </div>
             <div>
               <label className="label">{ts.newModal.topic}</label>
-              <input type="text" value={editForm.speaker_topic}
-                onChange={e => setEditForm(f => ({ ...f, speaker_topic: e.target.value }))} className="input" />
+              <TopicsEditor topics={editForm.topics} onChange={topics => setEditForm(f => ({ ...f, topics }))} />
             </div>
             <div>
               <label className="label">{ts.newModal.giftTitle}</label>
