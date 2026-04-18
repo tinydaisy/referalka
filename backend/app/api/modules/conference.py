@@ -548,10 +548,11 @@ async def list_sessions(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
-        """SELECT s.*, sp.name as speaker_name, sp.title as speaker_title,
-                  sp.photo_url, sp.role as speaker_role
+        """SELECT s.*, col.name as speaker_name, col.title as speaker_title,
+                  col.photo_url, cse.role as speaker_role
            FROM conf_sessions s
-           LEFT JOIN conf_speakers sp ON sp.id = s.speaker_id
+           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN collaborators col ON col.id = cse.speaker_id
            WHERE s.event_id = $1
            ORDER BY s.day, s.sort_order, s.start_datetime""",
         event_id
