@@ -153,8 +153,8 @@ export default function ConferencePage() {
     setBaseSearch(q)
     if (q.length < 2) { setBaseResults([]); return }
     setBaseLoading(true)
-    const res = await api.speakers.list(q)
-    setBaseResults(res.speakers || [])
+    const res = await api.collaborators.list(q)
+    setBaseResults(res.collaborators || [])
     setBaseLoading(false)
   }
 
@@ -194,7 +194,7 @@ export default function ConferencePage() {
     if (!editGlobalModal) return
     setSaving(true)
     try {
-      await api.speakers.update(editGlobalModal.speaker_id, editGlobalModal.form)
+      await api.collaborators.update(editGlobalModal.speaker_id, editGlobalModal.form)
       // Перезагружаем список спикеров события
       const updated = await api.conference.speakers.list(eventId)
       setSpeakers(updated.speakers || [])
