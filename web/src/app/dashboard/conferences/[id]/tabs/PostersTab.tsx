@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Upload, Trash2, ImageIcon, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
+import { ImageThumb } from '@/components/ImagePreview'
 
 type PosterType = 'horizontal' | 'vertical' | 'square'
 
@@ -116,12 +117,14 @@ export default function PostersTab({ eventId }: { eventId: number }) {
             <div className="grid grid-cols-3 gap-3">
               {posters[pt.key].map((url, i) => (
                 <div key={i} className="relative group aspect-video rounded-xl overflow-hidden bg-gray-100">
-                  <img src={url} alt="" className="w-full h-full object-cover" />
+                  <ImageThumb url={url} alt={`poster ${i+1}`}
+                    className="w-full h-full block" />
+                  <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
                   <button
                     onClick={() => removeposter(pt.key, url)}
-                    className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                    className="absolute top-1.5 right-1.5 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-full p-1"
                   >
-                    <Trash2 size={18} className="text-white" />
+                    <Trash2 size={14} className="text-white" />
                   </button>
                 </div>
               ))}

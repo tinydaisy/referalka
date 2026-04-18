@@ -5,7 +5,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
 import asyncpg
@@ -16,33 +16,40 @@ router = APIRouter(prefix="/api/v1/collaborators", tags=["Коллабораци
 class CollaboratorCreate(BaseModel):
     name: str
     title: Optional[str] = None
-    achievements: Optional[str] = None
+    achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
-    telegram_url: Optional[str] = None
+    tg_channel_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
-    channel_id: Optional[str] = None
-    personal_account_id: Optional[str] = None
-    personal_account_username: Optional[str] = None
-    assistant_account: Optional[str] = None
+    tg_channel_id: Optional[str] = None
+    personal_tg_id: Optional[str] = None
+    personal_tg_username: Optional[str] = None
+    assistant_tg_username: Optional[str] = None
 
 
 class CollaboratorUpdate(BaseModel):
     name: Optional[str] = None
     title: Optional[str] = None
-    achievements: Optional[str] = None
+    achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
-    telegram_url: Optional[str] = None
+    tg_channel_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
-    channel_id: Optional[str] = None
-    personal_account_id: Optional[str] = None
-    personal_account_username: Optional[str] = None
-    assistant_account: Optional[str] = None
+    tg_channel_id: Optional[str] = None
+    personal_tg_id: Optional[str] = None
+    personal_tg_username: Optional[str] = None
+    assistant_tg_username: Optional[str] = None
+
+
+def row_to_dict(row):
+    d = dict(row)
+    if d.get("achievements") is None:
+        d["achievements"] = []
+    return d
 
 
 @router.get("/", summary="Список коллабораций клиента")
@@ -62,7 +69,7 @@ async def list_collaborators(
             "SELECT * FROM collaborators WHERE created_by_client_id = $1 ORDER BY name",
             client_id
         )
-    return {"collaborators": [dict(r) for r in rows]}
+    return {"collaborators": [row_to_dict(r) for r in rows]}
 
 
 @router.post("/", summary="Добавить коллаборацию в базу")
@@ -75,18 +82,18 @@ async def create_collaborator(
         """INSERT INTO collaborators
            (name, title, achievements,
             photo_url, photo_folder_url, video_folder_url,
-            telegram_url, instagram_url, website_url,
-            channel_id, personal_account_id, personal_account_username, assistant_account,
+            tg_channel_url, instagram_url, website_url,
+            tg_channel_id, personal_tg_id, personal_tg_username, assistant_tg_username,
             created_by_client_id)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
         data.name, data.title, data.achievements,
         data.photo_url, data.photo_folder_url, data.video_folder_url,
-        data.telegram_url, data.instagram_url, data.website_url,
-        data.channel_id, data.personal_account_id, data.personal_account_username, data.assistant_account,
+        data.tg_channel_url, data.instagram_url, data.website_url,
+        data.tg_channel_id, data.personal_tg_id, data.personal_tg_username, data.assistant_tg_username,
         int(client["sub"])
     )
-    # Возвращаем с ключом speaker для совместимости с conference module
-    return {"speaker": dict(row), "collaborator": dict(row)}
+    d = row_to_dict(row)
+    return {"speaker": d, "collaborator": d}
 
 
 @router.get("/{collaborator_id}", summary="Коллаборация по ID")
@@ -102,7 +109,8 @@ async def get_collaborator(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Коллаборация не найдена")
-    return {"speaker": dict(row), "collaborator": dict(row)}
+    d = row_to_dict(row)
+    return {"speaker": d, "collaborator": d}
 
 
 @router.patch("/{collaborator_id}", summary="Обновить данные коллаборации")
@@ -128,7 +136,74 @@ async def update_collaborator(
         )
     if not row:
         raise HTTPException(status_code=404, detail="Коллаборация не найдена")
-    return {"speaker": dict(row), "collaborator": dict(row)}
+    d = row_to_dict(row)
+    return {"speaker": d, "collaborator": d}
+
+
+class CollaboratorImportItem(BaseModel):
+    name: str
+    title: Optional[str] = None
+    achievements: Optional[List[str]] = None
+    photo_url: Optional[str] = None
+    photo_folder_url: Optional[str] = None
+    video_folder_url: Optional[str] = None
+    tg_channel_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    website_url: Optional[str] = None
+    tg_channel_id: Optional[str] = None
+    personal_tg_id: Optional[str] = None
+    personal_tg_username: Optional[str] = None
+    assistant_tg_username: Optional[str] = None
+
+
+class CollaboratorImportRequest(BaseModel):
+    collaborations: List[CollaboratorImportItem]
+    skip_duplicates: bool = True
+
+
+@router.post("/import", summary="Пакетный импорт коллабораций из JSON")
+async def import_collaborators(
+    data: CollaboratorImportRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    created, skipped, errors = [], [], []
+
+    for item in data.collaborations:
+        try:
+            existing = await db.fetchrow(
+                "SELECT id FROM collaborators WHERE name = $1 AND created_by_client_id = $2",
+                item.name, client_id
+            )
+            if existing:
+                if data.skip_duplicates:
+                    skipped.append(item.name)
+                    continue
+            row = await db.fetchrow(
+                """INSERT INTO collaborators
+                   (name, title, achievements, photo_url, photo_folder_url, video_folder_url,
+                    tg_channel_url, instagram_url, website_url,
+                    tg_channel_id, personal_tg_id, personal_tg_username, assistant_tg_username,
+                    created_by_client_id)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id, name""",
+                item.name, item.title, item.achievements,
+                item.photo_url, item.photo_folder_url, item.video_folder_url,
+                item.tg_channel_url or None, item.instagram_url or None, item.website_url or None,
+                item.tg_channel_id or None, item.personal_tg_id or None,
+                item.personal_tg_username or None, item.assistant_tg_username or None,
+                client_id
+            )
+            created.append({"id": row["id"], "name": row["name"]})
+        except Exception as e:
+            errors.append({"name": item.name, "error": str(e)})
+
+    return {
+        "created": created,
+        "skipped": skipped,
+        "errors": errors,
+        "summary": f"Создано: {len(created)}, пропущено: {len(skipped)}, ошибок: {len(errors)}"
+    }
 
 
 @router.delete("/{collaborator_id}", summary="Удалить коллаборацию из базы")

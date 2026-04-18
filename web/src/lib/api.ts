@@ -52,6 +52,8 @@ export const api = {
       request(`/api/v1/collaborators/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/collaborators/${id}`, { method: 'DELETE' }),
+    import: (data: any) =>
+      request('/api/v1/collaborators/import', { method: 'POST', body: JSON.stringify(data) }),
   },
   gifts: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/gifts/`),

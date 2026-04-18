@@ -12,11 +12,12 @@ export default function NewCollaborationPage() {
   const { t } = useLang()
   const tc = t.collaborations
   const [form, setForm] = useState({
-    name: '', title: '', achievements: '',
+    name: '', title: '',
     photo_url: '', photo_folder_url: '', video_folder_url: '',
-    telegram_url: '', instagram_url: '', website_url: '',
-    channel_id: '', personal_account_id: '', personal_account_username: '', assistant_account: '',
+    tg_channel_url: '', instagram_url: '', website_url: '',
+    tg_channel_id: '', personal_tg_id: '', personal_tg_username: '', assistant_tg_username: '',
   })
+  const [achievementsText, setAchievementsText] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -28,9 +29,11 @@ export default function NewCollaborationPage() {
     if (!form.name.trim()) { setError(tc.new.errorRequired); return }
     setLoading(true); setError('')
     try {
-      const res = await api.collaborators.create(
-        Object.fromEntries(Object.entries(form).filter(([, v]) => (v as string).trim()))
-      )
+      const achievements = achievementsText.split('\n').map(s => s.trim()).filter(Boolean)
+      const payload = Object.fromEntries(Object.entries({ ...form, achievements }).filter(([, v]) =>
+        Array.isArray(v) ? (v as any[]).length > 0 : (v as string).trim()
+      ))
+      const res = await api.collaborators.create(payload)
       router.push(`/dashboard/collaborations/${res.collaborator.id}`)
     } catch (err: any) {
       setError(err.message)
@@ -55,9 +58,7 @@ export default function NewCollaborationPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.basicInfo}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              {t.fields.nameRequired}
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.nameRequired}</label>
             <input type="text" value={form.name} onChange={set('name')}
               placeholder={t.fields.namePlaceholder} autoFocus
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
@@ -69,8 +70,9 @@ export default function NewCollaborationPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.achievements}</label>
-            <textarea value={form.achievements} onChange={set('achievements')} rows={2}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
+            <textarea value={achievementsText} onChange={e => setAchievementsText(e.target.value)} rows={5}
+              placeholder={'Регалия 1\nРегалия 2\nРегалия 3'}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-y" />
           </div>
         </div>
 
@@ -116,20 +118,20 @@ export default function NewCollaborationPage() {
           <h2 className="font-semibold text-gray-900">{t.fields.accounts}</h2>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
-            <input type="url" value={form.telegram_url} onChange={set('telegram_url')}
+            <input type="url" value={form.tg_channel_url} onChange={set('tg_channel_url')}
               placeholder="https://t.me/username"
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.channelId}</label>
-              <input type="text" value={form.channel_id} onChange={set('channel_id')}
+              <input type="text" value={form.tg_channel_id} onChange={set('tg_channel_id')}
                 placeholder="-100123456789"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.personalAccountId}</label>
-              <input type="text" value={form.personal_account_id} onChange={set('personal_account_id')}
+              <input type="text" value={form.personal_tg_id} onChange={set('personal_tg_id')}
                 placeholder="123456789"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
@@ -137,13 +139,13 @@ export default function NewCollaborationPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.personalAccountUsername}</label>
-              <input type="text" value={form.personal_account_username} onChange={set('personal_account_username')}
+              <input type="text" value={form.personal_tg_username} onChange={set('personal_tg_username')}
                 placeholder="@username"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.assistantAccount}</label>
-              <input type="text" value={form.assistant_account} onChange={set('assistant_account')}
+              <input type="text" value={form.assistant_tg_username} onChange={set('assistant_tg_username')}
                 placeholder="@assistant"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>

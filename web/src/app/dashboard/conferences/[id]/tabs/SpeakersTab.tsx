@@ -4,6 +4,7 @@ import { Plus, User, Trash2, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
+import { ImageThumb } from '@/components/ImagePreview'
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -138,7 +139,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
             <div key={sp.id} className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors ${i > 0 ? 'border-t border-gray-50' : ''}`}>
               <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
                 {sp.photo_url
-                  ? <img src={sp.photo_url} alt={sp.name} className="w-full h-full object-cover" />
+                  ? <ImageThumb url={sp.photo_url} alt={sp.name} className="w-full h-full block" />
                   : <User size={16} className="text-gray-400" />}
               </div>
               <div className="flex-1 min-w-0">

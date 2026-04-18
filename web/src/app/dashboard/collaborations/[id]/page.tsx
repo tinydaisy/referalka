@@ -6,12 +6,14 @@ import { ArrowLeft, Save, ExternalLink, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
+import { ImageThumb } from '@/components/ImageThumb'
 
 export default function CollaborationPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const { t } = useLang()
   const collaboratorId = parseInt(params.id)
   const [form, setForm] = useState<any>(null)
+  const [achievementsText, setAchievementsText] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -19,7 +21,11 @@ export default function CollaborationPage({ params }: { params: { id: string } }
 
   useEffect(() => {
     api.collaborators.get(collaboratorId)
-      .then(r => setForm(r.collaborator))
+      .then(r => {
+        setForm(r.collaborator)
+        const ach = r.collaborator.achievements
+        setAchievementsText(Array.isArray(ach) ? ach.join('\n') : (ach || ''))
+      })
       .catch(() => router.push('/dashboard/collaborations'))
       .finally(() => setLoading(false))
   }, [collaboratorId])
@@ -31,13 +37,25 @@ export default function CollaborationPage({ params }: { params: { id: string } }
     e.preventDefault()
     setSaving(true); setError(''); setSaved(false)
     try {
-      const updates = Object.fromEntries(
-        Object.entries(form).filter(([k]) =>
-          ['name','title','achievements','photo_url',
-           'photo_folder_url','video_folder_url','telegram_url','instagram_url','website_url',
-           'channel_id','personal_account_id','personal_account_username','assistant_account'].includes(k)
-        )
-      )
+      const achievements = achievementsText
+        .split('\n')
+        .map(s => s.trim())
+        .filter(Boolean)
+      const updates = {
+        name: form.name,
+        title: form.title,
+        achievements,
+        photo_url: form.photo_url,
+        photo_folder_url: form.photo_folder_url,
+        video_folder_url: form.video_folder_url,
+        tg_channel_url: form.tg_channel_url,
+        instagram_url: form.instagram_url,
+        website_url: form.website_url,
+        tg_channel_id: form.tg_channel_id,
+        personal_tg_id: form.personal_tg_id,
+        personal_tg_username: form.personal_tg_username,
+        assistant_tg_username: form.assistant_tg_username,
+      }
       await api.collaborators.update(collaboratorId, updates)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
@@ -65,7 +83,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         </Link>
         <div className="flex items-center gap-3 flex-1">
           {form.photo_url && (
-            <img src={form.photo_url} alt={form.name} className="w-10 h-10 rounded-full object-cover" />
+            <ImageThumb url={form.photo_url} alt={form.name} />
           )}
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{form.name}</h1>
@@ -78,9 +96,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.basicInfo}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              {t.fields.nameRequired}
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.nameRequired}</label>
             <input type="text" value={form.name || ''} onChange={set('name')}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
@@ -91,8 +107,9 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.achievements}</label>
-            <textarea value={form.achievements || ''} onChange={set('achievements')} rows={2}
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
+            <textarea value={achievementsText} onChange={e => setAchievementsText(e.target.value)} rows={5}
+              placeholder={'Регалия 1\nРегалия 2\nРегалия 3'}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-y" />
           </div>
         </div>
 
@@ -103,8 +120,10 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             <div className="flex gap-2">
               <input type="url" value={form.photo_url || ''} onChange={set('photo_url')} placeholder="https://..."
                 className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              <ImageThumb url={form.photo_url} alt={form.name} />
               {form.photo_url && (
-                <a href={form.photo_url} target="_blank" rel="noopener" className="px-3 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-brand transition-colors">
+                <a href={form.photo_url} target="_blank" rel="noopener"
+                  className="px-3 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-brand transition-colors">
                   <ExternalLink size={15} />
                 </a>
               )}
@@ -142,20 +161,20 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           <h2 className="font-semibold text-gray-900">{t.fields.accounts}</h2>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
-            <input type="url" value={form.telegram_url || ''} onChange={set('telegram_url')}
+            <input type="url" value={form.tg_channel_url || ''} onChange={set('tg_channel_url')}
               placeholder="https://t.me/username"
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.channelId}</label>
-              <input type="text" value={form.channel_id || ''} onChange={set('channel_id')}
+              <input type="text" value={form.tg_channel_id || ''} onChange={set('tg_channel_id')}
                 placeholder="-100123456789"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.personalAccountId}</label>
-              <input type="text" value={form.personal_account_id || ''} onChange={set('personal_account_id')}
+              <input type="text" value={form.personal_tg_id || ''} onChange={set('personal_tg_id')}
                 placeholder="123456789"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
@@ -163,13 +182,13 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.personalAccountUsername}</label>
-              <input type="text" value={form.personal_account_username || ''} onChange={set('personal_account_username')}
+              <input type="text" value={form.personal_tg_username || ''} onChange={set('personal_tg_username')}
                 placeholder="@username"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.assistantAccount}</label>
-              <input type="text" value={form.assistant_account || ''} onChange={set('assistant_account')}
+              <input type="text" value={form.assistant_tg_username || ''} onChange={set('assistant_tg_username')}
                 placeholder="@assistant"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
