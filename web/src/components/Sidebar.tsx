@@ -68,7 +68,7 @@ export default function Sidebar() {
               </p>
             )}
             <div className="space-y-0.5">
-              {section.items.map(({ href, label, icon: Icon, exact }) => {
+              {section.items.map(({ href, label, icon: Icon, exact }: { href: string; label: string; icon: any; exact?: boolean }) => {
                 const active = isActive(href, exact)
                 const isComingSoon = href === '#'
                 return (
