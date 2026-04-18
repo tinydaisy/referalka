@@ -4,7 +4,7 @@ export async function POST(req: NextRequest) {
   const accountId = process.env.CF_ACCOUNT_ID
   const accessKeyId = process.env.CF_R2_ACCESS_KEY_ID
   const secretAccessKey = process.env.CF_R2_SECRET_ACCESS_KEY
-  const bucketName = process.env.CF_R2_BUCKET_NAME || 'plusson'
+  const bucketName = process.env.CF_R2_BUCKET_NAME || 'referalka'
   const publicUrl = process.env.CF_R2_PUBLIC_URL || 'https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev'
 
   if (!accessKeyId || !secretAccessKey || !accountId) {
