@@ -149,6 +149,8 @@ class ConferenceUpdate(BaseModel):
     stream_url_day_2: Optional[str] = None
     vip_upsell_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
+    subscription_mode: Optional[str] = None   # none | organizer | all_speakers
+    organizer_speaker_id: Optional[int] = None
     is_live: Optional[bool] = None
     status: Optional[str] = None
     poster_horizontal: Optional[List[str]] = None

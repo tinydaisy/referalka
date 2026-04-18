@@ -54,7 +54,7 @@ export default function ConferencesPage() {
           <p className="text-gray-500 mt-1">Управляйте спикерами, программой и рассылками</p>
         </div>
         <Link
-          href="/dashboard/events/new?module=conference"
+          href="/dashboard/conferences/new"
           className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2"
         >
           <Plus size={16} /> Новая конференция
@@ -71,7 +71,7 @@ export default function ConferencesPage() {
             Добавьте спикеров, настройте программу по дням и автоматические рассылки участникам.
           </p>
           <Link
-            href="/dashboard/events/new?module=conference"
+            href="/dashboard/conferences/new"
             className="btn-gold inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold"
           >
             <Plus size={16} /> Создать конференцию
@@ -85,7 +85,7 @@ export default function ConferencesPage() {
             return (
               <div key={event.id} className="relative group">
                 <Link
-                  href={`/dashboard/events/${event.id}/conference`}
+                  href={`/dashboard/conferences/${event.id}`}
                   className={`block bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
                 >
                   <div className="gradient-bg h-24 flex items-end p-4 relative">
@@ -134,7 +134,7 @@ export default function ConferencesPage() {
           })}
 
           <Link
-            href="/dashboard/events/new?module=conference"
+            href="/dashboard/conferences/new"
             className="bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-brand hover:shadow-sm transition-all flex flex-col items-center justify-center p-10 text-gray-400 hover:text-brand group"
           >
             <div className="w-12 h-12 rounded-full border-2 border-dashed border-gray-300 group-hover:border-brand flex items-center justify-center mb-3 transition-colors">

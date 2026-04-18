@@ -54,6 +54,57 @@ body {
   flex-shrink: 0;
 }
 
+/* ─── Spinner / Loading state ─────────────────────────────────────────────── */
+/* Используется компонентом <Spinner /> и классом .btn-loading.
+   Чтобы изменить цвет / размер спиннера на всём сайте — правь только здесь. */
+
+@keyframes plusson-spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: plusson-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Кнопка в состоянии загрузки */
+.btn-loading {
+  opacity: 0.65;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ─── Form helpers (input / label) ───────────────────────────────────────── */
+/* Используются во всём приложении через className="input" / className="label" */
+
+.label {
+  display: block;
+  font-size: 0.8125rem;   /* 13px */
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.375rem;
+}
+
+.input {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+  font-size: 0.875rem;
+  color: #111827;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(37,69,93,0.08); }
+.input::placeholder { color: #9ca3af; }
+
 /* Status badges */
 .badge-draft   { background: #f1f5f9; color: #64748b; }
 .badge-active  { background: #dcfce7; color: #16a34a; }
