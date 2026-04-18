@@ -39,7 +39,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         """SELECT cse.*, sp.name, sp.title, sp.company, sp.bio, sp.achievements,
                   sp.photo_url, sp.telegram_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse
-           JOIN speakers sp ON sp.id = cse.speaker_id
+           JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -52,7 +52,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                   sp.title AS speaker_title, sp.photo_url, cse.gift_title, cse.gift_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
-           LEFT JOIN speakers sp ON sp.id = cse.speaker_id
+           LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_datetime""",
         event_id
     )
@@ -307,7 +307,7 @@ async def list_event_speakers(
                   sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.telegram_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse
-           JOIN speakers sp ON sp.id = cse.speaker_id
+           JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -321,7 +321,7 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
         """SELECT cse.id, cse.role, cse.speaker_topic, cse.gift_title, cse.gift_url, cse.sort_order,
                   sp.name, sp.title, sp.company, sp.bio, sp.photo_url, sp.telegram_url
            FROM conf_speaker_events cse
-           JOIN speakers sp ON sp.id = cse.speaker_id
+           JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
            ORDER BY cse.sort_order""",
         event_id
@@ -338,7 +338,7 @@ async def add_speaker_from_base(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     # Проверяем что спикер существует
-    sp = await db.fetchrow("SELECT id FROM speakers WHERE id = $1", data.speaker_id)
+    sp = await db.fetchrow("SELECT id FROM collaborators WHERE id = $1", data.speaker_id)
     if not sp:
         raise HTTPException(status_code=404, detail="Спикер не найден в базе")
     # Проверяем что уже не добавлен
@@ -366,7 +366,7 @@ async def add_speaker_from_base(
         """SELECT cse.*, sp.name, sp.title, sp.company, sp.bio, sp.achievements,
                   sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.telegram_url, sp.instagram_url, sp.website_url
-           FROM conf_speaker_events cse JOIN speakers sp ON sp.id = cse.speaker_id
+           FROM conf_speaker_events cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
         cse["id"]
     )
@@ -385,7 +385,7 @@ async def create_and_add_speaker(
 
     # 1. Создаём в глобальной базе
     sp = await db.fetchrow(
-        """INSERT INTO speakers
+        """INSERT INTO collaborators
            (name, title, company, bio, achievements,
             photo_url, photo_folder_url, video_folder_url,
             telegram_url, instagram_url, website_url, created_by_client_id)
@@ -435,7 +435,7 @@ async def update_speaker_event(
         """SELECT cse.*, sp.name, sp.title, sp.company, sp.bio, sp.achievements,
                   sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.telegram_url, sp.instagram_url, sp.website_url
-           FROM conf_speaker_events cse JOIN speakers sp ON sp.id = cse.speaker_id
+           FROM conf_speaker_events cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
         speaker_event_id
     )
@@ -671,7 +671,7 @@ async def generate_schedule(
         # speaker_ids теперь — это conf_speaker_events.id
         cse = await db.fetchrow(
             """SELECT cse.id, sp.name FROM conf_speaker_events cse
-               JOIN speakers sp ON sp.id = cse.speaker_id
+               JOIN collaborators sp ON sp.id = cse.speaker_id
                WHERE cse.id=$1 AND cse.event_id=$2""",
             speaker_event_id, event_id
         )
@@ -862,7 +862,7 @@ async def generate_broadcasts_from_schedule(
         """SELECT s.*, spg.name AS speaker_name, cse.gift_title, cse.gift_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
-           LEFT JOIN speakers spg ON spg.id = cse.speaker_id
+           LEFT JOIN collaborators spg ON spg.id = cse.speaker_id
            WHERE s.event_id = $1 AND s.start_datetime IS NOT NULL
            ORDER BY s.day, s.start_datetime""",
         event_id

@@ -25,7 +25,12 @@ const sections: NavSection[] = [
     label: 'КОНФЕРЕНЦИИ',
     items: [
       { href: '/dashboard/conferences', label: 'Мои конференции', icon: Mic },
-      { href: '/dashboard/speakers', label: 'Мои спикеры', icon: Users },
+    ],
+  },
+  {
+    label: 'БАЗА',
+    items: [
+      { href: '/dashboard/collaborations', label: 'Коллаборации', icon: Users },
     ],
   },
   {

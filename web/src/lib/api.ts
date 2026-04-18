@@ -42,15 +42,15 @@ export const api = {
       request(`/api/v1/events/${id}`, { method: 'DELETE' }),
     analytics: (id: number) => request(`/api/v1/events/${id}/analytics`),
   },
-  speakers: {
-    list: (q?: string) => request(`/api/v1/speakers/${q ? `?q=${encodeURIComponent(q)}` : ''}`),
-    get: (id: number) => request(`/api/v1/speakers/${id}`),
+  collaborators: {
+    list: (q?: string) => request(`/api/v1/collaborators/${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    get: (id: number) => request(`/api/v1/collaborators/${id}`),
     create: (data: any) =>
-      request('/api/v1/speakers/', { method: 'POST', body: JSON.stringify(data) }),
+      request('/api/v1/collaborators/', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) =>
-      request(`/api/v1/speakers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      request(`/api/v1/collaborators/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
-      request(`/api/v1/speakers/${id}`, { method: 'DELETE' }),
+      request(`/api/v1/collaborators/${id}`, { method: 'DELETE' }),
   },
   gifts: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/gifts/`),
@@ -124,16 +124,6 @@ export const api = {
       create: (eventId: number, data: any) =>
         request(`/api/v1/events/${eventId}/conference/promo-partners`, { method: 'POST', body: JSON.stringify(data) }),
     },
-  },
-  speakers: {
-    list: (q?: string) => request(`/api/v1/speakers/${q ? '?q=' + encodeURIComponent(q) : ''}`),
-    get: (id: number) => request(`/api/v1/speakers/${id}`),
-    create: (data: any) =>
-      request('/api/v1/speakers/', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: number, data: any) =>
-      request(`/api/v1/speakers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (id: number) =>
-      request(`/api/v1/speakers/${id}`, { method: 'DELETE' }),
   },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
