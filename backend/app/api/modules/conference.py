@@ -37,7 +37,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     # Спикеры: JOIN глобальной базы + данных участия в событии
     speakers = await db.fetch(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.telegram_url, sp.instagram_url, sp.website_url
+                  sp.photo_url, sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
@@ -110,7 +110,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                 "role": s["role"],
                 "title": s["title"] or "",
                 "photo_url": s["photo_url"] or "",
-                "telegram_url": s["telegram_url"] or "",
+                "tg_channel_url": s["tg_channel_url"] or "",
                 "speaker_topic": s["speaker_topic"] or "",
                 "gift_title": s["gift_title"] or "",
                 "gift_url": s["gift_url"] or "",
@@ -249,13 +249,11 @@ class SpeakerCreateAndAdd(BaseModel):
     # Глобальные данные спикера
     name: str
     title: Optional[str] = None
-    company: Optional[str] = None
-    bio: Optional[str] = None
-    achievements: Optional[str] = None
+    achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
-    telegram_url: Optional[str] = None
+    tg_channel_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
     # Данные участия в этом событии
@@ -266,6 +264,7 @@ class SpeakerCreateAndAdd(BaseModel):
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
+    is_commercial: bool = False
     is_visible: bool = True
     sort_order: int = 0
 
@@ -279,6 +278,7 @@ class SpeakerEventUpdate(BaseModel):
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
+    is_commercial: Optional[bool] = None
     is_visible: Optional[bool] = None
     sort_order: Optional[int] = None
 
@@ -303,7 +303,7 @@ async def list_event_speakers(
                   cse.ref_code, cse.is_visible, cse.sort_order,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
-                  sp.telegram_url, sp.instagram_url, sp.website_url
+                  sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
@@ -317,7 +317,7 @@ async def list_event_speakers(
 async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
         """SELECT cse.id, cse.role, cse.speaker_topic, cse.gift_title, cse.gift_url, cse.sort_order,
-                  sp.name, sp.title, sp.photo_url, sp.telegram_url
+                  sp.name, sp.title, sp.photo_url, sp.tg_channel_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
@@ -353,17 +353,17 @@ async def add_speaker_from_base(
     cse = await db.fetchrow(
         """INSERT INTO conf_speaker_events
            (speaker_id, event_id, role, speaker_topic, gift_title, gift_url,
-            poster_url, partner_url, extra_info, ref_code, is_visible, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
+            poster_url, partner_url, extra_info, ref_code, is_commercial, is_visible, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
         data.speaker_id, event_id, data.role, data.speaker_topic, data.gift_title,
         data.gift_url, data.poster_url, data.partner_url, data.extra_info,
-        ref_code, data.is_visible, data.sort_order
+        ref_code, data.is_commercial, data.is_visible, data.sort_order
     )
     # Возвращаем с данными из глобальной базы
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
-                  sp.telegram_url, sp.instagram_url, sp.website_url
+                  sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
         cse["id"]
@@ -384,13 +384,13 @@ async def create_and_add_speaker(
     # 1. Создаём в глобальной базе
     sp = await db.fetchrow(
         """INSERT INTO collaborators
-           (name, title, company, bio, achievements,
+           (name, title, achievements,
             photo_url, photo_folder_url, video_folder_url,
-            telegram_url, instagram_url, website_url, created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
-        data.name, data.title, data.company, data.bio, data.achievements,
+            tg_channel_url, instagram_url, website_url, created_by_client_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *""",
+        data.name, data.title, data.achievements,
         data.photo_url, data.photo_folder_url, data.video_folder_url,
-        data.telegram_url, data.instagram_url, data.website_url,
+        data.tg_channel_url, data.instagram_url, data.website_url,
         int(client["sub"])
     )
 
@@ -401,11 +401,11 @@ async def create_and_add_speaker(
     cse = await db.fetchrow(
         """INSERT INTO conf_speaker_events
            (speaker_id, event_id, role, speaker_topic, gift_title, gift_url,
-            poster_url, partner_url, extra_info, ref_code, is_visible, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
+            poster_url, partner_url, extra_info, ref_code, is_commercial, is_visible, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
         sp["id"], event_id, data.role, data.speaker_topic, data.gift_title,
         data.gift_url, data.poster_url, data.partner_url, data.extra_info,
-        ref_code, data.is_visible, data.sort_order
+        ref_code, data.is_commercial, data.is_visible, data.sort_order
     )
 
     result = {**dict(sp), **dict(cse), "speaker_id": sp["id"]}
@@ -432,7 +432,7 @@ async def update_speaker_event(
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
-                  sp.telegram_url, sp.instagram_url, sp.website_url
+                  sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
         speaker_event_id
@@ -716,10 +716,11 @@ async def list_broadcasts(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     rows = await db.fetch(
-        """SELECT b.*, sp.name as speaker_name, s.title as session_title,
+        """SELECT b.*, col.name as speaker_name, s.title as session_title,
                   s.start_datetime as session_time
            FROM conf_broadcast_messages b
-           LEFT JOIN conf_speakers sp ON sp.id = b.speaker_id
+           LEFT JOIN conf_speaker_events cse ON cse.id = b.speaker_id
+           LEFT JOIN collaborators col ON col.id = cse.speaker_id
            LEFT JOIN conf_sessions s ON s.id = b.session_id
            WHERE b.event_id = $1
            ORDER BY b.scheduled_at NULLS LAST, b.id""",
@@ -976,8 +977,10 @@ async def list_secret_codes(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     codes = await db.fetch(
-        """SELECT sc.*, sp.name as speaker_name FROM conf_secret_codes sc
-           LEFT JOIN conf_speakers sp ON sp.id = sc.speaker_id WHERE sc.event_id = $1""",
+        """SELECT sc.*, col.name as speaker_name FROM conf_secret_codes sc
+           LEFT JOIN conf_speaker_events cse ON cse.id = sc.speaker_id
+           LEFT JOIN collaborators col ON col.id = cse.speaker_id
+           WHERE sc.event_id = $1""",
         event_id
     )
     return {"codes": [dict(c) for c in codes]}

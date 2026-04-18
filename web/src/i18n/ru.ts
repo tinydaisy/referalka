@@ -177,7 +177,6 @@ export const ru = {
         headliner: 'Хедлайнер',
         speaker: 'Спикер',
         partner: 'Партнёр',
-        commercial: 'Коммерческий',
         general_partner: 'Генеральный партнёр',
       },
       newModal: {
@@ -188,6 +187,7 @@ export const ru = {
         topic: 'Тема выступления',
         giftTitle: 'Подарок (название)',
         giftUrl: 'Ссылка на подарок',
+        isCommercial: 'Коммерческий участник',
         addBtn: 'Добавить спикера',
       },
       baseModal: {
@@ -197,6 +197,7 @@ export const ru = {
         topic: 'Тема выступления',
         giftTitle: 'Подарок (название)',
         giftUrl: 'Ссылка на подарок',
+        isCommercial: 'Коммерческий участник',
         addBtn: 'Добавить в конференцию',
       },
     },

@@ -268,7 +268,7 @@ export default function CollaborationsPage() {
                     : <Users size={18} className="text-gray-400" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{item.name}</p>
+                  <Link href={`/dashboard/collaborations/${item.id}`} className="font-semibold text-gray-900 truncate hover:text-brand transition-colors block">{item.name}</Link>
                   {item.title && <p className="text-sm text-gray-500 truncate">{item.title}</p>}
                 </div>
                 <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">

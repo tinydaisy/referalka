@@ -177,7 +177,6 @@ export const en = {
         headliner: 'Headliner',
         speaker: 'Speaker',
         partner: 'Partner',
-        commercial: 'Commercial',
         general_partner: 'General partner',
       },
       newModal: {
@@ -188,6 +187,7 @@ export const en = {
         topic: 'Talk topic',
         giftTitle: 'Gift (title)',
         giftUrl: 'Gift URL',
+        isCommercial: 'Commercial participant',
         addBtn: 'Add speaker',
       },
       baseModal: {
@@ -197,6 +197,7 @@ export const en = {
         topic: 'Talk topic',
         giftTitle: 'Gift (title)',
         giftUrl: 'Gift URL',
+        isCommercial: 'Commercial participant',
         addBtn: 'Add to conference',
       },
     },

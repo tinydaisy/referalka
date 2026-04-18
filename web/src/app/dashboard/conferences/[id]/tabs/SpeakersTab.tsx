@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { Plus, User, Trash2, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
@@ -28,13 +29,13 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'new' | 'base' | 'edit' | null>(null)
   const [editSpeaker, setEditSpeaker] = useState<any>(null)
-  const [editForm, setEditForm] = useState({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '' })
-  const [form, setForm] = useState({ name: '', role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '' })
+  const [editForm, setEditForm] = useState({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
+  const [form, setForm] = useState({ name: '', role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
   const [baseQuery, setBaseQuery] = useState('')
   const [baseList, setBaseList] = useState<any[]>([])
   const [baseLoading, setBaseLoading] = useState(false)
   const [selectedBase, setSelectedBase] = useState<any>(null)
-  const [baseForm, setBaseForm] = useState({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '' })
+  const [baseForm, setBaseForm] = useState({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
   const [saving, setSaving] = useState(false)
 
   function load() {
@@ -61,7 +62,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
     setSaving(true)
     try {
       await api.conference.speakers.create(eventId, { ...form })
-      setModal(null); setForm({ name: '', role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '' })
+      setModal(null); setForm({ name: '', role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
       load()
     } catch (err: any) { alert(err.message) } finally { setSaving(false) }
   }
@@ -71,7 +72,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
     setSaving(true)
     try {
       await api.conference.speakers.addFromBase(eventId, { speaker_id: selectedBase.id, ...baseForm })
-      setModal(null); setSelectedBase(null); setBaseForm({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '' })
+      setModal(null); setSelectedBase(null); setBaseForm({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '', is_commercial: false })
       load()
     } catch (err: any) { alert(err.message) } finally { setSaving(false) }
   }
@@ -84,7 +85,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
 
   function openEdit(sp: any) {
     setEditSpeaker(sp)
-    setEditForm({ role: sp.role, speaker_topic: sp.speaker_topic || '', gift_title: sp.gift_title || '', gift_url: sp.gift_url || '' })
+    setEditForm({ role: sp.role, speaker_topic: sp.speaker_topic || '', gift_title: sp.gift_title || '', gift_url: sp.gift_url || '', is_commercial: sp.is_commercial || false })
     setModal('edit')
   }
 
@@ -143,8 +144,14 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                   : <User size={16} className="text-gray-400" />}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 text-sm truncate">{sp.name}</p>
-                <p className="text-xs text-gray-400">{ts.roles[sp.role as keyof typeof ts.roles] || sp.role}{sp.speaker_topic ? ` · ${sp.speaker_topic}` : ''}</p>
+                <Link href={`/dashboard/collaborations/${sp.speaker_id}`} className="font-medium text-gray-900 text-sm truncate hover:text-brand transition-colors">
+                  {sp.name}
+                </Link>
+                <p className="text-xs text-gray-400">
+                  {ts.roles[sp.role as keyof typeof ts.roles] || sp.role}
+                  {sp.is_commercial && <span className="ml-1 text-amber-500">· коммерч.</span>}
+                  {sp.speaker_topic ? ` · ${sp.speaker_topic}` : ''}
+                </p>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
                 <button onClick={() => openEdit(sp)}
@@ -184,6 +191,11 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
               <label className="label">{ts.newModal.giftUrl}</label>
               <input type="url" value={form.gift_url} onChange={setF('gift_url')} className="input" placeholder="https://..." />
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={form.is_commercial} onChange={e => setForm(f => ({ ...f, is_commercial: e.target.checked }))}
+                className="w-4 h-4 rounded border-gray-300 text-brand" />
+              <span className="text-sm text-gray-700">{ts.newModal.isCommercial}</span>
+            </label>
           </div>
           <div className="flex gap-3 mt-5">
             <button onClick={createNew} disabled={!form.name.trim() || saving}
@@ -252,6 +264,11 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                   <label className="label">{ts.baseModal.giftUrl}</label>
                   <input type="url" value={baseForm.gift_url} onChange={setBF('gift_url')} className="input" placeholder="https://..." />
                 </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={baseForm.is_commercial} onChange={e => setBaseForm(f => ({ ...f, is_commercial: e.target.checked }))}
+                    className="w-4 h-4 rounded border-gray-300 text-brand" />
+                  <span className="text-sm text-gray-700">{ts.baseModal.isCommercial}</span>
+                </label>
               </div>
               <div className="flex gap-3 mt-5">
                 <button onClick={addFromBase} disabled={saving}
@@ -287,6 +304,11 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
               <input type="url" value={editForm.gift_url}
                 onChange={e => setEditForm(f => ({ ...f, gift_url: e.target.value }))} className="input" placeholder="https://..." />
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={editForm.is_commercial} onChange={e => setEditForm(f => ({ ...f, is_commercial: e.target.checked }))}
+                className="w-4 h-4 rounded border-gray-300 text-brand" />
+              <span className="text-sm text-gray-700">{ts.newModal.isCommercial}</span>
+            </label>
           </div>
           <div className="flex gap-3 mt-5">
             <button onClick={saveEdit} disabled={saving}
