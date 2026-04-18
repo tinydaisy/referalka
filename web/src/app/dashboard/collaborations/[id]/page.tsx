@@ -1,12 +1,61 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, ExternalLink, Check } from 'lucide-react'
+import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
+
+const IMPORTANT_FIELDS: { key: string; label: string }[] = [
+  { key: 'name', label: 'Имя и фамилия' },
+  { key: 'title', label: 'Должность / специализация' },
+  { key: 'achievements', label: 'Регалии' },
+  { key: 'photo_url', label: 'Фото' },
+  { key: 'poster_url', label: 'Афиша' },
+  { key: 'tg_channel_url', label: 'Ссылка на Telegram-канал' },
+  { key: 'tg_channel_id', label: 'ID канала' },
+  { key: 'personal_tg_id', label: 'ID личного аккаунта' },
+  { key: 'personal_tg_username', label: 'Ник личного аккаунта' },
+]
+
+function getMissingFields(form: any): string[] {
+  return IMPORTANT_FIELDS
+    .filter(f => {
+      const v = form[f.key]
+      if (Array.isArray(v)) return v.length === 0
+      return !v || String(v).trim() === ''
+    })
+    .map(f => f.label)
+}
+
+function WarningPopup({ missing, onClose }: { missing: string[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [onClose])
+  return (
+    <div ref={ref} className="absolute right-0 top-full mt-2 z-50 bg-white border border-amber-200 rounded-2xl shadow-lg p-4 w-72">
+      <div className="flex items-center justify-between mb-3">
+        <span className="font-semibold text-sm text-gray-900">Не заполнены важные поля</span>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-0.5 rounded"><X size={14} /></button>
+      </div>
+      <ul className="space-y-1.5">
+        {missing.map(label => (
+          <li key={label} className="flex items-center gap-2 text-sm text-gray-700">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+            {label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 export default function CollaborationPage({ params }: { params: { id: string } }) {
   const router = useRouter()
@@ -18,6 +67,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  const [showWarning, setShowWarning] = useState(false)
 
   useEffect(() => {
     api.collaborators.get(collaboratorId)
@@ -91,6 +141,25 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             {form.title && <p className="text-gray-500 text-sm">{form.title}</p>}
           </div>
         </div>
+        {(() => {
+          const missing = getMissingFields(form)
+          if (missing.length === 0) return null
+          return (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowWarning(v => !v)}
+                className="p-2 rounded-xl hover:bg-amber-50 transition-colors"
+                title="Не заполнены важные поля"
+              >
+                <AlertTriangle size={20} className="text-amber-400" />
+              </button>
+              {showWarning && (
+                <WarningPopup missing={missing} onClose={() => setShowWarning(false)} />
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
