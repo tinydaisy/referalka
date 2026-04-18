@@ -49,7 +49,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     )
     sessions = await db.fetch(
         """SELECT s.*, sp.name AS speaker_name, cse.role AS speaker_role,
-                  sp.title AS speaker_title, sp.photo_url, cse.gift_title, cse.gift_url
+                  sp.title AS speaker_title, sp.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -87,8 +87,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                     "speaker_role": s["speaker_role"],
                     "speaker_title": s["speaker_title"],
                     "photo_url": s["photo_url"],
-                    "gift_title": s["gift_title"],
-                    "gift_url": s["gift_url"],
+                    "gift_title": s["gift_after_speech_title"],
+                    "gift_url": s["gift_after_speech_url"],
                 }
                 for s in day_sessions
             ]
@@ -112,8 +112,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                 "photo_url": s["photo_url"] or "",
                 "tg_channel_url": s["tg_channel_url"] or "",
                 "speaker_topic": s["speaker_topic"] or "",
-                "gift_title": s["gift_title"] or "",
-                "gift_url": s["gift_url"] or "",
+                "gift_title": s["gift_after_speech_title"] or "",
+                "gift_url": s["gift_after_speech_url"] or "",
             }
             for s in speakers
         ],
@@ -236,8 +236,10 @@ class SpeakerAddToEvent(BaseModel):
     role: str = "speaker"
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
     topics: Optional[List[str]] = None
-    gift_title: Optional[str] = None
-    gift_url: Optional[str] = None
+    gift_after_speech_title: Optional[str] = None
+    gift_after_speech_url: Optional[str] = None
+    gift_raffle_title: Optional[str] = None
+    gift_raffle_url: Optional[str] = None
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
@@ -261,8 +263,10 @@ class SpeakerCreateAndAdd(BaseModel):
     role: str = "speaker"
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
     topics: Optional[List[str]] = None
-    gift_title: Optional[str] = None
-    gift_url: Optional[str] = None
+    gift_after_speech_title: Optional[str] = None
+    gift_after_speech_url: Optional[str] = None
+    gift_raffle_title: Optional[str] = None
+    gift_raffle_url: Optional[str] = None
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
@@ -276,8 +280,10 @@ class SpeakerEventUpdate(BaseModel):
     role: Optional[str] = None
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
     topics: Optional[List[str]] = None
-    gift_title: Optional[str] = None
-    gift_url: Optional[str] = None
+    gift_after_speech_title: Optional[str] = None
+    gift_after_speech_url: Optional[str] = None
+    gift_raffle_title: Optional[str] = None
+    gift_raffle_url: Optional[str] = None
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
@@ -293,16 +299,16 @@ def _speaker_row_to_dict(row) -> dict:
 
 
 async def _load_topics(cse_ids: list, db) -> dict:
-    """Загружает темы для списка conf_speaker_events.id. Возвращает {cse_id: [topic, ...]}."""
+    """Загружает темы для списка conf_speaker_events.id. Возвращает {cse_id: [{id, topic}, ...]}."""
     if not cse_ids:
         return {}
     rows = await db.fetch(
-        "SELECT cse_id, topic FROM conf_speaker_topics WHERE cse_id = ANY($1::int[]) ORDER BY cse_id, sort_order",
+        "SELECT id, cse_id, topic FROM conf_speaker_topics WHERE cse_id = ANY($1::int[]) ORDER BY cse_id, sort_order",
         cse_ids
     )
     result: dict = {}
     for r in rows:
-        result.setdefault(r["cse_id"], []).append(r["topic"])
+        result.setdefault(r["cse_id"], []).append({"id": r["id"], "topic": r["topic"]})
     return result
 
 
@@ -326,7 +332,7 @@ async def list_event_speakers(
     await check_conference_access(event_id, int(client["sub"]), db)
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
-                  cse.speaker_topic, cse.gift_title, cse.gift_url,
+                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.poster_url, cse.partner_url, cse.extra_info,
                   cse.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
@@ -350,7 +356,7 @@ async def list_event_speakers(
 @router.get("/speakers/public", summary="Спикеры для Mini App")
 async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
-        """SELECT cse.id, cse.role, cse.speaker_topic, cse.gift_title, cse.gift_url, cse.sort_order,
+        """SELECT cse.id, cse.role, cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url, cse.sort_order,
                   sp.name, sp.title, sp.photo_url, sp.tg_channel_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -416,7 +422,8 @@ async def add_speaker_from_base(
         cse["id"]
     )
     d = dict(row)
-    d["topics"] = topics_list
+    topics_map = await _load_topics([cse["id"]], db)
+    d["topics"] = topics_map.get(cse["id"], [])
     await regenerate_landing_data(event_id, db)
     return {"speaker": d}
 
@@ -462,8 +469,8 @@ async def create_and_add_speaker(
         ref_code, data.is_commercial, data.is_visible, data.sort_order
     )
     await _save_topics(cse["id"], topics_list, db)
-
-    result = {**dict(sp), **dict(cse), "speaker_id": sp["id"], "topics": topics_list}
+    topics_map = await _load_topics([cse["id"]], db)
+    result = {**dict(sp), **dict(cse), "speaker_id": sp["id"], "topics": topics_map.get(cse["id"], [])}
     await regenerate_landing_data(event_id, db)
     return {"speaker": result}
 
@@ -579,10 +586,11 @@ async def upsert_day(
 
 class SessionCreate(BaseModel):
     speaker_id: Optional[int] = None
+    topic_id: Optional[int] = None
     day: int
     start_datetime: Optional[str] = None
     end_datetime: Optional[str] = None
-    title: str
+    title: Optional[str] = None  # если не передан — берётся из topic_id
     gift_description: Optional[str] = None
     stream_url: Optional[str] = None
     track_label: Optional[str] = None
@@ -592,6 +600,7 @@ class SessionCreate(BaseModel):
 
 class SessionUpdate(BaseModel):
     speaker_id: Optional[int] = None
+    topic_id: Optional[int] = None
     day: Optional[int] = None
     start_datetime: Optional[str] = None
     end_datetime: Optional[str] = None
@@ -629,13 +638,14 @@ async def list_sessions(
     return {"sessions": [dict(s) for s in sessions]}
 
 
+
 @router.get("/sessions/day/{day}", summary="Сессии по дню (для Mini App)")
 async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = Depends(get_db)):
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.start_datetime, s.end_datetime, s.title,
                   s.gift_description, s.stream_url, s.track_label, s.track_color,
                   col.name as speaker_name, col.title as speaker_title,
-                  col.photo_url, cse.gift_title, cse.gift_url
+                  col.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
@@ -656,12 +666,22 @@ async def create_session(
     await check_conference_access(event_id, int(client["sub"]), db)
     start_dt = datetime.fromisoformat(data.start_datetime) if data.start_datetime else None
     end_dt = datetime.fromisoformat(data.end_datetime) if data.end_datetime else None
+
+    # Если передан topic_id — берём title из темы (если title не передан явно)
+    title = data.title
+    if data.topic_id and not title:
+        row = await db.fetchrow("SELECT topic FROM conf_speaker_topics WHERE id = $1", data.topic_id)
+        if row:
+            title = row["topic"]
+    if not title:
+        raise HTTPException(status_code=422, detail="Нужно указать тему слота или выбрать тему спикера")
+
     session = await db.fetchrow(
         """INSERT INTO conf_sessions
-          (event_id, speaker_id, day, start_datetime, end_datetime, title,
+          (event_id, speaker_id, topic_id, day, start_datetime, end_datetime, title,
            gift_description, stream_url, track_label, track_color, sort_order)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *""",
-        event_id, data.speaker_id, data.day, start_dt, end_dt, data.title,
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
+        event_id, data.speaker_id, data.topic_id, data.day, start_dt, end_dt, title,
         data.gift_description, data.stream_url, data.track_label, data.track_color, data.sort_order
     )
     await regenerate_landing_data(event_id, db)
@@ -684,6 +704,13 @@ async def update_session(
                 updates[k] = datetime.fromisoformat(v)
             else:
                 updates[k] = v
+
+    # Если меняется topic_id но title не передан — обновляем title из темы
+    if "topic_id" in updates and "title" not in updates:
+        row = await db.fetchrow("SELECT topic FROM conf_speaker_topics WHERE id = $1", updates["topic_id"])
+        if row:
+            updates["title"] = row["topic"]
+
     if updates:
         set_parts = [f"{k} = ${i+3}" for i, k in enumerate(updates.keys())]
         session = await db.fetchrow(
@@ -929,7 +956,7 @@ async def generate_broadcasts_from_schedule(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
-        """SELECT s.*, spg.name AS speaker_name, cse.gift_title, cse.gift_url
+        """SELECT s.*, spg.name AS speaker_name, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators spg ON spg.id = cse.speaker_id
@@ -962,9 +989,9 @@ async def generate_broadcasts_from_schedule(
             created += 1
 
         # После выступления — подарок
-        if s["end_datetime"] and (s["gift_title"] or s.get("gift_description")):
-            gift_text = s["gift_title"] or s["gift_description"] or "Подарок"
-            gift_url = s["gift_url"] or ""
+        if s["end_datetime"] and (s["gift_after_speech_title"] or s.get("gift_description")):
+            gift_text = s["gift_after_speech_title"] or s["gift_description"] or "Подарок"
+            gift_url = s["gift_after_speech_url"] or ""
             existing2 = await db.fetchrow(
                 "SELECT id FROM conf_broadcast_messages WHERE session_id=$1 AND type='post_thanks'",
                 s["id"]

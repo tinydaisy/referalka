@@ -139,7 +139,8 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
 
   function openEdit(sp: any) {
     setEditSpeaker(sp)
-    const topics = sp.topics && sp.topics.length > 0 ? sp.topics : (sp.speaker_topic ? [sp.speaker_topic] : [''])
+    const rawTopics = sp.topics && sp.topics.length > 0 ? sp.topics : (sp.speaker_topic ? [sp.speaker_topic] : [''])
+    const topics = rawTopics.map((t: any) => typeof t === 'string' ? t : t.topic)
     setEditForm({
       role: sp.role,
       topics,
@@ -201,7 +202,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {speakers.map((sp, i) => {
             const topics: string[] = sp.topics && sp.topics.length > 0
-              ? sp.topics
+              ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
               : (sp.speaker_topic ? [sp.speaker_topic] : [])
             return (
               <div key={sp.id} className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors ${i > 0 ? 'border-t border-gray-50' : ''}`}>
