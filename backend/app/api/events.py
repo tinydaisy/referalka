@@ -232,3 +232,31 @@ async def event_analytics(
         **dict(stats),
         "top_referrers": [dict(r) for r in top]
     }
+
+
+@router.get("/{event_id}/participants", summary="Список участников события")
+async def event_participants(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    event = await db.fetchrow(
+        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+    )
+    if not event:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    rows = await db.fetch(
+        """SELECT ep.id, ep.tg_user_id, ep.ref_code, ep.points_total, ep.created_at,
+                  tu.first_name, tu.last_name, tu.username,
+                  COUNT(re.id) FILTER (WHERE re.type IN ('free','paid')) as referral_count
+           FROM event_participants ep
+           JOIN telegram_users tu ON tu.tg_id = ep.tg_user_id
+           LEFT JOIN referral_events re ON re.ref_code = ep.ref_code AND re.event_id = ep.event_id
+           WHERE ep.event_id = $1
+           GROUP BY ep.id, tu.first_name, tu.last_name, tu.username
+           ORDER BY ep.created_at DESC""",
+        event_id
+    )
+    return {"participants": [dict(r) for r in rows]}

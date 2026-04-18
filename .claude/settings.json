@@ -9,11 +9,33 @@
       "Bash(ssh -i ~/.ssh/id_rsa root@194.156.119.17 'systemctl status plusson-web.service')",
       "Bash(ssh -i:*)",
       "Bash(scp -r /Users/macbookair/Documents/projects/referalka/web/next.config.js root@194.156.119.17:/var/www/plusson/web/)",
-      "Bash(scp -i ~/.ssh/id_ed25519 /Users/macbookair/Documents/projects/referalka/web/src/app/\\\\\\(auth\\\\\\)/login/page.tsx root@194.156.119.17:/var/www/plusson/web/src/app/\\\\\\(auth\\\\\\)/login/page.tsx)"
+      "Bash(scp -i ~/.ssh/id_ed25519 /Users/macbookair/Documents/projects/referalka/web/src/app/\\\\\\(auth\\\\\\)/login/page.tsx root@194.156.119.17:/var/www/plusson/web/src/app/\\\\\\(auth\\\\\\)/login/page.tsx)",
+      "Bash(scp /Users/macbookair/Documents/projects/referalka/db/migrations/004_cleanup_conf_speakers.sql root@194.156.119.17:/tmp/)",
+      "Bash(scp /Users/macbookair/Documents/projects/referalka/db/migrations/005_speakers_drop_bio_company.sql root@194.156.119.17:/tmp/)",
+      "Bash(scp /Users/macbookair/Documents/projects/referalka/db/migrations/006_conference_subscription_mode.sql root@194.156.119.17:/tmp/)",
+      "Bash(scp /Users/macbookair/Documents/projects/referalka/db/migrations/007_rename_speakers_to_collaborators.sql root@194.156.119.17:/tmp/)",
+      "Bash(rsync -az --delete backend/app/api/collaborators.py backend/app/main.py backend/app/api/modules/conference.py root@194.156.119.17:/var/www/plusson/backend/app/api/)",
+      "Bash(rsync -az --delete backend/app/api/modules/conference.py root@194.156.119.17:/var/www/plusson/backend/app/api/modules/)",
+      "Bash(rsync -az web/src/lib/api.ts web/src/components/Sidebar.tsx root@194.156.119.17:/var/www/plusson/web/src/lib/)",
+      "Bash(rsync -az web/src/components/Sidebar.tsx root@194.156.119.17:/var/www/plusson/web/src/components/)",
+      "Bash(rsync -az web/src/app/dashboard/collaborations/page.tsx root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/collaborations/)",
+      "Bash(rsync -az web/src/app/dashboard/collaborations/new/page.tsx root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/collaborations/new/)",
+      "Bash(rsync -az 'web/src/app/dashboard/collaborations/[id]/page.tsx' 'root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/collaborations/[id]/')",
+      "Bash(rsync -az web/src/i18n/ root@194.156.119.17:/var/www/plusson/web/src/i18n/)",
+      "Bash(rsync -az web/src/contexts/ root@194.156.119.17:/var/www/plusson/web/src/contexts/)",
+      "Bash(rsync -az web/src/components/DashboardLayout.tsx web/src/components/Sidebar.tsx root@194.156.119.17:/var/www/plusson/web/src/components/)",
+      "Bash(rsync -az \"web/src/app/dashboard/page.tsx\" root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/)",
+      "Bash(rsync -az \"web/src/app/dashboard/conferences/page.tsx\" root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/conferences/)",
+      "Bash(rsync -az web/src/i18n/ru.ts web/src/i18n/en.ts root@194.156.119.17:/var/www/plusson/web/src/i18n/)",
+      "Bash(rsync -az \"web/src/app/dashboard/clients/page.tsx\" root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/clients/)",
+      "Read(//var/www/plusson/web/**)"
     ],
     "additionalDirectories": [
       "/Users/macbookair/Documents/projects/referalka",
-      "/Users/macbookair/Documents/projects/referalka/web/src/app/l"
+      "/Users/macbookair/Documents/projects/referalka/web/src/app/l",
+      "/Users/macbookair/Documents/projects/referalka/web/src/app/dashboard/speakers",
+      "/Users/macbookair/Documents/projects/referalka/web/src/app/dashboard/conferences",
+      "/Users/macbookair/Documents/projects/referalka/web/src/app/dashboard/conferences/[id]"
     ]
   }
 }

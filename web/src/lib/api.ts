@@ -41,6 +41,7 @@ export const api = {
     delete: (id: number) =>
       request(`/api/v1/events/${id}`, { method: 'DELETE' }),
     analytics: (id: number) => request(`/api/v1/events/${id}/analytics`),
+    participants: (id: number) => request(`/api/v1/events/${id}/participants`),
   },
   collaborators: {
     list: (q?: string) => request(`/api/v1/collaborators/${q ? `?q=${encodeURIComponent(q)}` : ''}`),

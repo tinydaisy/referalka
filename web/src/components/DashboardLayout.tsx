@@ -1,9 +1,11 @@
 import Sidebar from './Sidebar'
+import NavigationProgress from './NavigationProgress'
 import { LangProvider } from '@/contexts/LangContext'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <LangProvider>
+      <NavigationProgress />
       <div className="flex min-h-screen bg-gray-50">
         <Sidebar />
         <main className="flex-1 lg:ml-60 min-w-0">

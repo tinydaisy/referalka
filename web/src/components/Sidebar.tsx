@@ -20,18 +20,8 @@ export default function Sidebar() {
     {
       items: [
         { href: '/dashboard', label: t.nav.dashboard, icon: LayoutDashboard, exact: true },
-      ],
-    },
-    {
-      label: t.nav.referrals,
-      items: [
-        { href: '/dashboard/referrals', label: t.nav.myCampaigns, icon: Link2 },
-      ],
-    },
-    {
-      label: t.nav.conferences,
-      items: [
-        { href: '/dashboard/conferences', label: t.nav.myConferences, icon: Mic },
+        { href: '/dashboard/referrals', label: t.nav.referrals, icon: Link2 },
+        { href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic },
       ],
     },
     {

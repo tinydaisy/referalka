@@ -1,9 +1,9 @@
 export const ru = {
   nav: {
     dashboard: 'Дашборд',
-    referrals: 'РЕФЕРАЛКИ',
+    referrals: 'Рефералки',
     myCampaigns: 'Мои кампании',
-    conferences: 'КОНФЕРЕНЦИИ',
+    conferences: 'Конференции',
     myConferences: 'Мои конференции',
     base: 'БАЗА',
     collaborations: 'Коллаборации',
@@ -127,6 +127,9 @@ export const ru = {
       settings: 'Настройки',
       speakers: 'Спикеры',
       program: 'Программа',
+      participants: 'Участники',
+      raffle: 'Розыгрыш',
+      posters: 'Афиши',
     },
 
     header: {
@@ -153,8 +156,8 @@ export const ru = {
       subNoneDesc: 'Игра доступна сразу',
       subOrganizer: 'Только канал организатора',
       subOrganizerDesc: 'Подписка на один канал',
-      subAll: 'Каналы всех спикеров',
-      subAllDesc: 'Подписка на все каналы спикеров события',
+      subAll: 'Каналы организатора и спикеров',
+      subAllDesc: 'Подписка на все каналы спикеров и организатора события',
     },
 
     speakers: {

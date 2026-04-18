@@ -1,9 +1,9 @@
 export const en = {
   nav: {
     dashboard: 'Dashboard',
-    referrals: 'REFERRALS',
+    referrals: 'Referrals',
     myCampaigns: 'My campaigns',
-    conferences: 'CONFERENCES',
+    conferences: 'Conferences',
     myConferences: 'My conferences',
     base: 'BASE',
     collaborations: 'Collaborations',
@@ -127,6 +127,9 @@ export const en = {
       settings: 'Settings',
       speakers: 'Speakers',
       program: 'Program',
+      participants: 'Participants',
+      raffle: 'Raffle',
+      posters: 'Posters',
     },
 
     header: {
@@ -153,8 +156,8 @@ export const en = {
       subNoneDesc: 'Game is accessible immediately',
       subOrganizer: "Organizer's channel only",
       subOrganizerDesc: 'Subscribe to one channel',
-      subAll: "All speakers' channels",
-      subAllDesc: 'Subscribe to all speaker channels of the event',
+      subAll: "Organizer and speakers' channels",
+      subAllDesc: 'Subscribe to all speaker and organizer channels of the event',
     },
 
     speakers: {
