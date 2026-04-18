@@ -51,7 +51,7 @@ export const en = {
     instagram: 'Instagram',
     website: 'Website',
     contacts: 'Contacts',
-    accounts: 'Accounts & channels',
+    accounts: 'Telegram accounts & channels',
     channelId: 'Channel ID',
     personalAccountId: 'Personal account ID',
     personalAccountUsername: 'Personal account username',

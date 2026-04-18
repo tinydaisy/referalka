@@ -51,7 +51,7 @@ export const ru = {
     instagram: 'Instagram',
     website: 'Сайт',
     contacts: 'Контакты',
-    accounts: 'Аккаунты и каналы',
+    accounts: 'Telegram аккаунты и каналы',
     channelId: 'ID канала',
     personalAccountId: 'ID личного аккаунта',
     personalAccountUsername: 'Ник личного аккаунта',

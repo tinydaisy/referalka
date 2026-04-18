@@ -127,12 +127,6 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.contacts}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
-            <input type="url" value={form.telegram_url || ''} onChange={set('telegram_url')}
-              placeholder="https://t.me/username"
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-          </div>
-          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.instagram}</label>
             <input type="url" value={form.instagram_url || ''} onChange={set('instagram_url')}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
@@ -146,6 +140,12 @@ export default function CollaborationPage({ params }: { params: { id: string } }
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.accounts}</h2>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
+            <input type="url" value={form.telegram_url || ''} onChange={set('telegram_url')}
+              placeholder="https://t.me/username"
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.channelId}</label>
