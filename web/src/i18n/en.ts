@@ -45,6 +45,7 @@ export const en = {
     position: 'Position',
     achievements: 'Credentials (one per line)',
     photo: 'Photo URL',
+    posterUrl: 'Individual poster',
     photoFolder: 'Photo folder',
     videoFolder: 'Video folder',
     telegram: 'Telegram',

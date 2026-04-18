@@ -45,6 +45,7 @@ export const ru = {
     position: 'Должность',
     achievements: 'Регалии (по одной на строку)',
     photo: 'Ссылка на фото',
+    posterUrl: 'Индивидуальная афиша',
     photoFolder: 'Папка с фото',
     videoFolder: 'Папка с видео',
     telegram: 'Telegram',

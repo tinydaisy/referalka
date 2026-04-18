@@ -46,6 +46,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         title: form.title,
         achievements,
         photo_url: form.photo_url,
+        poster_url: form.poster_url,
         photo_folder_url: form.photo_folder_url,
         video_folder_url: form.video_folder_url,
         tg_channel_url: form.tg_channel_url,
@@ -123,6 +124,20 @@ export default function CollaborationPage({ params }: { params: { id: string } }
               <ImageThumb url={form.photo_url} alt={form.name} />
               {form.photo_url && (
                 <a href={form.photo_url} target="_blank" rel="noopener"
+                  className="px-3 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-brand transition-colors">
+                  <ExternalLink size={15} />
+                </a>
+              )}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.posterUrl}</label>
+            <div className="flex gap-2">
+              <input type="url" value={form.poster_url || ''} onChange={set('poster_url')} placeholder="https://..."
+                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              <ImageThumb url={form.poster_url} alt={`Афиша ${form.name}`} />
+              {form.poster_url && (
+                <a href={form.poster_url} target="_blank" rel="noopener"
                   className="px-3 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-brand transition-colors">
                   <ExternalLink size={15} />
                 </a>

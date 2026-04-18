@@ -18,6 +18,7 @@ class CollaboratorCreate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
+    poster_url: Optional[str] = None
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
@@ -34,6 +35,7 @@ class CollaboratorUpdate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
+    poster_url: Optional[str] = None
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
@@ -81,13 +83,13 @@ async def create_collaborator(
     row = await db.fetchrow(
         """INSERT INTO collaborators
            (name, title, achievements,
-            photo_url, photo_folder_url, video_folder_url,
+            photo_url, poster_url, photo_folder_url, video_folder_url,
             tg_channel_url, instagram_url, website_url,
             tg_channel_id, personal_tg_id, personal_tg_username, assistant_tg_username,
             created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
         data.name, data.title, data.achievements,
-        data.photo_url, data.photo_folder_url, data.video_folder_url,
+        data.photo_url, data.poster_url, data.photo_folder_url, data.video_folder_url,
         data.tg_channel_url, data.instagram_url, data.website_url,
         data.tg_channel_id, data.personal_tg_id, data.personal_tg_username, data.assistant_tg_username,
         int(client["sub"])

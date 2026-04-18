@@ -153,6 +153,12 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                   {sp.speaker_topic ? ` · ${sp.speaker_topic}` : ''}
                 </p>
               </div>
+              {sp.poster_url && (
+                <div className="w-8 shrink-0">
+                  <ImageThumb url={sp.poster_url} alt={`Афиша ${sp.name}`}
+                    className="w-8 h-12 rounded overflow-hidden block bg-gray-100" />
+                </div>
+              )}
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
                 <button onClick={() => openEdit(sp)}
                   className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">

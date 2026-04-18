@@ -302,7 +302,7 @@ async def list_event_speakers(
                   cse.poster_url, cse.partner_url, cse.extra_info,
                   cse.ref_code, cse.is_visible, cse.sort_order,
                   sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
+                  sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -362,7 +362,7 @@ async def add_speaker_from_base(
     # Возвращаем с данными из глобальной базы
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
+                  sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
@@ -431,7 +431,7 @@ async def update_speaker_event(
         )
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.photo_folder_url, sp.video_folder_url,
+                  sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM conf_speaker_events cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
