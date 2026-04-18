@@ -23,6 +23,10 @@ class CollaboratorCreate(BaseModel):
     telegram_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
+    channel_id: Optional[str] = None
+    personal_account_id: Optional[str] = None
+    personal_account_username: Optional[str] = None
+    assistant_account: Optional[str] = None
 
 
 class CollaboratorUpdate(BaseModel):
@@ -35,6 +39,10 @@ class CollaboratorUpdate(BaseModel):
     telegram_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
+    channel_id: Optional[str] = None
+    personal_account_id: Optional[str] = None
+    personal_account_username: Optional[str] = None
+    assistant_account: Optional[str] = None
 
 
 @router.get("/", summary="Список коллабораций клиента")
@@ -67,11 +75,14 @@ async def create_collaborator(
         """INSERT INTO collaborators
            (name, title, achievements,
             photo_url, photo_folder_url, video_folder_url,
-            telegram_url, instagram_url, website_url, created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *""",
+            telegram_url, instagram_url, website_url,
+            channel_id, personal_account_id, personal_account_username, assistant_account,
+            created_by_client_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
         data.name, data.title, data.achievements,
         data.photo_url, data.photo_folder_url, data.video_folder_url,
         data.telegram_url, data.instagram_url, data.website_url,
+        data.channel_id, data.personal_account_id, data.personal_account_username, data.assistant_account,
         int(client["sub"])
     )
     # Возвращаем с ключом speaker для совместимости с conference module
