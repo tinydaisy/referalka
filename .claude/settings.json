@@ -28,7 +28,8 @@
       "Bash(rsync -az \"web/src/app/dashboard/conferences/page.tsx\" root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/conferences/)",
       "Bash(rsync -az web/src/i18n/ru.ts web/src/i18n/en.ts root@194.156.119.17:/var/www/plusson/web/src/i18n/)",
       "Bash(rsync -az \"web/src/app/dashboard/clients/page.tsx\" root@194.156.119.17:/var/www/plusson/web/src/app/dashboard/clients/)",
-      "Read(//var/www/plusson/web/**)"
+      "Read(//var/www/plusson/web/**)",
+      "Bash(ssh -tt root@194.156.119.17 \"cd /var/www/plusson/web && export NODE_OPTIONS='--max-old-space-size=512' && npm run build 2>&1; echo 'BUILD_DONE'\")"
     ],
     "additionalDirectories": [
       "/Users/macbookair/Documents/projects/referalka",

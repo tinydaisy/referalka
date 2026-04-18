@@ -58,7 +58,7 @@ export default function ParticipantsTab({ eventId }: { eventId: number }) {
             </div>
             <div className="text-right shrink-0">
               <p className="text-xs text-gray-400">
-                {p.created_at ? new Date(p.created_at).toLocaleDateString('ru') : ''}
+                {p.registered_at ? new Date(p.registered_at).toLocaleDateString('ru') : ''}
               </p>
               {p.referral_count > 0 && (
                 <p className="text-xs text-brand font-medium">

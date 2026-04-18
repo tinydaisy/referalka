@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Plus, User, Trash2 } from 'lucide-react'
+import { Plus, User, Trash2, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -25,7 +25,9 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
   const ts = t.conferences.speakers
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [modal, setModal] = useState<'new' | 'base' | null>(null)
+  const [modal, setModal] = useState<'new' | 'base' | 'edit' | null>(null)
+  const [editSpeaker, setEditSpeaker] = useState<any>(null)
+  const [editForm, setEditForm] = useState({ role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '' })
   const [form, setForm] = useState({ name: '', role: 'speaker', speaker_topic: '', gift_title: '', gift_url: '' })
   const [baseQuery, setBaseQuery] = useState('')
   const [baseList, setBaseList] = useState<any[]>([])
@@ -79,6 +81,22 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
     load()
   }
 
+  function openEdit(sp: any) {
+    setEditSpeaker(sp)
+    setEditForm({ role: sp.role, speaker_topic: sp.speaker_topic || '', gift_title: sp.gift_title || '', gift_url: sp.gift_url || '' })
+    setModal('edit')
+  }
+
+  async function saveEdit() {
+    if (!editSpeaker) return
+    setSaving(true)
+    try {
+      await api.conference.speakers.update(eventId, editSpeaker.id, editForm)
+      setModal(null); setEditSpeaker(null)
+      load()
+    } catch (err: any) { alert(err.message) } finally { setSaving(false) }
+  }
+
   const setF = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
   const setBF = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -127,10 +145,16 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                 <p className="font-medium text-gray-900 text-sm truncate">{sp.name}</p>
                 <p className="text-xs text-gray-400">{ts.roles[sp.role as keyof typeof ts.roles] || sp.role}{sp.speaker_topic ? ` · ${sp.speaker_topic}` : ''}</p>
               </div>
-              <button onClick={() => remove(sp.id, sp.name)}
-                className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
-                <Trash2 size={14} />
-              </button>
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                <button onClick={() => openEdit(sp)}
+                  className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">
+                  <Pencil size={14} />
+                </button>
+                <button onClick={() => remove(sp.id, sp.name)}
+                  className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -237,6 +261,39 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
               </div>
             </>
           )}
+        </Modal>
+      )}
+
+      {modal === 'edit' && editSpeaker && (
+        <Modal title={editSpeaker.name} onClose={() => { setModal(null); setEditSpeaker(null) }}>
+          <div className="space-y-3">
+            <div>
+              <label className="label">{ts.newModal.role}</label>
+              {roleSelect(editForm.role, (e: any) => setEditForm(f => ({ ...f, role: e.target.value })))}
+            </div>
+            <div>
+              <label className="label">{ts.newModal.topic}</label>
+              <input type="text" value={editForm.speaker_topic}
+                onChange={e => setEditForm(f => ({ ...f, speaker_topic: e.target.value }))} className="input" />
+            </div>
+            <div>
+              <label className="label">{ts.newModal.giftTitle}</label>
+              <input type="text" value={editForm.gift_title}
+                onChange={e => setEditForm(f => ({ ...f, gift_title: e.target.value }))} className="input" />
+            </div>
+            <div>
+              <label className="label">{ts.newModal.giftUrl}</label>
+              <input type="url" value={editForm.gift_url}
+                onChange={e => setEditForm(f => ({ ...f, gift_url: e.target.value }))} className="input" placeholder="https://..." />
+            </div>
+          </div>
+          <div className="flex gap-3 mt-5">
+            <button onClick={saveEdit} disabled={saving}
+              className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
+              {saving ? <><Spinner /> {t.common.saving}</> : t.common.save}
+            </button>
+            <button onClick={() => { setModal(null); setEditSpeaker(null) }} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
+          </div>
         </Modal>
       )}
     </div>

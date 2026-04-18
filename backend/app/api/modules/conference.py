@@ -109,8 +109,6 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                 "name": s["name"],
                 "role": s["role"],
                 "title": s["title"] or "",
-                "company": s["company"] or "",
-                "bio": s["bio"] or "",
                 "photo_url": s["photo_url"] or "",
                 "telegram_url": s["telegram_url"] or "",
                 "speaker_topic": s["speaker_topic"] or "",

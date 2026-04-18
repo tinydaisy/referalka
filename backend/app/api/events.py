@@ -248,7 +248,7 @@ async def event_participants(
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     rows = await db.fetch(
-        """SELECT ep.id, ep.tg_user_id, ep.ref_code, ep.points_total, ep.created_at,
+        """SELECT ep.id, ep.tg_user_id, ep.ref_code, ep.points_total, ep.registered_at,
                   tu.first_name, tu.last_name, tu.username,
                   COUNT(re.id) FILTER (WHERE re.type IN ('free','paid')) as referral_count
            FROM event_participants ep
@@ -256,7 +256,7 @@ async def event_participants(
            LEFT JOIN referral_events re ON re.ref_code = ep.ref_code AND re.event_id = ep.event_id
            WHERE ep.event_id = $1
            GROUP BY ep.id, tu.first_name, tu.last_name, tu.username
-           ORDER BY ep.created_at DESC""",
+           ORDER BY ep.registered_at DESC""",
         event_id
     )
     return {"participants": [dict(r) for r in rows]}
