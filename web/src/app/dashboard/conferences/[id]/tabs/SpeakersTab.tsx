@@ -78,8 +78,13 @@ function hasNoTopics(sp: any): boolean {
   return topics.length === 0 || topics.every(t => !t.trim())
 }
 
-function hasNoGift(sp: any): boolean {
-  return !sp.gift_after_broadcast?.trim() && !sp.gift_for_raffle?.trim() && !sp.gift_title?.trim()
+function getMissingGiftLabels(sp: any): string[] {
+  const missing: string[] = []
+  if (!sp.gift_after_speech_title?.trim()) missing.push('нет названия подарка после эфира')
+  if (!sp.gift_after_speech_url?.trim()) missing.push('нет ссылки подарка после эфира')
+  if (!sp.gift_raffle_title?.trim()) missing.push('нет названия подарка розыгрыша')
+  if (!sp.gift_raffle_url?.trim()) missing.push('нет ссылки на подарок розыгрыша')
+  return missing
 }
 
 export default function SpeakersTab({ eventId }: { eventId: number }) {
@@ -232,9 +237,9 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                     {ts.roles[sp.role as keyof typeof ts.roles] || sp.role}
                     {sp.is_commercial && <span className="ml-1 text-amber-500">· коммерч.</span>}
                   </p>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <div className="mt-0.5">
                     {topics.length > 0 ? (
-                      <div className="space-y-0.5 flex-1 min-w-0">
+                      <div className="space-y-0.5">
                         {topics.map((topic, ti) => (
                           <p key={ti} className="text-xs text-gray-500 truncate">
                             {topics.length > 1 && <span className="text-gray-300 mr-1">{ti + 1}.</span>}
@@ -244,14 +249,14 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                       </div>
                     ) : (
                       <span className="flex items-center gap-0.5 text-xs text-amber-500">
-                        <AlertTriangle size={11} /> нет темы
+                        <AlertTriangle size={11} /> нет темы выступления
                       </span>
                     )}
-                    {hasNoGift(sp) && (
-                      <span className="flex items-center gap-0.5 text-xs text-amber-500 shrink-0">
-                        <AlertTriangle size={11} /> нет подарка
+                    {getMissingGiftLabels(sp).map(label => (
+                      <span key={label} className="flex items-center gap-0.5 text-xs text-amber-500">
+                        <AlertTriangle size={11} /> {label}
                       </span>
-                    )}
+                    ))}
                   </div>
                 </div>
                 {sp.poster_url && (

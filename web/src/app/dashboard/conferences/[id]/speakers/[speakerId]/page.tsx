@@ -21,12 +21,6 @@ const PROFILE_FIELDS: { key: string; label: string }[] = [
   { key: 'personal_tg_username', label: 'Ник личного аккаунта' },
 ]
 
-// Поля выступления
-const EVENT_FIELDS: { key: string; label: string }[] = [
-  { key: 'topics', label: 'Тема выступления' },
-  { key: 'gift_title', label: 'Подарок после эфира' },
-]
-
 function getMissingProfileFields(form: any): string[] {
   return PROFILE_FIELDS
     .filter(f => {
@@ -37,17 +31,18 @@ function getMissingProfileFields(form: any): string[] {
     .map(f => f.label)
 }
 
-function getMissingEventFields(eventData: any): string[] {
-  return EVENT_FIELDS
-    .filter(f => {
-      const v = eventData[f.key]
-      if (f.key === 'topics') {
-        if (!Array.isArray(v) || v.length === 0) return true
-        return v.every((t: any) => !String(typeof t === 'string' ? t : t.topic || '').trim())
-      }
-      return !v || String(v).trim() === ''
-    })
-    .map(f => f.label)
+function getMissingEventFields(form: any): string[] {
+  const missing: string[] = []
+
+  const hasTopics = form.topics?.length > 0 && form.topics.some((t: string) => t.trim())
+  if (!hasTopics) missing.push('Тема выступления')
+
+  if (!form.gift_after_speech_title?.trim()) missing.push('Название подарка после эфира')
+  if (!form.gift_after_speech_url?.trim()) missing.push('Ссылка на подарок после эфира')
+  if (!form.gift_raffle_title?.trim()) missing.push('Название подарка розыгрыша')
+  if (!form.gift_raffle_url?.trim()) missing.push('Ссылка на подарок розыгрыша')
+
+  return missing
 }
 
 function WarningPopup({ missing, onClose }: { missing: string[]; onClose: () => void }) {
@@ -106,6 +101,16 @@ function TopicsEditor({ topics, onChange }: { topics: string[]; onChange: (topic
   )
 }
 
+/** Поле с иконкой предупреждения рядом с лейблом */
+function FieldLabel({ label, empty }: { label: string; empty: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-1.5">
+      <span className="block text-sm font-medium text-gray-700">{label}</span>
+      {empty && <AlertTriangle size={13} className="text-amber-400 shrink-0" />}
+    </div>
+  )
+}
+
 export default function ConferenceSpeakerPage() {
   const router = useRouter()
   const { id, speakerId } = useParams()
@@ -113,21 +118,16 @@ export default function ConferenceSpeakerPage() {
   const speakerEventId = Number(speakerId)
   const { t } = useLang()
 
-  // Профиль спикера (глобальный)
   const [profile, setProfile] = useState<any>(null)
   const [achievementsText, setAchievementsText] = useState('')
 
-  // Данные выступления в этой конференции
-  const [eventData, setEventData] = useState<any>(null)
   const [eventForm, setEventForm] = useState({
     role: 'speaker',
     topics: [''],
-    gift_title: '',
-    gift_url: '',
-    gift_after_broadcast: '',
-    gift_after_broadcast_url: '',
-    gift_for_raffle: '',
-    gift_for_raffle_url: '',
+    gift_after_speech_title: '',
+    gift_after_speech_url: '',
+    gift_raffle_title: '',
+    gift_raffle_url: '',
     is_commercial: false,
   })
 
@@ -140,31 +140,26 @@ export default function ConferenceSpeakerPage() {
   const [showWarning, setShowWarning] = useState(false)
 
   useEffect(() => {
-    // Сначала загружаем список спикеров конференции, чтобы найти speaker_id по speakerEventId
     api.conference.speakers.list(confId)
       .then(r => {
         const speakers = r.speakers || []
         const sp = speakers.find((s: any) => s.id === speakerEventId)
         if (!sp) { router.push(`/dashboard/conferences/${confId}?tab=speakers`); return }
 
-        // Данные выступления
-        setEventData(sp)
         const rawTopics = sp.topics && sp.topics.length > 0
           ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
           : (sp.speaker_topic ? [sp.speaker_topic] : [''])
+
         setEventForm({
           role: sp.role || 'speaker',
-          topics: rawTopics,
-          gift_title: sp.gift_title || '',
-          gift_url: sp.gift_url || '',
-          gift_after_broadcast: sp.gift_after_broadcast || '',
-          gift_after_broadcast_url: sp.gift_after_broadcast_url || '',
-          gift_for_raffle: sp.gift_for_raffle || '',
-          gift_for_raffle_url: sp.gift_for_raffle_url || '',
+          topics: rawTopics.length > 0 ? rawTopics : [''],
+          gift_after_speech_title: sp.gift_after_speech_title || '',
+          gift_after_speech_url: sp.gift_after_speech_url || '',
+          gift_raffle_title: sp.gift_raffle_title || '',
+          gift_raffle_url: sp.gift_raffle_url || '',
           is_commercial: sp.is_commercial || false,
         })
 
-        // Загружаем глобальный профиль
         return api.collaborators.get(sp.speaker_id)
       })
       .then(r => {
@@ -215,12 +210,10 @@ export default function ConferenceSpeakerPage() {
       await api.conference.speakers.update(confId, speakerEventId, {
         role: eventForm.role,
         topics,
-        gift_title: eventForm.gift_title,
-        gift_url: eventForm.gift_url,
-        gift_after_broadcast: eventForm.gift_after_broadcast,
-        gift_after_broadcast_url: eventForm.gift_after_broadcast_url,
-        gift_for_raffle: eventForm.gift_for_raffle,
-        gift_for_raffle_url: eventForm.gift_for_raffle_url,
+        gift_after_speech_title: eventForm.gift_after_speech_title,
+        gift_after_speech_url: eventForm.gift_after_speech_url,
+        gift_raffle_title: eventForm.gift_raffle_title,
+        gift_raffle_url: eventForm.gift_raffle_url,
         is_commercial: eventForm.is_commercial,
       })
       setEventSaved(true)
@@ -244,10 +237,10 @@ export default function ConferenceSpeakerPage() {
       </div>
     )
   }
-  if (!profile || !eventData) return null
+  if (!profile) return null
 
   const missingProfile = getMissingProfileFields(profile)
-  const missingEvent = getMissingEventFields({ ...eventData, topics: eventForm.topics })
+  const missingEvent = getMissingEventFields(eventForm)
   const allMissing = [...missingProfile, ...missingEvent]
 
   return (
@@ -283,7 +276,7 @@ export default function ConferenceSpeakerPage() {
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">{error}</div>
       )}
 
-      {/* ── БЛОК 1: Данные выступления в этой конференции ── */}
+      {/* ── БЛОК 1: Данные выступления ── */}
       <form onSubmit={saveEvent} className="space-y-4 mb-8">
         <h2 className="font-bold text-gray-900 text-lg">Выступление в этой конференции</h2>
 
@@ -299,12 +292,7 @@ export default function ConferenceSpeakerPage() {
           </div>
 
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <label className="label mb-0">Темы выступления</label>
-              {getMissingEventFields({ topics: eventForm.topics }).includes('Тема выступления') && (
-                <AlertTriangle size={13} className="text-amber-400 shrink-0" />
-              )}
-            </div>
+            <FieldLabel label="Темы выступления" empty={!eventForm.topics.some(t => t.trim())} />
             <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))} />
           </div>
 
@@ -316,41 +304,32 @@ export default function ConferenceSpeakerPage() {
           </label>
         </div>
 
-        {/* Подарки */}
+        {/* Подарок после эфира */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <h3 className="font-semibold text-gray-900 text-sm">Подарки</h3>
-
+          <h3 className="font-semibold text-gray-900 text-sm">Подарок после эфира</h3>
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <label className="label mb-0">Подарок после эфира</label>
-              {!eventForm.gift_after_broadcast.trim() && (
-                <AlertTriangle size={13} className="text-amber-400 shrink-0" />
-              )}
-            </div>
-            <input type="text" value={eventForm.gift_after_broadcast} onChange={setEF('gift_after_broadcast')}
-              placeholder="Название подарка..." className="input mb-2" />
-            <input type="url" value={eventForm.gift_after_broadcast_url} onChange={setEF('gift_after_broadcast_url')}
-              placeholder="https://... (ссылка на подарок)" className="input" />
+            <FieldLabel label="Название" empty={!eventForm.gift_after_speech_title.trim()} />
+            <input type="text" value={eventForm.gift_after_speech_title} onChange={setEF('gift_after_speech_title')}
+              placeholder="Например: Чек-лист по нутрициологии" className="input" />
           </div>
-
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <label className="label mb-0">Подарок для розыгрыша</label>
-              {!eventForm.gift_for_raffle.trim() && (
-                <AlertTriangle size={13} className="text-amber-400 shrink-0" />
-              )}
-            </div>
-            <input type="text" value={eventForm.gift_for_raffle} onChange={setEF('gift_for_raffle')}
-              placeholder="Название подарка..." className="input mb-2" />
-            <input type="url" value={eventForm.gift_for_raffle_url} onChange={setEF('gift_for_raffle_url')}
-              placeholder="https://... (ссылка на подарок)" className="input" />
+            <FieldLabel label="Ссылка" empty={!eventForm.gift_after_speech_url.trim()} />
+            <input type="url" value={eventForm.gift_after_speech_url} onChange={setEF('gift_after_speech_url')}
+              placeholder="https://..." className="input" />
           </div>
+        </div>
 
+        {/* Подарок для розыгрыша */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+          <h3 className="font-semibold text-gray-900 text-sm">Подарок для розыгрыша</h3>
           <div>
-            <label className="label">Общий подарок (legacy)</label>
-            <input type="text" value={eventForm.gift_title} onChange={setEF('gift_title')}
-              placeholder="Название подарка..." className="input mb-2" />
-            <input type="url" value={eventForm.gift_url} onChange={setEF('gift_url')}
+            <FieldLabel label="Название" empty={!eventForm.gift_raffle_title.trim()} />
+            <input type="text" value={eventForm.gift_raffle_title} onChange={setEF('gift_raffle_title')}
+              placeholder="Например: Консультация 1:1" className="input" />
+          </div>
+          <div>
+            <FieldLabel label="Ссылка" empty={!eventForm.gift_raffle_url.trim()} />
+            <input type="url" value={eventForm.gift_raffle_url} onChange={setEF('gift_raffle_url')}
               placeholder="https://..." className="input" />
           </div>
         </div>
