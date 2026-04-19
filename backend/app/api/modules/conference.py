@@ -1475,12 +1475,15 @@ async def export_salebot(
     db: asyncpg.Connection = Depends(get_db)
 ):
     from fastapi.responses import Response
+    from urllib.parse import quote
+    import json as _json
     await check_conference_access(event_id, int(client["sub"]), db)
 
     event = await db.fetchrow("SELECT * FROM events WHERE id = $1", event_id)
     conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
+    organizer_cse_id = conf["organizer_speaker_id"] if conf else None
 
-    # Спикеры с темами (регалиями)
+    # Спикеры
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.role,
                   cse.gift_after_speech_title, cse.gift_raffle_title,
@@ -1495,22 +1498,24 @@ async def export_salebot(
     )
     topics_map = await _load_topics([r["id"] for r in rows], db)
 
-    # Программа: дни + сессии
+    # Дни + сессии: время читаем как локальное (AT TIME ZONE 'UTC' снимает tzinfo)
     days = await db.fetch(
         "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
     )
     sessions = await db.fetch(
-        """SELECT s.*, sp.name AS speaker_name, cse.role AS speaker_role,
-                  cse.gift_raffle_title
+        """SELECT s.id, s.day, s.sort_order, s.title,
+                  (s.start_datetime AT TIME ZONE 'UTC') AS start_local,
+                  (s.end_datetime   AT TIME ZONE 'UTC') AS end_local,
+                  sp.name AS speaker_name, cse.role AS speaker_role
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
-           WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_datetime""",
+           WHERE s.event_id = $1
+           ORDER BY s.day, s.sort_order, s.start_datetime""",
         event_id
     )
 
-    # organizer_speaker_id для определения организатора
-    organizer_cse_id = conf["organizer_speaker_id"] if conf else None
+    speakers_list = [dict(r) for r in rows]
 
     def fmt_time(val):
         if val is None:
@@ -1528,35 +1533,43 @@ async def export_salebot(
             return f"{val.day} {months[val.month - 1]}"
         return str(val)
 
+    # Разбиваем спикеров на группы для каналов
+    def split_by_role(sp_list, role_key="role"):
+        organizer_ids = set()
+        if organizer_cse_id:
+            org = next((s for s in sp_list if s["id"] == organizer_cse_id), None)
+            if org:
+                organizer_ids.add(org["id"])
+        organizers = [s for s in sp_list if s["id"] in organizer_ids]
+        partners = [s for s in sp_list if s["id"] not in organizer_ids and s.get("role") == "partner"]
+        others = [s for s in sp_list if s["id"] not in organizer_ids and s.get("role") != "partner"]
+        return organizers, others, partners
+
     lines = []
 
     # ─── ИНФО О СПИКЕРАХ ───
     lines.append("ИНФО О СПИКЕРАХ:")
     lines.append("")
 
-    speakers_list = [dict(r) for r in rows]
     for i, sp in enumerate(speakers_list):
-        lines.append(f"{sp['name']}")
+        lines.append(sp["name"])
 
-        tg = sp.get("tg_channel_url") or ""
-        if tg.strip():
-            lines.append(f"(Ссылка на тг канал: {tg.strip()})")
+        tg = (sp.get("tg_channel_url") or "").strip()
+        if tg:
+            lines.append(f"(Ссылка на тг канал: {tg})")
         else:
             lines.append("(Ссылка на тг канал: —)")
 
         lines.append("")
-
         lines.append("Тема лекции:")
-        lines.append("")
 
-        # Регалии из topics или achievements
+        # Регалии: точка по центру · (U+00B7)
         sp_topics = topics_map.get(sp["id"], [])
         if sp_topics:
             achievements_list = [t["topic"] for t in sp_topics if t["topic"].strip()]
         else:
             raw = sp.get("achievements") or []
             if isinstance(raw, str):
-                import json as _json
                 try:
                     raw = _json.loads(raw)
                 except Exception:
@@ -1565,9 +1578,9 @@ async def export_salebot(
 
         if achievements_list:
             for ach in achievements_list:
-                lines.append(f"• {ach}")
+                lines.append(f"· {ach}")
         else:
-            lines.append("• (регалии уточняются)")
+            lines.append("· (регалии уточняются)")
 
         lines.append("")
 
@@ -1601,13 +1614,13 @@ async def export_salebot(
 
         day_sessions = [s for s in sessions if s["day"] == day_num]
         for s in day_sessions:
-            t_start = fmt_time(s["start_datetime"])
-            t_end = fmt_time(s["end_datetime"])
+            t_start = fmt_time(s["start_local"])
+            t_end = fmt_time(s["end_local"])
             time_part = f"{t_start} - {t_end}: " if (t_start or t_end) else ""
             title_part = s["title"] or ""
             sp_name = s.get("speaker_name") or ""
             sp_role = (s.get("speaker_role") or "").strip()
-            show_role = sp_role in ("headliner", "partner", "хедлайнер", "партнер")
+            show_role = sp_role in ("headliner", "partner")
             if sp_name and show_role:
                 person_part = f" ({sp_name} - {sp_role})"
             elif sp_name:
@@ -1624,71 +1637,60 @@ async def export_salebot(
     lines.append("ПОДАРКИ ДЛЯ РОЗЫГРЫША")
     lines.append("")
 
-    raffle_speakers = [(sp["name"], sp["gift_raffle_title"]) for sp in speakers_list if (sp.get("gift_raffle_title") or "").strip()]
-    for idx, (sp_name, gift_title) in enumerate(raffle_speakers, 1):
+    raffle_items = [(sp["name"], sp["gift_raffle_title"]) for sp in speakers_list if (sp.get("gift_raffle_title") or "").strip()]
+    for idx, (sp_name, gift_title) in enumerate(raffle_items, 1):
         lines.append(f"{idx}.{gift_title} ({sp_name})")
 
     lines.append("")
     lines.append("—")
 
     # ─── КАНАЛЫ НА ПОДПИСКУ ───
+    # Организаторы первыми, партнёры отдельно в конце
+    organizers_sp, others_sp, partners_sp = split_by_role(speakers_list)
+
     lines.append("Список каналов на подписку :")
     lines.append("")
 
-    # Организатор всегда первый
-    channel_entries = []
-    organizer_added = set()
-
-    # Ищем организатора по organizer_cse_id
-    if organizer_cse_id:
-        org = next((sp for sp in speakers_list if sp["id"] == organizer_cse_id), None)
-        if org and (org.get("tg_channel_url") or "").strip():
-            channel_entries.append((org["name"], org["tg_channel_url"].strip()))
-            organizer_added.add(org["id"])
-
-    for sp in speakers_list:
-        if sp["id"] in organizer_added:
-            continue
+    main_channel_list = organizers_sp + others_sp
+    idx = 1
+    for sp in main_channel_list:
         tg = (sp.get("tg_channel_url") or "").strip()
         if tg:
-            channel_entries.append((sp["name"], tg))
+            lines.append(f"{idx}.{sp['name']}: {tg}")
+            idx += 1
 
-    for idx, (sp_name, tg_url) in enumerate(channel_entries, 1):
-        lines.append(f"{idx}.{sp_name}: {tg_url}")
+    partner_channels = [(sp["name"], (sp.get("tg_channel_url") or "").strip()) for sp in partners_sp if (sp.get("tg_channel_url") or "").strip()]
+    if partner_channels:
+        lines.append("")
+        lines.append("Партнёры:")
+        for pidx, (sp_name, tg_url) in enumerate(partner_channels, 1):
+            lines.append(f"{pidx}.{sp_name}: {tg_url}")
 
     lines.append("")
     lines.append("—")
 
-    # ─── СПИСОК ID КАНАЛОВ СПИКЕРОВ ───
+    # ─── СПИСОК ID КАНАЛОВ ───
     lines.append("Список id каналов спикеров")
     lines.append("")
 
-    id_entries = []
-    if organizer_cse_id:
-        org = next((sp for sp in speakers_list if sp["id"] == organizer_cse_id), None)
-        if org and (org.get("tg_channel_id") or "").strip():
-            id_entries.append((org["name"], org["tg_channel_id"].strip()))
-            organizer_id_added = {org["id"]}
-        else:
-            organizer_id_added = set()
-    else:
-        organizer_id_added = set()
-
-    for sp in speakers_list:
-        if sp["id"] in organizer_id_added:
-            continue
+    idx = 1
+    for sp in main_channel_list:
         ch_id = (sp.get("tg_channel_id") or "").strip()
         if ch_id:
-            id_entries.append((sp["name"], ch_id))
+            lines.append(f"{idx}.{sp['name']}: {ch_id}")
+            idx += 1
 
-    for idx, (sp_name, ch_id) in enumerate(id_entries, 1):
-        lines.append(f"{idx}.{sp_name}: {ch_id}")
+    partner_ids = [(sp["name"], (sp.get("tg_channel_id") or "").strip()) for sp in partners_sp if (sp.get("tg_channel_id") or "").strip()]
+    if partner_ids:
+        lines.append("")
+        lines.append("Партнёры:")
+        for pidx, (sp_name, ch_id) in enumerate(partner_ids, 1):
+            lines.append(f"{pidx}.{sp_name}: {ch_id}")
 
     text = "\n".join(lines)
 
     slug = event["slug"] if event and event.get("slug") else str(event_id)
     filename = f"{slug}_info.txt"
-    from urllib.parse import quote
     encoded_filename = quote(filename, safe="")
 
     return Response(
