@@ -1486,7 +1486,7 @@ async def export_salebot(
                   cse.gift_after_speech_title, cse.gift_raffle_title,
                   cse.sort_order, cse.is_visible,
                   sp.name, sp.title, sp.achievements,
-                  sp.tg_channel_url
+                  sp.tg_channel_url, sp.tg_channel_id
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
@@ -1655,6 +1655,34 @@ async def export_salebot(
 
     for idx, (sp_name, tg_url) in enumerate(channel_entries, 1):
         lines.append(f"{idx}.{sp_name}: {tg_url}")
+
+    lines.append("")
+    lines.append("—")
+
+    # ─── СПИСОК ID КАНАЛОВ СПИКЕРОВ ───
+    lines.append("Список id каналов спикеров")
+    lines.append("")
+
+    id_entries = []
+    if organizer_cse_id:
+        org = next((sp for sp in speakers_list if sp["id"] == organizer_cse_id), None)
+        if org and (org.get("tg_channel_id") or "").strip():
+            id_entries.append((org["name"], org["tg_channel_id"].strip()))
+            organizer_id_added = {org["id"]}
+        else:
+            organizer_id_added = set()
+    else:
+        organizer_id_added = set()
+
+    for sp in speakers_list:
+        if sp["id"] in organizer_id_added:
+            continue
+        ch_id = (sp.get("tg_channel_id") or "").strip()
+        if ch_id:
+            id_entries.append((sp["name"], ch_id))
+
+    for idx, (sp_name, ch_id) in enumerate(id_entries, 1):
+        lines.append(f"{idx}.{sp_name}: {ch_id}")
 
     text = "\n".join(lines)
 
