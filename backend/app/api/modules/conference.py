@@ -1563,18 +1563,25 @@ async def export_salebot(
         lines.append("")
         lines.append("Тема лекции:")
 
-        # Регалии: точка по центру · (U+00B7)
+        # Темы лекции из conf_speaker_topics
         sp_topics = topics_map.get(sp["id"], [])
-        if sp_topics:
-            achievements_list = [t["topic"] for t in sp_topics if t["topic"].strip()]
+        topic_texts = [t["topic"] for t in sp_topics if t["topic"].strip()]
+        if topic_texts:
+            for topic in topic_texts:
+                lines.append(topic)
         else:
-            raw = sp.get("achievements") or []
-            if isinstance(raw, str):
-                try:
-                    raw = _json.loads(raw)
-                except Exception:
-                    raw = [raw] if raw.strip() else []
-            achievements_list = [a for a in raw if str(a).strip()]
+            lines.append("уточняется")
+
+        lines.append("")
+
+        # Регалии из achievements · (точка по центру U+00B7)
+        raw = sp.get("achievements") or []
+        if isinstance(raw, str):
+            try:
+                raw = _json.loads(raw)
+            except Exception:
+                raw = [raw] if raw.strip() else []
+        achievements_list = [a for a in raw if str(a).strip()]
 
         if achievements_list:
             for ach in achievements_list:
