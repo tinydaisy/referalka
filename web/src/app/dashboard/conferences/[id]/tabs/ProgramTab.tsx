@@ -210,8 +210,8 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                   {daySessions.map((s: any) => (
                     <div key={s.id} className="flex items-start gap-3 group py-1.5">
                       <span className="text-xs text-gray-400 w-24 shrink-0 pt-0.5 font-mono">
-                        {s.start_datetime ? new Date(s.start_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '—:——'}
-                        {s.end_datetime ? ` — ${new Date(s.end_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        {s.start_datetime ? new Date(s.start_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : '—:——'}
+                        {s.end_datetime ? ` — ${new Date(s.end_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}` : ''}
                       </span>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-900">{s.title}</p>
