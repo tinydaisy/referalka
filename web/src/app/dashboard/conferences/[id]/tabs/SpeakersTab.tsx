@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, User, Trash2, Pencil, X } from 'lucide-react'
+import { Plus, User, Trash2, Pencil, X, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -70,6 +70,17 @@ function TopicsEditor({ topics, onChange }: { topics: string[]; onChange: (topic
 }
 
 const emptyEventForm = { role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false }
+
+function hasNoTopics(sp: any): boolean {
+  const topics: string[] = sp.topics && sp.topics.length > 0
+    ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
+    : (sp.speaker_topic ? [sp.speaker_topic] : [])
+  return topics.length === 0 || topics.every(t => !t.trim())
+}
+
+function hasNoGift(sp: any): boolean {
+  return !sp.gift_after_broadcast?.trim() && !sp.gift_for_raffle?.trim() && !sp.gift_title?.trim()
+}
 
 export default function SpeakersTab({ eventId }: { eventId: number }) {
   const { t } = useLang()
@@ -212,23 +223,36 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                     : <User size={16} className="text-gray-400" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <Link href={`/dashboard/collaborations/${sp.speaker_id}`} className="font-medium text-gray-900 text-sm truncate hover:text-brand transition-colors">
-                    {sp.name}
-                  </Link>
+                  <div className="flex items-center gap-1.5">
+                    <Link href={`/dashboard/conferences/${eventId}/speakers/${sp.id}`} className="font-medium text-gray-900 text-sm truncate hover:text-brand transition-colors">
+                      {sp.name}
+                    </Link>
+                  </div>
                   <p className="text-xs text-gray-400">
                     {ts.roles[sp.role as keyof typeof ts.roles] || sp.role}
                     {sp.is_commercial && <span className="ml-1 text-amber-500">· коммерч.</span>}
                   </p>
-                  {topics.length > 0 && (
-                    <div className="mt-0.5 space-y-0.5">
-                      {topics.map((topic, ti) => (
-                        <p key={ti} className="text-xs text-gray-500 truncate">
-                          {topics.length > 1 && <span className="text-gray-300 mr-1">{ti + 1}.</span>}
-                          {topic}
-                        </p>
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {topics.length > 0 ? (
+                      <div className="space-y-0.5 flex-1 min-w-0">
+                        {topics.map((topic, ti) => (
+                          <p key={ti} className="text-xs text-gray-500 truncate">
+                            {topics.length > 1 && <span className="text-gray-300 mr-1">{ti + 1}.</span>}
+                            {topic}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="flex items-center gap-0.5 text-xs text-amber-500">
+                        <AlertTriangle size={11} /> нет темы
+                      </span>
+                    )}
+                    {hasNoGift(sp) && (
+                      <span className="flex items-center gap-0.5 text-xs text-amber-500 shrink-0">
+                        <AlertTriangle size={11} /> нет подарка
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {sp.poster_url && (
                   <div className="w-8 shrink-0">

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -14,12 +14,15 @@ import RaffleTab    from './tabs/RaffleTab'
 import PostersTab   from './tabs/PostersTab'
 
 type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters']
 
 export default function ConferencePage() {
   const { id } = useParams()
   const eventId = Number(id)
+  const searchParams = useSearchParams()
   const { t } = useLang()
-  const [tab, setTab] = useState<Tab>('settings')
+  const initialTab = (searchParams.get('tab') as Tab) || 'settings'
+  const [tab, setTab] = useState<Tab>(VALID_TABS.includes(initialTab) ? initialTab : 'settings')
   const [event, setEvent] = useState<any>(null)
   const [conf, setConf] = useState<any>(null)
   const [loading, setLoading] = useState(true)
