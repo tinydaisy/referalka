@@ -30,6 +30,7 @@ export const api = {
     adminLogin: (data: any) =>
       request('/api/v1/auth/admin/login', { method: 'POST', body: JSON.stringify(data) }),
     me: () => request('/api/v1/auth/me'),
+    updateMe: (data: any) => request('/api/v1/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
   },
   events: {
     list: (moduleSlug?: string) => request(`/api/v1/events/${moduleSlug ? `?module_slug=${moduleSlug}` : ''}`),

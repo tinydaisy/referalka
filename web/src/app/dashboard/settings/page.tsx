@@ -1,34 +1,76 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot } from 'lucide-react'
+import { Save, Bot, Globe } from 'lucide-react'
 import { api } from '@/lib/api'
+import { setTimezone } from '@/lib/timezone'
+
+const TIMEZONES = [
+  { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
+  { value: 'Europe/Kaliningrad', label: 'Калининград (UTC+2)' },
+  { value: 'Europe/Samara', label: 'Самара (UTC+4)' },
+  { value: 'Asia/Yekaterinburg', label: 'Екатеринбург (UTC+5)' },
+  { value: 'Asia/Omsk', label: 'Омск (UTC+6)' },
+  { value: 'Asia/Krasnoyarsk', label: 'Красноярск (UTC+7)' },
+  { value: 'Asia/Irkutsk', label: 'Иркутск (UTC+8)' },
+  { value: 'Asia/Yakutsk', label: 'Якутск (UTC+9)' },
+  { value: 'Asia/Vladivostok', label: 'Владивосток (UTC+10)' },
+  { value: 'Asia/Magadan', label: 'Магадан (UTC+11)' },
+  { value: 'Asia/Kamchatka', label: 'Камчатка (UTC+12)' },
+  { value: 'Europe/Kiev', label: 'Киев (UTC+2/3)' },
+  { value: 'Asia/Almaty', label: 'Алматы (UTC+5)' },
+  { value: 'Asia/Tashkent', label: 'Ташкент (UTC+5)' },
+  { value: 'UTC', label: 'UTC (GMT+0)' },
+]
 
 export default function SettingsPage() {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', bot_token: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow' })
   const [tariff, setTariff] = useState<any>(null)
+  const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     api.auth.me().then(c => {
+      const tz = c.timezone || 'Europe/Moscow'
+      setTimezone(tz)
       setForm({
-        name: c.name || '', email: c.email || '',
-        phone: c.phone || '', telegram_username: c.telegram_username || '',
-        bot_token: ''
+        name: c.name || '',
+        email: c.email || '',
+        phone: c.phone || '',
+        telegram_username: c.telegram_username || '',
+        timezone: tz,
       })
       setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
     }).catch(() => {})
   }, [])
 
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaving(true)
+    setError('')
+    try {
+      await api.auth.updateMe({
+        name: form.name,
+        phone: form.phone,
+        telegram_username: form.telegram_username,
+        timezone: form.timezone,
+      })
+      setTimezone(form.timezone)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const trialDate = tariff?.trial_ends_at ? new Date(tariff.trial_ends_at).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'
+  const trialDate = tariff?.trial_ends_at
+    ? new Date(tariff.trial_ends_at).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '—'
 
   return (
     <div className="max-w-2xl">
@@ -66,22 +108,25 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Bot token */}
+        {/* Timezone */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-start gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
-              <Bot size={18} className="text-white" />
+              <Globe size={18} className="text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-800">Свой Telegram-бот</h3>
+              <h3 className="font-semibold text-gray-800">Часовой пояс</h3>
               <p className="text-sm text-gray-500 mt-0.5">
-                Если у вас уже есть бот — подключите его токен. Иначе бот ПЛЮСОН используется по умолчанию.
+                Всё время в программе конференций и расписаниях будет отображаться в этом часовом поясе
               </p>
             </div>
           </div>
-          <input type="text" value={form.bot_token} onChange={set('bot_token')}
-            placeholder="110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono" />
+          <select value={form.timezone} onChange={set('timezone')}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm bg-white">
+            {TIMEZONES.map(tz => (
+              <option key={tz.value} value={tz.value}>{tz.label}</option>
+            ))}
+          </select>
         </div>
 
         {/* Tariff */}
@@ -107,12 +152,12 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <button
-          type="submit"
-          className="btn-gold w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2"
-        >
+        {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+
+        <button type="submit" disabled={saving}
+          className={`btn-gold w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'opacity-70' : ''}`}>
           <Save size={16} />
-          {saved ? 'Сохранено ✓' : 'Сохранить изменения'}
+          {saved ? 'Сохранено ✓' : saving ? 'Сохраняем...' : 'Сохранить изменения'}
         </button>
       </form>
     </div>

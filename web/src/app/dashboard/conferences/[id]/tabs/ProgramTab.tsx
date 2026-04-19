@@ -4,6 +4,7 @@ import { Plus, Calendar, Trash2, Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
+import { formatTime } from '@/lib/timezone'
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -209,9 +210,9 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                 <div className="space-y-1.5 mb-3">
                   {daySessions.map((s: any) => (
                     <div key={s.id} className="flex items-start gap-3 group py-1.5">
-                      <span className="text-xs text-gray-400 w-24 shrink-0 pt-0.5 font-mono">
-                        {s.start_datetime ? new Date(s.start_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : '—:——'}
-                        {s.end_datetime ? ` — ${new Date(s.end_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}` : ''}
+                      <span className="text-xs text-gray-400 w-32 shrink-0 pt-0.5 font-mono whitespace-nowrap">
+                        {formatTime(s.start_datetime)}
+                        {s.end_datetime ? ` — ${formatTime(s.end_datetime)}` : ''}
                       </span>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-900">{s.title}</p>
