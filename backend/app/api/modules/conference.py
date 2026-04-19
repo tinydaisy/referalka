@@ -377,6 +377,38 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
     return {"speakers": result}
 
 
+@router.get("/speakers/{speaker_event_id}/public", summary="Полный профиль спикера для публичной страницы проверки")
+async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: asyncpg.Connection = Depends(get_db)):
+    """
+    Публичный endpoint без авторизации.
+    Возвращает полные данные спикера (профиль + данные выступления) для страницы проверки данных.
+    Спикер может открыть ссылку и убедиться, что его данные заполнены правильно.
+    """
+    row = await db.fetchrow(
+        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
+                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.gift_raffle_title, cse.gift_raffle_url,
+                  cse.poster_url AS event_poster_url,
+                  cse.is_commercial,
+                  sp.name, sp.title, sp.achievements,
+                  sp.photo_url, sp.poster_url,
+                  sp.photo_folder_url, sp.video_folder_url,
+                  sp.tg_channel_url, sp.instagram_url, sp.website_url,
+                  sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
+           FROM conf_speaker_events cse
+           JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE cse.id = $1 AND cse.event_id = $2""",
+        speaker_event_id, event_id
+    )
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Спикер не найден")
+    topics_map = await _load_topics([speaker_event_id], db)
+    d = dict(row)
+    d["topics"] = topics_map.get(speaker_event_id, [])
+    return {"speaker": d}
+
+
 @router.post("/speakers/add-from-base", summary="Добавить спикера из базы в событие")
 async def add_speaker_from_base(
     event_id: int,
@@ -1151,3 +1183,486 @@ async def create_promo_partner(
         event_id, data.name, data.telegram_url, data.partner_code.upper()
     )
     return {"partner": dict(partner)}
+
+
+# ─── Публичное саморедактирование спикера по ref_code ────────────────────────
+# Спикер получает персональную ссылку вида /speaker-edit.html?code=sp_xxxx
+# и может сам проверить и исправить свои данные без авторизации в кабинете.
+
+class SpeakerSelfUpdate(BaseModel):
+    """Поля, которые спикер может обновить сам."""
+    # Профиль (таблица collaborators)
+    name: Optional[str] = None
+    title: Optional[str] = None
+    achievements: Optional[List[str]] = None
+    photo_url: Optional[str] = None
+    poster_url: Optional[str] = None
+    photo_folder_url: Optional[str] = None
+    video_folder_url: Optional[str] = None
+    tg_channel_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    website_url: Optional[str] = None
+    tg_channel_id: Optional[str] = None
+    personal_tg_id: Optional[str] = None
+    personal_tg_username: Optional[str] = None
+    assistant_tg_username: Optional[str] = None
+    # Данные выступления (таблица conf_speaker_events)
+    topics: Optional[List[str]] = None
+    gift_after_speech_title: Optional[str] = None
+    gift_after_speech_url: Optional[str] = None
+    gift_raffle_title: Optional[str] = None
+    gift_raffle_url: Optional[str] = None
+    keyword_code: Optional[str] = None
+
+
+@router.get("/speakers/by-code/{ref_code}", summary="Профиль спикера по ref_code (без авторизации)")
+async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Connection = Depends(get_db)):
+    """
+    Публичный endpoint без авторизации.
+    Возвращает полные данные спикера по его персональному ref_code.
+    Используется для страницы самопроверки/редактирования спикером.
+    """
+    row = await db.fetchrow(
+        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
+                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.gift_raffle_title, cse.gift_raffle_url,
+                  cse.is_commercial, cse.ref_code, cse.keyword_code,
+                  sp.name, sp.title, sp.achievements,
+                  sp.photo_url, sp.poster_url,
+                  sp.photo_folder_url, sp.video_folder_url,
+                  sp.tg_channel_url, sp.instagram_url, sp.website_url,
+                  sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
+           FROM conf_speaker_events cse
+           JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE cse.ref_code = $1 AND cse.event_id = $2""",
+        ref_code, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Ссылка недействительна")
+    topics_map = await _load_topics([row["id"]], db)
+    d = dict(row)
+    d["topics"] = topics_map.get(d["id"], [])
+    return {"speaker": d}
+
+
+@router.patch("/speakers/by-code/{ref_code}", summary="Обновить данные спикера по ref_code (без авторизации)")
+async def update_speaker_by_ref_code(
+    event_id: int,
+    ref_code: str,
+    data: SpeakerSelfUpdate,
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """
+    Публичный endpoint без авторизации.
+    Позволяет спикеру самостоятельно обновить свои данные по персональной ссылке.
+    Обновляет и профиль (collaborators), и данные выступления (conf_speaker_events).
+    """
+    cse = await db.fetchrow(
+        "SELECT id, speaker_id FROM conf_speaker_events WHERE ref_code = $1 AND event_id = $2",
+        ref_code, event_id
+    )
+    if not cse:
+        raise HTTPException(status_code=404, detail="Ссылка недействительна")
+
+    speaker_event_id = cse["id"]
+    speaker_id = cse["speaker_id"]
+
+    # Обновляем глобальный профиль спикера (collaborators)
+    profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
+                      "photo_folder_url", "video_folder_url", "tg_channel_url",
+                      "instagram_url", "website_url", "tg_channel_id",
+                      "personal_tg_id", "personal_tg_username", "assistant_tg_username"]
+    profile_updates = {}
+    for k in profile_fields:
+        v = getattr(data, k)
+        if v is not None:
+            profile_updates[k] = v
+
+    if profile_updates:
+        set_parts = [f"{k} = ${i+2}" for i, k in enumerate(profile_updates.keys())]
+        set_parts.append("updated_at = NOW()")
+        await db.execute(
+            f"UPDATE collaborators SET {', '.join(set_parts)} WHERE id = $1",
+            speaker_id, *profile_updates.values()
+        )
+
+    # Обновляем данные выступления (conf_speaker_events)
+    event_updates: dict = {}
+    if data.gift_after_speech_title is not None:
+        event_updates["gift_after_speech_title"] = data.gift_after_speech_title
+    if data.gift_after_speech_url is not None:
+        event_updates["gift_after_speech_url"] = data.gift_after_speech_url
+    if data.gift_raffle_title is not None:
+        event_updates["gift_raffle_title"] = data.gift_raffle_title
+    if data.gift_raffle_url is not None:
+        event_updates["gift_raffle_url"] = data.gift_raffle_url
+
+    if event_updates:
+        set_parts2 = [f"{k} = ${i+2}" for i, k in enumerate(event_updates.keys())]
+        await db.execute(
+            f"UPDATE conf_speaker_events SET {', '.join(set_parts2)} WHERE id = $1",
+            speaker_event_id, *event_updates.values()
+        )
+
+    # Темы выступления
+    if data.topics is not None:
+        await db.execute("DELETE FROM conf_speaker_topics WHERE cse_id = $1", speaker_event_id)
+        topics = [t.strip() for t in data.topics if t.strip()]
+        if topics:
+            first_topic = topics[0]
+            await db.execute(
+                "UPDATE conf_speaker_events SET speaker_topic = $1 WHERE id = $2",
+                first_topic, speaker_event_id
+            )
+            for i, topic in enumerate(topics):
+                await db.execute(
+                    "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, $2, $3)",
+                    speaker_event_id, topic, i
+                )
+
+    # Возвращаем обновлённые данные
+    return await get_speaker_by_ref_code(event_id, ref_code, db)
+
+
+# ─── Режим ассистента: один код на всё событие ───────────────────────────────
+
+@router.get("/editor-info", summary="Данные конференции по editor_code (публичный)")
+async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Depends(get_db)):
+    """Публичный endpoint — проверяет editor_code и возвращает список всех спикеров."""
+    conf = await db.fetchrow(
+        "SELECT event_id, editor_code FROM conf_conferences WHERE event_id = $1 AND editor_code = $2",
+        event_id, code
+    )
+    if not conf:
+        raise HTTPException(status_code=403, detail="Неверный код доступа")
+
+    rows = await db.fetch(
+        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, cse.ref_code, cse.keyword_code,
+                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.gift_raffle_title, cse.gift_raffle_url,
+                  cse.is_commercial,
+                  sp.name, sp.title, sp.achievements,
+                  sp.photo_url, sp.poster_url,
+                  sp.photo_folder_url, sp.video_folder_url,
+                  sp.tg_channel_url, sp.instagram_url, sp.website_url,
+                  sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
+           FROM conf_speaker_events cse
+           JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE cse.event_id = $1
+           ORDER BY cse.sort_order, cse.id""",
+        event_id
+    )
+    topics_map = await _load_topics([r["id"] for r in rows], db)
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["topics"] = topics_map.get(d["id"], [])
+        result.append(d)
+    return {"speakers": result, "event_id": event_id}
+
+
+@router.patch("/speakers/{speaker_event_id}/editor", summary="Обновить данные спикера от имени ассистента")
+async def update_speaker_as_editor(
+    event_id: int,
+    speaker_event_id: int,
+    data: SpeakerSelfUpdate,
+    code: str,
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """
+    Публичный endpoint — ассистент обновляет данные любого спикера по editor_code.
+    """
+    conf = await db.fetchrow(
+        "SELECT event_id FROM conf_conferences WHERE event_id = $1 AND editor_code = $2",
+        event_id, code
+    )
+    if not conf:
+        raise HTTPException(status_code=403, detail="Неверный код доступа")
+
+    cse = await db.fetchrow(
+        "SELECT id, speaker_id FROM conf_speaker_events WHERE id = $1 AND event_id = $2",
+        speaker_event_id, event_id
+    )
+    if not cse:
+        raise HTTPException(status_code=404, detail="Спикер не найден")
+
+    speaker_id = cse["speaker_id"]
+
+    # Профиль
+    profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
+                      "photo_folder_url", "video_folder_url", "tg_channel_url",
+                      "instagram_url", "website_url", "tg_channel_id",
+                      "personal_tg_id", "personal_tg_username", "assistant_tg_username"]
+    profile_updates = {k: getattr(data, k) for k in profile_fields if getattr(data, k) is not None}
+    if profile_updates:
+        set_parts = [f"{k} = ${i+2}" for i, k in enumerate(profile_updates.keys())]
+        set_parts.append("updated_at = NOW()")
+        await db.execute(
+            f"UPDATE collaborators SET {', '.join(set_parts)} WHERE id = $1",
+            speaker_id, *profile_updates.values()
+        )
+
+    # Выступление
+    event_updates: dict = {}
+    for k in ["gift_after_speech_title", "gift_after_speech_url", "gift_raffle_title", "gift_raffle_url", "keyword_code"]:
+        v = getattr(data, k, None)
+        if v is not None:
+            event_updates[k] = v
+    if event_updates:
+        set_parts2 = [f"{k} = ${i+2}" for i, k in enumerate(event_updates.keys())]
+        await db.execute(
+            f"UPDATE conf_speaker_events SET {', '.join(set_parts2)} WHERE id = $1",
+            speaker_event_id, *event_updates.values()
+        )
+
+    # Темы
+    if data.topics is not None:
+        await db.execute("DELETE FROM conf_speaker_topics WHERE cse_id = $1", speaker_event_id)
+        clean_topics = [t.strip() for t in data.topics if t.strip()]
+        if clean_topics:
+            await db.execute(
+                "UPDATE conf_speaker_events SET speaker_topic = $1 WHERE id = $2",
+                clean_topics[0], speaker_event_id
+            )
+            for i, topic in enumerate(clean_topics):
+                await db.execute(
+                    "INSERT INTO conf_speaker_topics (cse_id, topic, sort_order) VALUES ($1, $2, $3)",
+                    speaker_event_id, topic, i
+                )
+
+    # Возвращаем обновлённые данные
+    row = await db.fetchrow(
+        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, cse.ref_code, cse.keyword_code,
+                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.gift_raffle_title, cse.gift_raffle_url, cse.is_commercial,
+                  sp.name, sp.title, sp.achievements,
+                  sp.photo_url, sp.poster_url,
+                  sp.photo_folder_url, sp.video_folder_url,
+                  sp.tg_channel_url, sp.instagram_url, sp.website_url,
+                  sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
+           FROM conf_speaker_events cse
+           JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE cse.id = $1""",
+        speaker_event_id
+    )
+    topics_map = await _load_topics([speaker_event_id], db)
+    d = dict(row)
+    d["topics"] = topics_map.get(speaker_event_id, [])
+    return {"speaker": d}
+
+
+@router.post("/generate-editor-code", summary="Сгенерировать editor_code для конференции")
+async def generate_editor_code(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Генерирует или обновляет editor_code для конференции."""
+    await check_conference_access(event_id, int(client["sub"]), db)
+    import random, string
+    new_code = "edit_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
+    await db.execute(
+        "UPDATE conf_conferences SET editor_code = $1 WHERE event_id = $2",
+        new_code, event_id
+    )
+    return {"editor_code": new_code, "event_id": event_id}
+
+
+@router.get("/export/salebot", summary="Экспорт для Salebot в виде .txt файла")
+async def export_salebot(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    from fastapi.responses import Response
+    await check_conference_access(event_id, int(client["sub"]), db)
+
+    event = await db.fetchrow("SELECT * FROM events WHERE id = $1", event_id)
+    conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
+
+    # Спикеры с темами (регалиями)
+    rows = await db.fetch(
+        """SELECT cse.id, cse.speaker_id, cse.role,
+                  cse.gift_after_speech_title, cse.gift_raffle_title,
+                  cse.sort_order, cse.is_visible,
+                  sp.name, sp.title, sp.achievements,
+                  sp.tg_channel_url
+           FROM conf_speaker_events cse
+           JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE cse.event_id = $1
+           ORDER BY cse.sort_order, cse.id""",
+        event_id
+    )
+    topics_map = await _load_topics([r["id"] for r in rows], db)
+
+    # Программа: дни + сессии
+    days = await db.fetch(
+        "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
+    )
+    sessions = await db.fetch(
+        """SELECT s.*, sp.name AS speaker_name, cse.role AS speaker_role,
+                  cse.gift_raffle_title
+           FROM conf_sessions s
+           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_datetime""",
+        event_id
+    )
+
+    # organizer_speaker_id для определения организатора
+    organizer_cse_id = conf["organizer_speaker_id"] if conf else None
+
+    def fmt_time(val):
+        if val is None:
+            return ""
+        if hasattr(val, "strftime"):
+            return val.strftime("%H:%M")
+        return str(val)[:5]
+
+    def fmt_date(val):
+        if val is None:
+            return ""
+        months = ["января","февраля","марта","апреля","мая","июня",
+                  "июля","августа","сентября","октября","ноября","декабря"]
+        if hasattr(val, "day"):
+            return f"{val.day} {months[val.month - 1]}"
+        return str(val)
+
+    lines = []
+
+    # ─── ИНФО О СПИКЕРАХ ───
+    lines.append("ИНФО О СПИКЕРАХ:")
+    lines.append("")
+
+    speakers_list = [dict(r) for r in rows]
+    for i, sp in enumerate(speakers_list):
+        lines.append(f"{sp['name']}")
+
+        tg = sp.get("tg_channel_url") or ""
+        if tg.strip():
+            lines.append(f"(Ссылка на тг канал: {tg.strip()})")
+        else:
+            lines.append("(Ссылка на тг канал: —)")
+
+        lines.append("")
+
+        lines.append("Тема лекции:")
+        lines.append("")
+
+        # Регалии из topics или achievements
+        sp_topics = topics_map.get(sp["id"], [])
+        if sp_topics:
+            achievements_list = [t["topic"] for t in sp_topics if t["topic"].strip()]
+        else:
+            raw = sp.get("achievements") or []
+            if isinstance(raw, str):
+                import json as _json
+                try:
+                    raw = _json.loads(raw)
+                except Exception:
+                    raw = [raw] if raw.strip() else []
+            achievements_list = [a for a in raw if str(a).strip()]
+
+        if achievements_list:
+            for ach in achievements_list:
+                lines.append(f"• {ach}")
+        else:
+            lines.append("• (регалии уточняются)")
+
+        lines.append("")
+
+        gift_speech = (sp.get("gift_after_speech_title") or "").strip()
+        gift_raffle = (sp.get("gift_raffle_title") or "").strip()
+
+        if gift_speech:
+            lines.append(f"🎁 На эфире подарит: {gift_speech}")
+            lines.append("")
+
+        if gift_raffle:
+            lines.append(f"🏆Подарок для большого розыгрыша: {gift_raffle}")
+            lines.append("")
+
+        if i < len(speakers_list) - 1:
+            lines.append("###")
+            lines.append("")
+
+    lines.append("")
+    lines.append("—")
+
+    # ─── ПРОГРАММА ───
+    lines.append("ПРОГРАММА Конференции:")
+    lines.append("")
+
+    for d in days:
+        day_num = d["day_number"]
+        day_date = fmt_date(d["day_date"])
+        lines.append(f"ДЕНЬ {day_num} - {day_date}" if day_date else f"ДЕНЬ {day_num}")
+        lines.append("")
+
+        day_sessions = [s for s in sessions if s["day"] == day_num]
+        for s in day_sessions:
+            t_start = fmt_time(s["start_datetime"])
+            t_end = fmt_time(s["end_datetime"])
+            time_part = f"{t_start} - {t_end}: " if (t_start or t_end) else ""
+            title_part = s["title"] or ""
+            sp_name = s.get("speaker_name") or ""
+            sp_role = (s.get("speaker_role") or "").strip()
+            show_role = sp_role in ("headliner", "partner", "хедлайнер", "партнер")
+            if sp_name and show_role:
+                person_part = f" ({sp_name} - {sp_role})"
+            elif sp_name:
+                person_part = f" ({sp_name})"
+            else:
+                person_part = ""
+            lines.append(f"{time_part}{title_part}{person_part}")
+
+        lines.append("")
+
+    lines.append("—")
+
+    # ─── ПОДАРКИ ДЛЯ РОЗЫГРЫША ───
+    lines.append("ПОДАРКИ ДЛЯ РОЗЫГРЫША")
+    lines.append("")
+
+    raffle_speakers = [(sp["name"], sp["gift_raffle_title"]) for sp in speakers_list if (sp.get("gift_raffle_title") or "").strip()]
+    for idx, (sp_name, gift_title) in enumerate(raffle_speakers, 1):
+        lines.append(f"{idx}.{gift_title} ({sp_name})")
+
+    lines.append("")
+    lines.append("—")
+
+    # ─── КАНАЛЫ НА ПОДПИСКУ ───
+    lines.append("Список каналов на подписку :")
+    lines.append("")
+
+    # Организатор всегда первый
+    channel_entries = []
+    organizer_added = set()
+
+    # Ищем организатора по organizer_cse_id
+    if organizer_cse_id:
+        org = next((sp for sp in speakers_list if sp["id"] == organizer_cse_id), None)
+        if org and (org.get("tg_channel_url") or "").strip():
+            channel_entries.append((org["name"], org["tg_channel_url"].strip()))
+            organizer_added.add(org["id"])
+
+    for sp in speakers_list:
+        if sp["id"] in organizer_added:
+            continue
+        tg = (sp.get("tg_channel_url") or "").strip()
+        if tg:
+            channel_entries.append((sp["name"], tg))
+
+    for idx, (sp_name, tg_url) in enumerate(channel_entries, 1):
+        lines.append(f"{idx}.{sp_name}: {tg_url}")
+
+    text = "\n".join(lines)
+
+    slug = event["slug"] if event and event.get("slug") else str(event_id)
+    filename = f"{slug}_info.txt"
+
+    return Response(
+        content=text.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )

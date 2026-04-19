@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -12,6 +12,8 @@ import ProgramTab   from './tabs/ProgramTab'
 import ParticipantsTab from './tabs/ParticipantsTab'
 import RaffleTab    from './tabs/RaffleTab'
 import PostersTab   from './tabs/PostersTab'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters'
 const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters']
@@ -26,6 +28,32 @@ export default function ConferencePage() {
   const [event, setEvent] = useState<any>(null)
   const [conf, setConf] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+
+  async function handleSalebotExport() {
+    setExporting(true)
+    try {
+      const token = localStorage.getItem('plusson_token')
+      const res = await fetch(`${API_URL}/api/v1/events/${eventId}/conference/export/salebot`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('Ошибка экспорта')
+      const blob = await res.blob()
+      const disposition = res.headers.get('content-disposition') || ''
+      const nameMatch = disposition.match(/filename="?([^"]+)"?/)
+      const filename = nameMatch ? nameMatch[1] : `${eventId}_info.txt`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      alert('Не удалось скачать файл')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'settings',     label: t.conferences.tabs.settings },
@@ -66,6 +94,18 @@ export default function ConferencePage() {
             {conf?.status === 'active' ? t.conferences.header.active : t.conferences.header.draft}
           </p>
         </div>
+        <button
+          onClick={handleSalebotExport}
+          disabled={exporting}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90 transition-opacity disabled:opacity-50 whitespace-nowrap"
+        >
+          {exporting ? (
+            <span className="animate-spin inline-block w-4 h-4 border-2 border-[#FFCFA4] border-t-transparent rounded-full" />
+          ) : (
+            <Download size={16} />
+          )}
+          Экспорт для Salebot
+        </button>
       </div>
 
       {/* Tabs — горизонтальный скролл на мобильном */}
