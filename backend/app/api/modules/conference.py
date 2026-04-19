@@ -49,7 +49,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     )
     sessions = await db.fetch(
         """SELECT s.*, sp.name AS speaker_name, cse.role AS speaker_role,
-                  sp.title AS speaker_title, sp.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
+                  sp.title AS speaker_title, sp.photo_url, cse.gift_title, cse.gift_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -87,8 +87,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                     "speaker_role": s["speaker_role"],
                     "speaker_title": s["speaker_title"],
                     "photo_url": s["photo_url"],
-                    "gift_title": s["gift_after_speech_title"],
-                    "gift_url": s["gift_after_speech_url"],
+                    "gift_title": s["gift_title"],
+                    "gift_url": s["gift_url"],
                 }
                 for s in day_sessions
             ]
@@ -112,8 +112,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
                 "photo_url": s["photo_url"] or "",
                 "tg_channel_url": s["tg_channel_url"] or "",
                 "speaker_topic": s["speaker_topic"] or "",
-                "gift_title": s["gift_after_speech_title"] or "",
-                "gift_url": s["gift_after_speech_url"] or "",
+                "gift_title": s["gift_title"] or "",
+                "gift_url": s["gift_url"] or "",
             }
             for s in speakers
         ],
@@ -236,8 +236,8 @@ class SpeakerAddToEvent(BaseModel):
     role: str = "speaker"
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
     topics: Optional[List[str]] = None
-    gift_after_speech_title: Optional[str] = None
-    gift_after_speech_url: Optional[str] = None
+    gift_title: Optional[str] = None
+    gift_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
     poster_url: Optional[str] = None
@@ -263,8 +263,8 @@ class SpeakerCreateAndAdd(BaseModel):
     role: str = "speaker"
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
     topics: Optional[List[str]] = None
-    gift_after_speech_title: Optional[str] = None
-    gift_after_speech_url: Optional[str] = None
+    gift_title: Optional[str] = None
+    gift_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
     poster_url: Optional[str] = None
@@ -280,8 +280,8 @@ class SpeakerEventUpdate(BaseModel):
     role: Optional[str] = None
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
     topics: Optional[List[str]] = None
-    gift_after_speech_title: Optional[str] = None
-    gift_after_speech_url: Optional[str] = None
+    gift_title: Optional[str] = None
+    gift_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
     poster_url: Optional[str] = None
@@ -332,7 +332,7 @@ async def list_event_speakers(
     await check_conference_access(event_id, int(client["sub"]), db)
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
-                  cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.speaker_topic, cse.gift_title, cse.gift_url,
                   cse.poster_url, cse.partner_url, cse.extra_info,
                   cse.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
@@ -356,7 +356,7 @@ async def list_event_speakers(
 @router.get("/speakers/public", summary="Спикеры для Mini App")
 async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
-        """SELECT cse.id, cse.role, cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url, cse.sort_order,
+        """SELECT cse.id, cse.role, cse.speaker_topic, cse.gift_title, cse.gift_url, cse.sort_order,
                   sp.name, sp.title, sp.photo_url, sp.tg_channel_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
@@ -645,7 +645,7 @@ async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = 
         """SELECT s.id, s.day, s.start_datetime, s.end_datetime, s.title,
                   s.gift_description, s.stream_url, s.track_label, s.track_color,
                   col.name as speaker_name, col.title as speaker_title,
-                  col.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
+                  col.photo_url, cse.gift_title, cse.gift_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
@@ -956,7 +956,7 @@ async def generate_broadcasts_from_schedule(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
-        """SELECT s.*, spg.name AS speaker_name, cse.gift_after_speech_title, cse.gift_after_speech_url
+        """SELECT s.*, spg.name AS speaker_name, cse.gift_title, cse.gift_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators spg ON spg.id = cse.speaker_id
@@ -989,9 +989,9 @@ async def generate_broadcasts_from_schedule(
             created += 1
 
         # После выступления — подарок
-        if s["end_datetime"] and (s["gift_after_speech_title"] or s.get("gift_description")):
-            gift_text = s["gift_after_speech_title"] or s["gift_description"] or "Подарок"
-            gift_url = s["gift_after_speech_url"] or ""
+        if s["end_datetime"] and (s["gift_title"] or s.get("gift_description")):
+            gift_text = s["gift_title"] or s["gift_description"] or "Подарок"
+            gift_url = s["gift_url"] or ""
             existing2 = await db.fetchrow(
                 "SELECT id FROM conf_broadcast_messages WHERE session_id=$1 AND type='post_thanks'",
                 s["id"]
