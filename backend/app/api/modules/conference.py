@@ -1688,9 +1688,11 @@ async def export_salebot(
 
     slug = event["slug"] if event and event.get("slug") else str(event_id)
     filename = f"{slug}_info.txt"
+    from urllib.parse import quote
+    encoded_filename = quote(filename, safe="")
 
     return Response(
         content=text.encode("utf-8"),
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"}
     )
