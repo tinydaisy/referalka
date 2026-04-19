@@ -1561,18 +1561,20 @@ async def export_salebot(
             lines.append("(Ссылка на тг канал: —)")
 
         lines.append("")
-        lines.append("Тема лекции:")
 
-        # Темы лекции из conf_speaker_topics
-        sp_topics = topics_map.get(sp["id"], [])
-        topic_texts = [t["topic"] for t in sp_topics if t["topic"].strip()]
-        if topic_texts:
-            for topic in topic_texts:
-                lines.append(topic)
-        else:
-            lines.append("уточняется")
+        # Партнёрам тему не выводим
+        if sp.get("role") != "partner":
+            lines.append("Тема лекции:")
 
-        lines.append("")
+            sp_topics = topics_map.get(sp["id"], [])
+            topic_texts = [t["topic"] for t in sp_topics if t["topic"].strip()]
+            if topic_texts:
+                for topic in topic_texts:
+                    lines.append(topic)
+            else:
+                lines.append("уточняется")
+
+            lines.append("")
 
         # Регалии из achievements · (точка по центру U+00B7)
         raw = sp.get("achievements") or []
@@ -1627,9 +1629,9 @@ async def export_salebot(
             title_part = s["title"] or ""
             sp_name = s.get("speaker_name") or ""
             sp_role = (s.get("speaker_role") or "").strip()
-            show_role = sp_role in ("headliner", "partner")
-            if sp_name and show_role:
-                person_part = f" ({sp_name} - {sp_role})"
+            role_label = {"headliner": "хедлайнер", "organizer": "организатор"}.get(sp_role, "")
+            if sp_name and role_label:
+                person_part = f" ({sp_name} - {role_label})"
             elif sp_name:
                 person_part = f" ({sp_name})"
             else:
