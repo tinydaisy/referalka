@@ -309,13 +309,15 @@ export default function ConferenceSpeakerPage() {
           <h3 className="font-semibold text-gray-900 text-sm">Подарок после эфира</h3>
           <div>
             <FieldLabel label="Название" empty={!eventForm.gift_after_speech_title.trim()} />
-            <input type="text" value={eventForm.gift_after_speech_title} onChange={setEF('gift_after_speech_title')}
-              placeholder="Например: Чек-лист по нутрициологии" className="input" />
+            <textarea value={eventForm.gift_after_speech_title} onChange={setEF('gift_after_speech_title')}
+              rows={3} placeholder="Например: Чек-лист по нутрициологии"
+              className="input resize-y text-sm" />
           </div>
           <div>
-            <FieldLabel label="Ссылка" empty={!eventForm.gift_after_speech_url.trim()} />
-            <input type="url" value={eventForm.gift_after_speech_url} onChange={setEF('gift_after_speech_url')}
-              placeholder="https://..." className="input" />
+            <FieldLabel label="Ссылка / текст со ссылками" empty={!eventForm.gift_after_speech_url.trim()} />
+            <textarea value={eventForm.gift_after_speech_url} onChange={setEF('gift_after_speech_url')}
+              rows={3} placeholder={"https://...\nили несколько ссылок / инструкция как получить"}
+              className="input resize-y text-sm" />
           </div>
         </div>
 
@@ -324,13 +326,15 @@ export default function ConferenceSpeakerPage() {
           <h3 className="font-semibold text-gray-900 text-sm">Подарок для розыгрыша</h3>
           <div>
             <FieldLabel label="Название" empty={!eventForm.gift_raffle_title.trim()} />
-            <input type="text" value={eventForm.gift_raffle_title} onChange={setEF('gift_raffle_title')}
-              placeholder="Например: Консультация 1:1" className="input" />
+            <textarea value={eventForm.gift_raffle_title} onChange={setEF('gift_raffle_title')}
+              rows={3} placeholder="Например: Консультация 1:1"
+              className="input resize-y text-sm" />
           </div>
           <div>
-            <FieldLabel label="Ссылка" empty={!eventForm.gift_raffle_url.trim()} />
-            <input type="url" value={eventForm.gift_raffle_url} onChange={setEF('gift_raffle_url')}
-              placeholder="https://..." className="input" />
+            <FieldLabel label="Ссылка / текст со ссылками" empty={!eventForm.gift_raffle_url.trim()} />
+            <textarea value={eventForm.gift_raffle_url} onChange={setEF('gift_raffle_url')}
+              rows={3} placeholder={"https://...\nили несколько ссылок / инструкция как получить"}
+              className="input resize-y text-sm" />
           </div>
         </div>
 
