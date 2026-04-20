@@ -2218,7 +2218,16 @@ async def list_raffle_tickets(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     tickets = await db.fetch(
-        "SELECT * FROM conf_raffle_tickets WHERE event_id = $1 ORDER BY ticket_number",
+        """SELECT rt.*,
+                  pu.username  AS pu_username,
+                  pu.first_name AS pu_first_name,
+                  pu.last_name  AS pu_last_name,
+                  pu.salebot_id AS pu_salebot_id
+             FROM conf_raffle_tickets rt
+        LEFT JOIN event_participants ep ON ep.id = rt.pluson_participant_id
+        LEFT JOIN platform_users     pu ON pu.id = ep.platform_user_id
+            WHERE rt.event_id = $1
+         ORDER BY rt.ticket_number""",
         event_id
     )
     return {"tickets": [dict(t) for t in tickets]}
@@ -2230,22 +2239,30 @@ async def add_raffle_ticket_public(
 ):
     # Проверяем что событие существует и является конференцией
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND module_slug = 'conference'", event_id
+        "SELECT id, client_id FROM events WHERE id = $1 AND module_slug = 'conference'", event_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Конференция не найдена")
 
-    # Ищем pluson_participant_id по tg_id + event_id
+    # Ищем pluson_participant_id: сначала по tg_id (platform_user_id в platform_users),
+    # затем по salebot_client_id (поле salebot_id в platform_users)
     pluson_participant_id = None
     if data.tg_id:
-        ep = await db.fetchrow(
+        pluson_participant_id = await db.fetchval(
             """SELECT ep.id FROM event_participants ep
-               JOIN telegram_users tu ON tu.id = ep.telegram_user_id
-               WHERE tu.telegram_id = $1 AND ep.event_id = $2""",
-            data.tg_id, event_id
+               JOIN platform_users pu ON pu.id = ep.platform_user_id
+               WHERE pu.platform = 'telegram'
+                 AND pu.platform_user_id = $1
+                 AND ep.event_id = $2""",
+            str(data.tg_id), event_id
         )
-        if ep:
-            pluson_participant_id = ep["id"]
+    if not pluson_participant_id and data.salebot_client_id:
+        pluson_participant_id = await db.fetchval(
+            """SELECT ep.id FROM event_participants ep
+               JOIN platform_users pu ON pu.id = ep.platform_user_id
+               WHERE pu.salebot_id = $1 AND ep.event_id = $2""",
+            data.salebot_client_id, event_id
+        )
 
     try:
         ticket = await db.fetchrow(
