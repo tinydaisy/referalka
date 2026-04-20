@@ -1,16 +1,24 @@
 """
 Публичный API для проверки подписки участника на каналы спикеров конференции.
 
-Используется из Salebot: отдать один HTTP-запрос вместо 20 отдельных tg_get_chat_member.
-Бэкенд сам делает getChatMember в канал каждого спикера, у которого установлена галочка
-"Добавил бота в канал" (conf_speaker_events.bot_in_channel = TRUE), и возвращает 1 или 0.
+GET /api/v1/public/conference/{event_id}/check-subscription?tg_id=...
 
-Возвращает plain text "1" если участник подписан на ВСЕ такие каналы, иначе "0".
+Ответ JSON:
+{
+  "status": 1,          // 1 — подписан на всё, 0 — не подписан на что-то
+  "not_subscribed": [   // список каналов, на которые НЕ подписан (пустой если status=1)
+    {
+      "speaker_id": 4,
+      "name": "Рамиля Шиманская",
+      "tg_channel_id": "-1002161199761",
+      "tg_channel_url": "https://t.me/..."
+    }
+  ]
+}
 """
 import asyncio
 import httpx
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import PlainTextResponse
 from app.config import settings
 from app.database import get_db
 import asyncpg
@@ -19,10 +27,6 @@ router = APIRouter(prefix="/api/v1/public", tags=["Публичные API"])
 
 
 async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, user_id: int) -> bool:
-    """
-    Вызывает getChatMember. Возвращает True, если пользователь состоит в канале
-    (status: member/administrator/creator/restricted). False — если left/kicked или ошибка API.
-    """
     try:
         r = await client.get(
             f"https://api.telegram.org/bot{token}/getChatMember",
@@ -40,22 +44,21 @@ async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, 
 
 @router.get(
     "/conference/{event_id}/check-subscription",
-    response_class=PlainTextResponse,
     summary="Проверить подписку участника на каналы спикеров конференции",
 )
 async def check_conference_subscription(
     event_id: int,
     tg_id: int = Query(..., description="Telegram user id участника (platform_id в Salebot)"),
     db: asyncpg.Connection = Depends(get_db),
-) -> str:
+):
     event = await db.fetchrow(
         "SELECT id, client_id FROM events WHERE id = $1", event_id
     )
     if not event:
-        return "0"
+        return {"status": 0, "not_subscribed": []}
 
     rows = await db.fetch(
-        """SELECT sp.tg_channel_id
+        """SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
@@ -65,9 +68,8 @@ async def check_conference_subscription(
         event["id"],
     )
 
-    channel_ids = [r["tg_channel_id"] for r in rows]
-    if not channel_ids:
-        return "1"
+    if not rows:
+        return {"status": 1, "not_subscribed": []}
 
     client_row = await db.fetchrow(
         "SELECT bot_token FROM clients WHERE id = $1", event["client_id"]
@@ -76,11 +78,24 @@ async def check_conference_subscription(
     if not token:
         token = settings.telegram_bot_token
     if not token:
-        return "0"
+        return {"status": 0, "not_subscribed": []}
 
-    async with httpx.AsyncClient() as client:
+    speakers = [dict(r) for r in rows]
+
+    async with httpx.AsyncClient() as http:
         results = await asyncio.gather(
-            *(_check_member(client, token, ch, tg_id) for ch in channel_ids)
+            *(_check_member(http, token, sp["tg_channel_id"], tg_id) for sp in speakers)
         )
 
-    return "1" if all(results) else "0"
+    not_subscribed = [
+        {
+            "speaker_id": sp["speaker_id"],
+            "name": sp["name"],
+            "tg_channel_id": sp["tg_channel_id"],
+            "tg_channel_url": sp["tg_channel_url"],
+        }
+        for sp, subscribed in zip(speakers, results)
+        if not subscribed
+    ]
+
+    return {"status": 0 if not_subscribed else 1, "not_subscribed": not_subscribed}
