@@ -29,7 +29,10 @@ router = APIRouter(prefix="/api/v1/public", tags=["Публичные API"])
 
 
 class SubscriptionCheckBody(BaseModel):
-    tg_id: int
+    tg_id: str
+
+    def tg_id_int(self) -> int:
+        return int(self.tg_id)
 
 
 async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, user_id: int) -> bool:
@@ -120,4 +123,4 @@ async def check_subscription_post(
     body: SubscriptionCheckBody,
     db: asyncpg.Connection = Depends(get_db),
 ):
-    return await _do_check(event_id, body.tg_id, db)
+    return await _do_check(event_id, body.tg_id_int(), db)
