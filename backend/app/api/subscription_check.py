@@ -48,7 +48,9 @@ async def check_conference_subscription(
     tg_id: int = Query(..., description="Telegram user id участника (platform_id в Salebot)"),
     db: asyncpg.Connection = Depends(get_db),
 ) -> str:
-    event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", event_slug)
+    event = await db.fetchrow(
+        "SELECT id, client_id FROM events WHERE slug = $1", event_slug
+    )
     if not event:
         return "0"
 
@@ -67,7 +69,12 @@ async def check_conference_subscription(
     if not channel_ids:
         return "1"
 
-    token = settings.telegram_bot_token
+    client_row = await db.fetchrow(
+        "SELECT bot_token FROM clients WHERE id = $1", event["client_id"]
+    )
+    token = (client_row["bot_token"] or "").strip() if client_row else ""
+    if not token:
+        token = settings.telegram_bot_token
     if not token:
         return "0"
 
