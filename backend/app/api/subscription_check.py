@@ -19,7 +19,7 @@ Body: {"tg_id": 5725111966}
 """
 import asyncio
 import httpx
-from fastapi import APIRouter, Depends, Query, Optional
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from app.config import settings
 from app.database import get_db
