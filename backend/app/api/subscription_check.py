@@ -104,14 +104,14 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
 
 @router.get(
     "/conference/{event_id}/check-subscription",
-    summary="Проверить подписку (GET)",
+    summary="Проверить подписку (GET) — все параметры в URL",
 )
 async def check_subscription_get(
     event_id: int,
-    tg_id: int = Query(...),
+    tg_id: str = Query(...),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    return await _do_check(event_id, tg_id, db)
+    return await _do_check(event_id, int(tg_id), db)
 
 
 @router.post(
