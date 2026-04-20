@@ -7,6 +7,10 @@ import asyncpg
 
 router = APIRouter(prefix="/events/{event_id}/gifts", tags=["Подарки"])
 
+# Совместимый роутер для старого URL /api/v1/events/slug/{slug}/gifts/
+# НЕ УДАЛЯТЬ — на этот маршрут завязан Mini App
+router_compat = APIRouter(prefix="/events/slug", tags=["Подарки"])
+
 
 class GiftCreate(BaseModel):
     title: str
@@ -95,6 +99,18 @@ async def delete_gift(
 
 @router.get("/public/{event_slug}", summary="Подарки для Mini App (публично)")
 async def list_gifts_public(event_slug: str, db: asyncpg.Connection = Depends(get_db)):
+    event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", event_slug)
+    if not event:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    gifts = await db.fetch(
+        "SELECT id, title, description, points_cost, stock, sort_order FROM gifts WHERE event_id = $1 ORDER BY sort_order, points_cost",
+        event["id"]
+    )
+    return {"gifts": [dict(g) for g in gifts]}
+
+
+@router_compat.get("/{event_slug}/gifts/", summary="Подарки для Mini App — совместимый URL")
+async def list_gifts_by_slug(event_slug: str, db: asyncpg.Connection = Depends(get_db)):
     event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", event_slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
