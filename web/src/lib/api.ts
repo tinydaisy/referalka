@@ -128,6 +128,27 @@ export const api = {
       create: (eventId: number, data: any) =>
         request(`/api/v1/events/${eventId}/conference/promo-partners`, { method: 'POST', body: JSON.stringify(data) }),
     },
+    raffleTickets: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/raffle-tickets`),
+    },
+    templates: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/broadcasts/templates`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/broadcasts/templates`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (eventId: number, id: number, data: any) =>
+        request(`/api/v1/events/${eventId}/broadcasts/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      delete: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/templates/${id}`, { method: 'DELETE' }),
+    },
+    schedules: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/broadcasts/schedules`),
+      generate: (eventId: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/generate`, { method: 'POST' }),
+      cancel: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/cancel`, { method: 'POST' }),
+      cancelAll: (eventId: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/cancel-all`, { method: 'POST' }),
+    },
   },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
