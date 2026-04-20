@@ -64,6 +64,7 @@
 - **Production-режим везде** — даже на dev запускаем через `npm start` (не `npm run dev`), перед деплоем всегда `npm run build`
 - **Тестирование после каждого запроса** — после каждого изменения обязательно протестировать как реальный пользователь через dev-домен и Telegram Mini App. Описать результаты в ответе
 - Полные реквизиты серверов — в `memory/server_access.md` (прод) и `memory/dev_server.md` (dev)
+- **Cloudflare R2** (хранилище афиш и картинок) — бакет `referalka`, ключи и endpoint в `memory/r2_storage.md`. Переменные окружения: `CF_ACCOUNT_ID`, `CF_R2_ACCESS_KEY_ID`, `CF_R2_SECRET_ACCESS_KEY`, `CF_R2_BUCKET_NAME`, `CF_R2_PUBLIC_URL` (лежат в `web/.env.local` на обоих серверах)
 
 ---
 

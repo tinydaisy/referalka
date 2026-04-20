@@ -29,25 +29,71 @@ class TemplateUpdate(TemplateCreate):
 
 DEFAULT_TEMPLATES = [
     {
-        "name": "Анонс спикера (за 5 мин)",
+        "name": "Анонс спикера (за 5 мин до старта)",
         "type": "pre_start",
         "text": (
             "Через 5 минут выступает {speaker_name}\n\n"
             "Тема: «{speaker_topic}»\n\n"
             "Заходи в эфир, получай полезный контент и находи секретный код для розыгрыша!\n"
-            "👇👇👇\n{stream_url}"
+            "👇👇👇\n"
+            "{stream_url}"
         ),
         "photo_url": None,
-        "button_text": "СМОТРЕТЬ ЭФИР",
+        "button_text": "Войти в эфир",
+        "button_url": "{stream_url}",
+    },
+    {
+        "name": "Подарок спикера (за 10 мин до конца)",
+        "type": "gift",
+        "text": (
+            "🎁 {speaker_name}: Подарки после эфира\n\n"
+            "{gift_title}\n"
+            "{gift_url}\n\n"
+            "Если не нашли подарок — напишите спикеру в личку: {speaker_contacts}"
+        ),
+        "photo_url": None,
+        "button_text": None,
         "button_url": None,
     },
     {
-        "name": "Подарок спикера (за 10 мин)",
-        "type": "gift",
+        "name": "День конференции (за 30 мин до старта)",
+        "type": "day_start_30min",
         "text": (
-            "🎁 {speaker_name}: Подарки\n\n"
-            "{gift_title}\n\n"
-            "{gift_url}"
+            "Через 30 минут стартует День {day_number} конференции «{conf_title}»\n\n"
+            "Сегодня в программе:\n\n"
+            "{day_date}\n\n"
+            "{day_program}\n\n"
+            "Нажимай на кнопку «Войти на конференцию», чтобы попасть в вебинарную комнату.\n\n"
+            "При возникновении технических трудностей пишите — @forbs_service2"
+        ),
+        "photo_url": None,
+        "button_text": "Войти в эфир",
+        "button_url": "{stream_url}",
+    },
+    {
+        "name": "День конференции (старт эфира)",
+        "type": "day_live",
+        "text": (
+            "Мы начинаем День {day_number} масштабной онлайн-конференции «{conf_title}»\n\n"
+            "Подключайтесь в Zoom\n"
+            "👇🏻👇🏻👇🏻\n"
+            "{stream_url}"
+        ),
+        "photo_url": None,
+        "button_text": "Войти в эфир",
+        "button_url": "{stream_url}",
+    },
+    {
+        "name": "День конференции (итоги дня + подарки)",
+        "type": "day_end",
+        "text": (
+            "Благодарим вас за участие в {day_ordinal} дне конференции «{conf_title}»\n\n"
+            "Самое время ввести собранные КОДОВЫЕ СЛОВА и получить за них дополнительные билеты для розыгрыша:\n"
+            "{raffle_url}\n\n"
+            "Встречаемся завтра в {next_day_start_time} на День {next_day_number}.\n\n"
+            "—\n\n"
+            "А сейчас ловите подарки от спикеров {day_ordinal} дня:\n\n"
+            "{day_speakers_gifts}"
         ),
         "photo_url": None,
         "button_text": None,

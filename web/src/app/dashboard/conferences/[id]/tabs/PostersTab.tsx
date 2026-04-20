@@ -7,10 +7,10 @@ import { ImageThumb } from '@/components/ImagePreview'
 
 type PosterType = 'horizontal' | 'vertical' | 'square'
 
-const POSTER_TYPES: { key: PosterType; labelRu: string; labelEn: string; ratio: string }[] = [
-  { key: 'horizontal', labelRu: 'Горизонтальные', labelEn: 'Horizontal', ratio: '16:9' },
-  { key: 'vertical',   labelRu: 'Вертикальные',   labelEn: 'Vertical',   ratio: '9:16' },
-  { key: 'square',     labelRu: 'Квадратные',      labelEn: 'Square',     ratio: '1:1' },
+const POSTER_TYPES: { key: PosterType; labelRu: string; labelEn: string; ratio: string; aspect: string }[] = [
+  { key: 'horizontal', labelRu: 'Горизонтальные', labelEn: 'Horizontal', ratio: '16:9', aspect: 'aspect-video' },
+  { key: 'vertical',   labelRu: 'Вертикальные',   labelEn: 'Vertical',   ratio: '9:16', aspect: 'aspect-[9/16]' },
+  { key: 'square',     labelRu: 'Квадратные',      labelEn: 'Square',     ratio: '1:1',  aspect: 'aspect-square' },
 ]
 
 export default function PostersTab({ eventId }: { eventId: number }) {
@@ -116,13 +116,12 @@ export default function PostersTab({ eventId }: { eventId: number }) {
           ) : (
             <div className="grid grid-cols-3 gap-3">
               {posters[pt.key].map((url, i) => (
-                <div key={i} className="relative group aspect-video rounded-xl overflow-hidden bg-gray-100">
+                <div key={i} className={`relative group ${pt.aspect} rounded-xl overflow-hidden bg-gray-100`}>
                   <ImageThumb url={url} alt={`poster ${i+1}`}
-                    className="w-full h-full block" />
-                  <img src={url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                    className="w-full h-full block cursor-zoom-in" />
                   <button
                     onClick={() => removeposter(pt.key, url)}
-                    className="absolute top-1.5 right-1.5 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-full p-1"
+                    className="absolute top-1.5 right-1.5 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-full p-1 z-10"
                   >
                     <Trash2 size={14} className="text-white" />
                   </button>
