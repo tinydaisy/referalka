@@ -126,6 +126,7 @@ export default function Sidebar() {
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/10 w-full transition-colors"
           onClick={() => {
             localStorage.removeItem('plusson_token')
+            document.cookie = 'plusson_token=; path=/; max-age=0'
             window.location.href = '/login'
           }}
         >

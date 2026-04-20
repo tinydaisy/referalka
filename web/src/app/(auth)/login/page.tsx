@@ -18,6 +18,7 @@ export default function LoginPage() {
     try {
       const res = await api.auth.login({ email, password })
       localStorage.setItem('plusson_token', res.access_token)
+      document.cookie = `plusson_token=${res.access_token}; path=/; max-age=604800; SameSite=Lax`
 
       // Определяем роль из JWT токена
       const payload = JSON.parse(atob(res.access_token.split('.')[1]))
