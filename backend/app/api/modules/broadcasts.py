@@ -27,6 +27,35 @@ class TemplateUpdate(TemplateCreate):
     pass
 
 
+DEFAULT_TEMPLATES = [
+    {
+        "name": "Анонс спикера (за 5 мин)",
+        "type": "pre_start",
+        "text": (
+            "Через 5 минут выступает {speaker_name}\n\n"
+            "Тема: «{speaker_topic}»\n\n"
+            "Заходи в эфир, получай полезный контент и находи секретный код для розыгрыша!\n"
+            "👇👇👇\n{stream_url}"
+        ),
+        "photo_url": None,
+        "button_text": "СМОТРЕТЬ ЭФИР",
+        "button_url": None,
+    },
+    {
+        "name": "Подарок спикера (за 10 мин)",
+        "type": "gift",
+        "text": (
+            "🎁 {speaker_name}: Подарки\n\n"
+            "{gift_title}\n\n"
+            "{gift_url}"
+        ),
+        "photo_url": None,
+        "button_text": None,
+        "button_url": None,
+    },
+]
+
+
 @router.get("/templates", summary="Список шаблонов рассылок")
 async def list_templates(
     event_id: int,
@@ -45,6 +74,28 @@ async def list_templates(
         """,
         event_id
     )
+
+    if not rows:
+        for tpl in DEFAULT_TEMPLATES:
+            await db.execute(
+                """
+                INSERT INTO broadcast_templates
+                  (client_id, event_id, name, type, text, photo_url, button_text, button_url)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """,
+                client_id, event_id, tpl["name"], tpl["type"],
+                tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"],
+            )
+        rows = await db.fetch(
+            """
+            SELECT id, name, type, text, photo_url, button_text, button_url, created_at
+            FROM broadcast_templates
+            WHERE event_id = $1
+            ORDER BY type, created_at
+            """,
+            event_id
+        )
+
     return {"templates": [dict(r) for r in rows]}
 
 
