@@ -99,7 +99,16 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
         if not subscribed
     ]
 
-    return {"status": 0 if not_subscribed else 1, "not_subscribed": not_subscribed}
+    not_subscribed_text = "\n".join(
+        f"{sp['name']}: {sp['tg_channel_url'] or sp['tg_channel_id']}"
+        for sp in not_subscribed
+    )
+
+    return {
+        "status": 0 if not_subscribed else 1,
+        "not_subscribed": not_subscribed,
+        "not_subscribed_text": not_subscribed_text,
+    }
 
 
 @router.get(
