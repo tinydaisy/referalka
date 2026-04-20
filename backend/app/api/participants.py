@@ -4,6 +4,8 @@ from typing import Optional
 from app.database import get_db
 from app.services.referral_engine import generate_ref_code
 import asyncpg
+import secrets
+import string
 
 router = APIRouter(prefix="/participants", tags=["Участники"])
 
@@ -14,8 +16,18 @@ class RegisterParticipantRequest(BaseModel):
     username: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    ref_code: Optional[str] = None          # реферальный код того, кто пригласил
+    ref_code: Optional[str] = None
     promo_partner_code: Optional[str] = None
+
+
+async def get_unique_ref_code(db: asyncpg.Connection) -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    for _ in range(10):
+        code = "".join(secrets.choice(alphabet) for _ in range(8))
+        exists = await db.fetchval("SELECT 1 FROM event_participants WHERE ref_code = $1", code)
+        if not exists:
+            return code
+    raise HTTPException(status_code=500, detail="Не удалось сгенерировать ref_code")
 
 
 @router.post("/register", summary="Зарегистрировать участника в событии")
@@ -23,35 +35,35 @@ async def register_participant(
     data: RegisterParticipantRequest,
     db: asyncpg.Connection = Depends(get_db)
 ):
-    # Находим событие
     event = await db.fetchrow(
-        "SELECT id, points_free, points_paid FROM events WHERE slug = $1 AND status = 'active'",
+        "SELECT id, client_id FROM events WHERE slug = $1 AND status = 'active'",
         data.event_slug
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено или не активно")
 
-    # Upsert пользователя в telegram_users
-    await db.execute(
+    # Upsert в platform_users (telegram, привязка к client_id события)
+    platform_user_id = await db.fetchval(
         """
-        INSERT INTO telegram_users (tg_id, username, first_name, last_name)
-        VALUES ($1,$2,$3,$4)
-        ON CONFLICT (tg_id) DO UPDATE SET
-          username = EXCLUDED.username,
-          first_name = EXCLUDED.first_name
+        INSERT INTO platform_users (client_id, platform, platform_user_id, username, first_name, last_name)
+        VALUES ($1, 'telegram', $2, $3, $4, $5)
+        ON CONFLICT (client_id, platform, platform_user_id) DO UPDATE SET
+          username   = COALESCE(EXCLUDED.username, platform_users.username),
+          first_name = COALESCE(EXCLUDED.first_name, platform_users.first_name),
+          last_name  = COALESCE(EXCLUDED.last_name, platform_users.last_name),
+          updated_at = NOW()
+        RETURNING id
         """,
-        data.tg_id, data.username, data.first_name, data.last_name
+        event["client_id"], str(data.tg_id), data.username, data.first_name, data.last_name
     )
 
-    # Проверяем, не участвует ли уже
     existing = await db.fetchrow(
-        "SELECT id, ref_code, points_total FROM event_participants WHERE event_id=$1 AND tg_user_id=$2",
-        event["id"], data.tg_id
+        "SELECT id, ref_code, status FROM event_participants WHERE event_id=$1 AND platform_user_id=$2",
+        event["id"], platform_user_id
     )
     if existing:
         return {"participant": dict(existing), "is_new": False}
 
-    # Определяем referrer_participant_id
     referrer_id = None
     if data.ref_code:
         referrer = await db.fetchrow(
@@ -61,31 +73,22 @@ async def register_participant(
         if referrer:
             referrer_id = referrer["id"]
 
-    # Генерируем уникальный ref_code
-    new_code = generate_ref_code()
-    while await db.fetchrow("SELECT id FROM event_participants WHERE ref_code = $1", new_code):
-        new_code = generate_ref_code()
-
-    ref_code_paid = None
-    if event["points_paid"] > 0:
-        ref_code_paid = generate_ref_code("p")
-        while await db.fetchrow("SELECT id FROM event_participants WHERE ref_code_paid = $1", ref_code_paid):
-            ref_code_paid = generate_ref_code("p")
+    new_code = await get_unique_ref_code(db)
 
     participant = await db.fetchrow(
         """
         INSERT INTO event_participants
-          (event_id, tg_user_id, referrer_participant_id, ref_code, ref_code_paid, promo_partner_code)
-        VALUES ($1,$2,$3,$4,$5,$6)
-        RETURNING *
+          (event_id, platform_user_id, referrer_participant_id, ref_code, promo_partner_code, status)
+        VALUES ($1,$2,$3,$4,$5,'interested')
+        RETURNING id, ref_code, status
         """,
-        event["id"], data.tg_id, referrer_id, new_code, ref_code_paid, data.promo_partner_code
+        event["id"], platform_user_id, referrer_id, new_code, data.promo_partner_code
     )
 
     return {"participant": dict(participant), "is_new": True}
 
 
-@router.post("/{participant_id}/activate", summary="Активировать участника (открыл Игру)")
+@router.post("/{participant_id}/activate", summary="Активировать участника")
 async def activate_participant(participant_id: int, db: asyncpg.Connection = Depends(get_db)):
     await db.execute(
         "UPDATE event_participants SET activated_at = NOW() WHERE id = $1 AND activated_at IS NULL",
@@ -99,13 +102,14 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
     rows = await db.fetch(
         """
         SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
-               ep.id as participant_id, ep.ref_code, ep.points_total
+               ep.id as participant_id, ep.ref_code, ep.status as participant_status
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
-        WHERE ep.tg_user_id = $1
+        JOIN platform_users pu ON pu.id = ep.platform_user_id
+        WHERE pu.platform = 'telegram' AND pu.platform_user_id = $1
         ORDER BY ep.registered_at DESC
         """,
-        tg_id
+        str(tg_id)
     )
     return {"events": [dict(r) for r in rows]}
 
@@ -118,26 +122,21 @@ async def get_participant_in_event(
 ):
     row = await db.fetchrow(
         """
-        SELECT ep.*, e.points_free, e.points_paid, e.title as event_title, e.module_slug
+        SELECT ep.id, ep.ref_code, ep.status, ep.registered_at, ep.activated_at,
+               e.title as event_title, e.module_slug
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
-        WHERE e.slug = $1 AND ep.tg_user_id = $2
+        JOIN platform_users pu ON pu.id = ep.platform_user_id
+        WHERE e.slug = $1 AND pu.platform = 'telegram' AND pu.platform_user_id = $2
         """,
-        event_slug, tg_id
+        event_slug, str(tg_id)
     )
     if not row:
         raise HTTPException(status_code=404, detail="Участник не найден")
 
-    # Кол-во рефералов
-    referrals = await db.fetchrow(
-        """
-        SELECT COUNT(*) as count FROM event_participants
-        WHERE referrer_participant_id = $1
-        """,
+    referrals = await db.fetchval(
+        "SELECT COUNT(*) FROM event_participants WHERE referrer_participant_id = $1",
         row["id"]
     )
 
-    return {
-        "participant": dict(row),
-        "referrals_count": referrals["count"]
-    }
+    return {"participant": dict(row), "referrals_count": referrals}

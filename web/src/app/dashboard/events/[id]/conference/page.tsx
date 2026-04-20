@@ -9,15 +9,17 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
-type Tab = 'settings' | 'speakers' | 'program' | 'broadcasts' | 'promo' | 'codes'
+type Tab = 'settings' | 'speakers' | 'program' | 'templates' | 'broadcasts' | 'promo' | 'codes' | 'raffle'
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'settings',   label: 'Настройки',   icon: Settings },
   { id: 'speakers',   label: 'Спикеры',     icon: User },
   { id: 'program',    label: 'Программа',   icon: Clock },
+  { id: 'templates',  label: 'Шаблоны',     icon: Edit2 },
   { id: 'broadcasts', label: 'Рассылки',    icon: Send },
   { id: 'promo',      label: 'Промо',       icon: Users },
   { id: 'codes',      label: 'Кодовые слова', icon: Key },
+  { id: 'raffle',     label: 'Розыгрыш',      icon: Users },
 ]
 
 const ROLES: Record<string, string> = {
@@ -81,23 +83,34 @@ export default function ConferencePage() {
   const [sessionForm, setSessionForm] = useState<any>({})
   const [broadcastEdit, setBroadcastEdit] = useState<number | null>(null)
   const [broadcastText, setBroadcastText] = useState('')
+  // Шаблоны и новые рассылки
+  const [templates, setTemplates] = useState<any[]>([])
+  const [schedules, setSchedules] = useState<any[]>([])
+  const [templateForm, setTemplateForm] = useState<any>({ name: '', type: 'pre_start', text: '', photo_url: '', button_text: '', button_url: '' })
+  const [templateModal, setTemplateModal] = useState<any>(null) // null | 'new' | {template}
+  const [schedulesLoading, setSchedulesLoading] = useState(false)
   const [addPromo, setAddPromo] = useState(false)
   const [promoForm, setPromoForm] = useState({ name: '', telegram_url: '', partner_code: '' })
   const [addCode, setAddCode] = useState(false)
   const [codeForm, setCodeForm] = useState({ speaker_id: '', code_word: '', tickets_reward: 1 })
+  const [raffleTickets, setRaffleTickets] = useState<any[]>([])
+  const [raffleWinner, setRaffleWinner] = useState<any>(null)
 
   useEffect(() => {
     loadAll()
   }, [eventId])
 
   async function loadAll() {
-    const [ev, sp, ss, br, pp, cd] = await Promise.all([
+    const [ev, sp, ss, br, pp, cd, tmpl, sched, rt] = await Promise.all([
       api.events.get(eventId),
       api.conference.speakers.list(eventId),
       api.conference.sessions.list(eventId),
       api.conference.broadcasts.list(eventId),
       api.conference.promoPartners.list(eventId),
       api.conference.codes.list(eventId),
+      api.conference.templates.list(eventId).catch(() => ({ templates: [] })),
+      api.conference.schedules.list(eventId).catch(() => ({ schedules: [] })),
+      api.conference.raffleTickets.list(eventId).catch(() => ({ tickets: [] })),
     ])
     setEvent(ev.event)
     setSpeakers(sp.speakers || [])
@@ -105,6 +118,9 @@ export default function ConferencePage() {
     setBroadcasts(br.broadcasts || [])
     setPromoPartners(pp.partners || [])
     setCodes(cd.codes || [])
+    setTemplates(tmpl.templates || [])
+    setSchedules(sched.schedules || [])
+    setRaffleTickets(rt.tickets || [])
 
     // Загружаем конференцию
     const c = await api.conference.get(eventId)
@@ -629,115 +645,244 @@ export default function ConferencePage() {
         </div>
       )}
 
+      {/* ═══ ШАБЛОНЫ ════════════════════════════════════════════════════════════ */}
+      {activeTab === 'templates' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h3 className="font-semibold text-gray-800">Шаблоны рассылок</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Создайте шаблоны — потом запустите рассылки во вкладке «Рассылки»</p>
+            </div>
+            <button onClick={() => { setTemplateModal('new'); setTemplateForm({ name: '', type: 'pre_start', text: '', photo_url: '', button_text: '', button_url: '' }) }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium"
+              style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+              <Plus size={14} /> Новый шаблон
+            </button>
+          </div>
+
+          {templates.length === 0 ? (
+            <div className="py-12 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
+              <Edit2 size={28} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Шаблонов нет</p>
+              <p className="text-xs mt-1">Создайте шаблон для рассылки «За 5 мин до старта» и «Подарок спикера»</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {templates.map(t => (
+                <div key={t.id} className="bg-white rounded-xl border border-gray-100 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.type === 'pre_start' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {t.type === 'pre_start' ? 'За 5 мин до старта' : 'Подарок спикера'}
+                        </span>
+                        <span className="text-sm font-medium text-gray-800">{t.name}</span>
+                      </div>
+                      {t.text && (
+                        <p className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 mb-2">{t.text}</p>
+                      )}
+                      <div className="flex flex-wrap gap-3 text-xs text-gray-400">
+                        {t.photo_url && <span className="flex items-center gap-1"><Eye size={11} /> Есть фото</span>}
+                        {t.button_text && <span className="flex items-center gap-1"><ExternalLink size={11} /> Кнопка: {t.button_text}</span>}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <button onClick={() => { setTemplateModal(t); setTemplateForm({ name: t.name, type: t.type, text: t.text || '', photo_url: t.photo_url || '', button_text: t.button_text || '', button_url: t.button_url || '' }) }}
+                        className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-700">
+                        <Edit2 size={13} />
+                      </button>
+                      <button onClick={async () => {
+                        await api.conference.templates.delete(eventId, t.id)
+                        setTemplates(templates.filter(x => x.id !== t.id))
+                      }} className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:text-red-600">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Модалка создания/редактирования шаблона */}
+          {templateModal && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-semibold text-gray-800">{templateModal === 'new' ? 'Новый шаблон' : 'Редактировать шаблон'}</h3>
+                  <button onClick={() => setTemplateModal(null)}><X size={18} /></button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Название шаблона</label>
+                    <input value={templateForm.name} onChange={e => setTemplateForm({...templateForm, name: e.target.value})}
+                      placeholder="Например: Анонс спикера"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Тип</label>
+                    <select value={templateForm.type} onChange={e => setTemplateForm({...templateForm, type: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none">
+                      <option value="pre_start">За 5 минут до старта</option>
+                      <option value="gift">Подарок спикера (за 10 мин до конца)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Текст сообщения</label>
+                    <p className="text-xs text-gray-400 mb-1">Переменные: {'{speaker_name}'} {'{speaker_topic}'} {'{stream_url}'} {'{gift_title}'} {'{gift_url}'} {'{start_time}'} {'{end_time}'}</p>
+                    <textarea value={templateForm.text} onChange={e => setTemplateForm({...templateForm, text: e.target.value})}
+                      rows={6} placeholder="Текст сообщения..."
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none resize-none" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Фото (URL) — если нет, берётся афиша спикера</label>
+                    <input value={templateForm.photo_url} onChange={e => setTemplateForm({...templateForm, photo_url: e.target.value})}
+                      placeholder="https://..."
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Текст кнопки</label>
+                      <input value={templateForm.button_text} onChange={e => setTemplateForm({...templateForm, button_text: e.target.value})}
+                        placeholder="СМОТРЕТЬ ЭФИР"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Ссылка кнопки</label>
+                      <input value={templateForm.button_url} onChange={e => setTemplateForm({...templateForm, button_url: e.target.value})}
+                        placeholder="https://..."
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-5">
+                  <button onClick={async () => {
+                    if (templateModal === 'new') {
+                      const res = await api.conference.templates.create(eventId, templateForm)
+                      setTemplates([...templates, res])
+                    } else {
+                      const res = await api.conference.templates.update(eventId, templateModal.id, templateForm)
+                      setTemplates(templates.map(x => x.id === templateModal.id ? res : x))
+                    }
+                    setTemplateModal(null)
+                  }} className="flex-1 py-2 rounded-xl text-sm font-medium text-white"
+                    style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                    Сохранить
+                  </button>
+                  <button onClick={() => setTemplateModal(null)}
+                    className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ═══ РАССЫЛКИ ════════════════════════════════════════════════════════════ */}
       {activeTab === 'broadcasts' && (
         <div>
           <div className="flex justify-between items-center mb-4">
             <div>
-              <h3 className="font-semibold text-gray-800">Рассылки</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Без утверждения рассылки не уходят</p>
+              <h3 className="font-semibold text-gray-800">Очередь рассылок</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Создайте расписание из программы — рассылки уйдут автоматически по времени</p>
             </div>
-            <button onClick={generateBroadcasts}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
-              <Wand2 size={14} /> Создать из программы
-            </button>
+            <div className="flex gap-2">
+              {schedules.some(s => s.status === 'pending') && (
+                <button onClick={async () => {
+                  if (!confirm('Отменить все ожидающие рассылки?')) return
+                  await api.conference.schedules.cancelAll(eventId)
+                  const res = await api.conference.schedules.list(eventId)
+                  setSchedules(res.schedules || [])
+                }} className="flex items-center gap-2 px-3 py-2 border border-red-200 rounded-xl text-sm text-red-500 hover:bg-red-50">
+                  <XCircle size={14} /> Остановить всё
+                </button>
+              )}
+              <button onClick={async () => {
+                if (templates.length === 0) { alert('Сначала создайте шаблоны во вкладке «Шаблоны»'); return }
+                setSchedulesLoading(true)
+                const res = await api.conference.schedules.generate(eventId)
+                const updated = await api.conference.schedules.list(eventId)
+                setSchedules(updated.schedules || [])
+                setSchedulesLoading(false)
+                setMsg(`Создано ${res.created} рассылок, пропущено ${res.skipped}`)
+                setTimeout(() => setMsg(''), 4000)
+              }} disabled={schedulesLoading}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium disabled:opacity-50"
+                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                <Wand2 size={14} /> {schedulesLoading ? 'Создаю...' : 'Создать из программы'}
+              </button>
+            </div>
           </div>
 
-          {/* Группировка по статусу */}
-          {broadcasts.length === 0 ? (
+          {schedules.length === 0 ? (
             <div className="py-12 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
               <Send size={28} className="mx-auto mb-2 opacity-30" />
               <p className="text-sm">Рассылок нет</p>
-              <p className="text-xs mt-1">Добавьте сессии в программу и нажмите «Создать из программы»</p>
+              <p className="text-xs mt-1">Создайте шаблоны, потом нажмите «Создать из программы»</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {broadcasts.map(b => (
-                <div key={b.id} className="bg-white rounded-xl border border-gray-100 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[b.status]}`}>
-                          {STATUS_LABELS[b.status] || b.status}
-                        </span>
-                        <span className="text-xs text-gray-400">{BROADCAST_TYPES[b.type] || b.type}</span>
-                        {b.scheduled_at && (
-                          <span className="text-xs text-gray-400">
-                            {new Date(b.scheduled_at).toLocaleString('ru', {
-                              day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                            })}
-                          </span>
-                        )}
-                        {b.speaker_name && <span className="text-xs text-gray-500">• {b.speaker_name}</span>}
-                      </div>
+            <div className="space-y-2">
+              {schedules.map(s => {
+                const fireAt = s.fire_at ? new Date(s.fire_at) : null
+                const secondsLeft = s.seconds_until
+                const timeLeft = secondsLeft != null
+                  ? secondsLeft > 3600
+                    ? `${Math.floor(secondsLeft / 3600)}ч ${Math.floor((secondsLeft % 3600) / 60)}мин`
+                    : secondsLeft > 60
+                      ? `${Math.floor(secondsLeft / 60)} мин`
+                      : `${secondsLeft} сек`
+                  : null
 
-                      {broadcastEdit === b.id ? (
-                        <div className="mt-2">
-                          <textarea value={broadcastText} rows={4}
-                            onChange={e => setBroadcastText(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none resize-none" />
-                          <div className="flex gap-2 mt-2">
-                            <button onClick={() => saveBroadcastText(b.id)}
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-                              style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-                              <Save size={11} /> Сохранить
-                            </button>
-                            <button onClick={() => setBroadcastEdit(null)}
-                              className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-500">
-                              Отмена
-                            </button>
-                          </div>
+                const statusColor: Record<string, string> = {
+                  pending: 'bg-amber-50 border-amber-200',
+                  running: 'bg-blue-50 border-blue-200',
+                  done: 'bg-green-50 border-green-200',
+                  cancelled: 'bg-gray-50 border-gray-200',
+                }
+                const statusLabel: Record<string, string> = {
+                  pending: '⏳ Ожидает',
+                  running: '📤 Отправляется',
+                  done: '✅ Отправлено',
+                  cancelled: '❌ Отменена',
+                }
+
+                return (
+                  <div key={s.id} className={`rounded-xl border p-4 ${statusColor[s.status] || 'bg-white border-gray-100'}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="text-xs font-medium text-gray-700">{statusLabel[s.status] || s.status}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${s.type === 'pre_start' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {s.type === 'pre_start' ? 'Анонс' : 'Подарок'}
+                          </span>
+                          {s.speaker_name && <span className="text-xs text-gray-600 font-medium">{s.speaker_name}</span>}
                         </div>
-                      ) : (
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap mt-1">{b.text}</p>
+                        <div className="flex items-center gap-3 text-xs text-gray-500">
+                          {fireAt && (
+                            <span>{fireAt.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                          )}
+                          {timeLeft && s.status === 'pending' && (
+                            <span className="text-amber-600 font-medium">через {timeLeft}</span>
+                          )}
+                          {s.status === 'done' && (
+                            <span className="text-green-600">отправлено {s.recipients_sent} чел.</span>
+                          )}
+                        </div>
+                      </div>
+                      {s.status === 'pending' && (
+                        <button onClick={async () => {
+                          await api.conference.schedules.cancel(eventId, s.id)
+                          setSchedules(schedules.map(x => x.id === s.id ? { ...x, status: 'cancelled' } : x))
+                        }} className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-red-600 shrink-0">
+                          <XCircle size={13} />
+                        </button>
                       )}
                     </div>
-
-                    {broadcastEdit !== b.id && (
-                      <div className="flex flex-col gap-1 shrink-0">
-                        {/* Редактировать */}
-                        {b.status !== 'sent' && (
-                          <button onClick={() => { setBroadcastEdit(b.id); setBroadcastText(b.text) }}
-                            className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-700">
-                            <Edit2 size={13} />
-                          </button>
-                        )}
-                        {/* Тест */}
-                        <button onClick={() => testBroadcast(b.id)}
-                          className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-blue-500"
-                          title="Отправить себе тест">
-                          <Play size={13} />
-                        </button>
-                      </div>
-                    )}
                   </div>
-
-                  {/* Кнопки утверждения */}
-                  {b.status === 'draft' && broadcastEdit !== b.id && (
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-gray-50">
-                      <button onClick={() => approveBroadcast(b.id)}
-                        className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-medium text-white"
-                        style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-                        <CheckCircle size={13} /> Утвердить
-                      </button>
-                      <button onClick={() => cancelBroadcast(b.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 border border-red-200 rounded-xl text-xs text-red-500">
-                        <XCircle size={13} /> Отменить
-                      </button>
-                    </div>
-                  )}
-
-                  {b.status === 'approved' && (
-                    <div className="mt-3 pt-3 border-t border-gray-50 flex items-center justify-between">
-                      <span className="text-xs text-green-600 flex items-center gap-1">
-                        <CheckCircle size={12} /> Утверждена — отправится по расписанию
-                      </span>
-                      <button onClick={() => cancelBroadcast(b.id)}
-                        className="text-xs text-red-400 hover:text-red-600">Отменить</button>
-                    </div>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -876,6 +1021,84 @@ export default function ConferencePage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'raffle' && (
+        <div>
+          <div className="mb-6">
+            <h3 className="font-semibold text-gray-800">Розыгрыш</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Все билеты, зарегистрированные через API. Нажмите кнопку, чтобы выбрать случайного победителя.</p>
+          </div>
+
+          {/* Генератор победителя */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <button
+                disabled={raffleTickets.length === 0}
+                onClick={() => {
+                  const idx = Math.floor(Math.random() * raffleTickets.length)
+                  setRaffleWinner(raffleTickets[idx])
+                }}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl text-base font-bold text-[#1a2a3a] disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-100"
+                style={{ background: 'linear-gradient(45deg,#FFCFA4,#e8a87c)' }}
+              >
+                🎲 Выбрать победителя
+              </button>
+              <span className="text-sm text-gray-400">Всего билетов: <b className="text-gray-700">{raffleTickets.length}</b></span>
+            </div>
+
+            {raffleWinner && (
+              <div className="mt-5 p-5 rounded-2xl border-2 border-[#FFCFA4] bg-amber-50">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-3xl font-black text-[#25455D]">#{raffleWinner.ticket_number}</span>
+                  <div>
+                    <p className="font-bold text-gray-800 text-lg">{raffleWinner.tg_name || '—'}</p>
+                    <p className="text-sm text-gray-500">
+                      {raffleWinner.tg_username ? `@${raffleWinner.tg_username}` : `TG ID: ${raffleWinner.tg_id || '—'}`}
+                    </p>
+                  </div>
+                  <button onClick={() => setRaffleWinner(null)} className="ml-auto text-gray-400 hover:text-gray-600">✕</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Таблица билетов */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[600px]">
+                <thead className="bg-gray-50">
+                  <tr>
+                    {['№ билета', 'Имя в Telegram', 'Ник', 'Telegram ID', 'Salebot ID', 'Кодовое слово', 'Дата'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {raffleTickets.length === 0 && (
+                    <tr><td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">
+                      Билеты ещё не добавлены.<br />
+                      <span className="text-xs text-gray-300 mt-1 block">Используйте публичный API: POST /api/v1/events/{'{event_id}'}/conference/raffle-tickets/public</span>
+                    </td></tr>
+                  )}
+                  {raffleTickets.map(t => (
+                    <tr key={t.id} className="hover:bg-gray-50/50">
+                      <td className="px-4 py-3 text-sm font-bold text-[#25455D]">#{t.ticket_number}</td>
+                      <td className="px-4 py-3 text-sm text-gray-800">{t.tg_name || '—'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{t.tg_username ? `@${t.tg_username}` : '—'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500 font-mono">{t.tg_id || '—'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{t.salebot_client_id || '—'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{t.code_word || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                        {t.created_at ? new Date(t.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

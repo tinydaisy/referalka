@@ -37,11 +37,12 @@ async def process_conversion(
     # Ищем участника и его событие
     participant = await db.fetchrow(
         """
-        SELECT ep.id, ep.event_id, ep.tg_user_id, ep.points_total,
-               e.points_free, e.points_paid, e.title as event_title
+        SELECT ep.id, ep.event_id,
+               e.points_free, e.points_paid, e.title as event_title,
+               0 as points_total
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
-        WHERE ep.ref_code = $1 OR ep.ref_code_paid = $1
+        WHERE ep.ref_code = $1
         """,
         ref_code
     )

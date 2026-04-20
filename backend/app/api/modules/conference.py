@@ -1489,7 +1489,7 @@ async def export_salebot(
                   cse.gift_after_speech_title, cse.gift_raffle_title,
                   cse.sort_order, cse.is_visible,
                   sp.name, sp.title, sp.achievements,
-                  sp.tg_channel_url, sp.tg_channel_id
+                  sp.tg_channel_url, sp.tg_channel_id, sp.instagram_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
@@ -1556,15 +1556,19 @@ async def export_salebot(
 
         tg = (sp.get("tg_channel_url") or "").strip()
         if tg:
-            lines.append(f"(Ссылка на тг канал: {tg})")
-        else:
-            lines.append("(Ссылка на тг канал: —)")
+            lines.append(f"Тг канал: {tg}")
 
-        lines.append("")
+        insta = (sp.get("instagram_url") or "").strip()
+        if insta:
+            lines.append(f"Нельзяграм: {insta}")
+
+        if tg or insta:
+            lines.append("")
 
         # Партнёрам тему не выводим
         if sp.get("role") != "partner":
             lines.append("Тема лекции:")
+            lines.append("")
 
             sp_topics = topics_map.get(sp["id"], [])
             topic_texts = [t["topic"] for t in sp_topics if t["topic"].strip()]
@@ -1587,9 +1591,9 @@ async def export_salebot(
 
         if achievements_list:
             for ach in achievements_list:
-                lines.append(f"· {ach}")
+                lines.append(f"• {ach}")
         else:
-            lines.append("· (регалии уточняются)")
+            lines.append("• (регалии уточняются)")
 
         lines.append("")
 
@@ -1707,3 +1711,559 @@ async def export_salebot(
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"}
     )
+
+
+# ─── Отправка карточки спикера в Telegram ─────────────────────────────────────
+
+def _build_speaker_caption(sp: dict, topics: list) -> str:
+    """Строит текст-подпись для карточки спикера (формат Salebot, \n как разделитель)."""
+    parts = []
+
+    name = (sp.get("name") or "").strip()
+    parts.append(name)
+
+    tg = (sp.get("tg_channel_url") or "").strip()
+    insta = (sp.get("instagram_url") or "").strip()
+    if tg:
+        parts.append(f"Тг канал: {tg}")
+    if insta:
+        parts.append(f"Нельзяграм: {insta}")
+    if tg or insta:
+        parts.append("")
+
+    # Тема лекции (только не партнёрам)
+    if sp.get("role") != "partner":
+        parts.append("Тема лекции:")
+        parts.append("")
+        topic_texts = [t["topic"] for t in topics if t.get("topic", "").strip()]
+        if topic_texts:
+            for topic in topic_texts:
+                parts.append(topic)
+        else:
+            parts.append("уточняется")
+        parts.append("")
+
+    # Регалии
+    import json as _json
+    raw = sp.get("achievements") or []
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except Exception:
+            raw = [raw] if raw.strip() else []
+    achievements_list = [a for a in raw if str(a).strip()]
+    if achievements_list:
+        for ach in achievements_list:
+            parts.append(f"· {ach}")
+    parts.append("")
+
+    gift_speech = (sp.get("gift_after_speech_title") or "").strip()
+    gift_raffle = (sp.get("gift_raffle_title") or "").strip()
+
+    if gift_speech:
+        parts.append(f"🎁 На эфире подарит: {gift_speech}")
+        parts.append("")
+
+    if gift_raffle:
+        parts.append(f"🏆Подарок для большого розыгрыша: {gift_raffle}")
+        parts.append("")
+
+    return "\n".join(parts).rstrip()
+
+
+@router.get("/speakers/{speaker_event_id}/send-to-telegram",
+            summary="Отправить карточку спикера в Telegram (публичный, без авторизации)")
+async def send_speaker_to_telegram(
+    event_id: int,
+    speaker_event_id: int,
+    chat_id: str,
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """
+    Публичный endpoint — отправляет карточку спикера (афиша + текст) в Telegram-чат.
+    chat_id — Telegram ID получателя (например, 5725111966).
+    Использует bot_token из настроек клиента-владельца события.
+    Вызывается из кнопок SaleBot без авторизации.
+    """
+    import httpx, os
+
+    # Определяем клиента по событию
+    event_row = await db.fetchrow("SELECT client_id FROM events WHERE id = $1", event_id)
+    if not event_row:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    client_id = event_row["client_id"]
+
+    # Получаем bot_token клиента
+    client_row = await db.fetchrow("SELECT bot_token FROM clients WHERE id = $1", client_id)
+    bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
+    if not bot_token:
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not bot_token:
+        raise HTTPException(status_code=400, detail="bot_token не настроен в профиле клиента")
+
+    # Данные спикера
+    row = await db.fetchrow(
+        """SELECT cse.id, cse.role,
+                  cse.gift_after_speech_title, cse.gift_raffle_title,
+                  cse.poster_url AS cse_poster_url,
+                  sp.name, sp.achievements,
+                  sp.photo_url, sp.poster_url,
+                  sp.tg_channel_url, sp.instagram_url
+           FROM conf_speaker_events cse
+           JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE cse.id = $1 AND cse.event_id = $2""",
+        speaker_event_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Спикер не найден")
+
+    topics_map = await _load_topics([speaker_event_id], db)
+    sp = dict(row)
+    topics = topics_map.get(speaker_event_id, [])
+
+    # poster_url: сначала cse.poster_url, потом collaborators.poster_url
+    poster_url = (sp.get("cse_poster_url") or sp.get("poster_url") or "").strip()
+    caption = _build_speaker_caption(sp, topics)
+
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": "Программа конференции", "url": "https://t.me/ivision_conf_bot?start=program"}
+        ]]
+    }
+
+    CAPTION_LIMIT = 1024
+
+    async with httpx.AsyncClient(timeout=15) as http:
+        if poster_url:
+            if len(caption) <= CAPTION_LIMIT:
+                # Фото + caption + кнопка
+                payload = {
+                    "chat_id": chat_id,
+                    "photo": poster_url,
+                    "caption": caption,
+                    "disable_web_page_preview": True,
+                    "reply_markup": reply_markup,
+                }
+                resp = await http.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                    json=payload
+                )
+                tg_result = resp.json()
+            else:
+                # Фото без caption — потом текст отдельным сообщением
+                resp1 = await http.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                    json={"chat_id": chat_id, "photo": poster_url}
+                )
+                tg_result = resp1.json()
+                if tg_result.get("ok"):
+                    resp2 = await http.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={
+                            "chat_id": chat_id,
+                            "text": caption,
+                            "disable_web_page_preview": True,
+                            "reply_markup": reply_markup,
+                        }
+                    )
+                    tg_result = resp2.json()
+        else:
+            payload = {
+                "chat_id": chat_id,
+                "text": caption,
+                "disable_web_page_preview": True,
+                "reply_markup": reply_markup,
+            }
+            resp = await http.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json=payload
+            )
+            tg_result = resp.json()
+
+    if not tg_result.get("ok"):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ошибка Telegram API: {tg_result.get('description', 'неизвестно')}"
+        )
+
+    return {
+        "ok": True,
+        "speaker": sp.get("name"),
+        "chat_id": chat_id,
+        "telegram_response": tg_result,
+    }
+
+
+# ─── Отправка программы конференции в Telegram ────────────────────────────────
+
+SCHEDULE_ROLES_WITH_LABEL = {"headliner", "organizer", "partner", "general_partner"}
+
+ROLE_LABELS_RU = {
+    "headliner": "хедлайнер",
+    "organizer": "организатор",
+    "partner": "партнёр",
+    "general_partner": "генеральный партнёр",
+}
+
+MONTHS_RU = {
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+    5: "мая", 6: "июня", 7: "июля", 8: "августа",
+    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+}
+
+def _format_date_ru(d) -> str:
+    if d is None:
+        return ""
+    if hasattr(d, "day"):
+        return f"{d.day} {MONTHS_RU[d.month]}"
+    return str(d)
+
+def _fmt_time(dt) -> str:
+    if dt is None:
+        return "?"
+    if hasattr(dt, "strftime"):
+        from datetime import timezone as _tz, timedelta as _td
+        # Конвертируем UTC → Moscow (UTC+3)
+        if dt.tzinfo is not None:
+            moscow_offset = _td(hours=3)
+            dt = dt.astimezone(_tz(moscow_offset))
+        return dt.strftime("%H:%M")
+    return str(dt)
+
+def _build_schedule_text(days_data: list) -> str:
+    """Строит текст программы конференции с HTML-разметкой для Telegram."""
+    lines = ["ПРОГРАММА КОНФЕРЕНЦИИ:"]
+    for day in days_data:
+        lines.append("")
+        date_label = day["date"]
+        day_header = f"ДЕНЬ {day['day_number']} - {date_label}" if date_label else f"ДЕНЬ {day['day_number']}"
+        lines.append(f"<b>{day_header}</b>")
+        for s in day["sessions"]:
+            time_start = s["time_start"]
+            time_end = s["time_end"]
+            title = s["title"]
+            speaker = s["speaker_name"] or ""
+            role = s["role"] or ""
+            line = f"<b>{time_start} - {time_end}</b>: {title}"
+            if speaker:
+                if role in SCHEDULE_ROLES_WITH_LABEL:
+                    role_label = ROLE_LABELS_RU.get(role, role)
+                    line += f" (<b>{speaker}</b> - {role_label})"
+                else:
+                    line += f" (<b>{speaker}</b>)"
+            lines.append(line)
+    return "\n".join(lines)
+
+
+@router.get(
+    "/send-schedule",
+    summary="Отправить программу конференции в Telegram",
+    tags=["Конференция"],
+)
+async def send_schedule_to_telegram(
+    event_id: int,
+    chat_id: int,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """
+    Публичный GET endpoint.
+    Параметры: event_id (path), chat_id (query).
+    Отправляет текст программы конференции с тремя inline-кнопками в Telegram.
+    bot_token берётся из таблицы clients по client_id события.
+    """
+    import httpx, os
+
+    # Получаем client_id из события
+    event_row = await db.fetchrow("SELECT client_id FROM events WHERE id = $1", event_id)
+    if not event_row:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    client_id = event_row["client_id"]
+
+    # bot_token
+    client_row = await db.fetchrow("SELECT bot_token FROM clients WHERE id = $1", client_id)
+    bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
+    if not bot_token:
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not bot_token:
+        raise HTTPException(status_code=400, detail="bot_token не настроен в профиле клиента")
+
+    # Данные конференции (для ссылки)
+    conf = await db.fetchrow(
+        "SELECT registration_url, getcourse_form_url FROM conf_conferences WHERE event_id = $1",
+        event_id
+    )
+    conf_url = ""
+    if conf:
+        conf_url = (conf["registration_url"] or conf["getcourse_form_url"] or "").strip()
+
+    # Дни конференции
+    days_db = await db.fetch(
+        "SELECT day_number, day_date FROM conf_days WHERE event_id = $1 ORDER BY day_number",
+        event_id
+    )
+
+    # Сессии с ролью
+    sessions_db = await db.fetch(
+        """SELECT s.day, s.start_datetime, s.end_datetime, s.title, s.sort_order,
+                  sp.name AS speaker_name, cse.role
+           FROM conf_sessions s
+           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE s.event_id = $1
+           ORDER BY s.day, s.sort_order, s.start_datetime""",
+        event_id
+    )
+
+    # Группируем сессии по дням
+    sessions_by_day: dict = {}
+    for s in sessions_db:
+        d = s["day"]
+        sessions_by_day.setdefault(d, []).append(s)
+
+    days_data = []
+    for day in days_db:
+        dn = day["day_number"]
+        days_data.append({
+            "day_number": dn,
+            "date": _format_date_ru(day["day_date"]),
+            "sessions": [
+                {
+                    "time_start": _fmt_time(s["start_datetime"]),
+                    "time_end": _fmt_time(s["end_datetime"]),
+                    "title": s["title"],
+                    "speaker_name": s["speaker_name"],
+                    "role": s["role"],
+                }
+                for s in sessions_by_day.get(dn, [])
+            ],
+        })
+
+    text = _build_schedule_text(days_data)
+
+    # Inline-кнопки
+    buttons = [
+        [{"text": "ИНФОРМАЦИЯ О СПИКЕРАХ", "url": "https://t.me/ivision_conf_bot?start=spikers"}],
+    ]
+    if conf_url:
+        buttons.append([{"text": "ПОЛУЧИТЬ ЗАПИСИ И VIP-ТАРИФ", "url": conf_url}])
+        buttons.append([{"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": conf_url}])
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "reply_markup": {"inline_keyboard": buttons},
+    }
+
+    SCHEDULE_IMAGE_URL = "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev/img/ivision_program.jpg"
+
+    async with httpx.AsyncClient(timeout=15) as http:
+        # Сначала отправляем изображение без текста
+        photo_resp = await http.post(
+            f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+            json={"chat_id": chat_id, "photo": SCHEDULE_IMAGE_URL},
+        )
+        photo_result = photo_resp.json()
+        if not photo_result.get("ok"):
+            raise HTTPException(
+                status_code=502,
+                detail=f"Ошибка отправки фото: {photo_result.get('description', 'неизвестно')}",
+            )
+
+        # Затем текст программы с кнопками
+        resp = await http.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json=payload,
+        )
+        tg_result = resp.json()
+
+    if not tg_result.get("ok"):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ошибка Telegram API: {tg_result.get('description', 'неизвестно')}",
+        )
+
+    return {
+        "ok": True,
+        "chat_id": chat_id,
+        "days": len(days_data),
+        "telegram_response": tg_result,
+    }
+
+
+# ─── Отправка списка подарков для розыгрыша в Telegram ───────────────────────
+
+RAFFLE_ROLES_WITH_LABEL = {"headliner", "organizer", "partner", "general_partner"}
+
+RAFFLE_ROLE_LABELS_RU = {
+    "headliner": "хедлайнер",
+    "organizer": "организатор",
+    "partner": "партнёр",
+    "general_partner": "генеральный партнёр",
+}
+
+@router.get(
+    "/send-raffle-gifts",
+    summary="Отправить список подарков розыгрыша в Telegram",
+    tags=["Конференция"],
+)
+async def send_raffle_gifts_to_telegram(
+    event_id: int,
+    chat_id: int,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """
+    Публичный GET endpoint.
+    Параметры: event_id (path), chat_id (query).
+    Отправляет нумерованный список подарков для розыгрыша с кнопкой в Telegram.
+    bot_token берётся из таблицы clients по client_id события.
+    """
+    import httpx, os
+
+    # Получаем client_id из события
+    event_row = await db.fetchrow("SELECT client_id FROM events WHERE id = $1", event_id)
+    if not event_row:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    client_id = event_row["client_id"]
+
+    # bot_token
+    client_row = await db.fetchrow("SELECT bot_token FROM clients WHERE id = $1", client_id)
+    bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
+    if not bot_token:
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not bot_token:
+        raise HTTPException(status_code=400, detail="bot_token не настроен в профиле клиента")
+
+    # Подарки для розыгрыша — только те у кого заполнен gift_raffle_title
+    gifts = await db.fetch(
+        """SELECT cse.gift_raffle_title, cse.role, sp.name
+           FROM conf_speaker_events cse
+           JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE cse.event_id = $1
+             AND cse.gift_raffle_title IS NOT NULL
+             AND cse.gift_raffle_title != ''
+             AND cse.is_visible = TRUE
+           ORDER BY cse.sort_order, cse.id""",
+        event_id
+    )
+
+    if not gifts:
+        raise HTTPException(status_code=404, detail="Подарки для розыгрыша не найдены")
+
+    lines = []
+    for i, g in enumerate(gifts, 1):
+        gift_title = g["gift_raffle_title"]
+        speaker = g["name"] or ""
+        role = g["role"] or ""
+        if speaker:
+            if role in RAFFLE_ROLES_WITH_LABEL:
+                role_label = RAFFLE_ROLE_LABELS_RU.get(role, role)
+                speaker_part = f"<b>{speaker} - {role_label}</b>"
+            else:
+                speaker_part = f"<b>{speaker}</b>"
+            lines.append(f"{i}.{gift_title} ({speaker_part})")
+        else:
+            lines.append(f"{i}.{gift_title}")
+
+    text = "\n\n".join(lines)
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+        "reply_markup": {
+            "inline_keyboard": [[
+                {"text": "Проверить/Получить билеты", "url": "https://t.me/ivision_conf_bot?start=check_get_bilets"}
+            ]]
+        },
+    }
+
+    async with httpx.AsyncClient(timeout=15) as http:
+        resp = await http.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json=payload,
+        )
+        tg_result = resp.json()
+
+    if not tg_result.get("ok"):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ошибка Telegram API: {tg_result.get('description', 'неизвестно')}",
+        )
+
+    return {
+        "ok": True,
+        "chat_id": chat_id,
+        "gifts_count": len(gifts),
+        "telegram_response": tg_result,
+    }
+
+
+# ─── Билеты розыгрыша ─────────────────────────────────────────────────────────
+
+class RaffleTicketPublicCreate(BaseModel):
+    ticket_number: int
+    tg_username: Optional[str] = None
+    tg_id: Optional[int] = None
+    tg_name: Optional[str] = None
+    salebot_client_id: Optional[str] = None
+    code_word: Optional[str] = None
+
+
+@router.get("/raffle-tickets", summary="Список билетов розыгрыша")
+async def list_raffle_tickets(
+    event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+    tickets = await db.fetch(
+        "SELECT * FROM conf_raffle_tickets WHERE event_id = $1 ORDER BY ticket_number",
+        event_id
+    )
+    return {"tickets": [dict(t) for t in tickets]}
+
+
+@router.post("/raffle-tickets/public", summary="Добавить билет (публичный, без авторизации)")
+async def add_raffle_ticket_public(
+    event_id: int, data: RaffleTicketPublicCreate, db: asyncpg.Connection = Depends(get_db)
+):
+    # Проверяем что событие существует и является конференцией
+    event = await db.fetchrow(
+        "SELECT id FROM events WHERE id = $1 AND module_slug = 'conference'", event_id
+    )
+    if not event:
+        raise HTTPException(status_code=404, detail="Конференция не найдена")
+
+    # Ищем pluson_participant_id по tg_id + event_id
+    pluson_participant_id = None
+    if data.tg_id:
+        ep = await db.fetchrow(
+            """SELECT ep.id FROM event_participants ep
+               JOIN telegram_users tu ON tu.id = ep.telegram_user_id
+               WHERE tu.telegram_id = $1 AND ep.event_id = $2""",
+            data.tg_id, event_id
+        )
+        if ep:
+            pluson_participant_id = ep["id"]
+
+    try:
+        ticket = await db.fetchrow(
+            """INSERT INTO conf_raffle_tickets
+               (event_id, ticket_number, tg_username, tg_id, tg_name, salebot_client_id, pluson_participant_id, code_word)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (event_id, ticket_number) DO UPDATE SET
+                 tg_username = EXCLUDED.tg_username,
+                 tg_id = EXCLUDED.tg_id,
+                 tg_name = EXCLUDED.tg_name,
+                 salebot_client_id = EXCLUDED.salebot_client_id,
+                 pluson_participant_id = EXCLUDED.pluson_participant_id,
+                 code_word = EXCLUDED.code_word
+               RETURNING *""",
+            event_id, data.ticket_number, data.tg_username, data.tg_id,
+            data.tg_name, data.salebot_client_id, pluson_participant_id, data.code_word
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"ok": True, "ticket": dict(ticket)}

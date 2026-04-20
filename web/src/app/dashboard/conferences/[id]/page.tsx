@@ -10,13 +10,14 @@ import SettingsTab  from './tabs/SettingsTab'
 import SpeakersTab  from './tabs/SpeakersTab'
 import ProgramTab   from './tabs/ProgramTab'
 import ParticipantsTab from './tabs/ParticipantsTab'
-import RaffleTab    from './tabs/RaffleTab'
-import PostersTab   from './tabs/PostersTab'
+import RaffleTab      from './tabs/RaffleTab'
+import PostersTab     from './tabs/PostersTab'
+import BroadcastsTab from './tabs/BroadcastsTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters']
+type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters' | 'broadcasts'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters', 'broadcasts']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -62,6 +63,7 @@ export default function ConferencePage() {
     { id: 'participants', label: t.conferences.tabs.participants },
     { id: 'posters',      label: t.conferences.tabs.posters },
     { id: 'raffle',       label: t.conferences.tabs.raffle },
+    { id: 'broadcasts',   label: 'Рассылки' },
   ]
 
   useEffect(() => {
@@ -128,6 +130,7 @@ export default function ConferencePage() {
       {tab === 'participants' && <ParticipantsTab eventId={eventId} />}
       {tab === 'raffle'       && <RaffleTab />}
       {tab === 'posters'      && <PostersTab      eventId={eventId} />}
+      {tab === 'broadcasts'   && <BroadcastsTab   eventId={eventId} />}
     </div>
   )
 }

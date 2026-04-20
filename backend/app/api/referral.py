@@ -27,7 +27,7 @@ async def referral_redirect(ref_code: str, db: asyncpg.Connection = Depends(get_
         SELECT ep.id, ep.event_id, e.landing_url, e.slug
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
-        WHERE ep.ref_code = $1 OR ep.ref_code_paid = $1
+        WHERE ep.ref_code = $1
         """,
         ref_code
     )
