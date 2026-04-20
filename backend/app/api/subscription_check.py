@@ -1,7 +1,8 @@
 """
 Публичный API для проверки подписки участника на каналы спикеров конференции.
 
-GET /api/v1/public/conference/{event_id}/check-subscription?tg_id=...
+POST /api/v1/public/conference/{event_id}/check-subscription
+Body: {"tg_id": 5725111966}
 
 Ответ JSON:
 {
@@ -18,12 +19,17 @@ GET /api/v1/public/conference/{event_id}/check-subscription?tg_id=...
 """
 import asyncio
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Optional
+from pydantic import BaseModel
 from app.config import settings
 from app.database import get_db
 import asyncpg
 
 router = APIRouter(prefix="/api/v1/public", tags=["Публичные API"])
+
+
+class SubscriptionCheckBody(BaseModel):
+    tg_id: int
 
 
 async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, user_id: int) -> bool:
@@ -42,15 +48,7 @@ async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, 
         return False
 
 
-@router.get(
-    "/conference/{event_id}/check-subscription",
-    summary="Проверить подписку участника на каналы спикеров конференции",
-)
-async def check_conference_subscription(
-    event_id: int,
-    tg_id: int = Query(..., description="Telegram user id участника (platform_id в Salebot)"),
-    db: asyncpg.Connection = Depends(get_db),
-):
+async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     event = await db.fetchrow(
         "SELECT id, client_id FROM events WHERE id = $1", event_id
     )
@@ -99,3 +97,27 @@ async def check_conference_subscription(
     ]
 
     return {"status": 0 if not_subscribed else 1, "not_subscribed": not_subscribed}
+
+
+@router.get(
+    "/conference/{event_id}/check-subscription",
+    summary="Проверить подписку (GET)",
+)
+async def check_subscription_get(
+    event_id: int,
+    tg_id: int = Query(...),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    return await _do_check(event_id, tg_id, db)
+
+
+@router.post(
+    "/conference/{event_id}/check-subscription",
+    summary="Проверить подписку (POST)",
+)
+async def check_subscription_post(
+    event_id: int,
+    body: SubscriptionCheckBody,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    return await _do_check(event_id, body.tg_id, db)
