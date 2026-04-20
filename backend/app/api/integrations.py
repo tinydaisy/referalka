@@ -37,6 +37,7 @@ class SalebotRegisterRequest(BaseModel):
     salebot_id: Optional[str] = None
     event_id: Optional[str] = None         # зашит в настройках Salebot (опционально, строка или число)
     status: str = "interested"             # 'interested' | 'registered' | 'in_chat'
+    partner_tg_id: Optional[str] = None    # tg_id рефовода (спикер или участник) — ищем его ref_code
     secret: Optional[str] = None           # токен можно передать в теле (альтернатива заголовку)
 
 
@@ -149,14 +150,38 @@ async def salebot_register(
         else:
             is_new_participant = True
             ref_code = await get_unique_ref_code(db)
+
+            # Ищем ref_code рефовода по partner_tg_id
+            referrer_ref_code = None
+            if data.partner_tg_id:
+                # 1) Среди спикеров/коллабораторов этого события
+                referrer_ref_code = await db.fetchval(
+                    """
+                    SELECT cse.ref_code FROM conf_speaker_events cse
+                    JOIN collaborators c ON c.id = cse.speaker_id
+                    WHERE c.personal_tg_id = $1 AND cse.event_id = $2
+                    """,
+                    str(data.partner_tg_id), event_id_int
+                )
+                # 2) Иначе среди участников события
+                if not referrer_ref_code:
+                    referrer_ref_code = await db.fetchval(
+                        """
+                        SELECT ep.ref_code FROM event_participants ep
+                        JOIN platform_users pu ON pu.id = ep.platform_user_id
+                        WHERE pu.platform_user_id = $1 AND ep.event_id = $2
+                        """,
+                        str(data.partner_tg_id), event_id_int
+                    )
+
             participant_id = await db.fetchval(
                 """
                 INSERT INTO event_participants
-                  (event_id, platform_user_id, ref_code, status, registered_at)
-                VALUES ($1, $2, $3, $4, NOW())
+                  (event_id, platform_user_id, ref_code, status, registered_at, referrer_ref_code)
+                VALUES ($1, $2, $3, $4, NOW(), $5)
                 RETURNING id
                 """,
-                event_id_int, pluson_id, ref_code, data.status
+                event_id_int, pluson_id, ref_code, data.status, referrer_ref_code
             )
 
     return {

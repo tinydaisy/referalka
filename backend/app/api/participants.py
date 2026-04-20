@@ -17,7 +17,7 @@ class RegisterParticipantRequest(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     ref_code: Optional[str] = None
-    promo_partner_code: Optional[str] = None
+    partner_tg_id: Optional[str] = None
 
 
 async def get_unique_ref_code(db: asyncpg.Connection) -> str:
@@ -65,10 +65,38 @@ async def register_participant(
         return {"participant": dict(existing), "is_new": False}
 
     referrer_id = None
-    if data.ref_code:
+    resolved_ref_code = data.ref_code
+
+    # Если передан partner_tg_id — ищем ref_code рефовода по tg_id
+    if data.partner_tg_id and not resolved_ref_code:
+        # 1) Сначала смотрим среди коллабораторов/спикеров этого события
+        speaker_row = await db.fetchrow(
+            """
+            SELECT cse.ref_code FROM conf_speaker_events cse
+            JOIN collaborators c ON c.id = cse.speaker_id
+            WHERE c.personal_tg_id = $1 AND cse.event_id = $2
+            """,
+            str(data.partner_tg_id), event["id"]
+        )
+        if speaker_row and speaker_row["ref_code"]:
+            resolved_ref_code = speaker_row["ref_code"]
+        else:
+            # 2) Иначе — среди участников события
+            participant_row = await db.fetchrow(
+                """
+                SELECT ep.ref_code FROM event_participants ep
+                JOIN platform_users pu ON pu.id = ep.platform_user_id
+                WHERE pu.platform_user_id = $1 AND ep.event_id = $2
+                """,
+                str(data.partner_tg_id), event["id"]
+            )
+            if participant_row:
+                resolved_ref_code = participant_row["ref_code"]
+
+    if resolved_ref_code:
         referrer = await db.fetchrow(
             "SELECT id FROM event_participants WHERE ref_code = $1 AND event_id = $2",
-            data.ref_code, event["id"]
+            resolved_ref_code, event["id"]
         )
         if referrer:
             referrer_id = referrer["id"]
@@ -78,11 +106,11 @@ async def register_participant(
     participant = await db.fetchrow(
         """
         INSERT INTO event_participants
-          (event_id, platform_user_id, referrer_participant_id, ref_code, promo_partner_code, status)
-        VALUES ($1,$2,$3,$4,$5,'interested')
+          (event_id, platform_user_id, referrer_participant_id, ref_code, status)
+        VALUES ($1,$2,$3,$4,'interested')
         RETURNING id, ref_code, status
         """,
-        event["id"], platform_user_id, referrer_id, new_code, data.promo_partner_code
+        event["id"], platform_user_id, referrer_id, new_code
     )
 
     return {"participant": dict(participant), "is_new": True}

@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS event_participants (
   referrer_participant_id INT REFERENCES event_participants(id),
   ref_code                TEXT UNIQUE NOT NULL,
   ref_code_paid           TEXT UNIQUE,
-  promo_partner_code      TEXT,
+  referrer_ref_code       TEXT,
   points_total            INT DEFAULT 0,
   registered_at           TIMESTAMPTZ DEFAULT NOW(),
   activated_at            TIMESTAMPTZ,
