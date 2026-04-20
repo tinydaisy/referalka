@@ -292,6 +292,7 @@ class SpeakerEventUpdate(BaseModel):
     is_commercial: Optional[bool] = None
     is_visible: Optional[bool] = None
     sort_order: Optional[int] = None
+    bot_in_channel: Optional[bool] = None
 
 
 def _speaker_row_to_dict(row) -> dict:
@@ -338,6 +339,7 @@ async def list_event_speakers(
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.poster_url, cse.partner_url, cse.extra_info,
                   cse.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
+                  cse.bot_in_channel,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url

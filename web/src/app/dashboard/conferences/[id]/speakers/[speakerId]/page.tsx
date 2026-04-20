@@ -129,6 +129,7 @@ export default function ConferenceSpeakerPage() {
     gift_raffle_title: '',
     gift_raffle_url: '',
     is_commercial: false,
+    bot_in_channel: false,
   })
 
   const [loading, setLoading] = useState(true)
@@ -158,6 +159,7 @@ export default function ConferenceSpeakerPage() {
           gift_raffle_title: sp.gift_raffle_title || '',
           gift_raffle_url: sp.gift_raffle_url || '',
           is_commercial: sp.is_commercial || false,
+          bot_in_channel: sp.bot_in_channel || false,
         })
 
         return api.collaborators.get(sp.speaker_id)
@@ -215,6 +217,7 @@ export default function ConferenceSpeakerPage() {
         gift_raffle_title: eventForm.gift_raffle_title,
         gift_raffle_url: eventForm.gift_raffle_url,
         is_commercial: eventForm.is_commercial,
+        bot_in_channel: eventForm.bot_in_channel,
       })
       setEventSaved(true)
       setTimeout(() => setEventSaved(false), 3000)
@@ -301,6 +304,16 @@ export default function ConferenceSpeakerPage() {
               onChange={e => setEventForm(f => ({ ...f, is_commercial: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
             <span className="text-sm text-gray-700">Коммерческое выступление</span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={eventForm.bot_in_channel}
+              onChange={e => setEventForm(f => ({ ...f, bot_in_channel: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span className="text-sm text-gray-700">
+              Добавил бота в канал
+              <span className="text-gray-400 ml-1">— канал будет проверяться на подписку</span>
+            </span>
           </label>
         </div>
 
