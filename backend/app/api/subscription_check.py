@@ -39,17 +39,17 @@ async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, 
 
 
 @router.get(
-    "/conference/{event_slug}/check-subscription",
+    "/conference/{event_id}/check-subscription",
     response_class=PlainTextResponse,
     summary="Проверить подписку участника на каналы спикеров конференции",
 )
 async def check_conference_subscription(
-    event_slug: str,
+    event_id: int,
     tg_id: int = Query(..., description="Telegram user id участника (platform_id в Salebot)"),
     db: asyncpg.Connection = Depends(get_db),
 ) -> str:
     event = await db.fetchrow(
-        "SELECT id, client_id FROM events WHERE slug = $1", event_slug
+        "SELECT id, client_id FROM events WHERE id = $1", event_id
     )
     if not event:
         return "0"
