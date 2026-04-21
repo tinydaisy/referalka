@@ -71,7 +71,7 @@ export default function QueuePage() {
   const [schedules, setSchedules] = useState<any[]>([])
   const [templates, setTemplates] = useState<any[]>([])
   const [timezone, setTimezone] = useState('Europe/Moscow')
-  const [nextPending, setNextPending] = useState<any>(null)
+  const [nextPendingData, setNextPendingData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null)
   const [previewModal, setPreviewModal] = useState<any>(null)
@@ -101,7 +101,7 @@ export default function QueuePage() {
     setTemplates(tmpl.templates || [])
     setSchedules(sched.schedules || [])
     setTimezone(sched.timezone || 'Europe/Moscow')
-    setNextPending(sched.next_pending || null)
+    setNextPendingData(sched.next_pending || null)
     setSelectedIds(new Set())
   }, [eventId])
 
@@ -261,6 +261,10 @@ export default function QueuePage() {
   const pendingCount = schedules.filter(s => s.status === 'pending' || s.status === 'draft').length
   const nullFireCount = schedules.filter(s => s.status === 'draft' && !s.fire_at).length
   const doneCount = schedules.filter(s => s.status === 'done').length
+  // Пересчитываем из актуального списка schedules (обновляется при удалении без reload)
+  const nextPending = schedules
+    .filter(s => (s.status === 'pending' || s.status === 'draft') && s.fire_at_local)
+    .sort((a, b) => (a.fire_at_iso || '') < (b.fire_at_iso || '') ? -1 : 1)[0] || null
 
   // Форматируем timezone для отображения
   const tzLabel = timezone === 'Europe/Moscow' ? 'МСК (UTC+3)' : timezone
