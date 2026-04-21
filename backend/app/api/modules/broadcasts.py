@@ -3,6 +3,15 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
 import asyncpg
+
+RU_MONTHS = {
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+    5: "мая", 6: "июня", 7: "июля", 8: "августа",
+    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря",
+}
+
+def ru_date(d) -> str:
+    return f"{d.day} {RU_MONTHS[d.month]}"
 from zoneinfo import ZoneInfo
 
 from app.database import get_db
@@ -83,11 +92,13 @@ DEFAULT_TEMPLATES = [
             "{speaker_tg}\n"
             "{speaker_instagram}\n\n"
             "<b>Тема:</b> {speaker_topic}\n\n"
+            "<b>О спикере:</b>\n"
             "{speaker_achievements}\n\n"
             "🎁 <b>На эфире подарит:</b> {gift_after_speech_title}\n\n"
             "🏆 <b>Подарок для большого розыгрыша:</b> {gift_raffle_title}\n\n"
             "<b>Если вы ещё не зарегистрированы — вы ещё успеваете это сделать</b>\n"
-            "Жмите на кнопку:"
+            "🔗 {registration_url} \n\n"
+            "<b>Жмите на кнопку</b>"
         ),
         "photo_url": None,
         "button_text": "Зарегистрироваться",
@@ -102,7 +113,8 @@ DEFAULT_TEMPLATES = [
         "name": "День конференции — за 30 мин (не зарегистрирован)",
         "type": "day_start_30min_unreg",
         "text": (
-            "[Последний шанс зарегистрироваться] Через 30 минут стартует День {day_number} конференции «{conf_title}»\n\n"
+            "<b>[Последний шанс зарегистрироваться] Через 30 минут стартует День {day_number} конференции «{conf_title}»</b>\n\n"
+            "🔗 {registration_url} \n\n"
             "Сегодня в программе:\n\n"
             "{day_date}\n\n"
             "{day_program}\n\n"
@@ -117,14 +129,15 @@ DEFAULT_TEMPLATES = [
         "schedule_mode": "day_offset",
         "offset_minutes": 30,
         "audience_include": "all_client",
-        "audience_exclude": "registered_event",   # вся база клиента КРОМЕ зарег. в конфе
+        "audience_exclude": "registered_event",
         "allow_custom_datetime": False,
     },
     {
         "name": "День конференции — за 30 мин (зарегистрирован)",
         "type": "day_start_30min_reg",
         "text": (
-            "[Уже через 30 минут] Стартует День {day_number} конференции «{conf_title}»\n\n"
+            "<b>[Уже через 30 минут] Стартует День {day_number} конференции «{conf_title}»</b>\n\n"
+            "🔗 {stream_url}\n\n"
             "Сегодня в программе:\n\n"
             "{day_date}\n\n"
             "{day_program}\n\n"
@@ -147,9 +160,11 @@ DEFAULT_TEMPLATES = [
         "type": "day_live",
         "text": (
             "Мы начинаем День {day_number} масштабной онлайн-конференции «{conf_title}»\n\n"
-            "Подключайтесь в Zoom\n"
+            "<b>Нажимай на кнопку «Войти в эфир»</b>\n"
             "👇🏻👇🏻👇🏻\n"
-            "{stream_url}"
+            "{stream_url}\n\n"
+            "—\n"
+            "При возникновении технических трудностей пишите — @forbs_service2"
         ),
         "photo_url": None,
         "button_text": "Войти в эфир",
@@ -167,13 +182,13 @@ DEFAULT_TEMPLATES = [
             "Благодарим вас за участие в {day_ordinal} дне конференции «{conf_title}»\n\n"
             "Самое время ввести собранные КОДОВЫЕ СЛОВА и получить за них дополнительные билеты для розыгрыша:\n"
             "{raffle_url}\n\n"
-            "{next_day_mention}\n\n"
+            "<b>{next_day_mention}</b>\n\n"
             "—\n\n"
             "{day_speakers_gifts}"
         ),
         "photo_url": None,
-        "button_text": None,
-        "button_url": None,
+        "button_text": "ВВЕСТИ КОДОВЫЕ СЛОВА",
+        "button_url": "{raffle_url}",
         "schedule_mode": "day_offset",
         "offset_minutes": 30,
         "audience_include": "all_event",
@@ -815,7 +830,7 @@ async def preview_schedule(
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
-        day_date_str = raw_date.strftime("%-d %B") if raw_date else f"День {day}"
+        day_date_str = ru_date(raw_date) if raw_date else f"День {day}"
         poster_h = conf_row["poster_horizontal"] if conf_row else None
         if not photo and poster_h:
             photo = poster_h[0] if poster_h else None
@@ -1113,7 +1128,7 @@ async def test_template(
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         stream_url = (conf_row["stream_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
-        day_date_str = raw_date.strftime("%-d %B") if raw_date else f"День {day}"
+        day_date_str = ru_date(raw_date) if raw_date else f"День {day}"
         poster_h = conf_row["poster_horizontal"] if conf_row else None
         photo = tpl["photo_url"] or (poster_h[0] if poster_h else None) or None
 

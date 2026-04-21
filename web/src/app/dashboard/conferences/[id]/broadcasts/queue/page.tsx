@@ -663,6 +663,11 @@ export default function QueuePage() {
                   {previewModal.button_text}
                 </div>
               )}
+              {previewModal.button_url && (
+                <p className="text-xs text-gray-400 mt-1 text-center break-all">
+                  {previewModal.button_url}
+                </p>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-3 text-center">
               Данные подставлены из БД на момент открытия превью

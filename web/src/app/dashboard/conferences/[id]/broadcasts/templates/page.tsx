@@ -527,7 +527,14 @@ export default function TemplatesPage() {
                     ) : def.showPhoto ? (
                       <span className="text-blue-500">📸 Афиша подставится автоматически</span>
                     ) : null}
-                    {tpl.button_text && <span>🔘 Кнопка: «{tpl.button_text}»</span>}
+                    {tpl.button_text && (
+                      <span>
+                        🔘 Кнопка: «{tpl.button_text}»
+                        {tpl.button_url && (
+                          <span className="ml-1 text-gray-400 text-xs font-normal">({tpl.button_url})</span>
+                        )}
+                      </span>
+                    )}
                     <span className="text-indigo-500 font-medium">
                       👥 {audienceLabel(tpl.audience_include || 'all_event', tpl.audience_exclude || 'none')}
                     </span>
@@ -714,6 +721,11 @@ export default function TemplatesPage() {
                   <div className="w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
                     {previewModal.tpl.button_text}
                   </div>
+                  {previewModal.tpl.button_url && (
+                    <p className="text-xs text-gray-400 mt-1 text-center break-all">
+                      {previewModal.tpl.button_url}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
