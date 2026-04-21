@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-import { Edit2, Eye, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type TypeDef = {
@@ -92,6 +92,9 @@ export default function TemplatesPage() {
   const [previewModal, setPreviewModal] = useState<{ tpl: any; def: TypeDef } | null>(null)
   const [previewSpeakerId, setPreviewSpeakerId] = useState<number | null>(null)
   const [varsOpen, setVarsOpen] = useState(false)
+  const [testModal, setTestModal] = useState<{ def: TypeDef; tpl: any } | null>(null)
+  const [testSending, setTestSending] = useState(false)
+  const [testResult, setTestResult] = useState<any>(null)
 
   useEffect(() => {
     api.conference.templates.list(eventId).then(r => setTemplates(r.templates || []))
@@ -123,6 +126,25 @@ export default function TemplatesPage() {
   function openPreview(tpl: any, def: TypeDef) {
     setPreviewModal({ tpl, def })
     setPreviewSpeakerId(speakers[0]?.id ?? null)
+  }
+
+  function openTest(tpl: any, def: TypeDef) {
+    setTestModal({ tpl, def })
+    setTestResult(null)
+  }
+
+  async function runTest() {
+    if (!testModal) return
+    setTestSending(true)
+    setTestResult(null)
+    try {
+      const res = await api.conference.templates.test(eventId, testModal.tpl.id)
+      setTestResult(res)
+    } catch (e: any) {
+      setTestResult({ ok: false, error: e.message })
+    } finally {
+      setTestSending(false)
+    }
   }
 
   const currentType = TYPE_DEFS.find(d => d.type === form.type)
@@ -270,7 +292,13 @@ export default function TemplatesPage() {
                   <h4 className="font-semibold text-gray-800">{def.title}</h4>
                   <p className="text-xs text-gray-400 mt-0.5">{def.hint}</p>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  {tpl && (
+                    <button onClick={() => openTest(tpl, def)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-emerald-700 font-medium border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors">
+                      <Send size={13} /> Протестировать
+                    </button>
+                  )}
                   {tpl && (
                     <button onClick={() => openPreview(tpl, def)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-gray-600 font-medium border border-gray-200 hover:bg-gray-50 transition-colors">
@@ -442,6 +470,75 @@ export default function TemplatesPage() {
             </div>
 
             <button onClick={() => setPreviewModal(null)}
+              className="w-full mt-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка тестирования */}
+      {testModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-gray-800">Тест: {testModal.def.title}</h3>
+              <button onClick={() => setTestModal(null)}><X size={18} /></button>
+            </div>
+
+            {testModal.def.type === 'gift' ? (
+              <>
+                <p className="text-sm text-gray-600 mb-4">
+                  Отправит сообщения о подарке для каждого спикера Дня 1 (по порядку программы) на тестовые Telegram ID из настроек.
+                </p>
+                {!testResult && (
+                  <button
+                    onClick={runTest}
+                    disabled={testSending}
+                    className="w-full py-2.5 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2"
+                    style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)', opacity: testSending ? 0.7 : 1 }}
+                  >
+                    {testSending ? <><Loader2 size={15} className="animate-spin" /> Отправляем...</> : <><Send size={15} /> Отправить тест</>}
+                  </button>
+                )}
+                {testResult && testResult.ok && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-emerald-700 mb-3 flex items-center gap-2">
+                      <CheckCircle size={16} /> Отправлено {testResult.sent} спикеров
+                    </p>
+                    {testResult.details?.map((d: any, i: number) => (
+                      <div key={i} className="bg-gray-50 rounded-xl px-3 py-2">
+                        <p className="text-xs font-medium text-gray-700 mb-1">{d.speaker}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {d.results?.map((r: any, j: number) => (
+                            <span key={j} className={`text-xs flex items-center gap-1 ${r.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+                              {r.ok ? <CheckCircle size={11} /> : <XCircle size={11} />}
+                              {r.chat_id}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <button onClick={() => { setTestResult(null) }}
+                      className="w-full mt-2 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+                      Отправить ещё раз
+                    </button>
+                  </div>
+                )}
+                {testResult && !testResult.ok && (
+                  <div className="bg-red-50 rounded-xl p-3 flex items-start gap-2 text-sm text-red-700">
+                    <XCircle size={16} className="shrink-0 mt-0.5" />
+                    {testResult.message || testResult.error || 'Ошибка отправки'}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+                Тестовая отправка для этого шаблона пока не реализована. Сначала сделаем её для «Подарок спикера», потом добавим остальные.
+              </div>
+            )}
+
+            <button onClick={() => setTestModal(null)}
               className="w-full mt-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
               Закрыть
             </button>

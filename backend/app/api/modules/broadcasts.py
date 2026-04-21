@@ -393,6 +393,94 @@ async def cancel_all_schedules(
 
 
 # ─────────────────────────────────────────
+# ТЕСТОВАЯ РАССЫЛКА
+# ─────────────────────────────────────────
+
+@router.post("/templates/{template_id}/test", summary="Тестовая рассылка шаблона")
+async def test_template(
+    event_id: int,
+    template_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """
+    Для шаблона gift — отправляет сообщение о подарке для каждого спикера дня 1
+    по порядку программы на тестовые Telegram ID клиента.
+    Для остальных шаблонов — пока возвращает not_implemented.
+    """
+    import httpx, re
+
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    tpl = await db.fetchrow(
+        "SELECT * FROM broadcast_templates WHERE id=$1 AND event_id=$2", template_id, event_id
+    )
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Шаблон не найден")
+
+    if tpl["type"] != "gift":
+        return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка пока реализована только для шаблона «Подарок спикера»"}
+
+    # Тестовые ID и bot_token клиента
+    client_row = await db.fetchrow(
+        "SELECT bot_token, test_telegram_ids FROM clients WHERE id=$1", client_id
+    )
+    bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
+    if not bot_token:
+        raise HTTPException(status_code=400, detail="Токен бота не задан в настройках")
+    test_ids = client_row["test_telegram_ids"] or []
+    if not test_ids:
+        raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
+
+    # Спикеры дня 1 по порядку программы (только с привязанным спикером)
+    sessions = await db.fetch(
+        """
+        SELECT cs.sort_order, c.name as speaker_name,
+               c.personal_tg_username,
+               cse.gift_after_speech_title as gift_title,
+               cse.gift_after_speech_url as gift_url
+        FROM conf_sessions cs
+        JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+        JOIN collaborators c ON c.id = cse.speaker_id
+        WHERE cs.event_id = $1 AND cs.day = 1 AND cs.speaker_id IS NOT NULL
+        ORDER BY cs.sort_order
+        """,
+        event_id
+    )
+
+    def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
+        tg_raw = (personal_tg or "").strip()
+        tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
+        title = (gift_title or "").strip()
+        url = (gift_url or "").strip()
+        header = f"🎁 {speaker_name}: Подарки после эфира"
+        if not title:
+            body = f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}" if tg_mention else "🎁 Чтобы забрать материалы — напишите спикеру в личку"
+        elif not url:
+            body = f"{title}\nПишите в личку {tg_mention}" if tg_mention else title
+        else:
+            body = f"{title}\n{url}"
+        return f"{header}\n\n{body}"
+
+    results = []
+    async with httpx.AsyncClient(timeout=15) as http:
+        for s in sessions:
+            text = build_gift_message(s["speaker_name"], s["personal_tg_username"], s["gift_title"], s["gift_url"])
+            speaker_results = []
+            for chat_id in test_ids:
+                resp = await http.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+                )
+                r = resp.json()
+                speaker_results.append({"chat_id": chat_id, "ok": r.get("ok"), "error": r.get("description")})
+            results.append({"speaker": s["speaker_name"], "results": speaker_results})
+
+    return {"ok": True, "sent": len(sessions), "details": results}
+
+
+# ─────────────────────────────────────────
 # Хелпер
 # ─────────────────────────────────────────
 async def _check_event(db, event_id: int, client_id: int):
