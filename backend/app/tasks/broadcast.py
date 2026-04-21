@@ -105,7 +105,7 @@ async def _send_broadcast(schedule_id: int):
                        cs.day,
                        c.name as speaker_name,
                        c.poster_url as speaker_poster,
-                       c.tg_channel_url as speaker_tg_url,
+                       c.personal_tg_username as speaker_personal_tg,
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
@@ -224,7 +224,7 @@ def _render_template(text: str, data: dict, tpl_type: str = "") -> str:
     if tpl_type == "gift":
         gift_title = (data.get("gift_title") or "").strip()
         gift_url = (data.get("gift_url") or "").strip()
-        tg_url = (data.get("speaker_tg_url") or "").strip()
+        tg_url = (data.get("speaker_personal_tg") or "").strip()
 
         # Убираем строки с переменными подарка
         text = re.sub(r"^.*\{gift_title\}.*$\n?", "", text, flags=re.MULTILINE)

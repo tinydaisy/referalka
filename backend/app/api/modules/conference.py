@@ -342,7 +342,8 @@ async def list_event_speakers(
                   cse.bot_in_channel,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
-                  sp.tg_channel_url, sp.instagram_url, sp.website_url
+                  sp.tg_channel_url, sp.instagram_url, sp.website_url,
+                  sp.personal_tg_username
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
