@@ -4,7 +4,7 @@ import { Plus, Calendar, Trash2, Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
-import { formatTime, getTimezone } from '@/lib/timezone'
+import { formatTime, localTimeToUtcIso } from '@/lib/timezone'
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -103,17 +103,9 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
     if (!sessionModal || !sessionForm.title.trim()) return
     setSavingSession(true)
     try {
-      const toUtcIso = (date: string, time: string) => {
-        const tz = getTimezone()
-        // Создаём дату как локальную в таймзоне пользователя и конвертируем в UTC ISO
-        const dt = new Date(`${date}T${time}:00`)
-        const localMs = dt.getTime()
-        const tzOffset = new Date(dt.toLocaleString('en-US', { timeZone: tz })).getTime() - new Date(dt.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-        return new Date(localMs - tzOffset).toISOString()
-      }
-      const dayDate = (dayForms[sessionModal.day]?.day_date) || '2000-01-01'
-      const startDt = sessionForm.start_time ? toUtcIso(dayDate, sessionForm.start_time) : null
-      const endDt = sessionForm.end_time ? toUtcIso(dayDate, sessionForm.end_time) : null
+      const dayDate = (dayForms[sessionModal.day]?.day_date) || '2026-01-01'
+      const startDt = sessionForm.start_time ? localTimeToUtcIso(dayDate, sessionForm.start_time) : null
+      const endDt = sessionForm.end_time ? localTimeToUtcIso(dayDate, sessionForm.end_time) : null
       await api.conference.sessions.create(eventId, {
         day: sessionModal.day,
         title: sessionForm.title || undefined,
@@ -146,7 +138,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
           day: jsonDay,
           title: slot.title || slot.topic || '',
           speaker_id: null,
-          start_datetime: slot.time ? (() => { const tz = getTimezone(); const dt = new Date(`${date}T${slot.time}:00`); const off = new Date(dt.toLocaleString('en-US',{timeZone:tz})).getTime() - new Date(dt.toLocaleString('en-US',{timeZone:'UTC'})).getTime(); return new Date(dt.getTime()-off).toISOString() })() : null,
+          start_datetime: slot.time ? localTimeToUtcIso(date, slot.time) : null,
         })
       }
       setJsonModal(false); setJsonInput('')
