@@ -3,7 +3,19 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
 import asyncpg
+import httpx
 import re
+from zoneinfo import ZoneInfo
+
+from app.database import get_db
+from app.auth import get_current_client
+from app.services.message_builder import (
+    build_speaker_intro_message,
+    build_gift_message,
+    build_pre_start_message,
+    build_day_message,
+    send_telegram_message,
+)
 
 RU_MONTHS = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
@@ -13,57 +25,8 @@ RU_MONTHS = {
 
 def ru_date(d) -> str:
     return f"{d.day} {RU_MONTHS[d.month]}"
-from zoneinfo import ZoneInfo
-
-from app.database import get_db
-from app.auth import get_current_client
 
 router = APIRouter(prefix="/events/{event_id}/broadcasts", tags=["Рассылки"])
-
-ROLE_LABELS_INTRO = {"speaker": "Спикер", "headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
-
-def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel_url, instagram_url,
-                                achievements, role, speaker_topic, gift_title, gift_raffle, registration_url):
-    text = tmpl_text or ""
-    role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
-    tg_ch = (tg_channel_url or "").strip()
-    insta = (instagram_url or "").strip()
-    ach_list = [a.strip() for a in (achievements or []) if a.strip()]
-    topic = (speaker_topic or "").strip()
-    gift_title_v = (gift_title or "").strip()
-    gift_raffle_v = (gift_raffle or "").strip()
-
-    ach_text = "\n".join(f"• {a}" for a in ach_list)
-
-    # Сначала убираем строки с пустыми плейсхолдерами (пока они ещё в тексте)
-    if not topic:
-        text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not ach_text:
-        text = re.sub(r"^[^\n]*О спикере[^\n]*\n?", "", text, flags=re.MULTILINE)
-        text = re.sub(r"^[^\n]*\{speaker_achievements\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not gift_title_v:
-        text = re.sub(r"^[^\n]*\{gift_after_speech_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not gift_raffle_v:
-        text = re.sub(r"^[^\n]*\{gift_raffle_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not tg_ch:
-        text = re.sub(r"^[^\n]*\{speaker_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-    if not insta:
-        text = re.sub(r"^[^\n]*\{speaker_instagram\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-
-    # Потом подставляем значения
-    text = text.replace("{speaker_name}", speaker_name or "")
-    text = text.replace("{speaker_role}", role_label)
-    text = text.replace("{speaker_topic}", topic)
-    text = text.replace("{speaker_achievements}", ach_text)
-    text = text.replace("{gift_after_speech_title}", gift_title_v)
-    text = text.replace("{gift_raffle_title}", gift_raffle_v)
-    text = text.replace("{registration_url}", registration_url or "")
-    if tg_ch:
-        text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_ch}")
-    if insta:
-        text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}")
-
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 # ─────────────────────────────────────────
@@ -1239,8 +1202,6 @@ async def test_template(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    import httpx, re
-
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
@@ -1256,7 +1217,7 @@ async def test_template(
         return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка для этого шаблона пока не реализована"}
 
     client_row = await db.fetchrow(
-        "SELECT bot_token, test_telegram_ids FROM clients WHERE id=$1", client_id
+        "SELECT bot_token, test_telegram_ids, timezone FROM clients WHERE id=$1", client_id
     )
     bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
     if not bot_token:
@@ -1264,62 +1225,13 @@ async def test_template(
     test_ids = client_row["test_telegram_ids"] or []
     if not test_ids:
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
+    tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
 
-    def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
-        tg_raw = (personal_tg or "").strip()
-        tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
-        title = (gift_title or "").strip()
-        url = (gift_url or "").strip()
-        header = f"🎁 {speaker_name}: Подарки после эфира"
-        if not title:
-            body = f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}" if tg_mention else "🎁 Чтобы забрать материалы — напишите спикеру в личку"
-        elif not url:
-            body = f"{title}\nПишите в личку {tg_mention}" if tg_mention else title
-        else:
-            body = f"{title}\n{url}"
-        return f"{header}\n\n{body}"
-
-    def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val):
-        text = tmpl_text or ""
-        text = text.replace("{speaker_name}", speaker_name or "")
-        text = text.replace("{speaker_topic}", speaker_topic or "")
-        text = text.replace("{stream_url}", stream_url_val or "")
-        return text.strip()
-
-    ORDINALS = {1: "первом", 2: "втором", 3: "третьем", 4: "четвёртом", 5: "пятом"}
-
-    def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
-                          stream_url_val, registration_url_val, raffle_url_val="", day_speakers_gifts="",
-                          next_day_mention=""):
-        text = tmpl_text or ""
-        ordinal = ORDINALS.get(day_number, f"{day_number}-м")
-        text = text.replace("{day_number}", str(day_number))
-        text = text.replace("{day_ordinal}", ordinal)
-        text = text.replace("{conf_title}", conf_title or "")
-        text = text.replace("{day_date}", day_date or "")
-        text = text.replace("{day_program}", day_program or "")
-        text = text.replace("{stream_url}", stream_url_val or "")
-        text = text.replace("{registration_url}", registration_url_val or "")
-        text = text.replace("{raffle_url}", raffle_url_val or "")
-        text = text.replace("{day_speakers_gifts}", day_speakers_gifts or "")
-        if next_day_mention:
-            text = text.replace("{next_day_mention}", next_day_mention)
-        else:
-            text = re.sub(r"^.*\{next_day_mention\}.*$\n?", "", text, flags=re.MULTILINE)
-        return re.sub(r"\n{3,}", "\n\n", text).strip()
-
-    if tpl["type"] in ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end"):
-        client_row_tz = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
-        tz = ZoneInfo((client_row_tz["timezone"] or "Europe/Moscow") if client_row_tz else "Europe/Moscow")
-
+    if tpl["type"] in DAY_TYPES:
         conf_row = await db.fetchrow(
             """
-            SELECT e.title as conf_title,
-                   cc.registration_url,
-                   cc.raffle_url,
-                   cc.poster_horizontal,
-                   cd.stream_url,
-                   cd.day_date
+            SELECT e.title as conf_title, cc.registration_url, cc.raffle_url,
+                   cc.poster_horizontal, cd.stream_url, cd.day_date
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
             LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = $2
@@ -1327,7 +1239,7 @@ async def test_template(
             """,
             event_id, day
         )
-        conf_title = conf_row["conf_title"] if conf_row else ""
+        conf_title = (conf_row["conf_title"] or "") if conf_row else ""
         registration_url = (conf_row["registration_url"] or "") if conf_row else ""
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         stream_url = (conf_row["stream_url"] or "") if conf_row else ""
@@ -1339,10 +1251,8 @@ async def test_template(
         ROLE_LABELS = {"headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
         day_sessions = await db.fetch(
             """
-            SELECT cs.start_datetime, cs.end_datetime,
-                   cs.title as session_title,
-                   c.name as speaker_name,
-                   cse.role
+            SELECT cs.start_datetime, cs.end_datetime, cs.title as session_title,
+                   c.name as speaker_name, cse.role
             FROM conf_sessions cs
             LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
             LEFT JOIN collaborators c ON c.id = cse.speaker_id
@@ -1355,14 +1265,13 @@ async def test_template(
         for s in day_sessions:
             t_start = s["start_datetime"].astimezone(tz).strftime("%H:%M") if s["start_datetime"] else ""
             t_end = s["end_datetime"].astimezone(tz).strftime("%H:%M") if s["end_datetime"] else ""
-            time_part = f"{t_start}-{t_end}" if t_start and t_end else t_start
+            time_part = f"{t_start}–{t_end}" if t_start and t_end else t_start
             bold_time = f"<b>{time_part}</b>" if time_part else ""
-            topic = s["session_title"] or ""
+            topic_s = s["session_title"] or ""
             name = s["speaker_name"] or ""
-            role = s["role"] or ""
-            role_label = ROLE_LABELS.get(role, "")
+            role_label = ROLE_LABELS.get(s["role"] or "", "")
             speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
-            program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
+            program_lines.append(f"{bold_time}: {topic_s}{speaker_part}".strip(": "))
         day_program = "\n".join(program_lines)
 
         day_speakers_gifts = ""
@@ -1387,7 +1296,7 @@ async def test_template(
                         WHEN NOT cse.is_commercial AND cse.role = 'headliner'    THEN 50
                         WHEN NOT cse.is_commercial AND cse.role = 'speaker'      THEN 60
                         WHEN NOT cse.is_commercial AND cse.role = 'partner'      THEN 70
-                        ELSE 8
+                        ELSE 80
                     END,
                     cs.sort_order
                 """,
@@ -1402,22 +1311,21 @@ async def test_template(
                 if not title:
                     block = f"🎁 <b>{gs['speaker_name']}:</b> пишите в личку {tg_mention}" if tg_mention else f"🎁 <b>{gs['speaker_name']}:</b> уточните у спикера"
                 elif not url:
-                    block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{('Пишите в личку ' + tg_mention) if tg_mention else ''}".strip()
+                    block = f"🎁 <b>{gs['speaker_name']}:</b> {title}" + (f"\nПишите в личку {tg_mention}" if tg_mention else "")
                 else:
                     block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{url}"
                 gift_blocks.append(block)
             if gift_blocks:
                 day_speakers_gifts = f"А сейчас ловите подарки от спикеров Дня {day}:\n\n" + "\n\n".join(gift_blocks)
 
-            MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
-                         "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+            MONTHS_RU = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"]
             next_day_number = day + 1
             first_cur_session = await db.fetchrow(
-                "SELECT start_datetime FROM conf_sessions WHERE event_id = $1 AND day = $2 ORDER BY sort_order, start_datetime LIMIT 1",
+                "SELECT start_datetime FROM conf_sessions WHERE event_id=$1 AND day=$2 ORDER BY sort_order, start_datetime LIMIT 1",
                 event_id, day
             )
             first_next_session = await db.fetchrow(
-                "SELECT start_datetime FROM conf_sessions WHERE event_id = $1 AND day = $2 ORDER BY sort_order, start_datetime LIMIT 1",
+                "SELECT start_datetime FROM conf_sessions WHERE event_id=$1 AND day=$2 ORDER BY sort_order, start_datetime LIMIT 1",
                 event_id, next_day_number
             )
             if first_next_session and first_next_session["start_datetime"]:
@@ -1426,10 +1334,7 @@ async def test_template(
                 next_date = next_dt.date()
                 cur_date = first_cur_session["start_datetime"].astimezone(tz).date() if first_cur_session and first_cur_session["start_datetime"] else None
                 diff = (next_date - cur_date).days if cur_date else 999
-                if diff == 1:
-                    when = "завтра"
-                else:
-                    when = f"{next_date.day} {MONTHS_RU[next_date.month - 1]}"
+                when = "завтра" if diff == 1 else f"{next_date.day} {MONTHS_RU[next_date.month - 1]}"
                 next_day_mention = f"Встречаемся {when} в {next_time} на День {next_day_number}."
 
         text = build_day_message(
@@ -1439,9 +1344,6 @@ async def test_template(
         )
         btn_text = tpl["button_text"]
         btn_url = (tpl["button_url"] or "").replace("{stream_url}", stream_url).replace("{registration_url}", registration_url).replace("{raffle_url}", raffle_url)
-        reply_markup = None
-        if btn_text and btn_url and not btn_url.startswith("{"):
-            reply_markup = {"inline_keyboard": [[{"text": btn_text, "url": btn_url}]]}
 
         TYPE_LABELS = {
             "day_start_30min_unreg": "незарегистрированные",
@@ -1452,43 +1354,13 @@ async def test_template(
         label = f"День {day} — {TYPE_LABELS.get(tpl['type'], tpl['type'])}"
         send_results = []
         async with httpx.AsyncClient(timeout=15) as http:
-            for chat_id in test_ids:
-                ok = True
-                err = None
-                if photo and len(text) <= 1024:
-                    payload = {"chat_id": chat_id, "photo": photo, "caption": text, "parse_mode": "HTML"}
-                    if reply_markup:
-                        payload["reply_markup"] = reply_markup
-                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload)
-                    r = resp.json()
-                    ok = r.get("ok")
-                    err = r.get("description")
-                elif photo:
-                    resp1 = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                        json={"chat_id": chat_id, "photo": photo})
-                    resp2 = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                        json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
-                              "disable_web_page_preview": True,
-                              **({"reply_markup": reply_markup} if reply_markup else {})})
-                    r = resp2.json()
-                    ok = resp1.json().get("ok") and r.get("ok")
-                    err = r.get("description")
-                else:
-                    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
-                    if reply_markup:
-                        payload["reply_markup"] = reply_markup
-                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
-                    r = resp.json()
-                    ok = r.get("ok")
-                    err = r.get("description")
-                if not ok:
-                    import logging
-                    logging.getLogger(__name__).warning(f"[broadcast test] chat_id={chat_id} error={err}")
+            for chat_id in [str(t) for t in test_ids]:
+                ok, err = await send_telegram_message(http, bot_token, chat_id, text, photo, btn_text, btn_url or None)
                 send_results.append({"chat_id": chat_id, "ok": ok, "error": err})
 
         return {"ok": True, "sent": 1, "details": [{"speaker": label, "results": send_results}]}
 
-    # ── Ветка: шаблоны уровня «спикер» ──
+    # ── Ветка: шаблоны уровня «спикер» (gift, speaker_intro, pre_start) ──
 
     conf_row2 = await db.fetchrow(
         "SELECT cc.registration_url FROM conf_conferences cc WHERE cc.event_id = $1", event_id
@@ -1540,37 +1412,12 @@ async def test_template(
             else:
                 continue
 
-            reply_markup = None
             btn_text = tpl["button_text"]
             btn_url = (tpl["button_url"] or "").replace("{stream_url}", s["stream_url"]).replace("{registration_url}", registration_url_val)
-            if btn_text and btn_url:
-                reply_markup = {"inline_keyboard": [[{"text": btn_text, "url": btn_url}]]}
 
             speaker_results = []
-            for chat_id in test_ids:
-                if photo and len(text) <= 1024:
-                    payload = {"chat_id": chat_id, "photo": photo, "caption": text, "parse_mode": "HTML"}
-                    if reply_markup:
-                        payload["reply_markup"] = reply_markup
-                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload)
-                    r = resp.json()
-                    ok, err = r.get("ok"), r.get("description")
-                elif photo:
-                    await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                        json={"chat_id": chat_id, "photo": photo})
-                    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
-                    if reply_markup:
-                        payload["reply_markup"] = reply_markup
-                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
-                    r = resp.json()
-                    ok, err = r.get("ok"), r.get("description")
-                else:
-                    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
-                    if reply_markup:
-                        payload["reply_markup"] = reply_markup
-                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
-                    r = resp.json()
-                    ok, err = r.get("ok"), r.get("description")
+            for chat_id in [str(t) for t in test_ids]:
+                ok, err = await send_telegram_message(http, bot_token, chat_id, text, photo, btn_text, btn_url or None)
                 speaker_results.append({"chat_id": chat_id, "ok": ok, "error": err})
             results.append({"speaker": s["speaker_name"], "results": speaker_results})
 
