@@ -288,14 +288,19 @@ export default function TemplatesPage() {
 
     // Строим программу дня из сессий
     const daySessions = confSessions.filter((s: any) => s.day === d)
+    const ROLE_LABELS: Record<string, string> = { headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
     const dayProgram = daySessions.length > 0
       ? daySessions.map((s: any) => {
-          const time = s.start_datetime ? new Date(s.start_datetime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''
+          const fmt = (dt: string) => dt ? new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''
+          const timeStart = fmt(s.start_datetime)
+          const timeEnd = fmt(s.end_datetime)
+          const timePart = timeStart && timeEnd ? `${timeStart}-${timeEnd}` : timeStart
+          const topic = s.title || ''
           const name = s.speaker_name || ''
-          const title = s.title || ''
-          if (time && name) return `${time} ${name}${title ? ` — ${title}` : ''}`
-          if (time && title) return `${time} ${title}`
-          return title || name
+          const role = s.speaker_role
+          const roleLabel = ROLE_LABELS[role] ? ` — ${ROLE_LABELS[role]}` : ''
+          const speakerPart = name ? ` (${name}${roleLabel})` : ''
+          return `${timePart}: ${topic}${speakerPart}`.trim()
         }).join('\n')
       : '[программа дня]'
 

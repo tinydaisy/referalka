@@ -528,13 +528,18 @@ async def test_template(
         poster_h = conf_row["poster_horizontal"] if conf_row else None
         photo = (poster_h[0] if poster_h else None) or tpl["photo_url"] or None
 
-        # Программа дня: список «ЧЧ:ММ Имя спикера — Тема»
+        # Программа дня: «ЧЧ:ММ-ЧЧ:ММ: Тема (Имя — Роль)»
+        # Роль указывается только для headliner, partner, organizer
+        ROLE_LABELS = {"headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
         day_sessions = await db.fetch(
             """
-            SELECT cs.start_datetime, cs.title as session_title, c.name as speaker_name
+            SELECT cs.start_datetime, cs.end_datetime,
+                   cs.title as session_title,
+                   c.name as speaker_name,
+                   cse.role
             FROM conf_sessions cs
             LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
-            LEFT JOIN collaborators c ON c.id = cse.collaborator_id
+            LEFT JOIN collaborators c ON c.id = cse.speaker_id
             WHERE cs.event_id = $1 AND cs.day = $2
             ORDER BY cs.sort_order, cs.start_datetime
             """,
@@ -542,13 +547,15 @@ async def test_template(
         )
         program_lines = []
         for s in day_sessions:
-            time_str = s["start_datetime"].strftime("%H:%M") if s["start_datetime"] else ""
-            name = s["speaker_name"] or ""
+            t_start = s["start_datetime"].strftime("%H:%M") if s["start_datetime"] else ""
+            t_end = s["end_datetime"].strftime("%H:%M") if s["end_datetime"] else ""
+            time_part = f"{t_start}-{t_end}" if t_start and t_end else t_start
             topic = s["session_title"] or ""
-            if time_str and name:
-                program_lines.append(f"{time_str} {name} — {topic}" if topic else f"{time_str} {name}")
-            elif topic:
-                program_lines.append(topic)
+            name = s["speaker_name"] or ""
+            role = s["role"] or ""
+            role_label = ROLE_LABELS.get(role, "")
+            speaker_part = f" ({name}{' — ' + role_label if role_label else ''})" if name else ""
+            program_lines.append(f"{time_part}: {topic}{speaker_part}".strip(": "))
         day_program = "\n".join(program_lines)
 
         text = build_day_message(
