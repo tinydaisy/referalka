@@ -102,7 +102,7 @@ export default function AnalyticsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-900">{r.first_name}</p>
-                        {r.username && <p className="text-xs text-gray-400">@{r.username}</p>}
+                        {r.username && <p className="text-xs text-gray-400">@{r.username.replace(/^@+/, '')}</p>}
                       </div>
                     </div>
                   </td>

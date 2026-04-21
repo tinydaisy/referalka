@@ -54,7 +54,7 @@ export default function ParticipantsTab({ eventId }: { eventId: number }) {
               <p className="font-medium text-gray-900 text-sm truncate">
                 {[p.first_name, p.last_name].filter(Boolean).join(' ') || p.username || 'Без имени'}
               </p>
-              {p.username && <p className="text-xs text-gray-400">@{p.username}</p>}
+              {p.username && <p className="text-xs text-gray-400">@{p.username.replace(/^@+/, '')}</p>}
             </div>
             <div className="text-right shrink-0">
               <p className="text-xs text-gray-400">
