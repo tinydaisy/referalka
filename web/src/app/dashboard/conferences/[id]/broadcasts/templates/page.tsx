@@ -204,33 +204,40 @@ export default function TemplatesPage() {
       const giftRaffle = (speaker.gift_raffle_title || '').trim()
 
       if (tplType === 'speaker_intro') {
-        // Для speaker_intro генерируем полностью, не по шаблону
         const ROLE_MAP: Record<string, string> = { speaker: 'Спикер', headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
         const roleLabel = ROLE_MAP[speaker.role] || 'Спикер'
         const tgChannel = (speaker.tg_channel_url || '').trim()
         const insta = (speaker.instagram_url || '').trim()
         const achList: string[] = (speaker.achievements || []).filter(Boolean)
         const topic = (speaker.topics?.[0]?.topic || speaker.topic || '').trim()
+        const achText = achList.length > 0 ? achList.map(a => `• ${a}`).join('\n') : `• ${topic || 'уточняется'}`
 
-        const lines: string[] = []
-        lines.push(`${speaker.name || ''} — ${roleLabel}`)
-        lines.push('')
-        if (tgChannel) lines.push(`Тг канал: ${tgChannel}`)
-        if (insta) lines.push(`Нельзяграм: ${insta}`)
-        lines.push('')
-        lines.push('Тема:')
-        lines.push('')
-        if (achList.length > 0) {
-          achList.forEach(a => lines.push(`• ${a}`))
+        // Подставляем переменные в текст шаблона
+        out = out
+          .replace(/\{speaker_name\}/g, speaker.name || '')
+          .replace(/\{speaker_role\}/g, roleLabel)
+          .replace(/\{speaker_achievements\}/g, achText)
+          .replace(/\{gift_after_speech_title\}/g, giftTitle)
+          .replace(/\{gift_raffle_title\}/g, giftRaffle)
+          .replace(/\{registration_url\}/g, confData?.registration_url || '')
+
+        // Тг канал — строку целиком убираем если нет
+        if (tgChannel) {
+          out = out.replace(/\{speaker_tg\}/g, `Тг канал: ${tgChannel}`)
         } else {
-          lines.push(`• ${topic || 'уточняется'}`)
+          out = out.replace(/^.*\{speaker_tg\}.*$\n?/gm, '')
         }
-        lines.push('')
-        if (giftTitle) { lines.push(`🎁 На эфире подарит: ${giftTitle}`); lines.push('') }
-        if (giftRaffle) { lines.push(`🏆 Подарок для большого розыгрыша: ${giftRaffle}`); lines.push('') }
-        lines.push('Если вы ещё не зарегистрированы — вы ещё успеваете это сделать')
-        lines.push('Жмите на кнопку:')
-        out = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+        // Инстаграм — строку целиком убираем если нет
+        if (insta) {
+          out = out.replace(/\{speaker_instagram\}/g, `Нельзяграм: ${insta}`)
+        } else {
+          out = out.replace(/^.*\{speaker_instagram\}.*$\n?/gm, '')
+        }
+        // Подарки — строки убираем если нет
+        if (!giftTitle) out = out.replace(/^.*🎁.*\{gift_after_speech_title\}.*$\n?/gm, '')
+        if (!giftRaffle) out = out.replace(/^.*🏆.*\{gift_raffle_title\}.*$\n?/gm, '')
+
+        out = out.replace(/\n{3,}/g, '\n\n').trim()
       } else if (tplType === 'gift') {
         // Убираем строки с переменными подарка — заменим всё блоком по правилам
         out = out.replace(/^.*\{gift_title\}.*$\n?/gm, '')

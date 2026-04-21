@@ -477,59 +477,36 @@ async def test_template(
 
     ROLE_LABELS_INTRO = {"speaker": "Спикер", "headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
 
-    def build_speaker_intro_message(speaker_name, personal_tg, tg_channel_url, instagram_url,
+    def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel_url, instagram_url,
                                     achievements, role, speaker_topic, gift_title, gift_raffle, registration_url):
+        text = tmpl_text or ""
         role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
-        lines = []
-
-        # Имя — роль
-        lines.append(f"{speaker_name or ''} — {role_label}")
-        lines.append("")
-
-        # Тг канал
         tg_ch = (tg_channel_url or "").strip()
-        if tg_ch:
-            lines.append(f"Тг канал: {tg_ch}")
-        # Инстаграм
         insta = (instagram_url or "").strip()
-        if insta:
-            lines.append(f"Нельзяграм: {insta}")
-
-        # Пустая строка после соцсетей (если они были) или после имени
-        lines.append("")
-
-        # Тема
-        topic = (speaker_topic or "уточняется").strip()
-        lines.append(f"Тема:")
-        lines.append("")
-
-        # Регалии через •
         ach_list = [a.strip() for a in (achievements or []) if a.strip()]
-        if ach_list:
-            for a in ach_list:
-                lines.append(f"• {a}")
+        topic = (speaker_topic or "уточняется").strip()
+        ach_text = "\n".join(f"• {a}" for a in ach_list) if ach_list else f"• {topic}"
+
+        text = text.replace("{speaker_name}", speaker_name or "")
+        text = text.replace("{speaker_role}", role_label)
+        text = text.replace("{speaker_achievements}", ach_text)
+        text = text.replace("{gift_after_speech_title}", (gift_title or "").strip())
+        text = text.replace("{gift_raffle_title}", (gift_raffle or "").strip())
+        text = text.replace("{registration_url}", registration_url or "")
+
+        if tg_ch:
+            text = text.replace("{speaker_tg}", f"Тг канал: {tg_ch}")
         else:
-            lines.append(f"• {topic}")
+            text = re.sub(r"^.*\{speaker_tg\}.*$\n?", "", text, flags=re.MULTILINE)
+        if insta:
+            text = text.replace("{speaker_instagram}", f"Нельзяграм: {insta}")
+        else:
+            text = re.sub(r"^.*\{speaker_instagram\}.*$\n?", "", text, flags=re.MULTILINE)
+        if not (gift_title or "").strip():
+            text = re.sub(r"^.*🎁.*\{gift_after_speech_title\}.*$\n?", "", text, flags=re.MULTILINE)
+        if not (gift_raffle or "").strip():
+            text = re.sub(r"^.*🏆.*\{gift_raffle_title\}.*$\n?", "", text, flags=re.MULTILINE)
 
-        lines.append("")
-
-        # Подарок на эфире
-        g_title = (gift_title or "").strip()
-        if g_title:
-            lines.append(f"🎁 На эфире подарит: {g_title}")
-            lines.append("")
-
-        # Подарок для розыгрыша
-        g_raffle = (gift_raffle or "").strip()
-        if g_raffle:
-            lines.append(f"🏆 Подарок для большого розыгрыша: {g_raffle}")
-            lines.append("")
-
-        # Призыв зарегистрироваться
-        lines.append("Если вы ещё не зарегистрированы — вы ещё успеваете это сделать")
-        lines.append("Жмите на кнопку:")
-
-        text = "\n".join(lines)
         return re.sub(r"\n{3,}", "\n\n", text).strip()
 
     def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val):
@@ -695,7 +672,7 @@ async def test_template(
                 photo = None
             elif tpl["type"] == "speaker_intro":
                 text = build_speaker_intro_message(
-                    s["speaker_name"], s["personal_tg_username"],
+                    tpl["text"], s["speaker_name"], s["personal_tg_username"],
                     s["tg_channel_url"], s["instagram_url"],
                     s["achievements"], s["role"],
                     s["speaker_topic"], s["gift_title"],
