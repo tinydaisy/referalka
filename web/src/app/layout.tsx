@@ -1,8 +1,10 @@
 import type { Metadata } from 'next'
 import './globals.css'
 
+const isDev = process.env.NEXT_PUBLIC_APP_ENV === 'dev'
+
 export const metadata: Metadata = {
-  title: '[DEV] Марго Форбс - нелинейный стратег',
+  title: isDev ? 'DEV-ПЛЮСОН' : 'ПЛЮСОН',
   description: 'Платформа управляемого вирального роста',
 }
 
