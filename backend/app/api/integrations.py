@@ -36,7 +36,8 @@ class SalebotRegisterRequest(BaseModel):
     last_name: Optional[str] = None
     salebot_id: Optional[str] = None
     event_id: Optional[str] = None         # зашит в настройках Salebot (опционально, строка или число)
-    status: str = "interested"             # 'interested' | 'registered' | 'in_chat'
+    is_registered: bool = False            # зарегистрирован на платформе (GetCourse и т.п.)
+    is_in_chat: bool = False               # добавился в чат участников
     partner_tg_id: Optional[str] = None    # tg_id рефовода (спикер или участник) — ищем его ref_code
     secret: Optional[str] = None           # токен можно передать в теле (альтернатива заголовку)
 
@@ -137,15 +138,16 @@ async def salebot_register(
         if existing_participant:
             participant_id = existing_participant["id"]
             ref_code = existing_participant["ref_code"]
-            # Обновляем статус только если он "выше" текущего
-            status_order = {"interested": 1, "registered": 2, "in_chat": 3}
-            current_status = await db.fetchval(
-                "SELECT status FROM event_participants WHERE id = $1", participant_id
-            )
-            if status_order.get(data.status, 0) > status_order.get(current_status, 0):
+            # Обновляем булевы поля (только в сторону TRUE, назад не откатываем)
+            if data.is_registered or data.is_in_chat:
                 await db.execute(
-                    "UPDATE event_participants SET status = $1 WHERE id = $2",
-                    data.status, participant_id
+                    """
+                    UPDATE event_participants SET
+                      is_registered = is_registered OR $1,
+                      is_in_chat    = is_in_chat    OR $2
+                    WHERE id = $3
+                    """,
+                    data.is_registered, data.is_in_chat, participant_id
                 )
         else:
             is_new_participant = True
@@ -177,11 +179,11 @@ async def salebot_register(
             participant_id = await db.fetchval(
                 """
                 INSERT INTO event_participants
-                  (event_id, platform_user_id, ref_code, status, registered_at, referrer_ref_code)
-                VALUES ($1, $2, $3, $4, NOW(), $5)
+                  (event_id, platform_user_id, ref_code, is_registered, is_in_chat, registered_at, referrer_ref_code)
+                VALUES ($1, $2, $3, $4, $5, NOW(), $6)
                 RETURNING id
                 """,
-                event_id_int, pluson_id, ref_code, data.status, referrer_ref_code
+                event_id_int, pluson_id, ref_code, data.is_registered, data.is_in_chat, referrer_ref_code
             )
 
     return {
@@ -207,7 +209,8 @@ async def salebot_register_get(
     username: Optional[str] = None,
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
-    status: str = "interested",
+    is_registered: bool = False,
+    is_in_chat: bool = False,
     platform: str = "telegram",
     db: asyncpg.Connection = Depends(get_db)
 ):
@@ -223,7 +226,8 @@ async def salebot_register_get(
         last_name=last_name,
         salebot_id=salebot_id,
         event_id=str(event_id),
-        status=status,
+        is_registered=is_registered,
+        is_in_chat=is_in_chat,
         secret=secret
     )
     return await salebot_register(request, secret, db)
@@ -247,7 +251,7 @@ async def salebot_get_user(
         """
         SELECT pu.id as pluson_id, pu.username, pu.first_name, pu.last_name,
                pu.salebot_id, pu.created_at,
-               ep.id as participant_id, ep.event_id, ep.ref_code, ep.status
+               ep.id as participant_id, ep.event_id, ep.ref_code, ep.is_registered, ep.is_in_chat
         FROM platform_users pu
         LEFT JOIN event_participants ep ON ep.platform_user_id = pu.id
         WHERE pu.client_id = $1 AND pu.platform = $2 AND pu.platform_user_id = $3

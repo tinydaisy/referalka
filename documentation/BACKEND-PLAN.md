@@ -86,14 +86,21 @@
 **`event_subscriptions`** — каналы для проверки подписки (мессенджер-агностик)
 - `event_id`, `platform` (telegram / max), `channel_id`, `channel_title`, `is_required`
 
-**`telegram_users`** — глобальный реестр Telegram-аккаунтов (1 запись на человека)
-- `tg_id` (BIGINT, unique), `username`, `first_name`
+**`platform_users`** — реестр участников per-client (одна запись на человека у каждого клиента)
+- `client_id` → привязка к клиенту ПЛЮСОН
+- `platform` (telegram / max / ...), `platform_user_id` (tg_id в виде строки — универсально)
+- `username`, `first_name`, `last_name`
+- `salebot_id` — ID пользователя в Salebot у этого клиента
+- `is_unsubscribed` (BOOLEAN, default FALSE) — TRUE если пользователь заблокировал/остановил бота; такие пропускаются при рассылке
+- `platform_meta` (JSONB) — доп. поля платформы
+- Уникальность: `(client_id, platform, platform_user_id)` — один человек у одного клиента на одной платформе
+- ⚠️ `telegram_users` — удалена (была пустой, заменена миграцией 011)
 
 **`event_participants`** — факт участия (1 строка на каждое событие каждого человека)
-- `event_id`, `tg_user_id`, `ref_code` (для бесплатной ссылки), `ref_code_paid` (для платной)
-- `referrer_participant_id` → ссылается на `event_participants` (реферер в рамках этого события)
-- `promo_partner_code` — промо-партнёр события (откуда пришёл участник на лендинг)
-- `points_total`, `registered_at`, `activated_at` (когда открыл Игру)
+- `event_id`, `platform_user_id` → `platform_users(id)`
+- `ref_code` (уникальный глобально), `referrer_participant_id` → реферер в рамках этого события
+- `referrer_ref_code`, `status` (interested / registered / in_chat)
+- `registered_at`, `activated_at` (когда открыл Игру)
 
 ### Реферальная механика
 
@@ -117,8 +124,10 @@
 **`promo_materials`** — афиши и тексты анонсов (загружаются Клиентом)
 - `event_id`, `type` (poster / text_post / text_dm), `content_url`
 
-**`notifications_log`** — лог всех отправленных уведомлений
-- `event_id`, `tg_user_id`, `segment` (no_game / no_share / stalled), `message`, `sent_at`
+**`broadcast_log`** — лог всех отправленных сообщений рассылки
+- `schedule_id` → `broadcast_schedules`, `platform_user_id` → `platform_users`
+- `status` (sent / failed / skipped), `error`, `sent_at`
+- ⚠️ `notifications_log` — удалена (была пустой, заменена системой broadcast)
 
 ### Модуль «Конференция» (prefix `conf_`)
 

@@ -100,11 +100,14 @@
 - С партнёром и UTM: `https://plusson.app/l/ivision-7?app=tg&new_partner_id=123&utm_source=insta`
 
 ### Структура БД
-- **Many-to-Many для участников:** `telegram_users` (личные данные) + `event_participants` (факт участия)
-- Один человек в 3 событиях = 1 запись в `telegram_users` + 3 записи в `event_participants`
+- **Many-to-Many для участников:** `platform_users` (личные данные, per-client) + `event_participants` (факт участия)
+- `platform_users` привязана к `client_id` — один Telegram-пользователь у разных клиентов ПЛЮСОН = разные записи
+- Уникальность: `(client_id, platform, platform_user_id)` — один человек, один клиент, одна платформа
+- `event_participants.platform_user_id` → `platform_users.id`
 - `referrer_participant_id` ссылается на `event_participants` — реферальная связь контекстная, только внутри события
+- ⚠️ `telegram_users` и `notifications_log` — удалены (пустые, заменены миграцией 011 и системой broadcast)
 - **Модульные таблицы** с префиксом `conf_` принадлежат модулю «Конференция»
-- **⚠️ Спикеры — per-client, не per-event:** таблица `speakers` (client_id) + `conf_speaker_events` (speaker_id + event_id). `conf_speakers` — устаревшая схема, подлежит замене миграцией 003_speakers_refactor.sql
+- **Спикеры — per-client:** таблица `speakers` (client_id) + `conf_speaker_events` (speaker_id + event_id)
 
 ### Архитектура дашборда (зафиксировано 2026-04-17)
 

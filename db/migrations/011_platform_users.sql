@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS platform_users (
   last_name           TEXT,
   salebot_id          TEXT,                         -- ID пользователя в Salebot у этого клиента
   platform_meta       JSONB,                        -- специфичные поля платформы (если нужно)
+  is_unsubscribed     BOOLEAN NOT NULL DEFAULT FALSE,  -- TRUE если пользователь заблокировал/остановил бота
   created_at          TIMESTAMPTZ DEFAULT NOW(),
   updated_at          TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(client_id, platform, platform_user_id)

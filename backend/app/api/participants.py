@@ -58,7 +58,7 @@ async def register_participant(
     )
 
     existing = await db.fetchrow(
-        "SELECT id, ref_code, status FROM event_participants WHERE event_id=$1 AND platform_user_id=$2",
+        "SELECT id, ref_code FROM event_participants WHERE event_id=$1 AND platform_user_id=$2",
         event["id"], platform_user_id
     )
     if existing:
@@ -106,9 +106,9 @@ async def register_participant(
     participant = await db.fetchrow(
         """
         INSERT INTO event_participants
-          (event_id, platform_user_id, referrer_participant_id, ref_code, status)
-        VALUES ($1,$2,$3,$4,'interested')
-        RETURNING id, ref_code, status
+          (event_id, platform_user_id, referrer_participant_id, ref_code)
+        VALUES ($1,$2,$3,$4)
+        RETURNING id, ref_code
         """,
         event["id"], platform_user_id, referrer_id, new_code
     )
@@ -130,7 +130,7 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
     rows = await db.fetch(
         """
         SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
-               ep.id as participant_id, ep.ref_code, ep.status as participant_status
+               ep.id as participant_id, ep.ref_code, ep.is_registered, ep.is_in_chat
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
         JOIN platform_users pu ON pu.id = ep.platform_user_id
@@ -150,7 +150,7 @@ async def get_participant_in_event(
 ):
     row = await db.fetchrow(
         """
-        SELECT ep.id, ep.ref_code, ep.status, ep.registered_at, ep.activated_at,
+        SELECT ep.id, ep.ref_code, ep.is_registered, ep.is_in_chat, ep.registered_at, ep.activated_at,
                e.title as event_title, e.module_slug
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id

@@ -155,14 +155,14 @@ async def _send_broadcast(schedule_id: int):
             recipients = schedule["test_recipients"] or []
             # Формат: [{"platform": "telegram", "platform_user_id": "123"}]
         else:
-            # Боевая рассылка — все registered/in_chat участники события
+            # Боевая рассылка — все участники события (не отписавшиеся)
             rows = await conn.fetch(
                 """
                 SELECT pu.platform_user_id, pu.platform
                 FROM event_participants ep
                 JOIN platform_users pu ON pu.id = ep.platform_user_id
                 WHERE ep.event_id = $1
-                  AND ep.status IN ('registered', 'in_chat')
+                  AND pu.is_unsubscribed = FALSE
                   AND pu.platform = 'telegram'
                 """,
                 schedule["event_id"]
