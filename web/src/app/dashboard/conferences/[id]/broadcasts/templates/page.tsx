@@ -39,10 +39,18 @@ const TYPE_DEFS: TypeDef[] = [
     showPhoto: false,
   },
   {
-    type: 'day_start_30min',
-    title: 'День конференции — за 30 минут до старта',
-    hint: 'Отправляется за 30 минут до начала дня. Фото — горизонтальная афиша конференции.',
+    type: 'day_start_30min_unreg',
+    title: 'День конференции — за 30 мин (не зарегистрирован)',
+    hint: 'Для тех, кто ещё не зарегистрирован. Кнопка и ссылка — на лендинг регистрации. Фото — горизонтальная афиша.',
+    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{registration_url}'],
+    showPhoto: true,
+  },
+  {
+    type: 'day_start_30min_reg',
+    title: 'День конференции — за 30 мин (зарегистрирован)',
+    hint: 'Для уже зарегистрированных участников. Кнопка и ссылка — на вебинарную комнату дня. Фото — горизонтальная афиша.',
     variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{stream_url}'],
+    showPhoto: true,
   },
   {
     type: 'day_live',
@@ -67,7 +75,8 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{gift_raffle_title}', desc: 'Подарок для розыгрыша' },
   { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
   { name: '{gift_url}', desc: 'Ссылка на подарок' },
-  { name: '{stream_url}', desc: 'Ссылка на эфир' },
+  { name: '{stream_url}', desc: 'Ссылка на эфир (вебинарная комната дня)' },
+  { name: '{registration_url}', desc: 'Ссылка на лендинг регистрации' },
   { name: '{conf_title}', desc: 'Название конференции' },
   { name: '{day_number}', desc: 'Номер дня (1, 2, 3…)' },
   { name: '{day_ordinal}', desc: 'Номер дня словом (первом, втором…)' },
@@ -98,6 +107,8 @@ export default function TemplatesPage() {
   const [testDay, setTestDay] = useState(1)
   const [confDays, setConfDays] = useState<number[]>([1])
   const [confDaysData, setConfDaysData] = useState<any[]>([])
+  const [confData, setConfData] = useState<any>(null)
+  const [previewRegistered, setPreviewRegistered] = useState(false)
 
   useEffect(() => {
     api.conference.templates.list(eventId).then(r => setTemplates(r.templates || []))
@@ -108,6 +119,7 @@ export default function TemplatesPage() {
       if (dayNums.length > 0) setConfDays(dayNums)
       setConfDaysData(days)
     }).catch(() => {})
+    api.conference.get(eventId).then(r => setConfData(r)).catch(() => {})
   }, [eventId])
 
   async function save() {
@@ -148,8 +160,27 @@ export default function TemplatesPage() {
     setTestSending(true)
     setTestResult(null)
     try {
-      const res = await api.conference.templates.test(eventId, testModal.tpl.id, testDay)
-      setTestResult(res)
+      const isDayType = testModal.def.type === 'day_start_30min_unreg' || testModal.def.type === 'day_start_30min_reg'
+      if (isDayType) {
+        // Для day-шаблонов: отправить для каждого дня оба варианта (unreg + reg)
+        const unregTpl = templates.find(t => t.type === 'day_start_30min_unreg')
+        const regTpl = templates.find(t => t.type === 'day_start_30min_reg')
+        const allDetails: any[] = []
+        for (const d of confDays) {
+          if (unregTpl) {
+            const r = await api.conference.templates.test(eventId, unregTpl.id, d)
+            if (r.details) allDetails.push(...r.details)
+          }
+          if (regTpl) {
+            const r = await api.conference.templates.test(eventId, regTpl.id, d)
+            if (r.details) allDetails.push(...r.details)
+          }
+        }
+        setTestResult({ ok: true, sent: allDetails.length, details: allDetails })
+      } else {
+        const res = await api.conference.templates.test(eventId, testModal.tpl.id, testDay)
+        setTestResult(res)
+      }
     } catch (e: any) {
       setTestResult({ ok: false, error: e.message })
     } finally {
@@ -244,17 +275,27 @@ export default function TemplatesPage() {
         .replace(/\{stream_url\}/g, getStreamUrl(day))
     }
 
+    const d = day ?? testDay
+    const dayObj = confDaysData.find((x: any) => x.day_number === d)
+    const realStreamUrl = dayObj?.stream_url || ''
+    const realRegUrl = confData?.registration_url || ''
+    const realConfTitle = confData?.title || '[Название конференции]'
+    const realDayDate = dayObj?.day_date
+      ? new Date(dayObj.day_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+      : `День ${d}`
+
     out = out
-      .replace(/\{conf_title\}/g, '[Название конференции]')
-      .replace(/\{day_number\}/g, '1')
+      .replace(/\{conf_title\}/g, realConfTitle)
+      .replace(/\{day_number\}/g, String(d))
       .replace(/\{day_ordinal\}/g, 'первом')
-      .replace(/\{day_date\}/g, '01 января')
+      .replace(/\{day_date\}/g, realDayDate)
       .replace(/\{day_program\}/g, '[программа дня]')
-      .replace(/\{next_day_number\}/g, '2')
+      .replace(/\{next_day_number\}/g, String(d + 1))
       .replace(/\{next_day_start_time\}/g, '10:00')
       .replace(/\{raffle_url\}/g, '🔗 [ссылка на розыгрыш]')
       .replace(/\{day_speakers_gifts\}/g, '[подарки спикеров дня]')
-      .replace(/\{stream_url\}/g, getStreamUrl(day))
+      .replace(/\{stream_url\}/g, realStreamUrl || '🔗 [ссылка на эфир]')
+      .replace(/\{registration_url\}/g, realRegUrl || '🔗 [ссылка на регистрацию]')
       .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
       .replace(/\{gift_title\}/g, '[название подарка]')
       .replace(/\{gift_after_speech_title\}/g, '[подарок на эфире]')
@@ -338,7 +379,7 @@ export default function TemplatesPage() {
                 </div>
               ) : (
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3 line-clamp-4">{tpl.text}</p>
+                  <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3">{tpl.text}</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                     {tpl.photo_url ? (
                       <span>📷 Своё фото</span>
@@ -432,11 +473,10 @@ export default function TemplatesPage() {
               <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
             </div>
 
-            {/* Выбор спикера для шаблонов со спикером */}
-            {/* Выбор дня для шаблонов с эфиром */}
-            {(previewModal.def.type === 'pre_start' || previewModal.def.type === 'speaker_intro') && confDays.length > 1 && (
+            {/* Выбор дня — для всех шаблонов где есть дни */}
+            {confDays.length > 1 && (
               <div className="mb-3">
-                <label className="text-xs text-gray-500 mb-1.5 block">День (для ссылки на эфир)</label>
+                <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
                 <div className="flex gap-2">
                   {confDays.map(d => (
                     <button key={d} onClick={() => setTestDay(d)}
@@ -449,6 +489,7 @@ export default function TemplatesPage() {
               </div>
             )}
 
+            {/* Выбор спикера — для шаблонов со спикером */}
             {previewModal.def.hasSpeaker && speakers.length > 0 && (
               <div className="mb-4">
                 <label className="text-xs text-gray-500 mb-1 block">Посмотреть как у спикера:</label>
@@ -467,21 +508,24 @@ export default function TemplatesPage() {
 
             {/* Имитация Telegram-сообщения */}
             <div className="bg-[#effdde] rounded-2xl rounded-tr-sm p-3 shadow-sm">
-              {/* Фото — только для шаблонов с showPhoto */}
+              {/* Фото */}
               {previewModal.def.showPhoto && (() => {
-                const photoSrc = previewModal.tpl.photo_url || previewSpeaker?.poster_url
+                const isDayTpl = previewModal.def.type.startsWith('day_')
+                const photoSrc = previewModal.tpl.photo_url
+                  || (isDayTpl
+                    ? confData?.poster_horizontal?.[0]
+                    : previewSpeaker?.poster_url)
+                const placeholder = isDayTpl ? '📸 Горизонтальная афиша конференции' : '📸 Афиша спикера'
                 return photoSrc ? (
-                  <img
-                    src={photoSrc}
-                    alt=""
+                  <img src={photoSrc} alt=""
                     className="w-full rounded-xl mb-2"
                     style={{ maxHeight: '400px', objectFit: 'contain', background: '#f0f0f0' }}
                     onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                   />
                 ) : (
-                  <div className="w-full h-24 rounded-xl mb-2 flex items-center justify-center text-xs text-gray-400"
+                  <div className="w-full h-20 rounded-xl mb-2 flex items-center justify-center text-xs text-gray-400"
                     style={{ background: '#e8e8e8' }}>
-                    📸 Афиша спикера
+                    {placeholder}
                   </div>
                 )
               })()}
@@ -519,41 +563,49 @@ export default function TemplatesPage() {
               <button onClick={() => setTestModal(null)}><X size={18} /></button>
             </div>
 
-            {['gift', 'speaker_intro', 'pre_start'].includes(testModal.def.type) ? (
+            {['gift', 'speaker_intro', 'pre_start', 'day_start_30min_unreg', 'day_start_30min_reg'].includes(testModal.def.type) ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
                   {testModal.def.type === 'gift' && 'Отправит сообщения о подарке для каждого спикера выбранного дня (по порядку программы) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'speaker_intro' && 'Отправит «Знакомство со спикером» для каждого спикера выбранного дня (с фото афиши) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'pre_start' && 'Отправит «Анонс спикера» для каждого спикера выбранного дня (с реальной ссылкой на эфир и фото) на тестовые Telegram ID из настроек.'}
+                  {(testModal.def.type === 'day_start_30min_unreg' || testModal.def.type === 'day_start_30min_reg') &&
+                    `Отправит оба варианта (незарегистрирован + зарегистрирован) для каждого дня конференции. Итого ${confDays.length * 2} сообщений на каждый тестовый аккаунт.`}
                 </p>
                 {!testResult && (
                   <>
-                    <div className="mb-4">
-                      <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
-                      <div className="flex gap-2">
-                        {confDays.map(d => (
-                          <button
-                            key={d}
-                            onClick={() => setTestDay(d)}
-                            className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                              testDay === d
-                                ? 'text-white border-transparent'
-                                : 'text-gray-600 border-gray-200 bg-white hover:bg-gray-50'
-                            }`}
-                            style={testDay === d ? { background: 'linear-gradient(45deg,#25455D,#0a1520)' } : {}}
-                          >
-                            День {d}
-                          </button>
-                        ))}
+                    {/* Для day-шаблонов — выбор дня не нужен, отправляем все дни сразу */}
+                    {!['day_start_30min_unreg', 'day_start_30min_reg'].includes(testModal.def.type) && (
+                      <div className="mb-4">
+                        <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
+                        <div className="flex gap-2">
+                          {confDays.map(d => (
+                            <button
+                              key={d}
+                              onClick={() => setTestDay(d)}
+                              className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                                testDay === d ? 'text-white border-transparent' : 'text-gray-600 border-gray-200 bg-white hover:bg-gray-50'
+                              }`}
+                              style={testDay === d ? { background: 'linear-gradient(45deg,#25455D,#0a1520)' } : {}}
+                            >
+                              День {d}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <button
                       onClick={runTest}
                       disabled={testSending}
                       className="w-full py-2.5 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2"
                       style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)', opacity: testSending ? 0.7 : 1 }}
                     >
-                      {testSending ? <><Loader2 size={15} className="animate-spin" /> Отправляем День {testDay}...</> : <><Send size={15} /> Отправить тест — День {testDay}</>}
+                      {testSending
+                        ? <><Loader2 size={15} className="animate-spin" /> Отправляем...</>
+                        : ['day_start_30min_unreg', 'day_start_30min_reg'].includes(testModal.def.type)
+                          ? <><Send size={15} /> Отправить тест — все дни × 2 варианта</>
+                          : <><Send size={15} /> Отправить тест — День {testDay}</>
+                      }
                     </button>
                   </>
                 )}

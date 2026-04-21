@@ -71,14 +71,33 @@ DEFAULT_TEMPLATES = [
         "button_url": None,
     },
     {
-        "name": "День конференции (за 30 мин до старта)",
-        "type": "day_start_30min",
+        "name": "День конференции — за 30 мин (не зарегистрирован)",
+        "type": "day_start_30min_unreg",
         "text": (
-            "Через 30 минут стартует День {day_number} конференции «{conf_title}»\n\n"
+            "[Последний шанс зарегистрироваться] Через 30 минут стартует День {day_number} конференции «{conf_title}»\n\n"
             "Сегодня в программе:\n\n"
             "{day_date}\n\n"
             "{day_program}\n\n"
-            "Нажимай на кнопку «Войти на конференцию», чтобы попасть в вебинарную комнату.\n\n"
+            "Нажимай на кнопку «Зарегистрироваться», чтобы попасть в вебинарную комнату.\n"
+            "🔗 {registration_url}\n\n"
+            "—\n"
+            "При возникновении технических трудностей пишите — @forbs_service2"
+        ),
+        "photo_url": None,
+        "button_text": "Зарегистрироваться",
+        "button_url": "{registration_url}",
+    },
+    {
+        "name": "День конференции — за 30 мин (зарегистрирован)",
+        "type": "day_start_30min_reg",
+        "text": (
+            "[Уже через 30 минут] Стартует День {day_number} конференции «{conf_title}»\n\n"
+            "Сегодня в программе:\n\n"
+            "{day_date}\n\n"
+            "{day_program}\n\n"
+            "Нажимай на кнопку «Войти в эфир», чтобы попасть в вебинарную комнату.\n"
+            "🔗 {stream_url}\n\n"
+            "—\n"
             "При возникновении технических трудностей пишите — @forbs_service2"
         ),
         "photo_url": None,
@@ -420,8 +439,10 @@ async def test_template(
     if not tpl:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
 
-    if tpl["type"] not in ("gift", "speaker_intro", "pre_start"):
-        return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка пока реализована для шаблонов «Подарок спикера», «Знакомство со спикером» и «Анонс спикера»"}
+    DAY_TYPES = ("day_start_30min_unreg", "day_start_30min_reg")
+    SPEAKER_TYPES = ("gift", "speaker_intro", "pre_start")
+    if tpl["type"] not in SPEAKER_TYPES + DAY_TYPES:
+        return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка для этого шаблона пока не реализована"}
 
     # Тестовые ID и bot_token клиента
     client_row = await db.fetchrow(
@@ -434,9 +455,132 @@ async def test_template(
     if not test_ids:
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
 
-    # Спикеры указанного дня по порядку программы (только с привязанным спикером)
-    # stream_url берётся из conf_days (там хранятся ссылки на эфир по дням)
-    # speaker_topic = cs.title (заголовок сессии — это и есть тема выступления)
+    import re
+
+    # ── Вспомогательные функции формирования сообщений ──
+
+    def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
+        tg_raw = (personal_tg or "").strip()
+        tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
+        title = (gift_title or "").strip()
+        url = (gift_url or "").strip()
+        header = f"🎁 {speaker_name}: Подарки после эфира"
+        if not title:
+            body = f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}" if tg_mention else "🎁 Чтобы забрать материалы — напишите спикеру в личку"
+        elif not url:
+            body = f"{title}\nПишите в личку {tg_mention}" if tg_mention else title
+        else:
+            body = f"{title}\n{url}"
+        return f"{header}\n\n{body}"
+
+    def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, speaker_topic, gift_title):
+        text = tmpl_text or ""
+        tg_raw = (personal_tg or "").strip()
+        tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
+        text = text.replace("{speaker_name}", speaker_name or "")
+        text = text.replace("{speaker_tg}", f"Тг канал: {tg_mention}" if tg_mention else "")
+        text = text.replace("{speaker_topic}", speaker_topic or "")
+        text = text.replace("{gift_after_speech_title}", gift_title or "")
+        text = text.replace("{gift_raffle_title}", "")
+        text = text.replace("{speaker_achievements}", "")
+        return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val):
+        text = tmpl_text or ""
+        text = text.replace("{speaker_name}", speaker_name or "")
+        text = text.replace("{speaker_topic}", speaker_topic or "")
+        text = text.replace("{stream_url}", stream_url_val or "")
+        return text.strip()
+
+    def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program, stream_url_val, registration_url_val):
+        text = tmpl_text or ""
+        text = text.replace("{day_number}", str(day_number))
+        text = text.replace("{conf_title}", conf_title or "")
+        text = text.replace("{day_date}", day_date or "")
+        text = text.replace("{day_program}", day_program or "")
+        text = text.replace("{stream_url}", stream_url_val or "")
+        text = text.replace("{registration_url}", registration_url_val or "")
+        return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    # ── Ветка: шаблоны уровня «день» ──
+
+    if tpl["type"] in ("day_start_30min_unreg", "day_start_30min_reg"):
+        # Данные конференции (название, лендинг, горизонтальная афиша)
+        conf_row = await db.fetchrow(
+            """
+            SELECT e.title as conf_title,
+                   cc.registration_url,
+                   cc.poster_horizontal,
+                   cd.stream_url,
+                   cd.day_date
+            FROM events e
+            JOIN conf_conferences cc ON cc.event_id = e.id
+            LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = $2
+            WHERE e.id = $1
+            """,
+            event_id, day
+        )
+        conf_title = conf_row["conf_title"] if conf_row else ""
+        registration_url = (conf_row["registration_url"] or "") if conf_row else ""
+        stream_url = (conf_row["stream_url"] or "") if conf_row else ""
+        raw_date = conf_row["day_date"] if conf_row else None
+        day_date_str = raw_date.strftime("%-d %B") if raw_date else f"День {day}"
+        poster_h = conf_row["poster_horizontal"] if conf_row else None
+        photo = (poster_h[0] if poster_h else None) or tpl["photo_url"] or None
+
+        # Программа дня: список «ЧЧ:ММ Имя спикера — Тема»
+        day_sessions = await db.fetch(
+            """
+            SELECT cs.start_datetime, cs.title as session_title, c.name as speaker_name
+            FROM conf_sessions cs
+            LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+            LEFT JOIN collaborators c ON c.id = cse.collaborator_id
+            WHERE cs.event_id = $1 AND cs.day = $2
+            ORDER BY cs.sort_order, cs.start_datetime
+            """,
+            event_id, day
+        )
+        program_lines = []
+        for s in day_sessions:
+            time_str = s["start_datetime"].strftime("%H:%M") if s["start_datetime"] else ""
+            name = s["speaker_name"] or ""
+            topic = s["session_title"] or ""
+            if time_str and name:
+                program_lines.append(f"{time_str} {name} — {topic}" if topic else f"{time_str} {name}")
+            elif topic:
+                program_lines.append(topic)
+        day_program = "\n".join(program_lines)
+
+        text = build_day_message(
+            tpl["text"], day, conf_title, day_date_str, day_program, stream_url, registration_url
+        )
+        btn_text = tpl["button_text"]
+        btn_url = (tpl["button_url"] or "").replace("{stream_url}", stream_url).replace("{registration_url}", registration_url)
+        reply_markup = None
+        if btn_text and btn_url:
+            reply_markup = {"inline_keyboard": [[{"text": btn_text, "url": btn_url}]]}
+
+        label = f"День {day} — {'незарегистрированные' if tpl['type'] == 'day_start_30min_unreg' else 'зарегистрированные'}"
+        send_results = []
+        async with httpx.AsyncClient(timeout=15) as http:
+            for chat_id in test_ids:
+                if photo:
+                    payload = {"chat_id": chat_id, "photo": photo, "caption": text, "parse_mode": "HTML"}
+                    if reply_markup:
+                        payload["reply_markup"] = reply_markup
+                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload)
+                else:
+                    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+                    if reply_markup:
+                        payload["reply_markup"] = reply_markup
+                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+                r = resp.json()
+                send_results.append({"chat_id": chat_id, "ok": r.get("ok"), "error": r.get("description")})
+
+        return {"ok": True, "sent": 1, "details": [{"speaker": label, "results": send_results}]}
+
+    # ── Ветка: шаблоны уровня «спикер» ──
+
     sessions = await db.fetch(
         """
         SELECT cs.sort_order, cs.title as speaker_topic,
@@ -455,43 +599,6 @@ async def test_template(
         """,
         event_id, day
     )
-    stream_url = sessions[0]["stream_url"] if sessions else ""
-
-    def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
-        tg_raw = (personal_tg or "").strip()
-        tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
-        title = (gift_title or "").strip()
-        url = (gift_url or "").strip()
-        header = f"🎁 {speaker_name}: Подарки после эфира"
-        if not title:
-            body = f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}" if tg_mention else "🎁 Чтобы забрать материалы — напишите спикеру в личку"
-        elif not url:
-            body = f"{title}\nПишите в личку {tg_mention}" if tg_mention else title
-        else:
-            body = f"{title}\n{url}"
-        return f"{header}\n\n{body}"
-
-    def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, speaker_topic, poster_url, gift_title):
-        import re
-        text = tmpl_text or ""
-        tg_raw = (personal_tg or "").strip()
-        tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
-        text = text.replace("{speaker_name}", speaker_name or "")
-        text = text.replace("{speaker_tg}", f"Тг канал: {tg_mention}" if tg_mention else "")
-        text = text.replace("{speaker_topic}", speaker_topic or "")
-        text = text.replace("{gift_after_speech_title}", gift_title or "")
-        text = text.replace("{gift_raffle_title}", "")
-        text = text.replace("{speaker_achievements}", "")
-        # Убираем пустые строки от удалённых переменных
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
-
-    def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val):
-        text = tmpl_text or ""
-        text = text.replace("{speaker_name}", speaker_name or "")
-        text = text.replace("{speaker_topic}", speaker_topic or "")
-        text = text.replace("{stream_url}", stream_url_val or "")
-        return text.strip()
 
     results = []
     async with httpx.AsyncClient(timeout=15) as http:
@@ -502,7 +609,7 @@ async def test_template(
             elif tpl["type"] == "speaker_intro":
                 text = build_speaker_intro_message(
                     tpl["text"], s["speaker_name"], s["personal_tg_username"],
-                    s["speaker_topic"], s["speaker_poster"], s["gift_title"]
+                    s["speaker_topic"], s["gift_title"]
                 )
                 photo = s["speaker_poster"] or tpl["photo_url"] or None
             elif tpl["type"] == "pre_start":
@@ -511,7 +618,6 @@ async def test_template(
             else:
                 continue
 
-            # Inline-кнопка если есть
             reply_markup = None
             btn_text = tpl["button_text"]
             btn_url = (tpl["button_url"] or "").replace("{stream_url}", s["stream_url"])
