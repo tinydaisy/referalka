@@ -382,9 +382,20 @@ export default function QueuePage() {
                 : null
               const curDate = s.fire_at_local ? s.fire_at_local.split(' ')[0] : null
               const showDayDivider = curDate && curDate !== prevDate
-              // Определяем номер дня по порядку уникальных дат
-              const allDates = [...new Set(schedules.filter(x => x.fire_at_local).map(x => x.fire_at_local.split(' ')[0]))]
-              const dayNum = curDate ? allDates.indexOf(curDate) + 1 : null
+
+              // Форматируем дату в читаемый вид: "22 апр", "23 апр" и т.д.
+              const RU_SHORT_MONTHS: Record<string, string> = {
+                '01': 'янв', '02': 'фев', '03': 'мар', '04': 'апр',
+                '05': 'май', '06': 'июн', '07': 'июл', '08': 'авг',
+                '09': 'сен', '10': 'окт', '11': 'ноя', '12': 'дек',
+              }
+              let dividerLabel = curDate || ''
+              if (curDate) {
+                const parts = curDate.split('-') // ['2026','04','22']
+                if (parts.length === 3) {
+                  dividerLabel = `${parseInt(parts[2])} ${RU_SHORT_MONTHS[parts[1]] || parts[1]}`
+                }
+              }
 
               return (
               <div key={s.id}>
@@ -392,7 +403,7 @@ export default function QueuePage() {
                 <div className="flex items-center gap-3 py-2 mt-2">
                   <div className="flex-1 h-px bg-gray-200" />
                   <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    День {dayNum}
+                    {dividerLabel}
                   </span>
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>

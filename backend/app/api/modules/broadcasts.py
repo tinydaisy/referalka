@@ -1024,55 +1024,16 @@ async def preview_schedule(
                     schedule["session_id"]
                 )
                 topic = (topics[0]["topic"] if topics else "").strip()
-                ROLE_MAP = {"speaker": "Спикер", "headliner": "Хедлайнер",
-                            "partner": "Партнёр", "organizer": "Организатор"}
-                role = sp["role"] or ""
-                role_label = ROLE_MAP.get(role, "Спикер")
-                is_partner = role == "partner"
-                ach = sp["achievements"] or []
-                ach_list = [a.strip() for a in ach if a and a.strip()]
-
-                if not topic and is_partner:
-                    ach_text = ""
-                else:
-                    ach_text = "\n".join(f"• {a}" for a in ach_list) if ach_list else (f"• {topic}" if topic else "")
-
-                tg_channel = (sp["tg_channel_url"] or "").strip()
-                insta = (sp["instagram_url"] or "").strip()
-                gift_title = (sp["gift_after_speech_title"] or "").strip()
-                gift_raffle = (sp["gift_raffle_title"] or "").strip()
-                reg_url = (sp["registration_url"] or "").strip()
-
                 if not photo:
                     photo = sp["speaker_poster"]
 
-                text = text.replace("{speaker_name}", sp["speaker_name"] or "")
-                text = text.replace("{speaker_role}", role_label)
-                text = text.replace("{speaker_topic}", topic)
-                text = text.replace("{speaker_achievements}", ach_text)
-                text = text.replace("{gift_after_speech_title}", gift_title)
-                text = text.replace("{gift_raffle_title}", gift_raffle)
-                text = text.replace("{registration_url}", reg_url)
-
-                if tg_channel:
-                    text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_channel}")
-                else:
-                    text = re.sub(r"^.*\{speaker_tg\}.*$\n?", "", text, flags=re.MULTILINE)
-                if insta:
-                    text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}")
-                else:
-                    text = re.sub(r"^.*\{speaker_instagram\}.*$\n?", "", text, flags=re.MULTILINE)
-                if not topic or (is_partner and not topic):
-                    text = re.sub(r"^.*Тема.*\{speaker_topic\}.*$\n?", "", text, flags=re.MULTILINE)
-                    text = re.sub(r"^.*\{speaker_topic\}.*$\n?", "", text, flags=re.MULTILINE)
-                if not ach_text:
-                    text = re.sub(r"^.*О спикере.*$\n?", "", text, flags=re.MULTILINE)
-                    text = re.sub(r"^.*\{speaker_achievements\}.*$\n?", "", text, flags=re.MULTILINE)
-                if not gift_title:
-                    text = re.sub(r"^.*🎁.*(\{gift_after_speech_title\}|$).*$\n?", "", text, flags=re.MULTILINE)
-                if not gift_raffle:
-                    text = re.sub(r"^.*🏆.*(\{gift_raffle_title\}|$).*$\n?", "", text, flags=re.MULTILINE)
-                text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                text = build_speaker_intro_message(
+                    text, sp["speaker_name"], sp["personal_tg_username"],
+                    sp["tg_channel_url"], sp["instagram_url"],
+                    sp["achievements"], sp["role"],
+                    topic, sp["gift_after_speech_title"],
+                    sp["gift_raffle_title"], sp["registration_url"]
+                )
 
     else:
         # Спикерские шаблоны (pre_start, gift)
@@ -1184,13 +1145,9 @@ async def test_template(
         insta = (instagram_url or "").strip()
         ach_list = [a.strip() for a in (achievements or []) if a.strip()]
         topic = (speaker_topic or "").strip()
-        is_partner = (role or "") == "partner"
 
-        # Для партнёра без темы — тему не показываем
-        if not topic and is_partner:
-            ach_text = ""
-        else:
-            ach_text = "\n".join(f"• {a}" for a in ach_list) if ach_list else (f"• {topic}" if topic else "")
+        # Регалии — всегда из achievements, независимо от темы и роли
+        ach_text = "\n".join(f"• {a}" for a in ach_list)
 
         text = text.replace("{speaker_name}", speaker_name or "")
         text = text.replace("{speaker_role}", role_label)
@@ -1209,8 +1166,8 @@ async def test_template(
         else:
             text = re.sub(r"^.*\{speaker_instagram\}.*$\n?", "", text, flags=re.MULTILINE)
 
-        # Тема: убираем строку если нет темы (или партнёр без темы)
-        if not topic or (is_partner and not topic):
+        # Тема: убираем строку если нет темы
+        if not topic:
             text = re.sub(r"^.*Тема.*\{speaker_topic\}.*$\n?", "", text, flags=re.MULTILINE)
             text = re.sub(r"^.*\{speaker_topic\}.*$\n?", "", text, flags=re.MULTILINE)
         # О спикере: убираем блок если нет регалий
