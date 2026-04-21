@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
 import asyncpg
+from zoneinfo import ZoneInfo
 
 from app.database import get_db
 from app.auth import get_current_client
@@ -553,6 +554,10 @@ async def test_template(
     # ── Ветка: шаблоны уровня «день» ──
 
     if tpl["type"] in ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end"):
+        # Таймзона клиента
+        client_row_tz = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+        tz = ZoneInfo((client_row_tz["timezone"] or "Europe/Moscow") if client_row_tz else "Europe/Moscow")
+
         # Данные конференции (название, лендинг, горизонтальная афиша)
         conf_row = await db.fetchrow(
             """
@@ -597,8 +602,8 @@ async def test_template(
         )
         program_lines = []
         for s in day_sessions:
-            t_start = s["start_datetime"].strftime("%H:%M") if s["start_datetime"] else ""
-            t_end = s["end_datetime"].strftime("%H:%M") if s["end_datetime"] else ""
+            t_start = s["start_datetime"].astimezone(tz).strftime("%H:%M") if s["start_datetime"] else ""
+            t_end = s["end_datetime"].astimezone(tz).strftime("%H:%M") if s["end_datetime"] else ""
             time_part = f"{t_start}-{t_end}" if t_start and t_end else t_start
             bold_time = f"<b>{time_part}</b>" if time_part else ""
             topic = s["session_title"] or ""
@@ -657,11 +662,10 @@ async def test_template(
                 event_id, next_day_number
             )
             if first_next_session and first_next_session["start_datetime"]:
-                next_dt = first_next_session["start_datetime"]
-                # Берём время и дату напрямую из UTC-значения, без пересчёта часового пояса
+                next_dt = first_next_session["start_datetime"].astimezone(tz)
                 next_time = next_dt.strftime("%H:%M")
                 next_date = next_dt.date()
-                cur_date = first_cur_session["start_datetime"].date() if first_cur_session and first_cur_session["start_datetime"] else None
+                cur_date = first_cur_session["start_datetime"].astimezone(tz).date() if first_cur_session and first_cur_session["start_datetime"] else None
                 diff = (next_date - cur_date).days if cur_date else 999
                 if diff == 1:
                     when = "завтра"

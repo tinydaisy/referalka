@@ -300,7 +300,7 @@ export default function TemplatesPage() {
     const ROLE_LABELS: Record<string, string> = { headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
     const dayProgram = daySessions.length > 0
       ? daySessions.map((s: any) => {
-          const fmt = (dt: string) => { if (!dt) return ''; const d = new Date(dt); return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}` }
+          const fmt = (dt: string) => { if (!dt) return ''; const d = new Date(dt); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` }
           const timeStart = fmt(s.start_datetime)
           const timeEnd = fmt(s.end_datetime)
           const timePart = timeStart && timeEnd ? `${timeStart}-${timeEnd}` : timeStart
@@ -341,20 +341,17 @@ export default function TemplatesPage() {
     let nextDayMention = ''
     if (nextDaySessions.length > 0 && nextDaySessions[0].start_datetime) {
       const nextDt = new Date(nextDaySessions[0].start_datetime)
-      // Берём время и дату из UTC-полей напрямую, без пересчёта часового пояса
-      const nextTime = `${String(nextDt.getUTCHours()).padStart(2,'0')}:${String(nextDt.getUTCMinutes()).padStart(2,'0')}`
-      const nextDateStr = `${nextDt.getUTCFullYear()}-${nextDt.getUTCMonth()}-${nextDt.getUTCDate()}`
+      // Время показываем локальное (как вводил пользователь)
+      const nextTime = `${String(nextDt.getHours()).padStart(2,'0')}:${String(nextDt.getMinutes()).padStart(2,'0')}`
       let diffDays = 999
       if (curDaySessions.length > 0 && curDaySessions[0].start_datetime) {
         const curDt = new Date(curDaySessions[0].start_datetime)
-        const curDateStr = `${curDt.getUTCFullYear()}-${curDt.getUTCMonth()}-${curDt.getUTCDate()}`
-        // Разница в днях по UTC-датам
-        const msPerDay = 86400000
-        const nextMs = Date.UTC(nextDt.getUTCFullYear(), nextDt.getUTCMonth(), nextDt.getUTCDate())
-        const curMs = Date.UTC(curDt.getUTCFullYear(), curDt.getUTCMonth(), curDt.getUTCDate())
+        // Разница в днях по локальным датам
+        const nextMs = Date.UTC(nextDt.getFullYear(), nextDt.getMonth(), nextDt.getDate())
+        const curMs = Date.UTC(curDt.getFullYear(), curDt.getMonth(), curDt.getDate())
         diffDays = Math.round((nextMs - curMs) / msPerDay)
       }
-      const when = diffDays === 1 ? 'завтра' : `${nextDt.getUTCDate()} ${MONTHS_RU[nextDt.getUTCMonth()]}`
+      const when = diffDays === 1 ? 'завтра' : `${nextDt.getDate()} ${MONTHS_RU[nextDt.getMonth()]}`
       nextDayMention = `Встречаемся ${when} в ${nextTime} на День ${d + 1}.`
     }
 
