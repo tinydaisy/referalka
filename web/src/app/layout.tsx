@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Марго Форбс - нелинейный стратег',
+  title: '[DEV] Марго Форбс - нелинейный стратег',
   description: 'Платформа управляемого вирального роста',
 }
 
