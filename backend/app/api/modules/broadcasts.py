@@ -583,6 +583,9 @@ async def test_template(
                         payload["reply_markup"] = reply_markup
                     resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
                 r = resp.json()
+                if not r.get("ok"):
+                    import logging
+                    logging.getLogger(__name__).warning(f"[broadcast test] chat_id={chat_id} error={r.get('description')} status={resp.status_code}")
                 send_results.append({"chat_id": chat_id, "ok": r.get("ok"), "error": r.get("description")})
 
         return {"ok": True, "sent": 1, "details": [{"speaker": label, "results": send_results}]}
