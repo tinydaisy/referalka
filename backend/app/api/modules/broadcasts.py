@@ -628,15 +628,15 @@ async def test_template(
                 JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cs.event_id = $1 AND cs.day = $2
                 ORDER BY
-                    CASE cse.role
-                        WHEN 'organizer' THEN 1
-                        ELSE CASE
-                            WHEN cse.is_commercial AND cse.role = 'speaker'  THEN 2
-                            WHEN cse.is_commercial AND cse.role = 'partner'  THEN 3
-                            WHEN cse.role = 'speaker'                        THEN 4
-                            WHEN cse.role = 'partner'                        THEN 5
-                            ELSE 6
-                        END
+                    CASE
+                        WHEN cse.role = 'organizer'                              THEN 1
+                        WHEN cse.is_commercial AND cse.role = 'headliner'        THEN 2
+                        WHEN cse.is_commercial AND cse.role = 'speaker'          THEN 3
+                        WHEN cse.is_commercial AND cse.role = 'partner'          THEN 4
+                        WHEN NOT cse.is_commercial AND cse.role = 'headliner'    THEN 5
+                        WHEN NOT cse.is_commercial AND cse.role = 'speaker'      THEN 6
+                        WHEN NOT cse.is_commercial AND cse.role = 'partner'      THEN 7
+                        ELSE 8
                     END,
                     cs.sort_order
                 """,

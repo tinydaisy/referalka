@@ -338,8 +338,20 @@ export default function TemplatesPage() {
     const realRaffleUrl = confData?.raffle_url || ''
 
     // Подарки спикеров дня для превью
-    const speakerGiftBlocks = daySessions
+    const roleOrder = (s: any) => {
+      const r = s.speaker_role, c = s.is_commercial
+      if (r === 'organizer') return 1
+      if (c && r === 'headliner') return 2
+      if (c && r === 'speaker')   return 3
+      if (c && r === 'partner')   return 4
+      if (!c && r === 'headliner') return 5
+      if (!c && r === 'speaker')  return 6
+      if (!c && r === 'partner')  return 7
+      return 8
+    }
+    const speakerGiftBlocks = [...daySessions]
       .filter((s: any) => s.speaker_name)
+      .sort((a: any, b: any) => roleOrder(a) - roleOrder(b))
       .map((s: any) => {
         const title = (s.gift_after_speech_title || '').trim()
         const url = (s.gift_after_speech_url || '').trim()
