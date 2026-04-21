@@ -112,6 +112,7 @@ function audienceLabel(inc: string, exc: string): string {
 const emptyForm = {
   name: '', type: 'pre_start', text: '', photo_url: '',
   button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
+  intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
 }
 
 export default function TemplatesPage() {
@@ -154,6 +155,9 @@ export default function TemplatesPage() {
         ...form,
         audience_include: (form as any).audience_include || 'all_event',
         audience_exclude: (form as any).audience_exclude || 'none',
+        intro_start_time: (form as any).intro_start_time || '11:00',
+        intro_interval_min: (form as any).intro_interval_min || 15,
+        intro_days_before: (form as any).intro_days_before || 1,
       }
       const res = await api.conference.templates.update(eventId, editModal.id, payload)
       setTemplates(templates.map((x: any) => x.id === editModal.id ? res : x))
@@ -174,7 +178,10 @@ export default function TemplatesPage() {
       button_url: t.button_url || '',
       audience_include: t.audience_include || 'all_event',
       audience_exclude: t.audience_exclude || 'none',
-    })
+      intro_start_time: t.intro_start_time || '11:00',
+      intro_interval_min: t.intro_interval_min || 15,
+      intro_days_before: t.intro_days_before || 1,
+    } as any)
   }
 
   async function openPreview(tpl: any, def: TypeDef) {
@@ -599,6 +606,50 @@ export default function TemplatesPage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none font-mono" />
                 </div>
               </div>
+              {/* Настройки расписания для Знакомства со спикером */}
+              {editModal?.type === 'speaker_intro' && (
+                <div className="border border-blue-100 rounded-xl p-3 bg-blue-50 space-y-3">
+                  <p className="text-xs font-medium text-blue-700">⏰ Расписание знакомств со спикерами</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Время старта (МСК)</label>
+                      <input
+                        type="time"
+                        value={(form as any).intro_start_time || '11:00'}
+                        onChange={e => setForm({ ...form, intro_start_time: e.target.value } as any)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Интервал (мин)</label>
+                      <input
+                        type="number"
+                        min={5} max={120}
+                        value={(form as any).intro_interval_min || 15}
+                        onChange={e => setForm({ ...form, intro_interval_min: Number(e.target.value) } as any)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Отправить за</label>
+                    <select
+                      value={(form as any).intro_days_before || 1}
+                      onChange={e => setForm({ ...form, intro_days_before: Number(e.target.value) } as any)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
+                    >
+                      <option value={1}>за 1 день до конференции</option>
+                      <option value={2}>за 2 дня до конференции</option>
+                      <option value={3}>за 3 дня до конференции</option>
+                      <option value={4}>за 4 дня до конференции</option>
+                      <option value={5}>за 5 дней до конференции</option>
+                      <option value={6}>за 6 дней до конференции</option>
+                      <option value={7}>за 7 дней до конференции</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
                 <p className="text-xs font-medium text-gray-600">👥 Аудитория рассылки</p>
                 <div>

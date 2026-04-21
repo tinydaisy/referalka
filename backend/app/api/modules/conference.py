@@ -158,6 +158,7 @@ class ConferenceUpdate(BaseModel):
     poster_square: Optional[List[str]] = None
     test_telegram_ids: Optional[List[str]] = None
     raffle_url: Optional[str] = None
+    telegram_chat_ids: Optional[str] = None     # ID чатов/каналов через запятую
 
 
 @router.get("/", summary="Данные конференции")

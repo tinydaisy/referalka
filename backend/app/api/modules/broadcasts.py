@@ -40,11 +40,14 @@ class TemplateUpdate(BaseModel):
     photo_url: Optional[str] = None
     button_text: Optional[str] = None
     button_url: Optional[str] = None
-    schedule_mode: Optional[str] = None        # fixed_offset | day_offset | custom_datetime
+    schedule_mode: Optional[str] = None
     offset_minutes: Optional[int] = None
-    audience_include: Optional[str] = None     # all_event | all_client | registered_event
-    audience_exclude: Optional[str] = None     # none | registered_event | unregistered_event | all_event
+    audience_include: Optional[str] = None
+    audience_exclude: Optional[str] = None
     allow_custom_datetime: Optional[bool] = None
+    intro_start_time: Optional[str] = None      # "11:00" — время старта первого спикера
+    intro_interval_min: Optional[int] = None    # интервал между спикерами в минутах
+    intro_days_before: Optional[int] = None     # за сколько дней до конференции
 
 
 DEFAULT_TEMPLATES = [
@@ -211,6 +214,7 @@ async def list_templates(
         """
         SELECT id, name, type, text, photo_url, button_text, button_url,
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
+               intro_start_time, intro_interval_min, intro_days_before,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -302,15 +306,20 @@ async def update_template(
             audience_include = COALESCE($9, audience_include),
             audience_exclude = COALESCE($10, audience_exclude),
             allow_custom_datetime = COALESCE($11, allow_custom_datetime),
+            intro_start_time = COALESCE($12, intro_start_time),
+            intro_interval_min = COALESCE($13, intro_interval_min),
+            intro_days_before = COALESCE($14, intro_days_before),
             updated_at = NOW()
-        WHERE id = $12 AND event_id = $13
+        WHERE id = $15 AND event_id = $16
         RETURNING id, name, type, text, photo_url, button_text, button_url,
-                  schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime
+                  schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
+                  intro_start_time, intro_interval_min, intro_days_before
         """,
         data.name, data.type, data.text,
         data.photo_url, data.button_text, data.button_url,
         data.schedule_mode, data.offset_minutes,
         data.audience_include, data.audience_exclude, data.allow_custom_datetime,
+        data.intro_start_time, data.intro_interval_min, data.intro_days_before,
         template_id, event_id
     )
     if not row:
@@ -363,15 +372,21 @@ async def list_schedules(
                bt.schedule_mode,
                cs.title as session_title,
                cs.start_datetime, cs.end_datetime,
-               c.name as speaker_name,
+               CASE
+                 WHEN bs.type = 'speaker_intro' THEN ci.name
+                 ELSE c.name
+               END as speaker_name,
+               bs.session_id,
                bs.error_log
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
-        LEFT JOIN conf_sessions cs ON cs.id = bs.session_id
+        LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type != 'speaker_intro'
         LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
         LEFT JOIN collaborators c ON c.id = cse.speaker_id
+        LEFT JOIN conf_speaker_events cse_intro ON cse_intro.id = bs.session_id AND bs.type = 'speaker_intro'
+        LEFT JOIN collaborators ci ON ci.id = cse_intro.speaker_id
         WHERE bs.event_id = $1
-        ORDER BY bs.fire_at
+        ORDER BY bs.fire_at NULLS LAST
         """,
         event_id
     )
@@ -484,25 +499,76 @@ async def generate_schedules(
         )
         created += 1
 
-    # ── speaker_intro: одна запись на событие, fire_at=NULL (нужна ручная установка) ──
+    # ── speaker_intro: одна запись на каждого спикера с рассчитанным fire_at ──
     if "speaker_intro" in tmpl_map:
         tmpl = tmpl_map["speaker_intro"]
-        exists = await db.fetchval(
-            "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='speaker_intro'",
+
+        # Настройки из шаблона
+        start_time_str = tmpl["intro_start_time"] or "11:00"
+        interval_min = tmpl["intro_interval_min"] or 15
+        days_before = tmpl["intro_days_before"] or 1
+
+        # Получаем первый день конференции
+        first_day = await db.fetchrow(
+            "SELECT day_date FROM conf_days WHERE event_id=$1 ORDER BY day_number LIMIT 1",
             event_id
         )
-        if not exists:
-            await db.execute(
-                """
-                INSERT INTO broadcast_schedules
-                  (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
-                VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'draft', $3, $4)
-                """,
-                event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"]
-            )
-            created += 1
+
+        # Получаем всех спикеров события (видимых, по sort_order)
+        speakers_list = await db.fetch(
+            """SELECT id FROM conf_speaker_events
+               WHERE event_id=$1 AND is_visible=true
+               ORDER BY sort_order, id""",
+            event_id
+        )
+
+        if first_day and first_day["day_date"] and speakers_list:
+            from datetime import date, time as dtime
+            tz_msk = ZoneInfo("Europe/Moscow")
+            h, m = map(int, start_time_str.split(":"))
+            conf_date = first_day["day_date"]
+            start_date = conf_date - timedelta(days=days_before)
+            base_dt = datetime(start_date.year, start_date.month, start_date.day, h, m, 0, tzinfo=tz_msk)
+
+            for i, sp in enumerate(speakers_list):
+                fire_at = base_dt + timedelta(minutes=interval_min * i)
+                # Дубль по speaker_event_id + type
+                exists = await db.fetchval(
+                    """SELECT 1 FROM broadcast_schedules
+                       WHERE event_id=$1 AND type='speaker_intro' AND session_id=$2""",
+                    event_id, sp["id"]
+                )
+                if exists:
+                    skipped += 1
+                    continue
+                await db.execute(
+                    """
+                    INSERT INTO broadcast_schedules
+                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
+                    VALUES ($1, $2, $3, 'speaker_intro', $4, 'draft', $5, $6)
+                    """,
+                    event_id, sp["id"], tmpl["id"], fire_at,
+                    tmpl["audience_include"], tmpl["audience_exclude"]
+                )
+                created += 1
         else:
-            skipped += 1
+            # Нет дней или спикеров — создаём одну запись без времени как раньше
+            exists = await db.fetchval(
+                "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='speaker_intro' AND session_id IS NULL",
+                event_id
+            )
+            if not exists:
+                await db.execute(
+                    """
+                    INSERT INTO broadcast_schedules
+                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
+                    VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'draft', $3, $4)
+                    """,
+                    event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"]
+                )
+                created += 1
+            else:
+                skipped += 1
 
     # ── Группируем сессии по дням ──
     days: dict = {}

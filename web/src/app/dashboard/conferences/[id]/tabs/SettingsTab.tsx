@@ -32,6 +32,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
   onConfUpdated: (c: any) => void
 }) {
   const { t } = useLang()
+  const [chatIdsError, setChatIdsError] = useState('')
   const [form, setForm] = useState({
     title: event?.title || '',
     description: conf?.description || '',
@@ -39,6 +40,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     organizer_speaker_id: conf?.organizer_speaker_id || '',
+    telegram_chat_ids: conf?.telegram_chat_ids || '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -58,6 +60,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       organizer_speaker_id: conf?.organizer_speaker_id || '',
+      telegram_chat_ids: conf?.telegram_chat_ids || '',
     }))
   }, [conf])
 
@@ -65,6 +68,20 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
     setForm(f => ({ ...f, [k]: e.target.value }))
 
   async function handleSave() {
+    // Валидация telegram_chat_ids
+    setChatIdsError('')
+    if (form.telegram_chat_ids.trim()) {
+      const parts = form.telegram_chat_ids.split(',').map(s => s.trim()).filter(Boolean)
+      if (parts.length === 0 || form.telegram_chat_ids.trim().indexOf(',') === -1 && parts.length > 1) {
+        setChatIdsError('Вводите ID через запятую')
+        return
+      }
+      const invalid = parts.filter(p => !/^-?\d+$/.test(p))
+      if (invalid.length > 0) {
+        setChatIdsError(`Не удалось распознать: ${invalid.join(', ')} — ID должны быть числами`)
+        return
+      }
+    }
     setSaving(true); setSaved(false)
     try {
       await api.events.update(eventId, { title: form.title })
@@ -74,7 +91,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
         raffle_url: form.raffle_url || null,
         subscription_mode: form.subscription_mode,
         organizer_speaker_id: form.organizer_speaker_id ? Number(form.organizer_speaker_id) : null,
-      })
+        telegram_chat_ids: form.telegram_chat_ids || null,
+      } as any)
       onConfUpdated(updated.conference)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
@@ -120,6 +138,17 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
           <input type="url" value={form.raffle_url} onChange={set('raffle_url')}
             placeholder="https://..."
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            ID Telegram-чатов/каналов события
+            <span className="text-gray-400 font-normal ml-1">— через запятую, будут добавлены в рассылки</span>
+          </label>
+          <input type="text" value={form.telegram_chat_ids} onChange={set('telegram_chat_ids')}
+            placeholder="-1001234567890, -1009876543210"
+            className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none font-mono ${chatIdsError ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-brand'}`} />
+          {chatIdsError && <p className="text-xs text-red-500 mt-1">{chatIdsError}</p>}
+          <p className="text-xs text-gray-400 mt-1">Узнать ID канала: перешли любое сообщение из него боту @userinfobot</p>
         </div>
       </div>
 
