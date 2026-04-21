@@ -902,6 +902,35 @@ async def delete_schedule(
     return {"ok": True}
 
 
+@router.post("/schedules/{schedule_id}/copy", summary="Создать копию задачи в очереди")
+async def copy_schedule(
+    event_id: int,
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    row = await db.fetchrow(
+        "SELECT * FROM broadcast_schedules WHERE id=$1 AND event_id=$2", schedule_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+
+    new_id = await db.fetchval(
+        """INSERT INTO broadcast_schedules
+           (event_id, template_id, session_id, day, audience_include, audience_exclude,
+            fire_at, status, is_test)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)
+           RETURNING id""",
+        row["event_id"], row["template_id"], row["session_id"], row["day"],
+        row["audience_include"], row["audience_exclude"],
+        row["fire_at"], row["is_test"]
+    )
+    return {"ok": True, "id": new_id}
+
+
 @router.get("/schedules/{schedule_id}/preview", summary="Превью сообщения рассылки")
 async def preview_schedule(
     event_id: int,

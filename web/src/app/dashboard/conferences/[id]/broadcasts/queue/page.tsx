@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import {
   Send, Wand2, XCircle, Play, PlusCircle, Eye, Clock,
-  CheckCircle, AlertCircle, Loader2, X, Calendar, Edit2, Trash2
+  CheckCircle, AlertCircle, Loader2, X, Calendar, Edit2, Trash2, Copy
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -501,6 +501,17 @@ export default function QueuePage() {
 
                   {/* Кнопки действий */}
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Копировать */}
+                    <button onClick={async () => {
+                      try {
+                        await api.conference.schedules.copy(eventId, s.id)
+                        await load()
+                      } catch (e: any) { alert(e.message) }
+                    }}
+                      className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                      title="Создать копию">
+                      <Copy size={13} />
+                    </button>
                     {/* Превью */}
                     <button onClick={() => openPreview(s)}
                       className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"

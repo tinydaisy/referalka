@@ -164,6 +164,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/schedules/add-manual`, {
           method: 'POST', body: JSON.stringify(data),
         }),
+      copy: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/copy`, { method: 'POST' }),
       preview: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/preview`),
       delete: (eventId: number, id: number) =>
