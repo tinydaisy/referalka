@@ -10,6 +10,7 @@ type TypeDef = {
   hint: string
   variables: string[]
   hasSpeaker?: boolean
+  showPhoto?: boolean
 }
 
 const TYPE_DEFS: TypeDef[] = [
@@ -19,6 +20,7 @@ const TYPE_DEFS: TypeDef[] = [
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера.',
     variables: ['{speaker_name}', '{speaker_tg}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}'],
     hasSpeaker: true,
+    showPhoto: true,
   },
   {
     type: 'pre_start',
@@ -26,13 +28,15 @@ const TYPE_DEFS: TypeDef[] = [
     hint: 'Отправляется за 5 минут до начала выступления. Фото — афиша спикера.',
     variables: ['{speaker_name}', '{speaker_topic}', '{stream_url}'],
     hasSpeaker: true,
+    showPhoto: true,
   },
   {
     type: 'gift',
     title: 'Подарок спикера',
-    hint: 'Отправляется за 10 минут до конца выступления.',
+    hint: 'Отправляется за 10 минут до конца выступления. Без фото.',
     variables: ['{speaker_name}', '{gift_title}', '{gift_url}'],
     hasSpeaker: true,
+    showPhoto: false,
   },
   {
     type: 'day_start_30min',
@@ -127,18 +131,56 @@ export default function TemplatesPage() {
   function renderPreviewText(text: string, speaker: any | null): string {
     if (!text) return ''
     let out = text
+
     if (speaker) {
+      const giftTitle = speaker.gift_after_speech_title || ''
+      const giftUrl = speaker.gift_after_speech_url || ''
+      const achievements = (speaker.achievements || []).map((a: string) => `· ${a}`).join('\n')
+      const tg = speaker.tg_channel_url ? `Тг канал: ${speaker.tg_channel_url}` : ''
+
+      // Строка с {gift_url}: если url есть — подставляем, если нет — убираем всю строку
+      if (giftUrl) {
+        out = out.replace(/\{gift_url\}/g, giftUrl)
+      } else {
+        out = out.replace(/^.*\{gift_url\}.*$\n?/gm, '')
+      }
+
+      // Строка с {gift_title}: если нет подарка — убираем строку
+      if (giftTitle) {
+        out = out.replace(/\{gift_title\}/g, giftTitle)
+        out = out.replace(/\{gift_after_speech_title\}/g, giftTitle)
+      } else {
+        out = out.replace(/^.*\{gift_title\}.*$\n?/gm, '')
+        out = out.replace(/^.*\{gift_after_speech_title\}.*$\n?/gm, '')
+      }
+
+      // Строка с {speaker_tg}: если нет — убираем строку
+      if (tg) {
+        out = out.replace(/\{speaker_tg\}/g, tg)
+      } else {
+        out = out.replace(/^.*\{speaker_tg\}.*$\n?/gm, '')
+      }
+
+      // Регалии: если нет — убираем строку
+      if (achievements) {
+        out = out.replace(/\{speaker_achievements\}/g, achievements)
+      } else {
+        out = out.replace(/^.*\{speaker_achievements\}.*$\n?/gm, '')
+      }
+
+      const giftRaffle = speaker.gift_raffle_title || ''
+      if (giftRaffle) {
+        out = out.replace(/\{gift_raffle_title\}/g, giftRaffle)
+      } else {
+        out = out.replace(/^.*\{gift_raffle_title\}.*$\n?/gm, '')
+      }
+
       out = out
         .replace(/\{speaker_name\}/g, speaker.name || '')
-        .replace(/\{speaker_tg\}/g, speaker.tg_channel_url ? `Тг канал: ${speaker.tg_channel_url}` : '')
-        .replace(/\{speaker_topic\}/g, speaker.topic || speaker.topics?.[0]?.topic || 'уточняется')
-        .replace(/\{speaker_achievements\}/g, (speaker.achievements || []).map((a: string) => `· ${a}`).join('\n') || '')
-        .replace(/\{gift_after_speech_title\}/g, speaker.gift_after_speech_title || '')
-        .replace(/\{gift_raffle_title\}/g, speaker.gift_raffle_title || '')
-        .replace(/\{gift_title\}/g, speaker.gift_after_speech_title || '')
-        .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
+        .replace(/\{speaker_topic\}/g, speaker.topics?.[0]?.topic || speaker.topic || 'уточняется')
         .replace(/\{stream_url\}/g, '🔗 [ссылка на эфир]')
     }
+
     out = out
       .replace(/\{conf_title\}/g, '[Название конференции]')
       .replace(/\{day_number\}/g, '1')
@@ -152,13 +194,16 @@ export default function TemplatesPage() {
       .replace(/\{stream_url\}/g, '🔗 [ссылка на эфир]')
       .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
       .replace(/\{gift_title\}/g, '[название подарка]')
+      .replace(/\{gift_after_speech_title\}/g, '[подарок на эфире]')
+      .replace(/\{gift_raffle_title\}/g, '[подарок для розыгрыша]')
       .replace(/\{speaker_name\}/g, '[Имя спикера]')
       .replace(/\{speaker_tg\}/g, '')
       .replace(/\{speaker_topic\}/g, '[тема]')
       .replace(/\{speaker_achievements\}/g, '')
-      .replace(/\{gift_after_speech_title\}/g, '[подарок на эфире]')
-      .replace(/\{gift_raffle_title\}/g, '[подарок для розыгрыша]')
-    return out
+
+    // Убираем более 2 пустых строк подряд
+    out = out.replace(/\n{3,}/g, '\n\n')
+    return out.trim()
   }
 
   return (
@@ -337,19 +382,24 @@ export default function TemplatesPage() {
 
             {/* Имитация Telegram-сообщения */}
             <div className="bg-[#effdde] rounded-2xl rounded-tr-sm p-3 shadow-sm">
-              {/* Фото-заглушка */}
-              {(previewModal.tpl.photo_url || previewModal.def.hasSpeaker) && (
-                <div className="w-full h-36 rounded-xl mb-2 flex items-center justify-center text-xs text-gray-400"
-                  style={{ background: 'linear-gradient(45deg,#25455D22,#0a152022)' }}>
-                  {previewModal.tpl.photo_url
-                    ? <img src={previewModal.tpl.photo_url} alt="" className="w-full h-full object-cover rounded-xl" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    : (previewSpeaker?.poster_url
-                        ? <img src={previewSpeaker.poster_url} alt="" className="w-full h-full object-cover rounded-xl" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                        : <span>📸 Афиша спикера</span>
-                      )
-                  }
-                </div>
-              )}
+              {/* Фото — только для шаблонов с showPhoto */}
+              {previewModal.def.showPhoto && (() => {
+                const photoSrc = previewModal.tpl.photo_url || previewSpeaker?.poster_url
+                return photoSrc ? (
+                  <img
+                    src={photoSrc}
+                    alt=""
+                    className="w-full rounded-xl mb-2"
+                    style={{ maxHeight: '400px', objectFit: 'contain', background: '#f0f0f0' }}
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                ) : (
+                  <div className="w-full h-24 rounded-xl mb-2 flex items-center justify-center text-xs text-gray-400"
+                    style={{ background: '#e8e8e8' }}>
+                    📸 Афиша спикера
+                  </div>
+                )
+              })()}
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
                 {renderPreviewText(
                   previewModal.tpl.text,
