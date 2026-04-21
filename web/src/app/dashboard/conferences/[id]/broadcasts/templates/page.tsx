@@ -97,6 +97,7 @@ export default function TemplatesPage() {
   const [testResult, setTestResult] = useState<any>(null)
   const [testDay, setTestDay] = useState(1)
   const [confDays, setConfDays] = useState<number[]>([1])
+  const [confData, setConfData] = useState<any>(null)
 
   useEffect(() => {
     api.conference.templates.list(eventId).then(r => setTemplates(r.templates || []))
@@ -105,6 +106,7 @@ export default function TemplatesPage() {
       const days = (r.days || []).map((d: any) => d.day_number).sort((a: number, b: number) => a - b)
       if (days.length > 0) setConfDays(days)
     }).catch(() => {})
+    api.conference.get(eventId).then(r => setConfData(r)).catch(() => {})
   }, [eventId])
 
   async function save() {
@@ -157,7 +159,14 @@ export default function TemplatesPage() {
   const currentType = TYPE_DEFS.find(d => d.type === form.type)
   const previewSpeaker = previewSpeakerId ? speakers.find(s => s.id === previewSpeakerId) : null
 
-  function renderPreviewText(text: string, speaker: any | null, tplType?: string): string {
+  function getStreamUrl(day?: number): string {
+    if (!confData) return '🔗 [ссылка на эфир]'
+    const d = day ?? 1
+    const url = d === 1 ? confData.stream_url_day_1 : d === 2 ? confData.stream_url_day_2 : confData.stream_url_day_1
+    return url || '🔗 [ссылка на эфир]'
+  }
+
+  function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number): string {
     if (!text) return ''
     // Нормализуем литеральные \n на случай старых данных из БД
     let out = text.replace(/\\n/g, '\n')
@@ -232,7 +241,7 @@ export default function TemplatesPage() {
       out = out
         .replace(/\{speaker_name\}/g, speaker.name || '')
         .replace(/\{speaker_topic\}/g, speaker.topics?.[0]?.topic || speaker.topic || 'уточняется')
-        .replace(/\{stream_url\}/g, '🔗 [ссылка на эфир]')
+        .replace(/\{stream_url\}/g, getStreamUrl(day))
     }
 
     out = out
@@ -245,7 +254,7 @@ export default function TemplatesPage() {
       .replace(/\{next_day_start_time\}/g, '10:00')
       .replace(/\{raffle_url\}/g, '🔗 [ссылка на розыгрыш]')
       .replace(/\{day_speakers_gifts\}/g, '[подарки спикеров дня]')
-      .replace(/\{stream_url\}/g, '🔗 [ссылка на эфир]')
+      .replace(/\{stream_url\}/g, getStreamUrl(day))
       .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
       .replace(/\{gift_title\}/g, '[название подарка]')
       .replace(/\{gift_after_speech_title\}/g, '[подарок на эфире]')
@@ -424,6 +433,22 @@ export default function TemplatesPage() {
             </div>
 
             {/* Выбор спикера для шаблонов со спикером */}
+            {/* Выбор дня для шаблонов с эфиром */}
+            {(previewModal.def.type === 'pre_start' || previewModal.def.type === 'speaker_intro') && confDays.length > 1 && (
+              <div className="mb-3">
+                <label className="text-xs text-gray-500 mb-1.5 block">День (для ссылки на эфир)</label>
+                <div className="flex gap-2">
+                  {confDays.map(d => (
+                    <button key={d} onClick={() => setTestDay(d)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${testDay === d ? 'text-white border-transparent' : 'text-gray-600 border-gray-200 bg-white hover:bg-gray-50'}`}
+                      style={testDay === d ? { background: 'linear-gradient(45deg,#25455D,#0a1520)' } : {}}>
+                      День {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {previewModal.def.hasSpeaker && speakers.length > 0 && (
               <div className="mb-4">
                 <label className="text-xs text-gray-500 mb-1 block">Посмотреть как у спикера:</label>
@@ -464,7 +489,8 @@ export default function TemplatesPage() {
                 {renderPreviewText(
                   previewModal.tpl.text,
                   previewModal.def.hasSpeaker ? previewSpeaker : null,
-                  previewModal.def.type
+                  previewModal.def.type,
+                  testDay
                 )}
               </p>
               {previewModal.tpl.button_text && (
@@ -493,10 +519,12 @@ export default function TemplatesPage() {
               <button onClick={() => setTestModal(null)}><X size={18} /></button>
             </div>
 
-            {testModal.def.type === 'gift' ? (
+            {['gift', 'speaker_intro', 'pre_start'].includes(testModal.def.type) ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
-                  Отправит сообщения о подарке для каждого спикера выбранного дня (по порядку программы) на тестовые Telegram ID из настроек.
+                  {testModal.def.type === 'gift' && 'Отправит сообщения о подарке для каждого спикера выбранного дня (по порядку программы) на тестовые Telegram ID из настроек.'}
+                  {testModal.def.type === 'speaker_intro' && 'Отправит «Знакомство со спикером» для каждого спикера выбранного дня (с фото афиши) на тестовые Telegram ID из настроек.'}
+                  {testModal.def.type === 'pre_start' && 'Отправит «Анонс спикера» для каждого спикера выбранного дня (с реальной ссылкой на эфир и фото) на тестовые Telegram ID из настроек.'}
                 </p>
                 {!testResult && (
                   <>
@@ -562,7 +590,7 @@ export default function TemplatesPage() {
               </>
             ) : (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-                Тестовая отправка для этого шаблона пока не реализована. Сначала сделаем её для «Подарок спикера», потом добавим остальные.
+                Тестовая отправка для этого шаблона пока не реализована.
               </div>
             )}
 

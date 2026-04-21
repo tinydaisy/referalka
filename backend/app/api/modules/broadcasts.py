@@ -420,8 +420,8 @@ async def test_template(
     if not tpl:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
 
-    if tpl["type"] != "gift":
-        return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка пока реализована только для шаблона «Подарок спикера»"}
+    if tpl["type"] not in ("gift", "speaker_intro", "pre_start"):
+        return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка пока реализована для шаблонов «Подарок спикера», «Знакомство со спикером» и «Анонс спикера»"}
 
     # Тестовые ID и bot_token клиента
     client_row = await db.fetchrow(
@@ -434,16 +434,33 @@ async def test_template(
     if not test_ids:
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
 
+    # Ссылка на эфир нужного дня
+    conf_row = await db.fetchrow(
+        "SELECT stream_url_day_1, stream_url_day_2 FROM conf_conferences WHERE event_id=$1", event_id
+    )
+    stream_url = ""
+    if conf_row:
+        if day == 1:
+            stream_url = conf_row["stream_url_day_1"] or ""
+        elif day == 2:
+            stream_url = conf_row["stream_url_day_2"] or ""
+        else:
+            stream_url = conf_row["stream_url_day_1"] or ""
+
     # Спикеры указанного дня по порядку программы (только с привязанным спикером)
     sessions = await db.fetch(
         """
-        SELECT cs.sort_order, c.name as speaker_name,
+        SELECT cs.sort_order, cs.title as session_title,
+               c.name as speaker_name,
                c.personal_tg_username,
+               c.poster_url as speaker_poster,
+               cst.topic as speaker_topic,
                cse.gift_after_speech_title as gift_title,
                cse.gift_after_speech_url as gift_url
         FROM conf_sessions cs
         JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
         JOIN collaborators c ON c.id = cse.speaker_id
+        LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
         WHERE cs.event_id = $1 AND cs.day = $2 AND cs.speaker_id IS NOT NULL
         ORDER BY cs.sort_order
         """,
@@ -464,16 +481,65 @@ async def test_template(
             body = f"{title}\n{url}"
         return f"{header}\n\n{body}"
 
+    def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, speaker_topic, poster_url, gift_title):
+        import re
+        text = tmpl_text or ""
+        tg_raw = (personal_tg or "").strip()
+        tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
+        text = text.replace("{speaker_name}", speaker_name or "")
+        text = text.replace("{speaker_tg}", f"Тг канал: {tg_mention}" if tg_mention else "")
+        text = text.replace("{speaker_topic}", speaker_topic or "")
+        text = text.replace("{gift_after_speech_title}", gift_title or "")
+        text = text.replace("{gift_raffle_title}", "")
+        text = text.replace("{speaker_achievements}", "")
+        # Убираем пустые строки от удалённых переменных
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val):
+        text = tmpl_text or ""
+        text = text.replace("{speaker_name}", speaker_name or "")
+        text = text.replace("{speaker_topic}", speaker_topic or "")
+        text = text.replace("{stream_url}", stream_url_val or "")
+        return text.strip()
+
     results = []
     async with httpx.AsyncClient(timeout=15) as http:
         for s in sessions:
-            text = build_gift_message(s["speaker_name"], s["personal_tg_username"], s["gift_title"], s["gift_url"])
+            if tpl["type"] == "gift":
+                text = build_gift_message(s["speaker_name"], s["personal_tg_username"], s["gift_title"], s["gift_url"])
+                photo = None
+            elif tpl["type"] == "speaker_intro":
+                text = build_speaker_intro_message(
+                    tpl["text"], s["speaker_name"], s["personal_tg_username"],
+                    s["speaker_topic"], s["speaker_poster"], s["gift_title"]
+                )
+                photo = s["speaker_poster"] or tpl["photo_url"] or None
+            elif tpl["type"] == "pre_start":
+                text = build_pre_start_message(tpl["text"], s["speaker_name"], s["speaker_topic"], stream_url)
+                photo = s["speaker_poster"] or tpl["photo_url"] or None
+            else:
+                continue
+
+            # Inline-кнопка если есть
+            reply_markup = None
+            btn_text = tpl["button_text"]
+            btn_url = (tpl["button_url"] or "").replace("{stream_url}", stream_url)
+            if btn_text and btn_url:
+                reply_markup = {"inline_keyboard": [[{"text": btn_text, "url": btn_url}]]}
+
             speaker_results = []
             for chat_id in test_ids:
-                resp = await http.post(
-                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                    json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
-                )
+                if photo:
+                    payload = {"chat_id": chat_id, "photo": photo, "caption": text, "parse_mode": "HTML"}
+                    if reply_markup:
+                        payload["reply_markup"] = reply_markup
+                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload)
+                else:
+                    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+                    if reply_markup:
+                        payload["reply_markup"] = reply_markup
+                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
                 r = resp.json()
                 speaker_results.append({"chat_id": chat_id, "ok": r.get("ok"), "error": r.get("description")})
             results.append({"speaker": s["speaker_name"], "results": speaker_results})
