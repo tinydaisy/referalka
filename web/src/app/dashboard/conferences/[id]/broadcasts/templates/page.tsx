@@ -300,7 +300,7 @@ export default function TemplatesPage() {
     const ROLE_LABELS: Record<string, string> = { headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
     const dayProgram = daySessions.length > 0
       ? daySessions.map((s: any) => {
-          const fmt = (dt: string) => dt ? new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''
+          const fmt = (dt: string) => { if (!dt) return ''; const d = new Date(dt); return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}` }
           const timeStart = fmt(s.start_datetime)
           const timeEnd = fmt(s.end_datetime)
           const timePart = timeStart && timeEnd ? `${timeStart}-${timeEnd}` : timeStart
