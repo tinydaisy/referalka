@@ -95,10 +95,16 @@ export default function TemplatesPage() {
   const [testModal, setTestModal] = useState<{ def: TypeDef; tpl: any } | null>(null)
   const [testSending, setTestSending] = useState(false)
   const [testResult, setTestResult] = useState<any>(null)
+  const [testDay, setTestDay] = useState(1)
+  const [confDays, setConfDays] = useState<number[]>([1])
 
   useEffect(() => {
     api.conference.templates.list(eventId).then(r => setTemplates(r.templates || []))
     api.conference.speakers.list(eventId).then(r => setSpeakers(r.speakers || []))
+    api.conference.days.list(eventId).then(r => {
+      const days = (r.days || []).map((d: any) => d.day_number).sort((a: number, b: number) => a - b)
+      if (days.length > 0) setConfDays(days)
+    }).catch(() => {})
   }, [eventId])
 
   async function save() {
@@ -131,6 +137,7 @@ export default function TemplatesPage() {
   function openTest(tpl: any, def: TypeDef) {
     setTestModal({ tpl, def })
     setTestResult(null)
+    setTestDay(confDays[0] ?? 1)
   }
 
   async function runTest() {
@@ -138,7 +145,7 @@ export default function TemplatesPage() {
     setTestSending(true)
     setTestResult(null)
     try {
-      const res = await api.conference.templates.test(eventId, testModal.tpl.id)
+      const res = await api.conference.templates.test(eventId, testModal.tpl.id, testDay)
       setTestResult(res)
     } catch (e: any) {
       setTestResult({ ok: false, error: e.message })
@@ -489,22 +496,43 @@ export default function TemplatesPage() {
             {testModal.def.type === 'gift' ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
-                  Отправит сообщения о подарке для каждого спикера Дня 1 (по порядку программы) на тестовые Telegram ID из настроек.
+                  Отправит сообщения о подарке для каждого спикера выбранного дня (по порядку программы) на тестовые Telegram ID из настроек.
                 </p>
                 {!testResult && (
-                  <button
-                    onClick={runTest}
-                    disabled={testSending}
-                    className="w-full py-2.5 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2"
-                    style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)', opacity: testSending ? 0.7 : 1 }}
-                  >
-                    {testSending ? <><Loader2 size={15} className="animate-spin" /> Отправляем...</> : <><Send size={15} /> Отправить тест</>}
-                  </button>
+                  <>
+                    <div className="mb-4">
+                      <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
+                      <div className="flex gap-2">
+                        {confDays.map(d => (
+                          <button
+                            key={d}
+                            onClick={() => setTestDay(d)}
+                            className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                              testDay === d
+                                ? 'text-white border-transparent'
+                                : 'text-gray-600 border-gray-200 bg-white hover:bg-gray-50'
+                            }`}
+                            style={testDay === d ? { background: 'linear-gradient(45deg,#25455D,#0a1520)' } : {}}
+                          >
+                            День {d}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <button
+                      onClick={runTest}
+                      disabled={testSending}
+                      className="w-full py-2.5 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2"
+                      style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)', opacity: testSending ? 0.7 : 1 }}
+                    >
+                      {testSending ? <><Loader2 size={15} className="animate-spin" /> Отправляем День {testDay}...</> : <><Send size={15} /> Отправить тест — День {testDay}</>}
+                    </button>
+                  </>
                 )}
                 {testResult && testResult.ok && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-emerald-700 mb-3 flex items-center gap-2">
-                      <CheckCircle size={16} /> Отправлено {testResult.sent} спикеров
+                      <CheckCircle size={16} /> День {testDay} — отправлено {testResult.sent} спикеров
                     </p>
                     {testResult.details?.map((d: any, i: number) => (
                       <div key={i} className="bg-gray-50 rounded-xl px-3 py-2">

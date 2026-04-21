@@ -400,6 +400,7 @@ async def cancel_all_schedules(
 async def test_template(
     event_id: int,
     template_id: int,
+    day: int = 1,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
@@ -433,7 +434,7 @@ async def test_template(
     if not test_ids:
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
 
-    # Спикеры дня 1 по порядку программы (только с привязанным спикером)
+    # Спикеры указанного дня по порядку программы (только с привязанным спикером)
     sessions = await db.fetch(
         """
         SELECT cs.sort_order, c.name as speaker_name,
@@ -443,10 +444,10 @@ async def test_template(
         FROM conf_sessions cs
         JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
         JOIN collaborators c ON c.id = cse.speaker_id
-        WHERE cs.event_id = $1 AND cs.day = 1 AND cs.speaker_id IS NOT NULL
+        WHERE cs.event_id = $1 AND cs.day = $2 AND cs.speaker_id IS NOT NULL
         ORDER BY cs.sort_order
         """,
-        event_id
+        event_id, day
     )
 
     def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
