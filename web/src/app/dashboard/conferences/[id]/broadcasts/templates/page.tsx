@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-import { Edit2, Trash2, Eye, ExternalLink, X } from 'lucide-react'
+import { Edit2, Eye, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type TypeDef = {
@@ -9,20 +9,30 @@ type TypeDef = {
   title: string
   hint: string
   variables: string[]
+  hasSpeaker?: boolean
 }
 
 const TYPE_DEFS: TypeDef[] = [
+  {
+    type: 'speaker_intro',
+    title: 'Знакомство со спикером',
+    hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера.',
+    variables: ['{speaker_name}', '{speaker_tg}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}'],
+    hasSpeaker: true,
+  },
   {
     type: 'pre_start',
     title: 'Анонс спикера',
     hint: 'Отправляется за 5 минут до начала выступления. Фото — афиша спикера.',
     variables: ['{speaker_name}', '{speaker_topic}', '{stream_url}'],
+    hasSpeaker: true,
   },
   {
     type: 'gift',
     title: 'Подарок спикера',
     hint: 'Отправляется за 10 минут до конца выступления.',
-    variables: ['{speaker_name}', '{gift_title}', '{gift_url}', '{speaker_contacts}'],
+    variables: ['{speaker_name}', '{gift_title}', '{gift_url}'],
+    hasSpeaker: true,
   },
   {
     type: 'day_start_30min',
@@ -44,6 +54,27 @@ const TYPE_DEFS: TypeDef[] = [
   },
 ]
 
+const ALL_VARIABLES: { name: string; desc: string }[] = [
+  { name: '{speaker_name}', desc: 'Имя спикера' },
+  { name: '{speaker_tg}', desc: 'Telegram-канал спикера' },
+  { name: '{speaker_topic}', desc: 'Тема выступления' },
+  { name: '{speaker_achievements}', desc: 'Регалии спикера (строки через · )' },
+  { name: '{gift_after_speech_title}', desc: 'Подарок на эфире' },
+  { name: '{gift_raffle_title}', desc: 'Подарок для розыгрыша' },
+  { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
+  { name: '{gift_url}', desc: 'Ссылка на подарок' },
+  { name: '{stream_url}', desc: 'Ссылка на эфир' },
+  { name: '{conf_title}', desc: 'Название конференции' },
+  { name: '{day_number}', desc: 'Номер дня (1, 2, 3…)' },
+  { name: '{day_ordinal}', desc: 'Номер дня словом (первом, втором…)' },
+  { name: '{day_date}', desc: 'Дата дня конференции' },
+  { name: '{day_program}', desc: 'Программа дня (список спикеров и тем)' },
+  { name: '{next_day_number}', desc: 'Номер следующего дня' },
+  { name: '{next_day_start_time}', desc: 'Время начала следующего дня' },
+  { name: '{raffle_url}', desc: 'Ссылка на розыгрыш' },
+  { name: '{day_speakers_gifts}', desc: 'Список подарков спикеров за день' },
+]
+
 const emptyForm = { name: '', type: 'pre_start', text: '', photo_url: '', button_text: '', button_url: '' }
 
 export default function TemplatesPage() {
@@ -51,25 +82,30 @@ export default function TemplatesPage() {
   const eventId = Number(id)
 
   const [templates, setTemplates] = useState<any[]>([])
-  const [modal, setModal] = useState<any>(null)
+  const [speakers, setSpeakers] = useState<any[]>([])
+  const [editModal, setEditModal] = useState<any>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [previewModal, setPreviewModal] = useState<{ tpl: any; def: TypeDef } | null>(null)
+  const [previewSpeakerId, setPreviewSpeakerId] = useState<number | null>(null)
+  const [varsOpen, setVarsOpen] = useState(false)
 
   useEffect(() => {
     api.conference.templates.list(eventId).then(r => setTemplates(r.templates || []))
+    api.conference.speakers.list(eventId).then(r => setSpeakers(r.speakers || []))
   }, [eventId])
 
   async function save() {
     try {
-      const res = await api.conference.templates.update(eventId, modal.id, form)
-      setTemplates(templates.map((x: any) => x.id === modal.id ? res : x))
-      setModal(null)
+      const res = await api.conference.templates.update(eventId, editModal.id, form)
+      setTemplates(templates.map((x: any) => x.id === editModal.id ? res : x))
+      setEditModal(null)
     } catch (e: any) {
       alert(e.message)
     }
   }
 
-  function edit(t: any) {
-    setModal(t)
+  function openEdit(t: any) {
+    setEditModal(t)
     setForm({
       name: t.name,
       type: t.type,
@@ -80,15 +116,79 @@ export default function TemplatesPage() {
     })
   }
 
+  function openPreview(tpl: any, def: TypeDef) {
+    setPreviewModal({ tpl, def })
+    setPreviewSpeakerId(speakers[0]?.id ?? null)
+  }
+
   const currentType = TYPE_DEFS.find(d => d.type === form.type)
+  const previewSpeaker = previewSpeakerId ? speakers.find(s => s.id === previewSpeakerId) : null
+
+  function renderPreviewText(text: string, speaker: any | null): string {
+    if (!text) return ''
+    let out = text
+    if (speaker) {
+      out = out
+        .replace(/\{speaker_name\}/g, speaker.name || '')
+        .replace(/\{speaker_tg\}/g, speaker.tg_channel_url ? `Тг канал: ${speaker.tg_channel_url}` : '')
+        .replace(/\{speaker_topic\}/g, speaker.topic || speaker.topics?.[0]?.topic || 'уточняется')
+        .replace(/\{speaker_achievements\}/g, (speaker.achievements || []).map((a: string) => `· ${a}`).join('\n') || '')
+        .replace(/\{gift_after_speech_title\}/g, speaker.gift_after_speech_title || '')
+        .replace(/\{gift_raffle_title\}/g, speaker.gift_raffle_title || '')
+        .replace(/\{gift_title\}/g, speaker.gift_after_speech_title || '')
+        .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
+        .replace(/\{stream_url\}/g, '🔗 [ссылка на эфир]')
+    }
+    out = out
+      .replace(/\{conf_title\}/g, '[Название конференции]')
+      .replace(/\{day_number\}/g, '1')
+      .replace(/\{day_ordinal\}/g, 'первом')
+      .replace(/\{day_date\}/g, '01 января')
+      .replace(/\{day_program\}/g, '[программа дня]')
+      .replace(/\{next_day_number\}/g, '2')
+      .replace(/\{next_day_start_time\}/g, '10:00')
+      .replace(/\{raffle_url\}/g, '🔗 [ссылка на розыгрыш]')
+      .replace(/\{day_speakers_gifts\}/g, '[подарки спикеров дня]')
+      .replace(/\{stream_url\}/g, '🔗 [ссылка на эфир]')
+      .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
+      .replace(/\{gift_title\}/g, '[название подарка]')
+      .replace(/\{speaker_name\}/g, '[Имя спикера]')
+      .replace(/\{speaker_tg\}/g, '')
+      .replace(/\{speaker_topic\}/g, '[тема]')
+      .replace(/\{speaker_achievements\}/g, '')
+      .replace(/\{gift_after_speech_title\}/g, '[подарок на эфире]')
+      .replace(/\{gift_raffle_title\}/g, '[подарок для розыгрыша]')
+    return out
+  }
 
   return (
     <div>
-      <p className="text-sm text-gray-500 mb-6">
-        5 шаблонов создаются автоматически. Здесь вы можете отредактировать тексты — плейсхолдеры
-        вида <code className="text-xs bg-gray-100 rounded px-1">{'{speaker_name}'}</code> подставятся
-        автоматически при отправке. Потом перейдите в «Очередь рассылок» и нажмите «Создать из программы».
+      <p className="text-sm text-gray-500 mb-4">
+        Шаблоны создаются автоматически. Отредактируйте тексты — плейсхолдеры вида{' '}
+        <code className="text-xs bg-gray-100 rounded px-1">{'{speaker_name}'}</code> подставятся при отправке.
+        Потом перейдите в «Очередь рассылок» и нажмите «Создать из программы».
       </p>
+
+      {/* Памятка переменных */}
+      <div className="mb-6 border border-gray-200 rounded-2xl overflow-hidden">
+        <button
+          onClick={() => setVarsOpen(v => !v)}
+          className="w-full flex items-center justify-between px-5 py-3.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+        >
+          <span className="text-sm font-medium text-gray-700">📋 Памятка по переменным</span>
+          {varsOpen ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+        </button>
+        {varsOpen && (
+          <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+            {ALL_VARIABLES.map(v => (
+              <div key={v.name} className="flex items-baseline gap-2">
+                <code className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded px-1.5 py-0.5 font-mono shrink-0">{v.name}</code>
+                <span className="text-xs text-gray-500">{v.desc}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4">
         {TYPE_DEFS.map(def => {
@@ -100,13 +200,21 @@ export default function TemplatesPage() {
                   <h4 className="font-semibold text-gray-800">{def.title}</h4>
                   <p className="text-xs text-gray-400 mt-0.5">{def.hint}</p>
                 </div>
-                {tpl && (
-                  <button onClick={() => edit(tpl)}
-                    className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm text-white font-medium"
-                    style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-                    <Edit2 size={13} /> Редактировать
-                  </button>
-                )}
+                <div className="flex gap-2 shrink-0">
+                  {tpl && (
+                    <button onClick={() => openPreview(tpl, def)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-gray-600 font-medium border border-gray-200 hover:bg-gray-50 transition-colors">
+                      <Eye size={13} /> Просмотреть
+                    </button>
+                  )}
+                  {tpl && (
+                    <button onClick={() => openEdit(tpl)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-white font-medium"
+                      style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                      <Edit2 size={13} /> Редактировать
+                    </button>
+                  )}
+                </div>
               </div>
 
               {!tpl ? (
@@ -115,7 +223,17 @@ export default function TemplatesPage() {
                   <p className="text-sm">Шаблон ещё не создан — обновите страницу</p>
                 </div>
               ) : (
-                <TemplateCard t={tpl} variables={def.variables} />
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3 line-clamp-4">{tpl.text}</p>
+                  <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                    {tpl.photo_url ? (
+                      <span>📷 Своё фото</span>
+                    ) : (
+                      <span className="text-blue-500">📸 Афиша подставится автоматически</span>
+                    )}
+                    {tpl.button_text && <span>🔘 Кнопка: «{tpl.button_text}»</span>}
+                  </div>
+                </div>
               )}
             </div>
           )
@@ -123,12 +241,12 @@ export default function TemplatesPage() {
       </div>
 
       {/* Модалка редактирования */}
-      {modal && (
+      {editModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-gray-800">Редактировать шаблон</h3>
-              <button onClick={() => setModal(null)}><X size={18} /></button>
+              <button onClick={() => setEditModal(null)}><X size={18} /></button>
             </div>
             <div className="space-y-3">
               <div>
@@ -142,7 +260,7 @@ export default function TemplatesPage() {
                   rows={10} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none resize-y font-mono" />
                 {currentType && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    <span className="text-xs text-gray-400 mr-1">Переменные:</span>
+                    <span className="text-xs text-gray-400 mr-1">Вставить:</span>
                     {currentType.variables.map(v => (
                       <button key={v} type="button"
                         onClick={() => setForm({ ...form, text: form.text + v })}
@@ -155,7 +273,7 @@ export default function TemplatesPage() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">
-                  Фото (URL) — если пусто, подставится афиша: для анонса спикера — афиша спикера, для «за 30 мин» — горизонтальная афиша конференции
+                  Фото (URL) — если пусто, подставится афиша автоматически
                 </label>
                 <input value={form.photo_url} onChange={e => setForm({ ...form, photo_url: e.target.value })}
                   placeholder="https://..."
@@ -182,7 +300,7 @@ export default function TemplatesPage() {
                 style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
                 Сохранить
               </button>
-              <button onClick={() => setModal(null)}
+              <button onClick={() => setEditModal(null)}
                 className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
                 Отмена
               </button>
@@ -190,26 +308,70 @@ export default function TemplatesPage() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
 
-function TemplateCard({ t, variables }: { t: any; variables: string[] }) {
-  return (
-    <div className="bg-gray-50 rounded-xl p-4">
-      <p className="text-sm text-gray-700 whitespace-pre-wrap font-mono text-xs mb-3">{t.text}</p>
-      <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-        {t.photo_url ? (
-          <span className="flex items-center gap-1"><Eye size={11} /> Своё фото</span>
-        ) : (
-          <span className="flex items-center gap-1 text-blue-500">📸 Афиша подставится автоматически</span>
-        )}
-        {t.button_text && (
-          <span className="flex items-center gap-1">
-            <ExternalLink size={11} /> Кнопка: «{t.button_text}»
-          </span>
-        )}
-      </div>
+      {/* Модалка предпросмотра */}
+      {previewModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-gray-800 text-sm">Предпросмотр: {previewModal.def.title}</h3>
+              <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
+            </div>
+
+            {/* Выбор спикера для шаблонов со спикером */}
+            {previewModal.def.hasSpeaker && speakers.length > 0 && (
+              <div className="mb-4">
+                <label className="text-xs text-gray-500 mb-1 block">Посмотреть как у спикера:</label>
+                <select
+                  value={previewSpeakerId ?? ''}
+                  onChange={e => setPreviewSpeakerId(Number(e.target.value) || null)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white"
+                >
+                  <option value="">— без замены переменных —</option>
+                  {speakers.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Имитация Telegram-сообщения */}
+            <div className="bg-[#effdde] rounded-2xl rounded-tr-sm p-3 shadow-sm">
+              {/* Фото-заглушка */}
+              {(previewModal.tpl.photo_url || previewModal.def.hasSpeaker) && (
+                <div className="w-full h-36 rounded-xl mb-2 flex items-center justify-center text-xs text-gray-400"
+                  style={{ background: 'linear-gradient(45deg,#25455D22,#0a152022)' }}>
+                  {previewModal.tpl.photo_url
+                    ? <img src={previewModal.tpl.photo_url} alt="" className="w-full h-full object-cover rounded-xl" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    : (previewSpeaker?.poster_url
+                        ? <img src={previewSpeaker.poster_url} alt="" className="w-full h-full object-cover rounded-xl" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                        : <span>📸 Афиша спикера</span>
+                      )
+                  }
+                </div>
+              )}
+              <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                {renderPreviewText(
+                  previewModal.tpl.text,
+                  previewModal.def.hasSpeaker ? previewSpeaker : null
+                )}
+              </p>
+              {previewModal.tpl.button_text && (
+                <div className="mt-3">
+                  <div className="w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
+                    {previewModal.tpl.button_text}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => setPreviewModal(null)}
+              className="w-full mt-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

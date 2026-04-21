@@ -48,8 +48,23 @@ DEFAULT_TEMPLATES = [
         "text": (
             "🎁 {speaker_name}: Подарки после эфира\n\n"
             "{gift_title}\n"
-            "{gift_url}\n\n"
-            "Если не нашли подарок — напишите спикеру в личку: {speaker_contacts}"
+            "{gift_url}"
+        ),
+        "photo_url": None,
+        "button_text": None,
+        "button_url": None,
+    },
+    {
+        "name": "Знакомство со спикером",
+        "type": "speaker_intro",
+        "text": (
+            "{speaker_name}\n\n"
+            "{speaker_tg}\n\n"
+            "Тема лекции:\n\n"
+            "{speaker_topic}\n\n"
+            "{speaker_achievements}\n\n"
+            "🎁 На эфире подарит: {gift_after_speech_title}\n\n"
+            "🏆 Подарок для большого розыгрыша: {gift_raffle_title}"
         ),
         "photo_url": None,
         "button_text": None,

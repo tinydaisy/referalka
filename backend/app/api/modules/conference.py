@@ -156,6 +156,7 @@ class ConferenceUpdate(BaseModel):
     poster_horizontal: Optional[List[str]] = None
     poster_vertical: Optional[List[str]] = None
     poster_square: Optional[List[str]] = None
+    test_telegram_ids: Optional[List[str]] = None
 
 
 @router.get("/", summary="Данные конференции")
@@ -201,9 +202,8 @@ async def update_conference(
         await db.execute("INSERT INTO conf_conferences (event_id) VALUES ($1)", event_id)
 
     updates = {}
-    for k, v in data.model_dump().items():
-        if v is not None:
-            updates[k] = v
+    for k, v in data.model_dump(exclude_unset=True).items():
+        updates[k] = v
 
     if updates:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(updates.keys())]
