@@ -677,8 +677,10 @@ async def generate_schedules(
 
 
 class SetFireAtRequest(BaseModel):
-    fire_at: str   # ISO datetime строка
+    fire_at: str
     is_test: bool = False
+    audience_include: Optional[str] = None
+    audience_exclude: Optional[str] = None
 
 
 @router.put("/schedules/{schedule_id}/fire-at", summary="Установить время отправки (для custom_datetime)")
@@ -707,15 +709,24 @@ async def set_schedule_fire_at(
     except Exception:
         raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO 8601, например 2026-04-21T14:30:00")
 
-    row = await db.fetchrow(
-        """
-        UPDATE broadcast_schedules
-        SET fire_at=$1, is_test=$2, status='draft'
-        WHERE id=$3 AND event_id=$4
-        RETURNING id, fire_at, is_test, status
-        """,
-        dt_utc, data.is_test, schedule_id, event_id
-    )
+    aud_include = data.audience_include
+    aud_exclude = data.audience_exclude
+    if aud_include and aud_exclude:
+        row = await db.fetchrow(
+            """UPDATE broadcast_schedules
+               SET fire_at=$1, is_test=$2, audience_include=$3, audience_exclude=$4, status='draft'
+               WHERE id=$5 AND event_id=$6
+               RETURNING id, fire_at, is_test, audience_include, audience_exclude, status""",
+            dt_utc, data.is_test, aud_include, aud_exclude, schedule_id, event_id
+        )
+    else:
+        row = await db.fetchrow(
+            """UPDATE broadcast_schedules
+               SET fire_at=$1, is_test=$2, status='draft'
+               WHERE id=$3 AND event_id=$4
+               RETURNING id, fire_at, is_test, audience_include, audience_exclude, status""",
+            dt_utc, data.is_test, schedule_id, event_id
+        )
     if not row:
         raise HTTPException(status_code=404, detail="Запись не найдена")
     return dict(row)

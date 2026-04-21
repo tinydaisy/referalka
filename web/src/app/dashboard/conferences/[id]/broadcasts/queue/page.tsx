@@ -80,6 +80,8 @@ export default function QueuePage() {
   const [fireAtModal, setFireAtModal] = useState<any>(null)   // {schedule}
   const [fireAtValue, setFireAtValue] = useState('')
   const [isTestValue, setIsTestValue] = useState(false)
+  const [editAudienceInclude, setEditAudienceInclude] = useState('all_event')
+  const [editAudienceExclude, setEditAudienceExclude] = useState('none')
   const [manualForm, setManualForm] = useState({
     template_id: '',
     fire_at: '',
@@ -185,6 +187,8 @@ export default function QueuePage() {
     setFireAtModal(schedule)
     setFireAtValue('')
     setIsTestValue(schedule.is_test || false)
+    setEditAudienceInclude(schedule.audience_include || 'all_event')
+    setEditAudienceExclude(schedule.audience_exclude || 'none')
   }
 
   async function saveFireAt() {
@@ -193,10 +197,12 @@ export default function QueuePage() {
       await api.conference.schedules.setFireAt(eventId, fireAtModal.id, {
         fire_at: fireAtValue,
         is_test: isTestValue,
+        audience_include: editAudienceInclude,
+        audience_exclude: editAudienceExclude,
       })
       setFireAtModal(null)
       await load()
-      showMsg('Время отправки сохранено')
+      showMsg('Настройки задачи сохранены')
     } catch (e: any) {
       showMsg(e.message, 'err')
     }
@@ -547,12 +553,12 @@ export default function QueuePage() {
                         Задать время
                       </button>
                     )}
-                    {/* Изменить время (если уже задано, для speaker_intro) */}
-                    {(s.status === 'draft' || s.status === 'pending') && s.fire_at && s.template_type === 'speaker_intro' && (
+                    {/* Редактировать настройки (если уже задано время) */}
+                    {(s.status === 'draft' || s.status === 'pending') && s.fire_at && (
                       <button onClick={() => openFireAt(s)}
                         className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
-                        title="Изменить время">
-                        <Calendar size={13} />
+                        title="Редактировать">
+                        <Edit2 size={13} />
                       </button>
                     )}
                     {/* Отмена (для draft и pending) */}
@@ -592,12 +598,9 @@ export default function QueuePage() {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-gray-800">Время отправки</h3>
+              <h3 className="font-semibold text-gray-800">Настройки задачи</h3>
               <button onClick={() => setFireAtModal(null)}><X size={18} /></button>
             </div>
-            <p className="text-xs text-gray-500 mb-3">
-              Введите дату и время в {tzLabel}. Сервер сохранит в UTC автоматически.
-            </p>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Дата и время ({tzLabel})</label>
@@ -607,6 +610,31 @@ export default function QueuePage() {
                   onChange={e => setFireAtValue(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
                 />
+              </div>
+              <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
+                <p className="text-xs font-medium text-gray-600">👥 Аудитория</p>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Включить</label>
+                  <select value={editAudienceInclude} onChange={e => setEditAudienceInclude(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    <option value="all_event">Все участники конфы</option>
+                    <option value="registered_event">Зарегистрированные участники</option>
+                    <option value="all_client">Вся база клиента</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
+                  <select value={editAudienceExclude} onChange={e => setEditAudienceExclude(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    <option value="none">Никого не исключать</option>
+                    <option value="registered_event">Зарегистрированных участников</option>
+                    <option value="unregistered_event">Незарегистрированных участников</option>
+                    <option value="all_event">Всех участников конфы</option>
+                  </select>
+                </div>
+                <p className="text-xs text-indigo-600 font-medium">
+                  Итого: {audienceLabel(editAudienceInclude, editAudienceExclude)}
+                </p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={isTestValue} onChange={e => setIsTestValue(e.target.checked)}
