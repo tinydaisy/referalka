@@ -83,7 +83,9 @@ async def _send_broadcast(schedule_id: int):
             """
             SELECT bs.*, e.client_id,
                    bt.text as tmpl_text, bt.photo_url as tmpl_photo,
-                   bt.button_text as tmpl_btn_text, bt.button_url as tmpl_btn_url
+                   bt.button_text as tmpl_btn_text, bt.button_url as tmpl_btn_url,
+                   COALESCE(bs.audience_include, 'all_event') as audience_include,
+                   COALESCE(bs.audience_exclude, 'none') as audience_exclude
             FROM broadcast_schedules bs
             JOIN events e ON e.id = bs.event_id
             LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
@@ -153,9 +155,6 @@ async def _send_broadcast(schedule_id: int):
                 import json as _json
                 if isinstance(raw, str):
                     raw = _json.loads(raw)
-                # Поддерживаем два формата:
-                # [{"platform": "telegram", "platform_user_id": "123"}]  — полный
-                # ["123", "456"]  — просто список tg_id строками
                 recipients = []
                 for item in raw:
                     if isinstance(item, dict):
@@ -163,23 +162,97 @@ async def _send_broadcast(schedule_id: int):
                     else:
                         recipients.append({"platform": "telegram", "platform_user_id": str(item)})
             else:
-                # Fallback: берём test_telegram_ids из настроек клиента
                 tids = await conn.fetchval("SELECT test_telegram_ids FROM clients WHERE id=$1", schedule["client_id"])
                 recipients = [{"platform": "telegram", "platform_user_id": str(t)} for t in (tids or [])]
         else:
-            # Боевая рассылка — все участники события (не отписавшиеся)
-            rows = await conn.fetch(
-                """
-                SELECT pu.platform_user_id, pu.platform
-                FROM event_participants ep
-                JOIN platform_users pu ON pu.id = ep.platform_user_id
-                WHERE ep.event_id = $1
-                  AND pu.is_unsubscribed = FALSE
-                  AND pu.platform = 'telegram'
-                """,
-                schedule["event_id"]
-            )
-            recipients = [{"platform": r["platform"], "platform_user_id": r["platform_user_id"]} for r in rows]
+            # Боевая рассылка — audience_include МИНУС audience_exclude
+            aud_include = schedule["audience_include"] or "all_event"
+            aud_exclude = schedule["audience_exclude"] or "none"
+
+            # ─── Шаг 1: собираем include-множество ───
+            if aud_include == "all_client":
+                # Все platform_users клиента (все события)
+                include_rows = await conn.fetch(
+                    """
+                    SELECT pu.platform_user_id, pu.platform
+                    FROM platform_users pu
+                    WHERE pu.client_id = $1
+                      AND pu.is_unsubscribed = FALSE
+                      AND pu.platform = 'telegram'
+                    """,
+                    schedule["client_id"]
+                )
+            elif aud_include == "registered_event":
+                # Только зарегистрированные участники события
+                include_rows = await conn.fetch(
+                    """
+                    SELECT pu.platform_user_id, pu.platform
+                    FROM event_participants ep
+                    JOIN platform_users pu ON pu.id = ep.platform_user_id
+                    WHERE ep.event_id = $1
+                      AND ep.status = 'registered'
+                      AND pu.is_unsubscribed = FALSE
+                      AND pu.platform = 'telegram'
+                    """,
+                    schedule["event_id"]
+                )
+            else:
+                # all_event — все участники события
+                include_rows = await conn.fetch(
+                    """
+                    SELECT pu.platform_user_id, pu.platform
+                    FROM event_participants ep
+                    JOIN platform_users pu ON pu.id = ep.platform_user_id
+                    WHERE ep.event_id = $1
+                      AND pu.is_unsubscribed = FALSE
+                      AND pu.platform = 'telegram'
+                    """,
+                    schedule["event_id"]
+                )
+
+            include_ids = {r["platform_user_id"] for r in include_rows}
+
+            # ─── Шаг 2: собираем exclude-множество ───
+            exclude_ids: set = set()
+            if aud_exclude == "registered_event":
+                ex_rows = await conn.fetch(
+                    """
+                    SELECT pu.platform_user_id
+                    FROM event_participants ep
+                    JOIN platform_users pu ON pu.id = ep.platform_user_id
+                    WHERE ep.event_id = $1 AND ep.status = 'registered'
+                      AND pu.platform = 'telegram'
+                    """,
+                    schedule["event_id"]
+                )
+                exclude_ids = {r["platform_user_id"] for r in ex_rows}
+            elif aud_exclude == "unregistered_event":
+                ex_rows = await conn.fetch(
+                    """
+                    SELECT pu.platform_user_id
+                    FROM event_participants ep
+                    JOIN platform_users pu ON pu.id = ep.platform_user_id
+                    WHERE ep.event_id = $1 AND ep.status != 'registered'
+                      AND pu.platform = 'telegram'
+                    """,
+                    schedule["event_id"]
+                )
+                exclude_ids = {r["platform_user_id"] for r in ex_rows}
+            elif aud_exclude == "all_event":
+                ex_rows = await conn.fetch(
+                    """
+                    SELECT pu.platform_user_id
+                    FROM event_participants ep
+                    JOIN platform_users pu ON pu.id = ep.platform_user_id
+                    WHERE ep.event_id = $1 AND pu.platform = 'telegram'
+                    """,
+                    schedule["event_id"]
+                )
+                exclude_ids = {r["platform_user_id"] for r in ex_rows}
+
+            # ─── Шаг 3: вычитаем ───
+            final_ids = include_ids - exclude_ids
+            recipients = [{"platform": "telegram", "platform_user_id": pid} for pid in final_ids]
 
         # Отправляем каждому
         sent = 0

@@ -90,15 +90,28 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{day_speakers_gifts}', desc: 'Список подарков спикеров за день' },
 ]
 
-const AUDIENCE_LABELS: Record<string, string> = {
+const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все участники конфы',
-  registered_event: 'Только зарегистрированные',
+  registered_event: 'Зарегистрированные участники',
   all_client: 'Вся база клиента',
+}
+
+const EXCLUDE_LABELS: Record<string, string> = {
+  none: 'никого не исключать',
+  registered_event: 'зарег. участников',
+  unregistered_event: 'незарег. участников',
+  all_event: 'всех участников конфы',
+}
+
+function audienceLabel(inc: string, exc: string): string {
+  const incLabel = INCLUDE_LABELS[inc] || inc
+  if (!exc || exc === 'none') return incLabel
+  return `${incLabel} − ${EXCLUDE_LABELS[exc] || exc}`
 }
 
 const emptyForm = {
   name: '', type: 'pre_start', text: '', photo_url: '',
-  button_text: '', button_url: '', audience_type: 'all_event',
+  button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
 }
 
 export default function TemplatesPage() {
@@ -137,7 +150,11 @@ export default function TemplatesPage() {
 
   async function save() {
     try {
-      const payload = { ...form, audience_type: (form as any).audience_type || 'all_event' }
+      const payload = {
+        ...form,
+        audience_include: (form as any).audience_include || 'all_event',
+        audience_exclude: (form as any).audience_exclude || 'none',
+      }
       const res = await api.conference.templates.update(eventId, editModal.id, payload)
       setTemplates(templates.map((x: any) => x.id === editModal.id ? res : x))
       setEditModal(null)
@@ -155,7 +172,8 @@ export default function TemplatesPage() {
       photo_url: t.photo_url || '',
       button_text: t.button_text || '',
       button_url: t.button_url || '',
-      audience_type: t.audience_type || 'all_event',
+      audience_include: t.audience_include || 'all_event',
+      audience_exclude: t.audience_exclude || 'none',
     })
   }
 
@@ -511,7 +529,7 @@ export default function TemplatesPage() {
                     ) : null}
                     {tpl.button_text && <span>🔘 Кнопка: «{tpl.button_text}»</span>}
                     <span className="text-indigo-500 font-medium">
-                      👥 {AUDIENCE_LABELS[tpl.audience_type] || tpl.audience_type || 'Все участники конфы'}
+                      👥 {audienceLabel(tpl.audience_include || 'all_event', tpl.audience_exclude || 'none')}
                     </span>
                   </div>
                 </div>
@@ -574,16 +592,34 @@ export default function TemplatesPage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none font-mono" />
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">👥 По какой базе рассылать</label>
-                <select
-                  value={(form as any).audience_type || 'all_event'}
-                  onChange={e => setForm({ ...form, audience_type: e.target.value } as any)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
-                  <option value="all_event">Все участники конфы</option>
-                  <option value="registered_event">Только зарегистрированные участники</option>
-                  <option value="all_client">Вся база клиента (все события)</option>
-                </select>
+              <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
+                <p className="text-xs font-medium text-gray-600">👥 Аудитория рассылки</p>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Включить</label>
+                  <select
+                    value={(form as any).audience_include || 'all_event'}
+                    onChange={e => setForm({ ...form, audience_include: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    <option value="all_event">Все участники конфы</option>
+                    <option value="registered_event">Зарегистрированные участники</option>
+                    <option value="all_client">Вся база клиента (все события)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
+                  <select
+                    value={(form as any).audience_exclude || 'none'}
+                    onChange={e => setForm({ ...form, audience_exclude: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    <option value="none">Никого не исключать</option>
+                    <option value="registered_event">Зарегистрированных участников</option>
+                    <option value="unregistered_event">Незарегистрированных участников</option>
+                    <option value="all_event">Всех участников конфы</option>
+                  </select>
+                </div>
+                <p className="text-xs text-indigo-600 font-medium pt-1">
+                  Итого: {audienceLabel((form as any).audience_include || 'all_event', (form as any).audience_exclude || 'none')}
+                </p>
               </div>
             </div>
             <div className="flex gap-2 mt-5">

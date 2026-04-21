@@ -7,10 +7,21 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
-const AUDIENCE_LABELS: Record<string, string> = {
-  all_event: 'Все участники конфы',
-  registered_event: 'Зарег. участники',
-  all_client: 'Вся база клиента',
+const INCLUDE_LABELS: Record<string, string> = {
+  all_event: 'Все уч. конфы',
+  registered_event: 'Зарег. уч.',
+  all_client: 'Вся база',
+}
+const EXCLUDE_LABELS: Record<string, string> = {
+  none: '',
+  registered_event: '− зарег.',
+  unregistered_event: '− незарег.',
+  all_event: '− все уч. конфы',
+}
+function audienceLabel(inc: string, exc: string): string {
+  const incLabel = INCLUDE_LABELS[inc] || inc
+  const excLabel = EXCLUDE_LABELS[exc] || (exc && exc !== 'none' ? `− ${exc}` : '')
+  return excLabel ? `${incLabel} ${excLabel}` : incLabel
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -70,7 +81,8 @@ export default function QueuePage() {
     template_id: '',
     fire_at: '',
     is_test: false,
-    audience_type: 'all_event',
+    audience_include: 'all_event',
+    audience_exclude: 'none',
   })
   const [running, setRunning] = useState(false)
 
@@ -183,7 +195,8 @@ export default function QueuePage() {
         template_id: Number(manualForm.template_id),
         fire_at: manualForm.fire_at,
         is_test: manualForm.is_test,
-        audience_type: manualForm.audience_type,
+        audience_include: manualForm.audience_include,
+        audience_exclude: manualForm.audience_exclude,
       })
       setManualModal(false)
       await load()
@@ -308,7 +321,7 @@ export default function QueuePage() {
                     )}
                     {/* Аудитория */}
                     <span className="text-xs text-gray-400">
-                      {AUDIENCE_LABELS[s.audience_type] || s.audience_type}
+                      {audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
                     </span>
                   </div>
 
@@ -462,16 +475,34 @@ export default function QueuePage() {
                   onChange={e => setManualForm({ ...manualForm, fire_at: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Аудитория</label>
-                <select
-                  value={manualForm.audience_type}
-                  onChange={e => setManualForm({ ...manualForm, audience_type: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
-                  <option value="all_event">Все участники конфы</option>
-                  <option value="registered_event">Зарегистрированные участники</option>
-                  <option value="all_client">Вся база клиента</option>
-                </select>
+              <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
+                <p className="text-xs font-medium text-gray-600">👥 Аудитория</p>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Включить</label>
+                  <select
+                    value={manualForm.audience_include}
+                    onChange={e => setManualForm({ ...manualForm, audience_include: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    <option value="all_event">Все участники конфы</option>
+                    <option value="registered_event">Зарегистрированные участники</option>
+                    <option value="all_client">Вся база клиента</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
+                  <select
+                    value={manualForm.audience_exclude}
+                    onChange={e => setManualForm({ ...manualForm, audience_exclude: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    <option value="none">Никого не исключать</option>
+                    <option value="registered_event">Зарегистрированных участников</option>
+                    <option value="unregistered_event">Незарегистрированных участников</option>
+                    <option value="all_event">Всех участников конфы</option>
+                  </select>
+                </div>
+                <p className="text-xs text-indigo-600 font-medium">
+                  Итого: {audienceLabel(manualForm.audience_include, manualForm.audience_exclude)}
+                </p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={manualForm.is_test}

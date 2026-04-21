@@ -33,7 +33,8 @@ class TemplateUpdate(BaseModel):
     button_url: Optional[str] = None
     schedule_mode: Optional[str] = None        # fixed_offset | day_offset | custom_datetime
     offset_minutes: Optional[int] = None
-    audience_type: Optional[str] = None        # all_event | registered_event | all_client
+    audience_include: Optional[str] = None     # all_event | all_client | registered_event
+    audience_exclude: Optional[str] = None     # none | registered_event | unregistered_event | all_event
     allow_custom_datetime: Optional[bool] = None
 
 
@@ -53,7 +54,8 @@ DEFAULT_TEMPLATES = [
         "button_url": "{stream_url}",
         "schedule_mode": "fixed_offset",
         "offset_minutes": 5,
-        "audience_type": "all_event",
+        "audience_include": "all_event",
+        "audience_exclude": "none",
         "allow_custom_datetime": False,
     },
     {
@@ -69,7 +71,8 @@ DEFAULT_TEMPLATES = [
         "button_url": None,
         "schedule_mode": "fixed_offset",
         "offset_minutes": 10,
-        "audience_type": "all_event",
+        "audience_include": "all_event",
+        "audience_exclude": "none",
         "allow_custom_datetime": False,
     },
     {
@@ -91,7 +94,8 @@ DEFAULT_TEMPLATES = [
         "button_url": "{registration_url}",
         "schedule_mode": "custom_datetime",
         "offset_minutes": 0,
-        "audience_type": "all_event",
+        "audience_include": "all_event",
+        "audience_exclude": "none",
         "allow_custom_datetime": True,
     },
     {
@@ -112,7 +116,8 @@ DEFAULT_TEMPLATES = [
         "button_url": "{registration_url}",
         "schedule_mode": "day_offset",
         "offset_minutes": 30,
-        "audience_type": "all_event",
+        "audience_include": "all_event",
+        "audience_exclude": "registered_event",   # все участники конфы КРОМЕ зарег.
         "allow_custom_datetime": False,
     },
     {
@@ -133,7 +138,8 @@ DEFAULT_TEMPLATES = [
         "button_url": "{stream_url}",
         "schedule_mode": "day_offset",
         "offset_minutes": 30,
-        "audience_type": "registered_event",
+        "audience_include": "all_event",
+        "audience_exclude": "unregistered_event",  # все участники конфы КРОМЕ незарег.
         "allow_custom_datetime": False,
     },
     {
@@ -150,7 +156,8 @@ DEFAULT_TEMPLATES = [
         "button_url": "{stream_url}",
         "schedule_mode": "day_offset",
         "offset_minutes": 0,
-        "audience_type": "all_event",
+        "audience_include": "all_event",
+        "audience_exclude": "none",
         "allow_custom_datetime": False,
     },
     {
@@ -169,7 +176,8 @@ DEFAULT_TEMPLATES = [
         "button_url": None,
         "schedule_mode": "day_offset",
         "offset_minutes": 30,
-        "audience_type": "all_event",
+        "audience_include": "all_event",
+        "audience_exclude": "none",
         "allow_custom_datetime": False,
     },
 ]
@@ -187,7 +195,7 @@ async def list_templates(
     rows = await db.fetch(
         """
         SELECT id, name, type, text, photo_url, button_text, button_url,
-               schedule_mode, offset_minutes, audience_type, allow_custom_datetime,
+               schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -202,18 +210,18 @@ async def list_templates(
                 """
                 INSERT INTO broadcast_templates
                   (client_id, event_id, name, type, text, photo_url, button_text, button_url,
-                   schedule_mode, offset_minutes, audience_type, allow_custom_datetime)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 """,
                 client_id, event_id, tpl["name"], tpl["type"],
                 tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"],
                 tpl["schedule_mode"], tpl["offset_minutes"],
-                tpl["audience_type"], tpl["allow_custom_datetime"],
+                tpl["audience_include"], tpl["audience_exclude"], tpl["allow_custom_datetime"],
             )
         rows = await db.fetch(
             """
             SELECT id, name, type, text, photo_url, button_text, button_url,
-                   schedule_mode, offset_minutes, audience_type, allow_custom_datetime,
+                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                    created_at
             FROM broadcast_templates
             WHERE event_id = $1
@@ -250,7 +258,7 @@ async def create_template(
         INSERT INTO broadcast_templates (client_id, event_id, name, type, text, photo_url, button_text, button_url)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id, name, type, text, photo_url, button_text, button_url,
-                  schedule_mode, offset_minutes, audience_type, allow_custom_datetime, created_at
+                  schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime, created_at
         """,
         client_id, event_id, data.name, data.type,
         data.text, data.photo_url, data.button_text, data.button_url
@@ -276,16 +284,18 @@ async def update_template(
             photo_url = $4, button_text = $5, button_url = $6,
             schedule_mode = COALESCE($7, schedule_mode),
             offset_minutes = COALESCE($8, offset_minutes),
-            audience_type = COALESCE($9, audience_type),
-            allow_custom_datetime = COALESCE($10, allow_custom_datetime),
+            audience_include = COALESCE($9, audience_include),
+            audience_exclude = COALESCE($10, audience_exclude),
+            allow_custom_datetime = COALESCE($11, allow_custom_datetime),
             updated_at = NOW()
-        WHERE id = $11 AND event_id = $12
+        WHERE id = $12 AND event_id = $13
         RETURNING id, name, type, text, photo_url, button_text, button_url,
-                  schedule_mode, offset_minutes, audience_type, allow_custom_datetime
+                  schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime
         """,
         data.name, data.type, data.text,
         data.photo_url, data.button_text, data.button_url,
-        data.schedule_mode, data.offset_minutes, data.audience_type, data.allow_custom_datetime,
+        data.schedule_mode, data.offset_minutes,
+        data.audience_include, data.audience_exclude, data.allow_custom_datetime,
         template_id, event_id
     )
     if not row:
@@ -317,7 +327,8 @@ class ManualScheduleCreate(BaseModel):
     template_id: int
     fire_at: str            # ISO datetime строка, например "2026-04-21T14:30:00"
     is_test: bool = False
-    audience_type: Optional[str] = None   # переопределить аудиторию, если None — берём из шаблона
+    audience_include: Optional[str] = None   # переопределить, если None — берём из шаблона
+    audience_exclude: Optional[str] = None
 
 
 @router.get("/schedules", summary="Очередь рассылок")
@@ -332,7 +343,7 @@ async def list_schedules(
     rows = await db.fetch(
         """
         SELECT bs.id, bs.type, bs.fire_at, bs.status,
-               bs.recipients_sent, bs.is_test, bs.audience_type,
+               bs.recipients_sent, bs.is_test, bs.audience_include, bs.audience_exclude,
                bt.name as template_name, bt.type as template_type,
                bt.schedule_mode,
                cs.title as session_title,
@@ -403,7 +414,7 @@ async def generate_schedules(
 
     templates = await db.fetch(
         """
-        SELECT id, type, schedule_mode, offset_minutes, audience_type, allow_custom_datetime
+        SELECT id, type, schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
@@ -445,10 +456,11 @@ async def generate_schedules(
         await db.execute(
             """
             INSERT INTO broadcast_schedules
-              (event_id, session_id, template_id, type, fire_at, status, audience_type)
-            VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+              (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
+            VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
             """,
-            event_id, session_id, tmpl["id"], t, fire_at, tmpl["audience_type"]
+            event_id, session_id, tmpl["id"], t, fire_at,
+            tmpl["audience_include"], tmpl["audience_exclude"]
         )
         created += 1
 
@@ -463,10 +475,10 @@ async def generate_schedules(
             await db.execute(
                 """
                 INSERT INTO broadcast_schedules
-                  (event_id, session_id, template_id, type, fire_at, status, audience_type)
-                VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'pending', $3)
+                  (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
+                VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'pending', $3, $4)
                 """,
-                event_id, tmpl["id"], tmpl["audience_type"]
+                event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"]
             )
             created += 1
         else:
@@ -579,7 +591,8 @@ class AddManualRequest(BaseModel):
     template_id: int
     fire_at: str
     is_test: bool = False
-    audience_type: Optional[str] = "all_event"
+    audience_include: Optional[str] = None
+    audience_exclude: Optional[str] = None
     note: Optional[str] = None
 
 
@@ -594,7 +607,7 @@ async def add_manual_schedule(
     await _check_event(db, event_id, client_id)
 
     tpl = await db.fetchrow(
-        "SELECT id, type, audience_type FROM broadcast_templates WHERE id=$1 AND event_id=$2",
+        "SELECT id, type, audience_include, audience_exclude FROM broadcast_templates WHERE id=$1 AND event_id=$2",
         data.template_id, event_id
     )
     if not tpl:
@@ -614,15 +627,16 @@ async def add_manual_schedule(
     except Exception:
         raise HTTPException(status_code=400, detail="Неверный формат даты")
 
-    audience = data.audience_type or tpl["audience_type"]
+    aud_include = data.audience_include or tpl["audience_include"]
+    aud_exclude = data.audience_exclude if data.audience_exclude is not None else tpl["audience_exclude"]
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
-          (event_id, template_id, type, fire_at, status, is_test, audience_type)
-        VALUES ($1, $2, $3, $4, 'pending', $5, $6)
-        RETURNING id, type, fire_at, status, is_test, audience_type
+          (event_id, template_id, type, fire_at, status, is_test, audience_include, audience_exclude)
+        VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
+        RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude
         """,
-        event_id, tpl["id"], tpl["type"], dt_utc, data.is_test, audience
+        event_id, tpl["id"], tpl["type"], dt_utc, data.is_test, aud_include, aud_exclude
     )
     return dict(row)
 
