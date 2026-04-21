@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { getTimezone } from '@/lib/timezone'
 
 type TypeDef = {
   type: string
@@ -300,7 +301,7 @@ export default function TemplatesPage() {
     const ROLE_LABELS: Record<string, string> = { headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
     const dayProgram = daySessions.length > 0
       ? daySessions.map((s: any) => {
-          const fmt = (dt: string) => { if (!dt) return ''; const d = new Date(dt); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` }
+          const fmt = (dt: string) => { if (!dt) return ''; return new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: getTimezone() }) }
           const timeStart = fmt(s.start_datetime)
           const timeEnd = fmt(s.end_datetime)
           const timePart = timeStart && timeEnd ? `${timeStart}-${timeEnd}` : timeStart
@@ -341,16 +342,17 @@ export default function TemplatesPage() {
     let nextDayMention = ''
     if (nextDaySessions.length > 0 && nextDaySessions[0].start_datetime) {
       const nextDt = new Date(nextDaySessions[0].start_datetime)
-      // Время показываем локальное (как вводил пользователь)
-      const nextTime = `${String(nextDt.getHours()).padStart(2,'0')}:${String(nextDt.getMinutes()).padStart(2,'0')}`
+      const userTz = getTimezone()
+      const nextTime = nextDt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: userTz })
+      // Для сравнения дат берём дату в таймзоне пользователя
+      const toLocalDate = (d: Date) => new Date(d.toLocaleDateString('en-CA', { timeZone: userTz }))
       let diffDays = 999
       if (curDaySessions.length > 0 && curDaySessions[0].start_datetime) {
         const curDt = new Date(curDaySessions[0].start_datetime)
-        const nextMs = Date.UTC(nextDt.getFullYear(), nextDt.getMonth(), nextDt.getDate())
-        const curMs = Date.UTC(curDt.getFullYear(), curDt.getMonth(), curDt.getDate())
-        diffDays = Math.round((nextMs - curMs) / 86400000)
+        diffDays = Math.round((toLocalDate(nextDt).getTime() - toLocalDate(curDt).getTime()) / 86400000)
       }
-      const when = diffDays === 1 ? 'завтра' : `${nextDt.getDate()} ${MONTHS_RU[nextDt.getMonth()]}`
+      const nextLocalDate = toLocalDate(nextDt)
+      const when = diffDays === 1 ? 'завтра' : `${nextLocalDate.getUTCDate()} ${MONTHS_RU[nextLocalDate.getUTCMonth()]}`
       nextDayMention = `Встречаемся ${when} в ${nextTime} на День ${d + 1}.`
     }
 
