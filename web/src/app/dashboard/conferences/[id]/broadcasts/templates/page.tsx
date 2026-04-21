@@ -299,7 +299,7 @@ export default function TemplatesPage() {
           const name = s.speaker_name || ''
           const role = s.speaker_role
           const roleLabel = ROLE_LABELS[role] ? ` — ${ROLE_LABELS[role]}` : ''
-          const speakerPart = name ? ` (${name}${roleLabel})` : ''
+          const speakerPart = name ? ` (<b>${name}${roleLabel}</b>)` : ''
           return `${timePart}: ${topic}${speakerPart}`.trim()
         }).join('\n')
       : '[программа дня]'
@@ -549,14 +549,13 @@ export default function TemplatesPage() {
                   </div>
                 )
               })()}
-              <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-                {renderPreviewText(
+              <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: renderPreviewText(
                   previewModal.tpl.text,
                   previewModal.def.hasSpeaker ? previewSpeaker : null,
                   previewModal.def.type,
                   testDay
-                )}
-              </p>
+                )}} />
               {previewModal.tpl.button_text && (
                 <div className="mt-3">
                   <div className="w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">

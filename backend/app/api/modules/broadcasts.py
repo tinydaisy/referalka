@@ -554,7 +554,7 @@ async def test_template(
             name = s["speaker_name"] or ""
             role = s["role"] or ""
             role_label = ROLE_LABELS.get(role, "")
-            speaker_part = f" ({name}{' — ' + role_label if role_label else ''})" if name else ""
+            speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
             program_lines.append(f"{time_part}: {topic}{speaker_part}".strip(": "))
         day_program = "\n".join(program_lines)
 
