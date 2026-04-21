@@ -717,8 +717,8 @@ export default function TemplatesPage() {
               <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
             </div>
 
-            {/* Выбор дня — для всех шаблонов где есть дни */}
-            {confDays.length > 1 && (
+            {/* Выбор дня — только для дневных шаблонов */}
+            {confDays.length > 1 && !['pre_conf', 'speaker_intro', 'pre_start', 'gift'].includes(previewModal.def.type) && (
               <div className="mb-3">
                 <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
                 <div className="flex gap-2">
