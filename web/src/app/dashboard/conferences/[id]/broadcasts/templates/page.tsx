@@ -97,16 +97,17 @@ export default function TemplatesPage() {
   const [testResult, setTestResult] = useState<any>(null)
   const [testDay, setTestDay] = useState(1)
   const [confDays, setConfDays] = useState<number[]>([1])
-  const [confData, setConfData] = useState<any>(null)
+  const [confDaysData, setConfDaysData] = useState<any[]>([])
 
   useEffect(() => {
     api.conference.templates.list(eventId).then(r => setTemplates(r.templates || []))
     api.conference.speakers.list(eventId).then(r => setSpeakers(r.speakers || []))
     api.conference.days.list(eventId).then(r => {
-      const days = (r.days || []).map((d: any) => d.day_number).sort((a: number, b: number) => a - b)
-      if (days.length > 0) setConfDays(days)
+      const days = r.days || []
+      const dayNums = days.map((d: any) => d.day_number).sort((a: number, b: number) => a - b)
+      if (dayNums.length > 0) setConfDays(dayNums)
+      setConfDaysData(days)
     }).catch(() => {})
-    api.conference.get(eventId).then(r => setConfData(r)).catch(() => {})
   }, [eventId])
 
   async function save() {
@@ -160,10 +161,9 @@ export default function TemplatesPage() {
   const previewSpeaker = previewSpeakerId ? speakers.find(s => s.id === previewSpeakerId) : null
 
   function getStreamUrl(day?: number): string {
-    if (!confData) return '🔗 [ссылка на эфир]'
     const d = day ?? 1
-    const url = d === 1 ? confData.stream_url_day_1 : d === 2 ? confData.stream_url_day_2 : confData.stream_url_day_1
-    return url || '🔗 [ссылка на эфир]'
+    const dayObj = confDaysData.find((x: any) => x.day_number === d)
+    return dayObj?.stream_url || '🔗 [ссылка на эфир]'
   }
 
   function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number): string {
