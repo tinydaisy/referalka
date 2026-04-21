@@ -444,7 +444,8 @@ async def generate_schedules(
 
     templates = await db.fetch(
         """
-        SELECT id, type, schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime
+        SELECT id, type, schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
+               intro_start_time, intro_interval_min, intro_days_before
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
