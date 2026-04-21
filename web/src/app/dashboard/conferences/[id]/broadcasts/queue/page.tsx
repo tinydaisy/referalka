@@ -242,17 +242,20 @@ export default function QueuePage() {
     }
     if (!confirm(`Удалить ${selected.length} рассылок? Это действие нельзя отменить.`)) return
     setDeleting(true)
-    try {
-      for (const s of selected) {
+    let deletedCount = 0
+    for (const s of selected) {
+      try {
         await api.conference.schedules.delete(eventId, s.id)
+        // Убираем строку из UI сразу после успешного удаления
+        setSchedules(prev => prev.filter(x => x.id !== s.id))
+        setSelectedIds(prev => { const n = new Set(prev); n.delete(s.id); return n })
+        deletedCount++
+      } catch (e: any) {
+        showMsg(`Ошибка удаления #${s.id}: ${e.message}`, 'err')
       }
-      await load()
-      showMsg(`Удалено ${selected.length} рассылок`)
-    } catch (e: any) {
-      showMsg(e.message, 'err')
-    } finally {
-      setDeleting(false)
     }
+    setDeleting(false)
+    if (deletedCount > 0) showMsg(`Удалено ${deletedCount} рассылок`)
   }
 
   const pendingCount = schedules.filter(s => s.status === 'pending' || s.status === 'draft').length
