@@ -112,7 +112,7 @@ async def _send_broadcast(schedule_id: int):
                        cd.stream_url
                 FROM conf_sessions cs
                 LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
-                LEFT JOIN collaborators c ON c.id = cse.collaborator_id
+                LEFT JOIN collaborators c ON c.id = cse.speaker_id
                 LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
                 LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
                 WHERE cs.id = $1
@@ -147,9 +147,25 @@ async def _send_broadcast(schedule_id: int):
 
         # Собираем список получателей прямо перед отправкой
         if schedule["is_test"]:
-            # Тестовая рассылка — только указанные tg_id
-            recipients = schedule["test_recipients"] or []
-            # Формат: [{"platform": "telegram", "platform_user_id": "123"}]
+            # Тестовая рассылка — test_recipients из JSONB или test_telegram_ids клиента
+            raw = schedule["test_recipients"]
+            if raw:
+                import json as _json
+                if isinstance(raw, str):
+                    raw = _json.loads(raw)
+                # Поддерживаем два формата:
+                # [{"platform": "telegram", "platform_user_id": "123"}]  — полный
+                # ["123", "456"]  — просто список tg_id строками
+                recipients = []
+                for item in raw:
+                    if isinstance(item, dict):
+                        recipients.append(item)
+                    else:
+                        recipients.append({"platform": "telegram", "platform_user_id": str(item)})
+            else:
+                # Fallback: берём test_telegram_ids из настроек клиента
+                tids = await conn.fetchval("SELECT test_telegram_ids FROM clients WHERE id=$1", schedule["client_id"])
+                recipients = [{"platform": "telegram", "platform_user_id": str(t)} for t in (tids or [])]
         else:
             # Боевая рассылка — все участники события (не отписавшиеся)
             rows = await conn.fetch(
