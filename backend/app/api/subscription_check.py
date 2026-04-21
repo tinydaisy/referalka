@@ -106,6 +106,7 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
 
     return {
         "status": 0 if not_subscribed else 1,
+        "status_zaglushka": 1,
         "not_subscribed": not_subscribed,
         "not_subscribed_text": not_subscribed_text,
     }
