@@ -1,166 +1,536 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
-import { Send, Wand2, XCircle } from 'lucide-react'
+import {
+  Send, Wand2, XCircle, Play, PlusCircle, Eye, Clock,
+  CheckCircle, AlertCircle, Loader2, X, Calendar
+} from 'lucide-react'
 import { api } from '@/lib/api'
+
+const AUDIENCE_LABELS: Record<string, string> = {
+  all_event: 'Все участники конфы',
+  registered_event: 'Зарег. участники',
+  all_client: 'Вся база клиента',
+}
+
+const STATUS_COLOR: Record<string, string> = {
+  pending:   'bg-amber-50 border-amber-200',
+  running:   'bg-blue-50 border-blue-200',
+  done:      'bg-green-50 border-green-200',
+  cancelled: 'bg-gray-50 border-gray-200',
+}
+
+const STATUS_ICON: Record<string, React.ReactNode> = {
+  pending:   <Clock size={13} className="text-amber-500" />,
+  running:   <Loader2 size={13} className="text-blue-500 animate-spin" />,
+  done:      <CheckCircle size={13} className="text-green-500" />,
+  cancelled: <XCircle size={13} className="text-gray-400" />,
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  pending:   'Ожидает',
+  running:   'Отправляется',
+  done:      'Отправлено',
+  cancelled: 'Отменена',
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  pre_start:             'Анонс спикера',
+  gift:                  'Подарок спикера',
+  speaker_intro:         'Знакомство со спикером',
+  day_start_30min_unreg: 'За 30 мин (не зарег.)',
+  day_start_30min_reg:   'За 30 мин (зарег.)',
+  day_live:              'Старт эфира',
+  day_end:               'Итоги дня',
+}
+
+function formatTimeLeft(sec: number): string {
+  if (sec > 3600) return `${Math.floor(sec / 3600)}ч ${Math.floor((sec % 3600) / 60)}мин`
+  if (sec > 60) return `${Math.floor(sec / 60)} мин`
+  return `${sec} сек`
+}
 
 export default function QueuePage() {
   const { id } = useParams()
   const eventId = Number(id)
 
   const [schedules, setSchedules] = useState<any[]>([])
-  const [hasTemplates, setHasTemplates] = useState(false)
+  const [templates, setTemplates] = useState<any[]>([])
+  const [timezone, setTimezone] = useState('Europe/Moscow')
+  const [nextPending, setNextPending] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useState<{ text: string; type: 'ok' | 'err' } | null>(null)
+  const [previewModal, setPreviewModal] = useState<any>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [manualModal, setManualModal] = useState(false)
+  const [fireAtModal, setFireAtModal] = useState<any>(null)   // {schedule}
+  const [fireAtValue, setFireAtValue] = useState('')
+  const [isTestValue, setIsTestValue] = useState(false)
+  const [manualForm, setManualForm] = useState({
+    template_id: '',
+    fire_at: '',
+    is_test: false,
+    audience_type: 'all_event',
+  })
+  const [running, setRunning] = useState(false)
 
-  useEffect(() => {
-    Promise.all([
+  const load = useCallback(async () => {
+    const [tmpl, sched] = await Promise.all([
       api.conference.templates.list(eventId),
       api.conference.schedules.list(eventId),
-    ]).then(([tmpl, sched]) => {
-      setHasTemplates((tmpl.templates || []).length > 0)
-      setSchedules(sched.schedules || [])
-    })
+    ])
+    setTemplates(tmpl.templates || [])
+    setSchedules(sched.schedules || [])
+    setTimezone(sched.timezone || 'Europe/Moscow')
+    setNextPending(sched.next_pending || null)
   }, [eventId])
 
+  useEffect(() => { load() }, [load])
+
+  // Авто-обновление раз в 30 сек если есть running
+  useEffect(() => {
+    const hasRunning = schedules.some(s => s.status === 'running')
+    if (!hasRunning) return
+    const t = setInterval(load, 30000)
+    return () => clearInterval(t)
+  }, [schedules, load])
+
+  function showMsg(text: string, type: 'ok' | 'err' = 'ok') {
+    setMsg({ text, type })
+    setTimeout(() => setMsg(null), 5000)
+  }
+
   async function generate() {
-    if (!hasTemplates) {
-      alert('Сначала создайте шаблоны во вкладке «Шаблоны»')
-      return
-    }
     setLoading(true)
     try {
       const res = await api.conference.schedules.generate(eventId)
-      const updated = await api.conference.schedules.list(eventId)
-      setSchedules(updated.schedules || [])
-      setMsg(`Создано ${res.created} рассылок, пропущено ${res.skipped}`)
-      setTimeout(() => setMsg(''), 5000)
+      await load()
+      showMsg(`Создано ${res.created} рассылок, пропущено ${res.skipped}`)
     } catch (e: any) {
-      alert(e.message)
+      showMsg(e.message, 'err')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function runAll() {
+    if (!confirm('Активировать всю очередь? Celery начнёт отправлять по расписанию.')) return
+    setRunning(true)
+    try {
+      const res = await api.conference.schedules.runAll(eventId)
+      showMsg(res.message || 'Очередь активирована')
+      await load()
+    } catch (e: any) {
+      showMsg(e.message, 'err')
+    } finally {
+      setRunning(false)
     }
   }
 
   async function cancelAll() {
     if (!confirm('Отменить все ожидающие рассылки?')) return
     await api.conference.schedules.cancelAll(eventId)
-    const res = await api.conference.schedules.list(eventId)
-    setSchedules(res.schedules || [])
+    await load()
+    showMsg('Все ожидающие рассылки отменены')
   }
 
   async function cancelOne(scheduleId: number) {
     await api.conference.schedules.cancel(eventId, scheduleId)
-    setSchedules(schedules.map(x => x.id === scheduleId ? { ...x, status: 'cancelled' } : x))
+    setSchedules(prev => prev.map(x => x.id === scheduleId ? { ...x, status: 'cancelled' } : x))
   }
 
-  const statusColor: Record<string, string> = {
-    pending: 'bg-amber-50 border-amber-200',
-    running: 'bg-blue-50 border-blue-200',
-    done: 'bg-green-50 border-green-200',
-    cancelled: 'bg-gray-50 border-gray-200',
+  async function openPreview(schedule: any) {
+    setPreviewLoading(true)
+    setPreviewModal(null)
+    try {
+      const res = await api.conference.schedules.preview(eventId, schedule.id)
+      setPreviewModal({ ...res, schedule })
+    } catch {
+      showMsg('Не удалось загрузить превью', 'err')
+    } finally {
+      setPreviewLoading(false)
+    }
   }
-  const statusLabel: Record<string, string> = {
-    pending: '⏳ Ожидает',
-    running: '📤 Отправляется',
-    done: '✅ Отправлено',
-    cancelled: '❌ Отменена',
+
+  function openFireAt(schedule: any) {
+    setFireAtModal(schedule)
+    setFireAtValue('')
+    setIsTestValue(schedule.is_test || false)
+  }
+
+  async function saveFireAt() {
+    if (!fireAtModal || !fireAtValue) return
+    try {
+      await api.conference.schedules.setFireAt(eventId, fireAtModal.id, {
+        fire_at: fireAtValue,
+        is_test: isTestValue,
+      })
+      setFireAtModal(null)
+      await load()
+      showMsg('Время отправки сохранено')
+    } catch (e: any) {
+      showMsg(e.message, 'err')
+    }
+  }
+
+  async function addManual() {
+    if (!manualForm.template_id || !manualForm.fire_at) {
+      showMsg('Выберите шаблон и укажите время', 'err')
+      return
+    }
+    try {
+      await api.conference.schedules.addManual(eventId, {
+        template_id: Number(manualForm.template_id),
+        fire_at: manualForm.fire_at,
+        is_test: manualForm.is_test,
+        audience_type: manualForm.audience_type,
+      })
+      setManualModal(false)
+      await load()
+      showMsg('Рассылка добавлена в очередь')
+    } catch (e: any) {
+      showMsg(e.message, 'err')
+    }
   }
 
   const pendingCount = schedules.filter(s => s.status === 'pending').length
+  const nullFireCount = schedules.filter(s => s.status === 'pending' && !s.fire_at).length
+  const doneCount = schedules.filter(s => s.status === 'done').length
+
+  // Форматируем timezone для отображения
+  const tzLabel = timezone === 'Europe/Moscow' ? 'МСК (UTC+3)' : timezone
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <p className="text-sm text-gray-500">
-            Рассылки создаются автоматически из программы конференции и уходят по расписанию.
-          </p>
-          {pendingCount > 0 && (
-            <p className="text-xs text-amber-600 mt-1">В очереди: {pendingCount} рассылок</p>
+      {/* ── Статусная плашка наверху ── */}
+      <div className="mb-4 rounded-2xl border border-gray-100 bg-white p-4">
+        <div className="flex flex-wrap items-center gap-4 text-sm">
+          <div className="flex items-center gap-2">
+            <Clock size={14} className="text-amber-500" />
+            <span className="text-gray-500">Ожидает:</span>
+            <span className="font-semibold text-gray-800">{pendingCount}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <CheckCircle size={14} className="text-green-500" />
+            <span className="text-gray-500">Отправлено:</span>
+            <span className="font-semibold text-gray-800">{doneCount}</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <span>Часовой пояс: <b className="text-gray-600">{tzLabel}</b></span>
+          </div>
+          {nextPending && nextPending.fire_at_local && (
+            <div className="ml-auto flex items-center gap-1.5 text-xs bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
+              <Clock size={12} className="text-amber-500" />
+              <span className="text-amber-700 font-medium">
+                Ближайшая: {nextPending.fire_at_local} {tzLabel} — {TYPE_LABELS[nextPending.template_type] || nextPending.template_type}
+                {nextPending.seconds_until != null && ` (через ${formatTimeLeft(nextPending.seconds_until)})`}
+              </span>
+            </div>
           )}
         </div>
-        <div className="flex gap-2 shrink-0">
-          {pendingCount > 0 && (
-            <button onClick={cancelAll}
-              className="flex items-center gap-2 px-3 py-2 border border-red-200 rounded-xl text-sm text-red-500 hover:bg-red-50">
-              <XCircle size={14} /> Остановить всё
-            </button>
-          )}
-          <button onClick={generate} disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium disabled:opacity-50"
-            style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-            <Wand2 size={14} /> {loading ? 'Создаю...' : 'Создать из программы'}
-          </button>
+
+        {/* Легенда статусов */}
+        <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-500 border-t border-gray-100 pt-3">
+          <span className="flex items-center gap-1"><Clock size={11} className="text-amber-500" /> Ожидает отправки</span>
+          <span className="flex items-center gap-1"><Loader2 size={11} className="text-blue-500" /> Отправляется сейчас</span>
+          <span className="flex items-center gap-1"><CheckCircle size={11} className="text-green-500" /> Отправлено (показывает кол-во получателей)</span>
+          <span className="flex items-center gap-1"><XCircle size={11} className="text-gray-400" /> Отменена</span>
         </div>
       </div>
 
-      {msg && (
-        <div className="mb-4 text-sm text-green-700 bg-green-50 rounded-xl px-4 py-3">{msg}</div>
-      )}
-
-      {!hasTemplates && (
-        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
-          Сначала создайте шаблоны во вкладке «Шаблоны» — без них рассылки не запустятся.
+      {/* ── Предупреждение если есть speaker_intro без времени ── */}
+      {nullFireCount > 0 && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2 text-sm text-amber-800">
+          <AlertCircle size={16} className="shrink-0 mt-0.5" />
+          <span>
+            У <b>{nullFireCount}</b> рассылок не задано время отправки («Знакомство со спикером»).
+            Нажмите <b>«Задать время»</b> рядом с ними перед запуском очереди.
+          </span>
         </div>
       )}
 
+      {msg && (
+        <div className={`mb-4 text-sm rounded-xl px-4 py-3 flex items-center gap-2 ${
+          msg.type === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+        }`}>
+          {msg.type === 'ok' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+          {msg.text}
+        </div>
+      )}
+
+      {/* ── Кнопки управления ── */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {pendingCount > 0 && (
+          <button onClick={cancelAll}
+            className="flex items-center gap-2 px-3 py-2 border border-red-200 rounded-xl text-sm text-red-500 hover:bg-red-50">
+            <XCircle size={14} /> Отменить все
+          </button>
+        )}
+        <button onClick={() => setManualModal(true)}
+          className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
+          <PlusCircle size={14} /> Добавить вручную
+        </button>
+        <button onClick={generate} disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium disabled:opacity-50"
+          style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+          <Wand2 size={14} /> {loading ? 'Создаю...' : 'Сформировать из программы'}
+        </button>
+      </div>
+
+      {/* ── Список очереди ── */}
       {schedules.length === 0 ? (
         <div className="py-16 text-center text-gray-400 bg-white rounded-2xl border border-gray-100">
           <Send size={32} className="mx-auto mb-3 opacity-20" />
           <p className="text-sm font-medium">Очередь пуста</p>
-          <p className="text-xs mt-1">Нажмите «Создать из программы» — рассылки встанут в очередь автоматически</p>
+          <p className="text-xs mt-1">Нажмите «Сформировать из программы» — рассылки встанут в очередь автоматически</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {schedules.map(s => {
-            const fireAt = s.fire_at ? new Date(s.fire_at) : null
-            const sec = s.seconds_until
-            const timeLeft = sec != null
-              ? sec > 3600 ? `${Math.floor(sec / 3600)}ч ${Math.floor((sec % 3600) / 60)}мин`
-              : sec > 60 ? `${Math.floor(sec / 60)} мин`
-              : `${sec} сек`
-              : null
-
-            return (
-              <div key={s.id} className={`rounded-xl border p-4 ${statusColor[s.status] || 'bg-white border-gray-100'}`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="text-xs font-medium text-gray-700">{statusLabel[s.status] || s.status}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${s.type === 'pre_start' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {s.type === 'pre_start' ? 'Анонс' : 'Подарок'}
+        <div className="space-y-2 mb-6">
+          {schedules.map((s, idx) => (
+            <div key={s.id}
+              className={`rounded-xl border p-3.5 ${STATUS_COLOR[s.status] || 'bg-white border-gray-100'}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  {/* Строка 1: номер + статус + тип */}
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-xs text-gray-400 font-mono">#{idx + 1}</span>
+                    <span className="flex items-center gap-1 text-xs font-medium text-gray-700">
+                      {STATUS_ICON[s.status]}
+                      {STATUS_LABEL[s.status] || s.status}
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-white/80 border border-gray-200 text-gray-600">
+                      {TYPE_LABELS[s.template_type] || s.type}
+                    </span>
+                    {s.is_test && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium border border-purple-200">
+                        ТЕСТ
                       </span>
-                      {s.speaker_name && (
-                        <span className="text-xs text-gray-600 font-medium">{s.speaker_name}</span>
-                      )}
-                      {s.session_title && (
-                        <span className="text-xs text-gray-400 truncate max-w-[200px]">{s.session_title}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-                      {fireAt && (
-                        <span>{fireAt.toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                      )}
-                      {timeLeft && s.status === 'pending' && (
-                        <span className="text-amber-600 font-medium">через {timeLeft}</span>
-                      )}
-                      {s.status === 'done' && s.recipients_sent != null && (
-                        <span className="text-green-600">отправлено {s.recipients_sent} чел.</span>
-                      )}
-                    </div>
+                    )}
+                    {/* Аудитория */}
+                    <span className="text-xs text-gray-400">
+                      {AUDIENCE_LABELS[s.audience_type] || s.audience_type}
+                    </span>
                   </div>
+
+                  {/* Строка 2: спикер + тема */}
+                  {(s.speaker_name || s.session_title) && (
+                    <div className="flex items-center gap-2 text-xs text-gray-600 mb-1">
+                      {s.speaker_name && <span className="font-medium">{s.speaker_name}</span>}
+                      {s.session_title && <span className="text-gray-400 truncate max-w-[220px]">{s.session_title}</span>}
+                    </div>
+                  )}
+
+                  {/* Строка 3: время */}
+                  <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                    {s.fire_at_local ? (
+                      <span className="font-medium text-gray-700">{s.fire_at_local} {tzLabel}</span>
+                    ) : (
+                      <span className="text-amber-600 font-medium">⚠ Время не задано</span>
+                    )}
+                    {s.seconds_until != null && s.status === 'pending' && s.fire_at_local && (
+                      <span className="text-amber-600">через {formatTimeLeft(s.seconds_until)}</span>
+                    )}
+                    {s.status === 'done' && s.recipients_sent != null && (
+                      <span className="text-green-600 font-medium">✓ {s.recipients_sent} получателей</span>
+                    )}
+                    {s.error_log && (
+                      <span className="text-red-500 truncate max-w-[200px]" title={s.error_log}>⚠ {s.error_log}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Кнопки действий */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Превью */}
+                  <button onClick={() => openPreview(s)}
+                    className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
+                    title="Превью сообщения">
+                    {previewLoading ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
+                  </button>
+                  {/* Задать время (для speaker_intro без fire_at) */}
+                  {s.status === 'pending' && !s.fire_at && (
+                    <button onClick={() => openFireAt(s)}
+                      className="px-2 py-1 border border-amber-300 rounded-lg text-xs text-amber-700 font-medium hover:bg-amber-50">
+                      Задать время
+                    </button>
+                  )}
+                  {/* Изменить время (если уже задано) */}
+                  {s.status === 'pending' && s.fire_at && s.template_type === 'speaker_intro' && (
+                    <button onClick={() => openFireAt(s)}
+                      className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
+                      title="Изменить время">
+                      <Calendar size={13} />
+                    </button>
+                  )}
+                  {/* Отмена */}
                   {s.status === 'pending' && (
                     <button onClick={() => cancelOne(s.id)}
-                      className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-red-600 shrink-0"
+                      className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50"
                       title="Отменить">
                       <XCircle size={13} />
                     </button>
                   )}
                 </div>
               </div>
-            )
-          })}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Кнопка ЗАПУСТИТЬ ВСЮ ОЧЕРЕДЬ ── */}
+      {pendingCount > 0 && (
+        <div className="sticky bottom-4">
+          <button onClick={runAll} disabled={running}
+            className="w-full py-3.5 rounded-2xl text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-lg disabled:opacity-70"
+            style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+            {running
+              ? <><Loader2 size={16} className="animate-spin" /> Запускаем...</>
+              : <><Play size={16} /> Запустить всю очередь ({pendingCount} рассылок)</>
+            }
+          </button>
+        </div>
+      )}
+
+      {/* ── Модалка: установить время отправки ── */}
+      {fireAtModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-gray-800">Время отправки</h3>
+              <button onClick={() => setFireAtModal(null)}><X size={18} /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Введите дату и время в {tzLabel}. Сервер сохранит в UTC автоматически.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Дата и время ({tzLabel})</label>
+                <input
+                  type="datetime-local"
+                  value={fireAtValue}
+                  onChange={e => setFireAtValue(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
+                />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={isTestValue} onChange={e => setIsTestValue(e.target.checked)}
+                  className="rounded" />
+                <span className="text-sm text-gray-600">Тестовая рассылка</span>
+                <span className="text-xs text-gray-400">(только на тестовые аккаунты из настроек)</span>
+              </label>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={saveFireAt}
+                className="flex-1 py-2 rounded-xl text-sm font-medium text-white"
+                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                Сохранить
+              </button>
+              <button onClick={() => setFireAtModal(null)}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка: добавить вручную ── */}
+      {manualModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-gray-800">Добавить рассылку вручную</h3>
+              <button onClick={() => setManualModal(false)}><X size={18} /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Шаблон</label>
+                <select
+                  value={manualForm.template_id}
+                  onChange={e => setManualForm({ ...manualForm, template_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                  <option value="">— выберите шаблон —</option>
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Дата и время ({tzLabel})</label>
+                <input type="datetime-local"
+                  value={manualForm.fire_at}
+                  onChange={e => setManualForm({ ...manualForm, fire_at: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Аудитория</label>
+                <select
+                  value={manualForm.audience_type}
+                  onChange={e => setManualForm({ ...manualForm, audience_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                  <option value="all_event">Все участники конфы</option>
+                  <option value="registered_event">Зарегистрированные участники</option>
+                  <option value="all_client">Вся база клиента</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={manualForm.is_test}
+                  onChange={e => setManualForm({ ...manualForm, is_test: e.target.checked })}
+                  className="rounded" />
+                <span className="text-sm text-gray-600">Тестовая рассылка</span>
+                <span className="text-xs text-gray-400">(только тестовые аккаунты)</span>
+              </label>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={addManual}
+                className="flex-1 py-2 rounded-xl text-sm font-medium text-white"
+                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                Добавить
+              </button>
+              <button onClick={() => setManualModal(false)}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка: превью сообщения ── */}
+      {previewModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-gray-800 text-sm">
+                Превью: {TYPE_LABELS[previewModal.template_type] || previewModal.template_type}
+              </h3>
+              <button onClick={() => setPreviewModal(null)}><X size={18} /></button>
+            </div>
+            {/* Telegram-bubble */}
+            <div className="bg-[#effdde] rounded-2xl rounded-tr-sm p-3 shadow-sm">
+              {previewModal.photo && (
+                <img src={previewModal.photo} alt=""
+                  className="w-full rounded-xl mb-2"
+                  style={{ maxHeight: '300px', objectFit: 'contain', background: '#f0f0f0' }}
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+              )}
+              <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: previewModal.text || '' }} />
+              {previewModal.button_text && (
+                <div className="mt-3 w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
+                  {previewModal.button_text}
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-3 text-center">
+              Данные подставлены из БД на момент открытия превью
+            </p>
+            <button onClick={() => setPreviewModal(null)}
+              className="w-full mt-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+              Закрыть
+            </button>
+          </div>
         </div>
       )}
     </div>

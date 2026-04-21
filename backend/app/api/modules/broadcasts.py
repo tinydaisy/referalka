@@ -17,15 +17,24 @@ router = APIRouter(prefix="/events/{event_id}/broadcasts", tags=["Рассылк
 
 class TemplateCreate(BaseModel):
     name: str
-    type: str                        # 'pre_start' | 'gift'
+    type: str
     text: Optional[str] = None
     photo_url: Optional[str] = None
     button_text: Optional[str] = None
     button_url: Optional[str] = None
 
 
-class TemplateUpdate(TemplateCreate):
-    pass
+class TemplateUpdate(BaseModel):
+    name: str
+    type: str
+    text: Optional[str] = None
+    photo_url: Optional[str] = None
+    button_text: Optional[str] = None
+    button_url: Optional[str] = None
+    schedule_mode: Optional[str] = None        # fixed_offset | day_offset | custom_datetime
+    offset_minutes: Optional[int] = None
+    audience_type: Optional[str] = None        # all_event | registered_event | all_client
+    allow_custom_datetime: Optional[bool] = None
 
 
 DEFAULT_TEMPLATES = [
@@ -42,6 +51,10 @@ DEFAULT_TEMPLATES = [
         "photo_url": None,
         "button_text": "Войти в эфир",
         "button_url": "{stream_url}",
+        "schedule_mode": "fixed_offset",
+        "offset_minutes": 5,
+        "audience_type": "all_event",
+        "allow_custom_datetime": False,
     },
     {
         "name": "Подарок спикера (за 10 мин до конца)",
@@ -54,6 +67,10 @@ DEFAULT_TEMPLATES = [
         "photo_url": None,
         "button_text": None,
         "button_url": None,
+        "schedule_mode": "fixed_offset",
+        "offset_minutes": 10,
+        "audience_type": "all_event",
+        "allow_custom_datetime": False,
     },
     {
         "name": "Знакомство со спикером",
@@ -72,6 +89,10 @@ DEFAULT_TEMPLATES = [
         "photo_url": None,
         "button_text": "Зарегистрироваться",
         "button_url": "{registration_url}",
+        "schedule_mode": "custom_datetime",
+        "offset_minutes": 0,
+        "audience_type": "all_event",
+        "allow_custom_datetime": True,
     },
     {
         "name": "День конференции — за 30 мин (не зарегистрирован)",
@@ -89,6 +110,10 @@ DEFAULT_TEMPLATES = [
         "photo_url": None,
         "button_text": "Зарегистрироваться",
         "button_url": "{registration_url}",
+        "schedule_mode": "day_offset",
+        "offset_minutes": 30,
+        "audience_type": "all_event",
+        "allow_custom_datetime": False,
     },
     {
         "name": "День конференции — за 30 мин (зарегистрирован)",
@@ -106,6 +131,10 @@ DEFAULT_TEMPLATES = [
         "photo_url": None,
         "button_text": "Войти в эфир",
         "button_url": "{stream_url}",
+        "schedule_mode": "day_offset",
+        "offset_minutes": 30,
+        "audience_type": "registered_event",
+        "allow_custom_datetime": False,
     },
     {
         "name": "День конференции (старт эфира)",
@@ -119,6 +148,10 @@ DEFAULT_TEMPLATES = [
         "photo_url": None,
         "button_text": "Войти в эфир",
         "button_url": "{stream_url}",
+        "schedule_mode": "day_offset",
+        "offset_minutes": 0,
+        "audience_type": "all_event",
+        "allow_custom_datetime": False,
     },
     {
         "name": "День конференции (итоги дня + подарки)",
@@ -134,6 +167,10 @@ DEFAULT_TEMPLATES = [
         "photo_url": None,
         "button_text": None,
         "button_url": None,
+        "schedule_mode": "day_offset",
+        "offset_minutes": 30,
+        "audience_type": "all_event",
+        "allow_custom_datetime": False,
     },
 ]
 
@@ -149,7 +186,9 @@ async def list_templates(
 
     rows = await db.fetch(
         """
-        SELECT id, name, type, text, photo_url, button_text, button_url, created_at
+        SELECT id, name, type, text, photo_url, button_text, button_url,
+               schedule_mode, offset_minutes, audience_type, allow_custom_datetime,
+               created_at
         FROM broadcast_templates
         WHERE event_id = $1
         ORDER BY type, created_at
@@ -162,15 +201,20 @@ async def list_templates(
             await db.execute(
                 """
                 INSERT INTO broadcast_templates
-                  (client_id, event_id, name, type, text, photo_url, button_text, button_url)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                  (client_id, event_id, name, type, text, photo_url, button_text, button_url,
+                   schedule_mode, offset_minutes, audience_type, allow_custom_datetime)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 """,
                 client_id, event_id, tpl["name"], tpl["type"],
                 tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"],
+                tpl["schedule_mode"], tpl["offset_minutes"],
+                tpl["audience_type"], tpl["allow_custom_datetime"],
             )
         rows = await db.fetch(
             """
-            SELECT id, name, type, text, photo_url, button_text, button_url, created_at
+            SELECT id, name, type, text, photo_url, button_text, button_url,
+                   schedule_mode, offset_minutes, audience_type, allow_custom_datetime,
+                   created_at
             FROM broadcast_templates
             WHERE event_id = $1
             ORDER BY type, created_at
@@ -178,7 +222,6 @@ async def list_templates(
             event_id
         )
 
-    # Для day_end/day_live: если photo_url не задан — подставляем горизонтальную афишу как дефолт
     conf_row = await db.fetchrow(
         "SELECT poster_horizontal FROM conf_conferences WHERE event_id = $1", event_id
     )
@@ -206,7 +249,8 @@ async def create_template(
         """
         INSERT INTO broadcast_templates (client_id, event_id, name, type, text, photo_url, button_text, button_url)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id, name, type, text, photo_url, button_text, button_url, created_at
+        RETURNING id, name, type, text, photo_url, button_text, button_url,
+                  schedule_mode, offset_minutes, audience_type, allow_custom_datetime, created_at
         """,
         client_id, event_id, data.name, data.type,
         data.text, data.photo_url, data.button_text, data.button_url
@@ -230,12 +274,18 @@ async def update_template(
         UPDATE broadcast_templates SET
             name = $1, type = $2, text = $3,
             photo_url = $4, button_text = $5, button_url = $6,
+            schedule_mode = COALESCE($7, schedule_mode),
+            offset_minutes = COALESCE($8, offset_minutes),
+            audience_type = COALESCE($9, audience_type),
+            allow_custom_datetime = COALESCE($10, allow_custom_datetime),
             updated_at = NOW()
-        WHERE id = $7 AND event_id = $8
-        RETURNING id, name, type, text, photo_url, button_text, button_url
+        WHERE id = $11 AND event_id = $12
+        RETURNING id, name, type, text, photo_url, button_text, button_url,
+                  schedule_mode, offset_minutes, audience_type, allow_custom_datetime
         """,
         data.name, data.type, data.text,
         data.photo_url, data.button_text, data.button_url,
+        data.schedule_mode, data.offset_minutes, data.audience_type, data.allow_custom_datetime,
         template_id, event_id
     )
     if not row:
@@ -263,6 +313,13 @@ async def delete_template(
 # РАСПИСАНИЕ РАССЫЛОК
 # ─────────────────────────────────────────
 
+class ManualScheduleCreate(BaseModel):
+    template_id: int
+    fire_at: str            # ISO datetime строка, например "2026-04-21T14:30:00"
+    is_test: bool = False
+    audience_type: Optional[str] = None   # переопределить аудиторию, если None — берём из шаблона
+
+
 @router.get("/schedules", summary="Очередь рассылок")
 async def list_schedules(
     event_id: int,
@@ -275,11 +332,13 @@ async def list_schedules(
     rows = await db.fetch(
         """
         SELECT bs.id, bs.type, bs.fire_at, bs.status,
-               bs.recipients_sent, bs.is_test,
-               bt.name as template_name,
+               bs.recipients_sent, bs.is_test, bs.audience_type,
+               bt.name as template_name, bt.type as template_type,
+               bt.schedule_mode,
                cs.title as session_title,
                cs.start_datetime, cs.end_datetime,
-               c.name as speaker_name
+               c.name as speaker_name,
+               bs.error_log
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         LEFT JOIN conf_sessions cs ON cs.id = bs.session_id
@@ -291,19 +350,36 @@ async def list_schedules(
         event_id
     )
 
-    now = datetime.utcnow()
+    # Часовой пояс клиента для отображения
+    client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+    tz_str = (client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow"
+    tz = ZoneInfo(tz_str)
+
+    now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
     result = []
     for r in rows:
         d = dict(r)
-        # Считаем секунды до отправки
+        if r["fire_at"]:
+            fire_local = r["fire_at"].astimezone(tz)
+            d["fire_at_local"] = fire_local.strftime("%d.%m.%Y %H:%M")
+            d["fire_at_tz"] = tz_str
+            d["fire_at_iso"] = r["fire_at"].isoformat()
         if r["fire_at"] and r["status"] == "pending":
-            diff = (r["fire_at"].replace(tzinfo=None) - now).total_seconds()
+            diff = (r["fire_at"] - now_utc).total_seconds()
             d["seconds_until"] = max(0, int(diff))
         else:
             d["seconds_until"] = None
         result.append(d)
 
-    return {"schedules": result}
+    # Следующая ожидающая рассылка
+    pending = [x for x in result if x["status"] == "pending"]
+    next_pending = pending[0] if pending else None
+
+    return {
+        "schedules": result,
+        "next_pending": next_pending,
+        "timezone": tz_str,
+    }
 
 
 @router.post("/schedules/generate", summary="Создать расписание из программы конференции")
@@ -313,35 +389,37 @@ async def generate_schedules(
     db: asyncpg.Connection = Depends(get_db)
 ):
     """
-    Создаёт записи broadcast_schedules для всех сессий конференции:
-    - pre_start: за 5 минут до start_datetime
-    - gift: за 10 минут до end_datetime
-    Пропускает сессии без спикера или без времени.
-    Не создаёт дубли — если рассылка уже есть, пропускает.
+    Создаёт записи broadcast_schedules:
+    - speaker_intro: одна на всё событие, fire_at = NULL (нужна кастомная дата)
+    - pre_start: за offset_minutes до start_datetime сессии
+    - gift: за offset_minutes до end_datetime сессии
+    - day_start_30min_unreg/reg: за offset_minutes до первой сессии дня
+    - day_live: в момент start первой сессии дня
+    - day_end: через offset_minutes после последней сессии дня
+    Пропускает дубли. fire_at всегда в UTC.
     """
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
-    # Берём шаблоны для этого события
-    tmpl_pre = await db.fetchrow(
-        "SELECT id FROM broadcast_templates WHERE event_id=$1 AND type='pre_start' LIMIT 1", event_id
+    templates = await db.fetch(
+        """
+        SELECT id, type, schedule_mode, offset_minutes, audience_type, allow_custom_datetime
+        FROM broadcast_templates WHERE event_id=$1
+        """,
+        event_id
     )
-    tmpl_gift = await db.fetchrow(
-        "SELECT id FROM broadcast_templates WHERE event_id=$1 AND type='gift' LIMIT 1", event_id
-    )
+    tmpl_map = {t["type"]: t for t in templates}
 
-    if not tmpl_pre and not tmpl_gift:
+    if not tmpl_map:
         raise HTTPException(status_code=400, detail="Сначала создайте шаблоны рассылок")
 
-    # Берём все сессии с временем и спикером
     sessions = await db.fetch(
         """
-        SELECT cs.id, cs.start_datetime, cs.end_datetime, cs.title
+        SELECT cs.id, cs.start_datetime, cs.end_datetime, cs.title, cs.day
         FROM conf_sessions cs
         WHERE cs.event_id = $1
-          AND cs.speaker_id IS NOT NULL
           AND cs.start_datetime IS NOT NULL
-        ORDER BY cs.start_datetime
+        ORDER BY cs.day, cs.start_datetime
         """,
         event_id
     )
@@ -349,46 +427,238 @@ async def generate_schedules(
     created = 0
     skipped = 0
 
-    for s in sessions:
-        # pre_start — за 5 минут до начала
-        if tmpl_pre and s["start_datetime"]:
-            fire_at = s["start_datetime"] - timedelta(minutes=5)
-            exists = await db.fetchval(
-                "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND session_id=$2 AND type='pre_start'",
-                event_id, s["id"]
-            )
-            if not exists:
-                await db.execute(
-                    """
-                    INSERT INTO broadcast_schedules (event_id, session_id, template_id, type, fire_at, status)
-                    VALUES ($1, $2, $3, 'pre_start', $4, 'pending')
-                    """,
-                    event_id, s["id"], tmpl_pre["id"], fire_at
-                )
-                created += 1
-            else:
-                skipped += 1
+    async def add_schedule(tmpl, fire_at, session_id=None, sched_type=None):
+        nonlocal created, skipped
+        t = sched_type or tmpl["type"]
+        exists = await db.fetchval(
+            """SELECT 1 FROM broadcast_schedules
+               WHERE event_id=$1 AND template_id=$2
+               AND COALESCE(session_id::text,'') = $3
+               AND type=$4""",
+            event_id, tmpl["id"],
+            str(session_id) if session_id else "",
+            t
+        )
+        if exists:
+            skipped += 1
+            return
+        await db.execute(
+            """
+            INSERT INTO broadcast_schedules
+              (event_id, session_id, template_id, type, fire_at, status, audience_type)
+            VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+            """,
+            event_id, session_id, tmpl["id"], t, fire_at, tmpl["audience_type"]
+        )
+        created += 1
 
-        # gift — за 10 минут до конца
-        if tmpl_gift and s["end_datetime"]:
-            fire_at = s["end_datetime"] - timedelta(minutes=10)
-            exists = await db.fetchval(
-                "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND session_id=$2 AND type='gift'",
-                event_id, s["id"]
+    # ── speaker_intro: одна запись на событие, fire_at=NULL (нужна ручная установка) ──
+    if "speaker_intro" in tmpl_map:
+        tmpl = tmpl_map["speaker_intro"]
+        exists = await db.fetchval(
+            "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='speaker_intro'",
+            event_id
+        )
+        if not exists:
+            await db.execute(
+                """
+                INSERT INTO broadcast_schedules
+                  (event_id, session_id, template_id, type, fire_at, status, audience_type)
+                VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'pending', $3)
+                """,
+                event_id, tmpl["id"], tmpl["audience_type"]
             )
-            if not exists:
-                await db.execute(
-                    """
-                    INSERT INTO broadcast_schedules (event_id, session_id, template_id, type, fire_at, status)
-                    VALUES ($1, $2, $3, 'gift', $4, 'pending')
-                    """,
-                    event_id, s["id"], tmpl_gift["id"], fire_at
-                )
-                created += 1
-            else:
-                skipped += 1
+            created += 1
+        else:
+            skipped += 1
+
+    # ── Группируем сессии по дням ──
+    days: dict = {}
+    for s in sessions:
+        d = s["day"] or 1
+        days.setdefault(d, []).append(s)
+
+    # ── pre_start и gift — по каждой сессии со спикером ──
+    sessions_with_speaker = await db.fetch(
+        """
+        SELECT cs.id, cs.start_datetime, cs.end_datetime, cs.day
+        FROM conf_sessions cs
+        WHERE cs.event_id = $1
+          AND cs.speaker_id IS NOT NULL
+          AND cs.start_datetime IS NOT NULL
+        ORDER BY cs.day, cs.start_datetime
+        """,
+        event_id
+    )
+
+    for s in sessions_with_speaker:
+        if "pre_start" in tmpl_map:
+            tmpl = tmpl_map["pre_start"]
+            offset = tmpl["offset_minutes"] or 5
+            fire_at = s["start_datetime"] - timedelta(minutes=offset)
+            await add_schedule(tmpl, fire_at, s["id"], "pre_start")
+
+        if "gift" in tmpl_map and s["end_datetime"]:
+            tmpl = tmpl_map["gift"]
+            offset = tmpl["offset_minutes"] or 10
+            fire_at = s["end_datetime"] - timedelta(minutes=offset)
+            await add_schedule(tmpl, fire_at, s["id"], "gift")
+
+    # ── day_* — по первой/последней сессии каждого дня ──
+    for day_num, day_sessions in days.items():
+        first_session = day_sessions[0]
+        last_session = day_sessions[-1]
+
+        for ttype in ("day_start_30min_unreg", "day_start_30min_reg"):
+            if ttype in tmpl_map and first_session["start_datetime"]:
+                tmpl = tmpl_map[ttype]
+                offset = tmpl["offset_minutes"] or 30
+                fire_at = first_session["start_datetime"] - timedelta(minutes=offset)
+                await add_schedule(tmpl, fire_at, None, ttype)
+
+        if "day_live" in tmpl_map and first_session["start_datetime"]:
+            tmpl = tmpl_map["day_live"]
+            fire_at = first_session["start_datetime"]
+            await add_schedule(tmpl, fire_at, None, "day_live")
+
+        if "day_end" in tmpl_map and last_session.get("end_datetime"):
+            tmpl = tmpl_map["day_end"]
+            offset = tmpl["offset_minutes"] or 30
+            fire_at = last_session["end_datetime"] + timedelta(minutes=offset)
+            await add_schedule(tmpl, fire_at, None, "day_end")
 
     return {"ok": True, "created": created, "skipped": skipped}
+
+
+class SetFireAtRequest(BaseModel):
+    fire_at: str   # ISO datetime строка
+    is_test: bool = False
+
+
+@router.put("/schedules/{schedule_id}/fire-at", summary="Установить время отправки (для custom_datetime)")
+async def set_schedule_fire_at(
+    event_id: int,
+    schedule_id: int,
+    data: SetFireAtRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    # Парсим дату — принимаем локальное время клиента (МСК), сохраняем в UTC
+    client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+    tz_str = (client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow"
+    tz = ZoneInfo(tz_str)
+
+    try:
+        dt_naive = datetime.fromisoformat(data.fire_at)
+        if dt_naive.tzinfo is None:
+            dt_aware = dt_naive.replace(tzinfo=tz)
+        else:
+            dt_aware = dt_naive
+        dt_utc = dt_aware.astimezone(ZoneInfo("UTC"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO 8601, например 2026-04-21T14:30:00")
+
+    row = await db.fetchrow(
+        """
+        UPDATE broadcast_schedules
+        SET fire_at=$1, is_test=$2, status='pending'
+        WHERE id=$3 AND event_id=$4
+        RETURNING id, fire_at, is_test, status
+        """,
+        dt_utc, data.is_test, schedule_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    return dict(row)
+
+
+class AddManualRequest(BaseModel):
+    template_id: int
+    fire_at: str
+    is_test: bool = False
+    audience_type: Optional[str] = "all_event"
+    note: Optional[str] = None
+
+
+@router.post("/schedules/add-manual", summary="Добавить рассылку вручную")
+async def add_manual_schedule(
+    event_id: int,
+    data: AddManualRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    tpl = await db.fetchrow(
+        "SELECT id, type, audience_type FROM broadcast_templates WHERE id=$1 AND event_id=$2",
+        data.template_id, event_id
+    )
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Шаблон не найден")
+
+    client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+    tz_str = (client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow"
+    tz = ZoneInfo(tz_str)
+
+    try:
+        dt_naive = datetime.fromisoformat(data.fire_at)
+        if dt_naive.tzinfo is None:
+            dt_aware = dt_naive.replace(tzinfo=tz)
+        else:
+            dt_aware = dt_naive
+        dt_utc = dt_aware.astimezone(ZoneInfo("UTC"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Неверный формат даты")
+
+    audience = data.audience_type or tpl["audience_type"]
+    row = await db.fetchrow(
+        """
+        INSERT INTO broadcast_schedules
+          (event_id, template_id, type, fire_at, status, is_test, audience_type)
+        VALUES ($1, $2, $3, $4, 'pending', $5, $6)
+        RETURNING id, type, fire_at, status, is_test, audience_type
+        """,
+        event_id, tpl["id"], tpl["type"], dt_utc, data.is_test, audience
+    )
+    return dict(row)
+
+
+@router.post("/schedules/run-all", summary="Запустить всю очередь (активировать Celery)")
+async def run_all_schedules(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """
+    Помечает все pending-рассылки как готовые к отправке.
+    Celery Beat подхватит их в течение следующей минуты.
+    Рассылки с fire_at в прошлом уйдут немедленно при следующем тике Beat.
+    Рассылки с fire_at в будущем уйдут по расписанию.
+    """
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    # Проверяем есть ли незадананная speaker_intro (fire_at = NULL)
+    null_fire = await db.fetchval(
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='pending' AND fire_at IS NULL",
+        event_id
+    )
+    if null_fire and null_fire > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"У {null_fire} рассылок не задано время отправки. Установите дату для «Знакомства со спикерами» перед запуском."
+        )
+
+    count = await db.fetchval(
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='pending'", event_id
+    )
+    # Celery Beat сам подхватит по расписанию — нам не нужно ничего дополнительно делать.
+    # Просто возвращаем статус.
+    return {"ok": True, "queued": count, "message": f"Очередь активирована. {count} рассылок уйдут по расписанию."}
 
 
 @router.post("/schedules/{schedule_id}/cancel", summary="Отменить рассылку")
@@ -424,6 +694,80 @@ async def cancel_all_schedules(
     return {"ok": True, "cancelled": count}
 
 
+@router.get("/schedules/{schedule_id}/preview", summary="Превью сообщения рассылки")
+async def preview_schedule(
+    event_id: int,
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """
+    Возвращает текст и фото, которые получит пользователь,
+    собранные из актуальных данных БД прямо сейчас.
+    """
+    import re
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    schedule = await db.fetchrow(
+        """
+        SELECT bs.*, bt.text as tmpl_text, bt.photo_url as tmpl_photo,
+               bt.button_text as tmpl_btn_text, bt.button_url as tmpl_btn_url,
+               bt.type as tmpl_type
+        FROM broadcast_schedules bs
+        LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
+        WHERE bs.id=$1 AND bs.event_id=$2
+        """,
+        schedule_id, event_id
+    )
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Не найдено")
+
+    session_data = {}
+    if schedule["session_id"]:
+        session = await db.fetchrow(
+            """
+            SELECT cs.title as session_title, cs.start_datetime, cs.end_datetime, cs.day,
+                   c.name as speaker_name, c.poster_url as speaker_poster,
+                   c.personal_tg_username as speaker_personal_tg,
+                   cse.gift_after_speech_title as gift_title,
+                   cse.gift_after_speech_url as gift_url,
+                   cd.stream_url
+            FROM conf_sessions cs
+            LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+            LEFT JOIN collaborators c ON c.id = cse.speaker_id
+            LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
+            WHERE cs.id=$1
+            """,
+            schedule["session_id"]
+        )
+        if session:
+            session_data = dict(session)
+
+    text = schedule["tmpl_text"] or ""
+    photo = schedule["tmpl_photo"] or session_data.get("speaker_poster")
+
+    replacements = {
+        "{speaker_name}": session_data.get("speaker_name") or "",
+        "{session_title}": session_data.get("session_title") or "",
+        "{speaker_topic}": session_data.get("session_title") or "",
+        "{stream_url}": session_data.get("stream_url") or "",
+        "{gift_title}": (session_data.get("gift_title") or "").strip(),
+        "{gift_url}": (session_data.get("gift_url") or "").strip(),
+    }
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    return {
+        "text": text,
+        "photo": photo,
+        "button_text": schedule["tmpl_btn_text"],
+        "button_url": schedule["tmpl_btn_url"],
+        "template_type": schedule["tmpl_type"],
+    }
+
+
 # ─────────────────────────────────────────
 # ТЕСТОВАЯ РАССЫЛКА
 # ─────────────────────────────────────────
@@ -436,11 +780,6 @@ async def test_template(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    """
-    Для шаблона gift — отправляет сообщение о подарке для каждого спикера дня 1
-    по порядку программы на тестовые Telegram ID клиента.
-    Для остальных шаблонов — пока возвращает not_implemented.
-    """
     import httpx, re
 
     client_id = int(client["sub"])
@@ -457,7 +796,6 @@ async def test_template(
     if tpl["type"] not in SPEAKER_TYPES + DAY_TYPES:
         return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка для этого шаблона пока не реализована"}
 
-    # Тестовые ID и bot_token клиента
     client_row = await db.fetchrow(
         "SELECT bot_token, test_telegram_ids FROM clients WHERE id=$1", client_id
     )
@@ -469,8 +807,6 @@ async def test_template(
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
 
     import re
-
-    # ── Вспомогательные функции формирования сообщений ──
 
     def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
         tg_raw = (personal_tg or "").strip()
@@ -544,21 +880,16 @@ async def test_template(
         text = text.replace("{registration_url}", registration_url_val or "")
         text = text.replace("{raffle_url}", raffle_url_val or "")
         text = text.replace("{day_speakers_gifts}", day_speakers_gifts or "")
-        # Умная подстановка следующей встречи — убираем строку если последний день
         if next_day_mention:
             text = text.replace("{next_day_mention}", next_day_mention)
         else:
             text = re.sub(r"^.*\{next_day_mention\}.*$\n?", "", text, flags=re.MULTILINE)
         return re.sub(r"\n{3,}", "\n\n", text).strip()
 
-    # ── Ветка: шаблоны уровня «день» ──
-
     if tpl["type"] in ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end"):
-        # Таймзона клиента
         client_row_tz = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
         tz = ZoneInfo((client_row_tz["timezone"] or "Europe/Moscow") if client_row_tz else "Europe/Moscow")
 
-        # Данные конференции (название, лендинг, горизонтальная афиша)
         conf_row = await db.fetchrow(
             """
             SELECT e.title as conf_title,
@@ -583,8 +914,6 @@ async def test_template(
         poster_h = conf_row["poster_horizontal"] if conf_row else None
         photo = tpl["photo_url"] or (poster_h[0] if poster_h else None) or None
 
-        # Программа дня: «ЧЧ:ММ-ЧЧ:ММ: Тема (Имя — Роль)»
-        # Роль указывается только для headliner, partner, organizer
         ROLE_LABELS = {"headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
         day_sessions = await db.fetch(
             """
@@ -614,7 +943,6 @@ async def test_template(
             program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
         day_program = "\n".join(program_lines)
 
-        # Для day_end — собираем подарки спикеров и фразу про следующую встречу
         day_speakers_gifts = ""
         next_day_mention = ""
         if tpl["type"] == "day_end":
@@ -657,14 +985,10 @@ async def test_template(
                 gift_blocks.append(block)
             if gift_blocks:
                 day_speakers_gifts = f"А сейчас ловите подарки от спикеров Дня {day}:\n\n" + "\n\n".join(gift_blocks)
-            else:
-                day_speakers_gifts = ""
 
-            # Следующий день — берём дату и время из первой сессии
             MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
                          "июля", "августа", "сентября", "октября", "ноября", "декабря"]
             next_day_number = day + 1
-            # Берём дату текущего дня из его первой сессии
             first_cur_session = await db.fetchrow(
                 "SELECT start_datetime FROM conf_sessions WHERE event_id = $1 AND day = $2 ORDER BY sort_order, start_datetime LIMIT 1",
                 event_id, day
@@ -684,7 +1008,6 @@ async def test_template(
                 else:
                     when = f"{next_date.day} {MONTHS_RU[next_date.month - 1]}"
                 next_day_mention = f"Встречаемся {when} в {next_time} на День {next_day_number}."
-            # Если следующего дня нет — next_day_mention остаётся "", строка уберётся
 
         text = build_day_message(
             tpl["text"], day, conf_title, day_date_str, day_program, stream_url, registration_url,
@@ -710,7 +1033,6 @@ async def test_template(
                 ok = True
                 err = None
                 if photo and len(text) <= 1024:
-                    # Фото + подпись (до 1024 символов)
                     payload = {"chat_id": chat_id, "photo": photo, "caption": text, "parse_mode": "HTML"}
                     if reply_markup:
                         payload["reply_markup"] = reply_markup
@@ -719,7 +1041,6 @@ async def test_template(
                     ok = r.get("ok")
                     err = r.get("description")
                 elif photo:
-                    # Текст длиннее 1024 — сначала фото без текста, потом текст отдельно
                     resp1 = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto",
                         json={"chat_id": chat_id, "photo": photo})
                     resp2 = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",

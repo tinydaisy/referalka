@@ -90,7 +90,16 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{day_speakers_gifts}', desc: 'Список подарков спикеров за день' },
 ]
 
-const emptyForm = { name: '', type: 'pre_start', text: '', photo_url: '', button_text: '', button_url: '' }
+const AUDIENCE_LABELS: Record<string, string> = {
+  all_event: 'Все участники конфы',
+  registered_event: 'Только зарегистрированные',
+  all_client: 'Вся база клиента',
+}
+
+const emptyForm = {
+  name: '', type: 'pre_start', text: '', photo_url: '',
+  button_text: '', button_url: '', audience_type: 'all_event',
+}
 
 export default function TemplatesPage() {
   const { id } = useParams()
@@ -128,7 +137,8 @@ export default function TemplatesPage() {
 
   async function save() {
     try {
-      const res = await api.conference.templates.update(eventId, editModal.id, form)
+      const payload = { ...form, audience_type: (form as any).audience_type || 'all_event' }
+      const res = await api.conference.templates.update(eventId, editModal.id, payload)
       setTemplates(templates.map((x: any) => x.id === editModal.id ? res : x))
       setEditModal(null)
     } catch (e: any) {
@@ -145,6 +155,7 @@ export default function TemplatesPage() {
       photo_url: t.photo_url || '',
       button_text: t.button_text || '',
       button_url: t.button_url || '',
+      audience_type: t.audience_type || 'all_event',
     })
   }
 
@@ -499,6 +510,9 @@ export default function TemplatesPage() {
                       <span className="text-blue-500">📸 Афиша подставится автоматически</span>
                     ) : null}
                     {tpl.button_text && <span>🔘 Кнопка: «{tpl.button_text}»</span>}
+                    <span className="text-indigo-500 font-medium">
+                      👥 {AUDIENCE_LABELS[tpl.audience_type] || tpl.audience_type || 'Все участники конфы'}
+                    </span>
                   </div>
                 </div>
               )}
@@ -559,6 +573,17 @@ export default function TemplatesPage() {
                     placeholder="{stream_url} или https://..."
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none font-mono" />
                 </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">👥 По какой базе рассылать</label>
+                <select
+                  value={(form as any).audience_type || 'all_event'}
+                  onChange={e => setForm({ ...form, audience_type: e.target.value } as any)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                  <option value="all_event">Все участники конфы</option>
+                  <option value="registered_event">Только зарегистрированные участники</option>
+                  <option value="all_client">Вся база клиента (все события)</option>
+                </select>
               </div>
             </div>
             <div className="flex gap-2 mt-5">
