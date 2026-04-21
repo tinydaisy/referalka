@@ -11,6 +11,12 @@ from app.config import settings
 router = APIRouter(prefix="/integrations", tags=["Интеграции"])
 
 
+def clean_username(username: Optional[str]) -> Optional[str]:
+    if username is None:
+        return None
+    return username.lstrip('@') or None
+
+
 def generate_ref_code() -> str:
     alphabet = string.ascii_lowercase + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(8))
@@ -100,7 +106,7 @@ async def salebot_register(
             RETURNING id
             """,
             data.client_id, data.platform, data.platform_user_id,
-            data.username, data.first_name, data.last_name, data.salebot_id
+            clean_username(data.username), data.first_name, data.last_name, data.salebot_id
         )
     else:
         pluson_id = existing_user["id"]
@@ -115,7 +121,7 @@ async def salebot_register(
               updated_at = NOW()
             WHERE id = $5
             """,
-            data.username, data.first_name, data.last_name, data.salebot_id, pluson_id
+            clean_username(data.username), data.first_name, data.last_name, data.salebot_id, pluson_id
         )
 
     # Если event_id передан — upsert event_participants

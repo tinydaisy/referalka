@@ -54,7 +54,9 @@ async def register_participant(
           updated_at = NOW()
         RETURNING id
         """,
-        event["client_id"], str(data.tg_id), data.username, data.first_name, data.last_name
+        event["client_id"], str(data.tg_id),
+        data.username.lstrip('@') if data.username else None,
+        data.first_name, data.last_name
     )
 
     existing = await db.fetchrow(
