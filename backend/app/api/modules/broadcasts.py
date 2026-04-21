@@ -565,7 +565,11 @@ async def test_template(
         raw_date = conf_row["day_date"] if conf_row else None
         day_date_str = raw_date.strftime("%-d %B") if raw_date else f"День {day}"
         poster_h = conf_row["poster_horizontal"] if conf_row else None
-        photo = (poster_h[0] if poster_h else None) or tpl["photo_url"] or None
+        # day_end и day_live не используют фото
+        if tpl["type"] in ("day_end", "day_live"):
+            photo = tpl["photo_url"] or None
+        else:
+            photo = (poster_h[0] if poster_h else None) or tpl["photo_url"] or None
 
         # Программа дня: «ЧЧ:ММ-ЧЧ:ММ: Тема (Имя — Роль)»
         # Роль указывается только для headliner, partner, organizer
@@ -665,9 +669,9 @@ async def test_template(
             next_day_mention=next_day_mention
         )
         btn_text = tpl["button_text"]
-        btn_url = (tpl["button_url"] or "").replace("{stream_url}", stream_url).replace("{registration_url}", registration_url)
+        btn_url = (tpl["button_url"] or "").replace("{stream_url}", stream_url).replace("{registration_url}", registration_url).replace("{raffle_url}", raffle_url)
         reply_markup = None
-        if btn_text and btn_url:
+        if btn_text and btn_url and not btn_url.startswith("{"):
             reply_markup = {"inline_keyboard": [[{"text": btn_text, "url": btn_url}]]}
 
         TYPE_LABELS = {
