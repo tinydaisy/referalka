@@ -434,38 +434,28 @@ async def test_template(
     if not test_ids:
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
 
-    # Ссылка на эфир нужного дня
-    conf_row = await db.fetchrow(
-        "SELECT stream_url_day_1, stream_url_day_2 FROM conf_conferences WHERE event_id=$1", event_id
-    )
-    stream_url = ""
-    if conf_row:
-        if day == 1:
-            stream_url = conf_row["stream_url_day_1"] or ""
-        elif day == 2:
-            stream_url = conf_row["stream_url_day_2"] or ""
-        else:
-            stream_url = conf_row["stream_url_day_1"] or ""
-
     # Спикеры указанного дня по порядку программы (только с привязанным спикером)
+    # stream_url берётся из conf_days (там хранятся ссылки на эфир по дням)
+    # speaker_topic = cs.title (заголовок сессии — это и есть тема выступления)
     sessions = await db.fetch(
         """
-        SELECT cs.sort_order, cs.title as session_title,
+        SELECT cs.sort_order, cs.title as speaker_topic,
                c.name as speaker_name,
                c.personal_tg_username,
                c.poster_url as speaker_poster,
-               cst.topic as speaker_topic,
                cse.gift_after_speech_title as gift_title,
-               cse.gift_after_speech_url as gift_url
+               cse.gift_after_speech_url as gift_url,
+               COALESCE(cd.stream_url, '') as stream_url
         FROM conf_sessions cs
         JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
         JOIN collaborators c ON c.id = cse.speaker_id
-        LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
+        LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
         WHERE cs.event_id = $1 AND cs.day = $2 AND cs.speaker_id IS NOT NULL
         ORDER BY cs.sort_order
         """,
         event_id, day
     )
+    stream_url = sessions[0]["stream_url"] if sessions else ""
 
     def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
         tg_raw = (personal_tg or "").strip()
@@ -516,7 +506,7 @@ async def test_template(
                 )
                 photo = s["speaker_poster"] or tpl["photo_url"] or None
             elif tpl["type"] == "pre_start":
-                text = build_pre_start_message(tpl["text"], s["speaker_name"], s["speaker_topic"], stream_url)
+                text = build_pre_start_message(tpl["text"], s["speaker_name"], s["speaker_topic"], s["stream_url"])
                 photo = s["speaker_poster"] or tpl["photo_url"] or None
             else:
                 continue
@@ -524,7 +514,7 @@ async def test_template(
             # Inline-кнопка если есть
             reply_markup = None
             btn_text = tpl["button_text"]
-            btn_url = (tpl["button_url"] or "").replace("{stream_url}", stream_url)
+            btn_url = (tpl["button_url"] or "").replace("{stream_url}", s["stream_url"])
             if btn_text and btn_url:
                 reply_markup = {"inline_keyboard": [[{"text": btn_text, "url": btn_url}]]}
 
