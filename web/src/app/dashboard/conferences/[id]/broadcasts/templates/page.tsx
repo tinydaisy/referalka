@@ -330,7 +330,7 @@ export default function TemplatesPage() {
         return `🎁 <b>${s.speaker_name}:</b> ${title}\n${url}`
       })
     const daySpeakersGifts = speakerGiftBlocks.length > 0
-      ? `А сейчас ловите подарки от спикеров ${dayOrdinal} дня:\n\n` + speakerGiftBlocks.join('\n\n')
+      ? `А сейчас ловите подарки от спикеров Дня ${d}:\n\n` + speakerGiftBlocks.join('\n\n')
       : ''
 
     // Умная фраза про следующий день

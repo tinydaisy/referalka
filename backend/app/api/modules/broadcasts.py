@@ -628,7 +628,7 @@ async def test_template(
                     block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{url}"
                 gift_blocks.append(block)
             if gift_blocks:
-                day_speakers_gifts = "А сейчас ловите подарки от спикеров {day_ordinal} дня:\n\n".replace("{day_ordinal}", ORDINALS.get(day, f"{day}-м")) + "\n\n".join(gift_blocks)
+                day_speakers_gifts = f"А сейчас ловите подарки от спикеров Дня {day}:\n\n" + "\n\n".join(gift_blocks)
             else:
                 day_speakers_gifts = ""
 
