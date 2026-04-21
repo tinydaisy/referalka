@@ -71,7 +71,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
     // Валидация telegram_chat_ids
     setChatIdsError('')
     if (form.telegram_chat_ids.trim()) {
-      const parts = form.telegram_chat_ids.split(',').map(s => s.trim()).filter(Boolean)
+      const parts = form.telegram_chat_ids.split(',').map((s: string) => s.trim()).filter(Boolean)
       if (parts.length === 0 || form.telegram_chat_ids.trim().indexOf(',') === -1 && parts.length > 1) {
         setChatIdsError('Вводите ID через запятую')
         return
