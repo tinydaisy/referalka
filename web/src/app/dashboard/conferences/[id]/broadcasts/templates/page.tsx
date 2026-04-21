@@ -17,8 +17,8 @@ const TYPE_DEFS: TypeDef[] = [
   {
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
-    hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера.',
-    variables: ['{speaker_name}', '{speaker_tg}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}'],
+    hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}', '{registration_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -139,7 +139,7 @@ export default function TemplatesPage() {
     setForm({
       name: t.name,
       type: t.type,
-      text: t.text || '',
+      text: (t.text || '').replace(/\\n/g, '\n'),
       photo_url: t.photo_url || '',
       button_text: t.button_text || '',
       button_url: t.button_url || '',
@@ -201,33 +201,58 @@ export default function TemplatesPage() {
       const giftUrl = (speaker.gift_after_speech_url || '').trim()
       const rawTg = (speaker.personal_tg_username || '').trim()
       const tgUrl = rawTg ? '@' + rawTg.replace(/^@+/, '') : ''
-      const achievements = (speaker.achievements || []).map((a: string) => `· ${a}`).join('\n')
       const giftRaffle = (speaker.gift_raffle_title || '').trim()
 
-      // Правила блока подарка (для шаблона gift)
-      if (tplType === 'gift') {
+      if (tplType === 'speaker_intro') {
+        // Для speaker_intro генерируем полностью, не по шаблону
+        const ROLE_MAP: Record<string, string> = { speaker: 'Спикер', headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
+        const roleLabel = ROLE_MAP[speaker.role] || 'Спикер'
+        const tgChannel = (speaker.tg_channel_url || '').trim()
+        const insta = (speaker.instagram_url || '').trim()
+        const achList: string[] = (speaker.achievements || []).filter(Boolean)
+        const topic = (speaker.topics?.[0]?.topic || speaker.topic || '').trim()
+
+        const lines: string[] = []
+        lines.push(`${speaker.name || ''} — ${roleLabel}`)
+        lines.push('')
+        if (tgChannel) lines.push(`Тг канал: ${tgChannel}`)
+        if (insta) lines.push(`Нельзяграм: ${insta}`)
+        lines.push('')
+        lines.push('Тема:')
+        lines.push('')
+        if (achList.length > 0) {
+          achList.forEach(a => lines.push(`• ${a}`))
+        } else {
+          lines.push(`• ${topic || 'уточняется'}`)
+        }
+        lines.push('')
+        if (giftTitle) { lines.push(`🎁 На эфире подарит: ${giftTitle}`); lines.push('') }
+        if (giftRaffle) { lines.push(`🏆 Подарок для большого розыгрыша: ${giftRaffle}`); lines.push('') }
+        lines.push('Если вы ещё не зарегистрированы — вы ещё успеваете это сделать')
+        lines.push('Жмите на кнопку:')
+        out = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+      } else if (tplType === 'gift') {
         // Убираем строки с переменными подарка — заменим всё блоком по правилам
         out = out.replace(/^.*\{gift_title\}.*$\n?/gm, '')
         out = out.replace(/^.*\{gift_url\}.*$\n?/gm, '')
 
         let giftBlock = ''
         if (!giftTitle) {
-          // Нет подарка — ссылка на личку
           giftBlock = tgUrl
             ? `🎁 Чтобы забрать материалы — пишите в личку ${tgUrl}`
             : `🎁 Чтобы забрать материалы — напишите спикеру в личку`
         } else if (!giftUrl) {
-          // Есть название, нет ссылки
-          giftBlock = tgUrl
-            ? `${giftTitle}\nПишите в личку ${tgUrl}`
-            : giftTitle
+          giftBlock = tgUrl ? `${giftTitle}\nПишите в личку ${tgUrl}` : giftTitle
         } else {
-          // Есть и название и ссылка
           giftBlock = `${giftTitle}\n${giftUrl}`
         }
         out = out.trimEnd() + '\n\n' + giftBlock
+        out = out
+          .replace(/\{speaker_name\}/g, speaker.name || '')
+          .replace(/\{speaker_topic\}/g, speaker.topics?.[0]?.topic || speaker.topic || 'уточняется')
+          .replace(/\{stream_url\}/g, getStreamUrl(day))
       } else {
-        // Стандартная логика для других шаблонов
+        // pre_start и другие спикерские шаблоны
         if (giftUrl) {
           out = out.replace(/\{gift_url\}/g, giftUrl)
         } else {
@@ -240,33 +265,16 @@ export default function TemplatesPage() {
           out = out.replace(/^.*\{gift_title\}.*$\n?/gm, '')
           out = out.replace(/^.*\{gift_after_speech_title\}.*$\n?/gm, '')
         }
+        if (giftRaffle) {
+          out = out.replace(/\{gift_raffle_title\}/g, giftRaffle)
+        } else {
+          out = out.replace(/^.*\{gift_raffle_title\}.*$\n?/gm, '')
+        }
+        out = out
+          .replace(/\{speaker_name\}/g, speaker.name || '')
+          .replace(/\{speaker_topic\}/g, speaker.topics?.[0]?.topic || speaker.topic || 'уточняется')
+          .replace(/\{stream_url\}/g, getStreamUrl(day))
       }
-
-      // Telegram-канал
-      if (tgUrl) {
-        out = out.replace(/\{speaker_tg\}/g, `Тг канал: ${tgUrl}`)
-      } else {
-        out = out.replace(/^.*\{speaker_tg\}.*$\n?/gm, '')
-      }
-
-      // Регалии
-      if (achievements) {
-        out = out.replace(/\{speaker_achievements\}/g, achievements)
-      } else {
-        out = out.replace(/^.*\{speaker_achievements\}.*$\n?/gm, '')
-      }
-
-      // Подарок для розыгрыша
-      if (giftRaffle) {
-        out = out.replace(/\{gift_raffle_title\}/g, giftRaffle)
-      } else {
-        out = out.replace(/^.*\{gift_raffle_title\}.*$\n?/gm, '')
-      }
-
-      out = out
-        .replace(/\{speaker_name\}/g, speaker.name || '')
-        .replace(/\{speaker_topic\}/g, speaker.topics?.[0]?.topic || speaker.topic || 'уточняется')
-        .replace(/\{stream_url\}/g, getStreamUrl(day))
     }
 
     const d = day ?? testDay

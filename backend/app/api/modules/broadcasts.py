@@ -58,17 +58,19 @@ DEFAULT_TEMPLATES = [
         "name": "Знакомство со спикером",
         "type": "speaker_intro",
         "text": (
-            "{speaker_name}\n\n"
-            "{speaker_tg}\n\n"
-            "Тема лекции:\n\n"
-            "{speaker_topic}\n\n"
+            "{speaker_name} — {speaker_role}\n\n"
+            "{speaker_tg}\n"
+            "{speaker_instagram}\n\n"
+            "Тема:\n"
             "{speaker_achievements}\n\n"
             "🎁 На эфире подарит: {gift_after_speech_title}\n\n"
-            "🏆 Подарок для большого розыгрыша: {gift_raffle_title}"
+            "🏆 Подарок для большого розыгрыша: {gift_raffle_title}\n\n"
+            "Если вы ещё не зарегистрированы — вы ещё успеваете это сделать\n"
+            "Жмите на кнопку:"
         ),
         "photo_url": None,
-        "button_text": None,
-        "button_url": None,
+        "button_text": "Зарегистрироваться",
+        "button_url": "{registration_url}",
     },
     {
         "name": "День конференции — за 30 мин (не зарегистрирован)",
@@ -473,16 +475,61 @@ async def test_template(
             body = f"{title}\n{url}"
         return f"{header}\n\n{body}"
 
-    def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, speaker_topic, gift_title):
-        text = tmpl_text or ""
-        tg_raw = (personal_tg or "").strip()
-        tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
-        text = text.replace("{speaker_name}", speaker_name or "")
-        text = text.replace("{speaker_tg}", f"Тг канал: {tg_mention}" if tg_mention else "")
-        text = text.replace("{speaker_topic}", speaker_topic or "")
-        text = text.replace("{gift_after_speech_title}", gift_title or "")
-        text = text.replace("{gift_raffle_title}", "")
-        text = text.replace("{speaker_achievements}", "")
+    ROLE_LABELS_INTRO = {"speaker": "Спикер", "headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
+
+    def build_speaker_intro_message(speaker_name, personal_tg, tg_channel_url, instagram_url,
+                                    achievements, role, speaker_topic, gift_title, gift_raffle, registration_url):
+        role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
+        lines = []
+
+        # Имя — роль
+        lines.append(f"{speaker_name or ''} — {role_label}")
+        lines.append("")
+
+        # Тг канал
+        tg_ch = (tg_channel_url or "").strip()
+        if tg_ch:
+            lines.append(f"Тг канал: {tg_ch}")
+        # Инстаграм
+        insta = (instagram_url or "").strip()
+        if insta:
+            lines.append(f"Нельзяграм: {insta}")
+
+        # Пустая строка после соцсетей (если они были) или после имени
+        lines.append("")
+
+        # Тема
+        topic = (speaker_topic or "уточняется").strip()
+        lines.append(f"Тема:")
+        lines.append("")
+
+        # Регалии через •
+        ach_list = [a.strip() for a in (achievements or []) if a.strip()]
+        if ach_list:
+            for a in ach_list:
+                lines.append(f"• {a}")
+        else:
+            lines.append(f"• {topic}")
+
+        lines.append("")
+
+        # Подарок на эфире
+        g_title = (gift_title or "").strip()
+        if g_title:
+            lines.append(f"🎁 На эфире подарит: {g_title}")
+            lines.append("")
+
+        # Подарок для розыгрыша
+        g_raffle = (gift_raffle or "").strip()
+        if g_raffle:
+            lines.append(f"🏆 Подарок для большого розыгрыша: {g_raffle}")
+            lines.append("")
+
+        # Призыв зарегистрироваться
+        lines.append("Если вы ещё не зарегистрированы — вы ещё успеваете это сделать")
+        lines.append("Жмите на кнопку:")
+
+        text = "\n".join(lines)
         return re.sub(r"\n{3,}", "\n\n", text).strip()
 
     def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val):
@@ -611,14 +658,24 @@ async def test_template(
 
     # ── Ветка: шаблоны уровня «спикер» ──
 
+    conf_row2 = await db.fetchrow(
+        "SELECT cc.registration_url FROM conf_conferences cc WHERE cc.event_id = $1", event_id
+    )
+    registration_url_val = (conf_row2["registration_url"] or "") if conf_row2 else ""
+
     sessions = await db.fetch(
         """
         SELECT cs.sort_order, cs.title as speaker_topic,
                c.name as speaker_name,
                c.personal_tg_username,
+               c.tg_channel_url,
+               c.instagram_url,
+               c.achievements,
                c.poster_url as speaker_poster,
+               cse.role,
                cse.gift_after_speech_title as gift_title,
                cse.gift_after_speech_url as gift_url,
+               cse.gift_raffle_title,
                COALESCE(cd.stream_url, '') as stream_url
         FROM conf_sessions cs
         JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
@@ -638,8 +695,11 @@ async def test_template(
                 photo = None
             elif tpl["type"] == "speaker_intro":
                 text = build_speaker_intro_message(
-                    tpl["text"], s["speaker_name"], s["personal_tg_username"],
-                    s["speaker_topic"], s["gift_title"]
+                    s["speaker_name"], s["personal_tg_username"],
+                    s["tg_channel_url"], s["instagram_url"],
+                    s["achievements"], s["role"],
+                    s["speaker_topic"], s["gift_title"],
+                    s["gift_raffle_title"], registration_url_val
                 )
                 photo = s["speaker_poster"] or tpl["photo_url"] or None
             elif tpl["type"] == "pre_start":
@@ -650,24 +710,36 @@ async def test_template(
 
             reply_markup = None
             btn_text = tpl["button_text"]
-            btn_url = (tpl["button_url"] or "").replace("{stream_url}", s["stream_url"])
+            btn_url = (tpl["button_url"] or "").replace("{stream_url}", s["stream_url"]).replace("{registration_url}", registration_url_val)
             if btn_text and btn_url:
                 reply_markup = {"inline_keyboard": [[{"text": btn_text, "url": btn_url}]]}
 
             speaker_results = []
             for chat_id in test_ids:
-                if photo:
+                if photo and len(text) <= 1024:
                     payload = {"chat_id": chat_id, "photo": photo, "caption": text, "parse_mode": "HTML"}
                     if reply_markup:
                         payload["reply_markup"] = reply_markup
                     resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload)
+                    r = resp.json()
+                    ok, err = r.get("ok"), r.get("description")
+                elif photo:
+                    await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        json={"chat_id": chat_id, "photo": photo})
+                    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+                    if reply_markup:
+                        payload["reply_markup"] = reply_markup
+                    resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+                    r = resp.json()
+                    ok, err = r.get("ok"), r.get("description")
                 else:
                     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
                     if reply_markup:
                         payload["reply_markup"] = reply_markup
                     resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
-                r = resp.json()
-                speaker_results.append({"chat_id": chat_id, "ok": r.get("ok"), "error": r.get("description")})
+                    r = resp.json()
+                    ok, err = r.get("ok"), r.get("description")
+                speaker_results.append({"chat_id": chat_id, "ok": ok, "error": err})
             results.append({"speaker": s["speaker_name"], "results": speaker_results})
 
     return {"ok": True, "sent": len(sessions), "details": results}
