@@ -167,19 +167,19 @@ async def _send_broadcast(schedule_id: int):
                 if r["platform"] != "telegram":
                     continue
                 tg_id = r["platform_user_id"]
-                success = await _send_telegram_message(
+                success, tg_error = await _send_telegram_message(
                     client, bot_token, tg_id, text, photo_url, button_text, button_url
                 )
-                # Логируем
                 await conn.execute(
                     """
-                    INSERT INTO broadcast_log (schedule_id, platform_user_id, status, sent_at)
-                    SELECT $1, pu.id, $2, NOW()
+                    INSERT INTO broadcast_log (schedule_id, platform_user_id, status, error, sent_at)
+                    SELECT $1, pu.id, $2, $3, NOW()
                     FROM platform_users pu
-                    WHERE pu.platform_user_id = $3 AND pu.client_id = $4
+                    WHERE pu.platform_user_id = $4 AND pu.client_id = $5
                     """,
                     schedule_id,
                     "sent" if success else "failed",
+                    tg_error or None,
                     tg_id,
                     schedule["client_id"]
                 )
@@ -343,10 +343,9 @@ async def _send_telegram_message(
     photo_url: str = None,
     button_text: str = None,
     button_url: str = None
-) -> bool:
-    """Отправляет сообщение через Telegram Bot API. Возвращает True если успешно."""
+) -> tuple[bool, str]:
+    """Отправляет сообщение через Telegram Bot API. Возвращает (успех, описание_ошибки)."""
     try:
-        # Inline-кнопка если есть
         reply_markup = None
         if button_text and button_url:
             reply_markup = {
@@ -354,54 +353,28 @@ async def _send_telegram_message(
             }
 
         if photo_url and len(text) <= 1024:
-            # Фото + подпись (Telegram лимит caption = 1024 символа)
-            payload = {
-                "chat_id": chat_id,
-                "photo": photo_url,
-                "caption": text,
-                "parse_mode": "HTML",
-            }
+            payload = {"chat_id": chat_id, "photo": photo_url, "caption": text, "parse_mode": "HTML"}
             if reply_markup:
                 payload["reply_markup"] = reply_markup
-            resp = await client.post(
-                f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                json=payload
-            )
-            return resp.status_code == 200
+            resp = await client.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload)
         elif photo_url:
-            # Текст длиннее 1024 — сначала фото, потом текст отдельно
-            await client.post(
-                f"https://api.telegram.org/bot{bot_token}/sendPhoto",
-                json={"chat_id": chat_id, "photo": photo_url}
-            )
-            payload = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            }
+            await client.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                              json={"chat_id": chat_id, "photo": photo_url})
+            payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
             if reply_markup:
                 payload["reply_markup"] = reply_markup
-            resp = await client.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json=payload
-            )
-            return resp.status_code == 200
+            resp = await client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
         else:
-            # Только текст
-            payload = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            }
+            payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
             if reply_markup:
                 payload["reply_markup"] = reply_markup
-            resp = await client.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json=payload
-            )
-            return resp.status_code == 200
+            resp = await client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+
+        if resp.status_code == 200:
+            return True, ""
+        err = resp.json().get("description", f"HTTP {resp.status_code}")
+        logger.warning(f"Telegram отклонил сообщение в {chat_id}: {err}")
+        return False, err
     except Exception as e:
         logger.warning(f"Ошибка отправки в {chat_id}: {e}")
-        return False
+        return False, str(e)
