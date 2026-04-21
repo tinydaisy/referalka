@@ -572,21 +572,40 @@ async def test_template(
         send_results = []
         async with httpx.AsyncClient(timeout=15) as http:
             for chat_id in test_ids:
-                if photo:
+                ok = True
+                err = None
+                if photo and len(text) <= 1024:
+                    # Фото + подпись (до 1024 символов)
                     payload = {"chat_id": chat_id, "photo": photo, "caption": text, "parse_mode": "HTML"}
                     if reply_markup:
                         payload["reply_markup"] = reply_markup
                     resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto", json=payload)
+                    r = resp.json()
+                    ok = r.get("ok")
+                    err = r.get("description")
+                elif photo:
+                    # Текст длиннее 1024 — сначала фото без текста, потом текст отдельно
+                    resp1 = await http.post(f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        json={"chat_id": chat_id, "photo": photo})
+                    resp2 = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+                              "disable_web_page_preview": True,
+                              **({"reply_markup": reply_markup} if reply_markup else {})})
+                    r = resp2.json()
+                    ok = resp1.json().get("ok") and r.get("ok")
+                    err = r.get("description")
                 else:
                     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
                     if reply_markup:
                         payload["reply_markup"] = reply_markup
                     resp = await http.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
-                r = resp.json()
-                if not r.get("ok"):
+                    r = resp.json()
+                    ok = r.get("ok")
+                    err = r.get("description")
+                if not ok:
                     import logging
-                    logging.getLogger(__name__).warning(f"[broadcast test] chat_id={chat_id} error={r.get('description')} status={resp.status_code}")
-                send_results.append({"chat_id": chat_id, "ok": r.get("ok"), "error": r.get("description")})
+                    logging.getLogger(__name__).warning(f"[broadcast test] chat_id={chat_id} error={err}")
+                send_results.append({"chat_id": chat_id, "ok": ok, "error": err})
 
         return {"ok": True, "sent": 1, "details": [{"speaker": label, "results": send_results}]}
 

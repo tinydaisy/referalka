@@ -285,8 +285,8 @@ async def _send_telegram_message(
                 "inline_keyboard": [[{"text": button_text, "url": button_url}]]
             }
 
-        if photo_url:
-            # Отправляем фото с подписью
+        if photo_url and len(text) <= 1024:
+            # Фото + подпись (Telegram лимит caption = 1024 символа)
             payload = {
                 "chat_id": chat_id,
                 "photo": photo_url,
@@ -299,12 +299,18 @@ async def _send_telegram_message(
                 f"https://api.telegram.org/bot{bot_token}/sendPhoto",
                 json=payload
             )
-        else:
-            # Только текст
+            return resp.status_code == 200
+        elif photo_url:
+            # Текст длиннее 1024 — сначала фото, потом текст отдельно
+            await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                json={"chat_id": chat_id, "photo": photo_url}
+            )
             payload = {
                 "chat_id": chat_id,
                 "text": text,
                 "parse_mode": "HTML",
+                "disable_web_page_preview": True,
             }
             if reply_markup:
                 payload["reply_markup"] = reply_markup
@@ -312,8 +318,22 @@ async def _send_telegram_message(
                 f"https://api.telegram.org/bot{bot_token}/sendMessage",
                 json=payload
             )
-
-        return resp.status_code == 200
+            return resp.status_code == 200
+        else:
+            # Только текст
+            payload = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            resp = await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json=payload
+            )
+            return resp.status_code == 200
     except Exception as e:
         logger.warning(f"Ошибка отправки в {chat_id}: {e}")
         return False
