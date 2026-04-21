@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, Eye, EyeOff } from 'lucide-react'
+import { Save, Bot, Globe, Eye, EyeOff, FlaskConical } from 'lucide-react'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
 
@@ -23,7 +23,7 @@ const TIMEZONES = [
 ]
 
 export default function SettingsPage() {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '' })
   const [tariff, setTariff] = useState<any>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -41,6 +41,7 @@ export default function SettingsPage() {
         telegram_username: c.telegram_username || '',
         timezone: tz,
         bot_token: c.bot_token || '',
+        test_telegram_ids_raw: (c.test_telegram_ids || []).join(', '),
       })
       setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
     }).catch(() => {})
@@ -54,12 +55,17 @@ export default function SettingsPage() {
     setSaving(true)
     setError('')
     try {
+      const testIds = form.test_telegram_ids_raw
+        .split(/[,\s]+/)
+        .map((s: string) => s.trim())
+        .filter(Boolean)
       await api.auth.updateMe({
         name: form.name,
         phone: form.phone,
         telegram_username: form.telegram_username,
         timezone: form.timezone,
         bot_token: form.bot_token || null,
+        test_telegram_ids: testIds,
       })
       setTimezone(form.timezone)
       setSaved(true)
@@ -141,6 +147,37 @@ export default function SettingsPage() {
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-2">Получить токен можно в <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">@BotFather</a></p>
+        </div>
+
+        {/* Test Telegram IDs */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <FlaskConical size={18} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-800">Тестовые рассылки</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Telegram ID аккаунтов для тестовых рассылок. Укажите через запятую.
+              </p>
+            </div>
+          </div>
+          <input
+            type="text"
+            value={form.test_telegram_ids_raw}
+            onChange={set('test_telegram_ids_raw')}
+            placeholder="8018913774, 7879070738, 5725111966"
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+          />
+          {form.test_telegram_ids_raw && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {form.test_telegram_ids_raw.split(/[,\s]+/).filter(Boolean).map((id: string) => (
+                <span key={id} className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded-lg px-2 py-0.5 font-mono">
+                  {id.trim()}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Timezone */}

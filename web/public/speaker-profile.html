@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Профиль спикера</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #f2f4f7;
+      min-height: 100vh;
+      color: #1a2535;
+    }
+
+    /* ── Шапка ── */
+    .page-header {
+      background: linear-gradient(45deg, #25455D, #0a1520);
+      padding: 20px 16px 28px;
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      max-width: 640px;
+      margin: 0 auto 20px;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.8);
+      text-decoration: none;
+      font-size: 18px;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+
+    .back-link:hover { background: rgba(255,255,255,0.18); }
+
+    .logo-text {
+      color: #FFCFA4;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .conf-badge {
+      margin-left: auto;
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.08);
+      padding: 4px 10px;
+      border-radius: 8px;
+    }
+
+    .hero {
+      max-width: 640px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .hero-avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: rgba(255,255,255,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 3px solid rgba(255,207,164,0.4);
+    }
+
+    .hero-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+    .hero-initials {
+      color: #FFCFA4;
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .hero-info { flex: 1; min-width: 0; }
+
+    .hero-name {
+      color: #ffffff;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+
+    .hero-title {
+      color: rgba(255,255,255,0.6);
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .hero-role {
+      display: inline-block;
+      background: rgba(255, 207, 164, 0.2);
+      color: #FFCFA4;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 6px;
+    }
+
+    /* ── Контент ── */
+    .content {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 20px 16px 48px;
+    }
+
+    /* Статус-полоска */
+    .status-bar {
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+    }
+
+    .status-bar-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7a8d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+
+    .status-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .status-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+
+    .status-ok { background: #e8f5e9; color: #2e7d32; }
+    .status-warn { background: #fff8e1; color: #e65100; }
+
+    /* Секции */
+    .section { margin-bottom: 24px; }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a2535;
+      margin-bottom: 12px;
+      padding-left: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-title .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #FFCFA4;
+      flex-shrink: 0;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+    }
+
+    .card-inner { padding: 18px 20px; }
+
+    .card-subtitle {
+      font-size: 13px;
+      font-weight: 700;
+      color: #25455D;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #f0f2f5;
+    }
+
+    /* Поле */
+    .field { margin-bottom: 14px; }
+    .field:last-child { margin-bottom: 0; }
+
+    .field-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #8896a7;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .warn-icon {
+      color: #e65100;
+      font-size: 13px;
+    }
+
+    .field-value {
+      font-size: 14px;
+      color: #1a2535;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
+    .field-value.empty {
+      color: #c0c8d0;
+      font-style: italic;
+    }
+
+    .field-value a {
+      color: #25455D;
+      word-break: break-all;
+    }
+
+    /* Двухколоночная сетка */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 400px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    /* Медиа блок */
+    .media-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .media-row .field-value { flex: 1; }
+
+    .thumb {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: #e8edf2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+    .poster-block {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .poster-preview {
+      width: 60px;
+      height: 90px;
+      border-radius: 10px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: #e8edf2;
+    }
+
+    .poster-preview img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* Список тем */
+    .topic-item {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .topic-num {
+      font-size: 13px;
+      font-weight: 700;
+      color: #FFCFA4;
+      min-width: 20px;
+      flex-shrink: 0;
+      background: linear-gradient(45deg, #25455D, #0a1520);
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
+
+    .topic-text {
+      font-size: 14px;
+      color: #1a2535;
+      line-height: 1.55;
+      padding-top: 2px;
+    }
+
+    /* Регалии */
+    .achievements-list { list-style: none; }
+    .achievements-list li {
+      font-size: 14px;
+      color: #1a2535;
+      padding: 5px 0;
+      padding-left: 16px;
+      position: relative;
+      line-height: 1.5;
+    }
+    .achievements-list li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 12px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #FFCFA4;
+    }
+
+    /* Разделитель в карточке */
+    .divider {
+      border: none;
+      border-top: 1px solid #f0f2f5;
+      margin: 16px 0;
+    }
+
+    /* Spinner */
+    .loading {
+      text-align: center;
+      padding: 80px 20px;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(37,69,93,0.2);
+      border-top-color: #25455D;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-msg {
+      background: #fff0f0;
+      border: 1px solid #ffc8c8;
+      border-radius: 14px;
+      padding: 16px;
+      color: #c0392b;
+      font-size: 14px;
+      text-align: center;
+      margin: 24px 0;
+    }
+
+    .hidden { display: none !important; }
+
+    /* commercial badge */
+    .commercial-badge {
+      display: inline-block;
+      background: #fff3e0;
+      color: #e65100;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="header-top">
+    <a id="back-link" href="#" class="back-link">‹</a>
+    <span class="logo-text">ПЛЮСОН</span>
+    <span id="conf-name" class="conf-badge"></span>
+  </div>
+  <div class="hero">
+    <div class="hero-avatar" id="hero-avatar">
+      <span class="hero-initials" id="hero-initials">?</span>
+    </div>
+    <div class="hero-info">
+      <div class="hero-name" id="hero-name">Загрузка...</div>
+      <div class="hero-title" id="hero-title"></div>
+      <span class="hero-role" id="hero-role"></span>
+    </div>
+  </div>
+</div>
+
+<div class="content">
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    <p style="color:#6b7a8d">Загружаю данные спикера...</p>
+  </div>
+
+  <div id="error" class="error-msg hidden"></div>
+
+  <div id="main-content" class="hidden">
+
+    <!-- Статус заполненности -->
+    <div class="status-bar">
+      <div class="status-bar-title">Статус заполненности</div>
+      <div class="status-items" id="status-items"></div>
+    </div>
+
+    <!-- Блок 1: Выступление -->
+    <div class="section">
+      <div class="section-title"><span class="dot"></span>Выступление в этой конференции</div>
+      <div class="card">
+        <div class="card-inner">
+
+          <div id="field-topics">
+            <!-- динамически -->
+          </div>
+
+          <hr class="divider" />
+
+          <!-- Подарок после эфира -->
+          <div class="card-subtitle">🎁 Подарок после эфира</div>
+          <div class="field">
+            <div class="field-label" id="lbl-gift-speech-title">
+              Название
+            </div>
+            <div class="field-value" id="val-gift-speech-title"></div>
+          </div>
+          <div class="field">
+            <div class="field-label" id="lbl-gift-speech-url">
+              Ссылка / инструкция
+            </div>
+            <div class="field-value" id="val-gift-speech-url"></div>
+          </div>
+
+          <hr class="divider" />
+
+          <!-- Подарок для розыгрыша -->
+          <div class="card-subtitle">🎲 Подарок для розыгрыша</div>
+          <div class="field">
+            <div class="field-label" id="lbl-gift-raffle-title">
+              Название
+            </div>
+            <div class="field-value" id="val-gift-raffle-title"></div>
+          </div>
+          <div class="field">
+            <div class="field-label" id="lbl-gift-raffle-url">
+              Ссылка / инструкция
+            </div>
+            <div class="field-value" id="val-gift-raffle-url"></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Блок 2: Профиль -->
+    <div class="section">
+      <div class="section-title"><span class="dot"></span>Профиль спикера</div>
+
+      <!-- Основное -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-inner">
+          <div class="card-subtitle">Основная информация</div>
+
+          <div class="field">
+            <div class="field-label" id="lbl-name">Имя и фамилия</div>
+            <div class="field-value" id="val-name"></div>
+          </div>
+          <div class="field">
+            <div class="field-label" id="lbl-title">Должность / специализация</div>
+            <div class="field-value" id="val-title"></div>
+          </div>
+          <div class="field">
+            <div class="field-label" id="lbl-achievements">
+              Регалии
+            </div>
+            <div id="val-achievements">
+              <ul class="achievements-list" id="achievements-list"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Медиа -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-inner">
+          <div class="card-subtitle">Медиа</div>
+
+          <div class="field">
+            <div class="field-label" id="lbl-photo">Фото</div>
+            <div class="media-row">
+              <div class="field-value" id="val-photo"></div>
+              <div class="thumb" id="photo-thumb"></div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label" id="lbl-poster">Афиша</div>
+            <div class="poster-block">
+              <div class="field-value" id="val-poster"></div>
+              <div class="poster-preview" id="poster-preview"></div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <div class="field-label" id="lbl-photo-folder">Папка с фото</div>
+              <div class="field-value" id="val-photo-folder"></div>
+            </div>
+            <div class="field">
+              <div class="field-label" id="lbl-video-folder">Папка с видео</div>
+              <div class="field-value" id="val-video-folder"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Контакты -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-inner">
+          <div class="card-subtitle">Контакты</div>
+          <div class="field">
+            <div class="field-label" id="lbl-tg">Telegram-канал</div>
+            <div class="field-value" id="val-tg"></div>
+          </div>
+          <div class="field">
+            <div class="field-label" id="lbl-instagram">Instagram</div>
+            <div class="field-value" id="val-instagram"></div>
+          </div>
+          <div class="field">
+            <div class="field-label" id="lbl-website">Сайт</div>
+            <div class="field-value" id="val-website"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Telegram аккаунты -->
+      <div class="card">
+        <div class="card-inner">
+          <div class="card-subtitle">Telegram-аккаунты</div>
+          <div class="grid-2">
+            <div class="field">
+              <div class="field-label" id="lbl-tg-channel-id">ID канала</div>
+              <div class="field-value" id="val-tg-channel-id"></div>
+            </div>
+            <div class="field">
+              <div class="field-label" id="lbl-personal-tg-id">ID личного аккаунта</div>
+              <div class="field-value" id="val-personal-tg-id"></div>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <div class="field-label" id="lbl-personal-tg-username">Ник личного аккаунта</div>
+              <div class="field-value" id="val-personal-tg-username"></div>
+            </div>
+            <div class="field">
+              <div class="field-label" id="lbl-assistant-tg">Ник ассистента</div>
+              <div class="field-value" id="val-assistant-tg"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <!-- /Профиль -->
+
+  </div><!-- /main-content -->
+</div>
+
+<script>
+  const API = '/api/v1'
+
+  const params = new URLSearchParams(location.search)
+  const eventId = params.get('event')
+  const speakerId = Number(params.get('speaker'))
+
+  const ROLES = {
+    speaker: 'Спикер',
+    headliner: 'Хедлайнер',
+    moderator: 'Модератор',
+    host: 'Ведущий',
+    organizer: 'Организатор',
+    panelist: 'Участник панели',
+    workshop_leader: 'Ведущий воркшопа',
+  }
+
+  // Поля для статус-полоски
+  const CHECK_FIELDS = [
+    { label: 'Фото',               check: (sp, pr) => !!pr.photo_url },
+    { label: 'Афиша',              check: (sp, pr) => !!pr.poster_url },
+    { label: 'Тема выступления',   check: (sp)     => sp._topics.length > 0 },
+    { label: 'Подарок после эфира',check: (sp)     => !!(sp.gift_after_speech_title || sp.gift_title) },
+    { label: 'Ссылка подарка',     check: (sp)     => !!(sp.gift_after_speech_url || sp.gift_url) },
+    { label: 'Подарок розыгрыша',  check: (sp)     => !!sp.gift_raffle_title },
+    { label: 'Ссылка розыгрыша',   check: (sp)     => !!sp.gift_raffle_url },
+    { label: 'Регалии',            check: (sp, pr) => !!(pr.achievements?.length) },
+    { label: 'Telegram-канал',     check: (sp, pr) => !!(pr.tg_channel_url) },
+    { label: 'ID канала',          check: (sp, pr) => !!(pr.tg_channel_id) },
+    { label: 'Личный TG',          check: (sp, pr) => !!(pr.personal_tg_id || pr.personal_tg_username) },
+  ]
+
+  async function init() {
+    if (!eventId || !speakerId) {
+      showError('Неверная ссылка: не указаны параметры конференции и спикера.')
+      return
+    }
+
+    // Устанавливаем ссылку «назад»
+    document.getElementById('back-link').href = `speakers-check.html?event=${eventId}`
+
+    try {
+      // Загружаем полный профиль спикера через публичный endpoint
+      const resp = await fetch(`${API}/events/${eventId}/conference/speakers/${speakerId}/public`)
+      if (!resp.ok) throw new Error('Не удалось загрузить данные спикера')
+      const data = await resp.json()
+      const sp = data.speaker
+      if (!sp) throw new Error('Спикер не найден в этой конференции')
+
+      // Готовим топики
+      sp._topics = (sp.topics || []).map(t => typeof t === 'string' ? t : t.topic).filter(Boolean)
+
+      // Загружаем название события (необязательно)
+      try {
+        const evResp = await fetch(`${API}/events/${eventId}`)
+        if (evResp.ok) {
+          const evData = await evResp.json()
+          const title = evData.event?.title || evData.title
+          if (title) document.getElementById('conf-name').textContent = title
+        }
+      } catch {}
+
+      // Профиль — все данные уже в sp (JOIN collaborators в запросе)
+      const profile = {
+        name: sp.name,
+        title: sp.title,
+        achievements: sp.achievements || [],
+        photo_url: sp.photo_url,
+        poster_url: sp.poster_url,
+        photo_folder_url: sp.photo_folder_url,
+        video_folder_url: sp.video_folder_url,
+        tg_channel_url: sp.tg_channel_url,
+        instagram_url: sp.instagram_url,
+        website_url: sp.website_url,
+        tg_channel_id: sp.tg_channel_id,
+        personal_tg_id: sp.personal_tg_id,
+        personal_tg_username: sp.personal_tg_username,
+        assistant_tg_username: sp.assistant_tg_username,
+      }
+
+      render(sp, profile)
+    } catch (e) {
+      showError(e.message || 'Не удалось загрузить профиль спикера.')
+    }
+  }
+
+  function render(sp, profile) {
+    hide('loading')
+    show('main-content')
+
+    const name = profile.name || sp.name || '—'
+    const initials = name.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase()
+
+    // Герой
+    document.getElementById('hero-name').textContent = name
+    document.getElementById('hero-title').textContent = profile.title || sp.title || ''
+    document.getElementById('hero-role').textContent = ROLES[sp.role] || sp.role || 'Спикер'
+    document.getElementById('hero-initials').textContent = initials
+
+    if (profile.photo_url || sp.photo_url) {
+      const photoUrl = profile.photo_url || sp.photo_url
+      const avatarEl = document.getElementById('hero-avatar')
+      avatarEl.innerHTML = `<img src="${esc(photoUrl)}" alt="${esc(name)}" onerror="this.parentNode.innerHTML='<span class=hero-initials>${initials}</span>'">`
+    }
+
+    // Статус-полоска
+    const statusEl = document.getElementById('status-items')
+    statusEl.innerHTML = CHECK_FIELDS.map(f => {
+      const ok = f.check(sp, profile)
+      return `<span class="status-item ${ok ? 'status-ok' : 'status-warn'}">${ok ? '✓' : '⚠'} ${f.label}</span>`
+    }).join('')
+
+    // ── Выступление ──
+
+    // Темы
+    const topicsEl = document.getElementById('field-topics')
+    if (sp._topics.length > 0) {
+      topicsEl.innerHTML = `
+        <div class="field">
+          <div class="field-label">Темы выступления</div>
+          <div>${sp._topics.map((t, i) => `
+            <div class="topic-item">
+              ${sp._topics.length > 1 ? `<div class="topic-num">${i+1}</div>` : ''}
+              <div class="topic-text">${esc(t)}</div>
+            </div>
+          `).join('')}</div>
+        </div>
+      `
+    } else {
+      topicsEl.innerHTML = `
+        <div class="field">
+          <div class="field-label"><span class="warn-icon">⚠</span> Темы выступления</div>
+          <div class="field-value empty">не заполнены</div>
+        </div>
+      `
+    }
+
+    // Подарок после эфира
+    setField('gift-speech-title', sp.gift_after_speech_title || sp.gift_title, true)
+    setFieldUrl('gift-speech-url', sp.gift_after_speech_url || sp.gift_url, true)
+
+    // Подарок розыгрыша
+    setField('gift-raffle-title', sp.gift_raffle_title, true)
+    setFieldUrl('gift-raffle-url', sp.gift_raffle_url, true)
+
+    // ── Профиль ──
+    setField('name', profile.name)
+    setField('title', profile.title)
+
+    // Регалии
+    const ach = profile.achievements || []
+    const achList = Array.isArray(ach) ? ach : String(ach).split('\n').map(s => s.trim()).filter(Boolean)
+    const achEl = document.getElementById('achievements-list')
+    if (achList.length > 0) {
+      achEl.innerHTML = achList.map(a => `<li>${esc(a)}</li>`).join('')
+      markLabelOk('lbl-achievements')
+    } else {
+      achEl.parentElement.innerHTML = `<div class="field-value empty">не заполнены</div>`
+      markLabelWarn('lbl-achievements')
+    }
+
+    // Фото
+    setFieldUrl('photo', profile.photo_url)
+    if (profile.photo_url) {
+      document.getElementById('photo-thumb').innerHTML = `<img src="${esc(profile.photo_url)}" alt="Фото">`
+    }
+
+    // Афиша (из глобального профиля или из данных события)
+    const posterUrl = profile.poster_url
+    setFieldUrl('poster', posterUrl)
+    if (posterUrl) {
+      document.getElementById('poster-preview').innerHTML = `<img src="${esc(posterUrl)}" alt="Афиша">`
+    }
+
+    // Папки
+    setFieldUrl('photo-folder', profile.photo_folder_url)
+    setFieldUrl('video-folder', profile.video_folder_url)
+
+    // Контакты
+    setFieldUrl('tg', profile.tg_channel_url)
+    setFieldUrl('instagram', profile.instagram_url)
+    setFieldUrl('website', profile.website_url)
+
+    // TG аккаунты
+    setField('tg-channel-id', profile.tg_channel_id, false, true)
+    setField('personal-tg-id', profile.personal_tg_id, false, true)
+    setField('personal-tg-username', profile.personal_tg_username, false, true)
+    setField('assistant-tg', profile.assistant_tg_username, false, true)
+  }
+
+  // Обычное текстовое поле
+  function setField(key, value, isImportant = false, isTg = false) {
+    const valEl = document.getElementById(`val-${key}`)
+    const lblEl = document.getElementById(`lbl-${key}`)
+    if (!valEl) return
+    const v = String(value || '').trim()
+    if (v) {
+      valEl.textContent = v
+      if (lblEl && isImportant) markLabelOk(lblEl.id)
+    } else {
+      valEl.textContent = 'не заполнено'
+      valEl.classList.add('empty')
+      if (lblEl && isImportant) markLabelWarn(lblEl.id)
+    }
+  }
+
+  // Поле-ссылка
+  function setFieldUrl(key, value, isImportant = false) {
+    const valEl = document.getElementById(`val-${key}`)
+    const lblEl = document.getElementById(`lbl-${key}`)
+    if (!valEl) return
+    const v = String(value || '').trim()
+    if (v) {
+      // Если это длинный текст с несколькими строками — показываем как текст
+      if (v.includes('\n') || v.length > 200) {
+        valEl.innerHTML = esc(v).replace(/\n/g, '<br>')
+      } else if (v.startsWith('http')) {
+        valEl.innerHTML = `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(v)}</a>`
+      } else {
+        valEl.innerHTML = esc(v).replace(/\n/g, '<br>')
+      }
+      if (lblEl && isImportant) markLabelOk(lblEl.id)
+    } else {
+      valEl.textContent = 'не заполнено'
+      valEl.classList.add('empty')
+      if (lblEl && isImportant) markLabelWarn(lblEl.id)
+    }
+  }
+
+  function markLabelWarn(id) {
+    const el = document.getElementById(id)
+    if (!el) return
+    if (!el.querySelector('.warn-icon')) {
+      el.insertAdjacentHTML('afterbegin', '<span class="warn-icon">⚠ </span>')
+    }
+  }
+
+  function markLabelOk(id) {
+    // Ничего не делаем — без предупреждения и без лишних иконок
+  }
+
+  function showError(msg) {
+    hide('loading')
+    hide('main-content')
+    const el = document.getElementById('error')
+    el.textContent = msg
+    show('error')
+  }
+
+  function show(id) { document.getElementById(id).classList.remove('hidden') }
+  function hide(id) { document.getElementById(id).classList.add('hidden') }
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  }
+
+  init()
+</script>
+</body>
+</html>

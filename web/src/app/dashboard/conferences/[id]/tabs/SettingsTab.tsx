@@ -38,7 +38,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
     registration_url: conf?.registration_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     organizer_speaker_id: conf?.organizer_speaker_id || '',
-    test_telegram_ids_raw: (conf?.test_telegram_ids || []).join(', '),
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -57,7 +56,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
       registration_url: conf?.registration_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       organizer_speaker_id: conf?.organizer_speaker_id || '',
-      test_telegram_ids_raw: (conf?.test_telegram_ids || []).join(', '),
     }))
   }, [conf])
 
@@ -67,17 +65,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
   async function handleSave() {
     setSaving(true); setSaved(false)
     try {
-      const testIds = form.test_telegram_ids_raw
-        .split(/[,\s]+/)
-        .map(s => s.trim())
-        .filter(Boolean)
       await api.events.update(eventId, { title: form.title })
       const updated = await api.conference.update(eventId, {
         description: form.description || null,
         registration_url: form.registration_url || null,
         subscription_mode: form.subscription_mode,
         organizer_speaker_id: form.organizer_speaker_id ? Number(form.organizer_speaker_id) : null,
-        test_telegram_ids: testIds,
       })
       onConfUpdated(updated.conference)
       setSaved(true)
@@ -136,35 +129,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
           </select>
           {speakers.length === 0 && (
             <p className="text-xs text-gray-400 mt-1.5">{ts.organizerNoSpeakers}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <h2 className="font-semibold text-gray-900">Тестовые рассылки</h2>
-        <p className="text-sm text-gray-500">
-          Telegram ID аккаунтов, на которые отправляются тестовые рассылки. Укажите через запятую.
-        </p>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Telegram ID получателей
-            <span className="text-gray-400 font-normal ml-1">(через запятую)</span>
-          </label>
-          <input
-            type="text"
-            value={form.test_telegram_ids_raw}
-            onChange={set('test_telegram_ids_raw')}
-            placeholder="8018913774, 7879070738, 5725111966"
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand font-mono"
-          />
-          {form.test_telegram_ids_raw && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {form.test_telegram_ids_raw.split(/[,\s]+/).filter(Boolean).map(id => (
-                <span key={id} className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded-lg px-2 py-0.5 font-mono">
-                  {id.trim()}
-                </span>
-              ))}
-            </div>
           )}
         </div>
       </div>

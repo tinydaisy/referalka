@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Данные спикера</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #f2f4f7;
+      min-height: 100vh;
+      color: #1a2535;
+    }
+
+    /* ── Шапка ── */
+    .page-header {
+      background: linear-gradient(45deg, #25455D, #0a1520);
+      padding: 20px 16px 28px;
+    }
+
+    .header-top {
+      max-width: 640px;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-text {
+      color: #FFCFA4;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .conf-badge {
+      margin-left: auto;
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.08);
+      padding: 4px 10px;
+      border-radius: 8px;
+    }
+
+    .hero {
+      max-width: 640px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .hero-avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: rgba(255,255,255,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 3px solid rgba(255,207,164,0.4);
+    }
+    .hero-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .hero-initials { color: #FFCFA4; font-size: 24px; font-weight: 700; }
+
+    .hero-info { flex: 1; min-width: 0; }
+    .hero-name { color: #ffffff; font-size: 20px; font-weight: 700; margin-bottom: 3px; }
+    .hero-title { color: rgba(255,255,255,0.6); font-size: 13px; margin-bottom: 4px; }
+    .hero-role {
+      display: inline-block;
+      background: rgba(255, 207, 164, 0.2);
+      color: #FFCFA4;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 6px;
+    }
+
+    /* ── Контент ── */
+    .content {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 20px 16px 60px;
+    }
+
+    /* Статус-полоска */
+    .status-bar {
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+    }
+    .status-bar-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7a8d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+    .status-items { display: flex; flex-wrap: wrap; gap: 7px; }
+    .status-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+    .status-ok { background: #e8f5e9; color: #2e7d32; }
+    .status-warn { background: #fff8e1; color: #e65100; }
+
+    /* Секции */
+    .section { margin-bottom: 24px; }
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a2535;
+      margin-bottom: 12px;
+      padding-left: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title .dot { width: 8px; height: 8px; border-radius: 50%; background: #FFCFA4; flex-shrink: 0; }
+
+    .card {
+      background: #ffffff;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+      margin-bottom: 12px;
+    }
+    .card-inner { padding: 18px 20px; }
+    .card-subtitle {
+      font-size: 13px;
+      font-weight: 700;
+      color: #25455D;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #f0f2f5;
+    }
+
+    /* Поле */
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+
+    label.field-label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7a8d;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 6px;
+    }
+    .warn-dot { color: #e65100; font-size: 14px; }
+
+    input[type=text],
+    input[type=url],
+    textarea,
+    select {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid #e2e6ea;
+      border-radius: 12px;
+      font-family: 'Roboto', sans-serif;
+      font-size: 14px;
+      color: #1a2535;
+      background: #fafbfc;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+      resize: vertical;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: #25455D;
+      background: #ffffff;
+    }
+    input.has-value, textarea.has-value { border-color: #c8d6e0; }
+    input.empty-warn, textarea.empty-warn { border-color: #ffc107; background: #fffdf0; }
+
+    .divider { border: none; border-top: 1px solid #f0f2f5; margin: 16px 0; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 420px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    /* Темы */
+    .topics-list { display: flex; flex-direction: column; gap: 8px; }
+    .topic-row { display: flex; gap: 8px; align-items: flex-start; }
+    .topic-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: linear-gradient(45deg, #25455D, #0a1520);
+      color: #FFCFA4;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 10px;
+    }
+    .topic-row textarea { min-height: 60px; }
+    .btn-remove-topic {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      border: 1px solid #e2e6ea;
+      background: white;
+      color: #aab4be;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 10px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .btn-remove-topic:hover { color: #e74c3c; border-color: #e74c3c; }
+    .btn-add-topic {
+      background: none;
+      border: none;
+      color: #25455D;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 0;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 4px;
+    }
+    .btn-add-topic:hover { color: #FFCFA4; }
+
+    /* Медиа preview */
+    /* Медиа — только просмотр */
+    .media-thumbs { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+
+    .media-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .media-label-sm { font-size: 11px; color: #8896a7; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+
+    .thumb-clickable {
+      border-radius: 12px;
+      overflow: hidden;
+      background: #e8edf2;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.15s, box-shadow 0.15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .thumb-clickable:hover { transform: scale(1.04); box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
+    .thumb-photo { width: 72px; height: 72px; }
+    .thumb-poster { width: 60px; height: 90px; }
+    .thumb-clickable img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .thumb-empty { color: #c0c8d0; font-size: 11px; text-align: center; padding: 8px; }
+    .thumb-zoom-icon {
+      position: absolute; bottom: 4px; right: 4px;
+      background: rgba(0,0,0,0.45);
+      border-radius: 5px;
+      padding: 2px 4px;
+      font-size: 11px; color: white;
+      opacity: 0; transition: opacity 0.15s;
+    }
+    .thumb-clickable:hover .thumb-zoom-icon { opacity: 1; }
+
+    /* Лайтбокс */
+    .lightbox {
+      display: none;
+      position: fixed; inset: 0; z-index: 999;
+      background: rgba(0,0,0,0.85);
+      align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img {
+      max-width: 100%; max-height: 90vh;
+      border-radius: 12px;
+      object-fit: contain;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    }
+    .lightbox-close {
+      position: fixed; top: 16px; right: 20px;
+      color: white; font-size: 32px; cursor: pointer;
+      line-height: 1; opacity: 0.8;
+    }
+    .lightbox-close:hover { opacity: 1; }
+
+    /* Кнопка сохранить */
+    .save-btn {
+      width: 100%;
+      padding: 15px;
+      border-radius: 16px;
+      border: none;
+      background: linear-gradient(90deg, #FFCFA4, #f5a65b);
+      color: #1a2535;
+      font-family: 'Roboto', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .save-btn:hover { opacity: 0.92; }
+    .save-btn:active { transform: scale(0.98); }
+    .save-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .save-success {
+      background: #e8f5e9;
+      border: 1px solid #a5d6a7;
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #2e7d32;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+      margin-top: 12px;
+    }
+
+    .save-error {
+      background: #fff0f0;
+      border: 1px solid #ffc8c8;
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #c0392b;
+      font-size: 14px;
+      margin-top: 12px;
+    }
+
+    /* Spinner */
+    .loading { text-align: center; padding: 80px 20px; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid rgba(37,69,93,0.2);
+      border-top-color: #25455D;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .btn-spinner {
+      width: 20px; height: 20px;
+      border: 2px solid rgba(26,37,53,0.3);
+      border-top-color: #1a2535;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .error-page {
+      background: #fff0f0;
+      border: 1px solid #ffc8c8;
+      border-radius: 14px;
+      padding: 20px;
+      color: #c0392b;
+      font-size: 14px;
+      margin: 24px 0;
+      text-align: center;
+    }
+
+    .hidden { display: none !important; }
+
+    .hint {
+      font-size: 12px;
+      color: #a0aab4;
+      margin-top: 5px;
+      line-height: 1.4;
+    }
+
+    /* Подсказка-заглушка под пустым полем */
+    .field-default-hint {
+      font-size: 12px;
+      color: #c0392b;
+      font-style: italic;
+      margin-top: 6px;
+      padding: 8px 12px;
+      background: #fff5f5;
+      border-radius: 8px;
+      border-left: 3px solid #e74c3c;
+      line-height: 1.5;
+    }
+    .field-default-hint strong { font-weight: 600; color: #c0392b; font-style: normal; }
+
+    /* Поле только для чтения */
+    .readonly-field {
+      padding: 11px 14px;
+      border: 1.5px solid #e2e6ea;
+      border-radius: 12px;
+      font-family: 'Roboto', sans-serif;
+      font-size: 14px;
+      color: #25455D;
+      background: #f0f4f7;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+    .readonly-empty {
+      color: #b0bac4;
+      font-style: italic;
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+
+    .sticky-save {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: rgba(242, 244, 247, 0.95);
+      backdrop-filter: blur(8px);
+      padding: 12px 16px 20px;
+      box-shadow: 0 -2px 16px rgba(0,0,0,0.08);
+      z-index: 100;
+    }
+
+    .sticky-save-inner {
+      max-width: 640px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .save-status {
+      font-size: 13px;
+      font-weight: 600;
+      color: #2e7d32;
+      display: none;
+      align-items: center;
+      gap: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="header-top">
+    <span class="logo-text">ПЛЮСОН</span>
+    <span id="conf-name" class="conf-badge"></span>
+  </div>
+  <div class="hero">
+    <div class="hero-avatar" id="hero-avatar">
+      <span class="hero-initials" id="hero-initials">?</span>
+    </div>
+    <div class="hero-info">
+      <div class="hero-name" id="hero-name">Загрузка...</div>
+      <div class="hero-title" id="hero-title"></div>
+      <span class="hero-role" id="hero-role"></span>
+    </div>
+  </div>
+</div>
+
+<div class="content">
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    <p style="color:#6b7a8d">Загружаю ваши данные...</p>
+  </div>
+
+  <div id="error-page" class="error-page hidden"></div>
+
+  <div id="main-content" class="hidden">
+
+    <!-- Статус -->
+    <div class="status-bar">
+      <div class="status-bar-title">Статус заполненности</div>
+      <div class="status-items" id="status-items"></div>
+    </div>
+
+    <!-- Блок выступление -->
+    <div class="section">
+      <div class="section-title"><span class="dot"></span>Выступление в этой конференции</div>
+
+      <div class="card">
+        <div class="card-inner">
+          <!-- Темы -->
+          <div class="field">
+            <label class="field-label" id="lbl-topics">
+              <span>Темы выступления</span>
+            </label>
+            <div class="topics-list" id="topics-list"></div>
+            <button type="button" class="btn-add-topic" onclick="addTopic()">＋ Добавить тему</button>
+          </div>
+
+          <hr class="divider" />
+
+          <!-- Подарок после эфира -->
+          <div class="card-subtitle">🎁 Подарок после эфира</div>
+          <div class="field">
+            <label class="field-label" id="lbl-gas-title">Название</label>
+            <textarea id="gas-title" rows="2" oninput="onInput(this,'gas-title')"></textarea>
+          </div>
+          <div class="field">
+            <label class="field-label" id="lbl-gas-url">Ссылка / инструкция как получить</label>
+            <textarea id="gas-url" rows="3" oninput="onInput(this,'gas-url')"></textarea>
+          </div>
+
+          <hr class="divider" />
+
+          <!-- Подарок для розыгрыша -->
+          <div class="card-subtitle">🎲 Подарок для розыгрыша</div>
+          <div class="field">
+            <label class="field-label" id="lbl-gr-title">Название</label>
+            <textarea id="gr-title" rows="2" oninput="onInput(this,'gr-title')"></textarea>
+          </div>
+          <div class="field">
+            <label class="field-label" id="lbl-gr-url">Ссылка / инструкция как получить</label>
+            <textarea id="gr-url" rows="3" oninput="onInput(this,'gr-url')"></textarea>
+          </div>
+
+          <hr class="divider" />
+
+          <!-- Кодовое слово -->
+          <div class="card-subtitle">🔑 Кодовое слово для презентации</div>
+          <div class="field">
+            <div id="keyword-display" class="readonly-field readonly-empty">не назначено</div>
+            <p class="hint" style="margin-top:8px">Кодовое слово назначает организатор — участники вводят его в приложении</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Блок профиль -->
+    <div class="section">
+      <div class="section-title"><span class="dot"></span>Профиль спикера</div>
+      <p style="font-size:12px;color:#8896a7;margin:-6px 0 14px 12px">Эти данные используются во всех конференциях</p>
+
+      <div class="card">
+        <div class="card-inner">
+          <div class="card-subtitle">Основная информация</div>
+          <div class="field">
+            <label class="field-label">Имя и фамилия</label>
+            <input type="text" id="name" oninput="onInput(this,'name')" />
+          </div>
+          <div class="field">
+            <label class="field-label">Должность / специализация</label>
+            <input type="text" id="title" oninput="onInput(this,'title')" />
+          </div>
+          <div class="field">
+            <label class="field-label" id="lbl-achievements">Регалии</label>
+            <textarea id="achievements" rows="6" oninput="onInput(this,'achievements')"></textarea>
+            <p class="hint">Каждая регалия — с новой строки</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-inner">
+          <div class="card-subtitle">Медиа</div>
+          <div class="media-thumbs" id="media-thumbs">
+            <div class="media-item">
+              <div class="thumb-clickable thumb-photo" id="thumb-photo" onclick="openLightbox(this)">
+                <span class="thumb-empty">нет фото</span>
+                <span class="thumb-zoom-icon">🔍</span>
+              </div>
+              <span class="media-label-sm">Фото</span>
+            </div>
+            <div class="media-item">
+              <div class="thumb-clickable thumb-poster" id="thumb-poster" onclick="openLightbox(this)">
+                <span class="thumb-empty">нет афиши</span>
+                <span class="thumb-zoom-icon">🔍</span>
+              </div>
+              <span class="media-label-sm">Афиша</span>
+            </div>
+          </div>
+          <p class="hint" style="margin-top:10px">Нажмите на изображение чтобы открыть в полном размере. Чтобы обновить фото или афишу — обратитесь к организаторам.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-inner">
+          <div class="card-subtitle">Контакты</div>
+          <div class="field">
+            <label class="field-label" id="lbl-tg">Telegram-канал</label>
+            <input type="url" id="tg-channel-url" oninput="onInput(this,'tg-channel-url')" />
+          </div>
+          <div class="field">
+            <label class="field-label">Instagram</label>
+            <input type="url" id="instagram-url" />
+          </div>
+          <div class="field">
+            <label class="field-label">Сайт</label>
+            <input type="url" id="website-url" />
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-inner">
+          <div class="card-subtitle">Telegram-аккаунты</div>
+          <div class="grid-2">
+            <div class="field">
+              <label class="field-label" id="lbl-tg-channel-id">ID канала</label>
+              <input type="text" id="tg-channel-id" oninput="onInput(this,'tg-channel-id')" />
+            </div>
+            <div class="field">
+              <label class="field-label" id="lbl-personal-tg-id">ID личного аккаунта</label>
+              <input type="text" id="personal-tg-id" oninput="onInput(this,'personal-tg-id')" />
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label class="field-label">Ник личного аккаунта</label>
+              <input type="text" id="personal-tg-username" />
+            </div>
+            <div class="field">
+              <label class="field-label">Ник ассистента</label>
+              <input type="text" id="assistant-tg-username" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <!-- /профиль -->
+
+    <!-- Пространство под sticky кнопку -->
+    <div style="height:80px"></div>
+
+  </div><!-- /main-content -->
+</div>
+
+<!-- Лайтбокс -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <span class="lightbox-close" onclick="closeLightbox()">✕</span>
+  <img id="lightbox-img" src="" alt="" />
+</div>
+
+<!-- Прилипшая кнопка сохранить -->
+<div class="sticky-save hidden" id="sticky-save">
+  <div class="sticky-save-inner">
+    <button class="save-btn" id="save-btn" onclick="save()">
+      <span id="save-btn-text">Сохранить изменения</span>
+      <div class="btn-spinner hidden" id="save-spinner"></div>
+    </button>
+    <span class="save-status" id="save-status">✓ Сохранено</span>
+  </div>
+</div>
+
+<script>
+  const API = '/api/v1'
+
+  const params = new URLSearchParams(location.search)
+  const eventId = params.get('event')
+  const refCode = params.get('code')
+
+  const ROLES = {
+    speaker: 'Спикер', headliner: 'Хедлайнер', moderator: 'Модератор',
+    host: 'Ведущий', organizer: 'Организатор', panelist: 'Участник панели',
+    workshop_leader: 'Ведущий воркшопа',
+  }
+
+  const CHECK_FIELDS = [
+    { label: 'Фото',               check: (d) => !!d.photo_url },
+    { label: 'Афиша',              check: (d) => !!d.poster_url },
+    { label: 'Тема выступления',   check: (d) => d._topics.length > 0 },
+    { label: 'Подарок после эфира',check: (d) => !!(d.gift_after_speech_title) },
+    { label: 'Ссылка подарка',     check: (d) => !!(d.gift_after_speech_url) },
+    { label: 'Подарок розыгрыша',  check: (d) => !!d.gift_raffle_title },
+    { label: 'Ссылка розыгрыша',   check: (d) => !!d.gift_raffle_url },
+    { label: 'Регалии',            check: (d) => !!(d.achievements?.length) },
+    { label: 'Telegram-канал',     check: (d) => !!d.tg_channel_url },
+    { label: 'ID канала',          check: (d) => !!d.tg_channel_id },
+    { label: 'Личный TG',          check: (d) => !!(d.personal_tg_id || d.personal_tg_username) },
+  ]
+
+  let currentData = null
+  let topics = ['']
+
+  async function init() {
+    if (!eventId || !refCode) {
+      showErrorPage('Неверная ссылка. Обратитесь к организаторам.')
+      return
+    }
+
+    try {
+      const resp = await fetch(`${API}/events/${eventId}/conference/speakers/by-code/${refCode}`)
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}))
+        throw new Error(err.detail || 'Ссылка недействительна')
+      }
+      const data = await resp.json()
+      currentData = data.speaker
+      currentData._topics = (currentData.topics || [])
+        .map(t => typeof t === 'string' ? t : t.topic).filter(Boolean)
+
+      // Название события
+      try {
+        const evResp = await fetch(`${API}/events/${eventId}`)
+        if (evResp.ok) {
+          const evData = await evResp.json()
+          const title = evData.event?.title || evData.title
+          if (title) document.getElementById('conf-name').textContent = title
+        }
+      } catch {}
+
+      render(currentData)
+    } catch (e) {
+      showErrorPage(e.message || 'Не удалось загрузить данные.')
+    }
+  }
+
+  function render(d) {
+    hide('loading')
+    show('main-content')
+    show('sticky-save')
+
+    const name = d.name || ''
+    const initials = name.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase() || '?'
+
+    // Герой
+    document.getElementById('hero-name').textContent = name || 'Спикер'
+    document.getElementById('hero-title').textContent = d.title || ''
+    document.getElementById('hero-role').textContent = ROLES[d.role] || d.role || 'Спикер'
+    document.getElementById('hero-initials').textContent = initials
+    if (d.photo_url) {
+      document.getElementById('hero-avatar').innerHTML = `<img src="${esc(d.photo_url)}" alt="${esc(name)}" onerror="this.parentNode.innerHTML='<span class=hero-initials>${initials}</span>'">`
+    }
+
+    // Заполняем форму
+    setVal('name', d.name)
+    setVal('title', d.title)
+
+    // Регалии — через \n
+    const ach = d.achievements || []
+    const achArr = Array.isArray(ach) ? ach : String(ach).split('\n').map(s=>s.trim()).filter(Boolean)
+    setVal('achievements', achArr.join('\n'))
+
+    setVal('tg-channel-url', d.tg_channel_url)
+    setVal('instagram-url', d.instagram_url)
+    setVal('website-url', d.website_url)
+    setVal('tg-channel-id', d.tg_channel_id)
+    setVal('personal-tg-id', d.personal_tg_id)
+    setVal('personal-tg-username', d.personal_tg_username)
+    setVal('assistant-tg-username', d.assistant_tg_username)
+
+    // Миниатюры фото и афиши (только просмотр)
+    setThumb('thumb-photo', d.photo_url)
+    setThumb('thumb-poster', d.poster_url)
+
+    // Темы
+    topics = d._topics.length > 0 ? [...d._topics] : ['']
+    renderTopics()
+
+    // Подарки
+    setVal('gas-title', d.gift_after_speech_title)
+    setVal('gas-url', d.gift_after_speech_url)
+    setVal('gr-title', d.gift_raffle_title)
+    setVal('gr-url', d.gift_raffle_url)
+
+    // Кодовое слово (только чтение)
+    const kwEl = document.getElementById('keyword-display')
+    if (kwEl) {
+      if (d.keyword_code) {
+        kwEl.textContent = d.keyword_code
+        kwEl.classList.remove('readonly-empty')
+      } else {
+        kwEl.textContent = 'не назначено'
+        kwEl.classList.add('readonly-empty')
+      }
+    }
+
+    updateStatus(d)
+    updateWarningLabels(d)
+    updateDefaultHints()
+  }
+
+  function renderTopics() {
+    const list = document.getElementById('topics-list')
+    const hasTopics = topics.some(t => t.trim())
+    list.innerHTML = topics.map((t, i) => `
+      <div class="topic-row">
+        ${topics.length > 1 ? `<div class="topic-num">${i+1}</div>` : ''}
+        <textarea rows="2" onchange="topics[${i}]=this.value;updateStatusFromForm();updateDefaultHints()">${escText(t)}</textarea>
+        ${topics.length > 1 ? `<button type="button" class="btn-remove-topic" onclick="removeTopic(${i})">✕</button>` : ''}
+      </div>
+    `).join('')
+
+    // Подсказка-заглушка под темами
+    const existing = list.nextElementSibling
+    if (existing && existing.classList.contains('field-default-hint')) existing.remove()
+    if (!hasTopics) {
+      list.insertAdjacentHTML('afterend', `<div class="field-default-hint">Если тема не указана, в программе и знакомстве со спикерами укажем: <strong>«Тема уточняется»</strong></div>`)
+    }
+  }
+
+  function addTopic() {
+    topics.push('')
+    renderTopics()
+  }
+
+  function removeTopic(i) {
+    topics.splice(i, 1)
+    if (topics.length === 0) topics = ['']
+    renderTopics()
+  }
+
+  function setThumb(thumbId, url) {
+    const el = document.getElementById(thumbId)
+    if (!el) return
+    if (url) {
+      el.dataset.url = url
+      el.innerHTML = `<img src="${esc(url)}" alt="preview" onerror="this.parentNode.innerHTML='<span class=thumb-empty>не загрузилось</span>'"><span class="thumb-zoom-icon">🔍</span>`
+    }
+  }
+
+  function openLightbox(el) {
+    const url = el.dataset.url
+    if (!url) return
+    document.getElementById('lightbox-img').src = url
+    document.getElementById('lightbox').classList.add('open')
+  }
+
+  function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open')
+  }
+
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox() })
+
+  function setVal(id, val) {
+    const el = document.getElementById(id)
+    if (el) el.value = val || ''
+  }
+
+  function getVal(id) { return (document.getElementById(id)?.value || '').trim() }
+
+  function onInput(el, key) {
+    updateStatusFromForm()
+    updateDefaultHints()
+  }
+
+  function updateDefaultHints() {
+    const tgUsername = (currentData?.personal_tg_username || currentData?.assistant_tg_username || '').replace(/^@/, '')
+    const defaultGasUrl = tgUsername
+      ? `https://t.me/${tgUsername}?text=ivision`
+      : 'https://t.me/username?text=ivision'
+
+    setFieldHint(
+      'gas-title',
+      'hint-gas-title',
+      `Если название не указано, в рассылке укажем: <strong>«Для получения материалов пишите в личку слово ivision»</strong>`
+    )
+    if (tgUsername) {
+      setFieldHint(
+        'gas-url',
+        'hint-gas-url',
+        `Если ссылка не указана, в рассылке в качестве ссылки укажем: <strong>${esc(defaultGasUrl)}</strong>`
+      )
+    } else {
+      // нет ника — убираем подсказку
+      const hint = document.getElementById('hint-gas-url')
+      if (hint) hint.remove()
+    }
+  }
+
+  function setFieldHint(fieldId, hintId, html) {
+    const field = document.getElementById(fieldId)
+    if (!field) return
+    let hint = document.getElementById(hintId)
+    const isEmpty = !field.value.trim()
+    if (isEmpty) {
+      if (!hint) {
+        hint = document.createElement('div')
+        hint.id = hintId
+        hint.className = 'field-default-hint'
+        field.parentNode.insertBefore(hint, field.nextSibling)
+      }
+      hint.innerHTML = html
+    } else {
+      if (hint) hint.remove()
+    }
+  }
+
+  function updateStatusFromForm() {
+    if (!currentData) return
+    const snapshot = buildSnapshot()
+    updateStatus(snapshot)
+    updateWarningLabels(snapshot)
+  }
+
+  function buildSnapshot() {
+    const achText = getVal('achievements')
+    const achArr = achText.split('\n').map(s=>s.trim()).filter(Boolean)
+    return {
+      photo_url: currentData.photo_url,
+      poster_url: currentData.poster_url,
+      _topics: topics.filter(t => t.trim()),
+      gift_after_speech_title: getVal('gas-title'),
+      gift_after_speech_url: getVal('gas-url'),
+      gift_raffle_title: getVal('gr-title'),
+      gift_raffle_url: getVal('gr-url'),
+      achievements: achArr,
+      tg_channel_url: getVal('tg-channel-url'),
+      tg_channel_id: getVal('tg-channel-id'),
+      personal_tg_id: getVal('personal-tg-id'),
+      personal_tg_username: getVal('personal-tg-username'),
+    }
+  }
+
+  function updateStatus(d) {
+    const el = document.getElementById('status-items')
+    el.innerHTML = CHECK_FIELDS.map(f => {
+      const ok = f.check(d)
+      return `<span class="status-item ${ok ? 'status-ok' : 'status-warn'}">${ok ? '✓' : '⚠'} ${f.label}</span>`
+    }).join('')
+  }
+
+  function updateWarningLabels(d) {
+    markWarn('lbl-topics',        !d._topics || d._topics.filter(t=>t.trim()).length === 0)
+    markWarn('lbl-gas-title',     !getVal('gas-title'))
+    markWarn('lbl-gas-url',       !getVal('gas-url'))
+    markWarn('lbl-gr-title',      !getVal('gr-title'))
+    markWarn('lbl-gr-url',        !getVal('gr-url'))
+    markWarn('lbl-tg',            !getVal('tg-channel-url'))
+    markWarn('lbl-tg-channel-id', !getVal('tg-channel-id'))
+    markWarn('lbl-personal-tg-id',!getVal('personal-tg-id') && !getVal('personal-tg-username'))
+    markWarn('lbl-achievements',  getVal('achievements').trim() === '')
+  }
+
+  function markWarn(id, isWarn) {
+    const el = document.getElementById(id)
+    if (!el) return
+    // Удаляем старый индикатор
+    el.querySelectorAll('.warn-dot').forEach(e => e.remove())
+    if (isWarn) {
+      el.insertAdjacentHTML('beforeend', '<span class="warn-dot">⚠</span>')
+    }
+  }
+
+  async function save() {
+    const btn = document.getElementById('save-btn')
+    const spinner = document.getElementById('save-spinner')
+    const btnText = document.getElementById('save-btn-text')
+    const statusEl = document.getElementById('save-status')
+
+    btn.disabled = true
+    btnText.textContent = 'Сохраняю...'
+    spinner.classList.remove('hidden')
+    statusEl.style.display = 'none'
+
+    const achText = getVal('achievements')
+    const achArr = achText.split('\n').map(s=>s.trim()).filter(Boolean)
+    const cleanTopics = topics.map(t=>t.trim()).filter(Boolean)
+
+    const payload = {
+      name: getVal('name') || undefined,
+      title: getVal('title') || undefined,
+      achievements: achArr,
+      tg_channel_url: getVal('tg-channel-url') || undefined,
+      instagram_url: getVal('instagram-url') || undefined,
+      website_url: getVal('website-url') || undefined,
+      tg_channel_id: getVal('tg-channel-id') || undefined,
+      personal_tg_id: getVal('personal-tg-id') || undefined,
+      personal_tg_username: getVal('personal-tg-username') || undefined,
+      assistant_tg_username: getVal('assistant-tg-username') || undefined,
+      topics: cleanTopics,
+      gift_after_speech_title: getVal('gas-title') || undefined,
+      gift_after_speech_url: getVal('gas-url') || undefined,
+      gift_raffle_title: getVal('gr-title') || undefined,
+      gift_raffle_url: getVal('gr-url') || undefined,
+    }
+
+    try {
+      const resp = await fetch(`${API}/events/${eventId}/conference/speakers/by-code/${refCode}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}))
+        throw new Error(err.detail || 'Ошибка сохранения')
+      }
+
+      const data = await resp.json()
+      currentData = data.speaker
+      currentData._topics = (currentData.topics || [])
+        .map(t => typeof t === 'string' ? t : t.topic).filter(Boolean)
+
+      // Обновляем hero-аватар и имя
+      const name = currentData.name || ''
+      document.getElementById('hero-name').textContent = name
+      document.getElementById('hero-title').textContent = currentData.title || ''
+      if (currentData.photo_url) {
+        const initials = name.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase() || '?'
+        document.getElementById('hero-avatar').innerHTML = `<img src="${esc(currentData.photo_url)}" alt="${esc(name)}" onerror="this.parentNode.innerHTML='<span class=hero-initials>${initials}</span>'">`
+      }
+
+      updateStatus(currentData)
+      statusEl.style.display = 'flex'
+      setTimeout(() => { statusEl.style.display = 'none' }, 4000)
+
+    } catch (e) {
+      alert('Ошибка: ' + (e.message || 'Попробуйте ещё раз'))
+    } finally {
+      btn.disabled = false
+      btnText.textContent = 'Сохранить изменения'
+      spinner.classList.add('hidden')
+    }
+  }
+
+  function showErrorPage(msg) {
+    hide('loading')
+    hide('main-content')
+    hide('sticky-save')
+    const el = document.getElementById('error-page')
+    el.textContent = msg
+    show('error-page')
+  }
+
+  function show(id) { document.getElementById(id)?.classList.remove('hidden') }
+  function hide(id) { document.getElementById(id)?.classList.add('hidden') }
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  }
+  function escText(s) {
+    return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  }
+
+  init()
+</script>
+</body>
+</html>
