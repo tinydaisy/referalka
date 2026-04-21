@@ -36,6 +36,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
     title: event?.title || '',
     description: conf?.description || '',
     registration_url: conf?.registration_url || '',
+    raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     organizer_speaker_id: conf?.organizer_speaker_id || '',
   })
@@ -54,6 +55,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
       ...f,
       description: conf?.description || '',
       registration_url: conf?.registration_url || '',
+      raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       organizer_speaker_id: conf?.organizer_speaker_id || '',
     }))
@@ -69,6 +71,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
       const updated = await api.conference.update(eventId, {
         description: form.description || null,
         registration_url: form.registration_url || null,
+        raffle_url: form.raffle_url || null,
         subscription_mode: form.subscription_mode,
         organizer_speaker_id: form.organizer_speaker_id ? Number(form.organizer_speaker_id) : null,
       })
@@ -106,6 +109,15 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
             <span className="text-gray-400 font-normal ml-1">{ts.confUrlHint}</span>
           </label>
           <input type="url" value={form.registration_url} onChange={set('registration_url')}
+            placeholder="https://..."
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Ссылка на информацию про розыгрыш
+            <span className="text-gray-400 font-normal ml-1">— для шаблона «Итоги дня»</span>
+          </label>
+          <input type="url" value={form.raffle_url} onChange={set('raffle_url')}
             placeholder="https://..."
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
         </div>

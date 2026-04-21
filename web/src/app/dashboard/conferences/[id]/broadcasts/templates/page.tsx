@@ -162,7 +162,8 @@ export default function TemplatesPage() {
     setTestSending(true)
     setTestResult(null)
     try {
-      const isDayType = testModal.def.type === 'day_start_30min_unreg' || testModal.def.type === 'day_start_30min_reg'
+      const DAY_TYPES = ['day_start_30min_unreg', 'day_start_30min_reg', 'day_live', 'day_end']
+      const isDayType = DAY_TYPES.includes(testModal.def.type)
       if (isDayType) {
         // Для day-шаблонов: отправить только этот шаблон для каждого дня
         const allDetails: any[] = []
@@ -312,16 +313,40 @@ export default function TemplatesPage() {
         }).join('\n')
       : '[программа дня]'
 
+    const ORDINALS: Record<number, string> = { 1: 'первом', 2: 'втором', 3: 'третьем', 4: 'четвёртом', 5: 'пятом' }
+    const dayOrdinal = ORDINALS[d] || `${d}-м`
+    const realRaffleUrl = confData?.raffle_url || ''
+
+    // Подарки спикеров дня для превью
+    const speakerGiftBlocks = daySessions
+      .filter((s: any) => s.speaker_name)
+      .map((s: any) => {
+        const title = (s.gift_after_speech_title || '').trim()
+        const url = (s.gift_after_speech_url || '').trim()
+        const tg = (s.personal_tg_username || '').trim()
+        const tgMention = tg ? '@' + tg.replace(/^@+/, '') : ''
+        if (!title) return `🎁 ${s.speaker_name}: ${tgMention ? 'пишите в личку ' + tgMention : 'уточните у спикера'}`
+        if (!url) return `🎁 ${s.speaker_name}: ${title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`
+        return `🎁 ${s.speaker_name}: ${title}\n${url}`
+      })
+    const daySpeakersGifts = speakerGiftBlocks.length > 0 ? speakerGiftBlocks.join('\n\n') : '[подарки спикеров дня]'
+
+    // Время старта следующего дня
+    const nextDaySessions = confSessions.filter((s: any) => s.day === d + 1)
+    const nextDayFirstStart = nextDaySessions.length > 0 && nextDaySessions[0].start_datetime
+      ? new Date(nextDaySessions[0].start_datetime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      : '10:00'
+
     out = out
       .replace(/\{conf_title\}/g, realConfTitle)
       .replace(/\{day_number\}/g, String(d))
-      .replace(/\{day_ordinal\}/g, 'первом')
+      .replace(/\{day_ordinal\}/g, dayOrdinal)
       .replace(/\{day_date\}/g, realDayDate)
       .replace(/\{day_program\}/g, dayProgram)
       .replace(/\{next_day_number\}/g, String(d + 1))
-      .replace(/\{next_day_start_time\}/g, '10:00')
-      .replace(/\{raffle_url\}/g, '🔗 [ссылка на розыгрыш]')
-      .replace(/\{day_speakers_gifts\}/g, '[подарки спикеров дня]')
+      .replace(/\{next_day_start_time\}/g, nextDayFirstStart)
+      .replace(/\{raffle_url\}/g, realRaffleUrl || '🔗 [ссылка на розыгрыш]')
+      .replace(/\{day_speakers_gifts\}/g, daySpeakersGifts)
       .replace(/\{stream_url\}/g, realStreamUrl || '🔗 [ссылка на эфир]')
       .replace(/\{registration_url\}/g, realRegUrl || '🔗 [ссылка на регистрацию]')
       .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')

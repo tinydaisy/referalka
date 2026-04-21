@@ -441,7 +441,7 @@ async def test_template(
     if not tpl:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
 
-    DAY_TYPES = ("day_start_30min_unreg", "day_start_30min_reg")
+    DAY_TYPES = ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end")
     SPEAKER_TYPES = ("gift", "speaker_intro", "pre_start")
     if tpl["type"] not in SPEAKER_TYPES + DAY_TYPES:
         return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка для этого шаблона пока не реализована"}
@@ -517,24 +517,35 @@ async def test_template(
         text = text.replace("{stream_url}", stream_url_val or "")
         return text.strip()
 
-    def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program, stream_url_val, registration_url_val):
+    ORDINALS = {1: "первом", 2: "втором", 3: "третьем", 4: "четвёртом", 5: "пятом"}
+
+    def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
+                          stream_url_val, registration_url_val, raffle_url_val="", day_speakers_gifts="",
+                          next_day_number=None, next_day_start_time=""):
         text = tmpl_text or ""
+        ordinal = ORDINALS.get(day_number, f"{day_number}-м")
         text = text.replace("{day_number}", str(day_number))
+        text = text.replace("{day_ordinal}", ordinal)
         text = text.replace("{conf_title}", conf_title or "")
         text = text.replace("{day_date}", day_date or "")
         text = text.replace("{day_program}", day_program or "")
         text = text.replace("{stream_url}", stream_url_val or "")
         text = text.replace("{registration_url}", registration_url_val or "")
+        text = text.replace("{raffle_url}", raffle_url_val or "")
+        text = text.replace("{day_speakers_gifts}", day_speakers_gifts or "")
+        text = text.replace("{next_day_number}", str(next_day_number) if next_day_number else "")
+        text = text.replace("{next_day_start_time}", next_day_start_time or "")
         return re.sub(r"\n{3,}", "\n\n", text).strip()
 
     # ── Ветка: шаблоны уровня «день» ──
 
-    if tpl["type"] in ("day_start_30min_unreg", "day_start_30min_reg"):
+    if tpl["type"] in ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end"):
         # Данные конференции (название, лендинг, горизонтальная афиша)
         conf_row = await db.fetchrow(
             """
             SELECT e.title as conf_title,
                    cc.registration_url,
+                   cc.raffle_url,
                    cc.poster_horizontal,
                    cd.stream_url,
                    cd.day_date
@@ -547,6 +558,7 @@ async def test_template(
         )
         conf_title = conf_row["conf_title"] if conf_row else ""
         registration_url = (conf_row["registration_url"] or "") if conf_row else ""
+        raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         stream_url = (conf_row["stream_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
         day_date_str = raw_date.strftime("%-d %B") if raw_date else f"День {day}"
@@ -584,8 +596,54 @@ async def test_template(
             program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
         day_program = "\n".join(program_lines)
 
+        # Для day_end — собираем подарки спикеров и данные следующего дня
+        day_speakers_gifts = ""
+        next_day_number = day + 1
+        next_day_start_time = ""
+        if tpl["type"] == "day_end":
+            gift_sessions = await db.fetch(
+                """
+                SELECT c.name as speaker_name, c.personal_tg_username,
+                       cse.gift_after_speech_title, cse.gift_after_speech_url
+                FROM conf_sessions cs
+                JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+                JOIN collaborators c ON c.id = cse.speaker_id
+                WHERE cs.event_id = $1 AND cs.day = $2
+                ORDER BY cs.sort_order
+                """,
+                event_id, day
+            )
+            gift_blocks = []
+            for gs in gift_sessions:
+                title = (gs["gift_after_speech_title"] or "").strip()
+                url = (gs["gift_after_speech_url"] or "").strip()
+                tg_raw = (gs["personal_tg_username"] or "").strip()
+                tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
+                if not title:
+                    block = f"🎁 {gs['speaker_name']}: пишите в личку {tg_mention}" if tg_mention else f"🎁 {gs['speaker_name']}: уточните у спикера"
+                elif not url:
+                    block = f"🎁 {gs['speaker_name']}: {title}\n{('Пишите в личку ' + tg_mention) if tg_mention else ''}".strip()
+                else:
+                    block = f"🎁 {gs['speaker_name']}: {title}\n{url}"
+                gift_blocks.append(block)
+            day_speakers_gifts = "\n\n".join(gift_blocks)
+
+            next_day_row = await db.fetchrow(
+                "SELECT stream_url FROM conf_days WHERE event_id = $1 AND day_number = $2",
+                event_id, next_day_number
+            )
+            # Попробуем взять время старта первой сессии следующего дня
+            first_session = await db.fetchrow(
+                "SELECT start_datetime FROM conf_sessions WHERE event_id = $1 AND day = $2 ORDER BY sort_order, start_datetime LIMIT 1",
+                event_id, next_day_number
+            )
+            if first_session and first_session["start_datetime"]:
+                next_day_start_time = first_session["start_datetime"].strftime("%H:%M")
+
         text = build_day_message(
-            tpl["text"], day, conf_title, day_date_str, day_program, stream_url, registration_url
+            tpl["text"], day, conf_title, day_date_str, day_program, stream_url, registration_url,
+            raffle_url_val=raffle_url, day_speakers_gifts=day_speakers_gifts,
+            next_day_number=next_day_number, next_day_start_time=next_day_start_time
         )
         btn_text = tpl["button_text"]
         btn_url = (tpl["button_url"] or "").replace("{stream_url}", stream_url).replace("{registration_url}", registration_url)
@@ -593,7 +651,13 @@ async def test_template(
         if btn_text and btn_url:
             reply_markup = {"inline_keyboard": [[{"text": btn_text, "url": btn_url}]]}
 
-        label = f"День {day} — {'незарегистрированные' if tpl['type'] == 'day_start_30min_unreg' else 'зарегистрированные'}"
+        TYPE_LABELS = {
+            "day_start_30min_unreg": "незарегистрированные",
+            "day_start_30min_reg": "зарегистрированные",
+            "day_live": "старт эфира",
+            "day_end": "итоги дня",
+        }
+        label = f"День {day} — {TYPE_LABELS.get(tpl['type'], tpl['type'])}"
         send_results = []
         async with httpx.AsyncClient(timeout=15) as http:
             for chat_id in test_ids:
