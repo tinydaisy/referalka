@@ -920,12 +920,12 @@ async def copy_schedule(
 
     new_id = await db.fetchval(
         """INSERT INTO broadcast_schedules
-           (event_id, template_id, session_id, day, audience_include, audience_exclude,
-            fire_at, status, is_test)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)
+           (event_id, template_id, session_id, type, audience_include, audience_exclude,
+            audience_type, fire_at, status, is_test)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9)
            RETURNING id""",
-        row["event_id"], row["template_id"], row["session_id"], row["day"],
-        row["audience_include"], row["audience_exclude"],
+        row["event_id"], row["template_id"], row["session_id"], row["type"],
+        row["audience_include"], row["audience_exclude"], row["audience_type"],
         row["fire_at"], row["is_test"]
     )
     return {"ok": True, "id": new_id}
