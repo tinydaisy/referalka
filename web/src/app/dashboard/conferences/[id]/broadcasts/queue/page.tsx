@@ -79,6 +79,7 @@ export default function QueuePage() {
   const [manualModal, setManualModal] = useState(false)
   const [fireAtModal, setFireAtModal] = useState<any>(null)   // {schedule}
   const [fireAtValue, setFireAtValue] = useState('')
+  const [fireAtError, setFireAtError] = useState('')
   const [isTestValue, setIsTestValue] = useState(false)
   const [editAudienceInclude, setEditAudienceInclude] = useState('all_event')
   const [editAudienceExclude, setEditAudienceExclude] = useState('none')
@@ -196,14 +197,31 @@ export default function QueuePage() {
 
   function openFireAt(schedule: any) {
     setFireAtModal(schedule)
-    setFireAtValue('')
+    // Предзаполняем существующим временем задачи
+    if (schedule.fire_at_iso) {
+      const d = new Date(schedule.fire_at_iso)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+      setFireAtValue(local)
+    } else {
+      setFireAtValue('')
+    }
     setIsTestValue(schedule.is_test || false)
     setEditAudienceInclude(schedule.audience_include || 'all_event')
     setEditAudienceExclude(schedule.audience_exclude || 'none')
   }
 
   async function saveFireAt() {
-    if (!fireAtModal || !fireAtValue) return
+    if (!fireAtModal) return
+    if (!fireAtValue) {
+      setFireAtError('Укажите дату и время')
+      return
+    }
+    if (new Date(fireAtValue) <= new Date()) {
+      setFireAtError('Время уже прошло — выберите будущее время')
+      return
+    }
+    setFireAtError('')
     try {
       await api.conference.schedules.setFireAt(eventId, fireAtModal.id, {
         fire_at: fireAtValue,
@@ -306,7 +324,18 @@ export default function QueuePage() {
       alert('Среди выбранных нет задач в статусе "Черновик". Запустить можно только черновики.')
       return
     }
-    if (!confirm(`Запустить ${selected.filter(s => s.status === 'draft').length} рассылок?`)) return
+    const drafts = selected.filter(s => s.status === 'draft')
+    const pastDrafts = drafts.filter(s => s.fire_at_iso && new Date(s.fire_at_iso) <= new Date())
+    if (pastDrafts.length > 0) {
+      alert(`${pastDrafts.length} задач(и) имеют прошедшее время и не будут запущены. Сначала установите им актуальное время.`)
+      return
+    }
+    const noDrafts = drafts.filter(s => !s.fire_at_iso)
+    if (noDrafts.length > 0) {
+      alert(`${noDrafts.length} задач(и) без времени отправки. Сначала задайте время через кнопку редактирования.`)
+      return
+    }
+    if (!confirm(`Запустить ${drafts.length} рассылок?`)) return
     setRunningSelected(true)
     try {
       const r = await api.conference.schedules.runSelected(eventId, ids)
@@ -635,9 +664,10 @@ export default function QueuePage() {
                 <input
                   type="datetime-local"
                   value={fireAtValue}
-                  onChange={e => setFireAtValue(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
+                  onChange={e => { setFireAtValue(e.target.value); setFireAtError('') }}
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none ${fireAtError ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-gray-400'}`}
                 />
+                {fireAtError && <p className="text-xs text-red-500 mt-1">{fireAtError}</p>}
               </div>
               <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
                 <p className="text-xs font-medium text-gray-600">👥 Аудитория</p>
