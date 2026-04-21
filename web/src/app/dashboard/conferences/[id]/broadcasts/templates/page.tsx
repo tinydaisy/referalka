@@ -435,8 +435,16 @@ export default function TemplatesPage() {
       nextDayMention = `Встречаемся ${when} в ${nextTime} на День ${d + 1}.`
     }
 
+    const confDay1 = confDaysData.find((x: any) => x.day_number === 1)
+    const confDay1Date = confDay1?.day_date
+      ? new Date(confDay1.day_date + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+      : ''
+    const realConfDesc = confData?.description || ''
+
     out = out
       .replace(/\{conf_title\}/g, realConfTitle)
+      .replace(/\{conf_date\}/g, confDay1Date || '[дата конференции]')
+      .replace(/\{conf_description\}/g, realConfDesc || '[описание конференции]')
       .replace(/\{day_number\}/g, String(d))
       .replace(/\{day_ordinal\}/g, dayOrdinal)
       .replace(/\{day_date\}/g, realDayDate)
@@ -746,12 +754,12 @@ export default function TemplatesPage() {
             <div className="bg-[#effdde] rounded-2xl rounded-tr-sm p-3 shadow-sm">
               {/* Фото */}
               {previewModal.def.showPhoto && (() => {
-                const isDayTpl = previewModal.def.type.startsWith('day_')
+                const isConfTpl = previewModal.def.type.startsWith('day_') || previewModal.def.type === 'pre_conf'
                 const photoSrc = previewModal.tpl.photo_url
-                  || (isDayTpl
+                  || (isConfTpl
                     ? confData?.poster_horizontal?.[0]
                     : previewSpeaker?.poster_url)
-                const placeholder = isDayTpl ? '📸 Горизонтальная афиша конференции' : '📸 Афиша спикера'
+                const placeholder = isConfTpl ? '📸 Горизонтальная афиша конференции' : '📸 Афиша спикера'
                 return photoSrc ? (
                   <img src={photoSrc} alt=""
                     className="w-full rounded-xl mb-2"
