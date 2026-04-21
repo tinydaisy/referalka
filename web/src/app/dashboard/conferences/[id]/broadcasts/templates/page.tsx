@@ -335,15 +335,25 @@ export default function TemplatesPage() {
 
     // Умная фраза про следующий день
     const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
+    const curDaySessions = confSessions.filter((s: any) => s.day === d)
     const nextDaySessions = confSessions.filter((s: any) => s.day === d + 1)
     let nextDayMention = ''
     if (nextDaySessions.length > 0 && nextDaySessions[0].start_datetime) {
       const nextDt = new Date(nextDaySessions[0].start_datetime)
-      const nextTime = nextDt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-      const today = new Date(); today.setHours(0,0,0,0)
-      const nextDate = new Date(nextDt); nextDate.setHours(0,0,0,0)
-      const diffDays = Math.round((nextDate.getTime() - today.getTime()) / 86400000)
-      const when = diffDays === 1 ? 'завтра' : `${nextDt.getDate()} ${MONTHS_RU[nextDt.getMonth()]}`
+      // Берём время и дату из UTC-полей напрямую, без пересчёта часового пояса
+      const nextTime = `${String(nextDt.getUTCHours()).padStart(2,'0')}:${String(nextDt.getUTCMinutes()).padStart(2,'0')}`
+      const nextDateStr = `${nextDt.getUTCFullYear()}-${nextDt.getUTCMonth()}-${nextDt.getUTCDate()}`
+      let diffDays = 999
+      if (curDaySessions.length > 0 && curDaySessions[0].start_datetime) {
+        const curDt = new Date(curDaySessions[0].start_datetime)
+        const curDateStr = `${curDt.getUTCFullYear()}-${curDt.getUTCMonth()}-${curDt.getUTCDate()}`
+        // Разница в днях по UTC-датам
+        const msPerDay = 86400000
+        const nextMs = Date.UTC(nextDt.getUTCFullYear(), nextDt.getUTCMonth(), nextDt.getUTCDate())
+        const curMs = Date.UTC(curDt.getUTCFullYear(), curDt.getUTCMonth(), curDt.getUTCDate())
+        diffDays = Math.round((nextMs - curMs) / msPerDay)
+      }
+      const when = diffDays === 1 ? 'завтра' : `${nextDt.getUTCDate()} ${MONTHS_RU[nextDt.getUTCMonth()]}`
       nextDayMention = `Встречаемся ${when} в ${nextTime} на День ${d + 1}.`
     }
 

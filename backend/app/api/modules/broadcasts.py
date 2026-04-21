@@ -633,25 +633,28 @@ async def test_template(
                 day_speakers_gifts = ""
 
             # Следующий день — берём дату и время из первой сессии
-            from datetime import date, timezone
+            MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
+                         "июля", "августа", "сентября", "октября", "ноября", "декабря"]
             next_day_number = day + 1
+            # Берём дату текущего дня из его первой сессии
+            first_cur_session = await db.fetchrow(
+                "SELECT start_datetime FROM conf_sessions WHERE event_id = $1 AND day = $2 ORDER BY sort_order, start_datetime LIMIT 1",
+                event_id, day
+            )
             first_next_session = await db.fetchrow(
                 "SELECT start_datetime FROM conf_sessions WHERE event_id = $1 AND day = $2 ORDER BY sort_order, start_datetime LIMIT 1",
                 event_id, next_day_number
             )
             if first_next_session and first_next_session["start_datetime"]:
                 next_dt = first_next_session["start_datetime"]
+                # Берём время и дату напрямую из UTC-значения, без пересчёта часового пояса
                 next_time = next_dt.strftime("%H:%M")
-                # Определяем дату следующего дня в МСК (UTC+3)
                 next_date = next_dt.date()
-                today = date.today()
-                diff = (next_date - today).days
+                cur_date = first_cur_session["start_datetime"].date() if first_cur_session and first_cur_session["start_datetime"] else None
+                diff = (next_date - cur_date).days if cur_date else 999
                 if diff == 1:
                     when = "завтра"
                 else:
-                    import locale
-                    MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
-                                 "июля", "августа", "сентября", "октября", "ноября", "декабря"]
                     when = f"{next_date.day} {MONTHS_RU[next_date.month - 1]}"
                 next_day_mention = f"Встречаемся {when} в {next_time} на День {next_day_number}."
             # Если следующего дня нет — next_day_mention остаётся "", строка уберётся
