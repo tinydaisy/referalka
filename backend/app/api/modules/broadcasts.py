@@ -515,11 +515,22 @@ async def generate_schedules(
             event_id
         )
 
-        # Получаем всех спикеров события (видимых, по sort_order)
+        # Получаем всех спикеров события (видимых) в нужном порядке:
+        # 1) организатор, 2) ком. хедлайнеры, 3) ком. спикеры, 4) ком. партнёры,
+        # 5) некоммерч. хедлайнеры, 6) некоммерч. спикеры, 7) некоммерч. партнёры
         speakers_list = await db.fetch(
             """SELECT id FROM conf_speaker_events
                WHERE event_id=$1 AND is_visible=true
-               ORDER BY sort_order, id""",
+               ORDER BY
+                 CASE WHEN role='organizer'                          THEN 1
+                      WHEN is_commercial AND role='headliner'        THEN 2
+                      WHEN is_commercial AND role='speaker'          THEN 3
+                      WHEN is_commercial AND role='partner'          THEN 4
+                      WHEN NOT is_commercial AND role='headliner'    THEN 5
+                      WHEN NOT is_commercial AND role='speaker'      THEN 6
+                      WHEN NOT is_commercial AND role='partner'      THEN 7
+                      ELSE 8 END,
+                 sort_order, id""",
             event_id
         )
 
