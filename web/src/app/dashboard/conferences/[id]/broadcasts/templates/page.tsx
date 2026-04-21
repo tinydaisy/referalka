@@ -176,8 +176,8 @@ export default function TemplatesPage() {
     setTestSending(true)
     setTestResult(null)
     try {
-      const ALL_DAYS_TYPES = ['day_start_30min_unreg', 'day_start_30min_reg', 'day_end']
-      const SINGLE_DAY_TYPES = ['day_live']
+      const ALL_DAYS_TYPES = ['day_start_30min_unreg', 'day_start_30min_reg', 'day_live', 'day_end']
+      const SINGLE_DAY_TYPES: string[] = []
       const isDayAllType = ALL_DAYS_TYPES.includes(testModal.def.type)
       const isDaySingleType = SINGLE_DAY_TYPES.includes(testModal.def.type)
       if (isDayAllType) {
@@ -662,29 +662,13 @@ export default function TemplatesPage() {
                   {testModal.def.type === 'pre_start' && 'Отправит «Анонс спикера» для каждого спикера выбранного дня (с реальной ссылкой на эфир и фото) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'day_start_30min_unreg' && `Отправит сообщение для незарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                   {testModal.def.type === 'day_start_30min_reg' && `Отправит сообщение для зарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
-                  {testModal.def.type === 'day_live' && 'Отправит сообщение о старте эфира для выбранного дня на тестовые Telegram ID из настроек.'}
+                  {testModal.def.type === 'day_live' && `Отправит сообщение о старте эфира для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                   {testModal.def.type === 'day_end' && `Отправит итоги дня для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                 </p>
 
-                {/* Выбор дня для day_live */}
-                {testModal.def.type === 'day_live' && confDays.length > 1 && (
-                  <div className="mb-4">
-                    <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
-                    <div className="flex gap-2 flex-wrap">
-                      {confDays.map(d => (
-                        <button key={d} onClick={() => setTestDay(d)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${testDay === d ? 'text-white border-transparent' : 'text-gray-600 border-gray-200 bg-white hover:bg-gray-50'}`}
-                          style={testDay === d ? { background: 'linear-gradient(45deg,#25455D,#0a1520)' } : {}}>
-                          День {d}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {!testResult && (
                   <>
-                    {testModal.def.type !== 'day_live' && <p className="text-xs text-gray-400 mb-4">Будет отправлено для каждого из {confDays.length} дней</p>}
+                    <p className="text-xs text-gray-400 mb-4">Будет отправлено для каждого из {confDays.length} дней</p>
                     <button
                       onClick={runTest}
                       disabled={testSending}
