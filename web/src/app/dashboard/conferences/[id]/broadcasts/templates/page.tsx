@@ -331,11 +331,19 @@ export default function TemplatesPage() {
       })
     const daySpeakersGifts = speakerGiftBlocks.length > 0 ? speakerGiftBlocks.join('\n\n') : '[подарки спикеров дня]'
 
-    // Время старта следующего дня
+    // Умная фраза про следующий день
+    const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
     const nextDaySessions = confSessions.filter((s: any) => s.day === d + 1)
-    const nextDayFirstStart = nextDaySessions.length > 0 && nextDaySessions[0].start_datetime
-      ? new Date(nextDaySessions[0].start_datetime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-      : '10:00'
+    let nextDayMention = ''
+    if (nextDaySessions.length > 0 && nextDaySessions[0].start_datetime) {
+      const nextDt = new Date(nextDaySessions[0].start_datetime)
+      const nextTime = nextDt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      const today = new Date(); today.setHours(0,0,0,0)
+      const nextDate = new Date(nextDt); nextDate.setHours(0,0,0,0)
+      const diffDays = Math.round((nextDate.getTime() - today.getTime()) / 86400000)
+      const when = diffDays === 1 ? 'завтра' : `${nextDt.getDate()} ${MONTHS_RU[nextDt.getMonth()]}`
+      nextDayMention = `Встречаемся ${when} в ${nextTime} на День ${d + 1}.`
+    }
 
     out = out
       .replace(/\{conf_title\}/g, realConfTitle)
@@ -343,8 +351,7 @@ export default function TemplatesPage() {
       .replace(/\{day_ordinal\}/g, dayOrdinal)
       .replace(/\{day_date\}/g, realDayDate)
       .replace(/\{day_program\}/g, dayProgram)
-      .replace(/\{next_day_number\}/g, String(d + 1))
-      .replace(/\{next_day_start_time\}/g, nextDayFirstStart)
+      .replace(/\{next_day_mention\}/g, nextDayMention)
       .replace(/\{raffle_url\}/g, realRaffleUrl || '🔗 [ссылка на розыгрыш]')
       .replace(/\{day_speakers_gifts\}/g, daySpeakersGifts)
       .replace(/\{stream_url\}/g, realStreamUrl || '🔗 [ссылка на эфир]')
@@ -358,6 +365,8 @@ export default function TemplatesPage() {
       .replace(/\{speaker_topic\}/g, '[тема]')
       .replace(/\{speaker_achievements\}/g, '')
 
+    // Убираем незамененные переменные следующего дня (если остались)
+    if (!nextDayMention) out = out.replace(/^.*\{next_day_mention\}.*$\n?/gm, '')
     // Схлопываем 3+ пустых строки подряд
     out = out.replace(/\n{3,}/g, '\n\n')
     return out.trim()

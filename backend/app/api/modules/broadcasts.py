@@ -126,7 +126,7 @@ DEFAULT_TEMPLATES = [
             "Благодарим вас за участие в {day_ordinal} дне конференции «{conf_title}»\n\n"
             "Самое время ввести собранные КОДОВЫЕ СЛОВА и получить за них дополнительные билеты для розыгрыша:\n"
             "{raffle_url}\n\n"
-            "Встречаемся завтра в {next_day_start_time} на День {next_day_number}.\n\n"
+            "{next_day_mention}\n\n"
             "—\n\n"
             "А сейчас ловите подарки от спикеров {day_ordinal} дня:\n\n"
             "{day_speakers_gifts}"
@@ -521,7 +521,7 @@ async def test_template(
 
     def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
                           stream_url_val, registration_url_val, raffle_url_val="", day_speakers_gifts="",
-                          next_day_number=None, next_day_start_time=""):
+                          next_day_mention=""):
         text = tmpl_text or ""
         ordinal = ORDINALS.get(day_number, f"{day_number}-м")
         text = text.replace("{day_number}", str(day_number))
@@ -533,8 +533,11 @@ async def test_template(
         text = text.replace("{registration_url}", registration_url_val or "")
         text = text.replace("{raffle_url}", raffle_url_val or "")
         text = text.replace("{day_speakers_gifts}", day_speakers_gifts or "")
-        text = text.replace("{next_day_number}", str(next_day_number) if next_day_number else "")
-        text = text.replace("{next_day_start_time}", next_day_start_time or "")
+        # Умная подстановка следующей встречи — убираем строку если последний день
+        if next_day_mention:
+            text = text.replace("{next_day_mention}", next_day_mention)
+        else:
+            text = re.sub(r"^.*\{next_day_mention\}.*$\n?", "", text, flags=re.MULTILINE)
         return re.sub(r"\n{3,}", "\n\n", text).strip()
 
     # ── Ветка: шаблоны уровня «день» ──
@@ -596,10 +599,9 @@ async def test_template(
             program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
         day_program = "\n".join(program_lines)
 
-        # Для day_end — собираем подарки спикеров и данные следующего дня
+        # Для day_end — собираем подарки спикеров и фразу про следующую встречу
         day_speakers_gifts = ""
-        next_day_number = day + 1
-        next_day_start_time = ""
+        next_day_mention = ""
         if tpl["type"] == "day_end":
             gift_sessions = await db.fetch(
                 """
@@ -628,22 +630,34 @@ async def test_template(
                 gift_blocks.append(block)
             day_speakers_gifts = "\n\n".join(gift_blocks)
 
-            next_day_row = await db.fetchrow(
-                "SELECT stream_url FROM conf_days WHERE event_id = $1 AND day_number = $2",
-                event_id, next_day_number
-            )
-            # Попробуем взять время старта первой сессии следующего дня
-            first_session = await db.fetchrow(
+            # Следующий день — берём дату и время из первой сессии
+            from datetime import date, timezone
+            next_day_number = day + 1
+            first_next_session = await db.fetchrow(
                 "SELECT start_datetime FROM conf_sessions WHERE event_id = $1 AND day = $2 ORDER BY sort_order, start_datetime LIMIT 1",
                 event_id, next_day_number
             )
-            if first_session and first_session["start_datetime"]:
-                next_day_start_time = first_session["start_datetime"].strftime("%H:%M")
+            if first_next_session and first_next_session["start_datetime"]:
+                next_dt = first_next_session["start_datetime"]
+                next_time = next_dt.strftime("%H:%M")
+                # Определяем дату следующего дня в МСК (UTC+3)
+                next_date = next_dt.date()
+                today = date.today()
+                diff = (next_date - today).days
+                if diff == 1:
+                    when = "завтра"
+                else:
+                    import locale
+                    MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
+                                 "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+                    when = f"{next_date.day} {MONTHS_RU[next_date.month - 1]}"
+                next_day_mention = f"Встречаемся {when} в {next_time} на День {next_day_number}."
+            # Если следующего дня нет — next_day_mention остаётся "", строка уберётся
 
         text = build_day_message(
             tpl["text"], day, conf_title, day_date_str, day_program, stream_url, registration_url,
             raffle_url_val=raffle_url, day_speakers_gifts=day_speakers_gifts,
-            next_day_number=next_day_number, next_day_start_time=next_day_start_time
+            next_day_mention=next_day_mention
         )
         btn_text = tpl["button_text"]
         btn_url = (tpl["button_url"] or "").replace("{stream_url}", stream_url).replace("{registration_url}", registration_url)
