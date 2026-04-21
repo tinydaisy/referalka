@@ -190,7 +190,7 @@ async def _send_broadcast(schedule_id: int):
                     FROM event_participants ep
                     JOIN platform_users pu ON pu.id = ep.platform_user_id
                     WHERE ep.event_id = $1
-                      AND ep.is_registered = TRUE
+                      AND ep.status = 'registered'
                       AND pu.is_unsubscribed = FALSE
                       AND pu.platform = 'telegram'
                     """,
@@ -220,7 +220,7 @@ async def _send_broadcast(schedule_id: int):
                     SELECT pu.platform_user_id
                     FROM event_participants ep
                     JOIN platform_users pu ON pu.id = ep.platform_user_id
-                    WHERE ep.event_id = $1 AND ep.is_registered = TRUE
+                    WHERE ep.event_id = $1 AND ep.status = 'registered'
                       AND pu.platform = 'telegram'
                     """,
                     schedule["event_id"]
@@ -232,7 +232,7 @@ async def _send_broadcast(schedule_id: int):
                     SELECT pu.platform_user_id
                     FROM event_participants ep
                     JOIN platform_users pu ON pu.id = ep.platform_user_id
-                    WHERE ep.event_id = $1 AND ep.is_registered = FALSE
+                    WHERE ep.event_id = $1 AND ep.status != 'registered'
                       AND pu.platform = 'telegram'
                     """,
                     schedule["event_id"]
