@@ -2315,15 +2315,15 @@ async def create_report(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
 
-    # Спикеры конференции: collaborators.platform_user_id (tg_id) через conf_speaker_events
+    # Спикеры конференции: через conf_speaker_events + collaborators.personal_tg_id
     speakers_rows = await db.fetch(
         """SELECT cse.id AS speaker_event_id, cse.speaker_id,
-                  col.name, col.tg_id,
+                  col.name, col.personal_tg_id AS tg_id,
                   ep.is_registered, ep.is_in_chat,
                   pu.platform_user_id AS pu_tg_id
            FROM conf_speaker_events cse
            JOIN collaborators col ON col.id = cse.speaker_id
-           LEFT JOIN platform_users pu ON pu.platform_user_id = col.tg_id
+           LEFT JOIN platform_users pu ON pu.platform_user_id = col.personal_tg_id
                AND pu.client_id = (SELECT client_id FROM events WHERE id = $1)
                AND pu.platform = 'telegram'
            LEFT JOIN event_participants ep ON ep.platform_user_id = pu.id
