@@ -400,7 +400,7 @@ export default function TemplatesPage() {
                 </div>
               ) : (
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3">{tpl.text}</p>
+                  <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3">{(tpl.text || '').replace(/\\n/g, '\n')}</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                     {tpl.photo_url ? (
                       <span>📷 Своё фото</span>
