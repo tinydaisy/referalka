@@ -311,7 +311,7 @@ export default function TemplatesPage() {
     const realRegUrl = confData?.registration_url || ''
     const realConfTitle = confData?.event_title || confData?.title || '[Название конференции]'
     const realDayDate = dayObj?.day_date
-      ? new Date(dayObj.day_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+      ? new Date(dayObj.day_date + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
       : `День ${d}`
 
     // Строим программу дня из сессий
@@ -363,14 +363,22 @@ export default function TemplatesPage() {
       const userTz = getTimezone()
       const nextTime = nextDt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: userTz })
       // Для сравнения дат берём дату в таймзоне пользователя
-      const toLocalDate = (d: Date) => new Date(d.toLocaleDateString('en-CA', { timeZone: userTz }))
+      // Дата в таймзоне пользователя — форматируем через Intl и парсим поля
+      const dtParts = (dt: Date) => {
+        const s = dt.toLocaleDateString('en-CA', { timeZone: userTz }) // "YYYY-MM-DD"
+        const [y, m, dd] = s.split('-').map(Number)
+        return { year: y, month: m - 1, day: dd } // month 0-based
+      }
+      const nextParts = dtParts(nextDt)
       let diffDays = 999
       if (curDaySessions.length > 0 && curDaySessions[0].start_datetime) {
         const curDt = new Date(curDaySessions[0].start_datetime)
-        diffDays = Math.round((toLocalDate(nextDt).getTime() - toLocalDate(curDt).getTime()) / 86400000)
+        const curParts = dtParts(curDt)
+        const nextMs = Date.UTC(nextParts.year, nextParts.month, nextParts.day)
+        const curMs = Date.UTC(curParts.year, curParts.month, curParts.day)
+        diffDays = Math.round((nextMs - curMs) / 86400000)
       }
-      const nextLocalDate = toLocalDate(nextDt)
-      const when = diffDays === 1 ? 'завтра' : `${nextLocalDate.getUTCDate()} ${MONTHS_RU[nextLocalDate.getUTCMonth()]}`
+      const when = diffDays === 1 ? 'завтра' : `${nextParts.day} ${MONTHS_RU[nextParts.month]}`
       nextDayMention = `Встречаемся ${when} в ${nextTime} на День ${d + 1}.`
     }
 
