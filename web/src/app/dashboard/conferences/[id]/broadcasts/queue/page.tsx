@@ -518,14 +518,19 @@ export default function QueuePage() {
                       {s.seconds_until != null && s.status === 'pending' && s.fire_at_local && (
                         <span className="text-amber-600">через {formatTimeLeft(s.seconds_until)}</span>
                       )}
-                      {s.status === 'done' && s.recipients_sent != null && (
-                        <span className="text-green-600 font-medium">✓ {s.recipients_sent} получателей</span>
-                      )}
                       {s.error_log && (
                         <span className="text-red-500 truncate max-w-[200px]" title={s.error_log}>⚠ {s.error_log}</span>
                       )}
                     </div>
                   </div>
+
+                  {/* Количество получателей (только done) */}
+                  {s.status === 'done' && s.recipients_sent != null && (
+                    <div className="shrink-0 text-right">
+                      <span className="text-sm font-semibold text-green-700">{s.recipients_sent}</span>
+                      <div className="text-xs text-gray-400 leading-tight">чел.</div>
+                    </div>
+                  )}
 
                   {/* Кнопки действий */}
                   <div className="flex items-center gap-1.5 shrink-0">
