@@ -7,7 +7,7 @@ export const ru = {
     myConferences: 'Мои конференции',
     base: 'БАЗА',
     collaborations: 'Коллаборации',
-    clients: 'Клиенты',
+    clients: 'Контакты',
     soon: 'СКОРО',
     awards: 'Премии',
     tournaments: 'Турниры',
