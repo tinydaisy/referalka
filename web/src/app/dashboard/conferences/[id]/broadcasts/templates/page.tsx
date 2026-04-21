@@ -615,21 +615,23 @@ export default function TemplatesPage() {
               <button onClick={() => setTestModal(null)}><X size={18} /></button>
             </div>
 
-            {['gift', 'speaker_intro', 'pre_start', 'day_start_30min_unreg', 'day_start_30min_reg'].includes(testModal.def.type) ? (
+            {['gift', 'speaker_intro', 'pre_start', 'day_start_30min_unreg', 'day_start_30min_reg', 'day_live', 'day_end'].includes(testModal.def.type) ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
                   {testModal.def.type === 'gift' && 'Отправит сообщения о подарке для каждого спикера выбранного дня (по порядку программы) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'speaker_intro' && 'Отправит «Знакомство со спикером» для каждого спикера выбранного дня (с фото афиши) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'pre_start' && 'Отправит «Анонс спикера» для каждого спикера выбранного дня (с реальной ссылкой на эфир и фото) на тестовые Telegram ID из настроек.'}
-                  {testModal.def.type === 'day_start_30min_unreg' &&
-                    `Отправит сообщение для незарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
-                  {testModal.def.type === 'day_start_30min_reg' &&
-                    `Отправит сообщение для зарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
+                  {testModal.def.type === 'day_start_30min_unreg' && `Отправит сообщение для незарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
+                  {testModal.def.type === 'day_start_30min_reg' && `Отправит сообщение для зарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
+                  {testModal.def.type === 'day_live' && 'Отправит сообщение о старте эфира для выбранного дня на тестовые Telegram ID из настроек.'}
+                  {testModal.def.type === 'day_end' && 'Отправит итоги дня с подарками всех спикеров для выбранного дня на тестовые Telegram ID из настроек.'}
                 </p>
                 {!testResult && (
                   <>
-                    {/* Для day-шаблонов — выбор дня не нужен, отправляем все дни сразу */}
-                    {!['day_start_30min_unreg', 'day_start_30min_reg'].includes(testModal.def.type) && (
+                    {/* Для day_start — отправляем все дни сразу. Для остальных day — выбор дня */}
+                    {['day_start_30min_unreg', 'day_start_30min_reg'].includes(testModal.def.type) ? (
+                      <p className="text-xs text-gray-400 mb-4">Будет отправлено для каждого из {confDays.length} дней</p>
+                    ) : (
                       <div className="mb-4">
                         <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
                         <div className="flex gap-2">
