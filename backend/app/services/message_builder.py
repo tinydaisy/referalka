@@ -30,6 +30,7 @@ ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр
 
 DAY_TYPES = ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end")
 SPEAKER_TYPES = ("gift", "speaker_intro", "pre_start")
+CONF_TYPES = ("pre_conf",)
 
 
 def _fmt_time(dt) -> str:
@@ -340,6 +341,33 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 stream_url,
             )
         btn_url = btn_url.replace("{stream_url}", stream_url)
+
+    elif tpl_type == "pre_conf":
+        conf_row = await conn.fetchrow(
+            """
+            SELECT e.title as conf_title, cc.description as conf_description,
+                   cc.registration_url, cc.poster_horizontal,
+                   cd.day_date
+            FROM events e
+            JOIN conf_conferences cc ON cc.event_id = e.id
+            LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = 1
+            WHERE e.id = $1
+            """,
+            event_id
+        )
+        conf_title = (conf_row["conf_title"] or "") if conf_row else ""
+        conf_desc = (conf_row["conf_description"] or "") if conf_row else ""
+        reg_url = (conf_row["registration_url"] or "") if conf_row else ""
+        raw_date = conf_row["day_date"] if conf_row else None
+        conf_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else ""
+        poster_h = conf_row["poster_horizontal"] if conf_row else None
+        if not photo and poster_h:
+            photo = poster_h[0] if isinstance(poster_h, list) else poster_h
+        text = text.replace("{conf_title}", conf_title)
+        text = text.replace("{conf_description}", conf_desc)
+        text = text.replace("{conf_date}", conf_date_str)
+        text = text.replace("{registration_url}", reg_url)
+        btn_url = btn_url.replace("{registration_url}", reg_url)
 
     else:
         text = tmpl_text or ""

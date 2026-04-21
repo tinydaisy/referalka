@@ -62,6 +62,26 @@ class TemplateUpdate(BaseModel):
 
 DEFAULT_TEMPLATES = [
     {
+        "name": "Анонс конференции (за день до старта)",
+        "type": "pre_conf",
+        "text": (
+            "Пришло время знакомиться со спикерами!\n\n"
+            "Добрейшего-богатейшего!\n\n"
+            "Уже послезавтра — <b>{conf_date}</b> мы с вами встречаемся на Большой онлайн-конференции <b>«{conf_title}»</b>\n\n"
+            "{conf_description}\n\n"
+            "И самое время узнать, каких мощных спикеров мы для вас собрали и сколько ценности они подготовили для вас и каждого зрителя\n\n"
+            "А если вы ещё не зарегистрировались — нажимайте на кнопку и забирайте ценные подарки от спикеров!"
+        ),
+        "photo_url": None,
+        "button_text": "Зарегистрироваться",
+        "button_url": "{registration_url}",
+        "schedule_mode": "custom_datetime",
+        "offset_minutes": 0,
+        "audience_include": "all_client",
+        "audience_exclude": "none",
+        "allow_custom_datetime": True,
+    },
+    {
         "name": "Анонс спикера (за 5 мин до старта)",
         "type": "pre_start",
         "text": (
@@ -1012,7 +1032,8 @@ async def test_template(
 
     DAY_TYPES = ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end")
     SPEAKER_TYPES = ("gift", "speaker_intro", "pre_start")
-    if tpl["type"] not in SPEAKER_TYPES + DAY_TYPES:
+    CONF_TYPES = ("pre_conf",)
+    if tpl["type"] not in SPEAKER_TYPES + DAY_TYPES + CONF_TYPES:
         return {"ok": False, "reason": "not_implemented", "message": "Тестовая отправка для этого шаблона пока не реализована"}
 
     client_row = await db.fetchrow(
