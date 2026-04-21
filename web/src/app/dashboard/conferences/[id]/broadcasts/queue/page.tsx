@@ -86,7 +86,11 @@ export default function QueuePage() {
     is_test: false,
     audience_include: 'all_event',
     audience_exclude: 'none',
+    session_id: '',   // для speaker_intro, gift, pre_start
+    day: '',          // для day_*, day_start_30min_*
   })
+  const [confSpeakers, setConfSpeakers] = useState<any[]>([])
+  const [confDays, setConfDays] = useState<any[]>([])
   const [running, setRunning] = useState(false)
 
   // Выделение чекбоксами
@@ -95,14 +99,18 @@ export default function QueuePage() {
   const [runningSelected, setRunningSelected] = useState(false)
 
   const load = useCallback(async () => {
-    const [tmpl, sched] = await Promise.all([
+    const [tmpl, sched, spk, days] = await Promise.all([
       api.conference.templates.list(eventId),
       api.conference.schedules.list(eventId),
+      api.conference.speakers.list(eventId),
+      api.conference.days.list(eventId),
     ])
     setTemplates(tmpl.templates || [])
     setSchedules(sched.schedules || [])
     setTimezone(sched.timezone || 'Europe/Moscow')
     setNextPendingData(sched.next_pending || null)
+    setConfSpeakers(spk.speakers || [])
+    setConfDays(days.days || [])
     setSelectedIds(new Set())
   }, [eventId])
 
@@ -199,6 +207,18 @@ export default function QueuePage() {
       showMsg('Выберите шаблон и укажите время', 'err')
       return
     }
+    const tpl = templates.find(t => String(t.id) === manualForm.template_id)
+    const tplType = tpl?.type || ''
+    const isSpeakerType = ['speaker_intro', 'gift', 'pre_start'].includes(tplType)
+    const isDayType = tplType.startsWith('day_')
+    if (isSpeakerType && !manualForm.session_id) {
+      showMsg('Выберите спикера', 'err')
+      return
+    }
+    if (isDayType && !manualForm.day) {
+      showMsg('Выберите день', 'err')
+      return
+    }
     try {
       await api.conference.schedules.addManual(eventId, {
         template_id: Number(manualForm.template_id),
@@ -206,6 +226,8 @@ export default function QueuePage() {
         is_test: manualForm.is_test,
         audience_include: manualForm.audience_include,
         audience_exclude: manualForm.audience_exclude,
+        ...(isSpeakerType && manualForm.session_id ? { session_id: Number(manualForm.session_id) } : {}),
+        ...(isDayType && manualForm.day ? { day: Number(manualForm.day) } : {}),
       })
       setManualModal(false)
       await load()
@@ -621,7 +643,7 @@ export default function QueuePage() {
                 <label className="text-xs text-gray-500 mb-1 block">Шаблон</label>
                 <select
                   value={manualForm.template_id}
-                  onChange={e => setManualForm({ ...manualForm, template_id: e.target.value })}
+                  onChange={e => setManualForm({ ...manualForm, template_id: e.target.value, session_id: '', day: '' })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                   <option value="">— выберите шаблон —</option>
                   {templates.map(t => (
@@ -629,6 +651,56 @@ export default function QueuePage() {
                   ))}
                 </select>
               </div>
+
+              {/* Выбор спикера — для speaker_intro, gift, pre_start */}
+              {(() => {
+                const tpl = templates.find(t => String(t.id) === manualForm.template_id)
+                const tplType = tpl?.type || ''
+                if (['speaker_intro', 'gift', 'pre_start'].includes(tplType)) {
+                  return (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Спикер</label>
+                      <select
+                        value={manualForm.session_id}
+                        onChange={e => setManualForm({ ...manualForm, session_id: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                        <option value="">— выберите спикера —</option>
+                        {confSpeakers.map(s => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                }
+                if (tplType.startsWith('day_')) {
+                  return (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">День конференции</label>
+                      <select
+                        value={manualForm.day}
+                        onChange={e => setManualForm({ ...manualForm, day: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                        <option value="">— выберите день —</option>
+                        {confDays.map(d => {
+                          const RU_M: Record<string,string> = {'01':'янв','02':'фев','03':'мар','04':'апр','05':'май','06':'июн','07':'июл','08':'авг','09':'сен','10':'окт','11':'ноя','12':'дек'}
+                          let dateLabel = ''
+                          if (d.day_date) {
+                            const s = d.day_date.toString().slice(0,10).split('-')
+                            if (s.length === 3) dateLabel = ` — ${parseInt(s[2])} ${RU_M[s[1]] || s[1]}`
+                          }
+                          return (
+                            <option key={d.day_number} value={d.day_number}>
+                              День {d.day_number}{dateLabel}
+                            </option>
+                          )
+                        })}
+                      </select>
+                    </div>
+                  )
+                }
+                return null
+              })()}
+
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Дата и время ({tzLabel})</label>
                 <input type="datetime-local"

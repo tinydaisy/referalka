@@ -727,6 +727,8 @@ class AddManualRequest(BaseModel):
     is_test: bool = False
     audience_include: Optional[str] = None
     audience_exclude: Optional[str] = None
+    session_id: Optional[int] = None
+    day: Optional[int] = None
     note: Optional[str] = None
 
 
@@ -766,11 +768,11 @@ async def add_manual_schedule(
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
-          (event_id, template_id, type, fire_at, status, is_test, audience_include, audience_exclude)
-        VALUES ($1, $2, $3, $4, 'draft', $5, $6, $7)
+          (event_id, template_id, type, session_id, fire_at, status, is_test, audience_include, audience_exclude)
+        VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8)
         RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude
         """,
-        event_id, tpl["id"], tpl["type"], dt_utc, data.is_test, aud_include, aud_exclude
+        event_id, tpl["id"], tpl["type"], data.session_id, dt_utc, data.is_test, aud_include, aud_exclude
     )
     return dict(row)
 
