@@ -346,10 +346,9 @@ export default function TemplatesPage() {
       let diffDays = 999
       if (curDaySessions.length > 0 && curDaySessions[0].start_datetime) {
         const curDt = new Date(curDaySessions[0].start_datetime)
-        // Разница в днях по локальным датам
         const nextMs = Date.UTC(nextDt.getFullYear(), nextDt.getMonth(), nextDt.getDate())
         const curMs = Date.UTC(curDt.getFullYear(), curDt.getMonth(), curDt.getDate())
-        diffDays = Math.round((nextMs - curMs) / msPerDay)
+        diffDays = Math.round((nextMs - curMs) / 86400000)
       }
       const when = diffDays === 1 ? 'завтра' : `${nextDt.getDate()} ${MONTHS_RU[nextDt.getMonth()]}`
       nextDayMention = `Встречаемся ${when} в ${nextTime} на День ${d + 1}.`
