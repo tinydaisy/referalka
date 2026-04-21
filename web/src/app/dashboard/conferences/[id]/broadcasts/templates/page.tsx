@@ -108,6 +108,7 @@ export default function TemplatesPage() {
   const [confDays, setConfDays] = useState<number[]>([1])
   const [confDaysData, setConfDaysData] = useState<any[]>([])
   const [confData, setConfData] = useState<any>(null)
+  const [confSessions, setConfSessions] = useState<any[]>([])
   const [previewRegistered, setPreviewRegistered] = useState(false)
 
   useEffect(() => {
@@ -120,6 +121,7 @@ export default function TemplatesPage() {
       setConfDaysData(days)
     }).catch(() => {})
     api.conference.get(eventId).then(r => setConfData(r.conference)).catch(() => {})
+    api.conference.sessions.list(eventId).then(r => setConfSessions(r.sessions || [])).catch(() => {})
   }, [eventId])
 
   async function save() {
@@ -284,12 +286,25 @@ export default function TemplatesPage() {
       ? new Date(dayObj.day_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
       : `День ${d}`
 
+    // Строим программу дня из сессий
+    const daySessions = confSessions.filter((s: any) => s.day === d)
+    const dayProgram = daySessions.length > 0
+      ? daySessions.map((s: any) => {
+          const time = s.start_datetime ? new Date(s.start_datetime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''
+          const name = s.speaker_name || ''
+          const title = s.title || ''
+          if (time && name) return `${time} ${name}${title ? ` — ${title}` : ''}`
+          if (time && title) return `${time} ${title}`
+          return title || name
+        }).join('\n')
+      : '[программа дня]'
+
     out = out
       .replace(/\{conf_title\}/g, realConfTitle)
       .replace(/\{day_number\}/g, String(d))
       .replace(/\{day_ordinal\}/g, 'первом')
       .replace(/\{day_date\}/g, realDayDate)
-      .replace(/\{day_program\}/g, '[программа дня]')
+      .replace(/\{day_program\}/g, dayProgram)
       .replace(/\{next_day_number\}/g, String(d + 1))
       .replace(/\{next_day_start_time\}/g, '10:00')
       .replace(/\{raffle_url\}/g, '🔗 [ссылка на розыгрыш]')
