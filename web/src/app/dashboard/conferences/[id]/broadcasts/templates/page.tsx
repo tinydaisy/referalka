@@ -149,6 +149,15 @@ export default function TemplatesPage() {
   }
 
   function openPreview(tpl: any, def: TypeDef) {
+    // Перечитываем актуальные данные из БД при каждом открытии превью
+    api.conference.days.list(eventId).then(r => {
+      const days = r.days || []
+      const dayNums = days.map((d: any) => d.day_number).sort((a: number, b: number) => a - b)
+      if (dayNums.length > 0) setConfDays(dayNums)
+      setConfDaysData(days)
+    }).catch(() => {})
+    api.conference.get(eventId).then(r => setConfData(r.conference)).catch(() => {})
+    api.conference.sessions.list(eventId).then(r => setConfSessions(r.sessions || [])).catch(() => {})
     setPreviewModal({ tpl, def })
     setPreviewSpeakerId(speakers[0]?.id ?? null)
   }
