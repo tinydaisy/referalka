@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timedelta
 import asyncpg
+import re
 
 RU_MONTHS = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
@@ -18,6 +19,51 @@ from app.database import get_db
 from app.auth import get_current_client
 
 router = APIRouter(prefix="/events/{event_id}/broadcasts", tags=["Рассылки"])
+
+ROLE_LABELS_INTRO = {"speaker": "Спикер", "headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
+
+def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel_url, instagram_url,
+                                achievements, role, speaker_topic, gift_title, gift_raffle, registration_url):
+    text = tmpl_text or ""
+    role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
+    tg_ch = (tg_channel_url or "").strip()
+    insta = (instagram_url or "").strip()
+    ach_list = [a.strip() for a in (achievements or []) if a.strip()]
+    topic = (speaker_topic or "").strip()
+    gift_title_v = (gift_title or "").strip()
+    gift_raffle_v = (gift_raffle or "").strip()
+
+    ach_text = "\n".join(f"• {a}" for a in ach_list)
+
+    # Сначала убираем строки с пустыми плейсхолдерами (пока они ещё в тексте)
+    if not topic:
+        text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not ach_text:
+        text = re.sub(r"^[^\n]*О спикере[^\n]*\n?", "", text, flags=re.MULTILINE)
+        text = re.sub(r"^[^\n]*\{speaker_achievements\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not gift_title_v:
+        text = re.sub(r"^[^\n]*\{gift_after_speech_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not gift_raffle_v:
+        text = re.sub(r"^[^\n]*\{gift_raffle_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not tg_ch:
+        text = re.sub(r"^[^\n]*\{speaker_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not insta:
+        text = re.sub(r"^[^\n]*\{speaker_instagram\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+
+    # Потом подставляем значения
+    text = text.replace("{speaker_name}", speaker_name or "")
+    text = text.replace("{speaker_role}", role_label)
+    text = text.replace("{speaker_topic}", topic)
+    text = text.replace("{speaker_achievements}", ach_text)
+    text = text.replace("{gift_after_speech_title}", gift_title_v)
+    text = text.replace("{gift_raffle_title}", gift_raffle_v)
+    text = text.replace("{registration_url}", registration_url or "")
+    if tg_ch:
+        text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_ch}")
+    if insta:
+        text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}")
+
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 # ─────────────────────────────────────────
@@ -832,7 +878,6 @@ async def preview_schedule(
     Возвращает текст и фото, которые получит пользователь,
     собранные из актуальных данных БД прямо сейчас.
     """
-    import re
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
@@ -1119,8 +1164,6 @@ async def test_template(
     if not test_ids:
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
 
-    import re
-
     def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
         tg_raw = (personal_tg or "").strip()
         tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
@@ -1134,52 +1177,6 @@ async def test_template(
         else:
             body = f"{title}\n{url}"
         return f"{header}\n\n{body}"
-
-    ROLE_LABELS_INTRO = {"speaker": "Спикер", "headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
-
-    def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel_url, instagram_url,
-                                    achievements, role, speaker_topic, gift_title, gift_raffle, registration_url):
-        text = tmpl_text or ""
-        role_label = ROLE_LABELS_INTRO.get(role or "", "Спикер")
-        tg_ch = (tg_channel_url or "").strip()
-        insta = (instagram_url or "").strip()
-        ach_list = [a.strip() for a in (achievements or []) if a.strip()]
-        topic = (speaker_topic or "").strip()
-        gift_title_v = (gift_title or "").strip()
-        gift_raffle_v = (gift_raffle or "").strip()
-
-        # Регалии — всегда из achievements, независимо от темы и роли
-        ach_text = "\n".join(f"• {a}" for a in ach_list)
-
-        # Сначала убираем строки с пустыми данными (пока плейсхолдеры ещё в тексте)
-        if not topic:
-            text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-        if not ach_text:
-            text = re.sub(r"^[^\n]*О спикере[^\n]*\n?", "", text, flags=re.MULTILINE)
-            text = re.sub(r"^[^\n]*\{speaker_achievements\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-        if not gift_title_v:
-            text = re.sub(r"^[^\n]*\{gift_after_speech_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-        if not gift_raffle_v:
-            text = re.sub(r"^[^\n]*\{gift_raffle_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-        if not tg_ch:
-            text = re.sub(r"^[^\n]*\{speaker_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-        if not insta:
-            text = re.sub(r"^[^\n]*\{speaker_instagram\}[^\n]*\n?", "", text, flags=re.MULTILINE)
-
-        # Затем подставляем значения
-        text = text.replace("{speaker_name}", speaker_name or "")
-        text = text.replace("{speaker_role}", role_label)
-        text = text.replace("{speaker_topic}", topic)
-        text = text.replace("{speaker_achievements}", ach_text)
-        text = text.replace("{gift_after_speech_title}", gift_title_v)
-        text = text.replace("{gift_raffle_title}", gift_raffle_v)
-        text = text.replace("{registration_url}", registration_url or "")
-        if tg_ch:
-            text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_ch}")
-        if insta:
-            text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}")
-
-        return re.sub(r"\n{3,}", "\n\n", text).strip()
 
     def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_val):
         text = tmpl_text or ""
