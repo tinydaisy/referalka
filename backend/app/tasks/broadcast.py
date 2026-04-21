@@ -109,16 +109,12 @@ async def _send_broadcast(schedule_id: int):
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
-                       CASE cs.day
-                         WHEN 1 THEN cc.stream_url_day_1
-                         WHEN 2 THEN cc.stream_url_day_2
-                         ELSE cc.stream_url_day_1
-                       END as stream_url
+                       cd.stream_url
                 FROM conf_sessions cs
                 LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.collaborator_id
                 LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
-                LEFT JOIN conf_conferences cc ON cc.event_id = cs.event_id
+                LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
                 WHERE cs.id = $1
                 """,
                 schedule["session_id"]
