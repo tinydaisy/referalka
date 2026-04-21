@@ -216,6 +216,7 @@ export default function TemplatesPage() {
         out = out
           .replace(/\{speaker_name\}/g, speaker.name || '')
           .replace(/\{speaker_role\}/g, roleLabel)
+          .replace(/\{speaker_topic\}/g, topic || 'уточняется')
           .replace(/\{speaker_achievements\}/g, achText)
           .replace(/\{gift_after_speech_title\}/g, giftTitle)
           .replace(/\{gift_raffle_title\}/g, giftRaffle)

@@ -61,7 +61,7 @@ DEFAULT_TEMPLATES = [
             "<b>{speaker_name} — {speaker_role}</b>\n\n"
             "{speaker_tg}\n"
             "{speaker_instagram}\n\n"
-            "<b>Тема:</b>\n\n"
+            "<b>Тема:</b> {speaker_topic}\n\n"
             "{speaker_achievements}\n\n"
             "🎁 <b>На эфире подарит:</b> {gift_after_speech_title}\n\n"
             "🏆 <b>Подарок для большого розыгрыша:</b> {gift_raffle_title}\n\n"
@@ -489,6 +489,7 @@ async def test_template(
 
         text = text.replace("{speaker_name}", speaker_name or "")
         text = text.replace("{speaker_role}", role_label)
+        text = text.replace("{speaker_topic}", topic)
         text = text.replace("{speaker_achievements}", ach_text)
         text = text.replace("{gift_after_speech_title}", (gift_title or "").strip())
         text = text.replace("{gift_raffle_title}", (gift_raffle or "").strip())
