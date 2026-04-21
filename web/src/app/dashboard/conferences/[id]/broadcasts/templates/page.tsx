@@ -57,12 +57,14 @@ const TYPE_DEFS: TypeDef[] = [
     title: 'День конференции — старт эфира',
     hint: 'Отправляется в момент начала дня конференции.',
     variables: ['{conf_title}', '{day_number}', '{stream_url}'],
+    showPhoto: true,
   },
   {
     type: 'day_end',
     title: 'День конференции — итоги дня',
     hint: 'Отправляется по окончании дня. Автоматически вставляет список подарков всех спикеров этого дня.',
-    variables: ['{conf_title}', '{day_ordinal}', '{next_day_number}', '{next_day_start_time}', '{raffle_url}', '{day_speakers_gifts}'],
+    variables: ['{conf_title}', '{day_ordinal}', '{next_day_mention}', '{raffle_url}', '{day_speakers_gifts}'],
+    showPhoto: true,
   },
 ]
 
@@ -82,8 +84,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{day_ordinal}', desc: 'Номер дня словом (первом, втором…)' },
   { name: '{day_date}', desc: 'Дата дня конференции' },
   { name: '{day_program}', desc: 'Программа дня (список спикеров и тем)' },
-  { name: '{next_day_number}', desc: 'Номер следующего дня' },
-  { name: '{next_day_start_time}', desc: 'Время начала следующего дня' },
+  { name: '{next_day_mention}', desc: 'Фраза про следующую встречу (авто: завтра/дата, пусто если последний день)' },
   { name: '{raffle_url}', desc: 'Ссылка на розыгрыш' },
   { name: '{day_speakers_gifts}', desc: 'Список подарков спикеров за день' },
 ]
