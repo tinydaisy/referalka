@@ -59,7 +59,7 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": False,
     },
     {
-        "name": "Подарок спикера (за 10 мин до конца)",
+        "name": "Подарок спикера (за 5 мин до конца)",
         "type": "gift",
         "text": (
             "🎁 {speaker_name}: Подарки после эфира\n\n"
@@ -70,7 +70,7 @@ DEFAULT_TEMPLATES = [
         "button_text": None,
         "button_url": None,
         "schedule_mode": "fixed_offset",
-        "offset_minutes": 10,
+        "offset_minutes": 5,
         "audience_include": "all_event",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
@@ -512,7 +512,7 @@ async def generate_schedules(
 
         if "gift" in tmpl_map and s["end_datetime"]:
             tmpl = tmpl_map["gift"]
-            offset = tmpl["offset_minutes"] or 10
+            offset = tmpl["offset_minutes"] or 5
             fire_at = s["end_datetime"] - timedelta(minutes=offset)
             await add_schedule(tmpl, fire_at, s["id"], "gift")
 
