@@ -134,7 +134,7 @@ export default function ContactsPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-medium text-gray-900 truncate">
-                      {[contact.first_name, contact.last_name].filter(Boolean).join(' ') || '—'}
+                      {[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}
                     </span>
                     {c.is_participant && (
                       <span className="shrink-0 text-[10px] bg-[#FFCFA4] text-[#25455D] font-semibold px-1.5 py-0.5 rounded-full">УЧ</span>
