@@ -76,7 +76,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
         setChatIdsError('Вводите ID через запятую')
         return
       }
-      const invalid = parts.filter(p => !/^-?\d+$/.test(p))
+      const invalid = parts.filter((p: string) => !/^-?\d+$/.test(p))
       if (invalid.length > 0) {
         setChatIdsError(`Не удалось распознать: ${invalid.join(', ')} — ID должны быть числами`)
         return
