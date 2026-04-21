@@ -204,11 +204,23 @@ export default function ConferenceSpeakerPage() {
     }
   }
 
+  function calcPriority(role: string, is_commercial: boolean): number {
+    if (role === 'organizer') return 10
+    if (is_commercial && role === 'headliner') return 20
+    if (is_commercial && role === 'speaker') return 30
+    if (is_commercial && role === 'partner') return 40
+    if (!is_commercial && role === 'headliner') return 50
+    if (!is_commercial && role === 'speaker') return 60
+    if (!is_commercial && role === 'partner') return 70
+    return 60
+  }
+
   async function saveEvent(e: React.FormEvent) {
     e.preventDefault()
     setSavingEvent(true); setError(''); setEventSaved(false)
     try {
       const topics = eventForm.topics.filter(t => t.trim())
+      const priority = calcPriority(eventForm.role, eventForm.is_commercial)
       await api.conference.speakers.update(confId, speakerEventId, {
         role: eventForm.role,
         topics,
@@ -218,7 +230,8 @@ export default function ConferenceSpeakerPage() {
         gift_raffle_url: eventForm.gift_raffle_url,
         is_commercial: eventForm.is_commercial,
         bot_in_channel: eventForm.bot_in_channel,
-      })
+        priority,
+      } as any)
       setEventSaved(true)
       setTimeout(() => setEventSaved(false), 3000)
     } catch (err: any) {

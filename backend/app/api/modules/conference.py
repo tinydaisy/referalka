@@ -303,6 +303,7 @@ class SpeakerEventUpdate(BaseModel):
     is_visible: Optional[bool] = None
     sort_order: Optional[int] = None
     bot_in_channel: Optional[bool] = None
+    priority: Optional[int] = None
 
 
 def _speaker_row_to_dict(row) -> dict:
