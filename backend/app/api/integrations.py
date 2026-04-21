@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, validator
+from typing import Optional, Union
 import asyncpg
 import secrets
 import string
@@ -36,9 +36,15 @@ class SalebotRegisterRequest(BaseModel):
     last_name: Optional[str] = None
     salebot_id: Optional[str] = None
     event_id: Optional[str] = None         # зашит в настройках Salebot (опционально, строка или число)
-    is_registered: bool = False            # зарегистрирован на платформе (GetCourse и т.п.)
-    is_in_chat: bool = False               # добавился в чат участников
+    is_registered: Union[str, int, bool] = False
+    is_in_chat: Union[str, int, bool] = False
     partner_tg_id: Optional[str] = None    # tg_id рефовода (спикер или участник) — ищем его ref_code
+
+    @validator('is_registered', 'is_in_chat', pre=True)
+    def parse_bool(cls, v):
+        if isinstance(v, str):
+            return v.strip() in ('1', 'true', 'True')
+        return bool(v)
     secret: Optional[str] = None           # токен можно передать в теле (альтернатива заголовку)
 
 
