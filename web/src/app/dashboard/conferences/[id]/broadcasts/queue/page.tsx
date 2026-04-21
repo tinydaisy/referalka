@@ -375,8 +375,29 @@ export default function QueuePage() {
           </div>
 
           <div className="space-y-2 mb-6">
-            {schedules.map((s, idx) => (
-              <div key={s.id}
+            {schedules.map((s, idx) => {
+              // Разделитель дня: показываем если fire_at_local другой даты чем у предыдущей записи
+              const prevDate = idx > 0 && schedules[idx - 1].fire_at_local
+                ? schedules[idx - 1].fire_at_local.split(' ')[0]
+                : null
+              const curDate = s.fire_at_local ? s.fire_at_local.split(' ')[0] : null
+              const showDayDivider = curDate && curDate !== prevDate
+              // Определяем номер дня по порядку уникальных дат
+              const allDates = [...new Set(schedules.filter(x => x.fire_at_local).map(x => x.fire_at_local.split(' ')[0]))]
+              const dayNum = curDate ? allDates.indexOf(curDate) + 1 : null
+
+              return (
+              <div key={s.id}>
+              {showDayDivider && (
+                <div className="flex items-center gap-3 py-2 mt-2">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                    День {dayNum}
+                  </span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+              )}
+              <div
                 className={`rounded-xl border p-3.5 ${STATUS_COLOR[s.status] || 'bg-white border-gray-100'} ${selectedIds.has(s.id) ? 'ring-2 ring-blue-300' : ''}`}>
                 <div className="flex items-start justify-between gap-3">
                   {/* Чекбокс */}
@@ -472,7 +493,9 @@ export default function QueuePage() {
                   </div>
                 </div>
               </div>
-            ))}
+              </div>
+              )
+            })}
           </div>
         </>
       )}

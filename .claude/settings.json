@@ -118,7 +118,8 @@
       "Bash(scp /Users/macbookair/Documents/projects/referalka/db/migrations/014_speaker_bot_in_channel.sql root@62.113.98.30:/tmp/)",
       "Bash(NODE_ENV)",
       "Bash(TITLE\" /var/www/plusson/web/.env.local 2>/dev/null' 2>/dev/null | head -10\")",
-      "Bash(ssh dev *)"
+      "Bash(ssh dev *)",
+      "Bash(npx tsc *)"
     ],
     "additionalDirectories": [
       "/Users/macbookair/Documents/projects/referalka",
