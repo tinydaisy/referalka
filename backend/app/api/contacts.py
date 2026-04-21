@@ -12,7 +12,7 @@ async def get_contacts(
     client=Depends(get_current_client),
     db=Depends(get_db)
 ):
-    client_id = client["id"]
+    client_id = int(client["sub"])
 
     where = "WHERE pu.client_id = $1"
     params = [client_id]
@@ -78,7 +78,7 @@ async def get_contact(
     client=Depends(get_current_client),
     db=Depends(get_db)
 ):
-    client_id = client["id"]
+    client_id = int(client["sub"])
 
     row = await db.fetchrow("""
         SELECT
