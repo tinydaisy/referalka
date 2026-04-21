@@ -325,7 +325,7 @@ export default function QueuePage() {
   const doneCount = schedules.filter(s => s.status === 'done').length
   // Пересчитываем из актуального списка schedules (обновляется при удалении без reload)
   const nextPending = schedules
-    .filter(s => (s.status === 'pending' || s.status === 'draft') && s.fire_at_local)
+    .filter(s => s.status === 'pending' && s.fire_at_iso && new Date(s.fire_at_iso) > new Date())
     .sort((a, b) => (a.fire_at_iso || '') < (b.fire_at_iso || '') ? -1 : 1)[0] || null
 
   // Форматируем timezone для отображения
@@ -501,7 +501,7 @@ export default function QueuePage() {
                         {TYPE_LABELS[s.template_type] || s.type}
                       </span>
                       {s.is_test && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium border border-purple-200">
+                        <span title="Только тестовые аккаунты из настроек — и только если они есть в аудитории" className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium border border-purple-200 cursor-help">
                           ТЕСТ
                         </span>
                       )}
@@ -658,12 +658,20 @@ export default function QueuePage() {
                   Итого: {audienceLabel(editAudienceInclude, editAudienceExclude)}
                 </p>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={isTestValue} onChange={e => setIsTestValue(e.target.checked)}
-                  className="rounded" />
-                <span className="text-sm text-gray-600">Тестовая рассылка</span>
-                <span className="text-xs text-gray-400">(только на тестовые аккаунты из настроек)</span>
-              </label>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={isTestValue} onChange={e => setIsTestValue(e.target.checked)}
+                    className="rounded" />
+                  <span className="text-sm text-gray-600">Тестовая рассылка</span>
+                </label>
+                <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <span className="text-amber-500 text-sm mt-0.5">ℹ️</span>
+                  <p className="text-xs text-amber-800">
+                    Уйдёт только тем из тестовых аккаунтов, кто входит в выбранную аудиторию.
+                    Если тестовый не зарегистрирован как участник — он не получит сообщение.
+                  </p>
+                </div>
+              </div>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={saveFireAt}
@@ -787,13 +795,21 @@ export default function QueuePage() {
                   Итого: {audienceLabel(manualForm.audience_include, manualForm.audience_exclude)}
                 </p>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={manualForm.is_test}
-                  onChange={e => setManualForm({ ...manualForm, is_test: e.target.checked })}
-                  className="rounded" />
-                <span className="text-sm text-gray-600">Тестовая рассылка</span>
-                <span className="text-xs text-gray-400">(только тестовые аккаунты)</span>
-              </label>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={manualForm.is_test}
+                    onChange={e => setManualForm({ ...manualForm, is_test: e.target.checked })}
+                    className="rounded" />
+                  <span className="text-sm text-gray-600">Тестовая рассылка</span>
+                </label>
+                <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <span className="text-amber-500 text-sm mt-0.5">ℹ️</span>
+                  <p className="text-xs text-amber-800">
+                    Уйдёт только тем из тестовых аккаунтов, кто входит в выбранную аудиторию.
+                    Если тестовый не зарегистрирован как участник — он не получит сообщение.
+                  </p>
+                </div>
+              </div>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={addManual}
