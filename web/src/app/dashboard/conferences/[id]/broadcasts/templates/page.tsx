@@ -223,13 +223,12 @@ export default function TemplatesPage() {
 
         // Тг канал — строку целиком убираем если нет
         if (tgChannel) {
-          out = out.replace(/\{speaker_tg\}/g, `Тг канал: ${tgChannel}`)
+          out = out.replace(/\{speaker_tg\}/g, `<b>Тг канал:</b> ${tgChannel}`)
         } else {
           out = out.replace(/^.*\{speaker_tg\}.*$\n?/gm, '')
         }
-        // Инстаграм — строку целиком убираем если нет
         if (insta) {
-          out = out.replace(/\{speaker_instagram\}/g, `Нельзяграм: ${insta}`)
+          out = out.replace(/\{speaker_instagram\}/g, `<b>Нельзяграм:</b> ${insta}`)
         } else {
           out = out.replace(/^.*\{speaker_instagram\}.*$\n?/gm, '')
         }

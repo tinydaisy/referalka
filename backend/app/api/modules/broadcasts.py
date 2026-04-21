@@ -58,14 +58,14 @@ DEFAULT_TEMPLATES = [
         "name": "Знакомство со спикером",
         "type": "speaker_intro",
         "text": (
-            "{speaker_name} — {speaker_role}\n\n"
+            "<b>{speaker_name} — {speaker_role}</b>\n\n"
             "{speaker_tg}\n"
             "{speaker_instagram}\n\n"
-            "Тема:\n"
+            "<b>Тема:</b>\n\n"
             "{speaker_achievements}\n\n"
-            "🎁 На эфире подарит: {gift_after_speech_title}\n\n"
-            "🏆 Подарок для большого розыгрыша: {gift_raffle_title}\n\n"
-            "Если вы ещё не зарегистрированы — вы ещё успеваете это сделать\n"
+            "🎁 <b>На эфире подарит:</b> {gift_after_speech_title}\n\n"
+            "🏆 <b>Подарок для большого розыгрыша:</b> {gift_raffle_title}\n\n"
+            "<b>Если вы ещё не зарегистрированы — вы ещё успеваете это сделать</b>\n"
             "Жмите на кнопку:"
         ),
         "photo_url": None,
@@ -495,11 +495,11 @@ async def test_template(
         text = text.replace("{registration_url}", registration_url or "")
 
         if tg_ch:
-            text = text.replace("{speaker_tg}", f"Тг канал: {tg_ch}")
+            text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_ch}")
         else:
             text = re.sub(r"^.*\{speaker_tg\}.*$\n?", "", text, flags=re.MULTILINE)
         if insta:
-            text = text.replace("{speaker_instagram}", f"Нельзяграм: {insta}")
+            text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}")
         else:
             text = re.sub(r"^.*\{speaker_instagram\}.*$\n?", "", text, flags=re.MULTILINE)
         if not (gift_title or "").strip():
