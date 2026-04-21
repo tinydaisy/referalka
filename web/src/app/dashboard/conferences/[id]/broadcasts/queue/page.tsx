@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import {
   Send, Wand2, XCircle, Play, PlusCircle, Eye, Clock,
-  CheckCircle, AlertCircle, Loader2, X, Calendar, Edit2, Trash2, Copy
+  CheckCircle, AlertCircle, Loader2, X, Calendar, Edit2, Trash2, Copy, Users
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -82,6 +82,8 @@ export default function QueuePage() {
   const [isTestValue, setIsTestValue] = useState(false)
   const [editAudienceInclude, setEditAudienceInclude] = useState('all_event')
   const [editAudienceExclude, setEditAudienceExclude] = useState('none')
+  const [logModal, setLogModal] = useState<{ schedule: any; rows: any[] } | null>(null)
+  const [logLoading, setLogLoading] = useState(false)
   const [manualForm, setManualForm] = useState({
     template_id: '',
     fire_at: '',
@@ -181,6 +183,15 @@ export default function QueuePage() {
     } finally {
       setPreviewLoading(false)
     }
+  }
+
+  async function openLog(schedule: any) {
+    setLogLoading(true)
+    try {
+      const res = await api.conference.schedules.log(eventId, schedule.id)
+      setLogModal({ schedule, rows: res.log || [] })
+    } catch { showMsg('Не удалось загрузить лог', 'err') }
+    finally { setLogLoading(false) }
   }
 
   function openFireAt(schedule: any) {
@@ -529,6 +540,12 @@ export default function QueuePage() {
                     <div className="shrink-0 text-right">
                       <span className="text-sm font-semibold text-green-700">{s.recipients_sent}</span>
                       <div className="text-xs text-gray-400 leading-tight">чел.</div>
+                      <button
+                        onClick={() => openLog(s)}
+                        disabled={logLoading}
+                        className="flex items-center gap-0.5 text-xs text-indigo-500 hover:text-indigo-700 mt-0.5">
+                        <Users size={10} /> список
+                      </button>
                     </div>
                   )}
 
@@ -788,6 +805,43 @@ export default function QueuePage() {
                 className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
                 Отмена
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка: лог получателей ── */}
+      {logModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 max-h-[80vh] flex flex-col">
+            <div className="flex justify-between items-center mb-3">
+              <div>
+                <h3 className="font-semibold text-gray-800 text-sm">Получатели рассылки</h3>
+                <p className="text-xs text-gray-400">{logModal.rows.length} чел.</p>
+              </div>
+              <button onClick={() => setLogModal(null)}><X size={18} /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 space-y-1">
+              {logModal.rows.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">Лог пуст</p>
+              )}
+              {logModal.rows.map((r, i) => {
+                const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.username || `tg:${r.tg_id}`
+                const username = r.username ? `@${r.username}` : ''
+                const ok = r.status === 'sent'
+                return (
+                  <div key={i} className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs ${ok ? 'bg-gray-50' : 'bg-red-50'}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={ok ? 'text-green-500' : 'text-red-400'}>{ok ? '✓' : '✗'}</span>
+                      <span className="font-medium text-gray-800 truncate">{name}</span>
+                      {username && <span className="text-gray-400 shrink-0">{username}</span>}
+                    </div>
+                    {!ok && r.error && (
+                      <span className="text-red-400 truncate max-w-[140px] ml-2" title={r.error}>{r.error}</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>

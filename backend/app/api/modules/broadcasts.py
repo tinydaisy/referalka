@@ -944,6 +944,30 @@ async def copy_schedule(
     return {"ok": True, "id": new_id}
 
 
+@router.get("/schedules/{schedule_id}/log", summary="Лог получателей рассылки")
+async def get_schedule_log(
+    event_id: int,
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    rows = await db.fetch(
+        """
+        SELECT bl.status, bl.error, bl.sent_at,
+               pu.first_name, pu.last_name, pu.username, pu.platform_user_id as tg_id
+        FROM broadcast_log bl
+        JOIN platform_users pu ON pu.id = bl.platform_user_id
+        WHERE bl.schedule_id = $1
+        ORDER BY bl.sent_at
+        """,
+        schedule_id
+    )
+    return {"log": [dict(r) for r in rows]}
+
+
 @router.get("/schedules/{schedule_id}/preview", summary="Превью сообщения рассылки")
 async def preview_schedule(
     event_id: int,
