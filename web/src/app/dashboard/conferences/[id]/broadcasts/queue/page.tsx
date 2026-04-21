@@ -501,8 +501,14 @@ export default function QueuePage() {
                         {TYPE_LABELS[s.template_type] || s.type}
                       </span>
                       {s.is_test && (
-                        <span title="Только тестовые аккаунты из настроек — и только если они есть в аудитории" className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium border border-purple-200 cursor-help">
+                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium border border-purple-200">
                           ТЕСТ
+                          <span className="relative group cursor-default">
+                            <span className="text-purple-400">?</span>
+                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-56 bg-gray-800 text-white text-xs rounded-lg px-2 py-1.5 hidden group-hover:block z-50 pointer-events-none shadow-lg">
+                              Уйдёт только тем из тестовых аккаунтов, кто входит в выбранную аудиторию
+                            </span>
+                          </span>
                         </span>
                       )}
                       {/* Аудитория */}

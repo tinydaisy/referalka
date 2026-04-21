@@ -339,10 +339,26 @@ async def _send_broadcast(schedule_id: int):
                 day_speakers_gifts=day_speakers_gifts,
                 next_day_mention=next_day_mention,
             )
-            button_url = button_url.replace("{stream_url}", stream_url).replace("{registration_url}", reg_url).replace("{raffle_url}", raffle_url)
-
         else:
             text = tmpl_text
+
+        # Подставляем переменные в button_url (универсально для всех типов)
+        if button_url and ("{registration_url}" in button_url or "{stream_url}" in button_url or "{raffle_url}" in button_url):
+            conf_urls = await conn.fetchrow(
+                """
+                SELECT cc.registration_url, cc.raffle_url,
+                       (SELECT cd.stream_url FROM conf_days cd WHERE cd.event_id=cc.event_id ORDER BY cd.day_number LIMIT 1) as stream_url
+                FROM conf_conferences cc WHERE cc.event_id=$1
+                """,
+                event_id
+            )
+            _reg = (conf_urls["registration_url"] or "") if conf_urls else ""
+            _stream = (conf_urls["stream_url"] or "") if conf_urls else ""
+            _raffle = (conf_urls["raffle_url"] or "") if conf_urls else ""
+            button_url = (button_url
+                .replace("{registration_url}", _reg)
+                .replace("{stream_url}", _stream)
+                .replace("{raffle_url}", _raffle))
 
         # Собираем аудиторию
         final_ids = await _build_audience(conn, schedule)
