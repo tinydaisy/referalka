@@ -49,7 +49,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  pre_conf:              'Анонс конференции',
+  pre_conf:              'Анонс знакомства со спикерами',
   pre_start:             'Анонс спикера',
   gift:                  'Подарок спикера',
   speaker_intro:         'Знакомство со спикером',

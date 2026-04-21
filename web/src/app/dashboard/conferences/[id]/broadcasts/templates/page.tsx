@@ -17,7 +17,7 @@ type TypeDef = {
 const TYPE_DEFS: TypeDef[] = [
   {
     type: 'pre_conf',
-    title: 'Анонс конференции',
+    title: 'Анонс знакомства со спикерами',
     hint: 'Отправляется за день до старта. Рассказывает о конференции и призывает зарегистрироваться. Фото — горизонтальная афиша.',
     variables: ['{conf_title}', '{conf_date}', '{conf_description}', '{registration_url}'],
     showPhoto: true,
@@ -811,9 +811,10 @@ export default function TemplatesPage() {
               <button onClick={() => setTestModal(null)}><X size={18} /></button>
             </div>
 
-            {['gift', 'speaker_intro', 'pre_start', 'day_start_30min_unreg', 'day_start_30min_reg', 'day_live', 'day_end'].includes(testModal.def.type) ? (
+            {['pre_conf', 'gift', 'speaker_intro', 'pre_start', 'day_start_30min_unreg', 'day_start_30min_reg', 'day_live', 'day_end'].includes(testModal.def.type) ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
+                  {testModal.def.type === 'pre_conf' && 'Отправит анонс знакомства со спикерами с горизонтальной афишей, описанием конференции и ссылкой на регистрацию на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'gift' && 'Отправит сообщения о подарке для каждого спикера выбранного дня (по порядку программы) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'speaker_intro' && 'Отправит «Знакомство со спикером» для каждого спикера выбранного дня (с фото афиши) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'pre_start' && 'Отправит «Анонс спикера» для каждого спикера выбранного дня (с реальной ссылкой на эфир и фото) на тестовые Telegram ID из настроек.'}
