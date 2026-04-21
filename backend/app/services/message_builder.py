@@ -12,8 +12,11 @@ import re
 import logging
 import httpx
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+RU_MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"]
 
 ROLE_LABELS_INTRO = {
     "speaker": "Спикер",
@@ -23,6 +26,10 @@ ROLE_LABELS_INTRO = {
 }
 
 ORDINALS = {1: "первом", 2: "втором", 3: "третьем", 4: "четвёртом", 5: "пятом"}
+ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
+
+DAY_TYPES = ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end")
+SPEAKER_TYPES = ("gift", "speaker_intro", "pre_start")
 
 
 def _fmt_time(dt) -> str:
@@ -48,7 +55,6 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
 
     ach_text = "\n".join(f"• {a}" for a in ach_list)
 
-    # Убираем строки с пустыми плейсхолдерами ДО подстановки
     if not topic:
         text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not ach_text:
@@ -126,7 +132,226 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
         text = text.replace("{next_day_mention}", next_day_mention)
     else:
         text = re.sub(r"^.*\{next_day_mention\}.*$\n?", "", text, flags=re.MULTILINE)
+    if not day_speakers_gifts:
+        text = re.sub(r"^.*\{day_speakers_gifts\}.*$\n?", "", text, flags=re.MULTILINE)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+# ─── ЕДИНАЯ функция сборки контента сообщения ───────────────────────────────
+
+async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
+                                 event_id: int, session_id, fire_at, tz: ZoneInfo) -> dict:
+    """
+    Единственная функция сборки текста, фото и кнопки для любого типа шаблона.
+    Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
+    """
+    text = tmpl_text or ""
+    photo = photo_url
+    btn_url = btn_url or ""
+
+    if tpl_type in DAY_TYPES:
+        # Определяем номер дня по fire_at
+        day = 1
+        if fire_at:
+            fire_local = fire_at.astimezone(tz)
+            fire_date = fire_local.date()
+            day_row = await conn.fetchrow(
+                """
+                SELECT cs.day FROM conf_sessions cs
+                WHERE cs.event_id=$1 AND DATE(cs.start_datetime AT TIME ZONE $2) = $3
+                ORDER BY cs.start_datetime LIMIT 1
+                """,
+                event_id, str(tz), fire_date
+            )
+            if day_row:
+                day = day_row["day"]
+
+        conf_row = await conn.fetchrow(
+            """
+            SELECT e.title as conf_title, cc.registration_url, cc.raffle_url,
+                   cc.poster_horizontal, cd.stream_url, cd.day_date
+            FROM events e
+            JOIN conf_conferences cc ON cc.event_id = e.id
+            LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = $2
+            WHERE e.id = $1
+            """,
+            event_id, day
+        )
+        conf_title = (conf_row["conf_title"] or "") if conf_row else ""
+        stream_url = (conf_row["stream_url"] or "") if conf_row else ""
+        reg_url = (conf_row["registration_url"] or "") if conf_row else ""
+        raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
+        raw_date = conf_row["day_date"] if conf_row else None
+        day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else f"День {day}"
+        poster_h = conf_row["poster_horizontal"] if conf_row else None
+        if not photo and poster_h:
+            photo = poster_h[0] if isinstance(poster_h, list) else poster_h
+
+        day_sessions = await conn.fetch(
+            """
+            SELECT cs.start_datetime, cs.end_datetime, cs.title as session_title,
+                   c.name as speaker_name, cse.role
+            FROM conf_sessions cs
+            LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+            LEFT JOIN collaborators c ON c.id = cse.speaker_id
+            WHERE cs.event_id=$1 AND cs.day=$2
+            ORDER BY cs.sort_order, cs.start_datetime
+            """,
+            event_id, day
+        )
+        program_lines = []
+        for s in day_sessions:
+            t_start = s["start_datetime"].astimezone(tz).strftime("%H:%M") if s["start_datetime"] else ""
+            t_end = s["end_datetime"].astimezone(tz).strftime("%H:%M") if s["end_datetime"] else ""
+            time_part = f"{t_start}–{t_end}" if t_start and t_end else t_start
+            bold_time = f"<b>{time_part}</b>" if time_part else ""
+            topic = s["session_title"] or ""
+            name = s["speaker_name"] or ""
+            role_label = ROLE_LABELS_DAY.get(s["role"] or "", "")
+            speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
+            program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
+        day_program = "\n".join(program_lines)
+
+        day_speakers_gifts = ""
+        next_day_mention = ""
+        if tpl_type == "day_end":
+            gift_sessions = await conn.fetch(
+                """
+                SELECT c.name as speaker_name, c.personal_tg_username,
+                       cse.gift_after_speech_title, cse.gift_after_speech_url, cse.role, cse.is_commercial
+                FROM conf_sessions cs
+                JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+                JOIN collaborators c ON c.id = cse.speaker_id
+                WHERE cs.event_id=$1 AND cs.day=$2
+                ORDER BY cse.priority, cs.sort_order
+                """,
+                event_id, day
+            )
+            gift_blocks = []
+            for gs in gift_sessions:
+                title = (gs["gift_after_speech_title"] or "").strip()
+                url = (gs["gift_after_speech_url"] or "").strip()
+                tg = (gs["personal_tg_username"] or "").strip()
+                tg_mention = ("@" + tg.lstrip("@")) if tg else ""
+                if not title:
+                    block = f"🎁 <b>{gs['speaker_name']}:</b> пишите в личку {tg_mention}" if tg_mention else f"🎁 <b>{gs['speaker_name']}:</b> уточните у спикера"
+                elif not url:
+                    block = f"🎁 <b>{gs['speaker_name']}:</b> {title}" + (f"\nПишите в личку {tg_mention}" if tg_mention else "")
+                else:
+                    block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{url}"
+                gift_blocks.append(block)
+            if gift_blocks:
+                day_speakers_gifts = f"А сейчас ловите подарки от спикеров Дня {day}:\n\n" + "\n\n".join(gift_blocks)
+
+            first_next = await conn.fetchrow(
+                "SELECT start_datetime FROM conf_sessions WHERE event_id=$1 AND day=$2 ORDER BY sort_order, start_datetime LIMIT 1",
+                event_id, day + 1
+            )
+            first_cur = await conn.fetchrow(
+                "SELECT start_datetime FROM conf_sessions WHERE event_id=$1 AND day=$2 ORDER BY sort_order, start_datetime LIMIT 1",
+                event_id, day
+            )
+            if first_next and first_next["start_datetime"]:
+                next_dt = first_next["start_datetime"].astimezone(tz)
+                next_time = next_dt.strftime("%H:%M")
+                next_date = next_dt.date()
+                cur_date = first_cur["start_datetime"].astimezone(tz).date() if first_cur and first_cur["start_datetime"] else None
+                diff = (next_date - cur_date).days if cur_date else 999
+                when = "завтра" if diff == 1 else f"{next_date.day} {RU_MONTHS[next_date.month - 1]}"
+                next_day_mention = f"Встречаемся {when} в {next_time} на День {day + 1}."
+
+        text = build_day_message(text, day, conf_title, day_date_str, day_program,
+                                  stream_url, reg_url, raffle_url, day_speakers_gifts, next_day_mention)
+        btn_url = btn_url.replace("{stream_url}", stream_url).replace("{registration_url}", reg_url).replace("{raffle_url}", raffle_url)
+
+    elif tpl_type == "speaker_intro":
+        if session_id:
+            sp = await conn.fetchrow(
+                """
+                SELECT c.name as speaker_name, c.poster_url as speaker_poster,
+                       c.personal_tg_username, c.tg_channel_url, c.instagram_url,
+                       c.achievements,
+                       cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                       cse.gift_raffle_title,
+                       cc.registration_url
+                FROM conf_speaker_events cse
+                JOIN collaborators c ON c.id = cse.speaker_id
+                LEFT JOIN conf_conferences cc ON cc.event_id = cse.event_id
+                WHERE cse.id=$1
+                """,
+                session_id
+            )
+            if sp:
+                topics = await conn.fetch(
+                    "SELECT topic FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order LIMIT 1",
+                    session_id
+                )
+                topic = (topics[0]["topic"] if topics else "").strip()
+                if not photo:
+                    photo = sp["speaker_poster"]
+                text = build_speaker_intro_message(
+                    text, sp["speaker_name"], sp["personal_tg_username"],
+                    sp["tg_channel_url"], sp["instagram_url"],
+                    sp["achievements"], sp["role"],
+                    topic, sp["gift_after_speech_title"],
+                    sp["gift_raffle_title"], sp["registration_url"]
+                )
+                reg_url = sp["registration_url"] or ""
+                btn_url = btn_url.replace("{registration_url}", reg_url)
+
+    elif tpl_type in ("pre_start", "gift"):
+        session_data = {}
+        if session_id:
+            session = await conn.fetchrow(
+                """
+                SELECT cs.title as session_title, cs.start_datetime, cs.end_datetime, cs.day,
+                       c.name as speaker_name, c.poster_url as speaker_poster,
+                       c.personal_tg_username as speaker_personal_tg,
+                       cst.topic as speaker_topic,
+                       cse.gift_after_speech_title as gift_title,
+                       cse.gift_after_speech_url as gift_url,
+                       cd.stream_url
+                FROM conf_sessions cs
+                LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+                LEFT JOIN collaborators c ON c.id = cse.speaker_id
+                LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
+                LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
+                WHERE cs.id=$1
+                """,
+                session_id
+            )
+            if session:
+                session_data = dict(session)
+        if not photo:
+            photo = session_data.get("speaker_poster")
+        stream_url = session_data.get("stream_url") or ""
+        if tpl_type == "gift":
+            text = build_gift_message(
+                session_data.get("speaker_name"),
+                session_data.get("speaker_personal_tg"),
+                session_data.get("gift_title"),
+                session_data.get("gift_url"),
+            )
+        else:  # pre_start
+            text = build_pre_start_message(
+                text,
+                session_data.get("speaker_name"),
+                session_data.get("speaker_topic") or session_data.get("session_title"),
+                stream_url,
+            )
+        btn_url = btn_url.replace("{stream_url}", stream_url)
+
+    else:
+        text = tmpl_text or ""
+
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    return {
+        "text": text,
+        "photo": photo,
+        "button_text": btn_text,
+        "button_url": btn_url or None,
+    }
 
 
 # ─── Отправка в Telegram ─────────────────────────────────────────────────────
