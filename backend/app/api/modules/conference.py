@@ -2299,4 +2299,176 @@ async def add_raffle_ticket_public(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+# ─── Отчёты конференции ────────────────────────────────────────────────────────
+
+class ReportCreate(BaseModel):
+    announcements: int = 0  # кол-во анонсов, введённых вручную
+
+
+@router.post("/reports", summary="Создать отчёт (снимок статистики)")
+async def create_report(
+    event_id: int,
+    data: ReportCreate,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+
+    # Спикеры конференции: collaborators.platform_user_id (tg_id) через conf_speaker_events
+    speakers_rows = await db.fetch(
+        """SELECT cse.id AS speaker_event_id, cse.speaker_id,
+                  col.name, col.tg_id,
+                  ep.is_registered, ep.is_in_chat,
+                  pu.platform_user_id AS pu_tg_id
+           FROM conf_speaker_events cse
+           JOIN collaborators col ON col.id = cse.speaker_id
+           LEFT JOIN platform_users pu ON pu.platform_user_id = col.tg_id
+               AND pu.client_id = (SELECT client_id FROM events WHERE id = $1)
+               AND pu.platform = 'telegram'
+           LEFT JOIN event_participants ep ON ep.platform_user_id = pu.id
+               AND ep.event_id = $1
+           WHERE cse.event_id = $1
+           ORDER BY cse.sort_order, cse.id""",
+        event_id
+    )
+
+    # Собираем tg_id спикеров для исключения из рефералов
+    speaker_tg_ids = set()
+    speakers_data = []
+    for row in speakers_rows:
+        tg_id = row["tg_id"] or ""
+        if tg_id:
+            speaker_tg_ids.add(str(tg_id))
+        entered = 1 if (row["pu_tg_id"] is not None) else 0
+        registered = 1 if row["is_registered"] else 0
+        speakers_data.append({
+            "speaker_event_id": row["speaker_event_id"],
+            "speaker_id": row["speaker_id"],
+            "name": row["name"] or "",
+            "tg_id": tg_id,
+            "entered": entered,
+            "registered": registered,
+        })
+
+    # Рефералы = все участники события, чей tg_id НЕ в списке спикеров
+    referrals_rows = await db.fetch(
+        """SELECT ep.id, ep.is_registered, ep.is_in_chat,
+                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username
+           FROM event_participants ep
+           JOIN platform_users pu ON pu.id = ep.platform_user_id
+           WHERE ep.event_id = $1
+             AND pu.platform = 'telegram'
+           ORDER BY ep.id""",
+        event_id
+    )
+
+    referrals_data = []
+    for row in referrals_rows:
+        tg_id = str(row["tg_id"] or "")
+        if tg_id in speaker_tg_ids:
+            continue  # это спикер, не рефeral
+        name_parts = [row["first_name"] or "", row["last_name"] or ""]
+        name = " ".join(p for p in name_parts if p).strip() or row["username"] or tg_id
+        referrals_data.append({
+            "participant_id": row["id"],
+            "name": name,
+            "username": row["username"] or "",
+            "tg_id": tg_id,
+            "entered": 1,
+            "registered": 1 if row["is_registered"] else 0,
+        })
+
+    # Сводные цифры
+    speakers_entered = sum(1 for s in speakers_data if s["entered"])
+    speakers_registered = sum(s["registered"] for s in speakers_data)
+    referrals_entered = len(referrals_data)
+    referrals_registered = sum(r["registered"] for r in referrals_data)
+    total_entered = speakers_entered + referrals_entered
+    total_registered = speakers_registered + referrals_registered
+
+    report = await db.fetchrow(
+        """INSERT INTO conf_reports
+           (event_id, announcements, total_entered, total_registered,
+            speakers_entered, speakers_registered,
+            referrals_entered, referrals_registered,
+            speakers_data, referrals_data)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING *""",
+        event_id, data.announcements,
+        total_entered, total_registered,
+        speakers_entered, speakers_registered,
+        referrals_entered, referrals_registered,
+        json.dumps(speakers_data, ensure_ascii=False),
+        json.dumps(referrals_data, ensure_ascii=False),
+    )
+
+    return {"report": dict(report)}
+
+
+@router.get("/reports", summary="Список отчётов конференции")
+async def list_reports(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+
+    rows = await db.fetch(
+        """SELECT id, event_id, created_at, announcements,
+                  total_entered, total_registered,
+                  speakers_entered, speakers_registered,
+                  referrals_entered, referrals_registered
+           FROM conf_reports
+           WHERE event_id = $1
+           ORDER BY created_at DESC""",
+        event_id
+    )
+
+    return {"reports": [dict(r) for r in rows]}
+
+
+@router.get("/reports/{report_id}", summary="Детальный отчёт")
+async def get_report(
+    event_id: int,
+    report_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+
+    row = await db.fetchrow(
+        "SELECT * FROM conf_reports WHERE id = $1 AND event_id = $2",
+        report_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Отчёт не найден")
+
+    r = dict(row)
+    # speakers_data и referrals_data хранятся как JSON-строки
+    if isinstance(r.get("speakers_data"), str):
+        r["speakers_data"] = json.loads(r["speakers_data"])
+    if isinstance(r.get("referrals_data"), str):
+        r["referrals_data"] = json.loads(r["referrals_data"])
+
+    return {"report": r}
+
+
+@router.delete("/reports/{report_id}", summary="Удалить отчёт")
+async def delete_report(
+    event_id: int,
+    report_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+
+    deleted = await db.fetchval(
+        "DELETE FROM conf_reports WHERE id = $1 AND event_id = $2 RETURNING id",
+        report_id, event_id
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Отчёт не найден")
+    return {"ok": True}
+
     return {"ok": True, "ticket": dict(ticket)}

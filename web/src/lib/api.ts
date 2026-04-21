@@ -131,6 +131,14 @@ export const api = {
     raffleTickets: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/raffle-tickets`),
     },
+    reports: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/reports`),
+      get: (eventId: number, reportId: number) => request(`/api/v1/events/${eventId}/conference/reports/${reportId}`),
+      create: (eventId: number, data: { announcements: number }) =>
+        request(`/api/v1/events/${eventId}/conference/reports`, { method: 'POST', body: JSON.stringify(data) }),
+      delete: (eventId: number, reportId: number) =>
+        request(`/api/v1/events/${eventId}/conference/reports/${reportId}`, { method: 'DELETE' }),
+    },
     templates: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/broadcasts/templates`),
       create: (eventId: number, data: any) =>
