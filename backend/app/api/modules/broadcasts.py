@@ -128,7 +128,6 @@ DEFAULT_TEMPLATES = [
             "{raffle_url}\n\n"
             "{next_day_mention}\n\n"
             "—\n\n"
-            "А сейчас ловите подарки от спикеров {day_ordinal} дня:\n\n"
             "{day_speakers_gifts}"
         ),
         "photo_url": None,
@@ -628,7 +627,10 @@ async def test_template(
                 else:
                     block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{url}"
                 gift_blocks.append(block)
-            day_speakers_gifts = "\n\n".join(gift_blocks)
+            if gift_blocks:
+                day_speakers_gifts = "А сейчас ловите подарки от спикеров {day_ordinal} дня:\n\n".replace("{day_ordinal}", ORDINALS.get(day, f"{day}-м")) + "\n\n".join(gift_blocks)
+            else:
+                day_speakers_gifts = ""
 
             # Следующий день — берём дату и время из первой сессии
             from datetime import date, timezone

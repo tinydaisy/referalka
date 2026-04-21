@@ -329,7 +329,9 @@ export default function TemplatesPage() {
         if (!url) return `🎁 <b>${s.speaker_name}:</b> ${title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`
         return `🎁 <b>${s.speaker_name}:</b> ${title}\n${url}`
       })
-    const daySpeakersGifts = speakerGiftBlocks.length > 0 ? speakerGiftBlocks.join('\n\n') : '[подарки спикеров дня]'
+    const daySpeakersGifts = speakerGiftBlocks.length > 0
+      ? `А сейчас ловите подарки от спикеров ${dayOrdinal} дня:\n\n` + speakerGiftBlocks.join('\n\n')
+      : ''
 
     // Умная фраза про следующий день
     const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
@@ -365,8 +367,9 @@ export default function TemplatesPage() {
       .replace(/\{speaker_topic\}/g, '[тема]')
       .replace(/\{speaker_achievements\}/g, '')
 
-    // Убираем незамененные переменные следующего дня (если остались)
+    // Убираем незамененные переменные если пустые
     if (!nextDayMention) out = out.replace(/^.*\{next_day_mention\}.*$\n?/gm, '')
+    if (!daySpeakersGifts) out = out.replace(/^.*\{day_speakers_gifts\}.*$\n?/gm, '')
     // Схлопываем 3+ пустых строки подряд
     out = out.replace(/\n{3,}/g, '\n\n')
     return out.trim()
