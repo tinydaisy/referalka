@@ -182,6 +182,11 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}`, { method: 'DELETE' }),
     },
   },
+  contacts: {
+    list: (search: string, limit: number, offset: number) =>
+      request(`/api/v1/contacts?search=${encodeURIComponent(search)}&limit=${limit}&offset=${offset}`),
+    get: (id: number) => request(`/api/v1/contacts/${id}`),
+  },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
     clients: (params?: string) => request(`/api/v1/admin/clients${params ? '?' + params : ''}`),

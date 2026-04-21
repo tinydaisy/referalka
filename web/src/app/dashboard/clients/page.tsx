@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink } from 'lucide-react'
+import { api } from '@/lib/api'
 
 interface Contact {
   id: number
@@ -60,14 +61,11 @@ export default function ContactsPage() {
   const fetchContacts = useCallback(async (q: string, off: number) => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(
-        `/api/v1/contacts?search=${encodeURIComponent(q)}&limit=${LIMIT}&offset=${off}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      const data = await res.json()
+      const data = await api.contacts.list(q, LIMIT, off)
       setContacts(data.items || [])
       setTotal(data.total || 0)
+    } catch (e) {
+      console.error(e)
     } finally {
       setLoading(false)
     }
@@ -88,11 +86,9 @@ export default function ContactsPage() {
   const selectContact = async (id: number) => {
     setLoadingDetail(true)
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/v1/contacts/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      setSelected(await res.json())
+      setSelected(await api.contacts.get(id))
+    } catch (e) {
+      console.error(e)
     } finally {
       setLoadingDetail(false)
     }
