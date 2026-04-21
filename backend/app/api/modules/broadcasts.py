@@ -1145,40 +1145,39 @@ async def test_template(
         insta = (instagram_url or "").strip()
         ach_list = [a.strip() for a in (achievements or []) if a.strip()]
         topic = (speaker_topic or "").strip()
+        gift_title_v = (gift_title or "").strip()
+        gift_raffle_v = (gift_raffle or "").strip()
 
         # Регалии — всегда из achievements, независимо от темы и роли
         ach_text = "\n".join(f"• {a}" for a in ach_list)
 
+        # Сначала убираем строки с пустыми данными (пока плейсхолдеры ещё в тексте)
+        if not topic:
+            text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if not ach_text:
+            text = re.sub(r"^[^\n]*О спикере[^\n]*\n?", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^[^\n]*\{speaker_achievements\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if not gift_title_v:
+            text = re.sub(r"^[^\n]*\{gift_after_speech_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if not gift_raffle_v:
+            text = re.sub(r"^[^\n]*\{gift_raffle_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if not tg_ch:
+            text = re.sub(r"^[^\n]*\{speaker_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if not insta:
+            text = re.sub(r"^[^\n]*\{speaker_instagram\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+
+        # Затем подставляем значения
         text = text.replace("{speaker_name}", speaker_name or "")
         text = text.replace("{speaker_role}", role_label)
         text = text.replace("{speaker_topic}", topic)
         text = text.replace("{speaker_achievements}", ach_text)
-        text = text.replace("{gift_after_speech_title}", (gift_title or "").strip())
-        text = text.replace("{gift_raffle_title}", (gift_raffle or "").strip())
+        text = text.replace("{gift_after_speech_title}", gift_title_v)
+        text = text.replace("{gift_raffle_title}", gift_raffle_v)
         text = text.replace("{registration_url}", registration_url or "")
-
         if tg_ch:
             text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_ch}")
-        else:
-            text = re.sub(r"^.*\{speaker_tg\}.*$\n?", "", text, flags=re.MULTILINE)
         if insta:
             text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}")
-        else:
-            text = re.sub(r"^.*\{speaker_instagram\}.*$\n?", "", text, flags=re.MULTILINE)
-
-        # Тема: убираем строку если нет темы
-        if not topic:
-            text = re.sub(r"^.*Тема.*\{speaker_topic\}.*$\n?", "", text, flags=re.MULTILINE)
-            text = re.sub(r"^.*\{speaker_topic\}.*$\n?", "", text, flags=re.MULTILINE)
-        # О спикере: убираем блок если нет регалий
-        if not ach_text:
-            text = re.sub(r"^.*О спикере.*$\n?", "", text, flags=re.MULTILINE)
-            text = re.sub(r"^.*\{speaker_achievements\}.*$\n?", "", text, flags=re.MULTILINE)
-        # Подарки: убираем строки если нет подарков
-        if not (gift_title or "").strip():
-            text = re.sub(r"^.*🎁.*(\{gift_after_speech_title\}|$).*$\n?", "", text, flags=re.MULTILINE)
-        if not (gift_raffle or "").strip():
-            text = re.sub(r"^.*🏆.*(\{gift_raffle_title\}|$).*$\n?", "", text, flags=re.MULTILINE)
 
         return re.sub(r"\n{3,}", "\n\n", text).strip()
 
