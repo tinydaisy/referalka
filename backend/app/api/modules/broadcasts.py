@@ -1000,8 +1000,68 @@ async def preview_schedule(
             text = re.sub(r"^.*\{day_speakers_gifts\}.*$\n?", "", text, flags=re.MULTILINE)
         btn_url = btn_url.replace("{stream_url}", stream_url).replace("{registration_url}", reg_url)
 
+    elif tpl_type == "speaker_intro":
+        # session_id хранит conf_speaker_events.id
+        if schedule["session_id"]:
+            sp = await db.fetchrow(
+                """
+                SELECT c.name as speaker_name, c.poster_url as speaker_poster,
+                       c.personal_tg_username, c.tg_channel_url, c.instagram_url,
+                       c.achievements,
+                       cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                       cse.gift_raffle_title,
+                       cc.registration_url
+                FROM conf_speaker_events cse
+                JOIN collaborators c ON c.id = cse.speaker_id
+                LEFT JOIN conf_conferences cc ON cc.event_id = cse.event_id
+                WHERE cse.id=$1
+                """,
+                schedule["session_id"]
+            )
+            if sp:
+                topics = await db.fetch(
+                    "SELECT topic FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order LIMIT 1",
+                    schedule["session_id"]
+                )
+                topic = topics[0]["topic"] if topics else ""
+                ROLE_MAP = {"speaker": "Спикер", "headliner": "Хедлайнер",
+                            "partner": "Партнёр", "organizer": "Организатор"}
+                role_label = ROLE_MAP.get(sp["role"] or "", "Спикер")
+                ach = sp["achievements"] or []
+                ach_text = "\n".join(f"• {a}" for a in ach if a) if ach else f"• {topic or 'уточняется'}"
+                tg_channel = (sp["tg_channel_url"] or "").strip()
+                insta = (sp["instagram_url"] or "").strip()
+                gift_title = (sp["gift_after_speech_title"] or "").strip()
+                gift_raffle = (sp["gift_raffle_title"] or "").strip()
+                reg_url = (sp["registration_url"] or "").strip()
+
+                if not photo:
+                    photo = sp["speaker_poster"]
+
+                text = text.replace("{speaker_name}", sp["speaker_name"] or "")
+                text = text.replace("{speaker_role}", role_label)
+                text = text.replace("{speaker_topic}", topic or "уточняется")
+                text = text.replace("{speaker_achievements}", ach_text)
+                text = text.replace("{gift_after_speech_title}", gift_title)
+                text = text.replace("{gift_raffle_title}", gift_raffle)
+                text = text.replace("{registration_url}", reg_url)
+
+                if tg_channel:
+                    text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_channel}")
+                else:
+                    text = re.sub(r"^.*\{speaker_tg\}.*$\n?", "", text, flags=re.MULTILINE)
+                if insta:
+                    text = text.replace("{speaker_instagram}", f"<b>Нельзяграм:</b> {insta}")
+                else:
+                    text = re.sub(r"^.*\{speaker_instagram\}.*$\n?", "", text, flags=re.MULTILINE)
+                if not gift_title:
+                    text = re.sub(r"^.*🎁.*\{gift_after_speech_title\}.*$\n?", "", text, flags=re.MULTILINE)
+                if not gift_raffle:
+                    text = re.sub(r"^.*🏆.*\{gift_raffle_title\}.*$\n?", "", text, flags=re.MULTILINE)
+                text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
     else:
-        # Спикерские шаблоны
+        # Спикерские шаблоны (pre_start, gift)
         session_data = {}
         if schedule["session_id"]:
             session = await db.fetchrow(
