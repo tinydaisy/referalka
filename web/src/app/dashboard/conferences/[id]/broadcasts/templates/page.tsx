@@ -136,7 +136,8 @@ export default function TemplatesPage() {
     if (speaker) {
       const giftTitle = (speaker.gift_after_speech_title || '').trim()
       const giftUrl = (speaker.gift_after_speech_url || '').trim()
-      const tgUrl = (speaker.personal_tg_username || '').trim()
+      const rawTg = (speaker.personal_tg_username || '').trim()
+      const tgUrl = rawTg ? '@' + rawTg.replace(/^@+/, '') : ''
       const achievements = (speaker.achievements || []).map((a: string) => `· ${a}`).join('\n')
       const giftRaffle = (speaker.gift_raffle_title || '').trim()
 

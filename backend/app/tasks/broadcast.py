@@ -230,14 +230,15 @@ def _render_template(text: str, data: dict, tpl_type: str = "") -> str:
         text = re.sub(r"^.*\{gift_title\}.*$\n?", "", text, flags=re.MULTILINE)
         text = re.sub(r"^.*\{gift_url\}.*$\n?", "", text, flags=re.MULTILINE)
 
+        tg_mention = ("@" + tg_url.lstrip("@")) if tg_url else ""
         if not gift_title:
             gift_block = (
-                f"🎁 Чтобы забрать материалы — пишите в личку {tg_url}"
-                if tg_url else
+                f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}"
+                if tg_mention else
                 "🎁 Чтобы забрать материалы — напишите спикеру в личку"
             )
         elif not gift_url:
-            gift_block = f"{gift_title}\nПишите в личку {tg_url}" if tg_url else gift_title
+            gift_block = f"{gift_title}\nПишите в личку {tg_mention}" if tg_mention else gift_title
         else:
             gift_block = f"{gift_title}\n{gift_url}"
 
