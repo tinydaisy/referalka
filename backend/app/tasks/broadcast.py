@@ -105,6 +105,7 @@ async def _send_broadcast(schedule_id: int):
                        cs.day,
                        c.name as speaker_name,
                        c.poster_url as speaker_poster,
+                       c.tg_channel_url as speaker_tg_url,
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
@@ -115,7 +116,7 @@ async def _send_broadcast(schedule_id: int):
                        END as stream_url
                 FROM conf_sessions cs
                 LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
-                LEFT JOIN collaborators c ON c.id = cse.collaborator_id  -- poster_url = индивидуальная афиша спикера
+                LEFT JOIN collaborators c ON c.id = cse.collaborator_id
                 LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
                 LEFT JOIN conf_conferences cc ON cc.event_id = cs.event_id
                 WHERE cs.id = $1
@@ -140,7 +141,7 @@ async def _send_broadcast(schedule_id: int):
             return
 
         # Формируем текст сообщения из шаблона с подстановкой переменных
-        text = _render_template(schedule["tmpl_text"] or "", session_data)
+        text = _render_template(schedule["tmpl_text"] or "", session_data, schedule.get("type", ""))
         # Для pre_start — фото берём из афиши спикера, если в шаблоне не задано явно
         photo_url = schedule["tmpl_photo"] or (
             session_data.get("speaker_poster") if schedule["type"] == "pre_start" else None
@@ -215,8 +216,33 @@ async def _send_broadcast(schedule_id: int):
         await conn.close()
 
 
-def _render_template(text: str, data: dict) -> str:
+def _render_template(text: str, data: dict, tpl_type: str = "") -> str:
     """Подставляет переменные в текст шаблона."""
+    import re
+
+    # Для шаблона gift — умная логика блока подарка
+    if tpl_type == "gift":
+        gift_title = (data.get("gift_title") or "").strip()
+        gift_url = (data.get("gift_url") or "").strip()
+        tg_url = (data.get("speaker_tg_url") or "").strip()
+
+        # Убираем строки с переменными подарка
+        text = re.sub(r"^.*\{gift_title\}.*$\n?", "", text, flags=re.MULTILINE)
+        text = re.sub(r"^.*\{gift_url\}.*$\n?", "", text, flags=re.MULTILINE)
+
+        if not gift_title:
+            gift_block = (
+                f"🎁 Чтобы забрать материалы — пишите в личку {tg_url}"
+                if tg_url else
+                "🎁 Чтобы забрать материалы — напишите спикеру в личку"
+            )
+        elif not gift_url:
+            gift_block = f"{gift_title}\nПишите в личку {tg_url}" if tg_url else gift_title
+        else:
+            gift_block = f"{gift_title}\n{gift_url}"
+
+        text = text.rstrip() + "\n\n" + gift_block
+
     replacements = {
         "{speaker_name}": data.get("speaker_name") or "",
         "{session_title}": data.get("session_title") or "",
@@ -230,7 +256,10 @@ def _render_template(text: str, data: dict) -> str:
     }
     for key, val in replacements.items():
         text = text.replace(key, val)
-    return text
+
+    # Схлопываем 3+ пустых строки
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _fmt_time(dt) -> str:

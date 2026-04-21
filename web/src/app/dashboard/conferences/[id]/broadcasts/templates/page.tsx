@@ -128,47 +128,71 @@ export default function TemplatesPage() {
   const currentType = TYPE_DEFS.find(d => d.type === form.type)
   const previewSpeaker = previewSpeakerId ? speakers.find(s => s.id === previewSpeakerId) : null
 
-  function renderPreviewText(text: string, speaker: any | null): string {
+  function renderPreviewText(text: string, speaker: any | null, tplType?: string): string {
     if (!text) return ''
-    let out = text
+    // Нормализуем литеральные \n на случай старых данных из БД
+    let out = text.replace(/\\n/g, '\n')
 
     if (speaker) {
-      const giftTitle = speaker.gift_after_speech_title || ''
-      const giftUrl = speaker.gift_after_speech_url || ''
+      const giftTitle = (speaker.gift_after_speech_title || '').trim()
+      const giftUrl = (speaker.gift_after_speech_url || '').trim()
+      const tgUrl = (speaker.tg_channel_url || '').trim()
       const achievements = (speaker.achievements || []).map((a: string) => `· ${a}`).join('\n')
-      const tg = speaker.tg_channel_url ? `Тг канал: ${speaker.tg_channel_url}` : ''
+      const giftRaffle = (speaker.gift_raffle_title || '').trim()
 
-      // Строка с {gift_url}: если url есть — подставляем, если нет — убираем всю строку
-      if (giftUrl) {
-        out = out.replace(/\{gift_url\}/g, giftUrl)
-      } else {
-        out = out.replace(/^.*\{gift_url\}.*$\n?/gm, '')
-      }
-
-      // Строка с {gift_title}: если нет подарка — убираем строку
-      if (giftTitle) {
-        out = out.replace(/\{gift_title\}/g, giftTitle)
-        out = out.replace(/\{gift_after_speech_title\}/g, giftTitle)
-      } else {
+      // Правила блока подарка (для шаблона gift)
+      if (tplType === 'gift') {
+        // Убираем строки с переменными подарка — заменим всё блоком по правилам
         out = out.replace(/^.*\{gift_title\}.*$\n?/gm, '')
-        out = out.replace(/^.*\{gift_after_speech_title\}.*$\n?/gm, '')
+        out = out.replace(/^.*\{gift_url\}.*$\n?/gm, '')
+
+        let giftBlock = ''
+        if (!giftTitle) {
+          // Нет подарка — ссылка на личку
+          giftBlock = tgUrl
+            ? `🎁 Чтобы забрать материалы — пишите в личку ${tgUrl}`
+            : `🎁 Чтобы забрать материалы — напишите спикеру в личку`
+        } else if (!giftUrl) {
+          // Есть название, нет ссылки
+          giftBlock = tgUrl
+            ? `${giftTitle}\nПишите в личку ${tgUrl}`
+            : giftTitle
+        } else {
+          // Есть и название и ссылка
+          giftBlock = `${giftTitle}\n${giftUrl}`
+        }
+        out = out.trimEnd() + '\n\n' + giftBlock
+      } else {
+        // Стандартная логика для других шаблонов
+        if (giftUrl) {
+          out = out.replace(/\{gift_url\}/g, giftUrl)
+        } else {
+          out = out.replace(/^.*\{gift_url\}.*$\n?/gm, '')
+        }
+        if (giftTitle) {
+          out = out.replace(/\{gift_title\}/g, giftTitle)
+          out = out.replace(/\{gift_after_speech_title\}/g, giftTitle)
+        } else {
+          out = out.replace(/^.*\{gift_title\}.*$\n?/gm, '')
+          out = out.replace(/^.*\{gift_after_speech_title\}.*$\n?/gm, '')
+        }
       }
 
-      // Строка с {speaker_tg}: если нет — убираем строку
-      if (tg) {
-        out = out.replace(/\{speaker_tg\}/g, tg)
+      // Telegram-канал
+      if (tgUrl) {
+        out = out.replace(/\{speaker_tg\}/g, `Тг канал: ${tgUrl}`)
       } else {
         out = out.replace(/^.*\{speaker_tg\}.*$\n?/gm, '')
       }
 
-      // Регалии: если нет — убираем строку
+      // Регалии
       if (achievements) {
         out = out.replace(/\{speaker_achievements\}/g, achievements)
       } else {
         out = out.replace(/^.*\{speaker_achievements\}.*$\n?/gm, '')
       }
 
-      const giftRaffle = speaker.gift_raffle_title || ''
+      // Подарок для розыгрыша
       if (giftRaffle) {
         out = out.replace(/\{gift_raffle_title\}/g, giftRaffle)
       } else {
@@ -201,7 +225,7 @@ export default function TemplatesPage() {
       .replace(/\{speaker_topic\}/g, '[тема]')
       .replace(/\{speaker_achievements\}/g, '')
 
-    // Убираем более 2 пустых строк подряд
+    // Схлопываем 3+ пустых строки подряд
     out = out.replace(/\n{3,}/g, '\n\n')
     return out.trim()
   }
@@ -273,9 +297,9 @@ export default function TemplatesPage() {
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                     {tpl.photo_url ? (
                       <span>📷 Своё фото</span>
-                    ) : (
+                    ) : def.showPhoto ? (
                       <span className="text-blue-500">📸 Афиша подставится автоматически</span>
-                    )}
+                    ) : null}
                     {tpl.button_text && <span>🔘 Кнопка: «{tpl.button_text}»</span>}
                   </div>
                 </div>
@@ -403,7 +427,8 @@ export default function TemplatesPage() {
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
                 {renderPreviewText(
                   previewModal.tpl.text,
-                  previewModal.def.hasSpeaker ? previewSpeaker : null
+                  previewModal.def.hasSpeaker ? previewSpeaker : null,
+                  previewModal.def.type
                 )}
               </p>
               {previewModal.tpl.button_text && (
