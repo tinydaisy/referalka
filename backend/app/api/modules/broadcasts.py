@@ -441,15 +441,20 @@ async def generate_schedules(
     async def add_schedule(tmpl, fire_at, session_id=None, sched_type=None):
         nonlocal created, skipped
         t = sched_type or tmpl["type"]
-        exists = await db.fetchval(
-            """SELECT 1 FROM broadcast_schedules
-               WHERE event_id=$1 AND template_id=$2
-               AND COALESCE(session_id::text,'') = $3
-               AND type=$4""",
-            event_id, tmpl["id"],
-            str(session_id) if session_id else "",
-            t
-        )
+        if session_id:
+            # Для спикерских рассылок — дубль по session_id + type
+            exists = await db.fetchval(
+                """SELECT 1 FROM broadcast_schedules
+                   WHERE event_id=$1 AND template_id=$2 AND session_id=$3 AND type=$4""",
+                event_id, tmpl["id"], session_id, t
+            )
+        else:
+            # Для дневных рассылок — дубль по fire_at + type (каждый день имеет своё время)
+            exists = await db.fetchval(
+                """SELECT 1 FROM broadcast_schedules
+                   WHERE event_id=$1 AND template_id=$2 AND fire_at=$3 AND type=$4""",
+                event_id, tmpl["id"], fire_at, t
+            )
         if exists:
             skipped += 1
             return
