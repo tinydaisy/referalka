@@ -241,6 +241,7 @@ async def _send_broadcast(schedule_id: int):
             conf_row = await conn.fetchrow(
                 """
                 SELECT e.title as conf_title, cc.registration_url, cc.raffle_url,
+                       cc.poster_horizontal,
                        cd.stream_url, cd.day_date
                 FROM events e
                 JOIN conf_conferences cc ON cc.event_id = e.id
@@ -253,6 +254,9 @@ async def _send_broadcast(schedule_id: int):
             stream_url = (conf_row["stream_url"] or "") if conf_row else ""
             reg_url = (conf_row["registration_url"] or "") if conf_row else ""
             raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
+            poster_h = conf_row["poster_horizontal"] if conf_row else None
+            if not photo_url and poster_h:
+                photo_url = poster_h[0] if isinstance(poster_h, list) else poster_h
             raw_date = conf_row["day_date"] if conf_row else None
             if raw_date:
                 day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}"
