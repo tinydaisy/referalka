@@ -177,7 +177,18 @@ async def list_templates(
             event_id
         )
 
-    return {"templates": [dict(r) for r in rows]}
+    # Для day_end/day_live: если photo_url не задан — подставляем горизонтальную афишу как дефолт
+    conf_row = await db.fetchrow(
+        "SELECT poster_horizontal FROM conf_conferences WHERE event_id = $1", event_id
+    )
+    default_poster = (conf_row["poster_horizontal"][0] if conf_row and conf_row["poster_horizontal"] else None)
+    result = []
+    for r in rows:
+        d = dict(r)
+        if d["type"] in ("day_end", "day_live") and not d["photo_url"] and default_poster:
+            d["photo_url"] = default_poster
+        result.append(d)
+    return {"templates": result}
 
 
 @router.post("/templates", summary="Создать шаблон")
@@ -565,11 +576,7 @@ async def test_template(
         raw_date = conf_row["day_date"] if conf_row else None
         day_date_str = raw_date.strftime("%-d %B") if raw_date else f"День {day}"
         poster_h = conf_row["poster_horizontal"] if conf_row else None
-        # day_end и day_live не используют фото
-        if tpl["type"] in ("day_end", "day_live"):
-            photo = tpl["photo_url"] or None
-        else:
-            photo = (poster_h[0] if poster_h else None) or tpl["photo_url"] or None
+        photo = tpl["photo_url"] or (poster_h[0] if poster_h else None) or None
 
         # Программа дня: «ЧЧ:ММ-ЧЧ:ММ: Тема (Имя — Роль)»
         # Роль указывается только для headliner, partner, organizer

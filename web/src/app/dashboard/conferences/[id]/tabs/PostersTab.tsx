@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { Upload, Trash2, ImageIcon, Loader2 } from 'lucide-react'
+import { Upload, Trash2, ImageIcon, Loader2, Copy, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
@@ -19,6 +19,13 @@ export default function PostersTab({ eventId }: { eventId: number }) {
     horizontal: [], vertical: [], square: []
   })
   const [uploading, setUploading] = useState<PosterType | null>(null)
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
+
+  function copyUrl(url: string) {
+    navigator.clipboard.writeText(url)
+    setCopiedUrl(url)
+    setTimeout(() => setCopiedUrl(null), 2000)
+  }
   const fileRefs = {
     horizontal: useRef<HTMLInputElement>(null),
     vertical:   useRef<HTMLInputElement>(null),
@@ -119,12 +126,23 @@ export default function PostersTab({ eventId }: { eventId: number }) {
                 <div key={i} className={`relative group ${pt.aspect} rounded-xl overflow-hidden bg-gray-100`}>
                   <ImageThumb url={url} alt={`poster ${i+1}`}
                     className="w-full h-full block cursor-zoom-in" />
-                  <button
-                    onClick={() => removeposter(pt.key, url)}
-                    className="absolute top-1.5 right-1.5 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-full p-1 z-10"
-                  >
-                    <Trash2 size={14} className="text-white" />
-                  </button>
+                  <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button
+                      onClick={() => copyUrl(url)}
+                      className="bg-black/50 rounded-full p-1"
+                      title="Скопировать URL"
+                    >
+                      {copiedUrl === url
+                        ? <Check size={14} className="text-green-400" />
+                        : <Copy size={14} className="text-white" />}
+                    </button>
+                    <button
+                      onClick={() => removeposter(pt.key, url)}
+                      className="bg-black/50 rounded-full p-1"
+                    >
+                      <Trash2 size={14} className="text-white" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
