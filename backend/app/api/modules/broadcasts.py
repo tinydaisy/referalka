@@ -621,12 +621,24 @@ async def test_template(
             gift_sessions = await db.fetch(
                 """
                 SELECT c.name as speaker_name, c.personal_tg_username,
-                       cse.gift_after_speech_title, cse.gift_after_speech_url
+                       cse.gift_after_speech_title, cse.gift_after_speech_url,
+                       cse.role, cse.is_commercial
                 FROM conf_sessions cs
                 JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
                 JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cs.event_id = $1 AND cs.day = $2
-                ORDER BY cs.sort_order
+                ORDER BY
+                    CASE cse.role
+                        WHEN 'organizer' THEN 1
+                        ELSE CASE
+                            WHEN cse.is_commercial AND cse.role = 'speaker'  THEN 2
+                            WHEN cse.is_commercial AND cse.role = 'partner'  THEN 3
+                            WHEN cse.role = 'speaker'                        THEN 4
+                            WHEN cse.role = 'partner'                        THEN 5
+                            ELSE 6
+                        END
+                    END,
+                    cs.sort_order
                 """,
                 event_id, day
             )
