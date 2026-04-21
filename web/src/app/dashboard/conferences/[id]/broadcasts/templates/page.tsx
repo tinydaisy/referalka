@@ -325,9 +325,9 @@ export default function TemplatesPage() {
         const url = (s.gift_after_speech_url || '').trim()
         const tg = (s.personal_tg_username || '').trim()
         const tgMention = tg ? '@' + tg.replace(/^@+/, '') : ''
-        if (!title) return `🎁 ${s.speaker_name}: ${tgMention ? 'пишите в личку ' + tgMention : 'уточните у спикера'}`
-        if (!url) return `🎁 ${s.speaker_name}: ${title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`
-        return `🎁 ${s.speaker_name}: ${title}\n${url}`
+        if (!title) return `🎁 <b>${s.speaker_name}:</b> ${tgMention ? 'пишите в личку ' + tgMention : 'уточните у спикера'}`
+        if (!url) return `🎁 <b>${s.speaker_name}:</b> ${title}${tgMention ? '\nПишите в личку ' + tgMention : ''}`
+        return `🎁 <b>${s.speaker_name}:</b> ${title}\n${url}`
       })
     const daySpeakersGifts = speakerGiftBlocks.length > 0 ? speakerGiftBlocks.join('\n\n') : '[подарки спикеров дня]'
 

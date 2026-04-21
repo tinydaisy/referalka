@@ -620,11 +620,11 @@ async def test_template(
                 tg_raw = (gs["personal_tg_username"] or "").strip()
                 tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
                 if not title:
-                    block = f"🎁 {gs['speaker_name']}: пишите в личку {tg_mention}" if tg_mention else f"🎁 {gs['speaker_name']}: уточните у спикера"
+                    block = f"🎁 <b>{gs['speaker_name']}:</b> пишите в личку {tg_mention}" if tg_mention else f"🎁 <b>{gs['speaker_name']}:</b> уточните у спикера"
                 elif not url:
-                    block = f"🎁 {gs['speaker_name']}: {title}\n{('Пишите в личку ' + tg_mention) if tg_mention else ''}".strip()
+                    block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{('Пишите в личку ' + tg_mention) if tg_mention else ''}".strip()
                 else:
-                    block = f"🎁 {gs['speaker_name']}: {title}\n{url}"
+                    block = f"🎁 <b>{gs['speaker_name']}:</b> {title}\n{url}"
                 gift_blocks.append(block)
             day_speakers_gifts = "\n\n".join(gift_blocks)
 
