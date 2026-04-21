@@ -166,7 +166,15 @@ async def get_conference(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
-    conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
+    conf = await db.fetchrow(
+        """
+        SELECT cc.*, e.title as event_title
+        FROM conf_conferences cc
+        JOIN events e ON e.id = cc.event_id
+        WHERE cc.event_id = $1
+        """,
+        event_id
+    )
     return {"conference": dict(conf) if conf else None}
 
 

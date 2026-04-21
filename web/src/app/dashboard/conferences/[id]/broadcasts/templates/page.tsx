@@ -119,7 +119,7 @@ export default function TemplatesPage() {
       if (dayNums.length > 0) setConfDays(dayNums)
       setConfDaysData(days)
     }).catch(() => {})
-    api.conference.get(eventId).then(r => setConfData(r)).catch(() => {})
+    api.conference.get(eventId).then(r => setConfData(r.conference)).catch(() => {})
   }, [eventId])
 
   async function save() {
@@ -279,7 +279,7 @@ export default function TemplatesPage() {
     const dayObj = confDaysData.find((x: any) => x.day_number === d)
     const realStreamUrl = dayObj?.stream_url || ''
     const realRegUrl = confData?.registration_url || ''
-    const realConfTitle = confData?.title || '[Название конференции]'
+    const realConfTitle = confData?.event_title || confData?.title || '[Название конференции]'
     const realDayDate = dayObj?.day_date
       ? new Date(dayObj.day_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
       : `День ${d}`
