@@ -130,6 +130,7 @@ export default function ConferenceSpeakerPage() {
     gift_raffle_url: '',
     is_commercial: false,
     bot_in_channel: false,
+    priority: 60,
   })
 
   const [loading, setLoading] = useState(true)
@@ -160,6 +161,7 @@ export default function ConferenceSpeakerPage() {
           gift_raffle_url: sp.gift_raffle_url || '',
           is_commercial: sp.is_commercial || false,
           bot_in_channel: sp.bot_in_channel || false,
+          priority: sp.priority ?? 60,
         })
 
         return api.collaborators.get(sp.speaker_id)
@@ -297,14 +299,28 @@ export default function ConferenceSpeakerPage() {
         <h2 className="font-bold text-gray-900 text-lg">Выступление в этой конференции</h2>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <div>
-            <label className="label">Роль</label>
-            <select value={eventForm.role} onChange={setEF('role')}
-              className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white">
-              {Object.entries(t.conferences.speakers.roles).map(([k, v]) => (
-                <option key={k} value={k}>{v as string}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <label className="label">Роль</label>
+              <select value={eventForm.role}
+                onChange={e => {
+                  const role = e.target.value
+                  const priority = calcPriority(role, (eventForm as any).is_commercial)
+                  setEventForm(f => ({ ...f, role, priority } as any))
+                }}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white">
+                {Object.entries(t.conferences.speakers.roles).map(([k, v]) => (
+                  <option key={k} value={k}>{v as string}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Приоритет</label>
+              <input type="number" min={1} max={999}
+                value={(eventForm as any).priority ?? 60}
+                onChange={e => setEventForm(f => ({ ...f, priority: Number(e.target.value) } as any))}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand text-center" />
+            </div>
           </div>
 
           <div>
@@ -314,7 +330,11 @@ export default function ConferenceSpeakerPage() {
 
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={eventForm.is_commercial}
-              onChange={e => setEventForm(f => ({ ...f, is_commercial: e.target.checked }))}
+              onChange={e => {
+                const is_commercial = e.target.checked
+                const priority = calcPriority(eventForm.role, is_commercial)
+                setEventForm(f => ({ ...f, is_commercial, priority } as any))
+              }}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
             <span className="text-sm text-gray-700">Коммерческое выступление</span>
           </label>
