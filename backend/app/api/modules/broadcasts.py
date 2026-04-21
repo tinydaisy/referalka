@@ -550,12 +550,13 @@ async def test_template(
             t_start = s["start_datetime"].strftime("%H:%M") if s["start_datetime"] else ""
             t_end = s["end_datetime"].strftime("%H:%M") if s["end_datetime"] else ""
             time_part = f"{t_start}-{t_end}" if t_start and t_end else t_start
+            bold_time = f"<b>{time_part}</b>" if time_part else ""
             topic = s["session_title"] or ""
             name = s["speaker_name"] or ""
             role = s["role"] or ""
             role_label = ROLE_LABELS.get(role, "")
             speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
-            program_lines.append(f"{time_part}: {topic}{speaker_part}".strip(": "))
+            program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
         day_program = "\n".join(program_lines)
 
         text = build_day_message(

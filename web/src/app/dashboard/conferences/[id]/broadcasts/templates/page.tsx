@@ -164,19 +164,11 @@ export default function TemplatesPage() {
     try {
       const isDayType = testModal.def.type === 'day_start_30min_unreg' || testModal.def.type === 'day_start_30min_reg'
       if (isDayType) {
-        // Для day-шаблонов: отправить для каждого дня оба варианта (unreg + reg)
-        const unregTpl = templates.find(t => t.type === 'day_start_30min_unreg')
-        const regTpl = templates.find(t => t.type === 'day_start_30min_reg')
+        // Для day-шаблонов: отправить только этот шаблон для каждого дня
         const allDetails: any[] = []
         for (const d of confDays) {
-          if (unregTpl) {
-            const r = await api.conference.templates.test(eventId, unregTpl.id, d)
-            if (r.details) allDetails.push(...r.details)
-          }
-          if (regTpl) {
-            const r = await api.conference.templates.test(eventId, regTpl.id, d)
-            if (r.details) allDetails.push(...r.details)
-          }
+          const r = await api.conference.templates.test(eventId, testModal.tpl.id, d)
+          if (r.details) allDetails.push(...r.details)
         }
         setTestResult({ ok: true, sent: allDetails.length, details: allDetails })
       } else {
@@ -300,7 +292,8 @@ export default function TemplatesPage() {
           const role = s.speaker_role
           const roleLabel = ROLE_LABELS[role] ? ` — ${ROLE_LABELS[role]}` : ''
           const speakerPart = name ? ` (<b>${name}${roleLabel}</b>)` : ''
-          return `${timePart}: ${topic}${speakerPart}`.trim()
+          const boldTime = timePart ? `<b>${timePart}</b>` : ''
+          return `${boldTime}: ${topic}${speakerPart}`.trim()
         }).join('\n')
       : '[программа дня]'
 
@@ -588,8 +581,10 @@ export default function TemplatesPage() {
                   {testModal.def.type === 'gift' && 'Отправит сообщения о подарке для каждого спикера выбранного дня (по порядку программы) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'speaker_intro' && 'Отправит «Знакомство со спикером» для каждого спикера выбранного дня (с фото афиши) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'pre_start' && 'Отправит «Анонс спикера» для каждого спикера выбранного дня (с реальной ссылкой на эфир и фото) на тестовые Telegram ID из настроек.'}
-                  {(testModal.def.type === 'day_start_30min_unreg' || testModal.def.type === 'day_start_30min_reg') &&
-                    `Отправит оба варианта (незарегистрирован + зарегистрирован) для каждого дня конференции. Итого ${confDays.length * 2} сообщений на каждый тестовый аккаунт.`}
+                  {testModal.def.type === 'day_start_30min_unreg' &&
+                    `Отправит сообщение для незарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
+                  {testModal.def.type === 'day_start_30min_reg' &&
+                    `Отправит сообщение для зарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                 </p>
                 {!testResult && (
                   <>
@@ -622,7 +617,7 @@ export default function TemplatesPage() {
                       {testSending
                         ? <><Loader2 size={15} className="animate-spin" /> Отправляем...</>
                         : ['day_start_30min_unreg', 'day_start_30min_reg'].includes(testModal.def.type)
-                          ? <><Send size={15} /> Отправить тест — все дни × 2 варианта</>
+                          ? <><Send size={15} /> Отправить тест — все дни ({confDays.length} сообщений)</>
                           : <><Send size={15} /> Отправить тест — День {testDay}</>
                       }
                     </button>
