@@ -162,6 +162,8 @@ export const api = {
         }),
       preview: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/preview`),
+      delete: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}`, { method: 'DELETE' }),
     },
   },
   admin: {

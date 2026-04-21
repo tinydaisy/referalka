@@ -54,7 +54,7 @@ DEFAULT_TEMPLATES = [
         "button_url": "{stream_url}",
         "schedule_mode": "fixed_offset",
         "offset_minutes": 5,
-        "audience_include": "all_event",
+        "audience_include": "all_client",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
     },
@@ -94,7 +94,7 @@ DEFAULT_TEMPLATES = [
         "button_url": "{registration_url}",
         "schedule_mode": "custom_datetime",
         "offset_minutes": 0,
-        "audience_include": "all_event",
+        "audience_include": "all_client",
         "audience_exclude": "none",
         "allow_custom_datetime": True,
     },
@@ -116,8 +116,8 @@ DEFAULT_TEMPLATES = [
         "button_url": "{registration_url}",
         "schedule_mode": "day_offset",
         "offset_minutes": 30,
-        "audience_include": "all_event",
-        "audience_exclude": "registered_event",   # все участники конфы КРОМЕ зарег.
+        "audience_include": "all_client",
+        "audience_exclude": "registered_event",   # вся база клиента КРОМЕ зарег. в конфе
         "allow_custom_datetime": False,
     },
     {
@@ -138,8 +138,8 @@ DEFAULT_TEMPLATES = [
         "button_url": "{stream_url}",
         "schedule_mode": "day_offset",
         "offset_minutes": 30,
-        "audience_include": "all_event",
-        "audience_exclude": "unregistered_event",  # все участники конфы КРОМЕ незарег.
+        "audience_include": "registered_event",
+        "audience_exclude": "none",
         "allow_custom_datetime": False,
     },
     {
@@ -155,7 +155,7 @@ DEFAULT_TEMPLATES = [
         "button_text": "Войти в эфир",
         "button_url": "{stream_url}",
         "schedule_mode": "day_offset",
-        "offset_minutes": 0,
+        "offset_minutes": 5,
         "audience_include": "all_event",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
@@ -375,15 +375,15 @@ async def list_schedules(
             d["fire_at_local"] = fire_local.strftime("%d.%m.%Y %H:%M")
             d["fire_at_tz"] = tz_str
             d["fire_at_iso"] = r["fire_at"].isoformat()
-        if r["fire_at"] and r["status"] == "pending":
+        if r["fire_at"] and r["status"] in ("pending", "draft"):
             diff = (r["fire_at"] - now_utc).total_seconds()
             d["seconds_until"] = max(0, int(diff))
         else:
             d["seconds_until"] = None
         result.append(d)
 
-    # Следующая ожидающая рассылка
-    pending = [x for x in result if x["status"] == "pending"]
+    # Следующая ожидающая рассылка (pending или draft с временем)
+    pending = [x for x in result if x["status"] in ("pending", "draft") and x.get("fire_at_local")]
     next_pending = pending[0] if pending else None
 
     return {
@@ -457,7 +457,7 @@ async def generate_schedules(
             """
             INSERT INTO broadcast_schedules
               (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
-            VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
+            VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7)
             """,
             event_id, session_id, tmpl["id"], t, fire_at,
             tmpl["audience_include"], tmpl["audience_exclude"]
@@ -476,7 +476,7 @@ async def generate_schedules(
                 """
                 INSERT INTO broadcast_schedules
                   (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
-                VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'pending', $3, $4)
+                VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'draft', $3, $4)
                 """,
                 event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"]
             )
@@ -530,7 +530,8 @@ async def generate_schedules(
 
         if "day_live" in tmpl_map and first_session["start_datetime"]:
             tmpl = tmpl_map["day_live"]
-            fire_at = first_session["start_datetime"]
+            offset = tmpl["offset_minutes"] or 5
+            fire_at = first_session["start_datetime"] - timedelta(minutes=offset)
             await add_schedule(tmpl, fire_at, None, "day_live")
 
         if "day_end" in tmpl_map and last_session.get("end_datetime"):
@@ -576,7 +577,7 @@ async def set_schedule_fire_at(
     row = await db.fetchrow(
         """
         UPDATE broadcast_schedules
-        SET fire_at=$1, is_test=$2, status='pending'
+        SET fire_at=$1, is_test=$2, status='draft'
         WHERE id=$3 AND event_id=$4
         RETURNING id, fire_at, is_test, status
         """,
@@ -633,7 +634,7 @@ async def add_manual_schedule(
         """
         INSERT INTO broadcast_schedules
           (event_id, template_id, type, fire_at, status, is_test, audience_include, audience_exclude)
-        VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
+        VALUES ($1, $2, $3, $4, 'draft', $5, $6, $7)
         RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude
         """,
         event_id, tpl["id"], tpl["type"], dt_utc, data.is_test, aud_include, aud_exclude
@@ -648,17 +649,16 @@ async def run_all_schedules(
     db: asyncpg.Connection = Depends(get_db)
 ):
     """
-    Помечает все pending-рассылки как готовые к отправке.
-    Celery Beat подхватит их в течение следующей минуты.
+    Переводит все draft-рассылки в pending — Celery Beat подхватит их в течение следующей минуты.
     Рассылки с fire_at в прошлом уйдут немедленно при следующем тике Beat.
     Рассылки с fire_at в будущем уйдут по расписанию.
     """
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
-    # Проверяем есть ли незадананная speaker_intro (fire_at = NULL)
+    # Проверяем есть ли draft-рассылки без времени (fire_at = NULL)
     null_fire = await db.fetchval(
-        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='pending' AND fire_at IS NULL",
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='draft' AND fire_at IS NULL",
         event_id
     )
     if null_fire and null_fire > 0:
@@ -667,11 +667,16 @@ async def run_all_schedules(
             detail=f"У {null_fire} рассылок не задано время отправки. Установите дату для «Знакомства со спикерами» перед запуском."
         )
 
+    # Переводим draft → pending
+    await db.execute(
+        "UPDATE broadcast_schedules SET status='pending' WHERE event_id=$1 AND status='draft' AND fire_at IS NOT NULL",
+        event_id
+    )
+
     count = await db.fetchval(
         "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='pending'", event_id
     )
     # Celery Beat сам подхватит по расписанию — нам не нужно ничего дополнительно делать.
-    # Просто возвращаем статус.
     return {"ok": True, "queued": count, "message": f"Очередь активирована. {count} рассылок уйдут по расписанию."}
 
 
@@ -685,13 +690,13 @@ async def cancel_schedule(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
     await db.execute(
-        "UPDATE broadcast_schedules SET status='cancelled' WHERE id=$1 AND event_id=$2 AND status='pending'",
+        "UPDATE broadcast_schedules SET status='cancelled' WHERE id=$1 AND event_id=$2 AND status IN ('pending','draft')",
         schedule_id, event_id
     )
     return {"ok": True}
 
 
-@router.post("/schedules/cancel-all", summary="Отменить все pending рассылки")
+@router.post("/schedules/cancel-all", summary="Отменить все pending/draft рассылки")
 async def cancel_all_schedules(
     event_id: int,
     client=Depends(get_current_client),
@@ -700,12 +705,33 @@ async def cancel_all_schedules(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
     count = await db.fetchval(
-        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status='pending'", event_id
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE event_id=$1 AND status IN ('pending','draft')", event_id
     )
     await db.execute(
-        "UPDATE broadcast_schedules SET status='cancelled' WHERE event_id=$1 AND status='pending'", event_id
+        "UPDATE broadcast_schedules SET status='cancelled' WHERE event_id=$1 AND status IN ('pending','draft')", event_id
     )
     return {"ok": True, "cancelled": count}
+
+
+@router.delete("/schedules/{schedule_id}", summary="Удалить рассылку из очереди")
+async def delete_schedule(
+    event_id: int,
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+    row = await db.fetchrow(
+        "SELECT status FROM broadcast_schedules WHERE id=$1 AND event_id=$2",
+        schedule_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    if row["status"] in ("pending", "running"):
+        raise HTTPException(status_code=400, detail="Нельзя удалить активную рассылку. Сначала отмените её.")
+    await db.execute("DELETE FROM broadcast_schedules WHERE id=$1", schedule_id)
+    return {"ok": True}
 
 
 @router.get("/schedules/{schedule_id}/preview", summary="Превью сообщения рассылки")

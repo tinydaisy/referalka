@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import {
   Send, Wand2, XCircle, Play, PlusCircle, Eye, Clock,
-  CheckCircle, AlertCircle, Loader2, X, Calendar
+  CheckCircle, AlertCircle, Loader2, X, Calendar, Edit2, Trash2
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -25,6 +25,7 @@ function audienceLabel(inc: string, exc: string): string {
 }
 
 const STATUS_COLOR: Record<string, string> = {
+  draft:     'bg-gray-50 border-gray-100',
   pending:   'bg-amber-50 border-amber-200',
   running:   'bg-blue-50 border-blue-200',
   done:      'bg-green-50 border-green-200',
@@ -32,6 +33,7 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
+  draft:     <Edit2 size={13} className="text-gray-400" />,
   pending:   <Clock size={13} className="text-amber-500" />,
   running:   <Loader2 size={13} className="text-blue-500 animate-spin" />,
   done:      <CheckCircle size={13} className="text-green-500" />,
@@ -39,6 +41,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 }
 
 const STATUS_LABEL: Record<string, string> = {
+  draft:     'Черновик',
   pending:   'Ожидает',
   running:   'Отправляется',
   done:      'Отправлено',
@@ -86,6 +89,10 @@ export default function QueuePage() {
   })
   const [running, setRunning] = useState(false)
 
+  // Выделение чекбоксами
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [deleting, setDeleting] = useState(false)
+
   const load = useCallback(async () => {
     const [tmpl, sched] = await Promise.all([
       api.conference.templates.list(eventId),
@@ -95,6 +102,7 @@ export default function QueuePage() {
     setSchedules(sched.schedules || [])
     setTimezone(sched.timezone || 'Europe/Moscow')
     setNextPending(sched.next_pending || null)
+    setSelectedIds(new Set())
   }, [eventId])
 
   useEffect(() => { load() }, [load])
@@ -206,8 +214,49 @@ export default function QueuePage() {
     }
   }
 
-  const pendingCount = schedules.filter(s => s.status === 'pending').length
-  const nullFireCount = schedules.filter(s => s.status === 'pending' && !s.fire_at).length
+  // Чекбоксы — выбор/снятие
+  function toggleSelect(id: number) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === schedules.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(schedules.map(s => s.id)))
+    }
+  }
+
+  // Удаление выбранных
+  async function deleteSelected() {
+    const selected = schedules.filter(s => selectedIds.has(s.id))
+    const hasActive = selected.some(s => s.status === 'pending' || s.status === 'running')
+    if (hasActive) {
+      alert('Среди выбранных есть активные рассылки. Сначала остановите их или дождитесь завершения.')
+      return
+    }
+    if (!confirm(`Удалить ${selected.length} рассылок? Это действие нельзя отменить.`)) return
+    setDeleting(true)
+    try {
+      for (const s of selected) {
+        await api.conference.schedules.delete(eventId, s.id)
+      }
+      await load()
+      showMsg(`Удалено ${selected.length} рассылок`)
+    } catch (e: any) {
+      showMsg(e.message, 'err')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const pendingCount = schedules.filter(s => s.status === 'pending' || s.status === 'draft').length
+  const nullFireCount = schedules.filter(s => s.status === 'draft' && !s.fire_at).length
   const doneCount = schedules.filter(s => s.status === 'done').length
 
   // Форматируем timezone для отображения
@@ -220,7 +269,7 @@ export default function QueuePage() {
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <div className="flex items-center gap-2">
             <Clock size={14} className="text-amber-500" />
-            <span className="text-gray-500">Ожидает:</span>
+            <span className="text-gray-500">В очереди:</span>
             <span className="font-semibold text-gray-800">{pendingCount}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -244,6 +293,7 @@ export default function QueuePage() {
 
         {/* Легенда статусов */}
         <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-500 border-t border-gray-100 pt-3">
+          <span className="flex items-center gap-1"><Edit2 size={11} className="text-gray-400" /> Черновик (не запущено)</span>
           <span className="flex items-center gap-1"><Clock size={11} className="text-amber-500" /> Ожидает отправки</span>
           <span className="flex items-center gap-1"><Loader2 size={11} className="text-blue-500" /> Отправляется сейчас</span>
           <span className="flex items-center gap-1"><CheckCircle size={11} className="text-green-500" /> Отправлено (показывает кол-во получателей)</span>
@@ -279,6 +329,12 @@ export default function QueuePage() {
             <XCircle size={14} /> Отменить все
           </button>
         )}
+        {selectedIds.size > 0 && (
+          <button onClick={deleteSelected} disabled={deleting}
+            className="flex items-center gap-2 px-3 py-2 border border-red-300 rounded-xl text-sm text-white bg-red-500 hover:bg-red-600 disabled:opacity-50">
+            <Trash2 size={14} /> {deleting ? 'Удаляем...' : `Удалить выбранные (${selectedIds.size})`}
+          </button>
+        )}
         <button onClick={() => setManualModal(true)}
           className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
           <PlusCircle size={14} /> Добавить вручную
@@ -298,96 +354,120 @@ export default function QueuePage() {
           <p className="text-xs mt-1">Нажмите «Сформировать из программы» — рассылки встанут в очередь автоматически</p>
         </div>
       ) : (
-        <div className="space-y-2 mb-6">
-          {schedules.map((s, idx) => (
-            <div key={s.id}
-              className={`rounded-xl border p-3.5 ${STATUS_COLOR[s.status] || 'bg-white border-gray-100'}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  {/* Строка 1: номер + статус + тип */}
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="text-xs text-gray-400 font-mono">#{idx + 1}</span>
-                    <span className="flex items-center gap-1 text-xs font-medium text-gray-700">
-                      {STATUS_ICON[s.status]}
-                      {STATUS_LABEL[s.status] || s.status}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-white/80 border border-gray-200 text-gray-600">
-                      {TYPE_LABELS[s.template_type] || s.type}
-                    </span>
-                    {s.is_test && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium border border-purple-200">
-                        ТЕСТ
+        <>
+          {/* Шапка с «выбрать все» */}
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <input
+              type="checkbox"
+              checked={selectedIds.size === schedules.length && schedules.length > 0}
+              onChange={toggleSelectAll}
+              className="rounded cursor-pointer"
+              title="Выбрать все"
+            />
+            <span className="text-xs text-gray-400">Выбрать все</span>
+          </div>
+
+          <div className="space-y-2 mb-6">
+            {schedules.map((s, idx) => (
+              <div key={s.id}
+                className={`rounded-xl border p-3.5 ${STATUS_COLOR[s.status] || 'bg-white border-gray-100'} ${selectedIds.has(s.id) ? 'ring-2 ring-blue-300' : ''}`}>
+                <div className="flex items-start justify-between gap-3">
+                  {/* Чекбокс */}
+                  <div className="flex items-center pt-0.5 shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(s.id)}
+                      onChange={() => toggleSelect(s.id)}
+                      className="rounded cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    {/* Строка 1: номер + статус + тип */}
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="text-xs text-gray-400 font-mono">#{idx + 1}</span>
+                      <span className="flex items-center gap-1 text-xs font-medium text-gray-700">
+                        {STATUS_ICON[s.status]}
+                        {STATUS_LABEL[s.status] || s.status}
                       </span>
-                    )}
-                    {/* Аудитория */}
-                    <span className="text-xs text-gray-400">
-                      {audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
-                    </span>
-                  </div>
-
-                  {/* Строка 2: спикер + тема */}
-                  {(s.speaker_name || s.session_title) && (
-                    <div className="flex items-center gap-2 text-xs text-gray-600 mb-1">
-                      {s.speaker_name && <span className="font-medium">{s.speaker_name}</span>}
-                      {s.session_title && <span className="text-gray-400 truncate max-w-[220px]">{s.session_title}</span>}
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-white/80 border border-gray-200 text-gray-600">
+                        {TYPE_LABELS[s.template_type] || s.type}
+                      </span>
+                      {s.is_test && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium border border-purple-200">
+                          ТЕСТ
+                        </span>
+                      )}
+                      {/* Аудитория */}
+                      <span className="text-xs text-gray-400">
+                        {audienceLabel(s.audience_include || 'all_event', s.audience_exclude || 'none')}
+                      </span>
                     </div>
-                  )}
 
-                  {/* Строка 3: время */}
-                  <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-                    {s.fire_at_local ? (
-                      <span className="font-medium text-gray-700">{s.fire_at_local} {tzLabel}</span>
-                    ) : (
-                      <span className="text-amber-600 font-medium">⚠ Время не задано</span>
+                    {/* Строка 2: спикер + тема */}
+                    {(s.speaker_name || s.session_title) && (
+                      <div className="flex items-center gap-2 text-xs text-gray-600 mb-1">
+                        {s.speaker_name && <span className="font-medium">{s.speaker_name}</span>}
+                        {s.session_title && <span className="text-gray-400 truncate max-w-[220px]">{s.session_title}</span>}
+                      </div>
                     )}
-                    {s.seconds_until != null && s.status === 'pending' && s.fire_at_local && (
-                      <span className="text-amber-600">через {formatTimeLeft(s.seconds_until)}</span>
+
+                    {/* Строка 3: время */}
+                    <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                      {s.fire_at_local ? (
+                        <span className="font-medium text-gray-700">{s.fire_at_local} {tzLabel}</span>
+                      ) : (
+                        <span className="text-amber-600 font-medium">⚠ Время не задано</span>
+                      )}
+                      {s.seconds_until != null && s.status === 'pending' && s.fire_at_local && (
+                        <span className="text-amber-600">через {formatTimeLeft(s.seconds_until)}</span>
+                      )}
+                      {s.status === 'done' && s.recipients_sent != null && (
+                        <span className="text-green-600 font-medium">✓ {s.recipients_sent} получателей</span>
+                      )}
+                      {s.error_log && (
+                        <span className="text-red-500 truncate max-w-[200px]" title={s.error_log}>⚠ {s.error_log}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Кнопки действий */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Превью */}
+                    <button onClick={() => openPreview(s)}
+                      className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
+                      title="Превью сообщения">
+                      {previewLoading ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
+                    </button>
+                    {/* Задать время (для draft без fire_at) */}
+                    {(s.status === 'draft' || s.status === 'pending') && !s.fire_at && (
+                      <button onClick={() => openFireAt(s)}
+                        className="px-2 py-1 border border-amber-300 rounded-lg text-xs text-amber-700 font-medium hover:bg-amber-50">
+                        Задать время
+                      </button>
                     )}
-                    {s.status === 'done' && s.recipients_sent != null && (
-                      <span className="text-green-600 font-medium">✓ {s.recipients_sent} получателей</span>
+                    {/* Изменить время (если уже задано, для speaker_intro) */}
+                    {(s.status === 'draft' || s.status === 'pending') && s.fire_at && s.template_type === 'speaker_intro' && (
+                      <button onClick={() => openFireAt(s)}
+                        className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
+                        title="Изменить время">
+                        <Calendar size={13} />
+                      </button>
                     )}
-                    {s.error_log && (
-                      <span className="text-red-500 truncate max-w-[200px]" title={s.error_log}>⚠ {s.error_log}</span>
+                    {/* Отмена (для draft и pending) */}
+                    {(s.status === 'draft' || s.status === 'pending') && (
+                      <button onClick={() => cancelOne(s.id)}
+                        className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50"
+                        title="Отменить">
+                        <XCircle size={13} />
+                      </button>
                     )}
                   </div>
-                </div>
-
-                {/* Кнопки действий */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Превью */}
-                  <button onClick={() => openPreview(s)}
-                    className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
-                    title="Превью сообщения">
-                    {previewLoading ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
-                  </button>
-                  {/* Задать время (для speaker_intro без fire_at) */}
-                  {s.status === 'pending' && !s.fire_at && (
-                    <button onClick={() => openFireAt(s)}
-                      className="px-2 py-1 border border-amber-300 rounded-lg text-xs text-amber-700 font-medium hover:bg-amber-50">
-                      Задать время
-                    </button>
-                  )}
-                  {/* Изменить время (если уже задано) */}
-                  {s.status === 'pending' && s.fire_at && s.template_type === 'speaker_intro' && (
-                    <button onClick={() => openFireAt(s)}
-                      className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
-                      title="Изменить время">
-                      <Calendar size={13} />
-                    </button>
-                  )}
-                  {/* Отмена */}
-                  {s.status === 'pending' && (
-                    <button onClick={() => cancelOne(s.id)}
-                      className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50"
-                      title="Отменить">
-                      <XCircle size={13} />
-                    </button>
-                  )}
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* ── Кнопка ЗАПУСТИТЬ ВСЮ ОЧЕРЕДЬ ── */}
