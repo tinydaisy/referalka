@@ -152,6 +152,10 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/schedules/cancel-all`, { method: 'POST' }),
       runAll: (eventId: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/run-all`, { method: 'POST' }),
+      runSelected: (eventId: number, ids: number[]) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/run-selected`, {
+          method: 'POST', body: JSON.stringify({ ids }),
+        }),
       setFireAt: (eventId: number, id: number, data: any) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/fire-at`, {
           method: 'PUT', body: JSON.stringify(data),

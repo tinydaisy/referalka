@@ -813,6 +813,41 @@ async def run_all_schedules(
     return {"ok": True, "queued": count, "message": f"Очередь активирована. {count} рассылок уйдут по расписанию."}
 
 
+@router.post("/schedules/run-selected", summary="Запустить выбранные рассылки")
+async def run_selected_schedules(
+    event_id: int,
+    body: dict,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    ids = [int(i) for i in (body.get("ids") or [])]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Не указаны ID рассылок")
+
+    null_fire = await db.fetchval(
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE id = ANY($1::int[]) AND event_id=$2 AND status='draft' AND fire_at IS NULL",
+        ids, event_id
+    )
+    if null_fire and null_fire > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"У {null_fire} выбранных рассылок не задано время отправки."
+        )
+
+    await db.execute(
+        "UPDATE broadcast_schedules SET status='pending' WHERE id = ANY($1::int[]) AND event_id=$2 AND status='draft' AND fire_at IS NOT NULL",
+        ids, event_id
+    )
+    count = await db.fetchval(
+        "SELECT COUNT(*) FROM broadcast_schedules WHERE id = ANY($1::int[]) AND event_id=$2 AND status='pending'",
+        ids, event_id
+    )
+    return {"ok": True, "queued": count}
+
+
 @router.post("/schedules/{schedule_id}/cancel", summary="Отменить рассылку")
 async def cancel_schedule(
     event_id: int,

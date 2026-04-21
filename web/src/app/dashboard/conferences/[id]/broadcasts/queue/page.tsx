@@ -92,6 +92,7 @@ export default function QueuePage() {
   // Выделение чекбоксами
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [runningSelected, setRunningSelected] = useState(false)
 
   const load = useCallback(async () => {
     const [tmpl, sched] = await Promise.all([
@@ -258,6 +259,28 @@ export default function QueuePage() {
     if (deletedCount > 0) showMsg(`Удалено ${deletedCount} рассылок`)
   }
 
+  async function runSelected() {
+    const ids = [...selectedIds]
+    const selected = schedules.filter(s => ids.includes(s.id))
+    const hasDraft = selected.some(s => s.status === 'draft')
+    if (!hasDraft) {
+      alert('Среди выбранных нет задач в статусе "Черновик". Запустить можно только черновики.')
+      return
+    }
+    if (!confirm(`Запустить ${selected.filter(s => s.status === 'draft').length} рассылок?`)) return
+    setRunningSelected(true)
+    try {
+      const r = await api.conference.schedules.runSelected(eventId, ids)
+      alert(`Запущено: ${r.queued} рассылок. Celery отправит их по расписанию.`)
+      await load()
+      setSelectedIds(new Set())
+    } catch (e: any) {
+      alert(e.message)
+    } finally {
+      setRunningSelected(false)
+    }
+  }
+
   const pendingCount = schedules.filter(s => s.status === 'pending' || s.status === 'draft').length
   const nullFireCount = schedules.filter(s => s.status === 'draft' && !s.fire_at).length
   const doneCount = schedules.filter(s => s.status === 'done').length
@@ -337,10 +360,16 @@ export default function QueuePage() {
           </button>
         )}
         {selectedIds.size > 0 && (
-          <button onClick={deleteSelected} disabled={deleting}
-            className="flex items-center gap-2 px-3 py-2 border border-red-300 rounded-xl text-sm text-white bg-red-500 hover:bg-red-600 disabled:opacity-50">
-            <Trash2 size={14} /> {deleting ? 'Удаляем...' : `Удалить выбранные (${selectedIds.size})`}
-          </button>
+          <>
+            <button onClick={runSelected} disabled={runningSelected}
+              className="flex items-center gap-2 px-3 py-2 border border-green-300 rounded-xl text-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
+              <Play size={14} /> {runningSelected ? 'Запускаем...' : `Запустить выбранные (${selectedIds.size})`}
+            </button>
+            <button onClick={deleteSelected} disabled={deleting}
+              className="flex items-center gap-2 px-3 py-2 border border-red-300 rounded-xl text-sm text-white bg-red-500 hover:bg-red-600 disabled:opacity-50">
+              <Trash2 size={14} /> {deleting ? 'Удаляем...' : `Удалить выбранные (${selectedIds.size})`}
+            </button>
+          </>
         )}
         <button onClick={() => setManualModal(true)}
           className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
