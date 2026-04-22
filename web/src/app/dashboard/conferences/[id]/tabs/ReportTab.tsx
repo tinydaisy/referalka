@@ -77,7 +77,7 @@ function GroupHeader({
   }[color]
 
   return (
-    <div className={`flex items-center justify-between px-4 py-2.5 rounded-t-xl font-semibold text-sm ${cls}`}>
+    <div className={`flex items-center justify-between px-4 py-1.5 rounded-t-xl font-semibold text-sm ${cls}`}>
       <span>{label}</span>
       <span className="font-bold tabular-nums flex items-center gap-2 flex-wrap justify-end">
         <span>{entered} / {registered}</span>
@@ -96,21 +96,21 @@ function SpeakerRow({ row, i, eventId, totalEntered, totalRegistered }: {
 }) {
   return (
     <tr className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
-      <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">{i + 1}</td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
+      <td className="px-4 py-1.5">
         <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
           className="font-medium text-[#25455D] hover:underline text-sm">
           {row.name || row.username || '—'}
         </Link>
         {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
       </td>
-      <td className="px-3 py-3 text-center">
+      <td className="px-3 py-1.5 text-center">
         <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
         <span className="text-gray-300 mx-1">/</span>
         <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
       </td>
-      <td className="px-3 py-3 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
-      <td className="px-3 py-3 text-center text-xs text-gray-400 hidden md:table-cell">
+      <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
+      <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
         {pct(row.entered, totalEntered)} / {pct(row.registered, totalRegistered)}
       </td>
     </tr>
@@ -123,20 +123,20 @@ function PersonRowEl({ row, i, totalEntered, totalRegistered }: {
 }) {
   return (
     <tr className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
-      <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">{i + 1}</td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
+      <td className="px-4 py-1.5">
         <span className="font-medium text-gray-800 text-sm">
           {row.name || row.username || '—'}
         </span>
         {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
       </td>
-      <td className="px-3 py-3 text-center">
+      <td className="px-3 py-1.5 text-center">
         <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
         <span className="text-gray-300 mx-1">/</span>
         <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
       </td>
-      <td className="px-3 py-3 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
-      <td className="px-3 py-3 text-center text-xs text-gray-400 hidden md:table-cell">
+      <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
+      <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
         {pct(row.entered, totalEntered)} / {pct(row.registered, totalRegistered)}
       </td>
     </tr>
@@ -146,11 +146,11 @@ function PersonRowEl({ row, i, totalEntered, totalRegistered }: {
 const TABLE_HEAD = (
   <thead>
     <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
-      <th className="text-left px-4 py-2.5 font-medium w-8">№</th>
-      <th className="text-left px-4 py-2.5 font-medium">Никнейм / Имя</th>
-      <th className="text-center px-3 py-2.5 font-medium">Зашло / Зарег.</th>
-      <th className="text-center px-3 py-2.5 font-medium hidden sm:table-cell">Конверсия</th>
-      <th className="text-center px-3 py-2.5 font-medium hidden md:table-cell">Доля зашло / зарег.</th>
+      <th className="text-left px-4 py-1.5 font-medium w-8">№</th>
+      <th className="text-left px-4 py-1.5 font-medium">Никнейм / Имя</th>
+      <th className="text-center px-3 py-1.5 font-medium">Зашло / Зарег.</th>
+      <th className="text-center px-3 py-1.5 font-medium hidden sm:table-cell">Конверсия</th>
+      <th className="text-center px-3 py-1.5 font-medium hidden md:table-cell">Доля зашло / зарег.</th>
     </tr>
   </thead>
 )
@@ -160,16 +160,14 @@ function SummaryCard({ label, entered, registered, totalEntered, totalRegistered
   totalEntered: number; totalRegistered: number; dark?: boolean
 }) {
   return (
-    <div className={`rounded-xl px-5 py-4 border ${dark ? 'bg-gradient-to-br from-[#25455D] to-[#0a1520] border-[#25455D] text-white' : 'bg-white border-gray-100 shadow-sm'}`}>
-      <div className={`text-xs font-semibold uppercase tracking-wide mb-2 ${dark ? 'text-[#FFCFA4]' : 'text-gray-400'}`}>{label}</div>
-      <div className={`text-2xl font-bold mb-1 ${dark ? 'text-white' : 'text-gray-900'}`}>
-        {entered}<span className={`text-base font-normal mx-1 ${dark ? 'text-[#FFCFA4]/60' : 'text-gray-300'}`}>/</span>{registered}
+    <div className={`rounded-lg px-3 py-2.5 border ${dark ? 'bg-gradient-to-br from-[#25455D] to-[#0a1520] border-[#25455D] text-white' : 'bg-white border-gray-100 shadow-sm'}`}>
+      <div className={`text-[10px] font-semibold uppercase tracking-wide mb-1 ${dark ? 'text-[#FFCFA4]' : 'text-gray-400'}`}>{label}</div>
+      <div className={`text-lg font-bold leading-tight ${dark ? 'text-white' : 'text-gray-900'}`}>
+        {entered}<span className={`text-sm font-normal mx-0.5 ${dark ? 'text-[#FFCFA4]/60' : 'text-gray-300'}`}>/</span>{registered}
       </div>
-      <div className={`text-xs space-y-0.5 ${dark ? 'text-white/70' : 'text-gray-400'}`}>
-        <div>Конверсия: <span className="font-medium">{pct(registered, entered)}</span></div>
-        {totalEntered > 0 && (
-          <div>Доля: <span className="font-medium">{pct(entered, totalEntered)}</span> / <span className="font-medium">{pct(registered, totalRegistered)}</span></div>
-        )}
+      <div className={`text-[10px] mt-0.5 ${dark ? 'text-white/70' : 'text-gray-400'}`}>
+        {pct(registered, entered)}
+        {totalEntered > 0 && <span className="ml-1 opacity-60">{pct(entered, totalEntered)}</span>}
       </div>
     </div>
   )
@@ -313,9 +311,9 @@ export default function ReportTab({ eventId }: { eventId: number }) {
           {loadingDetail ? (
             <div className="flex items-center justify-center h-32"><Spinner className="text-brand text-2xl" /></div>
           ) : detail ? (
-            <div className="space-y-6">
+            <div className="space-y-3">
               {/* Сводка */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <SummaryCard label="Всего" entered={T} registered={TR} totalEntered={T} totalRegistered={TR} dark />
                 <SummaryCard label="Спикеры" entered={spkEntered + comEntered} registered={spkRegistered + comRegistered} totalEntered={T} totalRegistered={TR} />
                 <SummaryCard label="Организатор" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} />
@@ -336,20 +334,20 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                       <table className="w-full">
                         <thead>
                           <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
-                            <th className="text-left px-4 py-2.5 font-medium w-8">№</th>
-                            <th className="text-left px-4 py-2.5 font-medium">Никнейм / Имя</th>
-                            <th className="text-center px-3 py-2.5 font-medium">Зашло / Зарег.</th>
-                            <th className="text-center px-3 py-2.5 font-medium hidden sm:table-cell">Конверсия</th>
-                            <th className="text-center px-3 py-2.5 font-medium hidden md:table-cell">Доля зашло / зарег.</th>
-                            <th className="text-center px-3 py-2.5 font-medium w-10">Ком.</th>
+                            <th className="text-left px-4 py-1.5 font-medium w-8">№</th>
+                            <th className="text-left px-4 py-1.5 font-medium">Никнейм / Имя</th>
+                            <th className="text-center px-3 py-1.5 font-medium">Зашло / Зарег.</th>
+                            <th className="text-center px-3 py-1.5 font-medium hidden sm:table-cell">Конверсия</th>
+                            <th className="text-center px-3 py-1.5 font-medium hidden md:table-cell">Доля зашло / зарег.</th>
+                            <th className="text-center px-3 py-1.5 font-medium w-10">Ком.</th>
                           </tr>
                         </thead>
                         <tbody>
                         {allSpk.map((row, i) => (
                           <tr key={row.speaker_event_id}
                             className={`border-b border-gray-50 last:border-0 hover:bg-blue-50/40 ${row.is_commercial ? 'bg-blue-50/30' : ''}`}>
-                            <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">{i + 1}</td>
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
+                            <td className="px-4 py-1.5">
                               <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
                                 className="font-medium text-[#25455D] hover:underline text-sm">
                                 {row.name || row.username || '—'}
@@ -358,16 +356,16 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                               {row.role === 'headliner' && <div className="text-xs text-gray-400 font-normal">хедлайнер</div>}
                               {row.role === 'partner' && <div className="text-xs text-gray-400 font-normal">партнёр</div>}
                             </td>
-                            <td className="px-3 py-3 text-center">
+                            <td className="px-3 py-1.5 text-center">
                               <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
                               <span className="text-gray-300 mx-1">/</span>
                               <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
                             </td>
-                            <td className="px-3 py-3 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
-                            <td className="px-3 py-3 text-center text-xs text-gray-400 hidden md:table-cell">
+                            <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
+                            <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
                               {pct(row.entered, T)} / {pct(row.registered, TR)}
                             </td>
-                            <td className="px-3 py-3 text-center">
+                            <td className="px-3 py-1.5 text-center">
                               {row.is_commercial && <span className="text-blue-500 text-base">✓</span>}
                             </td>
                           </tr>
@@ -393,18 +391,18 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                         ))}
                         {baseData.length > 0 && (
                           <tr className="border-b border-gray-50 last:border-0 bg-gray-50/50">
-                            <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">{organizers.length + 1}</td>
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + 1}</td>
+                            <td className="px-4 py-1.5">
                               <span className="font-medium text-gray-500 text-sm">Из базы (без реф-кода)</span>
                               <div className="text-xs text-gray-400">{baseData.length} чел.</div>
                             </td>
-                            <td className="px-3 py-3 text-center">
+                            <td className="px-3 py-1.5 text-center">
                               <span className="font-semibold tabular-nums text-gray-800 text-sm">{baseEntered}</span>
                               <span className="text-gray-300 mx-1">/</span>
                               <span className="font-semibold tabular-nums text-gray-800 text-sm">{baseRegistered}</span>
                             </td>
-                            <td className="px-3 py-3 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(baseRegistered, baseEntered)}</td>
-                            <td className="px-3 py-3 text-center text-xs text-gray-400 hidden md:table-cell">
+                            <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(baseRegistered, baseEntered)}</td>
+                            <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
                               {pct(baseEntered, T)} / {pct(baseRegistered, TR)}
                             </td>
                           </tr>
