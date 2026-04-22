@@ -475,7 +475,8 @@ async def generate_schedules(
     templates = await db.fetch(
         """
         SELECT id, type, schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
-               intro_start_time, intro_interval_min, intro_days_before
+               intro_start_time, intro_interval_min, intro_days_before,
+               text, photo_url, button_text, button_url
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
@@ -522,11 +523,13 @@ async def generate_schedules(
         await db.execute(
             """
             INSERT INTO broadcast_schedules
-              (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
-            VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7)
+              (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+               snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+            VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11)
             """,
             event_id, session_id, tmpl["id"], t, fire_at,
-            tmpl["audience_include"], tmpl["audience_exclude"]
+            tmpl["audience_include"], tmpl["audience_exclude"],
+            tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
         )
         created += 1
 
@@ -553,11 +556,13 @@ async def generate_schedules(
                 await db.execute(
                     """
                     INSERT INTO broadcast_schedules
-                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
-                    VALUES ($1, NULL, $2, 'pre_conf', $3, 'draft', $4, $5)
+                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+                    VALUES ($1, NULL, $2, 'pre_conf', $3, 'draft', $4, $5, $6, $7, $8, $9)
                     """,
                     event_id, tmpl["id"], fire_at_pre_conf,
-                    tmpl["audience_include"], tmpl["audience_exclude"]
+                    tmpl["audience_include"], tmpl["audience_exclude"],
+                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
                 )
                 created += 1
             else:
@@ -572,11 +577,13 @@ async def generate_schedules(
                 await db.execute(
                     """
                     INSERT INTO broadcast_schedules
-                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
-                    VALUES ($1, NULL, $2, 'pre_conf', NULL, 'draft', $3, $4)
+                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+                    VALUES ($1, NULL, $2, 'pre_conf', NULL, 'draft', $3, $4, $5, $6, $7, $8)
                     """,
                     event_id, tmpl["id"],
-                    tmpl["audience_include"], tmpl["audience_exclude"]
+                    tmpl["audience_include"], tmpl["audience_exclude"],
+                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
                 )
                 created += 1
             else:
@@ -617,11 +624,13 @@ async def generate_schedules(
                 await db.execute(
                     """
                     INSERT INTO broadcast_schedules
-                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
-                    VALUES ($1, $2, $3, 'speaker_intro', $4, 'draft', $5, $6)
+                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+                    VALUES ($1, $2, $3, 'speaker_intro', $4, 'draft', $5, $6, $7, $8, $9, $10)
                     """,
                     event_id, sp["id"], tmpl["id"], fire_at,
-                    tmpl["audience_include"], tmpl["audience_exclude"]
+                    tmpl["audience_include"], tmpl["audience_exclude"],
+                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
                 )
                 created += 1
         else:
@@ -634,10 +643,12 @@ async def generate_schedules(
                 await db.execute(
                     """
                     INSERT INTO broadcast_schedules
-                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude)
-                    VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'draft', $3, $4)
+                      (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+                       snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+                    VALUES ($1, NULL, $2, 'speaker_intro', NULL, 'draft', $3, $4, $5, $6, $7, $8)
                     """,
-                    event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"]
+                    event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"],
+                    tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
                 )
                 created += 1
             else:
@@ -780,7 +791,7 @@ async def add_manual_schedule(
     await _check_event(db, event_id, client_id)
 
     tpl = await db.fetchrow(
-        "SELECT id, type, audience_include, audience_exclude FROM broadcast_templates WHERE id=$1 AND event_id=$2",
+        "SELECT id, type, audience_include, audience_exclude, text, photo_url, button_text, button_url FROM broadcast_templates WHERE id=$1 AND event_id=$2",
         data.template_id, event_id
     )
     if not tpl:
@@ -805,11 +816,13 @@ async def add_manual_schedule(
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
-          (event_id, template_id, type, session_id, fire_at, status, is_test, audience_include, audience_exclude)
-        VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8)
+          (event_id, template_id, type, session_id, fire_at, status, is_test, audience_include, audience_exclude,
+           snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+        VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11, $12)
         RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude
         """,
-        event_id, tpl["id"], tpl["type"], data.session_id, dt_utc, data.is_test, aud_include, aud_exclude
+        event_id, tpl["id"], tpl["type"], data.session_id, dt_utc, data.is_test, aud_include, aud_exclude,
+        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"]
     )
     return dict(row)
 
@@ -960,12 +973,14 @@ async def copy_schedule(
     new_id = await db.fetchval(
         """INSERT INTO broadcast_schedules
            (event_id, template_id, session_id, type, audience_include, audience_exclude,
-            audience_type, fire_at, status, is_test)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9)
+            audience_type, fire_at, status, is_test,
+            snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9,$10,$11,$12,$13)
            RETURNING id""",
         row["event_id"], row["template_id"], row["session_id"], row["type"],
         row["audience_include"], row["audience_exclude"], row["audience_type"],
-        row["fire_at"], row["is_test"]
+        row["fire_at"], row["is_test"],
+        row["snapshot_text"], row["snapshot_photo"], row["snapshot_btn_text"], row["snapshot_btn_url"]
     )
     return {"ok": True, "id": new_id}
 
