@@ -165,7 +165,12 @@ async def salebot_register(
                 )
         else:
             is_new_participant = True
-            ref_code = await get_unique_ref_code(db)
+            # Берём ref_code из platform_users — он уже сгенерирован там
+            ref_code = await db.fetchval(
+                "SELECT ref_code FROM platform_users WHERE id = $1", pluson_id
+            )
+            if not ref_code:
+                ref_code = await get_unique_ref_code(db)
 
             # Ищем ref_code рефовода по partner_tg_id
             referrer_ref_code = None
