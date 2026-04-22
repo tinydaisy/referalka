@@ -131,6 +131,8 @@ export default function ConferenceSpeakerPage() {
     is_commercial: false,
     bot_in_channel: false,
     priority: 60,
+    exclude_gift_from_broadcast: false,
+    exclude_channel_from_subscription: false,
   })
 
   const [loading, setLoading] = useState(true)
@@ -162,6 +164,8 @@ export default function ConferenceSpeakerPage() {
           is_commercial: sp.is_commercial || false,
           bot_in_channel: sp.bot_in_channel || false,
           priority: sp.priority ?? 60,
+          exclude_gift_from_broadcast: sp.exclude_gift_from_broadcast || false,
+          exclude_channel_from_subscription: sp.exclude_channel_from_subscription || false,
         })
 
         return api.collaborators.get(sp.speaker_id)
@@ -233,6 +237,8 @@ export default function ConferenceSpeakerPage() {
         is_commercial: eventForm.is_commercial,
         bot_in_channel: eventForm.bot_in_channel,
         priority,
+        exclude_gift_from_broadcast: eventForm.exclude_gift_from_broadcast,
+        exclude_channel_from_subscription: eventForm.exclude_channel_from_subscription,
       } as any)
       setEventSaved(true)
       setTimeout(() => setEventSaved(false), 3000)
@@ -346,6 +352,30 @@ export default function ConferenceSpeakerPage() {
             <span className="text-sm text-gray-700">
               Добавил бота в канал
               <span className="text-gray-400 ml-1">— канал будет проверяться на подписку</span>
+            </span>
+          </label>
+        </div>
+
+        {/* Чёрный список */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+            <span>Чёрный список</span>
+            <span className="text-xs text-gray-400 font-normal">— исключения для этого спикера</span>
+          </h3>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={eventForm.exclude_gift_from_broadcast}
+              onChange={e => setEventForm(f => ({ ...f, exclude_gift_from_broadcast: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span className="text-sm text-gray-700">
+              Исключать подарок из общей рассылки
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={eventForm.exclude_channel_from_subscription}
+              onChange={e => setEventForm(f => ({ ...f, exclude_channel_from_subscription: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span className="text-sm text-gray-700">
+              Исключать канал из подписки
             </span>
           </label>
         </div>
