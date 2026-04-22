@@ -223,10 +223,11 @@ function generateReportText(detail: ReportDetail, reportDate: string, announceme
   const organizers   = detail.speakers_data.filter(s => s.role === 'organizer')
   const allSpk       = detail.speakers_data.filter(s => s.role !== 'organizer').sort(byEntered)
   const baseData     = detail.base_data
+  const errorsData   = detail.errors_data
   const referrals    = detail.referrals_data
 
-  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0)
-  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0)
+  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0) + errorsData.reduce((s, r) => s + r.entered, 0)
+  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0) + errorsData.reduce((s, r) => s + r.registered, 0)
   const spkEntered     = allSpk.reduce((s, r) => s + r.entered, 0)
   const spkRegistered  = allSpk.reduce((s, r) => s + r.registered, 0)
   const refEntered     = referrals.reduce((s, r) => s + r.entered, 0)
@@ -247,6 +248,8 @@ function generateReportText(detail: ReportDetail, reportDate: string, announceme
     `Спикеры: ${spkEntered} / ${spkRegistered}`,
     '',
     ...allSpk.map((s, i) => `${i + 1}. ${s.name || s.username || '—'} — ${s.entered} / ${s.registered}`),
+    '',
+    '#отчет_события',
   ]
 
   return lines.join('\n')
