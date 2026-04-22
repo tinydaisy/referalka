@@ -573,13 +573,32 @@ export default function QueuePage() {
 
                   {/* Количество получателей (только done) */}
                   {s.status === 'done' && s.recipients_sent != null && (
-                    <div className="shrink-0 text-right">
-                      <span className="text-sm font-semibold text-green-700">{s.recipients_sent}</span>
-                      <div className="text-xs text-gray-400 leading-tight">чел.</div>
+                    <div className="shrink-0 text-right min-w-[64px]">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <div className="text-center">
+                          <span className="text-sm font-semibold text-green-700">{s.recipients_sent}</span>
+                          <div className="text-xs text-gray-400 leading-tight">дошло</div>
+                        </div>
+                        {s.recipients_failed > 0 && (
+                          <div className="text-center">
+                            <div className="flex items-center gap-0.5">
+                              <span className="text-sm font-semibold text-red-500">{s.recipients_failed}</span>
+                              <span
+                                className="text-gray-400 cursor-help text-xs leading-none"
+                                title="Заблокировали бота или ошибка доставки. Подробности — в списке получателей."
+                              >?</span>
+                            </div>
+                            <div className="text-xs text-gray-400 leading-tight">не дошло</div>
+                          </div>
+                        )}
+                      </div>
+                      {s.duration_seconds != null && (
+                        <div className="text-xs text-gray-400 mt-0.5 text-right">{s.duration_seconds} сек</div>
+                      )}
                       <button
                         onClick={() => openLog(s)}
                         disabled={logLoading}
-                        className="flex items-center gap-0.5 text-xs text-indigo-500 hover:text-indigo-700 mt-0.5">
+                        className="flex items-center gap-0.5 text-xs text-indigo-500 hover:text-indigo-700 mt-0.5 ml-auto">
                         <Users size={10} /> список
                       </button>
                     </div>
