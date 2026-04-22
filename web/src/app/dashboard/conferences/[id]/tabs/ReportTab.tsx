@@ -207,7 +207,6 @@ function SummaryCard({ label, entered, registered, totalEntered, totalRegistered
       </div>
       <div className={`text-[10px] mt-0.5 ${dark ? 'text-white/70' : 'text-gray-400'}`}>
         {pct(registered, entered)}
-        {totalEntered > 0 && <span className="ml-1 opacity-60">{pct(entered, totalEntered)}</span>}
       </div>
     </div>
   )
