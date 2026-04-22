@@ -232,14 +232,20 @@ function generateReportText(detail: ReportDetail, reportDate: string, announceme
   const refEntered     = referrals.reduce((s, r) => s + r.entered, 0)
   const refRegistered  = referrals.reduce((s, r) => s + r.registered, 0)
 
+  const T = detail.total_entered
+  const TR = detail.total_registered
+
   const lines: string[] = [
     `Отчёт от ${reportDate}, анонсов: ${announcements}`,
+    '',
+    '── Детализация по спикерам (зашло / зарег.) ──',
+    '',
+    `ВСЕГО: ${T} / ${TR}`,
     '',
     `Организатор: ${orgEntered} / ${orgRegistered}`,
     `Рефоводы: ${refEntered} / ${refRegistered}`,
     `Спикеры: ${spkEntered} / ${spkRegistered}`,
     '',
-    '── Детализация по спикерам (зашло / зарег.) ──',
     ...allSpk.map((s, i) => `${i + 1}. ${s.name || s.username || '—'} — ${s.entered} / ${s.registered}`),
   ]
 
