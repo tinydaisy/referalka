@@ -60,13 +60,14 @@ function ContactCard({ p }: { p: Participant }) {
       {open && (
         <div className="px-5 pb-4 bg-gray-50 border-t border-gray-100">
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 pt-3 text-xs">
-            <Field label="Реф-код" value={p.ref_code} mono />
-            <Field label="Пришёл от" value={p.referrer_ref_code || '—'} mono highlight={!!p.referrer_ref_code} />
-            <Field label="Telegram ID" value={p.platform_user_id} />
-            {p.salebot_id && <Field label="Salebot ID" value={p.salebot_id} />}
-            {p.phone && <Field label="Телефон" value={p.phone} />}
-            {p.email && <Field label="Email" value={p.email} />}
-            <Field label="Статус" value={[p.is_registered && 'Зарегистрирован', p.is_in_chat && 'В чате'].filter(Boolean).join(', ') || 'Нет данных'} />
+            <Field label="Свой реф-код (его ссылка)" value={p.ref_code || '—'} mono />
+            <Field label="Реф-код, от кого пришёл" value={p.referrer_ref_code || '—'} mono highlight={!!p.referrer_ref_code} />
+            <Field label="Telegram ID" value={p.platform_user_id || '—'} />
+            <Field label="Salebot ID" value={p.salebot_id || '—'} />
+            <Field label="Телефон" value={p.phone || '—'} />
+            <Field label="Email" value={p.email || '—'} />
+            <Field label="Зарегистрирован" value={p.is_registered ? 'Да' : 'Нет'} />
+            <Field label="В чате" value={p.is_in_chat ? 'Да' : 'Нет'} />
           </div>
         </div>
       )}
