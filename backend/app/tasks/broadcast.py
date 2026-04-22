@@ -78,15 +78,10 @@ async def _send_broadcast(schedule_id: int):
         schedule = await conn.fetchrow(
             """
             SELECT bs.*, e.client_id,
-                   COALESCE(bs.snapshot_text,     bt.text)        as tmpl_text,
-                   COALESCE(bs.snapshot_photo,    bt.photo_url)   as tmpl_photo,
-                   COALESCE(bs.snapshot_btn_text, bt.button_text) as tmpl_btn_text,
-                   COALESCE(bs.snapshot_btn_url,  bt.button_url)  as tmpl_btn_url,
                    COALESCE(bs.audience_include, 'all_event') as audience_include,
                    COALESCE(bs.audience_exclude, 'none') as audience_exclude
             FROM broadcast_schedules bs
             JOIN events e ON e.id = bs.event_id
-            LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
             WHERE bs.id = $1
             """,
             schedule_id
@@ -96,6 +91,17 @@ async def _send_broadcast(schedule_id: int):
 
         event_id = schedule["event_id"]
         tpl_type = schedule.get("type", "")
+
+        # Читаем шаблон отдельным свежим запросом — максимально близко к отправке,
+        # чтобы правки шаблона применились даже если очередь уже активирована
+        tmpl = await conn.fetchrow(
+            "SELECT text, photo_url, button_text, button_url FROM broadcast_templates WHERE id=$1",
+            schedule["template_id"]
+        ) if schedule["template_id"] else None
+        tmpl_text_val  = tmpl["text"]         if tmpl else ""
+        tmpl_photo_val = tmpl["photo_url"]    if tmpl else None
+        tmpl_btn_text_val = tmpl["button_text"] if tmpl else None
+        tmpl_btn_url_val  = tmpl["button_url"]  if tmpl else ""
 
         # Токен бота
         bot_token = await conn.fetchval(
@@ -118,10 +124,10 @@ async def _send_broadcast(schedule_id: int):
         content = await build_message_content(
             conn=conn,
             tpl_type=tpl_type,
-            tmpl_text=schedule["tmpl_text"] or "",
-            photo_url=schedule["tmpl_photo"],
-            btn_text=schedule["tmpl_btn_text"],
-            btn_url=schedule["tmpl_btn_url"] or "",
+            tmpl_text=tmpl_text_val or "",
+            photo_url=tmpl_photo_val,
+            btn_text=tmpl_btn_text_val,
+            btn_url=tmpl_btn_url_val or "",
             event_id=event_id,
             session_id=schedule.get("session_id"),
             fire_at=schedule["fire_at"],
