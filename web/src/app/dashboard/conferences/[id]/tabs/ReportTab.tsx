@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, Trash2, ChevronDown, Users, Mic, UserCheck, BarChart2 } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, BarChart2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 
@@ -22,7 +22,9 @@ interface SpeakerRow {
   speaker_event_id: number
   speaker_id: number
   name: string
-  tg_id: string
+  username: string
+  is_commercial: boolean
+  ref_code: string
   entered: number
   registered: number
 }
@@ -41,9 +43,9 @@ interface ReportDetail extends ReportMeta {
   referrals_data: ReferralRow[]
 }
 
-function pct(num: number, den: number) {
+function pct(num: number, den: number): string {
   if (!den) return '—'
-  return `${Math.round((num / den) * 100)}%`
+  return `${(num / den * 100).toFixed(1)}%`
 }
 
 function formatDate(iso: string) {
@@ -54,12 +56,32 @@ function formatDate(iso: string) {
   })
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+function SummaryBlock({
+  label, entered, registered, totalEntered, totalRegistered, highlight
+}: {
+  label: string
+  entered: number
+  registered: number
+  totalEntered: number
+  totalRegistered: number
+  highlight?: boolean
+}) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-4">
-      <div className="text-xs text-gray-400 font-medium mb-1 uppercase tracking-wide">{label}</div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
-      {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
+    <div className={`rounded-xl px-5 py-4 border ${highlight ? 'bg-[#25455D] border-[#25455D] text-white' : 'bg-white border-gray-100 shadow-sm'}`}>
+      <div className={`text-xs font-semibold uppercase tracking-wide mb-2 ${highlight ? 'text-[#FFCFA4]' : 'text-gray-400'}`}>{label}</div>
+      <div className={`text-2xl font-bold mb-1 ${highlight ? 'text-white' : 'text-gray-900'}`}>
+        {entered}<span className={`text-base font-normal mx-1 ${highlight ? 'text-[#FFCFA4]/70' : 'text-gray-300'}`}>/</span>{registered}
+      </div>
+      <div className={`text-xs space-y-0.5 ${highlight ? 'text-white/70' : 'text-gray-400'}`}>
+        <div>Конверсия: <span className="font-medium">{pct(registered, entered)}</span></div>
+        {totalEntered > 0 && (
+          <div>
+            Доля: <span className="font-medium">{pct(entered, totalEntered)}</span>
+            {' / '}
+            <span className="font-medium">{pct(registered, totalRegistered)}</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -100,23 +122,19 @@ export default function ReportTab({ eventId }: { eventId: number }) {
   }
 
   useEffect(() => { loadList() }, [eventId])
-
   useEffect(() => {
     if (selectedId !== null) loadDetail(selectedId)
   }, [selectedId])
 
   async function handleCreate() {
     const count = parseInt(announcements)
-    if (isNaN(count) || count < 0) {
-      alert('Введите корректное число анонсов')
-      return
-    }
+    if (isNaN(count) || count < 0) { alert('Введите корректное число'); return }
     setCreating(true)
     try {
       const res = await api.conference.reports.create(eventId, { announcements: count })
-      const newReport = res.report
-      setReports(prev => [newReport, ...prev])
-      setSelectedId(newReport.id)
+      const r = res.report
+      setReports(prev => [r, ...prev])
+      setSelectedId(r.id)
       setShowCreateModal(false)
       setAnnouncements('')
     } catch (e: any) {
@@ -143,18 +161,95 @@ export default function ReportTab({ eventId }: { eventId: number }) {
     }
   }
 
-  const selected = reports.find(r => r.id === selectedId)
+  // Разделяем спикеров: обычные (sort_order) → коммерческие в конце
+  const regularSpeakers = detail?.speakers_data.filter(s => !s.is_commercial) ?? []
+  const commercialSpeakers = detail?.speakers_data.filter(s => s.is_commercial) ?? []
+
+  const totalEntered = detail?.total_entered ?? 0
+  const totalRegistered = detail?.total_registered ?? 0
+
+  function SpeakerTable({ rows, label, commercial }: { rows: SpeakerRow[], label: string, commercial?: boolean }) {
+    if (rows.length === 0) return null
+    const groupEntered = rows.reduce((s, r) => s + r.entered, 0)
+    const groupRegistered = rows.reduce((s, r) => s + r.registered, 0)
+
+    return (
+      <div>
+        {/* Заголовок группы */}
+        <div className={`flex items-center justify-between px-4 py-2.5 rounded-t-xl font-semibold text-sm ${
+          commercial
+            ? 'bg-blue-100 text-blue-800'
+            : 'bg-gradient-to-r from-[#25455D] to-[#1a3348] text-[#FFCFA4]'
+        }`}>
+          <span>{label}</span>
+          <span className="font-bold tabular-nums">
+            {groupEntered} / {groupRegistered}
+            <span className="ml-3 font-normal opacity-80">{pct(groupRegistered, groupEntered)}</span>
+            <span className="ml-2 text-xs opacity-60">
+              {pct(groupEntered, totalEntered)} / {pct(groupRegistered, totalRegistered)}
+            </span>
+          </span>
+        </div>
+        <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
+                <th className="text-left px-4 py-2.5 font-medium w-8">№</th>
+                <th className="text-left px-4 py-2.5 font-medium">Никнейм / Имя</th>
+                <th className="text-center px-3 py-2.5 font-medium">Зашло / Зарег.</th>
+                <th className="text-center px-3 py-2.5 font-medium hidden sm:table-cell">Конверсия</th>
+                <th className="text-center px-3 py-2.5 font-medium hidden md:table-cell">Доля зашло / зарег.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={row.speaker_event_id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/60 ${commercial ? 'bg-blue-50/30' : ''}`}>
+                  <td className="px-4 py-3 text-gray-400 tabular-nums">{i + 1}</td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
+                      className="font-medium text-[#25455D] hover:underline"
+                    >
+                      {row.username ? `@${row.username}` : row.name || '—'}
+                    </Link>
+                    {row.username && row.name && (
+                      <div className="text-xs text-gray-400">{row.name}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <span className="font-semibold tabular-nums text-gray-800">
+                      {row.entered}
+                    </span>
+                    <span className="text-gray-300 mx-1">/</span>
+                    <span className="font-semibold tabular-nums text-gray-800">
+                      {row.registered}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-center hidden sm:table-cell">
+                    <span className="text-gray-600">{pct(row.registered, row.entered)}</span>
+                  </td>
+                  <td className="px-3 py-3 text-center hidden md:table-cell text-xs text-gray-500">
+                    {pct(row.entered, totalEntered)} / {pct(row.registered, totalRegistered)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      {/* Заголовок и кнопки */}
+      {/* Заголовок */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <BarChart2 size={20} className="text-[#25455D]" />
             Отчёты по участникам
           </h2>
-          <p className="text-sm text-gray-400 mt-0.5">Снимок статистики на выбранную дату</p>
+          <p className="text-sm text-gray-400 mt-0.5">Трафик от каждого спикера на выбранную дату</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
@@ -166,9 +261,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
       </div>
 
       {loadingList ? (
-        <div className="flex items-center justify-center h-32">
-          <Spinner className="text-brand text-2xl" />
-        </div>
+        <div className="flex items-center justify-center h-32"><Spinner className="text-brand text-2xl" /></div>
       ) : reports.length === 0 ? (
         <div className="bg-gray-50 rounded-2xl border border-dashed border-gray-200 p-10 text-center">
           <BarChart2 size={36} className="mx-auto text-gray-300 mb-3" />
@@ -177,9 +270,9 @@ export default function ReportTab({ eventId }: { eventId: number }) {
         </div>
       ) : (
         <>
-          {/* Выпадающий список отчётов */}
+          {/* Выбор отчёта */}
           <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-600 whitespace-nowrap">Отчёт от:</label>
+            <label className="text-sm font-medium text-gray-600 whitespace-nowrap">Дата отчёта:</label>
             <div className="relative flex-1 max-w-xs">
               <select
                 value={selectedId ?? ''}
@@ -206,162 +299,117 @@ export default function ReportTab({ eventId }: { eventId: number }) {
             )}
           </div>
 
-          {/* Содержимое выбранного отчёта */}
           {loadingDetail ? (
-            <div className="flex items-center justify-center h-32">
-              <Spinner className="text-brand text-2xl" />
-            </div>
+            <div className="flex items-center justify-center h-32"><Spinner className="text-brand text-2xl" /></div>
           ) : detail ? (
             <div className="space-y-6">
-              {/* Сводка */}
-              <div>
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Сводка</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                  <StatCard label="Анонсов" value={detail.announcements} />
-                  <StatCard label="Всего зашло" value={detail.total_entered} />
-                  <StatCard
-                    label="Всего зарег."
-                    value={detail.total_registered}
-                    sub={`Конверсия ${pct(detail.total_registered, detail.total_entered)}`}
-                  />
-                  <StatCard label="От спикеров" value={`${detail.speakers_entered} / ${detail.speakers_registered}`}
-                    sub={`Конверсия ${pct(detail.speakers_registered, detail.speakers_entered)}`}
-                  />
-                  <StatCard label="От рефералов" value={`${detail.referrals_entered} / ${detail.referrals_registered}`}
-                    sub={`Конверсия ${pct(detail.referrals_registered, detail.referrals_entered)}`}
-                  />
-                  <StatCard
-                    label="Итого конверсия"
-                    value={pct(detail.total_registered, detail.total_entered)}
-                  />
-                </div>
+
+              {/* Сводка — три блока */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <SummaryBlock
+                  label="Всего"
+                  entered={detail.total_entered}
+                  registered={detail.total_registered}
+                  totalEntered={detail.total_entered}
+                  totalRegistered={detail.total_registered}
+                  highlight
+                />
+                <SummaryBlock
+                  label="От спикеров"
+                  entered={detail.speakers_entered}
+                  registered={detail.speakers_registered}
+                  totalEntered={detail.total_entered}
+                  totalRegistered={detail.total_registered}
+                />
+                <SummaryBlock
+                  label="Рефералы"
+                  entered={detail.referrals_entered}
+                  registered={detail.referrals_registered}
+                  totalEntered={detail.total_entered}
+                  totalRegistered={detail.total_registered}
+                />
               </div>
 
-              {/* Таблица спикеров */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Mic size={16} className="text-[#25455D]" />
-                  <span className="text-sm font-semibold text-gray-700">
-                    Спикеры — {detail.speakers_entered} зашло / {detail.speakers_registered} зарег.
-                  </span>
-                </div>
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-100">
-                        <th className="text-left px-4 py-3 font-medium text-gray-500">№</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-500">Имя</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-500 hidden sm:table-cell">tg_id</th>
-                        <th className="text-center px-4 py-3 font-medium text-gray-500">Зашло</th>
-                        <th className="text-center px-4 py-3 font-medium text-gray-500">Зарег.</th>
-                        <th className="text-center px-4 py-3 font-medium text-gray-500 hidden sm:table-cell">Конверсия</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.speakers_data.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="text-center text-gray-400 py-6 text-sm">Нет данных по спикерам</td>
-                        </tr>
-                      ) : (
-                        detail.speakers_data.map((row, i) => (
-                          <tr key={row.speaker_event_id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                            <td className="px-4 py-3 text-gray-400">{i + 1}</td>
-                            <td className="px-4 py-3 font-medium">
-                              <Link
-                                href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
-                                className="text-[#25455D] hover:underline"
-                              >
-                                {row.name || '—'}
-                              </Link>
-                            </td>
-                            <td className="px-4 py-3 text-gray-400 font-mono text-xs hidden sm:table-cell">
-                              {row.tg_id || '—'}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${row.entered ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
-                                {row.entered ? '✓' : '—'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${row.registered ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                                {row.registered ? '✓' : '—'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-center text-gray-500 text-xs hidden sm:table-cell">
-                              {pct(row.registered, row.entered)}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+              {/* Шапка таблицы — пояснение колонок */}
+              <div className="text-xs text-gray-400 text-right pr-1">
+                Зашло в бот / Зарегистрировалось
               </div>
 
-              {/* Таблица рефералов */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Users size={16} className="text-[#25455D]" />
-                  <span className="text-sm font-semibold text-gray-700">
-                    Рефералы (не спикеры) — {detail.referrals_entered} зашло / {detail.referrals_registered} зарег.
-                  </span>
-                </div>
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-100">
-                        <th className="text-left px-4 py-3 font-medium text-gray-500">№</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-500">Имя</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-500 hidden sm:table-cell">@username</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-500 hidden md:table-cell">tg_id</th>
-                        <th className="text-center px-4 py-3 font-medium text-gray-500">Зарег.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.referrals_data.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="text-center text-gray-400 py-6 text-sm">Нет рефералов</td>
+              {/* Обычные спикеры */}
+              <SpeakerTable rows={regularSpeakers} label="СПИКЕРЫ" />
+
+              {/* Коммерческие спикеры */}
+              <SpeakerTable rows={commercialSpeakers} label="КОММЕРЧЕСКИЕ СПИКЕРЫ" commercial />
+
+              {/* Рефералы */}
+              {detail.referrals_data.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between px-4 py-2.5 rounded-t-xl font-semibold text-sm bg-amber-50 text-amber-800 border border-amber-100">
+                    <span>РЕФЕРАЛЫ</span>
+                    <span className="font-bold tabular-nums">
+                      {detail.referrals_entered} / {detail.referrals_registered}
+                      <span className="ml-3 font-normal opacity-80">{pct(detail.referrals_registered, detail.referrals_entered)}</span>
+                      <span className="ml-2 text-xs opacity-60">
+                        {pct(detail.referrals_entered, detail.total_entered)} / {pct(detail.referrals_registered, detail.total_registered)}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
+                          <th className="text-left px-4 py-2.5 font-medium w-8">№</th>
+                          <th className="text-left px-4 py-2.5 font-medium">Никнейм / Имя</th>
+                          <th className="text-center px-3 py-2.5 font-medium">Зашло / Зарег.</th>
+                          <th className="text-center px-3 py-2.5 font-medium hidden sm:table-cell">Конверсия</th>
+                          <th className="text-center px-3 py-2.5 font-medium hidden md:table-cell">Доля зашло / зарег.</th>
                         </tr>
-                      ) : (
-                        detail.referrals_data.map((row, i) => (
-                          <tr key={row.participant_id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                            <td className="px-4 py-3 text-gray-400">{i + 1}</td>
-                            <td className="px-4 py-3 font-medium text-gray-800">{row.name || '—'}</td>
-                            <td className="px-4 py-3 text-gray-400 hidden sm:table-cell">
-                              {row.username ? `@${row.username}` : '—'}
-                            </td>
-                            <td className="px-4 py-3 text-gray-400 font-mono text-xs hidden md:table-cell">
-                              {row.tg_id || '—'}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${row.registered ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                                {row.registered ? '✓' : '—'}
+                      </thead>
+                      <tbody>
+                        {detail.referrals_data.map((row, i) => (
+                          <tr key={row.participant_id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                            <td className="px-4 py-3 text-gray-400 tabular-nums">{i + 1}</td>
+                            <td className="px-4 py-3">
+                              <span className="font-medium text-gray-800">
+                                {row.username ? `@${row.username}` : row.name || '—'}
                               </span>
+                              {row.username && row.name && (
+                                <div className="text-xs text-gray-400">{row.name}</div>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              <span className="font-semibold tabular-nums text-gray-800">{row.entered}</span>
+                              <span className="text-gray-300 mx-1">/</span>
+                              <span className="font-semibold tabular-nums text-gray-800">{row.registered}</span>
+                            </td>
+                            <td className="px-3 py-3 text-center hidden sm:table-cell">
+                              <span className="text-gray-600">{pct(row.registered, row.entered)}</span>
+                            </td>
+                            <td className="px-3 py-3 text-center hidden md:table-cell text-xs text-gray-500">
+                              {pct(row.entered, totalEntered)} / {pct(row.registered, totalRegistered)}
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ) : null}
         </>
       )}
 
-      {/* Модалка: создать отчёт */}
+      {/* Модалка создания */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowCreateModal(false)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <h3 className="font-bold text-gray-900 mb-1">Создать отчёт</h3>
             <p className="text-sm text-gray-500 mb-5">
-              Система подсчитает участников в базе прямо сейчас. Укажите, сколько анонсов уже сделано — это для статистики.
+              Система подсчитает трафик от каждого спикера прямо сейчас. Укажите, сколько анонсов уже сделано.
             </p>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Кол-во сделанных анонсов
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Кол-во сделанных анонсов</label>
             <input
               type="number"
               min="0"

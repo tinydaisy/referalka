@@ -2303,7 +2303,7 @@ async def add_raffle_ticket_public(
 # ─── Отчёты конференции ────────────────────────────────────────────────────────
 
 class ReportCreate(BaseModel):
-    announcements: int = 0  # кол-во анонсов, введённых вручную
+    announcements: int = 0
 
 
 @router.post("/reports", summary="Создать отчёт (снимок статистики)")
@@ -2315,72 +2315,73 @@ async def create_report(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
 
-    # Спикеры конференции: через conf_speaker_events + collaborators.personal_tg_id
+    # Спикеры: для каждого считаем трафик по referrer_ref_code = cse.ref_code
     speakers_rows = await db.fetch(
-        """SELECT cse.id AS speaker_event_id, cse.speaker_id,
-                  col.name, col.personal_tg_id AS tg_id,
-                  ep.is_registered, ep.is_in_chat,
-                  pu.platform_user_id AS pu_tg_id
+        """SELECT cse.id AS speaker_event_id, cse.speaker_id, cse.ref_code,
+                  cse.is_commercial, cse.sort_order,
+                  col.name, col.personal_tg_username AS username,
+                  COUNT(ep.id) FILTER (WHERE ep.id IS NOT NULL) AS entered,
+                  COUNT(ep.id) FILTER (WHERE ep.is_registered = TRUE) AS registered
            FROM conf_speaker_events cse
            JOIN collaborators col ON col.id = cse.speaker_id
-           LEFT JOIN platform_users pu ON pu.platform_user_id = col.personal_tg_id
-               AND pu.client_id = (SELECT client_id FROM events WHERE id = $1)
-               AND pu.platform = 'telegram'
-           LEFT JOIN event_participants ep ON ep.platform_user_id = pu.id
-               AND ep.event_id = $1
+           LEFT JOIN event_participants ep ON ep.event_id = $1
+               AND ep.referrer_ref_code = cse.ref_code
            WHERE cse.event_id = $1
+           GROUP BY cse.id, cse.speaker_id, cse.ref_code, cse.is_commercial,
+                    cse.sort_order, col.name, col.personal_tg_username
            ORDER BY cse.sort_order, cse.id""",
         event_id
     )
 
-    # Собираем tg_id спикеров для исключения из рефералов
-    speaker_tg_ids = set()
+    # Реф. коды спикеров — чтобы выявить рефералов (пришли не через спикера)
+    speaker_ref_codes = {row["ref_code"] for row in speakers_rows if row["ref_code"]}
+
     speakers_data = []
     for row in speakers_rows:
-        tg_id = row["tg_id"] or ""
-        if tg_id:
-            speaker_tg_ids.add(str(tg_id))
-        entered = 1 if (row["pu_tg_id"] is not None) else 0
-        registered = 1 if row["is_registered"] else 0
         speakers_data.append({
             "speaker_event_id": row["speaker_event_id"],
             "speaker_id": row["speaker_id"],
             "name": row["name"] or "",
-            "tg_id": tg_id,
-            "entered": entered,
-            "registered": registered,
+            "username": row["username"] or "",
+            "is_commercial": row["is_commercial"] or False,
+            "ref_code": row["ref_code"] or "",
+            "entered": int(row["entered"]),
+            "registered": int(row["registered"]),
         })
 
-    # Рефералы = все участники события, чей tg_id НЕ в списке спикеров
+    # Рефералы = участники события, чей referrer_ref_code НЕ принадлежит ни одному спикеру
+    # (либо referrer_ref_code IS NULL — пришли напрямую)
     referrals_rows = await db.fetch(
-        """SELECT ep.id, ep.is_registered, ep.is_in_chat,
+        """SELECT ep.id, ep.is_registered, ep.referrer_ref_code,
                   pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username
            FROM event_participants ep
            JOIN platform_users pu ON pu.id = ep.platform_user_id
            WHERE ep.event_id = $1
              AND pu.platform = 'telegram'
+             AND (ep.referrer_ref_code IS NULL
+                  OR ep.referrer_ref_code NOT IN (
+                      SELECT ref_code FROM conf_speaker_events
+                      WHERE event_id = $1 AND ref_code IS NOT NULL
+                  ))
            ORDER BY ep.id""",
         event_id
     )
 
     referrals_data = []
     for row in referrals_rows:
-        tg_id = str(row["tg_id"] or "")
-        if tg_id in speaker_tg_ids:
-            continue  # это спикер, не рефeral
         name_parts = [row["first_name"] or "", row["last_name"] or ""]
-        name = " ".join(p for p in name_parts if p).strip() or row["username"] or tg_id
+        name = " ".join(p for p in name_parts if p).strip() or row["username"] or str(row["tg_id"] or "")
         referrals_data.append({
             "participant_id": row["id"],
             "name": name,
             "username": row["username"] or "",
-            "tg_id": tg_id,
+            "tg_id": str(row["tg_id"] or ""),
             "entered": 1,
             "registered": 1 if row["is_registered"] else 0,
         })
 
     # Сводные цифры
-    speakers_entered = sum(1 for s in speakers_data if s["entered"])
+    speakers_entered = sum(s["entered"] for s in speakers_data)
     speakers_registered = sum(s["registered"] for s in speakers_data)
     referrals_entered = len(referrals_data)
     referrals_registered = sum(r["registered"] for r in referrals_data)
