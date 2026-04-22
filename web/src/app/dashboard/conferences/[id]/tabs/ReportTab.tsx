@@ -341,6 +341,8 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                                 {row.username ? `@${row.username}` : row.name || '—'}
                               </Link>
                               {row.username && row.name && <div className="text-xs text-gray-400">{row.name}</div>}
+                              {row.role === 'headliner' && <span className="text-xs text-purple-500 font-medium">хедлайнер</span>}
+                              {row.role === 'partner' && <span className="text-xs text-teal-500 font-medium">партнёр</span>}
                               {row.is_commercial && <span className="text-xs text-blue-500 font-medium">коммерческий</span>}
                             </td>
                             <td className="px-3 py-3 text-center">
