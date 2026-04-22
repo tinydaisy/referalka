@@ -238,12 +238,14 @@ export default function ReportTab({ eventId }: { eventId: number }) {
     } finally { setDeletingId(null) }
   }
 
+  const byEntered = (a: { entered: number }, b: { entered: number }) => b.entered - a.entered
+
   // Разбивка спикеров по группам
-  const organizers   = detail?.speakers_data.filter(s => s.role === 'organizer') ?? []
-  const regularSpk   = detail?.speakers_data.filter(s => s.role !== 'organizer' && !s.is_commercial) ?? []
-  const commercialSpk = detail?.speakers_data.filter(s => s.role !== 'organizer' && s.is_commercial) ?? []
+  const organizers   = (detail?.speakers_data.filter(s => s.role === 'organizer') ?? []).sort(byEntered)
+  const regularSpk   = (detail?.speakers_data.filter(s => s.role !== 'organizer' && !s.is_commercial) ?? []).sort(byEntered)
+  const commercialSpk = (detail?.speakers_data.filter(s => s.role !== 'organizer' && s.is_commercial) ?? []).sort(byEntered)
   const baseData     = detail?.base_data ?? []
-  const referrals    = detail?.referrals_data ?? []
+  const referrals    = (detail?.referrals_data ?? []).sort(byEntered)
 
   const T = detail?.total_entered ?? 0
   const TR = detail?.total_registered ?? 0
@@ -324,7 +326,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
 
               {/* СПИКЕРЫ — все вместе по sort_order, коммерческие подсвечены */}
               {(regularSpk.length > 0 || commercialSpk.length > 0) && (() => {
-                const allSpk = detail.speakers_data.filter(s => s.role !== 'organizer')
+                const allSpk = detail.speakers_data.filter(s => s.role !== 'organizer').sort(byEntered)
                 const allEntered = allSpk.reduce((s, r) => s + r.entered, 0)
                 const allReg = allSpk.reduce((s, r) => s + r.registered, 0)
                 return (
