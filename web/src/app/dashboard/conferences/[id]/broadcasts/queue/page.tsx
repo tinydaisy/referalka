@@ -65,6 +65,12 @@ function formatTimeLeft(sec: number): string {
   return `${sec} сек`
 }
 
+function formatDuration(sec: number): string {
+  if (sec >= 3600) return `${Math.floor(sec / 3600)}ч ${Math.floor((sec % 3600) / 60)}мин`
+  if (sec >= 60) return `${Math.floor(sec / 60)}мин ${sec % 60}сек`
+  return `${sec}сек`
+}
+
 export default function QueuePage() {
   const { id } = useParams()
   const eventId = Number(id)
@@ -580,20 +586,17 @@ export default function QueuePage() {
                           <div className="text-xs text-gray-400 leading-tight">дошло</div>
                         </div>
                         {s.recipients_failed > 0 && (
-                          <div className="text-center">
-                            <div className="flex items-center gap-0.5">
-                              <span className="text-sm font-semibold text-red-500">{s.recipients_failed}</span>
-                              <span
-                                className="text-gray-400 cursor-help text-xs leading-none"
-                                title="Заблокировали бота или ошибка доставки. Подробности — в списке получателей."
-                              >?</span>
+                          <div className="relative group flex items-center gap-1 cursor-help">
+                            <span className="text-red-500 font-bold text-sm leading-none">✕</span>
+                            <span className="text-sm font-semibold text-red-500">{s.recipients_failed}</span>
+                            <div className="absolute bottom-full right-0 mb-1.5 w-60 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-50 shadow-xl pointer-events-none leading-snug">
+                              Не доставлено: человек заблокировал бота или произошла ошибка. Подробности — нажмите «список».
                             </div>
-                            <div className="text-xs text-gray-400 leading-tight">не дошло</div>
                           </div>
                         )}
                       </div>
                       {s.duration_seconds != null && (
-                        <div className="text-xs text-gray-400 mt-0.5 text-right">{s.duration_seconds} сек</div>
+                        <div className="text-xs text-gray-400 mt-0.5 text-right">{formatDuration(s.duration_seconds)}</div>
                       )}
                       <button
                         onClick={() => openLog(s)}
