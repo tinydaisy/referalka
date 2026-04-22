@@ -172,6 +172,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/schedules/add-manual`, {
           method: 'POST', body: JSON.stringify(data),
         }),
+      forceReset: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/force-reset`, { method: 'POST' }),
       copy: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/copy`, { method: 'POST' }),
       log: (eventId: number, id: number) =>

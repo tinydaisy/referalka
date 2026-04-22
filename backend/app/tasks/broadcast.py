@@ -47,6 +47,21 @@ def check_and_send_broadcasts():
 async def _check_and_send():
     conn = await _get_conn()
     try:
+        # Watchdog: сбрасываем задачи зависшие в running > 30 минут обратно в pending
+        stale = await conn.fetch(
+            """
+            SELECT id FROM broadcast_schedules
+            WHERE status = 'running'
+            AND started_at < NOW() - INTERVAL '30 minutes'
+            """
+        )
+        for s in stale:
+            logger.warning(f"Watchdog: рассылка {s['id']} зависла в running > 30 мин, сбрасываем в pending")
+            await conn.execute(
+                "UPDATE broadcast_schedules SET status='pending', started_at=NULL WHERE id=$1",
+                s["id"]
+            )
+
         schedules = await conn.fetch(
             """
             SELECT id FROM broadcast_schedules

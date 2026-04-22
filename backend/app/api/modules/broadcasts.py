@@ -445,6 +445,13 @@ async def list_schedules(
             d["seconds_until"] = max(0, int(diff))
         else:
             d["seconds_until"] = None
+        if r["status"] == "running" and r.get("started_at"):
+            started = r["started_at"]
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=ZoneInfo("UTC"))
+            d["seconds_running"] = max(0, int((now_utc - started).total_seconds()))
+        else:
+            d["seconds_running"] = None
         result.append(d)
 
     # Следующая ожидающая рассылка (pending или draft с временем)
@@ -903,6 +910,30 @@ async def run_selected_schedules(
         ids, event_id
     )
     return {"ok": True, "queued": count}
+
+
+@router.post("/schedules/{schedule_id}/force-reset", summary="Аварийный сброс зависшей рассылки в pending")
+async def force_reset_schedule(
+    event_id: int,
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+    row = await db.fetchrow(
+        "SELECT status, started_at FROM broadcast_schedules WHERE id=$1 AND event_id=$2",
+        schedule_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    if row["status"] != "running":
+        raise HTTPException(status_code=400, detail=f"Рассылка не в статусе running (сейчас: {row['status']})")
+    await db.execute(
+        "UPDATE broadcast_schedules SET status='pending', started_at=NULL WHERE id=$1",
+        schedule_id
+    )
+    return {"ok": True, "message": "Рассылка сброшена в pending — Celery подхватит её на следующей минуте"}
 
 
 @router.post("/schedules/{schedule_id}/cancel", summary="Отменить рассылку")

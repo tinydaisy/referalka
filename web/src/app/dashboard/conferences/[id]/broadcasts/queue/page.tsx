@@ -571,10 +571,22 @@ export default function QueuePage() {
                       {s.seconds_until != null && s.status === 'pending' && s.fire_at_local && (
                         <span className="text-amber-600">через {formatTimeLeft(s.seconds_until)}</span>
                       )}
+                      {s.status === 'running' && s.seconds_running != null && (
+                        <span className={s.seconds_running > 600 ? 'text-red-500 font-medium' : 'text-blue-500'}>
+                          отправляется {formatTimeLeft(s.seconds_running)}
+                        </span>
+                      )}
                       {s.error_log && (
                         <span className="text-red-500 truncate max-w-[200px]" title={s.error_log}>⚠ {s.error_log}</span>
                       )}
                     </div>
+                    {/* Предупреждение если running слишком долго */}
+                    {s.status === 'running' && s.seconds_running != null && s.seconds_running > 600 && (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+                        <AlertCircle size={12} className="shrink-0" />
+                        <span>Задача висит больше {Math.floor(s.seconds_running / 60)} мин — возможно воркер упал. Нажмите «Перезапустить».</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Количество получателей (только done) */}
@@ -647,6 +659,21 @@ export default function QueuePage() {
                         className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50"
                         title="Отменить">
                         <XCircle size={13} />
+                      </button>
+                    )}
+                    {/* Перезапустить (только running) */}
+                    {s.status === 'running' && (
+                      <button onClick={async () => {
+                        if (!confirm('Перезапустить рассылку? Задача сбросится в «Ожидает» и Celery запустит её снова на следующей минуте.')) return
+                        try {
+                          await api.conference.schedules.forceReset(eventId, s.id)
+                          await load()
+                          showMsg('Задача сброшена — Celery подхватит её через ~минуту')
+                        } catch (e: any) { showMsg(e.message, 'err') }
+                      }}
+                        className="px-2 py-1 border border-orange-300 rounded-lg text-xs text-orange-700 font-medium hover:bg-orange-50"
+                        title="Аварийный перезапуск задачи">
+                        Перезапустить
                       </button>
                     )}
                   </div>
