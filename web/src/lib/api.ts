@@ -183,8 +183,8 @@ export const api = {
     },
   },
   contacts: {
-    list: (search: string, limit: number, offset: number) =>
-      request(`/api/v1/contacts?search=${encodeURIComponent(search)}&limit=${limit}&offset=${offset}`),
+    list: (search: string, limit: number, offset: number, showUnsubscribed = false) =>
+      request(`/api/v1/contacts?search=${encodeURIComponent(search)}&limit=${limit}&offset=${offset}&show_unsubscribed=${showUnsubscribed}`),
     get: (id: number) => request(`/api/v1/contacts/${id}`),
   },
   admin: {

@@ -21,6 +21,7 @@ async def get_contacts(
     search: str = Query(default="", alias="search"),
     limit: int = Query(default=50),
     offset: int = Query(default=0),
+    show_unsubscribed: bool = Query(default=False),
     client=Depends(get_current_client),
     db=Depends(get_db)
 ):
@@ -28,6 +29,9 @@ async def get_contacts(
 
     where = "WHERE pu.client_id = $1"
     params = [client_id]
+
+    if not show_unsubscribed:
+        where += " AND (pu.is_unsubscribed = FALSE OR pu.is_unsubscribed IS NULL)"
 
     if search:
         params.append(f"%{search}%")

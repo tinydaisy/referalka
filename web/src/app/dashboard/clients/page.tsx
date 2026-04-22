@@ -50,6 +50,7 @@ function Avatar({ contact }: { contact: Contact }) {
 
 export default function ContactsPage() {
   const [search, setSearch] = useState('')
+  const [showUnsubscribed, setShowUnsubscribed] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [total, setTotal] = useState(0)
   const [subscribed, setSubscribed] = useState(0)
@@ -60,10 +61,10 @@ export default function ContactsPage() {
   const [offset, setOffset] = useState(0)
   const LIMIT = 50
 
-  const fetchContacts = useCallback(async (q: string, off: number) => {
+  const fetchContacts = useCallback(async (q: string, off: number, unsub: boolean) => {
     setLoading(true)
     try {
-      const data = await api.contacts.list(q, LIMIT, off)
+      const data = await api.contacts.list(q, LIMIT, off, unsub)
       setContacts(data.items || [])
       setTotal(data.total || 0)
       setSubscribed(data.subscribed || 0)
@@ -78,13 +79,13 @@ export default function ContactsPage() {
   useEffect(() => {
     const t = setTimeout(() => {
       setOffset(0)
-      fetchContacts(search, 0)
+      fetchContacts(search, 0, showUnsubscribed)
     }, 300)
     return () => clearTimeout(t)
-  }, [search, fetchContacts])
+  }, [search, showUnsubscribed, fetchContacts])
 
   useEffect(() => {
-    fetchContacts(search, offset)
+    fetchContacts(search, offset, showUnsubscribed)
   }, [offset])
 
   const selectContact = async (id: number) => {
@@ -114,12 +115,21 @@ export default function ContactsPage() {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <div className="mt-2 px-1 flex flex-col gap-0.5">
-            <p className="text-xs text-gray-500 font-medium">{total.toLocaleString('ru')} контактов</p>
-            <div className="flex gap-3 text-xs text-gray-400">
-              <span className="text-green-600">✓ {subscribed.toLocaleString('ru')} подписаны</span>
-              <span className="text-gray-400">✗ {unsubscribed.toLocaleString('ru')} отписались</span>
+          <div className="mt-2 px-1 flex items-center justify-between">
+            <div className="flex flex-col gap-0.5">
+              <p className="text-xs text-gray-500 font-medium">{total.toLocaleString('ru')} контактов</p>
+              <div className="flex gap-3 text-xs">
+                <span className="text-green-600">✓ {subscribed.toLocaleString('ru')} подписаны</span>
+                <span className="text-gray-400">✗ {unsubscribed.toLocaleString('ru')} отписались</span>
+              </div>
             </div>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
+              <div className={`w-8 h-4 rounded-full transition-colors relative ${showUnsubscribed ? 'bg-red-400' : 'bg-gray-200'}`}
+                onClick={() => { setShowUnsubscribed(v => !v); setOffset(0) }}>
+                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${showUnsubscribed ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </div>
+              <span className="text-xs text-gray-500">Отписавшиеся</span>
+            </label>
           </div>
         </div>
 
