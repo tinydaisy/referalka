@@ -192,7 +192,9 @@ async def _send_broadcast(schedule_id: int):
             results = await asyncio.gather(*[send_one(tid, http_client) for tid in final_ids])
 
         # Пишем лог одной пачкой после отправки
+        BLOCKED_ERRORS = ("bot was blocked by the user", "user is deactivated", "chat not found", "have no rights to send a message")
         for tg_id, (success, tg_error) in results:
+            is_blocked = not success and tg_error and any(e in tg_error.lower() for e in BLOCKED_ERRORS)
             await conn.execute(
                 """
                 INSERT INTO broadcast_log (schedule_id, platform_user_id, status, error, sent_at)
@@ -206,6 +208,14 @@ async def _send_broadcast(schedule_id: int):
                 tg_id,
                 schedule["client_id"]
             )
+            if is_blocked:
+                await conn.execute(
+                    """
+                    UPDATE platform_users SET is_unsubscribed = TRUE
+                    WHERE platform_user_id = $1 AND client_id = $2 AND is_unsubscribed = FALSE
+                    """,
+                    tg_id, schedule["client_id"]
+                )
             if success:
                 sent += 1
 
