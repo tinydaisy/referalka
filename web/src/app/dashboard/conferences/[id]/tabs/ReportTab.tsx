@@ -78,7 +78,7 @@ function CollapsibleGroup({
     dark:  'bg-gradient-to-r from-[#25455D] to-[#1a3348] text-[#FFCFA4]',
     blue:  'bg-blue-100 text-blue-800',
     amber: 'bg-amber-50 text-amber-800 border border-amber-100',
-    gray:  'bg-gray-100 text-gray-600',
+    gray:  'bg-green-100 text-green-800',
     red:   'bg-red-50 text-red-700 border border-red-100',
   }[color]
   const chevronCls = color === 'dark' ? 'text-[#FFCFA4]/70' : 'text-current opacity-40'
