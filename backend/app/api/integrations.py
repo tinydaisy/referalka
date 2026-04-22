@@ -27,7 +27,7 @@ async def get_unique_ref_code(db: asyncpg.Connection) -> str:
         code = generate_ref_code()
         exists = await db.fetchval(
             "SELECT 1 FROM platform_users WHERE ref_code = $1 UNION SELECT 1 FROM event_participants WHERE ref_code = $1",
-            code, code
+            code
         )
         if not exists:
             return code
