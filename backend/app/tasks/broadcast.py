@@ -163,6 +163,21 @@ async def _send_broadcast(schedule_id: int):
             test_ids = {str(t) for t in (tids or [])}
             final_ids = final_ids & test_ids
 
+        # Идемпотентность: исключаем тех кому уже успешно отправили
+        # (защита от дублей при повторном запуске после сбоя)
+        already_sent = await conn.fetch(
+            """
+            SELECT pu.platform_user_id FROM broadcast_log bl
+            JOIN platform_users pu ON pu.id = bl.platform_user_id
+            WHERE bl.schedule_id = $1 AND bl.status = 'sent'
+            """,
+            schedule_id
+        )
+        already_sent_ids = {r["platform_user_id"] for r in already_sent}
+        if already_sent_ids:
+            logger.info(f"Рассылка {schedule_id}: пропускаем {len(already_sent_ids)} уже получивших")
+        final_ids = final_ids - already_sent_ids
+
         # Отправляем параллельно (лимит 30 одновременных запросов к Telegram)
         sent = 0
         sem = asyncio.Semaphore(30)
