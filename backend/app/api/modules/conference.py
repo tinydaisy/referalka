@@ -768,7 +768,8 @@ async def list_sessions(
         """SELECT s.*, col.name as speaker_name, col.title as speaker_title,
                   col.photo_url, col.personal_tg_username,
                   cse.role as speaker_role, cse.is_commercial,
-                  cse.gift_after_speech_title, cse.gift_after_speech_url
+                  cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.exclude_gift_from_broadcast
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id

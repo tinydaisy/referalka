@@ -300,18 +300,27 @@ export default function QueuePage() {
   // Удаление выбранных
   async function deleteSelected() {
     const selected = schedules.filter(s => selectedIds.has(s.id))
-    const hasActive = selected.some(s => s.status === 'pending' || s.status === 'running')
+    const activeOnes = selected.filter(s => s.status === 'pending' || s.status === 'running')
+    const hasActive = activeOnes.length > 0
+
+    let confirmMsg = `Удалить ${selected.length} рассылок? Это действие нельзя отменить.`
     if (hasActive) {
-      alert('Среди выбранных есть активные рассылки. Сначала остановите их или дождитесь завершения.')
-      return
+      const activeLabels = activeOnes.map(s => `#${schedules.indexOf(s)+1} "${TYPE_LABELS[s.template_type] || s.type}" (${STATUS_LABEL[s.status]})`).join(', ')
+      confirmMsg = `Среди выбранных есть ${activeOnes.length} запущенных рассылок:\n${activeLabels}\n\nОни будут отменены и удалены. Продолжить?`
     }
-    if (!confirm(`Удалить ${selected.length} рассылок? Это действие нельзя отменить.`)) return
+    if (!confirm(confirmMsg)) return
+
     setDeleting(true)
+    // Сначала отменяем активные
+    for (const s of activeOnes) {
+      try {
+        await api.conference.schedules.cancel(eventId, s.id)
+      } catch {}
+    }
     let deletedCount = 0
     for (const s of selected) {
       try {
         await api.conference.schedules.delete(eventId, s.id)
-        // Убираем строку из UI сразу после успешного удаления
         setSchedules(prev => prev.filter(x => x.id !== s.id))
         setSelectedIds(prev => { const n = new Set(prev); n.delete(s.id); return n })
         deletedCount++
