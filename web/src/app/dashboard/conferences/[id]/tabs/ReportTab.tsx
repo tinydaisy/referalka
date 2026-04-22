@@ -249,14 +249,14 @@ export default function ReportTab({ eventId }: { eventId: number }) {
   const TR = detail?.total_registered ?? 0
 
   // Группа "Организатор" = организаторы + из базы
-  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.length
+  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0)
   const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0)
 
   const spkEntered     = regularSpk.reduce((s, r) => s + r.entered, 0)
   const spkRegistered  = regularSpk.reduce((s, r) => s + r.registered, 0)
   const comEntered     = commercialSpk.reduce((s, r) => s + r.entered, 0)
   const comRegistered  = commercialSpk.reduce((s, r) => s + r.registered, 0)
-  const refEntered     = referrals.length
+  const refEntered     = referrals.reduce((s, r) => s + r.entered, 0)
   const refRegistered  = referrals.reduce((s, r) => s + r.registered, 0)
 
   return (
@@ -313,10 +313,11 @@ export default function ReportTab({ eventId }: { eventId: number }) {
           ) : detail ? (
             <div className="space-y-6">
               {/* Сводка */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <SummaryCard label="Всего" entered={T} registered={TR} totalEntered={T} totalRegistered={TR} dark />
                 <SummaryCard label="Спикеры" entered={spkEntered + comEntered} registered={spkRegistered + comRegistered} totalEntered={T} totalRegistered={TR} />
-                <SummaryCard label="Рефералы" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} />
+                <SummaryCard label="Организатор" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} />
+                <SummaryCard label="Рефоводы" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} />
               </div>
 
               <div className="text-xs text-gray-400 text-right">Зашло в бот / Зарегистрировалось</div>
