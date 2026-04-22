@@ -249,6 +249,9 @@ function generateReportText(detail: ReportDetail, reportDate: string, announceme
     '',
     ...allSpk.map((s, i) => `${i + 1}. ${s.name || s.username || '—'} — ${s.entered} / ${s.registered}`),
     '',
+    '',
+    allSpk.filter(s => s.username).map(s => `@${s.username}`).join(' '),
+    '',
     '#отчет_события',
   ]
 
