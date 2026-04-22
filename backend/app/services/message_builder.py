@@ -224,6 +224,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
                 JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cs.event_id=$1 AND cs.day=$2
+                  AND cse.exclude_gift_from_broadcast = FALSE
                 ORDER BY cse.priority, cs.sort_order
                 """,
                 event_id, day
