@@ -391,7 +391,7 @@ export default function TemplatesPage() {
       return 8
     }
     const speakerGiftBlocks = [...daySessions]
-      .filter((s: any) => s.speaker_name)
+      .filter((s: any) => s.speaker_name && !s.exclude_gift_from_broadcast)
       .sort((a: any, b: any) => roleOrder(a) - roleOrder(b))
       .map((s: any) => {
         const title = (s.gift_after_speech_title || '').trim()

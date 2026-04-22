@@ -64,6 +64,7 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
              AND cse.bot_in_channel = TRUE
+             AND cse.exclude_channel_from_subscription = FALSE
              AND sp.tg_channel_id IS NOT NULL
              AND sp.tg_channel_id <> ''""",
         event["id"],
