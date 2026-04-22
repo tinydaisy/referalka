@@ -2378,19 +2378,23 @@ async def create_report(
 
     # Рефералы = участники, пришедшие по реф-коду другого участника (не спикера, не ошибка)
     referrals_rows = await db.fetch(
-        """SELECT ep.id, ep.is_registered, ep.referrer_ref_code,
-                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username
+        """SELECT ep.id, pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username,
+                  COUNT(ep2.id) AS entered,
+                  COUNT(ep2.id) FILTER (WHERE ep2.is_registered = TRUE) AS registered
            FROM event_participants ep
            JOIN platform_users pu ON pu.id = ep.platform_user_id
+           JOIN event_participants ep2 ON ep2.referrer_ref_code = ep.ref_code
+               AND ep2.event_id = $1
            WHERE ep.event_id = $1
              AND pu.platform = 'telegram'
-             AND ep.referrer_ref_code IS NOT NULL
-             AND ep.referrer_ref_code != 'new_partner_id'
-             AND ep.referrer_ref_code NOT IN (
+             AND ep.ref_code IS NOT NULL
+             AND ep.ref_code != 'new_partner_id'
+             AND ep.ref_code NOT IN (
                  SELECT ref_code FROM conf_speaker_events
                  WHERE event_id = $1 AND ref_code IS NOT NULL
              )
-           ORDER BY ep.id""",
+           GROUP BY ep.id, pu.platform_user_id, pu.first_name, pu.last_name, pu.username
+           ORDER BY entered DESC""",
         event_id
     )
 
@@ -2403,8 +2407,8 @@ async def create_report(
             "name": name,
             "username": row["username"] or "",
             "tg_id": str(row["tg_id"] or ""),
-            "entered": 1,
-            "registered": 1 if row["is_registered"] else 0,
+            "entered": int(row["entered"]),
+            "registered": int(row["registered"]),
         })
 
     # Из базы = участники без реф-кода вообще (пришли напрямую)
