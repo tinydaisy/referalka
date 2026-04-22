@@ -2376,14 +2376,14 @@ async def create_report(
             "registered": 1 if row["is_registered"] else 0,
         })
 
-    # Рефоводы = группируем по referrer_ref_code, ищем владельца кода в platform_users
+    # Рефоводы = те кто привёл других И сами являются участниками события
     referrals_rows = await db.fetch(
         """SELECT ep2.referrer_ref_code,
                   COUNT(ep2.id) AS entered,
                   COUNT(ep2.id) FILTER (WHERE ep2.is_registered = TRUE) AS registered,
                   pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, pu.id AS pu_id
            FROM event_participants ep2
-           LEFT JOIN platform_users pu ON pu.ref_code = ep2.referrer_ref_code AND pu.client_id = (
+           JOIN platform_users pu ON pu.ref_code = ep2.referrer_ref_code AND pu.client_id = (
                SELECT client_id FROM events WHERE id = $1
            )
            WHERE ep2.event_id = $1
@@ -2392,6 +2392,10 @@ async def create_report(
              AND ep2.referrer_ref_code NOT IN (
                  SELECT ref_code FROM conf_speaker_events
                  WHERE event_id = $1 AND ref_code IS NOT NULL
+             )
+             AND EXISTS (
+                 SELECT 1 FROM event_participants ep_check
+                 WHERE ep_check.platform_user_id = pu.id AND ep_check.event_id = $1
              )
            GROUP BY ep2.referrer_ref_code, pu.platform_user_id, pu.first_name, pu.last_name, pu.username, pu.id
            ORDER BY entered DESC""",
@@ -2411,7 +2415,7 @@ async def create_report(
             "registered": int(row["registered"]),
         })
 
-    # Из базы = участники без реф-кода вообще (пришли напрямую)
+    # Из базы: 1) участники без реф-кода, 2) рефоводы не являющиеся участниками события
     base_rows = await db.fetch(
         """SELECT ep.id, ep.is_registered,
                   pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username
@@ -2421,6 +2425,32 @@ async def create_report(
              AND pu.platform = 'telegram'
              AND (ep.referrer_ref_code IS NULL OR ep.referrer_ref_code = '')
            ORDER BY ep.id""",
+        event_id
+    )
+
+    # Рефоводы не являющиеся участниками — тоже идут в базу
+    base_referrers_rows = await db.fetch(
+        """SELECT ep2.referrer_ref_code,
+                  COUNT(ep2.id) AS entered,
+                  COUNT(ep2.id) FILTER (WHERE ep2.is_registered = TRUE) AS registered,
+                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, pu.id AS pu_id
+           FROM event_participants ep2
+           JOIN platform_users pu ON pu.ref_code = ep2.referrer_ref_code AND pu.client_id = (
+               SELECT client_id FROM events WHERE id = $1
+           )
+           WHERE ep2.event_id = $1
+             AND ep2.referrer_ref_code IS NOT NULL
+             AND ep2.referrer_ref_code NOT IN ('new_partner_id', 'wrong_client_id', '')
+             AND ep2.referrer_ref_code NOT IN (
+                 SELECT ref_code FROM conf_speaker_events
+                 WHERE event_id = $1 AND ref_code IS NOT NULL
+             )
+             AND NOT EXISTS (
+                 SELECT 1 FROM event_participants ep_check
+                 WHERE ep_check.platform_user_id = pu.id AND ep_check.event_id = $1
+             )
+           GROUP BY ep2.referrer_ref_code, pu.platform_user_id, pu.first_name, pu.last_name, pu.username, pu.id
+           ORDER BY entered DESC""",
         event_id
     )
 
@@ -2435,6 +2465,17 @@ async def create_report(
             "tg_id": str(row["tg_id"] or ""),
             "entered": 1,
             "registered": 1 if row["is_registered"] else 0,
+        })
+    for row in base_referrers_rows:
+        name_parts = [row["first_name"] or "", row["last_name"] or ""]
+        name = " ".join(p for p in name_parts if p).strip() or row["username"] or str(row["tg_id"] or "")
+        base_data.append({
+            "participant_id": row["pu_id"] or 0,
+            "name": name,
+            "username": row["username"] or "",
+            "tg_id": str(row["tg_id"] or ""),
+            "entered": int(row["entered"]),
+            "registered": int(row["registered"]),
         })
 
     # Сводные цифры
