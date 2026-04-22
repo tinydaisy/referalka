@@ -333,7 +333,18 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                   <div>
                     <GroupHeader label="СПИКЕРЫ" entered={allEntered} registered={allReg} totalEntered={T} totalRegistered={TR} color="dark" />
                     <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
-                      <table className="w-full">{TABLE_HEAD}<tbody>
+                      <table className="w-full">
+                        <thead>
+                          <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
+                            <th className="text-left px-4 py-2.5 font-medium w-8">№</th>
+                            <th className="text-left px-4 py-2.5 font-medium">Никнейм / Имя</th>
+                            <th className="text-center px-3 py-2.5 font-medium">Зашло / Зарег.</th>
+                            <th className="text-center px-3 py-2.5 font-medium hidden sm:table-cell">Конверсия</th>
+                            <th className="text-center px-3 py-2.5 font-medium hidden md:table-cell">Доля зашло / зарег.</th>
+                            <th className="text-center px-3 py-2.5 font-medium w-10">Ком.</th>
+                          </tr>
+                        </thead>
+                        <tbody>
                         {allSpk.map((row, i) => (
                           <tr key={row.speaker_event_id}
                             className={`border-b border-gray-50 last:border-0 hover:bg-blue-50/40 ${row.is_commercial ? 'bg-blue-50/30' : ''}`}>
@@ -344,8 +355,8 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                                 {row.username ? `@${row.username}` : row.name || '—'}
                               </Link>
                               {row.username && row.name && <div className="text-xs text-gray-400">{row.name}</div>}
-                              {row.role === 'headliner' && <span className="text-xs text-purple-500 font-medium">хедлайнер</span>}
-                              {row.role === 'partner' && <span className="text-xs text-teal-500 font-medium">партнёр</span>}
+                              {row.role === 'headliner' && <div className="text-xs text-gray-400 font-normal">хедлайнер</div>}
+                              {row.role === 'partner' && <div className="text-xs text-gray-400 font-normal">партнёр</div>}
                             </td>
                             <td className="px-3 py-3 text-center">
                               <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
@@ -356,9 +367,13 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                             <td className="px-3 py-3 text-center text-xs text-gray-400 hidden md:table-cell">
                               {pct(row.entered, T)} / {pct(row.registered, TR)}
                             </td>
+                            <td className="px-3 py-3 text-center">
+                              {row.is_commercial && <span className="text-blue-500 text-base">✓</span>}
+                            </td>
                           </tr>
                         ))}
-                      </tbody></table>
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 )
