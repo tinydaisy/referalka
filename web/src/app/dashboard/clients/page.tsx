@@ -53,6 +53,7 @@ export default function ContactsPage() {
   const [showUnsubscribed, setShowUnsubscribed] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [total, setTotal] = useState(0)
+  const [totalAll, setTotalAll] = useState(0)
   const [subscribed, setSubscribed] = useState(0)
   const [unsubscribed, setUnsubscribed] = useState(0)
   const [selected, setSelected] = useState<ContactDetail | null>(null)
@@ -67,6 +68,7 @@ export default function ContactsPage() {
       const data = await api.contacts.list(q, LIMIT, off, unsub)
       setContacts(data.items || [])
       setTotal(data.total || 0)
+      setTotalAll(data.total_all || 0)
       setSubscribed(data.subscribed || 0)
       setUnsubscribed(data.unsubscribed || 0)
     } catch (e) {
@@ -117,10 +119,13 @@ export default function ContactsPage() {
           </div>
           <div className="mt-2 px-1 flex items-center justify-between">
             <div className="flex flex-col gap-0.5">
-              <p className="text-xs text-gray-500 font-medium">{total.toLocaleString('ru')} контактов</p>
+              <p className="text-xs text-gray-500 font-medium">
+                {totalAll.toLocaleString('ru')} контактов
+                {showUnsubscribed ? '' : <span className="text-gray-400"> (показано {total.toLocaleString('ru')})</span>}
+              </p>
               <div className="flex gap-3 text-xs">
-                <span className="text-green-600">✓ {subscribed.toLocaleString('ru')} подписаны</span>
-                <span className="text-gray-400">✗ {unsubscribed.toLocaleString('ru')} отписались</span>
+                <span className="text-green-600">✓ {subscribed.toLocaleString('ru')}</span>
+                <span className="text-red-400">✗ {unsubscribed.toLocaleString('ru')}</span>
               </div>
             </div>
             <label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
