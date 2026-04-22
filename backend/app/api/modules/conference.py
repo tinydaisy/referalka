@@ -628,8 +628,20 @@ async def verify_speaker_channel(
         raise HTTPException(status_code=502, detail=f"Ошибка Telegram API: {e}")
 
     if not data.get("ok"):
-        desc = data.get("description", "неизвестная ошибка")
-        raise HTTPException(status_code=400, detail=f"Telegram: {desc}")
+        desc = (data.get("description") or "").lower()
+        if "chat not found" in desc:
+            detail = "Канал не найден. Проверьте правильность ID канала — он должен начинаться с -100."
+        elif "user not found" in desc:
+            detail = "Рабочий аккаунт не найден в Telegram. Проверьте ID в настройках."
+        elif "bot was kicked" in desc or "kicked" in desc:
+            detail = "Бот удалён из канала. Добавьте @ivision_conf_bot обратно в администраторы."
+        elif "not enough rights" in desc or "no rights" in desc:
+            detail = "У бота нет прав администратора в канале. Добавьте @ivision_conf_bot как администратора."
+        elif "forbidden" in desc:
+            detail = "Нет доступа к каналу. Убедитесь, что бот @ivision_conf_bot добавлен в администраторы."
+        else:
+            detail = f"Не удалось проверить канал. Попробуйте снова или проверьте ID канала."
+        raise HTTPException(status_code=400, detail=detail)
 
     status = (data.get("result") or {}).get("status", "")
     if status not in ("member", "administrator", "creator", "restricted"):
