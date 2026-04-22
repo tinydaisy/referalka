@@ -178,9 +178,9 @@ async def _send_broadcast(schedule_id: int):
             logger.info(f"Рассылка {schedule_id}: пропускаем {len(already_sent_ids)} уже получивших")
         final_ids = final_ids - already_sent_ids
 
-        # Отправляем параллельно (лимит 30 одновременных запросов к Telegram)
+        # Отправляем параллельно
         sent = 0
-        sem = asyncio.Semaphore(30)
+        sem = asyncio.Semaphore(50)
 
         async def send_one(tg_id: str, http_client: httpx.AsyncClient):
             async with sem:
@@ -188,7 +188,7 @@ async def _send_broadcast(schedule_id: int):
                     http_client, bot_token, tg_id, text, photo_url, button_text, button_url
                 )
 
-        async with httpx.AsyncClient(timeout=10, limits=httpx.Limits(max_connections=50)) as http_client:
+        async with httpx.AsyncClient(timeout=10, limits=httpx.Limits(max_connections=80)) as http_client:
             results = await asyncio.gather(*[send_one(tid, http_client) for tid in final_ids])
 
         # Пишем лог одной пачкой после отправки
