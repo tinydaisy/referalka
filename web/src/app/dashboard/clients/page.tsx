@@ -52,6 +52,8 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('')
   const [contacts, setContacts] = useState<Contact[]>([])
   const [total, setTotal] = useState(0)
+  const [subscribed, setSubscribed] = useState(0)
+  const [unsubscribed, setUnsubscribed] = useState(0)
   const [selected, setSelected] = useState<ContactDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
@@ -64,6 +66,8 @@ export default function ContactsPage() {
       const data = await api.contacts.list(q, LIMIT, off)
       setContacts(data.items || [])
       setTotal(data.total || 0)
+      setSubscribed(data.subscribed || 0)
+      setUnsubscribed(data.unsubscribed || 0)
     } catch (e) {
       console.error(e)
     } finally {
@@ -110,7 +114,13 @@ export default function ContactsPage() {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <p className="text-xs text-gray-400 mt-2 px-1">{total.toLocaleString('ru')} контактов</p>
+          <div className="mt-2 px-1 flex flex-col gap-0.5">
+            <p className="text-xs text-gray-500 font-medium">{total.toLocaleString('ru')} контактов</p>
+            <div className="flex gap-3 text-xs text-gray-400">
+              <span className="text-green-600">✓ {subscribed.toLocaleString('ru')} подписаны</span>
+              <span className="text-gray-400">✗ {unsubscribed.toLocaleString('ru')} отписались</span>
+            </div>
+          </div>
         </div>
 
         {/* Список */}

@@ -32,6 +32,16 @@ async def get_contacts(
         SELECT COUNT(*) FROM platform_users pu {where}
     """, *params)
 
+    subscribed = await db.fetchval(f"""
+        SELECT COUNT(*) FROM platform_users pu {where}
+        AND (pu.is_unsubscribed = FALSE OR pu.is_unsubscribed IS NULL)
+    """, *params)
+
+    unsubscribed = await db.fetchval(f"""
+        SELECT COUNT(*) FROM platform_users pu {where}
+        AND pu.is_unsubscribed = TRUE
+    """, *params)
+
     rows = await db.fetch(f"""
         SELECT
           pu.id,
@@ -68,6 +78,8 @@ async def get_contacts(
 
     return {
         "total": total,
+        "subscribed": subscribed,
+        "unsubscribed": unsubscribed,
         "items": [dict(r) for r in rows]
     }
 
