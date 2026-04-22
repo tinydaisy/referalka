@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, Trash2, ChevronDown, BarChart2 } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, BarChart2, Copy, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 
@@ -217,6 +217,35 @@ function SummaryCard({ label, entered, registered, totalEntered, totalRegistered
   )
 }
 
+function generateReportText(detail: ReportDetail, reportDate: string, announcements: number): string {
+  const byEntered = (a: { entered: number }, b: { entered: number }) => b.entered - a.entered
+
+  const organizers   = detail.speakers_data.filter(s => s.role === 'organizer')
+  const allSpk       = detail.speakers_data.filter(s => s.role !== 'organizer').sort(byEntered)
+  const baseData     = detail.base_data
+  const referrals    = detail.referrals_data
+
+  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0)
+  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0)
+  const spkEntered     = allSpk.reduce((s, r) => s + r.entered, 0)
+  const spkRegistered  = allSpk.reduce((s, r) => s + r.registered, 0)
+  const refEntered     = referrals.reduce((s, r) => s + r.entered, 0)
+  const refRegistered  = referrals.reduce((s, r) => s + r.registered, 0)
+
+  const lines: string[] = [
+    `Отчёт от ${reportDate}, анонсов: ${announcements}`,
+    '',
+    `Организатор: ${orgEntered} / ${orgRegistered}`,
+    `Рефоводы: ${refEntered} / ${refRegistered}`,
+    `Спикеры: ${spkEntered} / ${spkRegistered}`,
+    '',
+    '── Детализация по спикерам (зашло / зарег.) ──',
+    ...allSpk.map((s, i) => `${i + 1}. ${s.name || s.username || '—'} — ${s.entered} / ${s.registered}`),
+  ]
+
+  return lines.join('\n')
+}
+
 export default function ReportTab({ eventId }: { eventId: number }) {
   const [reports, setReports] = useState<ReportMeta[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -227,6 +256,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [announcements, setAnnouncements] = useState('')
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [copied, setCopied] = useState(false)
 
   async function loadList() {
     setLoadingList(true)
@@ -263,6 +293,34 @@ export default function ReportTab({ eventId }: { eventId: number }) {
     } catch (e: any) {
       alert(e.message || 'Не удалось создать отчёт')
     } finally { setCreating(false) }
+  }
+
+  function getReportText() {
+    if (!detail) return ''
+    const meta = reports.find(r => r.id === selectedId)
+    return generateReportText(detail, meta ? formatDate(meta.created_at) : '', meta?.announcements ?? 0)
+  }
+
+  async function handleCopy() {
+    const text = getReportText()
+    if (!text) return
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  function handleDownload() {
+    const text = getReportText()
+    if (!text) return
+    const meta = reports.find(r => r.id === selectedId)
+    const date = meta ? formatDate(meta.created_at).replace(/[/:, ]/g, '_') : 'report'
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `report_${date}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function handleDelete(id: number) {
@@ -347,11 +405,23 @@ export default function ReportTab({ eventId }: { eventId: number }) {
               </select>
               <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             </div>
-            {selectedId && (
-              <button onClick={() => handleDelete(selectedId)} disabled={deletingId === selectedId}
-                className="p-2 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors" title="Удалить">
-                <Trash2 size={16} />
-              </button>
+            {selectedId && detail && (
+              <div className="flex items-center gap-1">
+                <button onClick={handleCopy} title="Копировать текст"
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-colors ${copied ? 'bg-green-100 text-green-700' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}>
+                  <Copy size={14} />
+                  <span className="hidden sm:inline">{copied ? 'Скопировано!' : 'Копировать'}</span>
+                </button>
+                <button onClick={handleDownload} title="Скачать .txt"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors">
+                  <Download size={14} />
+                  <span className="hidden sm:inline">.txt</span>
+                </button>
+                <button onClick={() => handleDelete(selectedId)} disabled={deletingId === selectedId}
+                  className="p-2 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors" title="Удалить">
+                  <Trash2 size={16} />
+                </button>
+              </div>
             )}
           </div>
 
