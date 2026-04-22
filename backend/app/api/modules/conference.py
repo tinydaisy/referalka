@@ -2376,24 +2376,24 @@ async def create_report(
             "registered": 1 if row["is_registered"] else 0,
         })
 
-    # Рефералы = участники, пришедшие по реф-коду другого участника (не спикера, не ошибка)
+    # Рефоводы = группируем по referrer_ref_code, ищем владельца кода в platform_users
     referrals_rows = await db.fetch(
-        """SELECT ep.id, pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username,
+        """SELECT ep2.referrer_ref_code,
                   COUNT(ep2.id) AS entered,
-                  COUNT(ep2.id) FILTER (WHERE ep2.is_registered = TRUE) AS registered
-           FROM event_participants ep
-           JOIN platform_users pu ON pu.id = ep.platform_user_id
-           JOIN event_participants ep2 ON ep2.referrer_ref_code = ep.ref_code
-               AND ep2.event_id = $1
-           WHERE ep.event_id = $1
-             AND pu.platform = 'telegram'
-             AND ep.ref_code IS NOT NULL
-             AND ep.ref_code != 'new_partner_id'
-             AND ep.ref_code NOT IN (
+                  COUNT(ep2.id) FILTER (WHERE ep2.is_registered = TRUE) AS registered,
+                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, pu.id AS pu_id
+           FROM event_participants ep2
+           LEFT JOIN platform_users pu ON pu.ref_code = ep2.referrer_ref_code AND pu.client_id = (
+               SELECT client_id FROM events WHERE id = $1
+           )
+           WHERE ep2.event_id = $1
+             AND ep2.referrer_ref_code IS NOT NULL
+             AND ep2.referrer_ref_code NOT IN ('new_partner_id', 'wrong_client_id', '')
+             AND ep2.referrer_ref_code NOT IN (
                  SELECT ref_code FROM conf_speaker_events
                  WHERE event_id = $1 AND ref_code IS NOT NULL
              )
-           GROUP BY ep.id, pu.platform_user_id, pu.first_name, pu.last_name, pu.username
+           GROUP BY ep2.referrer_ref_code, pu.platform_user_id, pu.first_name, pu.last_name, pu.username, pu.id
            ORDER BY entered DESC""",
         event_id
     )
@@ -2401,9 +2401,9 @@ async def create_report(
     referrals_data = []
     for row in referrals_rows:
         name_parts = [row["first_name"] or "", row["last_name"] or ""]
-        name = " ".join(p for p in name_parts if p).strip() or row["username"] or str(row["tg_id"] or "")
+        name = " ".join(p for p in name_parts if p).strip() or row["username"] or row["referrer_ref_code"] or "—"
         referrals_data.append({
-            "participant_id": row["id"],
+            "participant_id": row["pu_id"] or 0,
             "name": name,
             "username": row["username"] or "",
             "tg_id": str(row["tg_id"] or ""),
