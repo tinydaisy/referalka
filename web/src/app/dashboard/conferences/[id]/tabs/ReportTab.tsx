@@ -100,9 +100,9 @@ function SpeakerRow({ row, i, eventId, totalEntered, totalRegistered }: {
       <td className="px-4 py-3">
         <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
           className="font-medium text-[#25455D] hover:underline text-sm">
-          {row.username ? `@${row.username}` : row.name || '—'}
+          {row.name || row.username || '—'}
         </Link>
-        {row.username && row.name && <div className="text-xs text-gray-400">{row.name}</div>}
+        {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
       </td>
       <td className="px-3 py-3 text-center">
         <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
@@ -126,9 +126,9 @@ function PersonRowEl({ row, i, totalEntered, totalRegistered }: {
       <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">{i + 1}</td>
       <td className="px-4 py-3">
         <span className="font-medium text-gray-800 text-sm">
-          {row.username ? `@${row.username}` : row.name || '—'}
+          {row.name || row.username || '—'}
         </span>
-        {row.username && row.name && <div className="text-xs text-gray-400">{row.name}</div>}
+        {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
       </td>
       <td className="px-3 py-3 text-center">
         <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
@@ -352,9 +352,9 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                             <td className="px-4 py-3">
                               <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
                                 className="font-medium text-[#25455D] hover:underline text-sm">
-                                {row.username ? `@${row.username}` : row.name || '—'}
+                                {row.name || row.username || '—'}
                               </Link>
-                              {row.username && row.name && <div className="text-xs text-gray-400">{row.name}</div>}
+                              {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
                               {row.role === 'headliner' && <div className="text-xs text-gray-400 font-normal">хедлайнер</div>}
                               {row.role === 'partner' && <div className="text-xs text-gray-400 font-normal">партнёр</div>}
                             </td>
