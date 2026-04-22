@@ -27,16 +27,15 @@ async def get_contacts(
 ):
     client_id = int(client["sub"])
 
-    where = "WHERE pu.client_id = $1"
+    # where_base — только клиент + поиск (без фильтра по отписке)
+    # нужен чтобы счётчики subscribed/unsubscribed всегда отражали реальность
+    where_base = "WHERE pu.client_id = $1"
     params = [client_id]
-
-    if not show_unsubscribed:
-        where += " AND (pu.is_unsubscribed = FALSE OR pu.is_unsubscribed IS NULL)"
 
     if search:
         params.append(f"%{search}%")
         idx = len(params)
-        where += f"""
+        where_base += f"""
           AND (
             pu.first_name ILIKE ${idx} OR pu.last_name ILIKE ${idx}
             OR pu.username ILIKE ${idx} OR pu.email ILIKE ${idx}
@@ -44,17 +43,22 @@ async def get_contacts(
           )
         """
 
+    # where — добавляем фильтр по отписке только для списка и total
+    where = where_base
+    if not show_unsubscribed:
+        where += " AND (pu.is_unsubscribed = FALSE OR pu.is_unsubscribed IS NULL)"
+
     total = await db.fetchval(f"""
         SELECT COUNT(*) FROM platform_users pu {where}
     """, *params)
 
     subscribed = await db.fetchval(f"""
-        SELECT COUNT(*) FROM platform_users pu {where}
+        SELECT COUNT(*) FROM platform_users pu {where_base}
         AND (pu.is_unsubscribed = FALSE OR pu.is_unsubscribed IS NULL)
     """, *params)
 
     unsubscribed = await db.fetchval(f"""
-        SELECT COUNT(*) FROM platform_users pu {where}
+        SELECT COUNT(*) FROM platform_users pu {where_base}
         AND pu.is_unsubscribed = TRUE
     """, *params)
 
