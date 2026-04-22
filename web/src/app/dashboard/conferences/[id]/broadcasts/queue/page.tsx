@@ -581,7 +581,7 @@ export default function QueuePage() {
                       )}
                     </div>
                     {/* Предупреждение если running слишком долго */}
-                    {s.status === 'running' && s.seconds_running != null && s.seconds_running > 600 && (
+                    {s.status === 'running' && s.seconds_running != null && s.seconds_running > 300 && (
                       <div className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
                         <AlertCircle size={12} className="shrink-0" />
                         <span>Задача висит больше {Math.floor(s.seconds_running / 60)} мин — возможно воркер упал. Нажмите «Перезапустить».</span>

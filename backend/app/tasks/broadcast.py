@@ -52,7 +52,7 @@ async def _check_and_send():
             """
             SELECT id FROM broadcast_schedules
             WHERE status = 'running'
-            AND started_at < NOW() - INTERVAL '30 minutes'
+            AND started_at < NOW() - INTERVAL '10 minutes'
             """
         )
         for s in stale:
