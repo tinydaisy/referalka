@@ -135,13 +135,23 @@ export default function ConferenceSpeakerPage() {
     exclude_channel_from_subscription: false,
   })
 
+  const [clientWorkAccount, setClientWorkAccount] = useState<{ username: string; id: string } | null>(null)
+
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingEvent, setSavingEvent] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
   const [eventSaved, setEventSaved] = useState(false)
+  const [verifyingChannel, setVerifyingChannel] = useState(false)
+  const [channelVerifyMsg, setChannelVerifyMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [error, setError] = useState('')
   const [showWarning, setShowWarning] = useState(false)
+
+  useEffect(() => {
+    api.auth.me().then((c: any) => {
+      if (c.work_tg_id) setClientWorkAccount({ username: c.work_tg_username || '', id: String(c.work_tg_id) })
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     api.conference.speakers.list(confId)
@@ -219,6 +229,29 @@ export default function ConferenceSpeakerPage() {
     if (!is_commercial && role === 'speaker') return 60
     if (!is_commercial && role === 'partner') return 70
     return 60
+  }
+
+  async function handleBotInChannelChange(checked: boolean) {
+    if (!checked) {
+      setEventForm(f => ({ ...f, bot_in_channel: false }))
+      setChannelVerifyMsg(null)
+      return
+    }
+    if (!profile?.tg_channel_id?.trim()) {
+      setChannelVerifyMsg({ ok: false, text: 'Сначала укажите ID канала в профиле спикера и сохраните' })
+      return
+    }
+    setVerifyingChannel(true)
+    setChannelVerifyMsg(null)
+    try {
+      const res = await api.conference.speakers.verifyChannel(confId, speakerEventId)
+      setEventForm(f => ({ ...f, bot_in_channel: true }))
+      setChannelVerifyMsg({ ok: true, text: res.message || 'Подписка подтверждена' })
+    } catch (err: any) {
+      setChannelVerifyMsg({ ok: false, text: err.message || 'Ошибка проверки' })
+    } finally {
+      setVerifyingChannel(false)
+    }
   }
 
   async function saveEvent(e: React.FormEvent) {
@@ -345,15 +378,6 @@ export default function ConferenceSpeakerPage() {
             <span className="text-sm text-gray-700">Коммерческое выступление</span>
           </label>
 
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" checked={eventForm.bot_in_channel}
-              onChange={e => setEventForm(f => ({ ...f, bot_in_channel: e.target.checked }))}
-              className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span className="text-sm text-gray-700">
-              Добавил бота в канал
-              <span className="text-gray-400 ml-1">— канал будет проверяться на подписку</span>
-            </span>
-          </label>
         </div>
 
         {/* Чёрный список */}
@@ -547,6 +571,40 @@ export default function ConferenceSpeakerPage() {
                 placeholder="@assistant"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
+          </div>
+
+          {/* Подписка бота на канал */}
+          <div className="pt-2 border-t border-gray-100 space-y-3">
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Убедитесь, что бот <span className="font-medium text-gray-700">@ivision_conf_bot</span> добавлен в администраторы канала спикера.
+              Для теста подпишитесь аккаунтом{' '}
+              {clientWorkAccount
+                ? <><span className="font-medium text-gray-700">{clientWorkAccount.username ? '@' + clientWorkAccount.username.replace(/^@/, '') : ''}</span>{' '}(<span className="font-mono">{clientWorkAccount.id}</span>)</>
+                : <span className="text-amber-600">— укажите рабочий аккаунт в <a href="/dashboard/settings" className="underline">настройках</a></span>
+              }{' '}
+              на канал и установите галочку. Если проверка пройдёт успешно — канал будет добавлен в список подписки.
+            </p>
+            <div className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                id="bot_in_channel_check"
+                checked={eventForm.bot_in_channel}
+                disabled={verifyingChannel}
+                onChange={e => handleBotInChannelChange(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded border-gray-300 text-brand cursor-pointer"
+              />
+              <label htmlFor="bot_in_channel_check" className="text-sm text-gray-700 cursor-pointer select-none">
+                {verifyingChannel
+                  ? 'Проверяю подписку...'
+                  : 'Бот добавлен в администраторы канала'
+                }
+              </label>
+            </div>
+            {channelVerifyMsg && (
+              <p className={`text-xs px-3 py-2 rounded-lg ${channelVerifyMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                {channelVerifyMsg.text}
+              </p>
+            )}
           </div>
         </div>
 

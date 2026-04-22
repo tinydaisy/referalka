@@ -6,6 +6,7 @@ from app.database import get_db
 import asyncpg
 import re
 import json
+import httpx
 from datetime import datetime, date, time, timedelta
 
 router = APIRouter(prefix="/events/{event_id}/conference", tags=["Конференция"])
@@ -576,6 +577,73 @@ async def update_speaker_event(
     d["topics"] = topics_map.get(speaker_event_id, [])
     await regenerate_landing_data(event_id, db)
     return {"speaker": d}
+
+
+@router.post("/speakers/{speaker_event_id}/verify-channel", summary="Проверить подписку рабочего аккаунта на канал спикера")
+async def verify_speaker_channel(
+    event_id: int,
+    speaker_event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await check_conference_access(event_id, client_id, db)
+
+    client_row = await db.fetchrow(
+        "SELECT bot_token, work_tg_id, work_tg_username FROM clients WHERE id = $1", client_id
+    )
+    if not client_row:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+
+    work_tg_id = client_row["work_tg_id"]
+    if not work_tg_id:
+        raise HTTPException(status_code=400, detail="Укажите ID рабочего аккаунта в настройках")
+
+    from app.config import settings
+    token = (client_row["bot_token"] or "").strip() or settings.telegram_bot_token
+    if not token:
+        raise HTTPException(status_code=400, detail="Не настроен токен бота")
+
+    row = await db.fetchrow(
+        """SELECT c.tg_channel_id FROM conf_speaker_events cse
+           JOIN collaborators c ON c.id = cse.speaker_id
+           WHERE cse.id = $1 AND cse.event_id = $2""",
+        speaker_event_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Спикер не найден")
+
+    channel_id = (row["tg_channel_id"] or "").strip()
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="Сначала укажите ID канала спикера")
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as http:
+            r = await http.get(
+                f"https://api.telegram.org/bot{token}/getChatMember",
+                params={"chat_id": channel_id, "user_id": work_tg_id}
+            )
+        data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ошибка Telegram API: {e}")
+
+    if not data.get("ok"):
+        desc = data.get("description", "неизвестная ошибка")
+        raise HTTPException(status_code=400, detail=f"Telegram: {desc}")
+
+    status = (data.get("result") or {}).get("status", "")
+    if status not in ("member", "administrator", "creator", "restricted"):
+        username = (client_row["work_tg_username"] or "").lstrip("@") or str(work_tg_id)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Рабочий аккаунт @{username} не подписан на канал. Подпишитесь и попробуйте снова."
+        )
+
+    await db.execute(
+        "UPDATE conf_speaker_events SET bot_in_channel = TRUE WHERE id = $1",
+        speaker_event_id
+    )
+    return {"ok": True, "message": "Подписка подтверждена, канал добавлен в список проверки"}
 
 
 @router.delete("/speakers/{speaker_event_id}", summary="Убрать спикера из события")

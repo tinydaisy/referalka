@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, Eye, EyeOff, FlaskConical } from 'lucide-react'
+import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck } from 'lucide-react'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
 
@@ -23,7 +23,7 @@ const TIMEZONES = [
 ]
 
 export default function SettingsPage() {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '' })
   const [tariff, setTariff] = useState<any>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -42,6 +42,8 @@ export default function SettingsPage() {
         timezone: tz,
         bot_token: c.bot_token || '',
         test_telegram_ids_raw: (c.test_telegram_ids || []).join(', '),
+        work_tg_username: c.work_tg_username || '',
+        work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
       })
       setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
     }).catch(() => {})
@@ -66,6 +68,8 @@ export default function SettingsPage() {
         timezone: form.timezone,
         bot_token: form.bot_token || null,
         test_telegram_ids: testIds,
+        work_tg_username: form.work_tg_username || null,
+        work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
       })
       setTimezone(form.timezone)
       setSaved(true)
@@ -178,6 +182,43 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Work Account */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <UserCheck size={18} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-800">Рабочий аккаунт</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Telegram-аккаунт для тестовой проверки подписки на каналы спикеров.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Никнейм</label>
+              <input
+                type="text"
+                value={form.work_tg_username}
+                onChange={set('work_tg_username')}
+                placeholder="@username"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ID аккаунта</label>
+              <input
+                type="text"
+                value={form.work_tg_id}
+                onChange={set('work_tg_id')}
+                placeholder="123456789"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Timezone */}

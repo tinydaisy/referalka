@@ -81,6 +81,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/conference/speakers/${speakerEventId}`, { method: 'PATCH', body: JSON.stringify(data) }),
       delete: (eventId: number, speakerEventId: number) =>
         request(`/api/v1/events/${eventId}/conference/speakers/${speakerEventId}`, { method: 'DELETE' }),
+      verifyChannel: (eventId: number, speakerEventId: number) =>
+        request(`/api/v1/events/${eventId}/conference/speakers/${speakerEventId}/verify-channel`, { method: 'POST' }),
     },
     days: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/days`),
