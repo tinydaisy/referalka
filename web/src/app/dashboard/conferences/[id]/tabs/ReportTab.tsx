@@ -61,7 +61,7 @@ function formatDate(iso: string) {
 
 // Сворачиваемая группа
 function CollapsibleGroup({
-  label, entered, registered, totalEntered, totalRegistered, color, children, count
+  label, entered, registered, totalEntered, totalRegistered, color, children, count, hasCommercialCol
 }: {
   label: string
   entered: number
@@ -71,6 +71,7 @@ function CollapsibleGroup({
   color: 'dark' | 'blue' | 'amber' | 'gray' | 'red'
   children: React.ReactNode
   count: number
+  hasCommercialCol?: boolean
 }) {
   const [open, setOpen] = useState(true)
   const cls = {
@@ -81,25 +82,44 @@ function CollapsibleGroup({
     red:   'bg-red-50 text-red-700 border border-red-100',
   }[color]
   const chevronCls = color === 'dark' ? 'text-[#FFCFA4]/70' : 'text-current opacity-40'
+  const opCls = color === 'dark' ? 'text-[#FFCFA4]/60' : 'opacity-50'
 
   return (
     <div>
+      {/* Заголовок как таблица — колонки совпадают с телом */}
       <button
         onClick={() => setOpen(o => !o)}
-        className={`w-full flex items-center justify-between px-4 py-1.5 font-semibold text-sm ${open ? 'rounded-t-xl' : 'rounded-xl'} ${cls} transition-all`}
+        className={`w-full ${open ? 'rounded-t-xl' : 'rounded-xl'} ${cls} transition-all overflow-hidden`}
       >
-        <span className="flex items-center gap-2">
-          <ChevronDown size={14} className={`${chevronCls} transition-transform ${open ? '' : '-rotate-90'}`} />
-          {label}
-          <span className="font-normal opacity-50 text-xs">{count} чел.</span>
-        </span>
-        <span className="font-bold tabular-nums flex items-center gap-2">
-          <span>{entered} / {registered}</span>
-          <span className="font-normal opacity-75">{pct(registered, entered)}</span>
-          <span className="text-xs opacity-50 hidden sm:inline">
-            {pct(entered, totalEntered)} / {pct(registered, totalRegistered)}
-          </span>
-        </span>
+        <table className="w-full text-sm font-semibold">
+          <tbody>
+            <tr>
+              {/* № — фиксированная ширина как в таблице */}
+              <td className="px-4 py-1.5 w-8">
+                <ChevronDown size={14} className={`${chevronCls} transition-transform ${open ? '' : '-rotate-90'}`} />
+              </td>
+              {/* Имя — занимает свободное место, слева */}
+              <td className="px-4 py-1.5 text-left">
+                {label}
+                <span className={`ml-2 font-normal text-xs ${opCls}`}>{count} чел.</span>
+              </td>
+              {/* Зашло / Зарег. */}
+              <td className="px-3 py-1.5 text-center font-bold tabular-nums w-32">
+                {entered} / {registered}
+              </td>
+              {/* Конв. */}
+              <td className={`px-3 py-1.5 text-center font-normal hidden sm:table-cell w-20 ${opCls}`}>
+                {pct(registered, entered)}
+              </td>
+              {/* Доля */}
+              <td className={`px-3 py-1.5 text-center font-normal text-xs hidden md:table-cell w-28 ${opCls}`}>
+                {pct(entered, totalEntered)} / {pct(registered, totalRegistered)}
+              </td>
+              {/* Ком. — только если нужна */}
+              {hasCommercialCol && <td className="px-3 py-1.5 w-10" />}
+            </tr>
+          </tbody>
+        </table>
       </button>
       {open && (
         <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
@@ -352,7 +372,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                 const allEntered = allSpk.reduce((s, r) => s + r.entered, 0)
                 const allReg = allSpk.reduce((s, r) => s + r.registered, 0)
                 return (
-                  <CollapsibleGroup label="СПИКЕРЫ" entered={allEntered} registered={allReg} totalEntered={T} totalRegistered={TR} color="dark" count={allSpk.length}>
+                  <CollapsibleGroup label="СПИКЕРЫ" entered={allEntered} registered={allReg} totalEntered={T} totalRegistered={TR} color="dark" count={allSpk.length} hasCommercialCol>
                     <table className="w-full">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
