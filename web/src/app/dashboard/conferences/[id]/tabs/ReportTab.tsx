@@ -376,7 +376,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                         ))}
                         {baseData.length > 0 && (
                           <tr className="border-b border-gray-50 last:border-0 bg-gray-50/50">
-                            <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">—</td>
+                            <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">{organizers.length + 1}</td>
                             <td className="px-4 py-3">
                               <span className="font-medium text-gray-500 text-sm">Из базы (без реф-кода)</span>
                               <div className="text-xs text-gray-400">{baseData.length} чел.</div>
