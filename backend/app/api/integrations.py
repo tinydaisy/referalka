@@ -26,7 +26,8 @@ async def get_unique_ref_code(db: asyncpg.Connection) -> str:
     for _ in range(10):
         code = generate_ref_code()
         exists = await db.fetchval(
-            "SELECT 1 FROM event_participants WHERE ref_code = $1", code
+            "SELECT 1 FROM platform_users WHERE ref_code = $1 UNION SELECT 1 FROM event_participants WHERE ref_code = $1",
+            code, code
         )
         if not exists:
             return code
@@ -98,15 +99,16 @@ async def salebot_register(
     is_new_user = existing_user is None
 
     if is_new_user:
+        new_ref_code = await get_unique_ref_code(db)
         pluson_id = await db.fetchval(
             """
             INSERT INTO platform_users
-              (client_id, platform, platform_user_id, username, first_name, last_name, salebot_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+              (client_id, platform, platform_user_id, username, first_name, last_name, salebot_id, ref_code)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id
             """,
             data.client_id, data.platform, data.platform_user_id,
-            clean_username(data.username), data.first_name, data.last_name, data.salebot_id
+            clean_username(data.username), data.first_name, data.last_name, data.salebot_id, new_ref_code
         )
     else:
         pluson_id = existing_user["id"]
