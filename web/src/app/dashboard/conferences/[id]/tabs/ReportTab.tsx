@@ -365,7 +365,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                 <SummaryCard label="Спикеры" entered={spkEntered + comEntered} registered={spkRegistered + comRegistered} totalEntered={T} totalRegistered={TR} />
                 <SummaryCard label="Организатор" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} />
                 <SummaryCard label="Рефоводы" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} />
-                {errEntered > 0 && <SummaryCard label="⚠ Ошибка" entered={errEntered} registered={errRegistered} totalEntered={T} totalRegistered={TR} />}
+                <SummaryCard label="⚠ Ошибка" entered={errEntered} registered={errRegistered} totalEntered={T} totalRegistered={TR} />
               </div>
 
               <div className="text-xs text-gray-400 text-right">Зашло в бот / Зарегистрировалось</div>
@@ -440,7 +440,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
               })()}
 
               {/* ОШИБКА РАСПРЕДЕЛЕНИЯ */}
-              {errorsData.length > 0 && (
+              {true && (
                 <CollapsibleGroup label="ОШИБКА РАСПРЕДЕЛЕНИЯ" entered={errEntered} registered={errRegistered} totalEntered={T} totalRegistered={TR} color="red" count={errorsData.length}>
                   {errorsData.map((row, i) => (
                     <PersonRowEl key={row.participant_id} row={row} i={i} totalEntered={T} totalRegistered={TR} />
