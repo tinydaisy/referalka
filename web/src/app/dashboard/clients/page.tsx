@@ -205,12 +205,12 @@ export default function ContactsPage() {
           <div className="p-6">
             {/* Шапка */}
             <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-100">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white"
+              <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white shrink-0"
                 style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
                 {[selected.first_name, selected.last_name].filter(Boolean).map(s => s![0]).join('').toUpperCase() || '?'}
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-xl font-bold text-gray-900 truncate">
                   {[selected.first_name, selected.last_name].filter(Boolean).join(' ') || '—'}
                 </h2>
                 {selected.username && (
@@ -221,48 +221,89 @@ export default function ContactsPage() {
                 )}
               </div>
               {selected.is_unsubscribed && (
-                <span className="ml-auto text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full">Отписан</span>
+                <span className="ml-auto text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full shrink-0">Отписан</span>
               )}
             </div>
 
-            {/* Поля */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            {/* Все поля */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-6">
+
+              {/* Telegram ID */}
+              <div className="flex items-start gap-2">
+                <UserCircle size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-400">Telegram ID</p>
+                  <p className="text-sm text-gray-800 font-mono">{selected.platform_user_id}</p>
+                </div>
+              </div>
+
+              {/* Salebot ID */}
+              {selected.salebot_id && (
+                <div className="flex items-start gap-2">
+                  <UserCircle size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-400">Salebot ID</p>
+                    <p className="text-sm text-gray-800 font-mono">{selected.salebot_id}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Телефон */}
               {selected.phone && (
                 <div className="flex items-start gap-2">
                   <Phone size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs text-gray-400">Телефон</p>
                     <p className="text-sm text-gray-800">{selected.phone}</p>
                   </div>
                 </div>
               )}
+
+              {/* Email */}
               {selected.email && (
                 <div className="flex items-start gap-2">
                   <Mail size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs text-gray-400">Email</p>
                     <p className="text-sm text-gray-800 break-all">{selected.email}</p>
                   </div>
                 </div>
               )}
+
+              {/* Реф-код */}
+              {selected.ref_code && (
+                <div className="flex items-start gap-2">
+                  <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-400">Реф-код</p>
+                    <p className="text-sm text-gray-800 font-mono break-all">{selected.ref_code}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Пришёл от */}
               {selected.referrer_name && (
                 <div className="flex items-start gap-2">
                   <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs text-gray-400">Пришёл от</p>
                     <p className="text-sm text-gray-800">{selected.referrer_name}</p>
                   </div>
                 </div>
               )}
+
+              {/* Источник */}
               {selected.utm_source && (
                 <div className="flex items-start gap-2">
                   <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-xs text-gray-400">Источник</p>
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-400">Источник (UTM)</p>
                     <p className="text-sm text-gray-800">{selected.utm_source}</p>
                   </div>
                 </div>
               )}
+
+              {/* Первый контакт */}
               <div className="flex items-start gap-2">
                 <Calendar size={15} className="text-gray-400 mt-0.5 shrink-0" />
                 <div>
@@ -270,6 +311,8 @@ export default function ContactsPage() {
                   <p className="text-sm text-gray-800">{formatDate(selected.created_at)}</p>
                 </div>
               </div>
+
+              {/* Последний контакт */}
               {selected.last_contact_at && (
                 <div className="flex items-start gap-2">
                   <Calendar size={15} className="text-gray-400 mt-0.5 shrink-0" />
@@ -279,6 +322,7 @@ export default function ContactsPage() {
                   </div>
                 </div>
               )}
+
             </div>
 
             {/* Метки */}
