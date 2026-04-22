@@ -43,6 +43,7 @@ interface ReportDetail extends ReportMeta {
   speakers_data: SpeakerRow[]
   referrals_data: PersonRow[]
   base_data: PersonRow[]
+  errors_data: PersonRow[]
 }
 
 function pct(num: number, den: number): string {
@@ -67,7 +68,7 @@ function CollapsibleGroup({
   registered: number
   totalEntered: number
   totalRegistered: number
-  color: 'dark' | 'blue' | 'amber' | 'gray'
+  color: 'dark' | 'blue' | 'amber' | 'gray' | 'red'
   children: React.ReactNode
   count: number
 }) {
@@ -77,6 +78,7 @@ function CollapsibleGroup({
     blue:  'bg-blue-100 text-blue-800',
     amber: 'bg-amber-50 text-amber-800 border border-amber-100',
     gray:  'bg-gray-100 text-gray-600',
+    red:   'bg-red-50 text-red-700 border border-red-100',
   }[color]
   const chevronCls = color === 'dark' ? 'text-[#FFCFA4]/70' : 'text-current opacity-40'
 
@@ -262,6 +264,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
   const commercialSpk = (detail?.speakers_data.filter(s => s.role !== 'organizer' && s.is_commercial) ?? []).sort(byEntered)
   const baseData     = detail?.base_data ?? []
   const referrals    = (detail?.referrals_data ?? []).sort(byEntered)
+  const errorsData   = detail?.errors_data ?? []
 
   const T = detail?.total_entered ?? 0
   const TR = detail?.total_registered ?? 0
@@ -276,6 +279,8 @@ export default function ReportTab({ eventId }: { eventId: number }) {
   const comRegistered  = commercialSpk.reduce((s, r) => s + r.registered, 0)
   const refEntered     = referrals.reduce((s, r) => s + r.entered, 0)
   const refRegistered  = referrals.reduce((s, r) => s + r.registered, 0)
+  const errEntered     = errorsData.reduce((s, r) => s + r.entered, 0)
+  const errRegistered  = errorsData.reduce((s, r) => s + r.registered, 0)
 
   return (
     <div className="space-y-6">
@@ -331,11 +336,12 @@ export default function ReportTab({ eventId }: { eventId: number }) {
           ) : detail ? (
             <div className="space-y-3">
               {/* Сводка */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 <SummaryCard label="Всего" entered={T} registered={TR} totalEntered={T} totalRegistered={TR} dark />
                 <SummaryCard label="Спикеры" entered={spkEntered + comEntered} registered={spkRegistered + comRegistered} totalEntered={T} totalRegistered={TR} />
                 <SummaryCard label="Организатор" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} />
                 <SummaryCard label="Рефоводы" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} />
+                {errEntered > 0 && <SummaryCard label="⚠ Ошибка" entered={errEntered} registered={errRegistered} totalEntered={T} totalRegistered={TR} />}
               </div>
 
               <div className="text-xs text-gray-400 text-right">Зашло в бот / Зарегистрировалось</div>
@@ -424,6 +430,17 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                   </CollapsibleGroup>
                 )
               })()}
+
+              {/* ОШИБКА РАСПРЕДЕЛЕНИЯ */}
+              {errorsData.length > 0 && (
+                <CollapsibleGroup label="ОШИБКА РАСПРЕДЕЛЕНИЯ" entered={errEntered} registered={errRegistered} totalEntered={T} totalRegistered={TR} color="red" count={errorsData.length}>
+                  <table className="w-full">{TABLE_HEAD}<tbody>
+                    {errorsData.map((row, i) => (
+                      <PersonRowEl key={row.participant_id} row={row} i={i} totalEntered={T} totalRegistered={TR} />
+                    ))}
+                  </tbody></table>
+                </CollapsibleGroup>
+              )}
 
               {/* РЕФЕРАЛЫ */}
               {referrals.length > 0 && (

@@ -2350,7 +2350,33 @@ async def create_report(
             "registered": int(row["registered"]),
         })
 
-    # Рефералы = участники, пришедшие по реф-коду другого участника (не спикера)
+    # Ошибка распределения = referrer_ref_code = 'new_partner_id' (не распознан источник)
+    errors_rows = await db.fetch(
+        """SELECT ep.id, ep.is_registered,
+                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username
+           FROM event_participants ep
+           JOIN platform_users pu ON pu.id = ep.platform_user_id
+           WHERE ep.event_id = $1
+             AND pu.platform = 'telegram'
+             AND ep.referrer_ref_code = 'new_partner_id'
+           ORDER BY ep.id""",
+        event_id
+    )
+
+    errors_data = []
+    for row in errors_rows:
+        name_parts = [row["first_name"] or "", row["last_name"] or ""]
+        name = " ".join(p for p in name_parts if p).strip() or row["username"] or str(row["tg_id"] or "")
+        errors_data.append({
+            "participant_id": row["id"],
+            "name": name,
+            "username": row["username"] or "",
+            "tg_id": str(row["tg_id"] or ""),
+            "entered": 1,
+            "registered": 1 if row["is_registered"] else 0,
+        })
+
+    # Рефералы = участники, пришедшие по реф-коду другого участника (не спикера, не ошибка)
     referrals_rows = await db.fetch(
         """SELECT ep.id, ep.is_registered, ep.referrer_ref_code,
                   pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username
@@ -2359,6 +2385,7 @@ async def create_report(
            WHERE ep.event_id = $1
              AND pu.platform = 'telegram'
              AND ep.referrer_ref_code IS NOT NULL
+             AND ep.referrer_ref_code != 'new_partner_id'
              AND ep.referrer_ref_code NOT IN (
                  SELECT ref_code FROM conf_speaker_events
                  WHERE event_id = $1 AND ref_code IS NOT NULL
@@ -2413,8 +2440,10 @@ async def create_report(
     referrals_registered = sum(r["registered"] for r in referrals_data)
     base_entered = len(base_data)
     base_registered = sum(r["registered"] for r in base_data)
-    total_entered = speakers_entered + referrals_entered + base_entered
-    total_registered = speakers_registered + referrals_registered + base_registered
+    errors_entered = len(errors_data)
+    errors_registered = sum(r["registered"] for r in errors_data)
+    total_entered = speakers_entered + referrals_entered + base_entered + errors_entered
+    total_registered = speakers_registered + referrals_registered + base_registered + errors_registered
 
     report = await db.fetchrow(
         """INSERT INTO conf_reports
@@ -2432,6 +2461,7 @@ async def create_report(
         json.dumps({
             "referrals": referrals_data,
             "base": base_data,
+            "errors": errors_data,
         }, ensure_ascii=False),
     )
 
@@ -2482,13 +2512,15 @@ async def get_report(
     raw_ref = r.get("referrals_data")
     if isinstance(raw_ref, str):
         raw_ref = json.loads(raw_ref)
-    # Поддержка старого формата (список) и нового (dict с ключами referrals/base)
+    # Поддержка старого формата (список) и нового (dict с ключами referrals/base/errors)
     if isinstance(raw_ref, list):
         r["referrals_data"] = raw_ref
         r["base_data"] = []
+        r["errors_data"] = []
     else:
         r["referrals_data"] = raw_ref.get("referrals", [])
         r["base_data"] = raw_ref.get("base", [])
+        r["errors_data"] = raw_ref.get("errors", [])
 
     return {"report": r}
 
