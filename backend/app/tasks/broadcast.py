@@ -148,28 +148,36 @@ async def _send_broadcast(schedule_id: int):
             test_ids = {str(t) for t in (tids or [])}
             final_ids = final_ids & test_ids
 
-        # Отправляем
+        # Отправляем параллельно (лимит 30 одновременных запросов к Telegram)
         sent = 0
-        async with httpx.AsyncClient(timeout=10) as http_client:
-            for tg_id in final_ids:
-                success, tg_error = await send_telegram_message(
+        sem = asyncio.Semaphore(30)
+
+        async def send_one(tg_id: str, http_client: httpx.AsyncClient):
+            async with sem:
+                return tg_id, await send_telegram_message(
                     http_client, bot_token, tg_id, text, photo_url, button_text, button_url
                 )
-                await conn.execute(
-                    """
-                    INSERT INTO broadcast_log (schedule_id, platform_user_id, status, error, sent_at)
-                    SELECT $1, pu.id, $2, $3, NOW()
-                    FROM platform_users pu
-                    WHERE pu.platform_user_id = $4 AND pu.client_id = $5
-                    """,
-                    schedule_id,
-                    "sent" if success else "failed",
-                    tg_error or None,
-                    tg_id,
-                    schedule["client_id"]
-                )
-                if success:
-                    sent += 1
+
+        async with httpx.AsyncClient(timeout=10, limits=httpx.Limits(max_connections=50)) as http_client:
+            results = await asyncio.gather(*[send_one(tid, http_client) for tid in final_ids])
+
+        # Пишем лог одной пачкой после отправки
+        for tg_id, (success, tg_error) in results:
+            await conn.execute(
+                """
+                INSERT INTO broadcast_log (schedule_id, platform_user_id, status, error, sent_at)
+                SELECT $1, pu.id, $2, $3, NOW()
+                FROM platform_users pu
+                WHERE pu.platform_user_id = $4 AND pu.client_id = $5
+                """,
+                schedule_id,
+                "sent" if success else "failed",
+                tg_error or None,
+                tg_id,
+                schedule["client_id"]
+            )
+            if success:
+                sent += 1
 
         # Отправка копии в дополнительные чаты (telegram_chat_ids из настроек конференции)
         if not schedule["is_test"]:
