@@ -1,6 +1,18 @@
+import json
 from fastapi import APIRouter, Depends, Query
 from app.auth import get_current_client
 from app.database import get_db
+
+
+def parse_tags(tags):
+    if tags is None:
+        return None
+    if isinstance(tags, list):
+        return tags
+    try:
+        return json.loads(tags)
+    except Exception:
+        return []
 
 router = APIRouter()
 
@@ -80,7 +92,7 @@ async def get_contacts(
         "total": total,
         "subscribed": subscribed,
         "unsubscribed": unsubscribed,
-        "items": [dict(r) for r in rows]
+        "items": [{**dict(r), "tags": parse_tags(r["tags"])} for r in rows]
     }
 
 
@@ -132,7 +144,9 @@ async def get_contact(
         ORDER BY ep.registered_at DESC
     """, contact_id)
 
+    row_dict = dict(row)
+    row_dict["tags"] = parse_tags(row_dict.get("tags"))
     return {
-        **dict(row),
+        **row_dict,
         "events": [dict(e) for e in events]
     }
