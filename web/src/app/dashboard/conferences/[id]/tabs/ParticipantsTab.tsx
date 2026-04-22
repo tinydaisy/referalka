@@ -154,12 +154,6 @@ export default function ParticipantsTab({ eventId }: { eventId: number }) {
         )}
       </div>
 
-      <p className="text-sm text-gray-500 mb-3">
-        {filtered.length !== participants.length
-          ? `${filtered.length} из ${participants.length}`
-          : `${participants.length} участников`}
-      </p>
-
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {filtered.length === 0 ? (
           <div className="py-10 text-center text-gray-400 text-sm">Никого не найдено</div>
