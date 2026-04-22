@@ -363,30 +363,40 @@ export default function ReportTab({ eventId }: { eventId: number }) {
               })()}
 
               {/* ОРГАНИЗАТОР + ИЗ БАЗЫ */}
-              {(organizers.length > 0 || baseData.length > 0) && (
-                <div>
-                  <GroupHeader label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" />
-                  <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
-                    <table className="w-full">{TABLE_HEAD}<tbody>
-                      {organizers.map((row, i) => (
-                        <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
-                      ))}
-                      {baseData.length > 0 && (
-                        <>
-                          {organizers.length > 0 && (
-                            <tr className="bg-gray-50">
-                              <td colSpan={5} className="px-4 py-1.5 text-xs text-gray-400 font-medium">Из базы (без реф-кода)</td>
-                            </tr>
-                          )}
-                          {baseData.map((row, i) => (
-                            <PersonRowEl key={row.participant_id} row={row} i={i} totalEntered={T} totalRegistered={TR} />
-                          ))}
-                        </>
-                      )}
-                    </tbody></table>
+              {(organizers.length > 0 || baseData.length > 0) && (() => {
+                const baseEntered = baseData.reduce((s, r) => s + r.entered, 0)
+                const baseRegistered = baseData.reduce((s, r) => s + r.registered, 0)
+                return (
+                  <div>
+                    <GroupHeader label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" />
+                    <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
+                      <table className="w-full">{TABLE_HEAD}<tbody>
+                        {organizers.map((row, i) => (
+                          <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
+                        ))}
+                        {baseData.length > 0 && (
+                          <tr className="border-b border-gray-50 last:border-0 bg-gray-50/50">
+                            <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">—</td>
+                            <td className="px-4 py-3">
+                              <span className="font-medium text-gray-500 text-sm">Из базы (без реф-кода)</span>
+                              <div className="text-xs text-gray-400">{baseData.length} чел.</div>
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              <span className="font-semibold tabular-nums text-gray-800 text-sm">{baseEntered}</span>
+                              <span className="text-gray-300 mx-1">/</span>
+                              <span className="font-semibold tabular-nums text-gray-800 text-sm">{baseRegistered}</span>
+                            </td>
+                            <td className="px-3 py-3 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(baseRegistered, baseEntered)}</td>
+                            <td className="px-3 py-3 text-center text-xs text-gray-400 hidden md:table-cell">
+                              {pct(baseEntered, T)} / {pct(baseRegistered, TR)}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody></table>
+                    </div>
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* РЕФЕРАЛЫ */}
               {referrals.length > 0 && (
