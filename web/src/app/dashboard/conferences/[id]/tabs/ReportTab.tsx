@@ -58,9 +58,9 @@ function formatDate(iso: string) {
   })
 }
 
-// Шапка группы (цветная строка)
-function GroupHeader({
-  label, entered, registered, totalEntered, totalRegistered, color
+// Сворачиваемая группа
+function CollapsibleGroup({
+  label, entered, registered, totalEntered, totalRegistered, color, children, count
 }: {
   label: string
   entered: number
@@ -68,24 +68,42 @@ function GroupHeader({
   totalEntered: number
   totalRegistered: number
   color: 'dark' | 'blue' | 'amber' | 'gray'
+  children: React.ReactNode
+  count: number
 }) {
+  const [open, setOpen] = useState(true)
   const cls = {
     dark:  'bg-gradient-to-r from-[#25455D] to-[#1a3348] text-[#FFCFA4]',
     blue:  'bg-blue-100 text-blue-800',
     amber: 'bg-amber-50 text-amber-800 border border-amber-100',
     gray:  'bg-gray-100 text-gray-600',
   }[color]
+  const chevronCls = color === 'dark' ? 'text-[#FFCFA4]/70' : 'text-current opacity-40'
 
   return (
-    <div className={`flex items-center justify-between px-4 py-1.5 rounded-t-xl font-semibold text-sm ${cls}`}>
-      <span>{label}</span>
-      <span className="font-bold tabular-nums flex items-center gap-2 flex-wrap justify-end">
-        <span>{entered} / {registered}</span>
-        <span className="font-normal opacity-75">{pct(registered, entered)}</span>
-        <span className="text-xs opacity-50 hidden sm:inline">
-          {pct(entered, totalEntered)} / {pct(registered, totalRegistered)}
+    <div>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center justify-between px-4 py-1.5 font-semibold text-sm ${open ? 'rounded-t-xl' : 'rounded-xl'} ${cls} transition-all`}
+      >
+        <span className="flex items-center gap-2">
+          <ChevronDown size={14} className={`${chevronCls} transition-transform ${open ? '' : '-rotate-90'}`} />
+          {label}
+          <span className="font-normal opacity-50 text-xs">{count} чел.</span>
         </span>
-      </span>
+        <span className="font-bold tabular-nums flex items-center gap-2">
+          <span>{entered} / {registered}</span>
+          <span className="font-normal opacity-75">{pct(registered, entered)}</span>
+          <span className="text-xs opacity-50 hidden sm:inline">
+            {pct(entered, totalEntered)} / {pct(registered, totalRegistered)}
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
+          {children}
+        </div>
+      )}
     </div>
   )
 }
@@ -322,58 +340,55 @@ export default function ReportTab({ eventId }: { eventId: number }) {
 
               <div className="text-xs text-gray-400 text-right">Зашло в бот / Зарегистрировалось</div>
 
-              {/* СПИКЕРЫ — все вместе по sort_order, коммерческие подсвечены */}
+              {/* СПИКЕРЫ */}
               {(regularSpk.length > 0 || commercialSpk.length > 0) && (() => {
                 const allSpk = detail.speakers_data.filter(s => s.role !== 'organizer').sort(byEntered)
                 const allEntered = allSpk.reduce((s, r) => s + r.entered, 0)
                 const allReg = allSpk.reduce((s, r) => s + r.registered, 0)
                 return (
-                  <div>
-                    <GroupHeader label="СПИКЕРЫ" entered={allEntered} registered={allReg} totalEntered={T} totalRegistered={TR} color="dark" />
-                    <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
-                            <th className="text-left px-4 py-1.5 font-medium w-8">№</th>
-                            <th className="text-left px-4 py-1.5 font-medium">Никнейм / Имя</th>
-                            <th className="text-center px-3 py-1.5 font-medium">Зашло / Зарег.</th>
-                            <th className="text-center px-3 py-1.5 font-medium hidden sm:table-cell">Конверсия</th>
-                            <th className="text-center px-3 py-1.5 font-medium hidden md:table-cell">Доля зашло / зарег.</th>
-                            <th className="text-center px-3 py-1.5 font-medium w-10">Ком.</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                        {allSpk.map((row, i) => (
-                          <tr key={row.speaker_event_id}
-                            className={`border-b border-gray-50 last:border-0 hover:bg-blue-50/40 ${row.is_commercial ? 'bg-blue-50/30' : ''}`}>
-                            <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
-                            <td className="px-4 py-1.5">
-                              <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
-                                className="font-medium text-[#25455D] hover:underline text-sm">
-                                {row.name || row.username || '—'}
-                              </Link>
-                              {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
-                              {row.role === 'headliner' && <div className="text-xs text-gray-400 font-normal">хедлайнер</div>}
-                              {row.role === 'partner' && <div className="text-xs text-gray-400 font-normal">партнёр</div>}
-                            </td>
-                            <td className="px-3 py-1.5 text-center">
-                              <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
-                              <span className="text-gray-300 mx-1">/</span>
-                              <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
-                            </td>
-                            <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
-                            <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
-                              {pct(row.entered, T)} / {pct(row.registered, TR)}
-                            </td>
-                            <td className="px-3 py-1.5 text-center">
-                              {row.is_commercial && <span className="text-blue-500 text-base">✓</span>}
-                            </td>
-                          </tr>
-                        ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  <CollapsibleGroup label="СПИКЕРЫ" entered={allEntered} registered={allReg} totalEntered={T} totalRegistered={TR} color="dark" count={allSpk.length}>
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
+                          <th className="text-left px-4 py-1.5 font-medium w-8">№</th>
+                          <th className="text-left px-4 py-1.5 font-medium">Имя</th>
+                          <th className="text-center px-3 py-1.5 font-medium">Зашло / Зарег.</th>
+                          <th className="text-center px-3 py-1.5 font-medium hidden sm:table-cell">Конв.</th>
+                          <th className="text-center px-3 py-1.5 font-medium hidden md:table-cell">Доля</th>
+                          <th className="text-center px-3 py-1.5 font-medium w-10">Ком.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                      {allSpk.map((row, i) => (
+                        <tr key={row.speaker_event_id}
+                          className={`border-b border-gray-50 last:border-0 hover:bg-blue-50/40 ${row.is_commercial ? 'bg-blue-50/30' : ''}`}>
+                          <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
+                          <td className="px-4 py-1.5">
+                            <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
+                              className="font-medium text-[#25455D] hover:underline text-sm">
+                              {row.name || row.username || '—'}
+                            </Link>
+                            {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
+                            {row.role === 'headliner' && <div className="text-xs text-gray-400 font-normal">хедлайнер</div>}
+                            {row.role === 'partner' && <div className="text-xs text-gray-400 font-normal">партнёр</div>}
+                          </td>
+                          <td className="px-3 py-1.5 text-center">
+                            <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
+                            <span className="text-gray-300 mx-1">/</span>
+                            <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
+                          </td>
+                          <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
+                          <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
+                            {pct(row.entered, T)} / {pct(row.registered, TR)}
+                          </td>
+                          <td className="px-3 py-1.5 text-center">
+                            {row.is_commercial && <span className="text-blue-500 text-base">✓</span>}
+                          </td>
+                        </tr>
+                      ))}
+                      </tbody>
+                    </table>
+                  </CollapsibleGroup>
                 )
               })()}
 
@@ -382,49 +397,43 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                 const baseEntered = baseData.reduce((s, r) => s + r.entered, 0)
                 const baseRegistered = baseData.reduce((s, r) => s + r.registered, 0)
                 return (
-                  <div>
-                    <GroupHeader label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" />
-                    <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
-                      <table className="w-full">{TABLE_HEAD}<tbody>
-                        {organizers.map((row, i) => (
-                          <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
-                        ))}
-                        {baseData.length > 0 && (
-                          <tr className="border-b border-gray-50 last:border-0 bg-gray-50/50">
-                            <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + 1}</td>
-                            <td className="px-4 py-1.5">
-                              <span className="font-medium text-gray-500 text-sm">Из базы (без реф-кода)</span>
-                              <div className="text-xs text-gray-400">{baseData.length} чел.</div>
-                            </td>
-                            <td className="px-3 py-1.5 text-center">
-                              <span className="font-semibold tabular-nums text-gray-800 text-sm">{baseEntered}</span>
-                              <span className="text-gray-300 mx-1">/</span>
-                              <span className="font-semibold tabular-nums text-gray-800 text-sm">{baseRegistered}</span>
-                            </td>
-                            <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(baseRegistered, baseEntered)}</td>
-                            <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
-                              {pct(baseEntered, T)} / {pct(baseRegistered, TR)}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody></table>
-                    </div>
-                  </div>
+                  <CollapsibleGroup label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" count={organizers.length + (baseData.length > 0 ? 1 : 0)}>
+                    <table className="w-full">{TABLE_HEAD}<tbody>
+                      {organizers.map((row, i) => (
+                        <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
+                      ))}
+                      {baseData.length > 0 && (
+                        <tr className="border-b border-gray-50 last:border-0 bg-gray-50/50">
+                          <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + 1}</td>
+                          <td className="px-4 py-1.5">
+                            <span className="font-medium text-gray-500 text-sm">Из базы (без реф-кода)</span>
+                            <div className="text-xs text-gray-400">{baseData.length} чел.</div>
+                          </td>
+                          <td className="px-3 py-1.5 text-center">
+                            <span className="font-semibold tabular-nums text-gray-800 text-sm">{baseEntered}</span>
+                            <span className="text-gray-300 mx-1">/</span>
+                            <span className="font-semibold tabular-nums text-gray-800 text-sm">{baseRegistered}</span>
+                          </td>
+                          <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(baseRegistered, baseEntered)}</td>
+                          <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
+                            {pct(baseEntered, T)} / {pct(baseRegistered, TR)}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody></table>
+                  </CollapsibleGroup>
                 )
               })()}
 
               {/* РЕФЕРАЛЫ */}
               {referrals.length > 0 && (
-                <div>
-                  <GroupHeader label="РЕФЕРАЛЫ" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} color="amber" />
-                  <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
-                    <table className="w-full">{TABLE_HEAD}<tbody>
-                      {referrals.map((row, i) => (
-                        <PersonRowEl key={row.participant_id} row={row} i={i} totalEntered={T} totalRegistered={TR} />
-                      ))}
-                    </tbody></table>
-                  </div>
-                </div>
+                <CollapsibleGroup label="РЕФОВОДЫ" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} color="amber" count={referrals.length}>
+                  <table className="w-full">{TABLE_HEAD}<tbody>
+                    {referrals.map((row, i) => (
+                      <PersonRowEl key={row.participant_id} row={row} i={i} totalEntered={T} totalRegistered={TR} />
+                    ))}
+                  </tbody></table>
+                </CollapsibleGroup>
               )}
 
             </div>
