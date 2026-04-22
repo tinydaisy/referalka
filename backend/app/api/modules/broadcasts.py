@@ -96,7 +96,7 @@ DEFAULT_TEMPLATES = [
         "button_url": "{stream_url}",
         "schedule_mode": "fixed_offset",
         "offset_minutes": 5,
-        "audience_include": "all_client",
+        "audience_include": "all_event",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
     },
