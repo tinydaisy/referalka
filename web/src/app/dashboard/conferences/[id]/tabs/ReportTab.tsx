@@ -313,28 +313,52 @@ export default function ReportTab({ eventId }: { eventId: number }) {
           ) : detail ? (
             <div className="space-y-6">
               {/* Сводка */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <SummaryCard label="Всего" entered={T} registered={TR} totalEntered={T} totalRegistered={TR} dark />
                 <SummaryCard label="Спикеры" entered={spkEntered + comEntered} registered={spkRegistered + comRegistered} totalEntered={T} totalRegistered={TR} />
                 <SummaryCard label="Рефералы" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} />
-                <SummaryCard label="Организатор + база" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} />
               </div>
 
               <div className="text-xs text-gray-400 text-right">Зашло в бот / Зарегистрировалось</div>
 
-              {/* СПИКЕРЫ */}
-              {regularSpk.length > 0 && (
-                <div>
-                  <GroupHeader label="СПИКЕРЫ" entered={spkEntered} registered={spkRegistered} totalEntered={T} totalRegistered={TR} color="dark" />
-                  <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
-                    <table className="w-full">{TABLE_HEAD}<tbody>
-                      {regularSpk.map((row, i) => (
-                        <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
-                      ))}
-                    </tbody></table>
+              {/* СПИКЕРЫ — все вместе по sort_order, коммерческие подсвечены */}
+              {(regularSpk.length > 0 || commercialSpk.length > 0) && (() => {
+                const allSpk = detail.speakers_data.filter(s => s.role !== 'organizer')
+                const allEntered = allSpk.reduce((s, r) => s + r.entered, 0)
+                const allReg = allSpk.reduce((s, r) => s + r.registered, 0)
+                return (
+                  <div>
+                    <GroupHeader label="СПИКЕРЫ" entered={allEntered} registered={allReg} totalEntered={T} totalRegistered={TR} color="dark" />
+                    <div className="bg-white border border-gray-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
+                      <table className="w-full">{TABLE_HEAD}<tbody>
+                        {allSpk.map((row, i) => (
+                          <tr key={row.speaker_event_id}
+                            className={`border-b border-gray-50 last:border-0 hover:bg-blue-50/40 ${row.is_commercial ? 'bg-blue-50/30' : ''}`}>
+                            <td className="px-4 py-3 text-gray-400 tabular-nums text-sm">{i + 1}</td>
+                            <td className="px-4 py-3">
+                              <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
+                                className="font-medium text-[#25455D] hover:underline text-sm">
+                                {row.username ? `@${row.username}` : row.name || '—'}
+                              </Link>
+                              {row.username && row.name && <div className="text-xs text-gray-400">{row.name}</div>}
+                              {row.is_commercial && <span className="text-xs text-blue-500 font-medium">коммерческий</span>}
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
+                              <span className="text-gray-300 mx-1">/</span>
+                              <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
+                            </td>
+                            <td className="px-3 py-3 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
+                            <td className="px-3 py-3 text-center text-xs text-gray-400 hidden md:table-cell">
+                              {pct(row.entered, T)} / {pct(row.registered, TR)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody></table>
+                    </div>
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* ОРГАНИЗАТОР + ИЗ БАЗЫ */}
               {(organizers.length > 0 || baseData.length > 0) && (
@@ -376,19 +400,6 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                 </div>
               )}
 
-              {/* КОММЕРЧЕСКИЕ */}
-              {commercialSpk.length > 0 && (
-                <div>
-                  <GroupHeader label="КОММЕРЧЕСКИЕ СПИКЕРЫ" entered={comEntered} registered={comRegistered} totalEntered={T} totalRegistered={TR} color="blue" />
-                  <div className="bg-blue-50/30 border border-blue-100 border-t-0 rounded-b-xl overflow-hidden shadow-sm">
-                    <table className="w-full">{TABLE_HEAD}<tbody>
-                      {commercialSpk.map((row, i) => (
-                        <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
-                      ))}
-                    </tbody></table>
-                  </div>
-                </div>
-              )}
             </div>
           ) : null}
         </>
