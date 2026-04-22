@@ -357,9 +357,9 @@ export default function ReportTab({ eventId }: { eventId: number }) {
   const T = detail?.total_entered ?? 0
   const TR = detail?.total_registered ?? 0
 
-  // Группа "Организатор" = организаторы + из базы
-  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0)
-  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0)
+  // Группа "Организатор" = организаторы + из базы + ошибки распределения
+  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0) + errorsData.reduce((s, r) => s + r.entered, 0)
+  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0) + errorsData.reduce((s, r) => s + r.registered, 0)
 
   const spkEntered     = regularSpk.reduce((s, r) => s + r.entered, 0)
   const spkRegistered  = regularSpk.reduce((s, r) => s + r.registered, 0)
@@ -367,8 +367,6 @@ export default function ReportTab({ eventId }: { eventId: number }) {
   const comRegistered  = commercialSpk.reduce((s, r) => s + r.registered, 0)
   const refEntered     = referrals.reduce((s, r) => s + r.entered, 0)
   const refRegistered  = referrals.reduce((s, r) => s + r.registered, 0)
-  const errEntered     = errorsData.reduce((s, r) => s + r.entered, 0)
-  const errRegistered  = errorsData.reduce((s, r) => s + r.registered, 0)
 
   return (
     <div className="space-y-6">
@@ -436,12 +434,11 @@ export default function ReportTab({ eventId }: { eventId: number }) {
           ) : detail ? (
             <div className="space-y-3">
               {/* Сводка */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <SummaryCard label="Всего" entered={T} registered={TR} totalEntered={T} totalRegistered={TR} dark />
                 <SummaryCard label="Спикеры" entered={spkEntered + comEntered} registered={spkRegistered + comRegistered} totalEntered={T} totalRegistered={TR} />
                 <SummaryCard label="Организатор" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} />
                 <SummaryCard label="Рефоводы" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} />
-                <SummaryCard label="⚠ Ошибка" entered={errEntered} registered={errRegistered} totalEntered={T} totalRegistered={TR} />
               </div>
 
               <div className="text-xs text-gray-400 text-right">Зашло в бот / Зарегистрировалось</div>
@@ -484,12 +481,15 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                 )
               })()}
 
-              {/* ОРГАНИЗАТОР + ИЗ БАЗЫ */}
-              {(organizers.length > 0 || baseData.length > 0) && (() => {
+              {/* ОРГАНИЗАТОР + ИЗ БАЗЫ + ОШИБОЧНЫЕ */}
+              {(organizers.length > 0 || baseData.length > 0 || errorsData.length > 0) && (() => {
                 const baseEntered = baseData.reduce((s, r) => s + r.entered, 0)
                 const baseRegistered = baseData.reduce((s, r) => s + r.registered, 0)
+                const errEntered = errorsData.reduce((s, r) => s + r.entered, 0)
+                const errRegistered = errorsData.reduce((s, r) => s + r.registered, 0)
+                const extraRows = (baseData.length > 0 ? 1 : 0) + (errorsData.length > 0 ? 1 : 0)
                 return (
-                  <CollapsibleGroup label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" count={organizers.length + (baseData.length > 0 ? 1 : 0)}>
+                  <CollapsibleGroup label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" count={organizers.length + extraRows}>
                     {organizers.map((row, i) => (
                       <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
                     ))}
@@ -511,44 +511,25 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                         </td>
                       </tr>
                     )}
+                    {errorsData.length > 0 && (
+                      <tr className="border-b border-gray-50 last:border-0 bg-red-50/30">
+                        <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + (baseData.length > 0 ? 1 : 0) + 1}</td>
+                        <td className="px-4 py-1.5">
+                          <span className="font-medium text-red-400 text-sm">Ошибка распределения</span>
+                          <div className="text-xs text-gray-400">{errorsData.length} чел.</div>
+                        </td>
+                        <td className="px-3 py-1.5 text-center">
+                          <span className="font-semibold tabular-nums text-gray-800 text-sm">{errEntered}</span>
+                          <span className="text-gray-300 mx-1">/</span>
+                          <span className="font-semibold tabular-nums text-gray-800 text-sm">{errRegistered}</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(errRegistered, errEntered)}</td>
+                        <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
+                          {pct(errEntered, T)} / {pct(errRegistered, TR)}
+                        </td>
+                      </tr>
+                    )}
                   </CollapsibleGroup>
-                )
-              })()}
-
-              {/* ОШИБКА РАСПРЕДЕЛЕНИЯ — только итог, без списка */}
-              {(() => {
-                const cls = 'bg-red-50 text-red-700 border border-red-100'
-                const opCls = 'opacity-50'
-                return (
-                  <div className="rounded-xl overflow-hidden border border-red-100 shadow-sm">
-                    <table className="w-full">
-                      <colgroup>
-                        <col className="w-8" />
-                        <col />
-                        <col className="w-36" />
-                        <col className="w-20 hidden sm:table-column" />
-                        <col className="w-28 hidden md:table-column" />
-                      </colgroup>
-                      <thead>
-                        <tr className={cls}>
-                          <th className="px-4 py-1.5 text-left w-8" />
-                          <th className="px-4 py-1.5 text-left font-semibold text-sm">
-                            ОШИБКА РАСПРЕДЕЛЕНИЯ
-                            <span className={`ml-2 font-normal text-xs ${opCls}`}>{errorsData.length} чел.</span>
-                          </th>
-                          <th className="px-3 py-1.5 text-center font-bold tabular-nums text-sm">
-                            {errEntered} / {errRegistered}
-                          </th>
-                          <th className={`px-3 py-1.5 text-center font-normal text-sm hidden sm:table-cell ${opCls}`}>
-                            {pct(errRegistered, errEntered)}
-                          </th>
-                          <th className={`px-3 py-1.5 text-center font-normal text-xs hidden md:table-cell ${opCls}`}>
-                            {pct(errEntered, T)} / {pct(errRegistered, TR)}
-                          </th>
-                        </tr>
-                      </thead>
-                    </table>
-                  </div>
                 )
               })()}
 
