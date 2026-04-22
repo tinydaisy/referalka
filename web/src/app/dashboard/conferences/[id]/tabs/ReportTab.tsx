@@ -439,14 +439,42 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                 )
               })()}
 
-              {/* ОШИБКА РАСПРЕДЕЛЕНИЯ */}
-              {true && (
-                <CollapsibleGroup label="ОШИБКА РАСПРЕДЕЛЕНИЯ" entered={errEntered} registered={errRegistered} totalEntered={T} totalRegistered={TR} color="red" count={errorsData.length}>
-                  {errorsData.map((row, i) => (
-                    <PersonRowEl key={row.participant_id} row={row} i={i} totalEntered={T} totalRegistered={TR} />
-                  ))}
-                </CollapsibleGroup>
-              )}
+              {/* ОШИБКА РАСПРЕДЕЛЕНИЯ — только итог, без списка */}
+              {(() => {
+                const cls = 'bg-red-50 text-red-700 border border-red-100'
+                const opCls = 'opacity-50'
+                return (
+                  <div className="rounded-xl overflow-hidden border border-red-100 shadow-sm">
+                    <table className="w-full">
+                      <colgroup>
+                        <col className="w-8" />
+                        <col />
+                        <col className="w-36" />
+                        <col className="w-20 hidden sm:table-column" />
+                        <col className="w-28 hidden md:table-column" />
+                      </colgroup>
+                      <thead>
+                        <tr className={cls}>
+                          <th className="px-4 py-1.5 text-left w-8" />
+                          <th className="px-4 py-1.5 text-left font-semibold text-sm">
+                            ОШИБКА РАСПРЕДЕЛЕНИЯ
+                            <span className={`ml-2 font-normal text-xs ${opCls}`}>{errorsData.length} чел.</span>
+                          </th>
+                          <th className="px-3 py-1.5 text-center font-bold tabular-nums text-sm">
+                            {errEntered} / {errRegistered}
+                          </th>
+                          <th className={`px-3 py-1.5 text-center font-normal text-sm hidden sm:table-cell ${opCls}`}>
+                            {pct(errRegistered, errEntered)}
+                          </th>
+                          <th className={`px-3 py-1.5 text-center font-normal text-xs hidden md:table-cell ${opCls}`}>
+                            {pct(errEntered, T)} / {pct(errRegistered, TR)}
+                          </th>
+                        </tr>
+                      </thead>
+                    </table>
+                  </div>
+                )
+              })()}
 
               {/* РЕФЕРАЛЫ */}
               {referrals.length > 0 && (
