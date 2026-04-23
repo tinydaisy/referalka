@@ -319,7 +319,7 @@ async def list_templates(
     result = []
     for r in rows:
         d = dict(r)
-        if d["type"] in ("day_end", "day_live") and not d["photo_url"] and default_poster:
+        if d["type"] in ("day_end", "day_live", "vip_offer") and not d["photo_url"] and default_poster:
             d["photo_url"] = default_poster
         result.append(d)
     return {"templates": result}
