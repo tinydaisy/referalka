@@ -755,6 +755,28 @@ async def generate_schedules(
             fire_at = last_session["end_datetime"] + timedelta(minutes=offset)
             await add_schedule(tmpl, fire_at, None, "day_end")
 
+    # ── vip_offer: одна запись на событие с fire_at=NULL (пользователь сам задаёт время) ──
+    if "vip_offer" in tmpl_map:
+        tmpl = tmpl_map["vip_offer"]
+        exists = await db.fetchval(
+            "SELECT 1 FROM broadcast_schedules WHERE event_id=$1 AND type='vip_offer' AND session_id IS NULL",
+            event_id
+        )
+        if not exists:
+            await db.execute(
+                """
+                INSERT INTO broadcast_schedules
+                  (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+                   snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+                VALUES ($1, NULL, $2, 'vip_offer', NULL, 'draft', $3, $4, $5, $6, $7, $8)
+                """,
+                event_id, tmpl["id"], tmpl["audience_include"], tmpl["audience_exclude"],
+                tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+            )
+            created += 1
+        else:
+            skipped += 1
+
     return {"ok": True, "created": created, "skipped": skipped}
 
 

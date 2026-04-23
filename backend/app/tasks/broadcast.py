@@ -178,14 +178,31 @@ async def _send_broadcast(schedule_id: int):
             logger.info(f"Рассылка {schedule_id}: пропускаем {len(already_sent_ids)} уже получивших")
         final_ids = final_ids - already_sent_ids
 
+        # Если в тексте есть персональные плейсхолдеры — подтягиваем имена получателей
+        needs_first_name = "{first_name}" in (text or "")
+        name_by_tg: dict[str, str] = {}
+        if needs_first_name and final_ids:
+            name_rows = await conn.fetch(
+                """
+                SELECT platform_user_id, COALESCE(NULLIF(first_name, ''), 'друг') AS first_name
+                FROM platform_users
+                WHERE client_id=$1 AND platform='telegram' AND platform_user_id = ANY($2::text[])
+                """,
+                schedule["client_id"], list(final_ids)
+            )
+            name_by_tg = {r["platform_user_id"]: r["first_name"] for r in name_rows}
+
         # Отправляем параллельно
         sent = 0
         sem = asyncio.Semaphore(50)
 
         async def send_one(tg_id: str, http_client: httpx.AsyncClient):
             async with sem:
+                msg_text = text
+                if needs_first_name:
+                    msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
                 return tg_id, await send_telegram_message(
-                    http_client, bot_token, tg_id, text, photo_url, button_text, button_url
+                    http_client, bot_token, tg_id, msg_text, photo_url, button_text, button_url
                 )
 
         async with httpx.AsyncClient(timeout=10, limits=httpx.Limits(max_connections=80)) as http_client:
