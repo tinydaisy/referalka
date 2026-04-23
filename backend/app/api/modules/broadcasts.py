@@ -143,10 +143,10 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": True,
     },
     {
-        "name": "День конференции — за 30 мин (не зарегистрирован)",
+        "name": "День конференции — за 2 часа (не зарегистрирован)",
         "type": "day_start_30min_unreg",
         "text": (
-            "<b>[Последний шанс зарегистрироваться] Через 30 минут стартует День {day_number} конференции «{conf_title}»</b>\n\n"
+            "<b>[Последний шанс зарегистрироваться] Через 2 часа стартует День {day_number} конференции «{conf_title}»</b>\n\n"
             "🔗 {registration_url} \n\n"
             "Сегодня в программе:\n\n"
             "{day_date}\n\n"
@@ -160,16 +160,16 @@ DEFAULT_TEMPLATES = [
         "button_text": "Зарегистрироваться",
         "button_url": "{registration_url}",
         "schedule_mode": "day_offset",
-        "offset_minutes": 30,
+        "offset_minutes": 120,
         "audience_include": "all_client",
         "audience_exclude": "registered_event",
         "allow_custom_datetime": False,
     },
     {
-        "name": "День конференции — за 30 мин (зарегистрирован)",
+        "name": "День конференции — за 2 часа (зарегистрирован)",
         "type": "day_start_30min_reg",
         "text": (
-            "<b>[Уже через 30 минут] Стартует День {day_number} конференции «{conf_title}»</b>\n\n"
+            "<b>[Уже через 2 часа] Стартует День {day_number} конференции «{conf_title}»</b>\n\n"
             "🔗 {stream_url}\n\n"
             "Сегодня в программе:\n\n"
             "{day_date}\n\n"
@@ -183,7 +183,7 @@ DEFAULT_TEMPLATES = [
         "button_text": "Войти в эфир",
         "button_url": "{stream_url}",
         "schedule_mode": "day_offset",
-        "offset_minutes": 30,
+        "offset_minutes": 120,
         "audience_include": "registered_event",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
@@ -227,6 +227,39 @@ DEFAULT_TEMPLATES = [
         "audience_include": "all_event",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
+    },
+    {
+        "name": "Продажа VIP-тарифа",
+        "type": "vip_offer",
+        "text": (
+            "Добрейшего-богатейшего! {first_name}!\n\n"
+            "🌟 Главные итоги 1 дня онлайн-конференции iViSiON\n\n"
+            "Друзья, первый день конференции завершился.\n"
+            "Спасибо за вашу активность, вопросы, энергию и участие. Вы сделали атмосферу мощной и живой ❤️\n\n"
+            "Но самое важное — ваше развитие не заканчивается сегодня.\n\n"
+            "Вы можете продолжить взаимодействие с нами в следующих форматах:\n\n"
+            "🔸 Бесплатный тест-драйв программы «Делай имя и продажи» для экспертов и предпринимателей\n"
+            "👉 https://www.margoforbs.ru/dns_stupen1.html\n\n"
+            "🔸 Канал Марго Форбс Telegram 👉 https://t.me/margoforbs_business\n"
+            "🔸 Канал Марго Форбс MAX 👉 https://max.ru/id890306512862_biz\n\n"
+            "👉 Мастермайнд в тарифе VIP с записями выступлений\n"
+            "https://medialift.margoforbs.ru/ivision-vip-tarif\n\n"
+            "VIP Тариф всего за 4990 руб. позволяет:\n"
+            "— получить записи и вернуться к любому выступлению и внедрить всё в удобном ритме;\n"
+            "— получить 20 кодовых слов с эфиров для повышения шансов в розыгрыше;\n"
+            "— пройти 2-3х часовой практический мастермайнд «Делай имя и продажи». "
+            "Каждый участник выстроит стратегию медийности на год через коллаборации с лидерами рынка, "
+            "сформулирует большую продающую идею и концепт именного события.\n\n"
+            "Выбирайте, что вам подходит — и продолжайте движение вперёд ❤️"
+        ),
+        "photo_url": None,
+        "button_text": "Оплатить VIP",
+        "button_url": "https://medialift.margoforbs.ru/ivision-vip-tarif",
+        "schedule_mode": "custom_datetime",
+        "offset_minutes": 0,
+        "audience_include": "all_client",
+        "audience_exclude": "none",
+        "allow_custom_datetime": True,
     },
 ]
 

@@ -48,14 +48,14 @@ const TYPE_DEFS: TypeDef[] = [
   },
   {
     type: 'day_start_30min_unreg',
-    title: 'День конференции — за 30 мин (не зарегистрирован)',
+    title: 'День конференции — за 2 часа (не зарегистрирован)',
     hint: 'Для тех, кто ещё не зарегистрирован. Кнопка и ссылка — на лендинг регистрации. Фото — горизонтальная афиша.',
     variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{registration_url}'],
     showPhoto: true,
   },
   {
     type: 'day_start_30min_reg',
-    title: 'День конференции — за 30 мин (зарегистрирован)',
+    title: 'День конференции — за 2 часа (зарегистрирован)',
     hint: 'Для уже зарегистрированных участников. Кнопка и ссылка — на вебинарную комнату дня. Фото — горизонтальная афиша.',
     variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{stream_url}'],
     showPhoto: true,
@@ -72,6 +72,13 @@ const TYPE_DEFS: TypeDef[] = [
     title: 'День конференции — итоги дня',
     hint: 'Отправляется по окончании дня. Автоматически вставляет список подарков всех спикеров этого дня.',
     variables: ['{conf_title}', '{day_ordinal}', '{next_day_mention}', '{raffle_url}', '{day_speakers_gifts}'],
+    showPhoto: true,
+  },
+  {
+    type: 'vip_offer',
+    title: 'Продажа VIP-тарифа',
+    hint: 'Произвольная рассылка (например, продажа VIP-тарифа после итогов дня). Время отправки задаётся вручную в очереди. По умолчанию уходит по всей базе клиента.',
+    variables: ['{first_name}'],
     showPhoto: true,
   },
 ]
@@ -95,6 +102,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{next_day_mention}', desc: 'Фраза про следующую встречу (авто: завтра/дата, пусто если последний день)' },
   { name: '{raffle_url}', desc: 'Ссылка на розыгрыш' },
   { name: '{day_speakers_gifts}', desc: 'Список подарков спикеров за день' },
+  { name: '{first_name}', desc: 'Имя получателя (персонализация)' },
 ]
 
 const INCLUDE_LABELS: Record<string, string> = {
@@ -462,6 +470,7 @@ export default function TemplatesPage() {
       .replace(/\{speaker_tg\}/g, '')
       .replace(/\{speaker_topic\}/g, '[тема]')
       .replace(/\{speaker_achievements\}/g, '')
+      .replace(/\{first_name\}/g, '[Имя]')
 
     // Убираем незамененные переменные если пустые
     if (!nextDayMention) out = out.replace(/^.*\{next_day_mention\}.*$\n?/gm, '')

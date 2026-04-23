@@ -53,8 +53,8 @@ const TYPE_LABELS: Record<string, string> = {
   pre_start:             'Анонс спикера',
   gift:                  'Подарок спикера',
   speaker_intro:         'Знакомство со спикером',
-  day_start_30min_unreg: 'За 30 мин (не зарег.)',
-  day_start_30min_reg:   'За 30 мин (зарег.)',
+  day_start_30min_unreg: 'За 2 часа (не зарег.)',
+  day_start_30min_reg:   'За 2 часа (зарег.)',
   day_live:              'Старт эфира',
   day_end:               'Итоги дня',
 }
