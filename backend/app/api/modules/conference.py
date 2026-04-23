@@ -2565,9 +2565,9 @@ async def create_report(
     # Сводные цифры
     speakers_entered = sum(s["entered"] for s in speakers_data)
     speakers_registered = sum(s["registered"] for s in speakers_data)
-    referrals_entered = len(referrals_data)
+    referrals_entered = sum(r["entered"] for r in referrals_data)
     referrals_registered = sum(r["registered"] for r in referrals_data)
-    base_entered = len(base_data)
+    base_entered = sum(r["entered"] for r in base_data)
     base_registered = sum(r["registered"] for r in base_data)
     errors_entered = len(errors_data)
     errors_registered = sum(r["registered"] for r in errors_data)
