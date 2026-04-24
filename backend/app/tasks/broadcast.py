@@ -147,6 +147,7 @@ async def _send_broadcast(schedule_id: int):
             session_id=schedule.get("session_id"),
             fire_at=schedule["fire_at"],
             tz=tz,
+            template_id=schedule.get("template_id"),
         )
 
         text = content["text"]

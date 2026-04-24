@@ -141,7 +141,8 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
 # ─── ЕДИНАЯ функция сборки контента сообщения ───────────────────────────────
 
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
-                                 event_id: int, session_id, fire_at, tz: ZoneInfo) -> dict:
+                                 event_id: int, session_id, fire_at, tz: ZoneInfo,
+                                 template_id=None) -> dict:
     """
     Единственная функция сборки текста, фото и кнопки для любого типа шаблона.
     Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
@@ -369,6 +370,123 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         text = text.replace("{conf_date}", conf_date_str)
         text = text.replace("{registration_url}", reg_url)
         btn_url = btn_url.replace("{registration_url}", reg_url)
+
+    elif tpl_type == "custom":
+        # Кастомный шаблон. Определяем день конференции по fire_at (если матчится дата)
+        # или по custom_day_ref шаблона; подставляем все «конференционные» плейсхолдеры.
+        custom_day_ref = None
+        if template_id:
+            row = await conn.fetchrow(
+                "SELECT custom_day_ref FROM broadcast_templates WHERE id=$1", template_id
+            )
+            custom_day_ref = row["custom_day_ref"] if row else None
+
+        conf_days_rows = await conn.fetch(
+            "SELECT day_number, day_date, stream_url FROM conf_days WHERE event_id=$1 ORDER BY day_number",
+            event_id
+        )
+        days_by_num = {d["day_number"]: d for d in conf_days_rows}
+        first_day = conf_days_rows[0] if conf_days_rows else None
+        last_day = conf_days_rows[-1] if conf_days_rows else None
+
+        # Определяем «целевой» день для плейсхолдеров
+        target_day_num = None
+        if fire_at:
+            fire_date = fire_at.astimezone(tz).date()
+            for d in conf_days_rows:
+                if d["day_date"] == fire_date:
+                    target_day_num = d["day_number"]
+                    break
+        if target_day_num is None and custom_day_ref:
+            if custom_day_ref.startswith("before_"):
+                target_day_num = first_day["day_number"] if first_day else 1
+            elif custom_day_ref.startswith("day_"):
+                try:
+                    target_day_num = int(custom_day_ref.split("_", 1)[1])
+                except Exception:
+                    pass
+            elif custom_day_ref.startswith("after_"):
+                target_day_num = last_day["day_number"] if last_day else 1
+
+        target_day = days_by_num.get(target_day_num) if target_day_num else None
+
+        conf_row = await conn.fetchrow(
+            """
+            SELECT e.title as conf_title, cc.description as conf_description,
+                   cc.registration_url, cc.raffle_url, cc.poster_horizontal
+            FROM events e
+            JOIN conf_conferences cc ON cc.event_id = e.id
+            WHERE e.id=$1
+            """,
+            event_id
+        )
+        conf_title = (conf_row["conf_title"] or "") if conf_row else ""
+        conf_desc = (conf_row["conf_description"] or "") if conf_row else ""
+        reg_url = (conf_row["registration_url"] or "") if conf_row else ""
+        raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
+        poster_h = conf_row["poster_horizontal"] if conf_row else None
+
+        raw_first_date = first_day["day_date"] if first_day else None
+        conf_date_str = f"{raw_first_date.day} {RU_MONTHS[raw_first_date.month - 1]}" if raw_first_date else ""
+
+        day_number = target_day_num or (first_day["day_number"] if first_day else 1)
+        raw_day_date = target_day["day_date"] if target_day else raw_first_date
+        day_date_str = f"{raw_day_date.day} {RU_MONTHS[raw_day_date.month - 1]}" if raw_day_date else ""
+        stream_url = (target_day["stream_url"] or "") if target_day else ""
+
+        # Программа дня — только если есть привязка к конкретному дню
+        day_program = ""
+        if target_day_num:
+            day_sessions = await conn.fetch(
+                """
+                SELECT cs.start_datetime, cs.end_datetime, cs.title as session_title,
+                       c.name as speaker_name, cse.role
+                FROM conf_sessions cs
+                LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+                LEFT JOIN collaborators c ON c.id = cse.speaker_id
+                WHERE cs.event_id=$1 AND cs.day=$2
+                ORDER BY cs.sort_order, cs.start_datetime
+                """,
+                event_id, target_day_num
+            )
+            program_lines = []
+            for s in day_sessions:
+                t_start = s["start_datetime"].astimezone(tz).strftime("%H:%M") if s["start_datetime"] else ""
+                t_end = s["end_datetime"].astimezone(tz).strftime("%H:%M") if s["end_datetime"] else ""
+                time_part = f"{t_start}–{t_end}" if t_start and t_end else t_start
+                bold_time = f"<b>{time_part}</b>" if time_part else ""
+                topic = s["session_title"] or ""
+                name = s["speaker_name"] or ""
+                role_label = ROLE_LABELS_DAY.get(s["role"] or "", "")
+                speaker_part = f" (<b>{name}{' — ' + role_label if role_label else ''}</b>)" if name else ""
+                program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
+            day_program = "\n".join(program_lines)
+
+        if not photo and poster_h:
+            photo = poster_h[0] if isinstance(poster_h, list) else poster_h
+
+        ordinal = ORDINALS.get(day_number, f"{day_number}-м")
+        text = text.replace("{conf_title}", conf_title)
+        text = text.replace("{conf_description}", conf_desc)
+        text = text.replace("{conf_date}", conf_date_str)
+        text = text.replace("{day_number}", str(day_number))
+        text = text.replace("{day_ordinal}", ordinal)
+        text = text.replace("{day_date}", day_date_str)
+        text = text.replace("{day_program}", day_program)
+        text = text.replace("{stream_url}", stream_url)
+        text = text.replace("{registration_url}", reg_url)
+        text = text.replace("{raffle_url}", raffle_url)
+
+        # Убираем незамененные строки с плейсхолдерами, если значение пустое
+        if not day_program:
+            text = re.sub(r"^.*\{day_program\}.*$\n?", "", text, flags=re.MULTILINE)
+        if not stream_url:
+            text = re.sub(r"^.*\{stream_url\}.*$\n?", "", text, flags=re.MULTILINE)
+
+        btn_url = (btn_url
+                   .replace("{stream_url}", stream_url)
+                   .replace("{registration_url}", reg_url)
+                   .replace("{raffle_url}", raffle_url))
 
     else:
         text = tmpl_text or ""

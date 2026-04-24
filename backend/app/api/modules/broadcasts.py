@@ -41,6 +41,10 @@ class TemplateCreate(BaseModel):
     photo_url: Optional[str] = None
     button_text: Optional[str] = None
     button_url: Optional[str] = None
+    audience_include: Optional[str] = None
+    audience_exclude: Optional[str] = None
+    custom_day_ref: Optional[str] = None        # 'before_1' | 'day_1' | 'after_1' для type='custom'
+    custom_time: Optional[str] = None           # 'HH:MM'
 
 
 class TemplateUpdate(BaseModel):
@@ -58,6 +62,8 @@ class TemplateUpdate(BaseModel):
     intro_start_time: Optional[str] = None      # "11:00" — время старта первого спикера
     intro_interval_min: Optional[int] = None    # интервал между спикерами в минутах
     intro_days_before: Optional[int] = None     # за сколько дней до конференции
+    custom_day_ref: Optional[str] = None        # для type='custom'
+    custom_time: Optional[str] = None           # для type='custom'
 
 
 DEFAULT_TEMPLATES = [
@@ -278,6 +284,7 @@ async def list_templates(
         SELECT id, name, type, text, photo_url, button_text, button_url,
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
+               custom_day_ref, custom_time,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -335,15 +342,30 @@ async def create_template(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
+    # Кастомные шаблоны используют custom_datetime (fire_at вычисляется в generate_schedules)
+    is_custom = data.type == "custom"
+    schedule_mode = "custom_datetime" if is_custom else None
+    allow_custom_datetime = True if is_custom else None
+
     row = await db.fetchrow(
         """
-        INSERT INTO broadcast_templates (client_id, event_id, name, type, text, photo_url, button_text, button_url)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO broadcast_templates
+          (client_id, event_id, name, type, text, photo_url, button_text, button_url,
+           audience_include, audience_exclude, custom_day_ref, custom_time,
+           schedule_mode, allow_custom_datetime)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                COALESCE($9, 'all_event'), COALESCE($10, 'none'),
+                $11, $12,
+                COALESCE($13, schedule_mode), COALESCE($14, allow_custom_datetime))
         RETURNING id, name, type, text, photo_url, button_text, button_url,
-                  schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime, created_at
+                  schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
+                  custom_day_ref, custom_time, created_at
         """,
         client_id, event_id, data.name, data.type,
-        data.text, data.photo_url, data.button_text, data.button_url
+        data.text, data.photo_url, data.button_text, data.button_url,
+        data.audience_include, data.audience_exclude,
+        data.custom_day_ref, data.custom_time,
+        schedule_mode, allow_custom_datetime,
     )
     return dict(row)
 
@@ -372,17 +394,21 @@ async def update_template(
             intro_start_time = COALESCE($12, intro_start_time),
             intro_interval_min = COALESCE($13, intro_interval_min),
             intro_days_before = COALESCE($14, intro_days_before),
+            custom_day_ref = COALESCE($15, custom_day_ref),
+            custom_time = COALESCE($16, custom_time),
             updated_at = NOW()
-        WHERE id = $15 AND event_id = $16
+        WHERE id = $17 AND event_id = $18
         RETURNING id, name, type, text, photo_url, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
-                  intro_start_time, intro_interval_min, intro_days_before
+                  intro_start_time, intro_interval_min, intro_days_before,
+                  custom_day_ref, custom_time
         """,
         data.name, data.type, data.text,
         data.photo_url, data.button_text, data.button_url,
         data.schedule_mode, data.offset_minutes,
         data.audience_include, data.audience_exclude, data.allow_custom_datetime,
         data.intro_start_time, data.intro_interval_min, data.intro_days_before,
+        data.custom_day_ref, data.custom_time,
         template_id, event_id
     )
     if not row:
@@ -521,14 +547,18 @@ async def generate_schedules(
         """
         SELECT id, type, schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
-               text, photo_url, button_text, button_url
+               custom_day_ref, custom_time,
+               text, photo_url, button_text, button_url,
+               name
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
     )
-    tmpl_map = {t["type"]: t for t in templates}
+    # Для предустановленных типов — один шаблон на тип. Кастомные собираем отдельным списком.
+    tmpl_map = {t["type"]: t for t in templates if t["type"] != "custom"}
+    custom_tmpls = [t for t in templates if t["type"] == "custom"]
 
-    if not tmpl_map:
+    if not tmpl_map and not custom_tmpls:
         raise HTTPException(status_code=400, detail="Сначала создайте шаблоны рассылок")
 
     sessions = await db.fetch(
@@ -776,6 +806,75 @@ async def generate_schedules(
             created += 1
         else:
             skipped += 1
+
+    # ── Кастомные шаблоны: fire_at = день_конфы(по custom_day_ref) + custom_time в таймзоне клиента ──
+    if custom_tmpls:
+        client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+        tz_str = (client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow"
+        tz = ZoneInfo(tz_str)
+
+        conf_days_list = await db.fetch(
+            "SELECT day_number, day_date FROM conf_days WHERE event_id=$1 ORDER BY day_number",
+            event_id
+        )
+        first_day_row = conf_days_list[0] if conf_days_list else None
+        last_day_row = conf_days_list[-1] if conf_days_list else None
+        days_by_num = {d["day_number"]: d["day_date"] for d in conf_days_list}
+
+        for tmpl in custom_tmpls:
+            ref = (tmpl["custom_day_ref"] or "").strip()
+            tm = (tmpl["custom_time"] or "").strip()
+            if not ref or not tm:
+                skipped += 1
+                continue
+            try:
+                hh, mm = tm.split(":")
+                hh, mm = int(hh), int(mm)
+            except Exception:
+                skipped += 1
+                continue
+
+            target_date = None
+            if ref.startswith("before_"):
+                n = int(ref.split("_", 1)[1])
+                if first_day_row and first_day_row["day_date"]:
+                    target_date = first_day_row["day_date"] - timedelta(days=n)
+            elif ref.startswith("day_"):
+                n = int(ref.split("_", 1)[1])
+                target_date = days_by_num.get(n)
+            elif ref.startswith("after_"):
+                n = int(ref.split("_", 1)[1])
+                if last_day_row and last_day_row["day_date"]:
+                    target_date = last_day_row["day_date"] + timedelta(days=n)
+
+            if not target_date:
+                skipped += 1
+                continue
+
+            fire_at = datetime(
+                target_date.year, target_date.month, target_date.day, hh, mm, 0, tzinfo=tz
+            )
+
+            exists = await db.fetchval(
+                """SELECT 1 FROM broadcast_schedules
+                   WHERE event_id=$1 AND template_id=$2 AND type='custom'""",
+                event_id, tmpl["id"]
+            )
+            if exists:
+                skipped += 1
+                continue
+            await db.execute(
+                """
+                INSERT INTO broadcast_schedules
+                  (event_id, session_id, template_id, type, fire_at, status, audience_include, audience_exclude,
+                   snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
+                VALUES ($1, NULL, $2, 'custom', $3, 'draft', $4, $5, $6, $7, $8, $9)
+                """,
+                event_id, tmpl["id"], fire_at,
+                tmpl["audience_include"], tmpl["audience_exclude"],
+                tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
+            )
+            created += 1
 
     return {"ok": True, "created": created, "skipped": skipped}
 
@@ -1144,6 +1243,7 @@ async def preview_schedule(
         session_id=schedule.get("session_id"),
         fire_at=schedule["fire_at"],
         tz=tz,
+        template_id=schedule.get("template_id"),
     )
 
     return {
@@ -1240,6 +1340,7 @@ async def test_template(
             btn_text=tpl["button_text"], btn_url=tpl["button_url"] or "",
             event_id=event_id, session_id=None,
             fire_at=fake_fire_at, tz=tz,
+            template_id=tpl["id"],
         )
         send_results = []
         async with httpx.AsyncClient(timeout=15) as http:

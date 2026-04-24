@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { getTimezone } from '@/lib/timezone'
 
@@ -128,6 +128,22 @@ const emptyForm = {
   name: '', type: 'pre_start', text: '', photo_url: '',
   button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
   intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
+  custom_day_ref: '', custom_time: '12:00',
+}
+
+const CUSTOM_PLACEHOLDERS = [
+  '{conf_title}', '{conf_date}', '{conf_description}',
+  '{day_number}', '{day_date}', '{day_program}',
+  '{stream_url}', '{registration_url}', '{raffle_url}',
+  '{first_name}',
+]
+
+function customDayRefLabel(ref: string, confDays: number[]): string {
+  if (!ref) return ''
+  if (ref.startsWith('before_')) return `За ${ref.split('_')[1]} дня до конференции`
+  if (ref.startsWith('day_')) return `День ${ref.split('_')[1]}`
+  if (ref.startsWith('after_')) return `Через ${ref.split('_')[1]} дня после конференции`
+  return ref
 }
 
 export default function TemplatesPage() {
@@ -137,6 +153,7 @@ export default function TemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
   const [editModal, setEditModal] = useState<any>(null)
+  const [createModal, setCreateModal] = useState(false)
   const [form, setForm] = useState({ ...emptyForm })
   const [previewModal, setPreviewModal] = useState<{ tpl: any; def: TypeDef } | null>(null)
   const [previewSpeakerId, setPreviewSpeakerId] = useState<number | null>(null)
@@ -182,6 +199,63 @@ export default function TemplatesPage() {
     }
   }
 
+  function openCreate() {
+    setForm({
+      ...emptyForm,
+      type: 'custom',
+      audience_include: 'all_event',
+      audience_exclude: 'none',
+      custom_day_ref: confDays[0] ? `day_${confDays[0]}` : 'before_1',
+      custom_time: '12:00',
+    } as any)
+    setCreateModal(true)
+  }
+
+  async function createCustom() {
+    try {
+      const f = form as any
+      if (!f.name || !f.name.trim()) {
+        alert('Введите название шаблона')
+        return
+      }
+      if (!f.custom_day_ref) {
+        alert('Выберите день отправки')
+        return
+      }
+      if (!f.custom_time || !/^\d{1,2}:\d{2}$/.test(f.custom_time)) {
+        alert('Укажите время в формате HH:MM')
+        return
+      }
+      const payload = {
+        name: f.name,
+        type: 'custom',
+        text: f.text || '',
+        photo_url: f.photo_url || null,
+        button_text: f.button_text || null,
+        button_url: f.button_url || null,
+        audience_include: f.audience_include || 'all_event',
+        audience_exclude: f.audience_exclude || 'none',
+        custom_day_ref: f.custom_day_ref,
+        custom_time: f.custom_time,
+      }
+      const res = await api.conference.templates.create(eventId, payload)
+      setTemplates([...templates, res])
+      setCreateModal(false)
+    } catch (e: any) {
+      alert(e.message)
+    }
+  }
+
+  async function removeTemplate(tplId: number) {
+    if (!confirm('Удалить шаблон?')) return
+    try {
+      await api.conference.templates.delete(eventId, tplId)
+      setTemplates(templates.filter((x: any) => x.id !== tplId))
+    } catch (e: any) {
+      alert(e.message)
+    }
+  }
+
   function openEdit(t: any) {
     setEditModal(t)
     setForm({
@@ -196,6 +270,8 @@ export default function TemplatesPage() {
       intro_start_time: t.intro_start_time || '11:00',
       intro_interval_min: t.intro_interval_min || 15,
       intro_days_before: t.intro_days_before || 1,
+      custom_day_ref: t.custom_day_ref || '',
+      custom_time: t.custom_time || '12:00',
     } as any)
   }
 
@@ -480,6 +556,35 @@ export default function TemplatesPage() {
     return out.trim()
   }
 
+  const customTemplates = templates.filter(t => t.type === 'custom')
+
+  // Варианты «за N дней», «День N», «через N дней» для выпадающего списка.
+  // confDays приходит из БД как массив номеров дней ([1, 2, 3] для трёхдневной конфы).
+  const dayRefOptions: { value: string; label: string }[] = [
+    { value: 'before_3', label: 'За 3 дня до конференции' },
+    { value: 'before_2', label: 'За 2 дня до конференции' },
+    { value: 'before_1', label: 'За 1 день до конференции' },
+    ...confDays.map(n => ({ value: `day_${n}`, label: `День ${n}` })),
+    { value: 'after_1', label: 'Через 1 день после конференции' },
+    { value: 'after_2', label: 'Через 2 дня после конференции' },
+    { value: 'after_3', label: 'Через 3 дня после конференции' },
+  ]
+
+  function customDayToTestDay(ref: string): number {
+    if (!ref) return confDays[0] ?? 1
+    if (ref.startsWith('day_')) return Number(ref.split('_')[1])
+    if (ref.startsWith('after_')) return confDays[confDays.length - 1] ?? 1
+    return confDays[0] ?? 1
+  }
+
+  const CUSTOM_DEF: TypeDef = {
+    type: 'custom',
+    title: 'Кастомный шаблон',
+    hint: '',
+    variables: CUSTOM_PLACEHOLDERS,
+    showPhoto: true,
+  }
+
   return (
     <div>
       <p className="text-sm text-gray-500 mb-4">
@@ -487,6 +592,16 @@ export default function TemplatesPage() {
         <code className="text-xs bg-gray-100 rounded px-1">{'{speaker_name}'}</code> подставятся при отправке.
         Потом перейдите в «Очередь рассылок» и нажмите «Создать из программы».
       </p>
+
+      <div className="mb-4 flex justify-end">
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm text-white font-medium shadow-sm"
+          style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}
+        >
+          <Plus size={15} /> Добавить шаблон
+        </button>
+      </div>
 
       {/* Памятка переменных */}
       <div className="mb-6 border border-gray-200 rounded-2xl overflow-hidden">
@@ -511,7 +626,7 @@ export default function TemplatesPage() {
 
       <div className="space-y-4">
         {TYPE_DEFS.map(def => {
-          const tpl = templates.find(t => t.type === def.type)
+          const tpl = templates.find(t => t.type === def.type && t.type !== 'custom')
           return (
             <div key={def.type} className="bg-white rounded-2xl border border-gray-100 p-5">
               <div className="flex items-start justify-between gap-3 mb-3">
@@ -575,6 +690,67 @@ export default function TemplatesPage() {
         })}
       </div>
 
+      {customTemplates.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Ваши шаблоны</h3>
+          <div className="space-y-4">
+            {customTemplates.map(tpl => (
+              <div key={tpl.id} className="bg-white rounded-2xl border border-gray-100 p-5">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <h4 className="font-semibold text-gray-800">{tpl.name}</h4>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      ⏰ {customDayRefLabel(tpl.custom_day_ref || '', confDays)} в {tpl.custom_time || '—'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <button
+                      onClick={() => {
+                        setTestDay(customDayToTestDay(tpl.custom_day_ref || ''))
+                        setPreviewModal({ tpl, def: { ...CUSTOM_DEF, title: tpl.name } })
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-gray-600 font-medium border border-gray-200 hover:bg-gray-50 transition-colors">
+                      <Eye size={13} /> Просмотреть
+                    </button>
+                    <button onClick={() => openEdit(tpl)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-white font-medium"
+                      style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                      <Edit2 size={13} /> Редактировать
+                    </button>
+                    <button onClick={() => removeTemplate(tpl.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-red-600 font-medium border border-red-200 hover:bg-red-50 transition-colors">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 rounded-xl p-4">
+                  {tpl.photo_url && (
+                    <img src={tpl.photo_url} alt="" className="w-full max-h-40 object-contain rounded-lg mb-3"
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                  )}
+                  <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3">{(tpl.text || '').replace(/\\n/g, '\n')}</p>
+                  <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                    {tpl.photo_url && <span>📷 Своё фото</span>}
+                    {tpl.button_text && (
+                      <span>
+                        🔘 Кнопка: «{tpl.button_text}»
+                        {tpl.button_url && (
+                          <span className="ml-1 text-gray-400 text-xs font-normal">({tpl.button_url})</span>
+                        )}
+                      </span>
+                    )}
+                    <span className="text-indigo-500 font-medium">
+                      👥 {audienceLabel(tpl.audience_include || 'all_event', tpl.audience_exclude || 'none')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Модалка редактирования */}
       {editModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -613,6 +789,11 @@ export default function TemplatesPage() {
                 <input value={form.photo_url} onChange={e => setForm({ ...form, photo_url: e.target.value })}
                   placeholder="https://..."
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                {form.photo_url && (
+                  <img src={form.photo_url} alt="" className="mt-2 w-full max-h-48 object-contain rounded-lg border border-gray-200"
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    onLoad={e => { (e.target as HTMLImageElement).style.display = '' }} />
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -628,6 +809,34 @@ export default function TemplatesPage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none font-mono" />
                 </div>
               </div>
+              {/* Настройки кастомного шаблона — день и время */}
+              {editModal?.type === 'custom' && (
+                <div className="border border-amber-100 rounded-xl p-3 bg-amber-50 space-y-3">
+                  <p className="text-xs font-medium text-amber-800">📅 Когда отправлять</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">День отправки</label>
+                      <select
+                        value={(form as any).custom_day_ref || ''}
+                        onChange={e => setForm({ ...form, custom_day_ref: e.target.value } as any)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                        {dayRefOptions.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Время</label>
+                      <input
+                        type="time"
+                        value={(form as any).custom_time || '12:00'}
+                        onChange={e => setForm({ ...form, custom_time: e.target.value } as any)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Настройки расписания для Знакомства со спикером */}
               {editModal?.type === 'speaker_intro' && (
                 <div className="border border-blue-100 rounded-xl p-3 bg-blue-50 space-y-3">
@@ -709,6 +918,139 @@ export default function TemplatesPage() {
                 Сохранить
               </button>
               <button onClick={() => setEditModal(null)}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка создания кастомного шаблона */}
+      {createModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-gray-800">Новый шаблон</h3>
+              <button onClick={() => setCreateModal(false)}><X size={18} /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Название</label>
+                <input value={(form as any).name}
+                  onChange={e => setForm({ ...form, name: e.target.value })}
+                  placeholder="Например: «Напоминание за день»"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">День отправки</label>
+                  <select
+                    value={(form as any).custom_day_ref || ''}
+                    onChange={e => setForm({ ...form, custom_day_ref: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    {dayRefOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Время (МСК / таймзона клиента)</label>
+                  <input
+                    type="time"
+                    value={(form as any).custom_time || '12:00'}
+                    onChange={e => setForm({ ...form, custom_time: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Текст сообщения</label>
+                <textarea value={(form as any).text}
+                  onChange={e => setForm({ ...form, text: e.target.value })}
+                  rows={8}
+                  placeholder="Используйте плейсхолдеры {conf_title}, {day_number}, {first_name} и т.п."
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none resize-y font-mono" />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className="text-xs text-gray-400 mr-1">Вставить:</span>
+                  {CUSTOM_PLACEHOLDERS.map(v => (
+                    <button key={v} type="button"
+                      onClick={() => setForm({ ...form, text: ((form as any).text || '') + v } as any)}
+                      className="text-xs bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 py-0.5 font-mono text-gray-600">
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Фото (URL) — необязательно</label>
+                <input value={(form as any).photo_url}
+                  onChange={e => setForm({ ...form, photo_url: e.target.value })}
+                  placeholder="https://..."
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                {(form as any).photo_url && (
+                  <img src={(form as any).photo_url} alt="" className="mt-2 w-full max-h-48 object-contain rounded-lg border border-gray-200"
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    onLoad={e => { (e.target as HTMLImageElement).style.display = '' }} />
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Текст кнопки</label>
+                  <input value={(form as any).button_text}
+                    onChange={e => setForm({ ...form, button_text: e.target.value })}
+                    placeholder="Например: «Зарегистрироваться»"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Ссылка кнопки</label>
+                  <input value={(form as any).button_url}
+                    onChange={e => setForm({ ...form, button_url: e.target.value })}
+                    placeholder="{registration_url} или https://..."
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none font-mono" />
+                </div>
+              </div>
+
+              <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
+                <p className="text-xs font-medium text-gray-600">👥 По какой базе отправлять</p>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Включить</label>
+                  <select
+                    value={(form as any).audience_include || 'all_event'}
+                    onChange={e => setForm({ ...form, audience_include: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    <option value="all_event">Все участники конфы</option>
+                    <option value="registered_event">Зарегистрированные участники</option>
+                    <option value="all_client">Вся база клиента (все события)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
+                  <select
+                    value={(form as any).audience_exclude || 'none'}
+                    onChange={e => setForm({ ...form, audience_exclude: e.target.value } as any)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                    <option value="none">Никого не исключать</option>
+                    <option value="registered_event">Зарегистрированных участников</option>
+                    <option value="unregistered_event">Незарегистрированных участников</option>
+                    <option value="all_event">Всех участников конфы</option>
+                  </select>
+                </div>
+                <p className="text-xs text-indigo-600 font-medium pt-1">
+                  Итого: {audienceLabel((form as any).audience_include || 'all_event', (form as any).audience_exclude || 'none')}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={createCustom}
+                className="flex-1 py-2 rounded-xl text-sm font-medium text-white"
+                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                Создать
+              </button>
+              <button onClick={() => setCreateModal(false)}
                 className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
                 Отмена
               </button>
