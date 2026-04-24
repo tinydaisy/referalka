@@ -4,6 +4,18 @@
 
 ---
 
+## ⚠️ Ключевые архитектурные принципы (не нарушать!)
+
+### Один человек = один реф-код навсегда
+Человек как сущность в системе имеет **ровно один реф-код** — независимо от его роли: участник, спикер, коллаборатор, просто контакт в базе.
+
+- Реф-код хранится в `platform_users.ref_code` — это единственный источник истины
+- `conf_speaker_events.ref_code` = `platform_users.ref_code` для того же человека (НЕ генерировать отдельный спикерский код)
+- При любом импорте, добавлении, обновлении — синхронизировать ref_code из platform_users
+- Нарушение: два разных кода у одного человека → раздвоение статистики, потеря реферралов
+
+---
+
 ## Что сейчас работает на сервере
 
 - ✅ Сервер Beget VPS 194.156.119.17, домен https://pluson.margoforbs.ru, SSL
@@ -94,7 +106,7 @@
 **Автоматические рассылки по тайм-слотам (5 дефолтных шаблонов, автосоздаются при первом открытии страницы «Шаблоны»):**
 - [x] `pre_start` — за 5 минут до начала выступления спикера. Фото — афиша спикера, кнопка «Войти в эфир» = `{stream_url}`
 - [x] `gift` — за 10 минут до конца выступления. С fallback «пишите в личку» если нет подарка/ссылки
-- [x] `day_start_30min` — за 30 минут до начала дня конференции. Фото — горизонтальная афиша, поддержка `@forbs_service2` захардкожена в тексте
+- [x] `day_start_30min` — за 2 часа до начала дня конференции (offset_minutes=120). Фото — горизонтальная афиша, поддержка `@forbs_service2` захардкожена в тексте
 - [x] `day_live` — в момент старта дня, «Мы начинаем День N»
 - [x] `day_end` — по окончании дня, благодарность + призыв ввести кодовые слова + автоматический список подарков всех спикеров дня через `{day_speakers_gifts}`
 - [x] Все шаблоны редактируемые в веб-кабинете
@@ -103,6 +115,7 @@
 - [x] Раздел «Рассылки» внутри страницы конференции, разделён на две подвкладки: «Шаблоны» (/broadcasts/templates) и «Очередь рассылок» (/broadcasts/queue)
 - [x] Список всех запланированных рассылок (дата, время, тип, статус: pending/running/done/cancelled)
 - [x] Редактирование текста каждого шаблона
+- [x] Создание кастомных шаблонов: кнопка «Добавить шаблон» на странице «Шаблоны». Модалка задаёт название, день (За N дней до / День N / Через N дней после — собирается из conf_days), время, текст с плейсхолдерами, фото (URL с превью), кнопку и аудиторию. type='custom'. generate_schedules сам вычисляет fire_at из conf_days + custom_time. Поддерживаются плейсхолдеры {conf_title}, {conf_date}, {conf_description}, {day_number}, {day_date}, {day_program}, {stream_url}, {registration_url}, {raffle_url}, {first_name}. Миграция 028.
 - [ ] Кнопка «Одобрить» — без одобрения рассылка не уходит (защита от случайной рассылки)
 - [ ] Статусы: `draft → approved → sending → sent` / `cancelled`
 
@@ -170,3 +183,357 @@
 - [ ] Настроить cron для автозапуска рассылок по расписанию
 - [ ] Подключить реальные данные события в `/l/[slug]` из PostgreSQL (сейчас заглушка)
 - [ ] Документация по деплою обновлений на VPS (git pull + restart)
+
+---
+
+## ЭТАП 4 — РЕФАКТОРИНГ БД (после конференции)
+
+> Цель: поддержка нескольких ботов, мультиплатформенность, правильная иерархия Контактов
+
+### Концепция
+
+Сейчас один бот (`clients.bot_token`) на всё. После конференции нужно поддержать несколько ботов у одного Клиента (`@pluson_bot`, `@margo_forbs_bot`) и в перспективе другие платформы (VK, Max).
+
+Терминология которую нужно соблюдать везде:
+- **Клиенты** → таблица `clients` (пользователи платформы ПЛЮСОН)
+- **Контакты** → таблица `platform_users` (все люди в базе Клиента)
+- **Коллабораторы** → таблица `collaborators` (подмножество Контактов: спикеры, партнёры)
+- **Спикеры** → таблица `conf_speaker_events` (роль Коллаборатора в конкретном событии)
+- **Участники** → таблица `event_participants` (Контакты зарегистрированные в событии)
+
+### Иерархия сущностей
+
+```
+Контакты (platform_users)
+    ├── Коллабораторы (collaborators) ← подмножество Контактов
+    │       └── Спикеры (conf_speaker_events) ← роль Коллаборатора в конкретном событии
+    └── Участники (event_participants) ← Контакты зарегистрированные в событии
+```
+
+### Целевая структура таблиц
+
+**`clients` — Клиенты ПЛЮСОН**
+```
+clients
+├── id, email, name, phone, telegram_username
+├── password_hash
+├── tariff_slug → tariffs
+├── partner_code → partners
+├── test_telegram_ids TEXT[]
+├── trial_ends_at, is_active
+└── ❌ bot_token — УБРАТЬ, переезжает в channels
+```
+
+**`channels` — каналы доставки (боты, группы VK, каналы Max)**
+```
+channels
+├── id
+├── client_id → clients
+├── platform ('telegram' | 'vk' | 'max')  ← тип платформы живёт ЗДЕСЬ, не в platform_users
+├── display_name
+├── handle  ← @username бота или id группы
+├── bot_token  ← переехал из clients.bot_token
+└── is_active
+```
+
+**`platform_users` — Контакты**
+```
+platform_users
+├── id
+├── client_id → clients
+├── platform_user_id  ← tg_id / vk_id (TEXT)
+├── username, first_name, last_name
+├── email, phone, tags JSONB, utm_source
+├── salebot_id, platform_meta JSONB
+├── referrer_tg_id TEXT                 ← кто привёл (tg_id реферера, текущее поле)
+├── referrer_ref_code VARCHAR(100)      ← реф-код реферера (текущее поле)
+├── first_referrer_id → platform_users  ← НОВ: кто впервые привёл (только аналитика)
+├── first_referred_at                   ← НОВ: когда впервые привёл
+├── last_contact_at
+├── UNIQUE(client_id, platform_user_id)
+└── ❌ platform — УБРАТЬ, переехал в channels.platform
+└── ❌ is_unsubscribed — УБРАТЬ, переехал в platform_user_channels
+└── ❌ ref_code — УБРАТЬ, ref_code живёт в event_participants (Участники) и conf_speaker_events (Спикеры)
+```
+
+**`platform_user_channels` — кто в каком боте подписан**
+```
+platform_user_channels
+├── id
+├── platform_user_id → platform_users
+├── channel_id → channels
+├── is_unsubscribed  ← переехал из platform_users, теперь per-канал
+├── subscribed_at
+└── unsubscribed_at
+```
+
+**`collaborators` — Коллабораторы**
+```
+collaborators
+├── id
+├── platform_user_id → platform_users  ← НОВ: Коллаборатор является Контактом
+├── created_by_client_id → clients
+├── name, title, achievements TEXT[]
+├── photo_url, photo_folder_url, video_folder_url
+├── tg_channel_url, tg_channel_id
+├── personal_tg_id, personal_tg_username
+├── assistant_tg_username
+└── instagram_url, website_url
+```
+
+**`conf_speaker_events` — Спикер = Коллаборатор в конкретной конференции**
+```
+conf_speaker_events
+├── id
+├── speaker_id → collaborators
+├── event_id → events
+├── role ('speaker'|'headliner'|'partner'|'organizer'|'commercial'|'general_partner')
+├── gift_after_speech_title, gift_after_speech_url
+├── gift_raffle_title, gift_raffle_url
+├── poster_url, partner_url, extra_info
+├── ref_code UNIQUE
+├── referrer_ref_code TEXT  ← кто привёл спикера (реф-код реферера)
+├── bot_in_channel BOOLEAN
+├── is_visible, sort_order
+└── UNIQUE(speaker_id, event_id)
+```
+
+**`event_participants` — Участники конкретного события**
+```
+event_participants
+├── id
+├── event_id → events
+├── platform_user_id → platform_users
+├── referrer_participant_id → event_participants  ← кто пригласил (per-событие, не помним между событиями)
+├── referrer_ref_code TEXT  ← реф-код рефовода (ищем в event_participants или conf_speaker_events)
+├── ref_code TEXT UNIQUE
+├── status ('interested' | 'registered' | 'in_chat')
+└── UNIQUE(event_id, platform_user_id)
+```
+
+**`broadcast_templates` — шаблоны рассылок**
+```
+broadcast_templates
+├── id, client_id → clients, event_id → events
+├── name, type ('pre_conf'|'speaker_intro'|...|'custom'), text, photo_url, button_text, button_url
+├── schedule_mode, offset_minutes
+├── audience_include, audience_exclude
+├── intro_start_time, intro_interval_min, intro_days_before  ← для speaker_intro
+├── custom_day_ref ('before_N'|'day_N'|'after_N'), custom_time ('HH:MM')  ← для type='custom'
+├── channel_ids INT[]  ← НОВ: массив id каналов через которые слать
+└── allow_custom_datetime
+```
+
+**`broadcast_schedules` — очередь рассылок**
+```
+broadcast_schedules
+├── id, event_id → events
+├── session_id → conf_sessions, template_id → broadcast_templates
+├── type, fire_at, status ('draft'|'pending'|'running'|'done'|'cancelled')
+├── is_test, test_recipients JSONB
+├── audience_include, audience_exclude
+├── channel_ids INT[]  ← НОВ: массив id каналов через которые слать
+└── recipients_sent, error_log, started_at, finished_at
+```
+
+**`broadcast_log` — лог каждого отправленного сообщения**
+```
+broadcast_log
+├── id
+├── schedule_id → broadcast_schedules
+├── platform_user_id → platform_users
+└── status ('sent'|'failed'|'skipped'), error, sent_at
+```
+
+**`events` — события**
+```
+events
+├── id, client_id → clients
+├── slug UNIQUE, title, description
+├── module_slug → modules  ← тип события (conference | webinar | award | tournament | base)
+├── poster_url, landing_url, webhook_url
+├── points_free, points_paid, points_scope
+├── require_subscription, status ('draft'|'active'|'ended')
+└── created_at
+```
+
+**`event_subscriptions` — требования подписки на каналы**
+```
+event_subscriptions
+├── event_id → events
+├── platform, channel_id, channel_title
+└── is_required
+```
+
+**`gifts` — подарки события**
+```
+gifts
+├── id, event_id → events
+├── title, description, points_cost, link_url
+└── stock, sort_order
+```
+
+**`gift_issuances` — выдача подарков**
+```
+gift_issuances
+├── gift_id → gifts
+├── participant_id → event_participants
+└── status ('pending'|'issued')
+```
+
+**`materials` — материалы события**
+```
+materials
+├── id, event_id → events
+├── gift_id → gifts
+├── title, description, link_url
+└── type ('free'|'paid'), is_eternal, status, sort_order
+```
+
+**`promo_materials` — афиши и тексты анонсов**
+```
+promo_materials
+├── id, event_id → events
+└── type ('poster'|'text'|'link'), title, content, file_url
+```
+
+**`referral_events` — клики и конверсии**
+```
+referral_events
+├── id, event_id → events
+├── ref_code, visitor_tg_id
+├── type ('click'|'free'|'paid')
+└── points_awarded, level
+```
+
+**`conf_conferences` — конференция**
+```
+conf_conferences
+├── id, event_id → events (UNIQUE)
+├── subtitle, description, start_date, end_date, timezone
+├── subscription_mode ('none'|'organizer'|'all_speakers')
+├── organizer_speaker_id → collaborators
+├── is_live, require_speakers_sub
+├── vip_upsell_url, landing_url, getcourse_form_url
+├── chat_url, stream_url_day_1, stream_url_day_2
+└── test_telegram_ids TEXT[]
+```
+
+**`conf_sessions` — слоты программы**
+```
+conf_sessions
+├── id, event_id → events
+├── speaker_id → conf_speaker_events
+├── topic_id → conf_speaker_topics
+├── day, start_datetime, title
+└── gift_description, track_label, track_color, sort_order
+```
+
+**`conf_speaker_topics` — темы выступления**
+```
+conf_speaker_topics
+├── id, cse_id → conf_speaker_events
+└── topic, sort_order
+```
+
+**`conf_secret_codes` — кодовые слова**
+```
+conf_secret_codes
+├── id, event_id → events
+├── speaker_id → conf_speaker_events
+└── code_word, tickets_reward
+```
+
+**`conf_promo_partners` — промо-партнёры конференции**
+```
+conf_promo_partners
+├── id, event_id → events
+├── name, telegram_url, partner_code
+└── UNIQUE(event_id, partner_code)
+```
+
+**`conf_commercial_items` — коммерческие услуги**
+```
+conf_commercial_items
+├── id, event_id → events
+└── type, title, description, is_paid, action_url, sort_order
+```
+
+**`conf_raffle_tickets` — билеты розыгрыша**
+```
+conf_raffle_tickets
+├── id, event_id → events
+├── pluson_participant_id → event_participants
+├── ticket_number, tg_username, tg_id, tg_name
+└── salebot_client_id, code_word
+```
+
+**`conf_reports` — отчёты конференции**
+```
+conf_reports
+├── id, event_id → events, created_at
+├── announcements (вводится вручную)
+├── total_entered, total_registered
+├── speakers_entered, speakers_registered
+├── referrals_entered, referrals_registered
+├── speakers_data JSONB  ← [{speaker_event_id, name, tg_id, entered, registered}]
+└── referrals_data JSONB ← [{platform_user_id, name, username, tg_id, entered, registered}]
+```
+
+**Служебные таблицы (не меняются)**
+```
+tariffs — тарифы платформы
+modules — модули (conference, base, ...)
+partners — партнёры-реселлеры ПЛЮСОН
+admins — администраторы платформы
+client_modules — подключённые модули клиента
+referral_levels — многоуровневые баллы (заложено, не MVP)
+```
+
+### ⚠️ Нерешённые вопросы по рассылкам
+
+**1. Аудитория — кому слать**
+Сейчас в `broadcast_templates` и `broadcast_schedules` есть `audience_include` / `audience_exclude` — это отвечает на вопрос «кто». Значения: `all_event`, `all_client`, `registered_event` и т.д. Это остаётся.
+
+**2. Каналы — через какой бот слать**
+Сейчас одно поле `channel_id → channels` — это значит рассылка идёт через один конкретный бот. Но если рассылка «всей базе» — человек может быть в двух ботах, и надо слать в оба.
+
+Варианты которые надо выбрать:
+- `channel_id = NULL` → слать через ВСЕ каналы где Контакт подписан и не отписался
+- `channel_id = конкретный` → слать только через этот бот
+- Или отдельное поле `send_to_all_channels BOOLEAN`
+
+**3. Дедупликация при рассылке по всем ботам**
+Если Вася в двух ботах и рассылка идёт по всем — он получит два одинаковых сообщения. Нужно решить: это нормально или нужна дедупликация (слать только через один, например первый подключённый)?
+
+**Решено:**
+- `channel_ids INT[]` — массив id каналов в шаблоне и расписании. Всегда указываем явно какие боты
+- Массив не может быть пустым — рассылка без канала запрещена, валидация на уровне API
+- Если Контакт в двух ботах и оба в массиве — получит два сообщения, это нормально
+- Дедупликации нет — разные боты, разный контекст
+
+### Логика отписки
+
+- Один Контакт в двух ботах → две записи в `platform_user_channels`
+- Отписался от `@margo_forbs_bot` → `is_unsubscribed = true` только для этой записи
+- Рассылка через канал → берём только `is_unsubscribed = false` для этого `channel_id`
+
+### Логика рефовода
+
+- Рефовод per-событие: каждое событие с чистого листа, `referrer_participant_id` контекстный
+- `first_referrer_id` — только аналитика, никогда не меняется, наград не даёт
+
+### Что сломается при переезде (9 файлов)
+
+`clients.bot_token` используется в:
+- `app/tasks/broadcast.py` — рассылки (критично)
+- `app/services/message_builder.py`, `notification_service.py` — отправка
+- `app/api/modules/broadcasts.py`, `conference.py` — API
+- `app/api/subscription_check.py`, `event.py`, `auth.py`
+- `bot/main.py` — сам бот
+
+`platform_users.is_unsubscribed` используется в:
+- `app/tasks/broadcast.py`
+- `app/api/contacts.py`
+
+**Стратегия переезда:** сначала создать новые таблицы, перенести данные, затем переписать код файл за файлом, в конце удалить старые поля.
