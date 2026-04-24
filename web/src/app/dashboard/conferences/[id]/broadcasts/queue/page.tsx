@@ -102,6 +102,7 @@ export default function QueuePage() {
     day: '',          // для day_*, day_start_30min_*
   })
   const [confSpeakers, setConfSpeakers] = useState<any[]>([])
+  const [confSessions, setConfSessions] = useState<any[]>([])
   const [confDays, setConfDays] = useState<any[]>([])
   const [running, setRunning] = useState(false)
 
@@ -111,10 +112,11 @@ export default function QueuePage() {
   const [runningSelected, setRunningSelected] = useState(false)
 
   const load = useCallback(async () => {
-    const [tmpl, sched, spk, days] = await Promise.all([
+    const [tmpl, sched, spk, sess, days] = await Promise.all([
       api.conference.templates.list(eventId),
       api.conference.schedules.list(eventId),
       api.conference.speakers.list(eventId),
+      api.conference.sessions.list(eventId),
       api.conference.days.list(eventId),
     ])
     setTemplates(tmpl.templates || [])
@@ -122,6 +124,7 @@ export default function QueuePage() {
     setTimezone(sched.timezone || 'Europe/Moscow')
     setNextPendingData(sched.next_pending || null)
     setConfSpeakers(spk.speakers || [])
+    setConfSessions(sess.sessions || [])
     setConfDays(days.days || [])
     setSelectedIds(new Set())
   }, [eventId])
@@ -809,7 +812,8 @@ export default function QueuePage() {
               {(() => {
                 const tpl = templates.find(t => String(t.id) === manualForm.template_id)
                 const tplType = tpl?.type || ''
-                if (['speaker_intro', 'gift', 'pre_start'].includes(tplType)) {
+                if (tplType === 'speaker_intro') {
+                  // speaker_intro использует conf_speaker_events.id
                   return (
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Спикер</label>
@@ -821,6 +825,44 @@ export default function QueuePage() {
                         {confSpeakers.map(s => (
                           <option key={s.id} value={s.id}>{s.name}</option>
                         ))}
+                      </select>
+                    </div>
+                  )
+                }
+                if (['gift', 'pre_start'].includes(tplType)) {
+                  // gift / pre_start используют conf_sessions.id — показываем сессии со спикером
+                  const RU_M: Record<string,string> = {'01':'янв','02':'фев','03':'мар','04':'апр','05':'май','06':'июн','07':'июл','08':'авг','09':'сен','10':'окт','11':'ноя','12':'дек'}
+                  const sessionsWithSpeaker = confSessions
+                    .filter(s => s.speaker_id && s.speaker_name)
+                    .sort((a, b) => {
+                      const ax = `${a.day || 0}-${a.start_datetime || ''}-${a.sort_order || 0}`
+                      const bx = `${b.day || 0}-${b.start_datetime || ''}-${b.sort_order || 0}`
+                      return ax.localeCompare(bx)
+                    })
+                  return (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Спикер (выступление)</label>
+                      <select
+                        value={manualForm.session_id}
+                        onChange={e => setManualForm({ ...manualForm, session_id: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
+                        <option value="">— выберите спикера —</option>
+                        {sessionsWithSpeaker.map(s => {
+                          let timeLabel = ''
+                          if (s.start_datetime) {
+                            const d = new Date(s.start_datetime)
+                            const pad = (n: number) => String(n).padStart(2, '0')
+                            const mm = pad(d.getMonth() + 1)
+                            timeLabel = ` — ${d.getDate()} ${RU_M[mm] || mm} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+                          } else if (s.day) {
+                            timeLabel = ` — День ${s.day}`
+                          }
+                          return (
+                            <option key={s.id} value={s.id}>
+                              {s.speaker_name}{timeLabel}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                   )
@@ -977,7 +1019,8 @@ export default function QueuePage() {
                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                 />
               )}
-              <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed"
+              <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed break-words"
+                style={{ overflowWrap: 'anywhere' }}
                 dangerouslySetInnerHTML={{ __html: previewModal.text || '' }} />
               {previewModal.button_text && (
                 <div className="mt-3 w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
