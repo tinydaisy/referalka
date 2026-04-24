@@ -174,6 +174,14 @@ export const api = {
         request(`/api/v1/events/${eventId}/broadcasts/schedules/add-manual`, {
           method: 'POST', body: JSON.stringify(data),
         }),
+      addCustom: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/add-custom`, {
+          method: 'POST', body: JSON.stringify(data),
+        }),
+      bulkAdd: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/bulk-add`, {
+          method: 'POST', body: JSON.stringify(data),
+        }),
       forceReset: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/force-reset`, { method: 'POST' }),
       copy: (eventId: number, id: number) =>

@@ -88,11 +88,34 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
 
 # ─── Формирование текста: gift (подарок спикера) ────────────────────────────
 
-def build_gift_message(speaker_name, personal_tg, gift_title, gift_url):
+def build_gift_message(speaker_name, personal_tg, gift_title, gift_url, tmpl_text=None):
+    """Формирует сообщение-подарок.
+    Если задан tmpl_text — используется он с подстановкой плейсхолдеров
+    ({speaker_name}, {gift_title}, {gift_url}, {personal_tg}).
+    Иначе — встроенный формат по умолчанию.
+    """
     tg_raw = (personal_tg or "").strip()
     tg_mention = ("@" + tg_raw.lstrip("@")) if tg_raw else ""
     title = (gift_title or "").strip()
     url = (gift_url or "").strip()
+
+    tmpl = (tmpl_text or "").strip()
+    if tmpl and any(p in tmpl for p in ("{speaker_name}", "{gift_title}", "{gift_url}", "{personal_tg}")):
+        text = tmpl
+        # Построчно удаляем строки с пустыми плейсхолдерами
+        if not title:
+            text = re.sub(r"^[^\n]*\{gift_title\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if not url:
+            text = re.sub(r"^[^\n]*\{gift_url\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        if not tg_mention:
+            text = re.sub(r"^[^\n]*\{personal_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+        text = (text
+                .replace("{speaker_name}", speaker_name or "")
+                .replace("{gift_title}", title)
+                .replace("{gift_url}", url)
+                .replace("{personal_tg}", tg_mention))
+        return text.strip()
+
     header = f"🎁 {speaker_name}: Подарки после эфира"
     if not title:
         body = f"🎁 Чтобы забрать материалы — пишите в личку {tg_mention}" if tg_mention else "🎁 Чтобы забрать материалы — напишите спикеру в личку"
@@ -142,11 +165,28 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
 
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
                                  event_id: int, session_id, fire_at, tz: ZoneInfo,
-                                 template_id=None) -> dict:
+                                 template_id=None, snapshot=None) -> dict:
     """
     Единственная функция сборки текста, фото и кнопки для любого типа шаблона.
     Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
+
+    Для type='custom' данные берутся из `snapshot`: {text, photo, buttons:[{text,url},...]}
+    и возвращаются как есть (с подстановкой {first_name} на уровне Celery).
     """
+    # ── custom: произвольное сообщение без шаблона ─────────────────────────
+    if tpl_type == "custom":
+        snap = snapshot or {}
+        raw_text = (snap.get("text") or tmpl_text or "").strip()
+        raw_text = re.sub(r"\n{3,}", "\n\n", raw_text)
+        raw_buttons = snap.get("buttons") or []
+        return {
+            "text": raw_text,
+            "photo": snap.get("photo") or photo_url,
+            "button_text": None,
+            "button_url": None,
+            "buttons": raw_buttons,
+        }
+
     text = tmpl_text or ""
     photo = photo_url
     btn_url = btn_url or ""
@@ -334,6 +374,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 session_data.get("speaker_personal_tg"),
                 session_data.get("gift_title"),
                 session_data.get("gift_url"),
+                tmpl_text=tmpl_text,
             )
         else:  # pre_start
             text = build_pre_start_message(
@@ -511,12 +552,28 @@ async def send_telegram_message(
     photo_url: str = None,
     button_text: str = None,
     button_url: str = None,
+    buttons: list = None,
 ) -> tuple[bool, str]:
-    """Отправляет сообщение через Telegram Bot API. Возвращает (успех, описание_ошибки)."""
+    """Отправляет сообщение через Telegram Bot API.
+    - Если передан `buttons` (список {text, url}) — используется он (по одной в ряду, до 3).
+    - Иначе, если есть `button_text`+`button_url` — одиночная inline-кнопка (совместимость).
+    Возвращает (успех, описание_ошибки).
+    """
     try:
         reply_markup = None
-        if button_text and button_url:
-            reply_markup = {"inline_keyboard": [[{"text": button_text, "url": button_url}]]}
+        btn_rows = []
+        if buttons:
+            for b in buttons:
+                t = (b.get("text") or "").strip() if isinstance(b, dict) else ""
+                u = (b.get("url") or "").strip() if isinstance(b, dict) else ""
+                if t and u:
+                    btn_rows.append([{"text": t, "url": u}])
+                if len(btn_rows) >= 3:
+                    break
+        elif button_text and button_url:
+            btn_rows.append([{"text": button_text, "url": button_url}])
+        if btn_rows:
+            reply_markup = {"inline_keyboard": btn_rows}
 
         if photo_url and len(text) <= 1024:
             payload = {"chat_id": chat_id, "photo": photo_url, "caption": text, "parse_mode": "HTML"}

@@ -135,6 +135,22 @@ async def _send_broadcast(schedule_id: int):
         client_row = await conn.fetchrow("SELECT timezone FROM clients WHERE id=$1", schedule["client_id"])
         tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
 
+        # Для type='custom' — берём из snapshot (свой текст / фото / кнопки)
+        snap = None
+        if tpl_type == "custom":
+            snap_buttons = schedule.get("snapshot_buttons")
+            if isinstance(snap_buttons, str):
+                try:
+                    import json as _json
+                    snap_buttons = _json.loads(snap_buttons)
+                except Exception:
+                    snap_buttons = []
+            snap = {
+                "text": schedule.get("snapshot_text") or "",
+                "photo": schedule.get("snapshot_photo"),
+                "buttons": snap_buttons or [],
+            }
+
         # Формируем сообщение — единая функция, та же что в превью
         content = await build_message_content(
             conn=conn,
@@ -148,12 +164,14 @@ async def _send_broadcast(schedule_id: int):
             fire_at=schedule["fire_at"],
             tz=tz,
             template_id=schedule.get("template_id"),
+            snapshot=snap,
         )
 
         text = content["text"]
         photo_url = content["photo"]
-        button_text = content["button_text"]
-        button_url = content["button_url"]
+        button_text = content.get("button_text")
+        button_url = content.get("button_url")
+        buttons = content.get("buttons") or None
 
         # Аудитория
         final_ids = await _build_audience(conn, schedule)
@@ -203,7 +221,8 @@ async def _send_broadcast(schedule_id: int):
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
                 return tg_id, await send_telegram_message(
-                    http_client, bot_token, tg_id, msg_text, photo_url, button_text, button_url
+                    http_client, bot_token, tg_id, msg_text, photo_url, button_text, button_url,
+                    buttons=buttons
                 )
 
         async with httpx.AsyncClient(timeout=10, limits=httpx.Limits(max_connections=80)) as http_client:
@@ -248,7 +267,8 @@ async def _send_broadcast(schedule_id: int):
                 async with httpx.AsyncClient(timeout=10) as http_extra:
                     for cid in extra_ids:
                         await send_telegram_message(
-                            http_extra, bot_token, cid, text, photo_url, button_text, button_url
+                            http_extra, bot_token, cid, text, photo_url, button_text, button_url,
+                            buttons=buttons
                         )
 
         await conn.execute(

@@ -3,7 +3,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import {
   Send, Wand2, XCircle, Play, PlusCircle, Eye, Clock,
-  CheckCircle, AlertCircle, Loader2, X, Calendar, Edit2, Trash2, Copy, Users
+  CheckCircle, AlertCircle, Loader2, X, Calendar, Edit2, Trash2, Copy, Users,
+  ChevronDown, ChevronRight, FileText, Upload
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -57,6 +58,8 @@ const TYPE_LABELS: Record<string, string> = {
   day_start_30min_reg:   'За 2 часа (зарег.)',
   day_live:              'Старт эфира',
   day_end:               'Итоги дня',
+  custom:                'Произвольное',
+  vip_offer:             'VIP-оффер',
 }
 
 function formatTimeLeft(sec: number): string {
@@ -84,6 +87,9 @@ export default function QueuePage() {
   const [previewModal, setPreviewModal] = useState<any>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [manualModal, setManualModal] = useState(false)
+  const [customModal, setCustomModal] = useState(false)
+  const [bulkModal, setBulkModal] = useState(false)
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set())
   const [fireAtModal, setFireAtModal] = useState<any>(null)   // {schedule}
   const [fireAtValue, setFireAtValue] = useState('')
   const [fireAtError, setFireAtError] = useState('')
@@ -130,6 +136,49 @@ export default function QueuePage() {
   }, [eventId])
 
   useEffect(() => { load() }, [load])
+
+  // Сохраняем свёрнутые дни в localStorage
+  useEffect(() => {
+    try {
+      const key = `queue-collapsed-${eventId}`
+      const saved = localStorage.getItem(key)
+      if (saved) setCollapsedDays(new Set(JSON.parse(saved)))
+    } catch {}
+  }, [eventId])
+  useEffect(() => {
+    try {
+      const key = `queue-collapsed-${eventId}`
+      localStorage.setItem(key, JSON.stringify([...collapsedDays]))
+    } catch {}
+  }, [collapsedDays, eventId])
+
+  function toggleDay(date: string) {
+    setCollapsedDays(prev => {
+      const next = new Set(prev)
+      if (next.has(date)) next.delete(date)
+      else next.add(date)
+      return next
+    })
+  }
+
+  async function deleteOne(schedule: any) {
+    const label = TYPE_LABELS[schedule.template_type] || schedule.type || '#' + schedule.id
+    const msg = schedule.status === 'pending' || schedule.status === 'running'
+      ? `Задача «${label}» сейчас ${STATUS_LABEL[schedule.status].toLowerCase()}. Отменить и удалить?`
+      : `Удалить задачу «${label}»? Это действие нельзя отменить.`
+    if (!confirm(msg)) return
+    try {
+      if (schedule.status === 'pending' || schedule.status === 'running') {
+        try { await api.conference.schedules.cancel(eventId, schedule.id) } catch {}
+      }
+      await api.conference.schedules.delete(eventId, schedule.id)
+      setSchedules(prev => prev.filter(x => x.id !== schedule.id))
+      setSelectedIds(prev => { const n = new Set(prev); n.delete(schedule.id); return n })
+      showMsg('Задача удалена')
+    } catch (e: any) {
+      showMsg(e.message, 'err')
+    }
+  }
 
   // Авто-обновление раз в 30 сек если есть running
   useEffect(() => {
@@ -460,7 +509,15 @@ export default function QueuePage() {
         )}
         <button onClick={() => setManualModal(true)}
           className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
-          <PlusCircle size={14} /> Добавить вручную
+          <PlusCircle size={14} /> По шаблону
+        </button>
+        <button onClick={() => setCustomModal(true)}
+          className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
+          <FileText size={14} /> Произвольное
+        </button>
+        <button onClick={() => setBulkModal(true)}
+          className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
+          <Upload size={14} /> Пакетом
         </button>
         <button onClick={generate} disabled={loading}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium disabled:opacity-50"
@@ -496,7 +553,7 @@ export default function QueuePage() {
               const prevDate = idx > 0 && schedules[idx - 1].fire_at_local
                 ? schedules[idx - 1].fire_at_local.split(' ')[0]
                 : null
-              const curDate = s.fire_at_local ? s.fire_at_local.split(' ')[0] : null
+              const curDate = s.fire_at_local ? s.fire_at_local.split(' ')[0] : '__no_date__'
               const showDayDivider = curDate && curDate !== prevDate
 
               // Форматируем дату в читаемый вид: "22 апр", "23 апр" и т.д.
@@ -505,25 +562,36 @@ export default function QueuePage() {
                 '05': 'май', '06': 'июн', '07': 'июл', '08': 'авг',
                 '09': 'сен', '10': 'окт', '11': 'ноя', '12': 'дек',
               }
-              let dividerLabel = curDate || ''
-              if (curDate) {
+              let dividerLabel = curDate === '__no_date__' ? 'Без даты' : (curDate || '')
+              if (curDate && curDate !== '__no_date__') {
                 const parts = curDate.split('-') // ['2026','04','22']
                 if (parts.length === 3) {
                   dividerLabel = `${parseInt(parts[2])} ${RU_SHORT_MONTHS[parts[1]] || parts[1]}`
                 }
               }
 
+              const isCollapsed = collapsedDays.has(curDate)
+              // Сколько задач в этой группе
+              const dayCount = schedules.filter(x => (x.fire_at_local ? x.fire_at_local.split(' ')[0] : '__no_date__') === curDate).length
+
               return (
               <div key={s.id}>
               {showDayDivider && (
-                <div className="flex items-center gap-3 py-2 mt-2">
+                <button
+                  onClick={() => toggleDay(curDate)}
+                  className="w-full flex items-center gap-3 py-2 mt-2 text-left group">
                   <div className="flex-1 h-px bg-gray-200" />
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide group-hover:text-gray-700">
+                    {isCollapsed
+                      ? <ChevronRight size={14} className="text-gray-400" />
+                      : <ChevronDown size={14} className="text-gray-400" />}
                     {dividerLabel}
+                    <span className="text-gray-400 font-normal normal-case">({dayCount})</span>
                   </span>
                   <div className="flex-1 h-px bg-gray-200" />
-                </div>
+                </button>
               )}
+              {!isCollapsed && (
               <div
                 className={`rounded-xl border p-3.5 ${STATUS_COLOR[s.status] || 'bg-white border-gray-100'} ${selectedIds.has(s.id) ? 'ring-2 ring-blue-300' : ''}`}>
                 <div className="flex items-start justify-between gap-3">
@@ -688,9 +756,16 @@ export default function QueuePage() {
                         Перезапустить
                       </button>
                     )}
+                    {/* Удалить задачу (всегда доступно) */}
+                    <button onClick={() => deleteOne(s)}
+                      className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-white hover:bg-red-500"
+                      title="Удалить задачу">
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 </div>
               </div>
+              )}
               </div>
               )
             })}
@@ -963,6 +1038,28 @@ export default function QueuePage() {
         </div>
       )}
 
+      {/* ── Модалка: произвольное сообщение ── */}
+      {customModal && (
+        <CustomBroadcastModal
+          onClose={() => setCustomModal(false)}
+          onSaved={async () => { setCustomModal(false); await load(); showMsg('Произвольная рассылка добавлена') }}
+          onError={(m) => showMsg(m, 'err')}
+          eventId={eventId}
+          tzLabel={tzLabel}
+        />
+      )}
+
+      {/* ── Модалка: пакетная загрузка ── */}
+      {bulkModal && (
+        <BulkBroadcastModal
+          onClose={() => setBulkModal(false)}
+          onSaved={async (count) => { setBulkModal(false); await load(); showMsg(`Добавлено ${count} рассылок`) }}
+          onError={(m) => showMsg(m, 'err')}
+          eventId={eventId}
+          tzLabel={tzLabel}
+        />
+      )}
+
       {/* ── Модалка: лог получателей ── */}
       {logModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -1022,16 +1119,29 @@ export default function QueuePage() {
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed break-words"
                 style={{ overflowWrap: 'anywhere' }}
                 dangerouslySetInnerHTML={{ __html: previewModal.text || '' }} />
-              {previewModal.button_text && (
-                <div className="mt-3 w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
-                  {previewModal.button_text}
+              {previewModal.buttons && previewModal.buttons.length > 0 ? (
+                <div className="mt-3 space-y-1.5">
+                  {previewModal.buttons.map((b: any, i: number) => (
+                    <div key={i}>
+                      <div className="w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
+                        {b.text}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5 text-center break-all">{b.url}</p>
+                    </div>
+                  ))}
                 </div>
-              )}
-              {previewModal.button_url && (
-                <p className="text-xs text-gray-400 mt-1 text-center break-all">
-                  {previewModal.button_url}
-                </p>
-              )}
+              ) : previewModal.button_text ? (
+                <>
+                  <div className="mt-3 w-full py-2 px-3 rounded-xl text-center text-sm font-medium text-blue-600 bg-white border border-gray-200">
+                    {previewModal.button_text}
+                  </div>
+                  {previewModal.button_url && (
+                    <p className="text-xs text-gray-400 mt-1 text-center break-all">
+                      {previewModal.button_url}
+                    </p>
+                  )}
+                </>
+              ) : null}
             </div>
             <p className="text-xs text-gray-400 mt-3 text-center">
               Данные подставлены из БД на момент открытия превью
@@ -1043,6 +1153,382 @@ export default function QueuePage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+
+// ─── Модалка: произвольное сообщение ─────────────────────────────────────────
+
+function CustomBroadcastModal(props: {
+  onClose: () => void
+  onSaved: () => void
+  onError: (m: string) => void
+  eventId: number
+  tzLabel: string
+}) {
+  const [fireAt, setFireAt] = useState('')
+  const [text, setText] = useState('')
+  const [photoUrl, setPhotoUrl] = useState('')
+  const [buttons, setButtons] = useState<{text: string; url: string}[]>([])
+  const [isTest, setIsTest] = useState(false)
+  const [audIn, setAudIn] = useState('all_event')
+  const [audEx, setAudEx] = useState('none')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (!fireAt) { props.onError('Укажите дату и время'); return }
+    if (!text.trim()) { props.onError('Пустой текст'); return }
+    if (buttons.length > 3) { props.onError('Максимум 3 кнопки'); return }
+    const invalidBtn = buttons.find(b => (b.text && !b.url) || (!b.text && b.url))
+    if (invalidBtn) { props.onError('Заполните и текст, и ссылку для каждой кнопки'); return }
+    setSaving(true)
+    try {
+      await api.conference.schedules.addCustom(props.eventId, {
+        fire_at: fireAt,
+        text: text,
+        photo_url: photoUrl || null,
+        buttons: buttons.filter(b => b.text && b.url),
+        is_test: isTest,
+        audience_include: audIn,
+        audience_exclude: audEx,
+      })
+      props.onSaved()
+    } catch (e: any) {
+      props.onError(e.message || 'Ошибка добавления')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-semibold text-gray-800">Произвольная рассылка</h3>
+          <button onClick={props.onClose}><X size={18} /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Дата и время ({props.tzLabel})</label>
+            <input type="datetime-local" value={fireAt} onChange={e => setFireAt(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Фото (URL, опционально)</label>
+            <input type="text" value={photoUrl} onChange={e => setPhotoUrl(e.target.value)}
+              placeholder="https://..."
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Текст (можно {'{first_name}'} — подставится имя)</label>
+            <textarea value={text} onChange={e => setText(e.target.value)}
+              rows={6}
+              placeholder="Привет, {first_name}! ..."
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono" />
+            <p className="text-xs text-gray-400 mt-1">Поддерживается HTML-разметка Telegram: &lt;b&gt;, &lt;i&gt;, &lt;a href=""&gt;</p>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Кнопки (до 3, опционально)</label>
+            <div className="space-y-2">
+              {buttons.map((b, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input type="text" value={b.text} placeholder="Текст кнопки"
+                    onChange={e => setButtons(buttons.map((x, j) => j === i ? { ...x, text: e.target.value } : x))}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  <input type="text" value={b.url} placeholder="https://..."
+                    onChange={e => setButtons(buttons.map((x, j) => j === i ? { ...x, url: e.target.value } : x))}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  <button onClick={() => setButtons(buttons.filter((_, j) => j !== i))}
+                    className="p-1.5 text-red-400 hover:text-red-600">
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+              {buttons.length < 3 && (
+                <button onClick={() => setButtons([...buttons, { text: '', url: '' }])}
+                  className="text-xs text-indigo-600 hover:text-indigo-800">+ Добавить кнопку</button>
+              )}
+            </div>
+          </div>
+          <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
+            <p className="text-xs font-medium text-gray-600">👥 Аудитория</p>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Включить</label>
+              <select value={audIn} onChange={e => setAudIn(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="all_event">Все участники конфы</option>
+                <option value="registered_event">Зарегистрированные участники</option>
+                <option value="all_client">Вся база клиента</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Исключить</label>
+              <select value={audEx} onChange={e => setAudEx(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="none">Никого не исключать</option>
+                <option value="registered_event">Зарегистрированных участников</option>
+                <option value="unregistered_event">Незарегистрированных участников</option>
+                <option value="all_event">Всех участников конфы</option>
+              </select>
+            </div>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
+            <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым Telegram ID)</span>
+          </label>
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={save} disabled={saving}
+            className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
+            style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+            {saving ? 'Сохраняю...' : 'Создать задачу'}
+          </button>
+          <button onClick={props.onClose}
+            className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── Модалка: пакетная загрузка ───────────────────────────────────────────────
+
+function BulkBroadcastModal(props: {
+  onClose: () => void
+  onSaved: (count: number) => void
+  onError: (m: string) => void
+  eventId: number
+  tzLabel: string
+}) {
+  const [raw, setRaw] = useState('')
+  const [isTest, setIsTest] = useState(false)
+  const [audIn, setAudIn] = useState('all_event')
+  const [audEx, setAudEx] = useState('none')
+  const [validating, setValidating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [errors, setErrors] = useState<{ index: number; errors: string[] }[]>([])
+  const [preview, setPreview] = useState<any[] | null>(null)
+
+  // Парсер формата:
+  // ---
+  // ВРЕМЯ: 29.04.2026 09:30
+  // ФОТО: https://...
+  // ТЕКСТ:
+  //   много строк
+  // КНОПКИ:
+  // Текст | https://...
+  // Текст | https://...
+  // ---
+  function parse(): any[] {
+    const chunks = raw.split(/^---\s*$/m).map(c => c.trim()).filter(Boolean)
+    const items: any[] = []
+    for (const chunk of chunks) {
+      const lines = chunk.split('\n')
+      let fire_at = ''
+      let photo_url = ''
+      const text_lines: string[] = []
+      const buttons: { text: string; url: string }[] = []
+      let section: 'none' | 'text' | 'buttons' = 'none'
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (/^ВРЕМЯ:/i.test(trimmed)) {
+          section = 'none'
+          const val = trimmed.replace(/^ВРЕМЯ:\s*/i, '').trim()
+          fire_at = convertDateToIso(val)
+          continue
+        }
+        if (/^ФОТО:/i.test(trimmed)) {
+          section = 'none'
+          photo_url = trimmed.replace(/^ФОТО:\s*/i, '').trim()
+          continue
+        }
+        if (/^ТЕКСТ:\s*$/i.test(trimmed)) { section = 'text'; continue }
+        if (/^КНОПКИ:\s*$/i.test(trimmed)) { section = 'buttons'; continue }
+        if (section === 'text') text_lines.push(line)
+        else if (section === 'buttons' && trimmed) {
+          const parts = trimmed.split('|').map(x => x.trim())
+          if (parts.length >= 2) buttons.push({ text: parts[0], url: parts[1] })
+          else buttons.push({ text: parts[0] || '', url: '' })
+        }
+      }
+      items.push({
+        fire_at,
+        photo_url: photo_url || null,
+        text: text_lines.join('\n').trim(),
+        buttons,
+      })
+    }
+    return items
+  }
+
+  // "29.04.2026 09:30" → "2026-04-29T09:30:00"
+  function convertDateToIso(s: string): string {
+    s = s.trim()
+    // Уже ISO — вернуть как есть
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s
+    const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})$/)
+    if (!m) return ''
+    const [, d, mo, y, h, mi] = m
+    return `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}T${h.padStart(2,'0')}:${mi}:00`
+  }
+
+  async function validate() {
+    setValidating(true)
+    setErrors([])
+    setPreview(null)
+    try {
+      const items = parse()
+      if (items.length === 0) {
+        props.onError('Не найдено ни одной задачи (разделитель — строка ---)')
+        return
+      }
+      const res = await api.conference.schedules.bulkAdd(props.eventId, {
+        items,
+        is_test: isTest,
+        audience_include: audIn,
+        audience_exclude: audEx,
+        dry_run: true,
+      })
+      if (res.ok) {
+        setPreview(items)
+      } else {
+        setErrors(res.errors || [])
+      }
+    } catch (e: any) {
+      props.onError(e.message || 'Ошибка валидации')
+    } finally {
+      setValidating(false)
+    }
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      const items = parse()
+      const res = await api.conference.schedules.bulkAdd(props.eventId, {
+        items,
+        is_test: isTest,
+        audience_include: audIn,
+        audience_exclude: audEx,
+        dry_run: false,
+      })
+      if (!res.ok) {
+        setErrors(res.errors || [])
+        props.onError(`Ошибки в ${res.errors.length} задачах — исправьте их`)
+      } else {
+        props.onSaved(res.created || 0)
+      }
+    } catch (e: any) {
+      props.onError(e.message || 'Ошибка сохранения')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const SAMPLE = `---
+ВРЕМЯ: 29.04.2026 09:30
+ФОТО: https://example.com/photo.jpg
+ТЕКСТ:
+Привет, {first_name}!
+Сегодня стартует День 1 — эфир через 30 минут.
+КНОПКИ:
+Смотреть эфир | https://stream.example.com
+Программа | https://example.com/program
+---
+ВРЕМЯ: 29.04.2026 18:00
+ТЕКСТ:
+Подарки от спикеров Дня 1 — заходи и забирай.
+КНОПКИ:
+Розыгрыш | https://raffle.example.com
+---`
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-semibold text-gray-800">Пакетная загрузка рассылок</h3>
+          <button onClick={props.onClose}><X size={18} /></button>
+        </div>
+        <div className="space-y-3">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
+            <p className="font-semibold mb-1">Формат (разделитель — строка <code className="bg-white px-1 rounded">---</code>):</p>
+            <pre className="whitespace-pre-wrap text-[11px] leading-tight">{SAMPLE}</pre>
+            <button onClick={() => setRaw(SAMPLE)} className="mt-2 text-indigo-600 hover:text-indigo-800">Вставить пример</button>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Содержимое ({props.tzLabel})</label>
+            <textarea value={raw} onChange={e => { setRaw(e.target.value); setErrors([]); setPreview(null) }}
+              rows={12}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono" />
+          </div>
+          <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
+            <p className="text-xs font-medium text-gray-600">👥 Аудитория (одна на весь пакет)</p>
+            <div className="flex gap-2">
+              <select value={audIn} onChange={e => setAudIn(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="all_event">Все участники конфы</option>
+                <option value="registered_event">Зарег. участники</option>
+                <option value="all_client">Вся база клиента</option>
+              </select>
+              <select value={audEx} onChange={e => setAudEx(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="none">Не исключать</option>
+                <option value="registered_event">− зарег.</option>
+                <option value="unregistered_event">− незарег.</option>
+                <option value="all_event">− все уч. конфы</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
+              <span className="text-sm text-gray-600">Тестовая рассылка</span>
+            </label>
+          </div>
+
+          {errors.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
+              <p className="text-sm font-semibold text-red-700">Ошибки в {errors.length} задачах:</p>
+              {errors.map(e => (
+                <div key={e.index} className="text-xs text-red-700">
+                  <b>Задача #{e.index}:</b> {e.errors.join('; ')}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {preview && preview.length > 0 && errors.length === 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-3 space-y-1">
+              <p className="text-sm font-semibold text-green-700">✓ Распарсено {preview.length} задач — всё валидно, можно создавать</p>
+              <div className="max-h-40 overflow-y-auto space-y-1 mt-2">
+                {preview.map((p, i) => (
+                  <div key={i} className="text-xs text-green-900 bg-white/50 rounded px-2 py-1">
+                    <b>#{i+1}</b> {p.fire_at} — {p.text.slice(0, 60)}{p.text.length > 60 ? '…' : ''}
+                    {p.buttons.length > 0 && <span className="text-gray-500"> · кнопок: {p.buttons.length}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={validate} disabled={validating || saving || !raw.trim()}
+            className="px-4 py-2 border border-gray-300 rounded-xl text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+            {validating ? 'Проверяю...' : 'Проверить'}
+          </button>
+          <button onClick={save} disabled={saving || validating || !raw.trim()}
+            className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
+            style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+            {saving ? 'Создаю...' : 'Создать задачи'}
+          </button>
+          <button onClick={props.onClose}
+            className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
+            Отмена
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

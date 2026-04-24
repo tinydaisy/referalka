@@ -993,6 +993,166 @@ async def add_manual_schedule(
     return dict(row)
 
 
+# ─── Произвольная рассылка (без шаблона) ─────────────────────────────────
+
+class ButtonItem(BaseModel):
+    text: str
+    url: str
+
+
+class AddCustomRequest(BaseModel):
+    fire_at: str
+    text: str
+    photo_url: Optional[str] = None
+    buttons: List[ButtonItem] = []
+    is_test: bool = False
+    audience_include: str = "all_event"
+    audience_exclude: str = "none"
+
+
+def _parse_fire_at(s: str, tz: ZoneInfo) -> datetime:
+    dt_naive = datetime.fromisoformat(s)
+    if dt_naive.tzinfo is None:
+        dt_aware = dt_naive.replace(tzinfo=tz)
+    else:
+        dt_aware = dt_naive
+    return dt_aware.astimezone(ZoneInfo("UTC"))
+
+
+def _validate_custom_item(item: dict) -> list:
+    """Возвращает список ошибок (пустой — всё ок)."""
+    errors = []
+    if not item.get("fire_at"):
+        errors.append("не указано время (fire_at)")
+    if not (item.get("text") or "").strip():
+        errors.append("пустой текст")
+    btns = item.get("buttons") or []
+    if len(btns) > 3:
+        errors.append(f"кнопок {len(btns)}, максимум 3")
+    for i, b in enumerate(btns, 1):
+        if not isinstance(b, dict) or not (b.get("text") or "").strip() or not (b.get("url") or "").strip():
+            errors.append(f"кнопка #{i}: нужны и текст и ссылка")
+    return errors
+
+
+@router.post("/schedules/add-custom", summary="Добавить произвольную рассылку (без шаблона)")
+async def add_custom_schedule(
+    event_id: int,
+    data: AddCustomRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    errors = _validate_custom_item(data.model_dump())
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+
+    client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+    tz_str = (client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow"
+    tz = ZoneInfo(tz_str)
+
+    try:
+        dt_utc = _parse_fire_at(data.fire_at, tz)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Неверный формат даты")
+
+    buttons_json = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
+
+    import json as _json
+    row = await db.fetchrow(
+        """
+        INSERT INTO broadcast_schedules
+          (event_id, template_id, type, session_id, fire_at, status, is_test,
+           audience_include, audience_exclude,
+           snapshot_text, snapshot_photo, snapshot_buttons)
+        VALUES ($1, NULL, 'custom', NULL, $2, 'draft', $3, $4, $5, $6, $7, $8::jsonb)
+        RETURNING id, type, fire_at, status, is_test
+        """,
+        event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
+        data.text, data.photo_url, _json.dumps(buttons_json)
+    )
+    return dict(row)
+
+
+class BulkItem(BaseModel):
+    fire_at: str
+    text: str
+    photo_url: Optional[str] = None
+    buttons: List[ButtonItem] = []
+
+
+class BulkAddRequest(BaseModel):
+    items: List[BulkItem]
+    is_test: bool = False
+    audience_include: str = "all_event"
+    audience_exclude: str = "none"
+    dry_run: bool = False   # только валидация без записи
+
+
+@router.post("/schedules/bulk-add", summary="Пакетное добавление произвольных рассылок")
+async def bulk_add_schedules(
+    event_id: int,
+    data: BulkAddRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+    tz_str = (client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow"
+    tz = ZoneInfo(tz_str)
+
+    # 1) Валидация всех записей
+    errors_by_idx = []
+    parsed = []
+    for idx, it in enumerate(data.items, 1):
+        item_d = it.model_dump()
+        errs = _validate_custom_item(item_d)
+        dt_utc = None
+        if not errs:
+            try:
+                dt_utc = _parse_fire_at(it.fire_at, tz)
+            except Exception:
+                errs.append("неверный формат даты")
+        if errs:
+            errors_by_idx.append({"index": idx, "errors": errs})
+        parsed.append({
+            "index": idx,
+            "dt_utc": dt_utc,
+            "text": it.text,
+            "photo_url": it.photo_url,
+            "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in it.buttons if b.text.strip() and b.url.strip()],
+        })
+
+    if errors_by_idx:
+        return {"ok": False, "errors": errors_by_idx, "total": len(data.items)}
+    if data.dry_run:
+        return {"ok": True, "errors": [], "total": len(data.items), "dry_run": True}
+
+    # 2) Вставка (всё или ничего — транзакция)
+    import json as _json
+    created_ids = []
+    async with db.transaction():
+        for p in parsed:
+            row = await db.fetchrow(
+                """
+                INSERT INTO broadcast_schedules
+                  (event_id, template_id, type, session_id, fire_at, status, is_test,
+                   audience_include, audience_exclude,
+                   snapshot_text, snapshot_photo, snapshot_buttons)
+                VALUES ($1, NULL, 'custom', NULL, $2, 'draft', $3, $4, $5, $6, $7, $8::jsonb)
+                RETURNING id
+                """,
+                event_id, p["dt_utc"], data.is_test, data.audience_include, data.audience_exclude,
+                p["text"], p["photo_url"], _json.dumps(p["buttons"])
+            )
+            created_ids.append(row["id"])
+    return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids}
+
+
 @router.post("/schedules/run-all", summary="Запустить всю очередь (активировать Celery)")
 async def run_all_schedules(
     event_id: int,
@@ -1232,6 +1392,21 @@ async def preview_schedule(
     client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
     tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
 
+    snap = None
+    if tpl_type == "custom":
+        snap_buttons = schedule.get("snapshot_buttons")
+        if isinstance(snap_buttons, str):
+            try:
+                import json as _json
+                snap_buttons = _json.loads(snap_buttons)
+            except Exception:
+                snap_buttons = []
+        snap = {
+            "text": schedule.get("snapshot_text") or "",
+            "photo": schedule.get("snapshot_photo"),
+            "buttons": snap_buttons or [],
+        }
+
     content = await build_message_content(
         conn=db,
         tpl_type=tpl_type,
@@ -1244,13 +1419,15 @@ async def preview_schedule(
         fire_at=schedule["fire_at"],
         tz=tz,
         template_id=schedule.get("template_id"),
+        snapshot=snap,
     )
 
     return {
         "text": content["text"],
         "photo": content["photo"],
-        "button_text": content["button_text"],
-        "button_url": content["button_url"],
+        "button_text": content.get("button_text"),
+        "button_url": content.get("button_url"),
+        "buttons": content.get("buttons") or [],
         "template_type": tpl_type,
     }
 
