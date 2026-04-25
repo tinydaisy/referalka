@@ -62,6 +62,8 @@ export default function GeneralBroadcastsPage() {
   const [bulkModal, setBulkModal] = useState(false)
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set())
   const [editFireAt, setEditFireAt] = useState<{ id: number; fire_at: string; is_test: boolean } | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
   function showMsg(text: string, type: 'ok' | 'err' = 'ok') {
     setMsg({ text, type })
@@ -74,10 +76,42 @@ export default function GeneralBroadcastsPage() {
       setSchedules(res.schedules || [])
       const tz = res.timezone || 'Europe/Moscow'
       setTzLabel(tz === 'Europe/Moscow' ? 'МСК (UTC+3)' : tz)
+      setSelectedIds(new Set())
     } catch (e: any) {
       showMsg(e.message || 'Не удалось загрузить', 'err')
     }
   }, [])
+
+  function toggleSelect(id: number) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function toggleSelectAll() {
+    if (selectedIds.size === schedules.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(schedules.map(s => s.id)))
+  }
+  async function deleteSelected() {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    const selected = schedules.filter(s => ids.includes(s.id))
+    const active = selected.filter(s => s.status === 'pending' || s.status === 'running')
+    let confirmMsg = `Удалить ${selected.length} рассылок? Действие нельзя отменить.`
+    if (active.length > 0) confirmMsg = `Среди выбранных ${active.length} активных — они будут отменены и удалены. Продолжить?`
+    if (!confirm(confirmMsg)) return
+    setDeleting(true)
+    for (const s of active) { try { await api.broadcasts.cancel(s.id) } catch {} }
+    let ok = 0
+    for (const s of selected) {
+      try { await api.broadcasts.delete(s.id); ok++ } catch (e: any) { showMsg(`Ошибка #${s.id}: ${e.message}`, 'err') }
+    }
+    setDeleting(false)
+    setSchedules(prev => prev.filter(x => !ids.includes(x.id)))
+    setSelectedIds(new Set())
+    if (ok > 0) showMsg(`Удалено ${ok} рассылок`)
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -160,6 +194,9 @@ export default function GeneralBroadcastsPage() {
 
   const pendingCount = schedules.filter(s => s.status === 'pending' || s.status === 'draft').length
   const doneCount = schedules.filter(s => s.status === 'done').length
+  const nextPending = schedules
+    .filter(s => s.status === 'pending' && s.fire_at_iso && new Date(s.fire_at_iso) > new Date())
+    .sort((a, b) => (a.fire_at_iso || '') < (b.fire_at_iso || '') ? -1 : 1)[0] || null
 
   return (
     <div>
@@ -186,6 +223,15 @@ export default function GeneralBroadcastsPage() {
           <div className="flex items-center gap-2 text-xs text-gray-400">
             <span>Часовой пояс: <b className="text-gray-600">{tzLabel}</b></span>
           </div>
+          {nextPending && nextPending.fire_at_local && (
+            <div className="ml-auto flex items-center gap-1.5 text-xs bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
+              <Clock size={12} className="text-amber-500" />
+              <span className="text-amber-700 font-medium">
+                Ближайшая: {nextPending.fire_at_local} {tzLabel}
+                {nextPending.seconds_until != null && ` (через ${formatTimeLeft(nextPending.seconds_until)})`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -200,6 +246,12 @@ export default function GeneralBroadcastsPage() {
 
       {/* Панель действий */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
+        {selectedIds.size > 0 && (
+          <button onClick={deleteSelected} disabled={deleting}
+            className="flex items-center gap-2 px-3 py-2 border border-red-300 rounded-xl text-sm text-white bg-red-500 hover:bg-red-600 disabled:opacity-50">
+            <Trash2 size={14} /> {deleting ? 'Удаляем...' : `Удалить выбранные (${selectedIds.size})`}
+          </button>
+        )}
         <button onClick={() => setCustomModal(true)}
           className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
           <FileText size={14} /> Произвольное
@@ -218,6 +270,15 @@ export default function GeneralBroadcastsPage() {
           <p className="text-xs mt-1">Нажмите «Произвольное» или «Пакетом» чтобы создать рассылку.</p>
         </div>
       ) : (
+        <>
+        <div className="flex items-center gap-2 mb-2 px-1">
+          <input type="checkbox"
+            checked={selectedIds.size === schedules.length && schedules.length > 0}
+            onChange={toggleSelectAll}
+            className="rounded cursor-pointer"
+            title="Выбрать все" />
+          <span className="text-xs text-gray-400">Выбрать все</span>
+        </div>
         <div className="space-y-2 mb-6">
           {schedules.map((s, idx) => {
             const prevDate = idx > 0 && schedules[idx - 1].fire_at_local
@@ -249,8 +310,14 @@ export default function GeneralBroadcastsPage() {
                   </button>
                 )}
                 {!isCollapsed && (
-                  <div className={`rounded-xl border p-3.5 ${STATUS_COLOR[s.status] || 'bg-white border-gray-100'}`}>
+                  <div className={`rounded-xl border p-3.5 ${STATUS_COLOR[s.status] || 'bg-white border-gray-100'} ${selectedIds.has(s.id) ? 'ring-2 ring-blue-300' : ''}`}>
                     <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center pt-0.5 shrink-0">
+                        <input type="checkbox"
+                          checked={selectedIds.has(s.id)}
+                          onChange={() => toggleSelect(s.id)}
+                          className="rounded cursor-pointer" />
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="text-xs text-gray-400 font-mono">#{idx + 1}</span>
@@ -361,6 +428,7 @@ export default function GeneralBroadcastsPage() {
             )
           })}
         </div>
+        </>
       )}
 
       {/* Модалки */}
