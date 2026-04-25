@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronRight, FileText, Upload
 } from 'lucide-react'
 import { api } from '@/lib/api'
-import { validateTelegramHtml } from '@/lib/validateTelegramHtml'
+import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все уч. конфы',
@@ -1232,14 +1232,15 @@ function CustomBroadcastModal(props: {
   const [saving, setSaving] = useState(false)
 
   const htmlErrors = validateTelegramHtml(text)
+  const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
+  const hasButtonErrors = buttonErrors.some(errs => errs.length > 0)
 
   async function save() {
     if (!fireAt) { props.onError('Укажите дату и время'); return }
     if (!text.trim()) { props.onError('Пустой текст'); return }
     if (htmlErrors.length > 0) { props.onError('Исправьте HTML-ошибки в тексте перед отправкой'); return }
     if (buttons.length > 3) { props.onError('Максимум 3 кнопки'); return }
-    const invalidBtn = buttons.find(b => (b.text && !b.url) || (!b.text && b.url))
-    if (invalidBtn) { props.onError('Заполните и текст, и ссылку для каждой кнопки'); return }
+    if (hasButtonErrors) { props.onError('Исправьте ошибки в кнопках'); return }
     setSaving(true)
     try {
       await api.conference.schedules.addCustom(props.eventId, {
@@ -1298,17 +1299,32 @@ function CustomBroadcastModal(props: {
             <label className="text-xs text-gray-500 mb-1 block">Кнопки (до 3, опционально)</label>
             <div className="space-y-2">
               {buttons.map((b, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input type="text" value={b.text} placeholder="Текст кнопки"
-                    onChange={e => setButtons(buttons.map((x, j) => j === i ? { ...x, text: e.target.value } : x))}
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                  <input type="text" value={b.url} placeholder="https://..."
-                    onChange={e => setButtons(buttons.map((x, j) => j === i ? { ...x, url: e.target.value } : x))}
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                  <button onClick={() => setButtons(buttons.filter((_, j) => j !== i))}
-                    className="p-1.5 text-red-400 hover:text-red-600">
-                    <X size={16} />
-                  </button>
+                <div key={i} className="space-y-1">
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1">
+                      <input type="text" value={b.text} placeholder="Что написано на кнопке"
+                        onChange={e => setButtons(buttons.map((x, j) => j === i ? { ...x, text: e.target.value } : x))}
+                        className={`w-full px-3 py-2 border rounded-lg text-sm ${buttonErrors[i].some(er => er.toLowerCase().includes('текст')) ? 'border-red-300 bg-red-50/30' : 'border-gray-200'}`} />
+                      <p className="text-[10px] text-gray-400 mt-0.5 ml-1">текст кнопки</p>
+                    </div>
+                    <div className="flex-1">
+                      <input type="text" value={b.url} placeholder="https://example.com"
+                        onChange={e => setButtons(buttons.map((x, j) => j === i ? { ...x, url: e.target.value } : x))}
+                        className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${buttonErrors[i].some(er => er.toLowerCase().includes('ссылк') || er.toLowerCase().includes('url')) ? 'border-red-300 bg-red-50/30' : 'border-gray-200'}`} />
+                      <p className="text-[10px] text-gray-400 mt-0.5 ml-1">URL — куда ведёт кнопка</p>
+                    </div>
+                    <button onClick={() => setButtons(buttons.filter((_, j) => j !== i))}
+                      className="p-1.5 text-red-400 hover:text-red-600 mt-1">
+                      <X size={16} />
+                    </button>
+                  </div>
+                  {buttonErrors[i].length > 0 && (
+                    <div className="ml-1 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5 space-y-0.5">
+                      {buttonErrors[i].map((er, k) => (
+                        <p key={k} className="text-xs text-red-700">⚠ {er}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
               {buttons.length < 3 && (
@@ -1345,10 +1361,10 @@ function CustomBroadcastModal(props: {
           </label>
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={save} disabled={saving || htmlErrors.length > 0}
+          <button onClick={save} disabled={saving || htmlErrors.length > 0 || hasButtonErrors}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
             style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-            {saving ? 'Сохраняю...' : htmlErrors.length > 0 ? 'Исправьте HTML' : 'Поставить в очередь'}
+            {saving ? 'Сохраняю...' : htmlErrors.length > 0 ? 'Исправьте HTML' : hasButtonErrors ? 'Исправьте кнопки' : 'Поставить в очередь'}
           </button>
           <button onClick={props.onClose}
             className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
@@ -1445,8 +1461,15 @@ function BulkBroadcastModal(props: {
   function validateLocally(items: any[]): { index: number; errors: string[] }[] {
     const out: { index: number; errors: string[] }[] = []
     for (let i = 0; i < items.length; i++) {
+      const errs: string[] = []
       const htmlErrs = validateTelegramHtml(items[i].text || '')
-      if (htmlErrs.length > 0) out.push({ index: i + 1, errors: htmlErrs })
+      errs.push(...htmlErrs.map(e => `текст: ${e}`))
+      for (let bi = 0; bi < (items[i].buttons || []).length; bi++) {
+        const b = items[i].buttons[bi]
+        const bErrs = validateButton(b.text, b.url)
+        errs.push(...bErrs.map(e => `кнопка #${bi + 1}: ${e}`))
+      }
+      if (errs.length > 0) out.push({ index: i + 1, errors: errs })
     }
     return out
   }

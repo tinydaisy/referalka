@@ -66,3 +66,37 @@ export function validateTelegramHtml(text: string): string[] {
 
   return errors
 }
+
+
+/**
+ * Проверка одной inline-кнопки.
+ * - text: не должен содержать HTML-теги (Telegram не парсит их в кнопках)
+ * - url: должен быть валидной ссылкой (http/https/tg/mailto/tel/t.me)
+ */
+export function validateButton(text: string, url: string): string[] {
+  const errors: string[] = []
+  const t = (text || '').trim()
+  const u = (url || '').trim()
+
+  if (!t) errors.push('пустой текст кнопки')
+  if (!u) errors.push('пустая ссылка кнопки')
+
+  if (t && /<[^>]+>/.test(t)) {
+    errors.push('в тексте кнопки нельзя использовать HTML-теги — там только обычный текст')
+  }
+
+  if (u) {
+    const urlOk = /^(https?:\/\/|tg:\/\/|mailto:|tel:)/.test(u)
+    if (!urlOk) {
+      // Похоже что в URL вставили текст (или забыли http://)
+      if (/<[^>]+>/.test(u) || /\s/.test(u)) {
+        errors.push('в поле ссылки указан текст вместо URL — должно быть https://...')
+      } else {
+        errors.push('ссылка должна начинаться с https:// или http://')
+      }
+    }
+  }
+
+  return errors
+}
+

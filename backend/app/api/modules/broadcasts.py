@@ -1021,7 +1021,7 @@ def _parse_fire_at(s: str, tz: ZoneInfo) -> datetime:
 
 def _validate_custom_item(item: dict) -> list:
     """Возвращает список ошибок (пустой — всё ок)."""
-    from app.api.broadcasts_general import validate_telegram_html
+    from app.api.broadcasts_general import validate_telegram_html, validate_button_pair
     errors = []
     if not item.get("fire_at"):
         errors.append("не указано время (fire_at)")
@@ -1035,8 +1035,11 @@ def _validate_custom_item(item: dict) -> list:
     if len(btns) > 3:
         errors.append(f"кнопок {len(btns)}, максимум 3")
     for i, b in enumerate(btns, 1):
-        if not isinstance(b, dict) or not (b.get("text") or "").strip() or not (b.get("url") or "").strip():
-            errors.append(f"кнопка #{i}: нужны и текст и ссылка")
+        if not isinstance(b, dict):
+            errors.append(f"кнопка #{i}: некорректный формат")
+            continue
+        for e in validate_button_pair(b.get("text"), b.get("url")):
+            errors.append(f"кнопка #{i}: {e}")
     return errors
 
 

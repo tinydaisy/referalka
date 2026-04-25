@@ -99,6 +99,26 @@ def validate_telegram_html(text: str) -> list:
     return errors
 
 
+def validate_button_pair(text: str, url: str) -> list:
+    """Проверка одной inline-кнопки. Зеркалит web/src/lib/validateTelegramHtml.ts"""
+    import re as _re
+    errs = []
+    t = (text or "").strip()
+    u = (url or "").strip()
+    if not t:
+        errs.append("пустой текст кнопки")
+    if not u:
+        errs.append("пустая ссылка кнопки")
+    if t and _re.search(r"<[^>]+>", t):
+        errs.append("в тексте кнопки нельзя использовать HTML-теги")
+    if u and not _re.match(r"^(https?://|tg://|mailto:|tel:)", u):
+        if _re.search(r"<[^>]+>", u) or _re.search(r"\s", u):
+            errs.append("в поле ссылки указан текст вместо URL — должно быть https://...")
+        else:
+            errs.append("ссылка должна начинаться с https:// или http://")
+    return errs
+
+
 def _validate_item(item: dict) -> list:
     errors = []
     if not item.get("fire_at"):
@@ -114,8 +134,11 @@ def _validate_item(item: dict) -> list:
     if len(btns) > 3:
         errors.append(f"кнопок {len(btns)}, максимум 3")
     for i, b in enumerate(btns, 1):
-        if not isinstance(b, dict) or not (b.get("text") or "").strip() or not (b.get("url") or "").strip():
-            errors.append(f"кнопка #{i}: нужны и текст и ссылка")
+        if not isinstance(b, dict):
+            errors.append(f"кнопка #{i}: некорректный формат")
+            continue
+        for e in validate_button_pair(b.get("text"), b.get("url")):
+            errors.append(f"кнопка #{i}: {e}")
     return errors
 
 
