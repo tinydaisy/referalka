@@ -553,6 +553,7 @@ async def send_telegram_message(
     button_text: str = None,
     button_url: str = None,
     buttons: list = None,
+    _retry: int = 0,
 ) -> tuple[bool, str]:
     """Отправляет сообщение через Telegram Bot API.
     - Если передан `buttons` (список {text, url}) — используется он (по одной в ряду, до 3).
@@ -595,6 +596,19 @@ async def send_telegram_message(
 
         if resp.status_code == 200:
             return True, ""
+        # Авторетрай при 429 (Too Many Requests) — Telegram говорит сколько ждать
+        if resp.status_code == 429 and _retry < 1:
+            try:
+                retry_after = int(resp.json().get("parameters", {}).get("retry_after") or 0)
+            except Exception:
+                retry_after = 0
+            wait = min(max(retry_after, 1), 60)
+            import asyncio as _a
+            await _a.sleep(wait)
+            return await send_telegram_message(
+                client, bot_token, chat_id, text, photo_url, button_text, button_url,
+                buttons=buttons, _retry=_retry + 1
+            )
         err = resp.json().get("description", f"HTTP {resp.status_code}")
         logger.warning(f"Telegram отклонил сообщение в {chat_id}: {err}")
         return False, err

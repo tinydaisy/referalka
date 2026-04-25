@@ -40,9 +40,13 @@ function humanReason(err: string): string {
   if (low.includes('blocked')) return 'Бот заблокирован пользователем'
   if (low.includes('user is deactivated')) return 'Аккаунт удалён'
   if (low.includes('chat not found')) return 'Чат не найден (бот не запущен)'
+  if (low.includes("can't initiate conversation") || low.includes('cant initiate conversation')) return 'Бот не запущен пользователем'
+  if (low.includes('forbidden')) return 'Бот не запущен пользователем'
   if (low.includes('have no rights') || low.includes('not enough rights')) return 'Нет прав отправлять сообщения'
-  if (low.includes('flood')) return 'Telegram ограничил скорость (flood)'
+  if (low.includes('too many requests') || low.includes('flood')) return 'Telegram ограничил скорость (попробуем чуть позже)'
   if (low.includes('timeout') || low.includes('timed out')) return 'Таймаут ответа Telegram'
+  if (low.includes('wrong file identifier') || low.includes('failed to get http url content')) return 'Битая ссылка на фото'
+  if (low.includes('message is too long')) return 'Сообщение слишком длинное'
   if (!err) return 'Неизвестная ошибка'
   return err.slice(0, 100)
 }

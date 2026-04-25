@@ -213,7 +213,7 @@ async def _send_broadcast(schedule_id: int):
 
         # Отправляем параллельно
         sent = 0
-        sem = asyncio.Semaphore(50)
+        sem = asyncio.Semaphore(30)
 
         async def send_one(tg_id: str, http_client: httpx.AsyncClient):
             async with sem:
@@ -225,7 +225,7 @@ async def _send_broadcast(schedule_id: int):
                     buttons=buttons
                 )
 
-        async with httpx.AsyncClient(timeout=10, limits=httpx.Limits(max_connections=80)) as http_client:
+        async with httpx.AsyncClient(timeout=15, limits=httpx.Limits(max_connections=50)) as http_client:
             results = await asyncio.gather(*[send_one(tid, http_client) for tid in final_ids])
 
         # Пишем лог одной пачкой после отправки
