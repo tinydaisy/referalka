@@ -1308,7 +1308,8 @@ function CustomBroadcastModal(props: {
                       <p className="text-[10px] text-gray-400 mt-0.5 ml-1">текст кнопки</p>
                     </div>
                     <div className="flex-1">
-                      <input type="text" value={b.url} placeholder="https://example.com"
+                      <input type="url" value={b.url} placeholder="https://example.com"
+                        autoComplete="off" autoCorrect="off" spellCheck={false}
                         onChange={e => setButtons(buttons.map((x, j) => j === i ? { ...x, url: e.target.value } : x))}
                         className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${buttonErrors[i].some(er => er.toLowerCase().includes('ссылк') || er.toLowerCase().includes('url')) ? 'border-red-300 bg-red-50/30' : 'border-gray-200'}`} />
                       <p className="text-[10px] text-gray-400 mt-0.5 ml-1">URL — куда ведёт кнопка</p>
