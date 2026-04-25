@@ -5,6 +5,7 @@ import {
   Edit2, Trash2, Copy, Users, ChevronDown, ChevronRight, FileText, Upload
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { validateTelegramHtml } from '@/lib/validateTelegramHtml'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -534,9 +535,15 @@ function CustomBroadcastModal(props: {
   const [isTest, setIsTest] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  const htmlErrors = validateTelegramHtml(text)
+
   async function save() {
     if (!fireAt) { props.onError('Укажите дату и время'); return }
     if (!text.trim()) { props.onError('Пустой текст'); return }
+    if (htmlErrors.length > 0) {
+      props.onError('Исправьте HTML-ошибки в тексте перед отправкой')
+      return
+    }
     if (buttons.length > 3) { props.onError('Максимум 3 кнопки'); return }
     const invalidBtn = buttons.find(b => (b.text && !b.url) || (!b.text && b.url))
     if (invalidBtn) { props.onError('Заполните и текст, и ссылку для каждой кнопки'); return }
@@ -584,8 +591,16 @@ function CustomBroadcastModal(props: {
             <textarea value={text} onChange={e => setText(e.target.value)}
               rows={6}
               placeholder="Привет, {first_name}! ..."
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono" />
-            <p className="text-xs text-gray-400 mt-1">HTML-разметка Telegram: &lt;b&gt;, &lt;i&gt;, &lt;a href=""&gt;</p>
+              className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${htmlErrors.length > 0 ? 'border-red-300 bg-red-50/30' : 'border-gray-200'}`} />
+            <p className="text-xs text-gray-400 mt-1">HTML-разметка Telegram: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;s&gt;, &lt;code&gt;, &lt;a href="..."&gt;</p>
+            {htmlErrors.length > 0 && (
+              <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-0.5">
+                <p className="text-xs font-semibold text-red-700">⚠ Ошибки в HTML — Telegram не примет такое сообщение:</p>
+                {htmlErrors.map((err, i) => (
+                  <p key={i} className="text-xs text-red-700">• {err}</p>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Кнопки (до 3, опционально)</label>
@@ -616,10 +631,10 @@ function CustomBroadcastModal(props: {
           </label>
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={save} disabled={saving}
+          <button onClick={save} disabled={saving || htmlErrors.length > 0}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
             style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-            {saving ? 'Сохраняю...' : 'Поставить в очередь'}
+            {saving ? 'Сохраняю...' : htmlErrors.length > 0 ? 'Исправьте HTML' : 'Поставить в очередь'}
           </button>
           <button onClick={props.onClose}
             className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">Отмена</button>
@@ -694,12 +709,29 @@ function BulkBroadcastModal(props: {
     return items
   }
 
+  function validateLocally(items: any[]): { index: number; errors: string[] }[] {
+    // Клиентская проверка HTML — чтобы видеть ошибки до отправки на бэкенд
+    const out: { index: number; errors: string[] }[] = []
+    for (let i = 0; i < items.length; i++) {
+      const htmlErrs = validateTelegramHtml(items[i].text || '')
+      if (htmlErrs.length > 0) {
+        out.push({ index: i + 1, errors: htmlErrs })
+      }
+    }
+    return out
+  }
+
   async function validate() {
     setValidating(true); setErrors([]); setPreview(null)
     try {
       const items = parse()
       if (items.length === 0) {
         props.onError('Не найдено ни одной задачи (разделитель — строка ---)')
+        return
+      }
+      const localErrors = validateLocally(items)
+      if (localErrors.length > 0) {
+        setErrors(localErrors)
         return
       }
       const res = await api.broadcasts.bulkAdd({ items, is_test: isTest, dry_run: true })
@@ -716,6 +748,12 @@ function BulkBroadcastModal(props: {
     setSaving(true)
     try {
       const items = parse()
+      const localErrors = validateLocally(items)
+      if (localErrors.length > 0) {
+        setErrors(localErrors)
+        props.onError(`HTML-ошибки в ${localErrors.length} задачах — исправьте перед отправкой`)
+        return
+      }
       const res = await api.broadcasts.bulkAdd({ items, is_test: isTest, dry_run: false })
       if (!res.ok) {
         setErrors(res.errors || [])

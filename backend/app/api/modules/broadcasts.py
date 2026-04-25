@@ -1021,11 +1021,16 @@ def _parse_fire_at(s: str, tz: ZoneInfo) -> datetime:
 
 def _validate_custom_item(item: dict) -> list:
     """Возвращает список ошибок (пустой — всё ок)."""
+    from app.api.broadcasts_general import validate_telegram_html
     errors = []
     if not item.get("fire_at"):
         errors.append("не указано время (fire_at)")
-    if not (item.get("text") or "").strip():
+    text = (item.get("text") or "").strip()
+    if not text:
         errors.append("пустой текст")
+    else:
+        for e in validate_telegram_html(text):
+            errors.append(f"HTML: {e}")
     btns = item.get("buttons") or []
     if len(btns) > 3:
         errors.append(f"кнопок {len(btns)}, максимум 3")

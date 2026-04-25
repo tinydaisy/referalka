@@ -59,12 +59,57 @@ def _parse_fire_at(s: str, tz: ZoneInfo) -> datetime:
     return dt_aware.astimezone(ZoneInfo("UTC"))
 
 
+_TG_ALLOWED_TAGS = {"b","strong","i","em","u","ins","s","strike","del","a","code","pre","blockquote","tg-spoiler","span","br"}
+_TG_SELF_CLOSING = {"br"}
+
+
+def validate_telegram_html(text: str) -> list:
+    """Простая проверка HTML-разметки сообщения для Telegram.
+    Возвращает список ошибок (пустой = всё ок). Зеркалит web/src/lib/validateTelegramHtml.ts.
+    """
+    import re as _re
+    errors = []
+    if not text:
+        return errors
+    stack = []
+    for m in _re.finditer(r"<\s*(/?)\s*([a-zA-Z][\w-]*)\b([^>]*?)(/?)\s*>", text):
+        is_close = m.group(1) == "/"
+        name = m.group(2).lower()
+        attrs = m.group(3) or ""
+        self_close = m.group(4) == "/" or name in _TG_SELF_CLOSING
+        if name not in _TG_ALLOWED_TAGS:
+            errors.append(f"Тег <{name}> не поддерживается Telegram")
+            continue
+        if is_close:
+            if not stack:
+                errors.append(f"Закрывающий </{name}> без открытия")
+                continue
+            top = stack[-1]
+            if top != name:
+                errors.append(f"Тег <{top}> не закрыт — встречен </{name}>")
+                stack.pop()
+                continue
+            stack.pop()
+        elif not self_close:
+            if name == "a" and not _re.search(r"href\s*=\s*[\"'][^\"']+[\"']", attrs):
+                errors.append('У <a> обязателен href="..."')
+            stack.append(name)
+    for t in stack:
+        errors.append(f"Тег <{t}> открыт, но не закрыт")
+    return errors
+
+
 def _validate_item(item: dict) -> list:
     errors = []
     if not item.get("fire_at"):
         errors.append("не указано время (fire_at)")
-    if not (item.get("text") or "").strip():
+    text = (item.get("text") or "").strip()
+    if not text:
         errors.append("пустой текст")
+    else:
+        html_errs = validate_telegram_html(text)
+        for e in html_errs:
+            errors.append(f"HTML: {e}")
     btns = item.get("buttons") or []
     if len(btns) > 3:
         errors.append(f"кнопок {len(btns)}, максимум 3")
