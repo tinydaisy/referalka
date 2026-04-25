@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck } from 'lucide-react'
+import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge } from 'lucide-react'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
 
@@ -23,7 +23,7 @@ const TIMEZONES = [
 ]
 
 export default function SettingsPage() {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
   const [tariff, setTariff] = useState<any>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -44,6 +44,7 @@ export default function SettingsPage() {
         test_telegram_ids_raw: (c.test_telegram_ids || []).join(', '),
         work_tg_username: c.work_tg_username || '',
         work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
+        broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
       })
       setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
     }).catch(() => {})
@@ -61,6 +62,7 @@ export default function SettingsPage() {
         .split(/[,\s]+/)
         .map((s: string) => s.trim())
         .filter(Boolean)
+      const concurrency = Math.max(1, Math.min(100, Number(form.broadcast_concurrency) || 30))
       await api.auth.updateMe({
         name: form.name,
         phone: form.phone,
@@ -70,6 +72,7 @@ export default function SettingsPage() {
         test_telegram_ids: testIds,
         work_tg_username: form.work_tg_username || null,
         work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
+        broadcast_concurrency: concurrency,
       })
       setTimezone(form.timezone)
       setSaved(true)
@@ -182,6 +185,39 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Broadcast speed */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <Gauge size={18} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-800">Скорость рассылки</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Сколько сообщений отправлять в Telegram параллельно. Чем больше — тем быстрее
+                уходит рассылка, но выше шанс что Telegram ограничит вас (Too Many Requests).
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              value={form.broadcast_concurrency}
+              onChange={set('broadcast_concurrency')}
+              className="w-28 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+            />
+            <span className="text-sm text-gray-500">параллельных запросов</span>
+          </div>
+          <div className="mt-3 text-xs text-gray-500 space-y-0.5">
+            <p>• <b>10–20</b> — медленно и безопасно (точно без флуда)</p>
+            <p>• <b>30</b> — рекомендуем (быстро + почти без ограничений Telegram)</p>
+            <p>• <b>50+</b> — рискованно: на больших базах появляются массовые «Too Many Requests»</p>
+          </div>
         </div>
 
         {/* Work Account */}

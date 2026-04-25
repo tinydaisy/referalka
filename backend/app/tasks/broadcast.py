@@ -131,9 +131,15 @@ async def _send_broadcast(schedule_id: int):
             )
             return
 
-        # Часовой пояс клиента
-        client_row = await conn.fetchrow("SELECT timezone FROM clients WHERE id=$1", schedule["client_id"])
+        # Часовой пояс клиента + настройка скорости рассылки
+        client_row = await conn.fetchrow(
+            "SELECT timezone, broadcast_concurrency FROM clients WHERE id=$1",
+            schedule["client_id"]
+        )
         tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
+        concurrency = int((client_row["broadcast_concurrency"] if client_row else 30) or 30)
+        if concurrency < 1: concurrency = 1
+        if concurrency > 100: concurrency = 100
 
         # Для type='custom' — берём из snapshot (свой текст / фото / кнопки)
         snap = None
@@ -211,9 +217,9 @@ async def _send_broadcast(schedule_id: int):
             )
             name_by_tg = {r["platform_user_id"]: r["first_name"] for r in name_rows}
 
-        # Отправляем параллельно
+        # Отправляем параллельно (скорость = clients.broadcast_concurrency)
         sent = 0
-        sem = asyncio.Semaphore(30)
+        sem = asyncio.Semaphore(concurrency)
 
         async def send_one(tg_id: str, http_client: httpx.AsyncClient):
             async with sem:
@@ -225,7 +231,7 @@ async def _send_broadcast(schedule_id: int):
                     buttons=buttons
                 )
 
-        async with httpx.AsyncClient(timeout=15, limits=httpx.Limits(max_connections=50)) as http_client:
+        async with httpx.AsyncClient(timeout=15, limits=httpx.Limits(max_connections=max(concurrency + 20, 50))) as http_client:
             results = await asyncio.gather(*[send_one(tid, http_client) for tid in final_ids])
 
         # Пишем лог одной пачкой после отправки

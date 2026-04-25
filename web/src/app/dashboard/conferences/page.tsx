@@ -91,9 +91,11 @@ export default function ConferencesPage() {
                     {event.poster_url && (
                       <img src={event.poster_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />
                     )}
-                    <span className={`badge text-xs px-2.5 py-1 rounded-full ${status.cls}`}>
-                      {status.label}
-                    </span>
+                    {event.status && event.status !== 'draft' && (
+                      <span className={`badge text-xs px-2.5 py-1 rounded-full ${status.cls}`}>
+                        {status.label}
+                      </span>
+                    )}
                   </div>
                   <div className="p-5">
                     <div className="flex items-start justify-between mb-3">
