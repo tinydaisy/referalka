@@ -8,6 +8,7 @@ export const ru = {
     base: 'БАЗА',
     collaborations: 'Коллаборации',
     clients: 'Контакты',
+    broadcasts: 'Рассылки',
     soon: 'СКОРО',
     awards: 'Премии',
     tournaments: 'Турниры',

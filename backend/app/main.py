@@ -6,6 +6,7 @@ from app.database import get_pool, close_pool
 from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, integrations, subscription_check, contacts
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
+from app.api import broadcasts_general
 
 
 @asynccontextmanager
@@ -48,6 +49,7 @@ app.include_router(participants.router, prefix="/api/v1")
 app.include_router(admin.router,        prefix="/api/v1")
 app.include_router(conference.router,   prefix="/api/v1")
 app.include_router(broadcasts.router,   prefix="/api/v1")
+app.include_router(broadcasts_general.router, prefix="/api/v1")
 app.include_router(collaborators.router)
 app.include_router(event.router,        prefix="/api/v1")  # POST /api/v1/event
 app.include_router(referral.router)     # /r/{ref_code} и /api/v1/referral/conversion

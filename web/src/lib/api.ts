@@ -199,6 +199,25 @@ export const api = {
       request(`/api/v1/contacts?search=${encodeURIComponent(search)}&limit=${limit}&offset=${offset}&show_unsubscribed=${showUnsubscribed}`),
     get: (id: number) => request(`/api/v1/contacts/${id}`),
   },
+  broadcasts: {
+    list: () => request('/api/v1/broadcasts/schedules'),
+    addCustom: (data: any) =>
+      request('/api/v1/broadcasts/schedules/add-custom', { method: 'POST', body: JSON.stringify(data) }),
+    bulkAdd: (data: any) =>
+      request('/api/v1/broadcasts/schedules/bulk-add', { method: 'POST', body: JSON.stringify(data) }),
+    preview: (id: number) =>
+      request(`/api/v1/broadcasts/schedules/${id}/preview`),
+    log: (id: number) =>
+      request(`/api/v1/broadcasts/schedules/${id}/log`),
+    cancel: (id: number) =>
+      request(`/api/v1/broadcasts/schedules/${id}/cancel`, { method: 'POST' }),
+    delete: (id: number) =>
+      request(`/api/v1/broadcasts/schedules/${id}`, { method: 'DELETE' }),
+    copy: (id: number) =>
+      request(`/api/v1/broadcasts/schedules/${id}/copy`, { method: 'POST' }),
+    setFireAt: (id: number, data: any) =>
+      request(`/api/v1/broadcasts/schedules/${id}/fire-at`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
     clients: (params?: string) => request(`/api/v1/admin/clients${params ? '?' + params : ''}`),

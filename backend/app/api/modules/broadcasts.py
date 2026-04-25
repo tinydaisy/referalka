@@ -1067,7 +1067,7 @@ async def add_custom_schedule(
           (event_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_buttons)
-        VALUES ($1, NULL, 'custom', NULL, $2, 'draft', $3, $4, $5, $6, $7, $8::jsonb)
+        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
@@ -1143,7 +1143,7 @@ async def bulk_add_schedules(
                   (event_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
                    snapshot_text, snapshot_photo, snapshot_buttons)
-                VALUES ($1, NULL, 'custom', NULL, $2, 'draft', $3, $4, $5, $6, $7, $8::jsonb)
+                VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb)
                 RETURNING id
                 """,
                 event_id, p["dt_utc"], data.is_test, data.audience_include, data.audience_exclude,
@@ -1260,7 +1260,8 @@ async def cancel_schedule(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
     await db.execute(
-        "UPDATE broadcast_schedules SET status='cancelled' WHERE id=$1 AND event_id=$2 AND status IN ('pending','draft')",
+        """UPDATE broadcast_schedules SET status='cancelled', finished_at=COALESCE(finished_at, NOW())
+           WHERE id=$1 AND event_id=$2 AND status IN ('pending','draft','running')""",
         schedule_id, event_id
     )
     return {"ok": True}

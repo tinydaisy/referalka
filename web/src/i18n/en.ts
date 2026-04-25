@@ -8,6 +8,7 @@ export const en = {
     base: 'BASE',
     collaborations: 'Collaborations',
     clients: 'Contacts',
+    broadcasts: 'Broadcasts',
     soon: 'SOON',
     awards: 'Awards',
     tournaments: 'Tournaments',

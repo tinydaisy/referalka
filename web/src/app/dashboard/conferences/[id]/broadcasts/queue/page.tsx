@@ -74,6 +74,20 @@ function formatDuration(sec: number): string {
   return `${sec}сек`
 }
 
+// Человекочитаемая причина ошибки доставки
+function humanReason(err: string): string {
+  const low = (err || '').toLowerCase()
+  if (low.includes('blocked')) return 'Бот заблокирован пользователем'
+  if (low.includes('user is deactivated')) return 'Аккаунт удалён'
+  if (low.includes('chat not found')) return 'Чат не найден (бот не запущен)'
+  if (low.includes('have no rights') || low.includes('not enough rights')) return 'Нет прав отправлять сообщения'
+  if (low.includes('flood')) return 'Telegram ограничил скорость (flood)'
+  if (low.includes('timeout') || low.includes('timed out')) return 'Таймаут ответа Telegram'
+  if (low.includes('photo') && low.includes('failed')) return 'Не удалось загрузить фото'
+  if (!err) return 'Неизвестная ошибка'
+  return err.slice(0, 100)
+}
+
 export default function QueuePage() {
   const { id } = useParams()
   const eventId = Number(id)
@@ -403,15 +417,15 @@ export default function QueuePage() {
       alert(`${noDrafts.length} задач(и) без времени отправки. Сначала задайте время через кнопку редактирования.`)
       return
     }
-    if (!confirm(`Запустить ${drafts.length} рассылок?`)) return
+    if (!confirm(`Запустить ${drafts.length} рассылок?\n\nПосле запуска можно отменить любую из них (значок ✕ справа на задаче).`)) return
     setRunningSelected(true)
     try {
       const r = await api.conference.schedules.runSelected(eventId, ids)
-      alert(`Запущено: ${r.queued} рассылок. Celery отправит их по расписанию.`)
+      showMsg(`Запущено ${r.queued} рассылок — Celery отправит их по расписанию. Чтобы отменить — кликните ✕ справа на задаче.`)
       await load()
       setSelectedIds(new Set())
     } catch (e: any) {
-      alert(e.message)
+      showMsg(e.message, 'err')
     } finally {
       setRunningSelected(false)
     }
@@ -681,8 +695,8 @@ export default function QueuePage() {
                           <div className="relative group flex items-center gap-1 cursor-help">
                             <span className="text-red-500 font-bold text-sm leading-none">✕</span>
                             <span className="text-sm font-semibold text-red-500">{s.recipients_failed}</span>
-                            <div className="absolute bottom-full right-0 mb-1.5 w-60 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-50 shadow-xl pointer-events-none leading-snug">
-                              Не доставлено: человек заблокировал бота или произошла ошибка. Подробности — нажмите «список».
+                            <div className="absolute bottom-full right-0 mb-1.5 w-64 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-50 shadow-xl pointer-events-none leading-snug">
+                              Не доставлено {s.recipients_failed} получателям. Нажмите «список» — увидите разбивку по причинам (бот заблокирован, чат не найден, и т.д.).
                             </div>
                           </div>
                         )}
@@ -733,9 +747,19 @@ export default function QueuePage() {
                         <Edit2 size={13} />
                       </button>
                     )}
-                    {/* Отмена (для draft и pending) */}
-                    {(s.status === 'draft' || s.status === 'pending') && (
-                      <button onClick={() => cancelOne(s.id)}
+                    {/* Отмена (для draft, pending, running) */}
+                    {(s.status === 'draft' || s.status === 'pending' || s.status === 'running') && (
+                      <button onClick={async () => {
+                        const label = TYPE_LABELS[s.template_type] || s.type
+                        if (s.status === 'running') {
+                          if (!confirm(`Рассылка «${label}» сейчас отправляется. Отменить?\n\nУже отправленные сообщения не отозвутся, но дальнейшая отправка остановится при следующем тике.`)) return
+                        }
+                        try {
+                          await api.conference.schedules.cancel(eventId, s.id)
+                          setSchedules(prev => prev.map(x => x.id === s.id ? { ...x, status: 'cancelled' } : x))
+                          showMsg('Рассылка отменена')
+                        } catch (e: any) { showMsg(e.message, 'err') }
+                      }}
                         className="p-1.5 border border-red-200 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50"
                         title="Отменить">
                         <XCircle size={13} />
@@ -1061,16 +1085,41 @@ export default function QueuePage() {
       )}
 
       {/* ── Модалка: лог получателей ── */}
-      {logModal && (
+      {logModal && (() => {
+        const sentCount = logModal.rows.filter(r => r.status === 'sent').length
+        const failed = logModal.rows.filter(r => r.status !== 'sent')
+        // Группируем ошибки по тексту
+        const reasonMap: Record<string, number> = {}
+        for (const r of failed) {
+          const reason = humanReason(r.error || 'Неизвестная ошибка')
+          reasonMap[reason] = (reasonMap[reason] || 0) + 1
+        }
+        const reasons = Object.entries(reasonMap).sort((a, b) => b[1] - a[1])
+        return (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 max-h-[80vh] flex flex-col">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 max-h-[85vh] flex flex-col">
             <div className="flex justify-between items-center mb-3">
               <div>
                 <h3 className="font-semibold text-gray-800 text-sm">Получатели рассылки</h3>
-                <p className="text-xs text-gray-400">{logModal.rows.length} чел.</p>
+                <p className="text-xs text-gray-400">
+                  Всего: {logModal.rows.length} · <span className="text-green-600">доставлено {sentCount}</span>
+                  {failed.length > 0 && <> · <span className="text-red-500">не дошло {failed.length}</span></>}
+                </p>
               </div>
               <button onClick={() => setLogModal(null)}><X size={18} /></button>
             </div>
+            {/* Статистика по причинам недоставки */}
+            {reasons.length > 0 && (
+              <div className="mb-3 bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
+                <p className="text-xs font-semibold text-red-700">Почему не дошло:</p>
+                {reasons.map(([reason, count]) => (
+                  <div key={reason} className="flex items-center justify-between text-xs text-red-700">
+                    <span className="truncate flex-1">{reason}</span>
+                    <span className="font-bold ml-2">{count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="overflow-y-auto flex-1 space-y-1">
               {logModal.rows.length === 0 && (
                 <p className="text-sm text-gray-400 text-center py-6">Лог пуст</p>
@@ -1087,7 +1136,7 @@ export default function QueuePage() {
                       {username && <span className="text-gray-400 shrink-0">{username}</span>}
                     </div>
                     {!ok && r.error && (
-                      <span className="text-red-400 truncate max-w-[140px] ml-2" title={r.error}>{r.error}</span>
+                      <span className="text-red-400 truncate max-w-[140px] ml-2" title={r.error}>{humanReason(r.error)}</span>
                     )}
                   </div>
                 )
@@ -1095,7 +1144,8 @@ export default function QueuePage() {
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* ── Модалка: превью сообщения ── */}
       {previewModal && (
