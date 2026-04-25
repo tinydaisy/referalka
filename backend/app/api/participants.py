@@ -24,7 +24,7 @@ async def get_unique_ref_code(db: asyncpg.Connection) -> str:
     alphabet = string.ascii_lowercase + string.digits
     for _ in range(10):
         code = "".join(secrets.choice(alphabet) for _ in range(8))
-        exists = await db.fetchval("SELECT 1 FROM event_participants WHERE ref_code = $1", code)
+        exists = await db.fetchval("SELECT 1 FROM platform_users WHERE ref_code = $1", code)
         if not exists:
             return code
     raise HTTPException(status_code=500, detail="Не удалось сгенерировать ref_code")
@@ -60,62 +60,71 @@ async def register_participant(
     )
 
     existing = await db.fetchrow(
-        "SELECT id, ref_code FROM event_participants WHERE event_id=$1 AND platform_user_id=$2",
+        """
+        SELECT ep.id, pu.ref_code
+        FROM event_participants ep
+        JOIN platform_users pu ON pu.id = ep.platform_user_id
+        WHERE ep.event_id=$1 AND ep.platform_user_id=$2
+        """,
         event["id"], platform_user_id
     )
     if existing:
         return {"participant": dict(existing), "is_new": False}
 
+    # Гарантируем что у контакта есть ref_code (главный и единственный источник)
+    user_ref_code = await db.fetchval(
+        "SELECT ref_code FROM platform_users WHERE id = $1", platform_user_id
+    )
+    if not user_ref_code:
+        user_ref_code = await get_unique_ref_code(db)
+        await db.execute(
+            "UPDATE platform_users SET ref_code = $1 WHERE id = $2",
+            user_ref_code, platform_user_id
+        )
+
     referrer_id = None
     resolved_ref_code = data.ref_code
 
-    # Если передан partner_tg_id — ищем ref_code рефовода по tg_id
+    # Если передан partner_tg_id — ищем ref_code рефовода по tg_id (через platform_users)
     if data.partner_tg_id and not resolved_ref_code:
-        # 1) Сначала смотрим среди коллабораторов/спикеров этого события
-        speaker_row = await db.fetchrow(
+        partner_code = await db.fetchval(
             """
-            SELECT cse.ref_code FROM conf_speaker_events cse
-            JOIN collaborators c ON c.id = cse.speaker_id
-            WHERE c.personal_tg_id = $1 AND cse.event_id = $2
+            SELECT pu.ref_code FROM platform_users pu
+            WHERE pu.platform_user_id = $1 AND pu.client_id = $2
             """,
-            str(data.partner_tg_id), event["id"]
+            str(data.partner_tg_id), event["client_id"]
         )
-        if speaker_row and speaker_row["ref_code"]:
-            resolved_ref_code = speaker_row["ref_code"]
-        else:
-            # 2) Иначе — среди участников события
-            participant_row = await db.fetchrow(
-                """
-                SELECT ep.ref_code FROM event_participants ep
-                JOIN platform_users pu ON pu.id = ep.platform_user_id
-                WHERE pu.platform_user_id = $1 AND ep.event_id = $2
-                """,
-                str(data.partner_tg_id), event["id"]
-            )
-            if participant_row:
-                resolved_ref_code = participant_row["ref_code"]
+        if partner_code:
+            resolved_ref_code = partner_code
 
     if resolved_ref_code:
+        # Находим участника-реферера в этом событии (если он там есть)
         referrer = await db.fetchrow(
-            "SELECT id FROM event_participants WHERE ref_code = $1 AND event_id = $2",
+            """
+            SELECT ep.id
+            FROM platform_users pu
+            JOIN event_participants ep ON ep.platform_user_id = pu.id
+            WHERE pu.ref_code = $1 AND ep.event_id = $2
+            """,
             resolved_ref_code, event["id"]
         )
         if referrer:
             referrer_id = referrer["id"]
 
-    new_code = await get_unique_ref_code(db)
-
     participant = await db.fetchrow(
         """
         INSERT INTO event_participants
-          (event_id, platform_user_id, referrer_participant_id, ref_code)
+          (event_id, platform_user_id, referrer_participant_id, referrer_ref_code)
         VALUES ($1,$2,$3,$4)
-        RETURNING id, ref_code
+        RETURNING id
         """,
-        event["id"], platform_user_id, referrer_id, new_code
+        event["id"], platform_user_id, referrer_id, resolved_ref_code
     )
 
-    return {"participant": dict(participant), "is_new": True}
+    return {
+        "participant": {"id": participant["id"], "ref_code": user_ref_code},
+        "is_new": True
+    }
 
 
 @router.post("/{participant_id}/activate", summary="Активировать участника")
@@ -132,7 +141,7 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
     rows = await db.fetch(
         """
         SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
-               ep.id as participant_id, ep.ref_code, ep.is_registered, ep.is_in_chat
+               ep.id as participant_id, pu.ref_code, ep.is_registered, ep.is_in_chat
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
         JOIN platform_users pu ON pu.id = ep.platform_user_id
@@ -152,7 +161,7 @@ async def get_participant_in_event(
 ):
     row = await db.fetchrow(
         """
-        SELECT ep.id, ep.ref_code, ep.is_registered, ep.is_in_chat, ep.registered_at, ep.activated_at,
+        SELECT ep.id, pu.ref_code, ep.is_registered, ep.is_in_chat, ep.registered_at, ep.activated_at,
                e.title as event_title, e.module_slug
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id

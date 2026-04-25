@@ -29,6 +29,65 @@ async def check_conference_access(event_id: int, client_id: int, db: asyncpg.Con
     return event
 
 
+async def ensure_collaborator_contact(collaborator_id: int, db: asyncpg.Connection) -> str:
+    """
+    Гарантирует что у коллаборатора есть связанный контакт в platform_users
+    с заполненным ref_code. Возвращает ref_code.
+
+    Логика:
+    - Если у collaborators.platform_user_id уже стоит FK → вернём pu.ref_code (создадим если NULL)
+    - Иначе попробуем найти контакт по personal_tg_id (для людей)
+    - Иначе создадим контакт-плейсхолдер с psевдо-id 'org_{collaborator_id}' (для организаций)
+    """
+    import secrets, string as _str
+    coll = await db.fetchrow(
+        "SELECT id, created_by_client_id, personal_tg_id, platform_user_id, name FROM collaborators WHERE id = $1",
+        collaborator_id
+    )
+    if not coll:
+        raise HTTPException(status_code=404, detail="Коллаборатор не найден")
+
+    pu_id = coll["platform_user_id"]
+
+    # 1. Если связки нет — попробуем найти/создать контакт
+    if not pu_id:
+        if coll["personal_tg_id"]:
+            existing = await db.fetchval(
+                """SELECT id FROM platform_users
+                   WHERE client_id = $1 AND platform = 'telegram' AND platform_user_id = $2""",
+                coll["created_by_client_id"], coll["personal_tg_id"]
+            )
+            pu_id = existing
+        if not pu_id:
+            # Создаём контакт-плейсхолдер
+            placeholder_id = coll["personal_tg_id"] or f"org_{coll['id']}"
+            pu_id = await db.fetchval(
+                """INSERT INTO platform_users (client_id, platform, platform_user_id, first_name, created_at, updated_at)
+                   VALUES ($1, 'telegram', $2, $3, NOW(), NOW())
+                   ON CONFLICT (client_id, platform, platform_user_id) DO UPDATE SET updated_at = NOW()
+                   RETURNING id""",
+                coll["created_by_client_id"], placeholder_id, coll["name"]
+            )
+        # Запишем FK в коллаб
+        await db.execute(
+            "UPDATE collaborators SET platform_user_id = $1 WHERE id = $2",
+            pu_id, coll["id"]
+        )
+
+    # 2. Гарантируем ref_code у контакта
+    ref_code = await db.fetchval("SELECT ref_code FROM platform_users WHERE id = $1", pu_id)
+    if not ref_code:
+        alphabet = _str.ascii_lowercase + _str.digits
+        for _ in range(10):
+            candidate = "".join(secrets.choice(alphabet) for _ in range(8))
+            if not await db.fetchval("SELECT 1 FROM platform_users WHERE ref_code = $1", candidate):
+                ref_code = candidate
+                break
+        await db.execute("UPDATE platform_users SET ref_code = $1 WHERE id = $2", ref_code, pu_id)
+
+    return ref_code
+
+
 async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     """Собирает JSON-снимок конференции из БД и сохраняет в landing_data."""
     conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
@@ -352,7 +411,7 @@ async def list_event_speakers(
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.poster_url, cse.partner_url, cse.extra_info,
-                  cse.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
+                  pu.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   cse.bot_in_channel, cse.priority,
                   cse.exclude_gift_from_broadcast, cse.exclude_channel_from_subscription,
                   sp.name, sp.title, sp.achievements,
@@ -361,6 +420,7 @@ async def list_event_speakers(
                   sp.personal_tg_username
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN platform_users pu ON pu.id = sp.platform_user_id
            WHERE cse.event_id = $1
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -447,8 +507,8 @@ async def add_speaker_from_base(
     if existing:
         raise HTTPException(status_code=400, detail="Спикер уже добавлен в это событие")
 
-    import random, string
-    ref_code = "sp_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    # Гарантируем что у коллаба есть контакт с ref_code (это и будет реф-код спикера)
+    await ensure_collaborator_contact(data.speaker_id, db)
 
     # Определяем темы: если передан topics — используем его, иначе speaker_topic
     topics_list = data.topics if data.topics is not None else (
@@ -460,13 +520,13 @@ async def add_speaker_from_base(
         """INSERT INTO conf_speaker_events
            (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
             gift_raffle_title, gift_raffle_url,
-            poster_url, partner_url, extra_info, ref_code, is_commercial, is_visible, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
+            poster_url, partner_url, extra_info, is_commercial, is_visible, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
         data.speaker_id, event_id, data.role, first_topic,
         data.gift_after_speech_title, data.gift_after_speech_url,
         data.gift_raffle_title, data.gift_raffle_url,
         data.poster_url, data.partner_url, data.extra_info,
-        ref_code, data.is_commercial, data.is_visible, data.sort_order
+        data.is_commercial, data.is_visible, data.sort_order
     )
     await _save_topics(cse["id"], topics_list, db)
     # Возвращаем с данными из глобальной базы
@@ -507,9 +567,8 @@ async def create_and_add_speaker(
         int(client["sub"])
     )
 
-    # 2. Добавляем в событие
-    import random, string
-    ref_code = "sp_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    # 2. Гарантируем контакт + ref_code у нового коллаба (создаст плейсхолдер если нужно)
+    await ensure_collaborator_contact(sp["id"], db)
 
     topics_list = data.topics if data.topics is not None else (
         [data.speaker_topic] if data.speaker_topic else []
@@ -520,13 +579,13 @@ async def create_and_add_speaker(
         """INSERT INTO conf_speaker_events
            (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
             gift_raffle_title, gift_raffle_url,
-            poster_url, partner_url, extra_info, ref_code, is_commercial, is_visible, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
+            poster_url, partner_url, extra_info, is_commercial, is_visible, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
         sp["id"], event_id, data.role, first_topic,
         data.gift_after_speech_title, data.gift_after_speech_url,
         data.gift_raffle_title, data.gift_raffle_url,
         data.poster_url, data.partner_url, data.extra_info,
-        ref_code, data.is_commercial, data.is_visible, data.sort_order
+        data.is_commercial, data.is_visible, data.sort_order
     )
     await _save_topics(cse["id"], topics_list, db)
     topics_map = await _load_topics([cse["id"]], db)
@@ -1322,19 +1381,21 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
     Возвращает полные данные спикера по его персональному ref_code.
     Используется для страницы самопроверки/редактирования спикером.
     """
+    # Резолв: ref_code → platform_users → collaborators → conf_speaker_events
     row = await db.fetchrow(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
-                  cse.is_commercial, cse.ref_code, cse.keyword_code,
+                  cse.is_commercial, pu.ref_code, cse.keyword_code,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
-           FROM conf_speaker_events cse
-           JOIN collaborators sp ON sp.id = cse.speaker_id
-           WHERE cse.ref_code = $1 AND cse.event_id = $2""",
+           FROM platform_users pu
+           JOIN collaborators sp ON sp.platform_user_id = pu.id
+           JOIN conf_speaker_events cse ON cse.speaker_id = sp.id
+           WHERE pu.ref_code = $1 AND cse.event_id = $2""",
         ref_code, event_id
     )
     if not row:
@@ -1358,7 +1419,11 @@ async def update_speaker_by_ref_code(
     Обновляет и профиль (collaborators), и данные выступления (conf_speaker_events).
     """
     cse = await db.fetchrow(
-        "SELECT id, speaker_id FROM conf_speaker_events WHERE ref_code = $1 AND event_id = $2",
+        """SELECT cse.id, cse.speaker_id
+           FROM platform_users pu
+           JOIN collaborators c ON c.platform_user_id = pu.id
+           JOIN conf_speaker_events cse ON cse.speaker_id = c.id
+           WHERE pu.ref_code = $1 AND cse.event_id = $2""",
         ref_code, event_id
     )
     if not cse:
@@ -1437,7 +1502,7 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
         raise HTTPException(status_code=403, detail="Неверный код доступа")
 
     rows = await db.fetch(
-        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, cse.ref_code, cse.keyword_code,
+        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, pu.ref_code, cse.keyword_code,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.is_commercial,
@@ -1448,6 +1513,7 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN platform_users pu ON pu.id = sp.platform_user_id
            WHERE cse.event_id = $1
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -1532,7 +1598,7 @@ async def update_speaker_as_editor(
 
     # Возвращаем обновлённые данные
     row = await db.fetchrow(
-        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, cse.ref_code, cse.keyword_code,
+        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, pu.ref_code, cse.keyword_code,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
@@ -1542,6 +1608,7 @@ async def update_speaker_as_editor(
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN platform_users pu ON pu.id = sp.platform_user_id
            WHERE cse.id = $1""",
         speaker_event_id
     )
@@ -2400,18 +2467,20 @@ async def create_report(
     await check_conference_access(event_id, int(client["sub"]), db)
 
     # Все спикеры/организаторы конференции с трафиком по реф-коду
+    # ref_code теперь живёт в platform_users (через collaborators.platform_user_id)
     speakers_rows = await db.fetch(
-        """SELECT cse.id AS speaker_event_id, cse.speaker_id, cse.ref_code,
+        """SELECT cse.id AS speaker_event_id, cse.speaker_id, pu.ref_code,
                   cse.role, cse.is_commercial, cse.sort_order,
                   col.name, col.personal_tg_username AS username,
                   COUNT(ep.id) FILTER (WHERE ep.id IS NOT NULL) AS entered,
                   COUNT(ep.id) FILTER (WHERE ep.is_registered = TRUE) AS registered
            FROM conf_speaker_events cse
            JOIN collaborators col ON col.id = cse.speaker_id
+           LEFT JOIN platform_users pu ON pu.id = col.platform_user_id
            LEFT JOIN event_participants ep ON ep.event_id = $1
-               AND ep.referrer_ref_code = cse.ref_code
+               AND ep.referrer_ref_code = pu.ref_code
            WHERE cse.event_id = $1
-           GROUP BY cse.id, cse.speaker_id, cse.ref_code, cse.role,
+           GROUP BY cse.id, cse.speaker_id, pu.ref_code, cse.role,
                     cse.is_commercial, cse.sort_order, col.name, col.personal_tg_username
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -2434,18 +2503,9 @@ async def create_report(
             "registered": int(row["registered"]),
         })
 
-    # Ошибка распределения = referrer_ref_code = 'new_partner_id' (не распознан источник)
-    errors_rows = await db.fetch(
-        """SELECT ep.id, ep.is_registered,
-                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username
-           FROM event_participants ep
-           JOIN platform_users pu ON pu.id = ep.platform_user_id
-           WHERE ep.event_id = $1
-             AND pu.platform = 'telegram'
-             AND ep.referrer_ref_code = 'new_partner_id'
-           ORDER BY ep.id""",
-        event_id
-    )
+    # Группа «Ошибка распределения» больше не существует:
+    # маркер 'new_partner_id' зачищен, такие участники теперь идут в «Из базы».
+    errors_rows = []
 
     errors_data = []
     for row in errors_rows:
@@ -2461,6 +2521,7 @@ async def create_report(
         })
 
     # Рефоводы = те кто привёл других И сами являются участниками события
+    # Исключаем спикеров через JOIN: спикер — это коллаб со связкой на pu, и есть запись в conf_speaker_events
     referrals_rows = await db.fetch(
         """SELECT ep2.referrer_ref_code,
                   COUNT(ep2.id) AS entered,
@@ -2472,10 +2533,11 @@ async def create_report(
            )
            WHERE ep2.event_id = $1
              AND ep2.referrer_ref_code IS NOT NULL
-             AND ep2.referrer_ref_code NOT IN ('new_partner_id', 'wrong_client_id', '')
-             AND ep2.referrer_ref_code NOT IN (
-                 SELECT ref_code FROM conf_speaker_events
-                 WHERE event_id = $1 AND ref_code IS NOT NULL
+             AND ep2.referrer_ref_code <> ''
+             AND NOT EXISTS (
+                 SELECT 1 FROM collaborators c
+                 JOIN conf_speaker_events cse ON cse.speaker_id = c.id
+                 WHERE c.platform_user_id = pu.id AND cse.event_id = $1
              )
              AND EXISTS (
                  SELECT 1 FROM event_participants ep_check
@@ -2512,7 +2574,8 @@ async def create_report(
         event_id
     )
 
-    # Рефоводы не являющиеся участниками — тоже идут в базу
+    # Рефоводы не являющиеся участниками события — тоже идут в базу
+    # (исключаем спикеров через JOIN на collaborators)
     base_referrers_rows = await db.fetch(
         """SELECT ep2.referrer_ref_code,
                   COUNT(ep2.id) AS entered,
@@ -2524,10 +2587,11 @@ async def create_report(
            )
            WHERE ep2.event_id = $1
              AND ep2.referrer_ref_code IS NOT NULL
-             AND ep2.referrer_ref_code NOT IN ('new_partner_id', 'wrong_client_id', '')
-             AND ep2.referrer_ref_code NOT IN (
-                 SELECT ref_code FROM conf_speaker_events
-                 WHERE event_id = $1 AND ref_code IS NOT NULL
+             AND ep2.referrer_ref_code <> ''
+             AND NOT EXISTS (
+                 SELECT 1 FROM collaborators c
+                 JOIN conf_speaker_events cse ON cse.speaker_id = c.id
+                 WHERE c.platform_user_id = pu.id AND cse.event_id = $1
              )
              AND NOT EXISTS (
                  SELECT 1 FROM event_participants ep_check

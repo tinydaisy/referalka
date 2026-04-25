@@ -82,14 +82,11 @@ async def get_contacts(
           pu.last_contact_at,
           pu.created_at,
           pu.salebot_id,
-          -- партнёр: ищем по tg_id из ref_code
-          CASE
-            WHEN pu.ref_code LIKE 'tg_%%_r_%%' THEN
-              (SELECT c2.name FROM collaborators c2
-               WHERE c2.personal_tg_id = split_part(pu.ref_code, '_r_', 2)
-               LIMIT 1)
-            ELSE NULL
-          END AS referrer_name,
+          -- имя того, кто впервые привёл (через JOIN по first_referrer_ref_code)
+          (SELECT TRIM(COALESCE(ref.first_name,'') || ' ' || COALESCE(ref.last_name,''))
+           FROM platform_users ref
+           WHERE ref.ref_code = pu.first_referrer_ref_code AND ref.client_id = pu.client_id
+           LIMIT 1) AS referrer_name,
           -- участник конфы?
           EXISTS (
             SELECT 1 FROM event_participants ep WHERE ep.platform_user_id = pu.id
@@ -133,13 +130,10 @@ async def get_contact(
           pu.last_contact_at,
           pu.created_at,
           pu.salebot_id,
-          CASE
-            WHEN pu.ref_code LIKE 'tg_%%_r_%%' THEN
-              (SELECT c2.name FROM collaborators c2
-               WHERE c2.personal_tg_id = split_part(pu.ref_code, '_r_', 2)
-               LIMIT 1)
-            ELSE NULL
-          END AS referrer_name
+          (SELECT TRIM(COALESCE(ref.first_name,'') || ' ' || COALESCE(ref.last_name,''))
+           FROM platform_users ref
+           WHERE ref.ref_code = pu.first_referrer_ref_code AND ref.client_id = pu.client_id
+           LIMIT 1) AS referrer_name
         FROM platform_users pu
         WHERE pu.id = $1 AND pu.client_id = $2
     """, contact_id, client_id)
@@ -150,9 +144,10 @@ async def get_contact(
 
     # События в которых участвует
     events = await db.fetch("""
-        SELECT e.title, e.slug, ep.is_registered, ep.registered_at, ep.ref_code
+        SELECT e.title, e.slug, ep.is_registered, ep.registered_at, pu.ref_code
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
+        JOIN platform_users pu ON pu.id = ep.platform_user_id
         WHERE ep.platform_user_id = $1
         ORDER BY ep.registered_at DESC
     """, contact_id)

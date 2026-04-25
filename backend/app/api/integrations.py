@@ -26,8 +26,7 @@ async def get_unique_ref_code(db: asyncpg.Connection) -> str:
     for _ in range(10):
         code = generate_ref_code()
         exists = await db.fetchval(
-            "SELECT 1 FROM platform_users WHERE ref_code = $1 UNION SELECT 1 FROM event_participants WHERE ref_code = $1",
-            code
+            "SELECT 1 FROM platform_users WHERE ref_code = $1", code
         )
         if not exists:
             return code
@@ -142,16 +141,23 @@ async def salebot_register(
             raise HTTPException(status_code=404, detail="Событие не найдено у этого клиента")
 
         existing_participant = await db.fetchrow(
-            """
-            SELECT id, ref_code FROM event_participants
-            WHERE event_id = $1 AND platform_user_id = $2
-            """,
+            "SELECT id FROM event_participants WHERE event_id = $1 AND platform_user_id = $2",
             event_id_int, pluson_id
         )
 
+        # Реф-код берём из platform_users — единственный источник
+        ref_code = await db.fetchval(
+            "SELECT ref_code FROM platform_users WHERE id = $1", pluson_id
+        )
+        if not ref_code:
+            ref_code = await get_unique_ref_code(db)
+            await db.execute(
+                "UPDATE platform_users SET ref_code = $1 WHERE id = $2",
+                ref_code, pluson_id
+            )
+
         if existing_participant:
             participant_id = existing_participant["id"]
-            ref_code = existing_participant["ref_code"]
             # Обновляем булевы поля (только в сторону TRUE, назад не откатываем)
             if data.is_registered or data.is_in_chat:
                 await db.execute(
@@ -165,44 +171,26 @@ async def salebot_register(
                 )
         else:
             is_new_participant = True
-            # Берём ref_code из platform_users — он уже сгенерирован там
-            ref_code = await db.fetchval(
-                "SELECT ref_code FROM platform_users WHERE id = $1", pluson_id
-            )
-            if not ref_code:
-                ref_code = await get_unique_ref_code(db)
 
-            # Ищем ref_code рефовода по partner_tg_id
+            # Ищем ref_code рефовода по partner_tg_id (через platform_users)
             referrer_ref_code = None
             if data.partner_tg_id:
-                # 1) Среди спикеров/коллабораторов этого события
                 referrer_ref_code = await db.fetchval(
                     """
-                    SELECT cse.ref_code FROM conf_speaker_events cse
-                    JOIN collaborators c ON c.id = cse.speaker_id
-                    WHERE c.personal_tg_id = $1 AND cse.event_id = $2
+                    SELECT pu.ref_code FROM platform_users pu
+                    WHERE pu.platform_user_id = $1 AND pu.client_id = $2
                     """,
-                    str(data.partner_tg_id), event_id_int
+                    str(data.partner_tg_id), data.client_id
                 )
-                # 2) Иначе среди участников события
-                if not referrer_ref_code:
-                    referrer_ref_code = await db.fetchval(
-                        """
-                        SELECT ep.ref_code FROM event_participants ep
-                        JOIN platform_users pu ON pu.id = ep.platform_user_id
-                        WHERE pu.platform_user_id = $1 AND ep.event_id = $2
-                        """,
-                        str(data.partner_tg_id), event_id_int
-                    )
 
             participant_id = await db.fetchval(
                 """
                 INSERT INTO event_participants
-                  (event_id, platform_user_id, ref_code, is_registered, is_in_chat, registered_at, referrer_ref_code)
-                VALUES ($1, $2, $3, $4, $5, NOW(), $6)
+                  (event_id, platform_user_id, is_registered, is_in_chat, registered_at, referrer_ref_code)
+                VALUES ($1, $2, $3, $4, NOW(), $5)
                 RETURNING id
                 """,
-                event_id_int, pluson_id, ref_code, data.is_registered, data.is_in_chat, referrer_ref_code
+                event_id_int, pluson_id, data.is_registered, data.is_in_chat, referrer_ref_code
             )
 
     return {
@@ -269,8 +257,8 @@ async def salebot_get_user(
     user = await db.fetchrow(
         """
         SELECT pu.id as pluson_id, pu.username, pu.first_name, pu.last_name,
-               pu.salebot_id, pu.created_at,
-               ep.id as participant_id, ep.event_id, ep.ref_code, ep.is_registered, ep.is_in_chat
+               pu.salebot_id, pu.created_at, pu.ref_code,
+               ep.id as participant_id, ep.event_id, ep.is_registered, ep.is_in_chat
         FROM platform_users pu
         LEFT JOIN event_participants ep ON ep.platform_user_id = pu.id
         WHERE pu.client_id = $1 AND pu.platform = $2 AND pu.platform_user_id = $3

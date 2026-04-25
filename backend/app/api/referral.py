@@ -21,13 +21,16 @@ async def referral_redirect(ref_code: str, db: asyncpg.Connection = Depends(get_
     1. Логирует click в referral_events
     2. Редиректит на landing_url события
     """
-    # Ищем участника по ref_code (или ref_code_paid)
+    # Ищем участника по ref_code (через platform_users — единственный источник)
     participant = await db.fetchrow(
         """
         SELECT ep.id, ep.event_id, e.landing_url, e.slug
-        FROM event_participants ep
+        FROM platform_users pu
+        JOIN event_participants ep ON ep.platform_user_id = pu.id
         JOIN events e ON e.id = ep.event_id
-        WHERE ep.ref_code = $1
+        WHERE pu.ref_code = $1
+        ORDER BY ep.registered_at DESC
+        LIMIT 1
         """,
         ref_code
     )
