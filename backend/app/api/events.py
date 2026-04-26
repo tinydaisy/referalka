@@ -5,8 +5,26 @@ from app.auth import get_current_client
 from app.database import get_db
 import asyncpg
 import re
+import secrets
 
 router = APIRouter(prefix="/events", tags=["События"])
+
+# Алфавит без визуально похожих символов (без 0/o, 1/l/i)
+_SLUG_CODE_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
+
+
+def _short_code(n: int = 5) -> str:
+    return ''.join(secrets.choice(_SLUG_CODE_ALPHABET) for _ in range(n))
+
+
+async def _make_unique_slug(db: asyncpg.Connection, base: str) -> str:
+    """`<base>-<5 случайных символа>`. Коллизия маловероятна (~1/33M),
+    но повторяем до уникальности на всякий случай."""
+    while True:
+        candidate = f"{base}-{_short_code(5)}"
+        exists = await db.fetchval("SELECT 1 FROM events WHERE slug = $1", candidate)
+        if not exists:
+            return candidate
 
 
 _TRANSLIT_MAP = {
@@ -98,14 +116,7 @@ async def create_event(
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
-    base_slug = slugify(data.title)
-    slug = base_slug
-
-    # Делаем slug уникальным
-    counter = 1
-    while await db.fetchrow("SELECT id FROM events WHERE slug = $1", slug):
-        slug = f"{base_slug}-{counter}"
-        counter += 1
+    slug = await _make_unique_slug(db, slugify(data.title))
 
     from datetime import datetime as _dt
     def _parse_dt(s):
@@ -205,15 +216,8 @@ async def copy_event(
     if not src:
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
-    # Уникальный slug
-    base = f"{src['slug']}-copy"
-    new_slug = base
-    n = 1
-    while await db.fetchval("SELECT 1 FROM events WHERE slug = $1", new_slug):
-        n += 1
-        new_slug = f"{base}-{n}"
-
     new_title = f"Копия — {src['title']}"
+    new_slug = await _make_unique_slug(db, slugify(new_title))
 
     async with db.transaction():
         new_event = await db.fetchrow(
