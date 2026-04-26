@@ -253,7 +253,7 @@ export default function ContactsPage() {
                     )}
                   </div>
                   <span className="text-xs text-gray-400 truncate block">
-                    {c.username ? `@${c.username}` : c.email || c.phone || '—'}
+                    {c.email || c.phone || '—'}
                   </span>
                 </div>
               </button>
