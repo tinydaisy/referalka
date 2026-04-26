@@ -55,44 +55,61 @@ function ContactCard({
   return (
     <div className="border-t border-gray-50 first:border-t-0">
       <div
-        className="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-gray-50 transition-colors"
+        className="flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-gray-50 transition-colors"
         onClick={() => setOpen(v => !v)}
       >
-        <button
-          type="button"
-          onClick={toggle}
-          disabled={busy}
-          title={p.is_registered ? 'Снять статус «Зарегистрирован»' : 'Отметить как зарегистрирован'}
-          className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
-            p.is_registered
-              ? 'bg-green-500 border-green-500 text-white'
-              : 'bg-white border-gray-300 hover:border-gray-400'
-          } ${busy ? 'opacity-50' : ''}`}
-        >
-          {p.is_registered && <Check size={13} strokeWidth={3} />}
-        </button>
-
-        <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-sm font-medium text-gray-500">
-          {initial}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-medium text-gray-900 text-sm truncate">{name}</p>
-          {p.username && (
-            <p className="text-xs text-gray-400">@{p.username.replace(/^@+/, '')}</p>
-          )}
-        </div>
-        <div className="text-right shrink-0 flex items-center gap-2">
-          <div>
-            {p.registered_at && (
-              <p className="text-xs text-gray-400">
-                {new Date(p.registered_at).toLocaleDateString('ru')}
-              </p>
-            )}
-            {p.referral_count > 0 && (
-              <p className="text-xs text-brand font-medium">{p.referral_count} реф.</p>
+        {/* Имя — главная колонка */}
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-sm font-medium text-gray-500">
+            {initial}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-gray-900 text-sm truncate">{name}</p>
+            {p.username && (
+              <p className="text-xs text-gray-400 truncate">@{p.username.replace(/^@+/, '')}</p>
             )}
           </div>
-          {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+        </div>
+
+        {/* Колонка «Рефералы» */}
+        <div className="hidden sm:block w-14 text-center shrink-0">
+          {p.referral_count > 0 ? (
+            <span className="text-xs text-brand font-medium">{p.referral_count}</span>
+          ) : (
+            <span className="text-xs text-gray-300">—</span>
+          )}
+        </div>
+
+        {/* Колонка «Дата регистрации» */}
+        <div className="w-20 text-center shrink-0">
+          {p.registered_at ? (
+            <span className="text-xs text-gray-500">
+              {new Date(p.registered_at).toLocaleDateString('ru')}
+            </span>
+          ) : (
+            <span className="text-xs text-gray-300">—</span>
+          )}
+        </div>
+
+        {/* Колонка «Зарегистрирован» — чекбокс */}
+        <div className="w-20 flex justify-center shrink-0">
+          <button
+            type="button"
+            onClick={toggle}
+            disabled={busy}
+            title={p.is_registered ? 'Снять статус «Зарегистрирован»' : 'Отметить как зарегистрирован'}
+            className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${
+              p.is_registered
+                ? 'bg-green-500 border-green-500 text-white'
+                : 'bg-white border-gray-300 hover:border-gray-400'
+            } ${busy ? 'opacity-50' : ''}`}
+          >
+            {p.is_registered && <Check size={14} strokeWidth={3} />}
+          </button>
+        </div>
+
+        <div className="w-4 shrink-0 text-gray-400">
+          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </div>
       </div>
 
@@ -110,6 +127,18 @@ function ContactCard({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function ListHeader() {
+  return (
+    <div className="hidden sm:flex items-center gap-3 px-5 py-2.5 border-b border-gray-100 bg-gray-50/50 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+      <div className="flex-1 min-w-0">Имя</div>
+      <div className="w-14 text-center">Реф.</div>
+      <div className="w-20 text-center">Регистрация</div>
+      <div className="w-20 text-center">Зарегистр.</div>
+      <div className="w-4" />
     </div>
   )
 }
@@ -272,15 +301,21 @@ export default function EventParticipants({ eventId }: { eventId: number }) {
             {participants.length === 0 ? 'В этой группе пусто' : 'Никого не найдено'}
           </div>
         ) : (
-          filtered.map(p => (
-            <ContactCard
-              key={p.id}
-              p={p}
-              onToggleRegistered={(next) => toggleRegistered(p.id, next)}
-            />
-          ))
+          <>
+            <ListHeader />
+            {filtered.map(p => (
+              <ContactCard
+                key={p.id}
+                p={p}
+                onToggleRegistered={(next) => toggleRegistered(p.id, next)}
+              />
+            ))}
+          </>
         )}
       </div>
+      <p className="text-xs text-gray-400 mt-2">
+        Галочка в колонке «Зарегистр.» — отметка вручную, что человек зарегистрировался на событие. Снять/поставить можно кликом.
+      </p>
     </div>
   )
 }
