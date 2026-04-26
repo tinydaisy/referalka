@@ -198,8 +198,12 @@ function GiftsSection({ eventId }: { eventId: number }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-gray-900">
-                  За <strong>{t.threshold_count}</strong>{' '}
-                  {t.threshold_count === 1 ? 'друга' : 'друзей'}
+                  {t.threshold_count === 0 ? (
+                    <>Сразу при регистрации</>
+                  ) : (
+                    <>За <strong>{t.threshold_count}</strong>{' '}
+                       {t.threshold_count === 1 ? 'друга' : 'друзей'}</>
+                  )}
                 </div>
                 {t.lead_magnet_name ? (
                   <div className="text-sm text-gray-700 mt-0.5">🎁 {t.lead_magnet_name}</div>
@@ -246,7 +250,7 @@ function GiftsSection({ eventId }: { eventId: number }) {
 
 
 function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any) {
-  const [count, setCount] = useState(initial?.threshold_count || 1)
+  const [count, setCount] = useState(initial?.threshold_count ?? 0)
   const [leadMagnetId, setLeadMagnetId] = useState<number | null>(initial?.lead_magnet_id || null)
   const [certificateUrl, setCertificateUrl] = useState(initial?.certificate_url || '')
   const [giftText, setGiftText] = useState(initial?.gift_template_text || '')
@@ -255,7 +259,7 @@ function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (count < 1) return setErr('Количество должно быть >= 1')
+    if (count < 0) return setErr('Количество не может быть отрицательным')
     setSaving(true); setErr(null)
     try {
       const payload = {
@@ -283,9 +287,10 @@ function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any)
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Количество приведённых *</label>
-            <input type="number" min={1} value={count}
-                   onChange={e => setCount(parseInt(e.target.value) || 1)}
+            <input type="number" min={0} value={count}
+                   onChange={e => setCount(Math.max(0, parseInt(e.target.value) || 0))}
                    className="w-full px-3 py-2 border border-gray-300 rounded-lg" autoFocus />
+            <p className="text-xs text-gray-400 mt-1">0 — подарок выдаётся сразу всем участникам, без условий</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Лид-магнит</label>

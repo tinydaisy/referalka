@@ -303,8 +303,8 @@ async def add_threshold(
 ):
     client_id = int(client["sub"])
     await _check_event_owned(event_id, client_id, db)
-    if data.threshold_count < 1:
-        raise HTTPException(status_code=400, detail="threshold_count должен быть >= 1")
+    if data.threshold_count < 0:
+        raise HTTPException(status_code=400, detail="threshold_count должен быть >= 0")
     if data.lead_magnet_id:
         await _check_lead_magnet_owned(data.lead_magnet_id, client_id, db)
     try:
