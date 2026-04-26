@@ -12,11 +12,21 @@ from datetime import datetime, date, time, timedelta
 router = APIRouter(prefix="/events/{event_id}/conference", tags=["Конференция"])
 
 
+_TRANSLIT_MAP = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+    'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'shch',
+    'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+}
+
+
 def slugify(name: str) -> str:
-    slug = name.lower().strip()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_-]+", "-", slug)
-    return slug[:60]
+    s = name.lower().strip()
+    s = ''.join(_TRANSLIT_MAP.get(ch, ch) for ch in s)
+    s = re.sub(r"[^a-z0-9\s-]", "", s)
+    s = re.sub(r"[\s_-]+", "-", s).strip('-')
+    return s[:60] or 'item'
 
 
 async def check_conference_access(event_id: int, client_id: int, db: asyncpg.Connection):
