@@ -79,30 +79,57 @@
 - `points_free` — баллов за бесплатную регистрацию
 - `points_paid` — баллов за платную (0 = нет платного тарифа → одна реф. ссылка)
 - `points_scope` (event / client) — баллы копятся в рамках события или всех событий клиента
-- `landing_url` — куда ведёт реферальная ссылка
+- `landing_url` — ссылка на лендинг события (внешний или встроенный `pluson.app/l/{slug}`)
+- `address` — адрес доступа: либо URL стрима/видео, либо офлайн-адрес (одно поле, свободный текст). Опц.
+- `description` — описание события (опц.)
+- `start_at`, `end_at` — даты начала/конца (опц., могут быть пустыми для бессрочного доступа)
 - `webhook_url` — куда клиент вешает ПЛЮСОН-webhook в своей платёжке
 - `require_subscription` — требовать подписку на канал перед Игрой
+- ⚠️ Все типы мероприятий (вебинар, урок, нетворкинг, эфир) — записи в `events` с разным `module_slug`. Конференции тоже в `events`, плюс расширение в `conf_*`.
 
 **`event_subscriptions`** — каналы для проверки подписки (мессенджер-агностик)
 - `event_id`, `platform` (telegram / max), `channel_id`, `channel_title`, `is_required`
 
-**`platform_users`** — реестр участников per-client (одна запись на человека у каждого клиента)
+**`platform_users`** — реестр Контактов per-client (одна запись на человека у клиента)
 - `client_id` → привязка к клиенту ПЛЮСОН
-- `platform` (telegram / max / ...), `platform_user_id` (tg_id в виде строки — универсально)
-- `username`, `first_name`, `last_name`
+- `platform_user_id` (TEXT) — внешний id (tg_id / vk_id / max_id; для оргов псевдо `org_X`)
+- `username` (без `@`), `first_name`, `last_name`, `email`, `phone`
 - `salebot_id` — ID пользователя в Salebot у этого клиента
-- `is_unsubscribed` (BOOLEAN, default FALSE) — TRUE если пользователь заблокировал/остановил бота; такие пропускаются при рассылке
+- `tags` JSONB, `utm_source`, `last_contact_at`
 - `platform_meta` (JSONB) — доп. поля платформы
-- Уникальность: `(client_id, platform, platform_user_id)` — один человек у одного клиента на одной платформе
-- ⚠️ `telegram_users` — удалена (была пустой, заменена миграцией 011)
+- **`ref_code` UNIQUE** — единственный реф-код человека (используется участниками и спикерами через JOIN)
+- **`first_referrer_ref_code`** — реф-код того, кто впервые привёл этот контакт
+- Уникальность: `(client_id, platform_user_id)` — один человек у одного клиента
+- ⚠️ Удалены: `platform` (живёт в `channels.platform`), `is_unsubscribed` (живёт в `platform_user_channels` per-канал), `referrer_tg_id` (привязка к платформе несовместима с мультиплатформой), `telegram_users` (миграция 011)
+
+**`channels`** — каналы доставки клиента (миграция 033)
+- `client_id`, `platform` ('telegram' | 'vk' | 'max'), `display_name`, `handle` (@bot / vk_group_id / max_id)
+- `bot_token` — секрет канала (переехал из `clients.bot_token`)
+- `is_active`
+- У одного клиента может быть несколько каналов одной или разных платформ
+
+**`platform_user_channels`** — подписка контакта на конкретный канал (миграция 033)
+- `platform_user_id` → `platform_users`, `channel_id` → `channels`
+- `is_unsubscribed` (per-канал), `subscribed_at`, `unsubscribed_at`
+- UNIQUE(`platform_user_id`, `channel_id`)
 
 **`event_participants`** — факт участия (1 строка на каждое событие каждого человека)
 - `event_id`, `platform_user_id` → `platform_users(id)`
-- `ref_code` (уникальный глобально), `referrer_participant_id` → реферер в рамках этого события
-- `referrer_ref_code`, `status` (interested / registered / in_chat)
+- `referrer_ref_code` — per-event реферер (отличается от `platform_users.first_referrer_ref_code`)
+- `referrer_participant_id` → реферер в рамках этого события (если реферер сам участник)
+- `is_registered` BOOL, `is_in_chat` BOOL
 - `registered_at`, `activated_at` (когда открыл Игру)
+- ⚠️ Удалено: `ref_code` (живёт в `platform_users.ref_code`, миграция 032)
+- Резолв реферера: `JOIN platform_users WHERE pu.ref_code = referrer_ref_code` — один путь и для участников, и для спикеров
 
 ### Реферальная механика
+
+**Один реф-код на человека** (миграция 032 от 26.04.2026):
+- Источник истины — `platform_users.ref_code` UNIQUE
+- Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ
+- Резолв «по коду найти человека»: `JOIN platform_users pu WHERE pu.ref_code = ?`
+- Резолв спикера: `pu.ref_code → collaborators.platform_user_id → conf_speaker_events`
+- В `platform_users.first_referrer_ref_code` хранится «кто впервые привёл контакт в базу клиента»; в `event_participants.referrer_ref_code` — per-event реферер (один человек на разные события мог прийти от разных)
 
 **`referral_events`** — лог кликов и конверсий
 - `event_id`, `ref_code`, `visitor_tg_id`, `type` (click / free / paid), `points_awarded`, `level`
@@ -112,17 +139,41 @@
 
 ### Подарки и материалы
 
-**`gifts`** — подарки реферальной механики
+**`gifts`** — подарки реферальной механики (legacy, используется в текущем коде)
 - `event_id`, `title`, `description`, `points_cost`, `link_url`, `stock` (-1 = безлимит)
 
 **`gift_issuances`** — выдачи подарков
 - `gift_id`, `participant_id`, `status` (pending / issued)
 
-**`materials`** — рекламные материалы события
+**`materials`** — рекламные материалы события (legacy)
 - `event_id`, `title`, `link_url`, `type` (free / paid), `is_eternal`, `status` (active / archived)
 
 **`promo_materials`** — афиши и тексты анонсов (загружаются Клиентом)
 - `event_id`, `type` (poster / text_post / text_dm), `content_url`
+
+### Лид-магниты и реф-программа на уровне события (зафиксировано 2026-04-25)
+
+**`lead_magnets`** — общая база лид-магнитов клиента (per-client)
+- `id`, `client_id` → `clients`, `name`, `description`, `url`, `created_at`, `updated_at`
+- Один лид-магнит = один материал (чек-лист, гайд, статья, видео — что угодно по ссылке)
+- Не пакет, без вложенных подарков
+- Используется в реф-программе любого события клиента
+
+**`event_posters`** — афиши события (для лендинга, рассылок, шеринга)
+- `id`, `event_id` → `events`, `url`, `orientation` ('horizontal' | 'vertical'), `sort`, `created_at`
+- Несколько афиш разных ориентаций на одно событие
+
+**`event_referral_settings`** — общие настройки реф-программы события
+- `id`, `event_id` → `events` (UNIQUE), `welcome_text` (приветствие со списком всех подарков), `share_text` (текст-анонс для шеринга участником)
+
+**`event_referral_thresholds`** — пороги реф-программы (за сколько друзей какой подарок)
+- `id`, `event_id` → `events`, `threshold_count` (1, 3, 10 — кол-во приведённых), `lead_magnet_id` → `lead_magnets`, `certificate_url` (опц., картинка-сертификат), `gift_template_text` (текст выдачи от бота), `sort`
+- Защита от двойного начисления — атомарная транзакция при достижении порога
+
+**`event_referral_materials`** — изображения для шеринга в реф-программе
+- `id`, `event_id` → `events`, `image_url`, `source` ('event_poster' | 'custom'), `source_poster_id` → `event_posters` (опц., если source='event_poster'), `sort`
+- Клиент в Материалах реф-программы может выбрать афишу события или загрузить свою (с надписями типа «я участвую, присоединяйся»)
+- Текст-анонс — единый, лежит в `event_referral_settings.share_text`
 
 **`broadcast_log`** — лог всех отправленных сообщений рассылки
 - `schedule_id` → `broadcast_schedules`, `platform_user_id` → `platform_users`
@@ -134,15 +185,21 @@
 **`conf_conferences`** — настройки конференции
 - `event_id`, `start_date`, `end_date`, `stream_url_day_1/2`, `is_live`, `vip_upsell_url`
 
-**`speakers`** — глобальная база спикеров клиента ⚠️ заменяет `conf_speakers`
-- `client_id`, `name`, `slug`, `title`, `company`, `bio`, `photo_url`, `telegram_url`, `instagram_url`, `website_url`, `extra_info`
-- Один спикер создаётся один раз, используется в разных конференциях клиента
-- Каждый клиент видит только своих спикеров (`WHERE client_id = ?`)
+**`collaborators`** — глобальная база коллабораторов (НЕ per-client; общая для всей платформы)
+- `name`, `title`, `achievements[]`, `photo_url`, `poster_url`, `tg_channel_url`, `tg_channel_id`, `personal_tg_id`, `personal_tg_username`, `assistant_tg_username`, `instagram_url`, `website_url`
+- `created_by_client_id` → клиент, который завёл первым
+- **`platform_user_id`** → `platform_users(id)` (миграция 032) — каждый коллаб связан с Контактом, и через него — с реф-кодом
+- ⚠️ Таблицы `speakers` нет; PK называется `speakers_pkey` исторически, но таблица одна — `collaborators`
 
-**`conf_speaker_events`** — участие спикера в конкретной конференции (Many-to-Many)
-- `speaker_id` → `speakers`, `event_id` → `events`
-- `role` (organizer/headliner/commercial/speaker/partner), `topic` (тема выступления), `gift_title`, `gift_url`, `poster_url`
-- Индивидуальная афиша спикера, подарок — своё для каждой конференции
+**`conf_speaker_events`** — участие коллаборатора в конкретной конференции (Many-to-Many)
+- `speaker_id` → `collaborators`, `event_id` → `events`
+- `role` (organizer/headliner/commercial/speaker/partner/general_partner)
+- `speaker_topic`, `gift_after_speech_title/url`, `gift_raffle_title/url`, `keyword_code`
+- `poster_url` — индивидуальная афиша спикера для этого события
+- `partner_url`, `extra_info`, `bot_in_channel`, `is_visible`, `sort_order`, `priority`
+- `exclude_gift_from_broadcast`, `exclude_channel_from_subscription`
+- ⚠️ Удалено: `ref_code` (живёт в `platform_users` через `collaborators.platform_user_id`, миграция 032)
+- Реф-код спикера резолвится: `cse → collaborators.platform_user_id → platform_users.ref_code`
 
 **`conf_sessions`** — сессии программы
 - `event_id`, `speaker_id`, `day`, `start_datetime`, `title`, `gift_description`, `sort_order`
@@ -161,45 +218,63 @@
 
 ---
 
-## Архитектура UI — модульный дашборд (зафиксировано 2026-04-17)
+## Архитектура UI — модульный дашборд (актуально на 2026-04-26)
 
 ### Концепция
 
-Дашборд разделён на **модули** — каждый модуль это отдельная «секция» кабинета.
-Рефералка — не тип события, а **механика поверх любого события**.
+Дашборд разделён на разделы **БАЗА** (общие per-client сущности) и **СОБЫТИЯ** (модули событий).
+Реф-программа — **не отдельный раздел**, а вкладка внутри карточки любого события или конференции.
 
 ### Структура навигации (сайдбар)
 
 ```
 [Логотип]
 ───────────────
-📊 Дашборд (главная — плитки модулей)
+📊 Дашборд
+📨 Рассылки
 ───────────────
-РЕФЕРАЛКИ
-  › Мои кампании
+БАЗА
+  👤 Контакты
+  🤝 Коллаборации
+  🎁 Лид-магниты
 ───────────────
-КОНФЕРЕНЦИИ
-  › Мои конференции
-  › Мои спикеры
+СОБЫТИЯ
+  📅 Мероприятия (вебинары, уроки, нетворкинги, эфиры)
+  🎙 Конференции
 ───────────────
-  › Премии (скоро)
-  › Турниры (скоро)
+СКОРО
+  🏆 Премии
+  🏅 Турниры
 ───────────────
 ⚙ Настройки
+🆘 Тех.поддержка → @margo_forbs в Telegram
+🌐 EN/RU
+🚪 Выйти
 ```
 
 ### Роутинг Web-кабинета
 
 | Роут | Что |
 |---|---|
-| `/dashboard` | Главная: плитки модулей (Рефералки, Конференции, Премии, Турниры) |
-| `/dashboard/referrals` | Список реферальных кампаний |
-| `/dashboard/referrals/new` | Создать кампанию: новое событие ИЛИ навесить на существующее |
-| `/dashboard/referrals/[id]` | Карточка кампании (метрики, ссылка, аналитика, подарки) |
-| `/dashboard/conferences` | Список конференций клиента |
+| `/dashboard` | Главная |
+| `/dashboard/clients` | Контакты (`platform_users` клиента) |
+| `/dashboard/collaborations` | Коллаборации (база `collaborators`) |
+| `/dashboard/lead-magnets` | Лид-магниты (общая база per-client) |
+| `/dashboard/events` | Список мероприятий (всё кроме конференций) |
+| `/dashboard/events/new` | Создать мероприятие |
+| `/dashboard/events/[id]` | Карточка с вкладками: Основное / Афиши / Реф-программа (Подарки/Материалы/Шаблоны) / Рассылки |
+| `/dashboard/conferences` | Список конференций |
 | `/dashboard/conferences/new` | Создать конференцию |
-| `/dashboard/conferences/[id]` | Конференция: основное, спикеры, программа, рассылки, промо |
-| `/dashboard/speakers` | База спикеров клиента |
+| `/dashboard/conferences/[id]` | Карточка с вкладками: Настройки / Спикеры / Программа / Участники / Афиши / Розыгрыш / **Реф-программа** / Отчёт + ссылка «Рассылки» |
+| `/dashboard/broadcasts` | Общий раздел рассылок |
+| `/dashboard/settings` | Настройки клиента (профиль, bot_token уже из `channels`) |
+
+### Списки (мероприятия и конференции)
+
+- Переключатель **«список / плитки»** в правом верхнем углу, по умолчанию список (выбор сохраняется в `localStorage` per-список)
+- В строке: афиша/иконка → название → дата (start_at, fallback `MIN(conf_days.day_date)` для конференций, fallback `created_at`) · кол-во участников → бейдж статуса (только active/ended; «черновик» не показывается)
+- Иконка 📋 «Скопировать» — глубокое копирование события (см. `POST /events/{id}/copy`)
+- Иконка 🗑 «Удалить»
 | `/dashboard/speakers/[id]` | Карточка спикера (глобальные данные) |
 
 ### Модуль «Рефералки» — логика создания кампании
@@ -237,12 +312,61 @@
 
 | Метод | Путь | Кто вызывает | Что делает |
 |---|---|---|---|
-| GET | `/events/` | Клиент | Список своих событий |
-| POST | `/events/` | Клиент | Создать событие |
+| GET | `/events/` | Клиент | Список своих событий (с `effective_start_at` — fallback для конф.) |
+| POST | `/events/` | Клиент | Создать событие (поддерживает address, start_at, end_at) |
 | GET | `/events/{id}` | Клиент | Карточка события + метрики |
-| PUT | `/events/{id}` | Клиент | Редактировать событие |
+| PATCH | `/events/{id}` | Клиент | Редактировать событие |
 | DELETE | `/events/{id}` | Клиент | Удалить событие |
-| GET | `/events/{id}/analytics` | Клиент | Таблица участников |
+| **POST** | **`/events/{id}/copy`** | Клиент | **Глубокое копирование события: дублирует event + posters + реф-программу + (для конф.) все conf_* + broadcast_templates. Возвращает новое событие со статусом `draft`** |
+| GET | `/events/{id}/analytics` | Клиент | Метрики события + топ рефереров |
+| GET | `/events/{id}/participants` | Клиент | Таблица участников |
+
+### Лид-магниты (`/lead-magnets`) — общая база per-client
+
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/lead-magnets` | Список лид-магнитов клиента |
+| POST | `/lead-magnets` | Создать (name, description, url) |
+| GET | `/lead-magnets/{id}` | Получить |
+| PATCH | `/lead-magnets/{id}` | Обновить |
+| DELETE | `/lead-magnets/{id}` | Удалить (связанные пороги получат NULL вместо подарка) |
+
+### Реф-программа события (`/events/{id}/...`)
+
+**Афиши:**
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/events/{id}/posters` | Список афиш |
+| POST | `/events/{id}/posters` | Добавить (url, orientation: horizontal\|vertical, sort) |
+| PATCH | `/events/{id}/posters/{poster_id}` | Обновить |
+| DELETE | `/events/{id}/posters/{poster_id}` | Удалить |
+
+**Настройки реф-программы:**
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/events/{id}/referral/settings` | welcome_text, share_text |
+| PUT | `/events/{id}/referral/settings` | Upsert |
+
+**Пороги-подарки:**
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/events/{id}/referral/thresholds` | Список с JOIN на lead_magnets |
+| POST | `/events/{id}/referral/thresholds` | Добавить (threshold_count, lead_magnet_id, certificate_url, gift_template_text) |
+| PATCH | `/events/{id}/referral/thresholds/{tid}` | Обновить |
+| DELETE | `/events/{id}/referral/thresholds/{tid}` | Удалить |
+
+**Материалы для шеринга:**
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/events/{id}/referral/materials` | Список |
+| POST | `/events/{id}/referral/materials` | Добавить (image_url, source: event_poster\|custom, source_poster_id) |
+| DELETE | `/events/{id}/referral/materials/{mid}` | Удалить |
+
+**Импорт реф-программы из другого события:**
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/events/{id}/referral/import-sources` | События клиента у которых есть реф-программа |
+| POST | `/events/{id}/referral/import` | `{from_event_id}` — затирает текущую реф-программу и копирует из выбранной |
 
 ### Подарки (`/gifts/`)
 

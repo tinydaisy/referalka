@@ -1,6 +1,39 @@
 # API — Справочник эндпоинтов
 
-Базовый URL: `https://pluson.margoforbs.ru/api/v1`
+Базовый URL: `https://pluson.margoforbs.ru/api/v1` (прод) / `https://dev.pluson.margoforbs.ru/api/v1` (dev)
+
+> Полная карта endpoints — в [BACKEND-PLAN.md](BACKEND-PLAN.md). В этом файле — специфические интеграции (Salebot, отправка из бэка в Telegram).
+
+---
+
+## Лид-магниты и реф-программа (актуально с 26.04.2026)
+
+### Лид-магниты — общая база per-client
+```
+GET    /api/v1/lead-magnets                        — список
+POST   /api/v1/lead-magnets                        — создать (name, description, url)
+GET    /api/v1/lead-magnets/{id}
+PATCH  /api/v1/lead-magnets/{id}
+DELETE /api/v1/lead-magnets/{id}
+```
+
+### Реф-программа события (вкладки в карточке)
+```
+GET/POST/PATCH/DELETE  /api/v1/events/{id}/posters             — афиши (h/v ориентация)
+GET/PUT                /api/v1/events/{id}/referral/settings   — welcome_text, share_text
+GET/POST/PATCH/DELETE  /api/v1/events/{id}/referral/thresholds — пороги-подарки
+GET/POST/DELETE        /api/v1/events/{id}/referral/materials  — картинки для шеринга
+
+GET   /api/v1/events/{id}/referral/import-sources              — события-источники для импорта
+POST  /api/v1/events/{id}/referral/import {from_event_id}      — импорт реф-программы (REPLACE)
+```
+
+### Копирование события
+```
+POST /api/v1/events/{id}/copy
+```
+Возвращает новое событие со статусом `draft`, title с префиксом «Копия —», уникальным slug.
+Копируется: events + posters + реф-программа + (для конф.) `conf_*` + `broadcast_templates`.
 
 ---
 
