@@ -85,10 +85,21 @@ function ContactCard({
           </div>
         </div>
 
-        {/* Колонка «Рефералы» */}
-        <div className="hidden sm:block w-14 text-center shrink-0">
+        {/* Колонка «От кого пришёл» */}
+        <div className="hidden sm:flex w-44 shrink-0 min-w-0 items-center justify-end">
+          {p.referrer_ref_code ? (
+            <span className="text-xs text-gray-600 truncate" title={referrerLabel(p)}>
+              {p.referrer_name || (p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : `код ${p.referrer_ref_code}`)}
+            </span>
+          ) : (
+            <span className="text-xs text-gray-300">—</span>
+          )}
+        </div>
+
+        {/* Колонка «Привёл» (количество приведённых) — только если ненулевое */}
+        <div className="hidden md:flex w-12 justify-center shrink-0">
           {p.referral_count > 0 ? (
-            <span className="text-xs text-brand font-medium">{p.referral_count}</span>
+            <span className="text-xs text-brand font-medium">+{p.referral_count}</span>
           ) : (
             <span className="text-xs text-gray-300">—</span>
           )}
@@ -153,7 +164,8 @@ function ListHeader() {
   return (
     <div className="hidden sm:flex items-center gap-3 px-5 py-2.5 border-b border-gray-100 bg-gray-50/50 text-[11px] font-medium uppercase tracking-wider text-gray-400">
       <div className="flex-1 min-w-0">Имя</div>
-      <div className="w-14 text-center">Реф.</div>
+      <div className="w-44 text-right">От кого пришёл</div>
+      <div className="hidden md:block w-12 text-center" title="Сколько друзей привёл этот участник">Привёл</div>
       <div className="w-20 text-center">Регистрация</div>
       <div className="w-20 text-center">Зарегистр.</div>
       <div className="w-4" />
