@@ -5,9 +5,12 @@ import { useRouter } from 'next/navigation'
 import { Plus, Users, Calendar, ChevronRight, Mic, Trash2, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
-import { ViewToggle } from '../events/page'
+import ViewToggle, { ViewMode } from '@/components/ViewToggle'
 
-type ViewMode = 'list' | 'grid'
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' })
+}
 
 export default function ConferencesPage() {
   const { t } = useLang()
@@ -19,9 +22,9 @@ export default function ConferencesPage() {
   const [view, setView] = useState<ViewMode>('list')
 
   const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
-    draft:  { label: t.status.draft,  cls: 'bg-gray-100 text-gray-500' },
     active: { label: t.status.active, cls: 'bg-green-100 text-green-700' },
     ended:  { label: t.status.ended,  cls: 'bg-red-50 text-red-600' },
+    // 'draft' не показываем
   }
 
   useEffect(() => {
@@ -115,7 +118,8 @@ export default function ConferencesPage() {
       ) : view === 'list' ? (
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
           {events.map(e => {
-            const st = STATUS_LABELS[e.status] || STATUS_LABELS.draft
+            const st = STATUS_LABELS[e.status]
+            const dateLabel = formatDate(e.start_at || e.created_at)
             return (
               <div key={e.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
                 <Link href={`/dashboard/conferences/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
@@ -130,14 +134,16 @@ export default function ConferencesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-gray-900 truncate">{e.title}</div>
                     <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
-                      <span>/{e.slug}</span>
+                      <span>{dateLabel}</span>
                       <span>·</span>
                       <span>{e.participants_count || 0} {t.conferences.participants}</span>
                     </div>
                   </div>
-                  <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded shrink-0 ${st.cls}`}>
-                    {st.label}
-                  </span>
+                  {st && (
+                    <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded shrink-0 ${st.cls}`}>
+                      {st.label}
+                    </span>
+                  )}
                 </Link>
                 <button onClick={() => handleCopy(e.id)} disabled={copyingId === e.id}
                         className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50"
@@ -156,8 +162,9 @@ export default function ConferencesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {events.map(event => {
-            const status = STATUS_LABELS[event.status] || STATUS_LABELS.draft
+            const status = STATUS_LABELS[event.status]
             const isDeleting = deleting === event.id
+            const dateLabel = formatDate(event.start_at || event.created_at)
             return (
               <div key={event.id} className="relative group">
                 <Link
@@ -168,7 +175,7 @@ export default function ConferencesPage() {
                     {event.poster_url && (
                       <img src={event.poster_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />
                     )}
-                    {event.status && event.status !== 'draft' && (
+                    {status && (
                       <span className={`text-xs px-2.5 py-1 rounded-full relative z-10 ${status.cls}`}>
                         {status.label}
                       </span>
@@ -188,7 +195,7 @@ export default function ConferencesPage() {
                       </span>
                       <span className="flex items-center gap-1.5">
                         <Calendar size={14} className="text-gray-400" />
-                        {event.slug}
+                        {dateLabel}
                       </span>
                     </div>
                   </div>

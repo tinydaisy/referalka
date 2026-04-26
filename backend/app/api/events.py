@@ -57,7 +57,7 @@ async def list_events(
         events = await db.fetch(
             """
             SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
-                   e.points_free, e.points_paid, e.created_at,
+                   e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
                    COUNT(DISTINCT ep.id) as participants_count
             FROM events e
             LEFT JOIN event_participants ep ON ep.event_id = e.id
@@ -71,7 +71,7 @@ async def list_events(
         events = await db.fetch(
             """
             SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
-                   e.points_free, e.points_paid, e.created_at,
+                   e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
                    COUNT(DISTINCT ep.id) as participants_count
             FROM events e
             LEFT JOIN event_participants ep ON ep.event_id = e.id
