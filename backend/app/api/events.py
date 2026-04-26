@@ -21,6 +21,9 @@ class CreateEventRequest(BaseModel):
     title: str
     description: Optional[str] = None
     landing_url: Optional[str] = None
+    address: Optional[str] = None       # одно поле: URL стрима / ссылка на видео / офлайн-адрес
+    start_at: Optional[str] = None      # ISO-8601
+    end_at:   Optional[str] = None
     webhook_url: Optional[str] = None
     module_slug: str = "base"
     points_free: int = 1
@@ -32,6 +35,9 @@ class UpdateEventRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     landing_url: Optional[str] = None
+    address: Optional[str] = None
+    start_at: Optional[str] = None
+    end_at:   Optional[str] = None
     webhook_url: Optional[str] = None
     status: Optional[str] = None
     points_free: Optional[int] = None
@@ -94,14 +100,20 @@ async def create_event(
         slug = f"{base_slug}-{counter}"
         counter += 1
 
+    from datetime import datetime as _dt
+    def _parse_dt(s):
+        return _dt.fromisoformat(s.replace('Z', '+00:00')) if s else None
+
     event = await db.fetchrow(
         """
-        INSERT INTO events (client_id, slug, title, description, landing_url, webhook_url,
+        INSERT INTO events (client_id, slug, title, description, landing_url, address,
+                            start_at, end_at, webhook_url,
                             module_slug, points_free, points_paid, require_subscription)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         RETURNING *
         """,
-        client_id, slug, data.title, data.description, data.landing_url, data.webhook_url,
+        client_id, slug, data.title, data.description, data.landing_url, data.address,
+        _parse_dt(data.start_at), _parse_dt(data.end_at), data.webhook_url,
         data.module_slug, data.points_free, data.points_paid, data.require_subscription
     )
 
@@ -156,6 +168,12 @@ async def update_event(
     updates = {k: v for k, v in data.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
+
+    # Преобразование ISO-строк в datetime для timestamp-полей
+    from datetime import datetime as _dt
+    for dt_field in ("start_at", "end_at"):
+        if dt_field in updates and isinstance(updates[dt_field], str):
+            updates[dt_field] = _dt.fromisoformat(updates[dt_field].replace('Z', '+00:00'))
 
     set_parts = [f"{k} = ${i+2}" for i, k in enumerate(updates.keys())]
     values = list(updates.values())
