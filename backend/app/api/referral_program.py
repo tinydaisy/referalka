@@ -17,6 +17,109 @@ import asyncpg
 router = APIRouter(prefix="/events/{event_id}", tags=["Реф-программа"])
 
 
+# ──────────────────────────────────────────────
+# ИМПОРТ РЕФ-ПРОГРАММЫ ИЗ ДРУГОГО СОБЫТИЯ
+# ──────────────────────────────────────────────
+
+class ImportFromIn(BaseModel):
+    from_event_id: int
+
+
+@router.post("/referral/import", summary="Импортировать реф-программу из другого события клиента")
+async def import_referral_program(
+    event_id: int,
+    data: ImportFromIn,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    # Проверяем что и источник, и приёмник принадлежат клиенту
+    src = await db.fetchrow(
+        "SELECT id FROM events WHERE id = $1 AND client_id = $2", data.from_event_id, client_id
+    )
+    if not src:
+        raise HTTPException(status_code=404, detail="Событие-источник не найдено")
+    dst = await db.fetchrow(
+        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+    )
+    if not dst:
+        raise HTTPException(status_code=404, detail="Событие-приёмник не найдено")
+    if data.from_event_id == event_id:
+        raise HTTPException(status_code=400, detail="Источник и приёмник совпадают")
+
+    async with db.transaction():
+        # Удаляем текущие настройки/пороги/материалы у приёмника
+        await db.execute("DELETE FROM event_referral_settings WHERE event_id = $1", event_id)
+        await db.execute("DELETE FROM event_referral_thresholds WHERE event_id = $1", event_id)
+        await db.execute("DELETE FROM event_referral_materials WHERE event_id = $1", event_id)
+
+        # settings (если есть)
+        srs = await db.fetchrow(
+            "SELECT welcome_text, share_text FROM event_referral_settings WHERE event_id = $1",
+            data.from_event_id
+        )
+        if srs:
+            await db.execute(
+                """INSERT INTO event_referral_settings (event_id, welcome_text, share_text)
+                   VALUES ($1, $2, $3)""",
+                event_id, srs['welcome_text'], srs['share_text']
+            )
+        # thresholds
+        thresholds = await db.fetch(
+            "SELECT * FROM event_referral_thresholds WHERE event_id = $1",
+            data.from_event_id
+        )
+        for t in thresholds:
+            await db.execute(
+                """INSERT INTO event_referral_thresholds
+                     (event_id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort)
+                   VALUES ($1,$2,$3,$4,$5,$6)""",
+                event_id, t['threshold_count'], t['lead_magnet_id'],
+                t['certificate_url'], t['gift_template_text'], t['sort']
+            )
+        # materials — без поссылки на чужие event_posters; всё переводим в source='custom'
+        materials = await db.fetch(
+            "SELECT image_url, sort FROM event_referral_materials WHERE event_id = $1 ORDER BY id",
+            data.from_event_id
+        )
+        for m in materials:
+            await db.execute(
+                """INSERT INTO event_referral_materials (event_id, image_url, source, source_poster_id, sort)
+                   VALUES ($1, $2, 'custom', NULL, $3)""",
+                event_id, m['image_url'], m['sort']
+            )
+
+    return {"ok": True, "thresholds": len(thresholds), "materials": len(materials), "settings": srs is not None}
+
+
+# ──────────────────────────────────────────────
+# СОБЫТИЯ-ИСТОЧНИКИ ДЛЯ ИМПОРТА
+# ──────────────────────────────────────────────
+
+@router.get("/referral/import-sources", summary="События клиента у которых есть реф-программа (для импорта)")
+async def list_import_sources(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    rows = await db.fetch(
+        """SELECT e.id, e.title, e.module_slug,
+                  (SELECT COUNT(*) FROM event_referral_thresholds WHERE event_id = e.id) AS thresholds_count
+           FROM events e
+           WHERE e.client_id = $1
+             AND e.id <> $2
+             AND (
+               EXISTS (SELECT 1 FROM event_referral_thresholds WHERE event_id = e.id) OR
+               EXISTS (SELECT 1 FROM event_referral_materials WHERE event_id = e.id) OR
+               EXISTS (SELECT 1 FROM event_referral_settings WHERE event_id = e.id)
+             )
+           ORDER BY e.created_at DESC""",
+        client_id, event_id
+    )
+    return {"items": [dict(r) for r in rows]}
+
+
 async def _check_event_owned(event_id: int, client_id: int, db: asyncpg.Connection) -> dict:
     event = await db.fetchrow(
         "SELECT id, client_id FROM events WHERE id = $1 AND client_id = $2",

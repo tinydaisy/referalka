@@ -1,12 +1,14 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Gift, Plus, Trash2, ImageIcon, MessageSquare, Save, ExternalLink } from 'lucide-react'
+import { Gift, Plus, Trash2, ImageIcon, MessageSquare, Save, ExternalLink, Download, X } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type SubTab = 'gifts' | 'materials' | 'templates'
 
 export default function ReferralProgramTab({ eventId }: { eventId: number }) {
   const [sub, setSub] = useState<SubTab>('gifts')
+  const [showImport, setShowImport] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const subTabs: { key: SubTab; label: string; icon: any }[] = [
     { key: 'gifts',     label: 'Подарки',   icon: Gift },
@@ -16,24 +18,117 @@ export default function ReferralProgramTab({ eventId }: { eventId: number }) {
 
   return (
     <div>
-      {/* Sub-tabs */}
-      <div className="inline-flex p-1 bg-gray-100 rounded-lg mb-6">
-        {subTabs.map(({ key, label, icon: Icon }) => (
-          <button key={key} onClick={() => setSub(key)}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition ${
-                    sub === key
-                      ? 'bg-white shadow-sm text-gray-900'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}>
-            <Icon size={14} />
-            {label}
-          </button>
-        ))}
+      {/* Sub-tabs + import */}
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div className="inline-flex p-1 bg-gray-100 rounded-lg">
+          {subTabs.map(({ key, label, icon: Icon }) => (
+            <button key={key} onClick={() => setSub(key)}
+                    className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition ${
+                      sub === key
+                        ? 'bg-white shadow-sm text-gray-900'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}>
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setShowImport(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border border-gray-300 text-gray-700 hover:bg-gray-50">
+          <Download size={14} /> Импортировать из другого события
+        </button>
       </div>
 
-      {sub === 'gifts'     && <GiftsSection eventId={eventId} />}
-      {sub === 'materials' && <MaterialsSection eventId={eventId} />}
-      {sub === 'templates' && <TemplatesSection eventId={eventId} />}
+      {sub === 'gifts'     && <GiftsSection     key={`g-${reloadKey}`} eventId={eventId} />}
+      {sub === 'materials' && <MaterialsSection key={`m-${reloadKey}`} eventId={eventId} />}
+      {sub === 'templates' && <TemplatesSection key={`t-${reloadKey}`} eventId={eventId} />}
+
+      {showImport && (
+        <ImportModal
+          eventId={eventId}
+          onClose={() => setShowImport(false)}
+          onImported={() => { setShowImport(false); setReloadKey(k => k + 1) }}
+        />
+      )}
+    </div>
+  )
+}
+
+
+function ImportModal({ eventId, onClose, onImported }: {
+  eventId: number; onClose: () => void; onImported: () => void
+}) {
+  const [sources, setSources] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [importing, setImporting] = useState<number | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.referralProgram.importSources(eventId)
+      .then((r: any) => setSources(r.items || []))
+      .finally(() => setLoading(false))
+  }, [eventId])
+
+  async function handleImport(srcId: number, srcTitle: string) {
+    if (!confirm(
+      `Импортировать реф-программу из «${srcTitle}»?\n\n` +
+      `ВНИМАНИЕ: текущие подарки, материалы и шаблоны этого события будут заменены!`
+    )) return
+    setImporting(srcId); setErr(null)
+    try {
+      await api.referralProgram.importFrom(eventId, srcId)
+      onImported()
+    } catch (e: any) {
+      setErr(e.message || 'Ошибка импорта')
+      setImporting(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto"
+           onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold" style={{ color: '#25455D' }}>
+            Импорт реф-программы
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={20} /></button>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          Выберите событие/конференцию, реф-программу которой хотите скопировать сюда.
+          Текущие настройки будут заменены.
+        </p>
+
+        {loading ? (
+          <div className="text-gray-400 text-sm py-6 text-center">Загрузка…</div>
+        ) : sources.length === 0 ? (
+          <div className="text-gray-500 text-sm py-6 text-center">
+            Нет других событий с настроенной реф-программой
+          </div>
+        ) : (
+          <div className="border border-gray-200 rounded-lg divide-y">
+            {sources.map((s: any) => (
+              <div key={s.id} className="p-3 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-900 truncate">{s.title}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    {s.module_slug === 'conference' ? 'Конференция' : 'Мероприятие'}
+                    {' · '}
+                    {s.thresholds_count} {s.thresholds_count === 1 ? 'порог' : 'порогов'}
+                  </div>
+                </div>
+                <button onClick={() => handleImport(s.id, s.title)} disabled={importing !== null}
+                        className="px-3 py-1.5 rounded-lg text-xs text-white font-medium disabled:opacity-50"
+                        style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                  {importing === s.id ? 'Импорт…' : 'Импортировать'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {err && <div className="mt-3 text-sm text-red-600">{err}</div>}
+      </div>
     </div>
   )
 }

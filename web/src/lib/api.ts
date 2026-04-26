@@ -41,6 +41,8 @@ export const api = {
       request(`/api/v1/events/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/events/${id}`, { method: 'DELETE' }),
+    copy: (id: number) =>
+      request(`/api/v1/events/${id}/copy`, { method: 'POST' }),
     analytics: (id: number) => request(`/api/v1/events/${id}/analytics`),
     participants: (id: number) => request(`/api/v1/events/${id}/participants`),
   },
@@ -259,6 +261,12 @@ export const api = {
       delete: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/referral/materials/${id}`, { method: 'DELETE' }),
     },
+    importSources: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/referral/import-sources`),
+    importFrom: (eventId: number, fromEventId: number) =>
+      request(`/api/v1/events/${eventId}/referral/import`, {
+        method: 'POST', body: JSON.stringify({ from_event_id: fromEventId }),
+      }),
   },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
