@@ -84,7 +84,7 @@ export default function NewEventPage() {
           <label className="block text-sm font-medium text-gray-700 mb-2">Название события *</label>
           <input
             type="text" value={form.title} onChange={set('title')} required
-            placeholder="Например: Конференция iVision 7"
+            placeholder="Например: Онлайн-нетворкинг"
             className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm"
           />
         </div>

@@ -126,7 +126,7 @@ export const en = {
     new: {
       title: 'New conference',
       fieldLabel: 'Conference name',
-      placeholder: 'For example: iViSiON 8',
+      placeholder: 'For example: Online conference',
       hint: 'You can change it later in settings',
       btn: 'Create conference',
       creating: 'Creating...',
