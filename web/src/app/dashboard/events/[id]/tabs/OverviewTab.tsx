@@ -77,9 +77,9 @@ export default function OverviewTab({
             </Field>
           </div>
 
-          <Field label="Адрес или ссылка стрима" hint="URL трансляции, ссылка на видео или офлайн-адрес — что-то одно">
+          <Field label="Ссылка на ZOOM или вебинарную комнату (для онлайн-событий)" hint="Можно вставить ссылку трансляции, запись или офлайн-адрес">
             <input value={address} onChange={e => setAddress(e.target.value)}
-                   className="input" placeholder="https://stream.example.com или Москва, ул. Тверская 1" />
+                   className="input" placeholder="https://us02web.zoom.us/j/..." />
           </Field>
 
           <Field label="URL лендинга" hint="Если у вас есть отдельная страница события на сайте">
