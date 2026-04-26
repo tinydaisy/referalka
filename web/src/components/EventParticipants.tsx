@@ -15,6 +15,7 @@ interface Participant {
   is_registered: boolean
   is_in_chat: boolean
   registered_at: string | null
+  contact_name: string | null
   first_name: string | null
   last_name: string | null
   username: string | null
@@ -22,6 +23,29 @@ interface Participant {
   phone: string | null
   email: string | null
   referral_count: number
+}
+
+// Убирает подряд идущие дубли слов (case-insensitive). Лечит «Сергей Анисимов Анисимов» → «Сергей Анисимов»
+function dedupName(s: string | null | undefined): string {
+  if (!s) return ''
+  const parts = s.trim().split(/\s+/)
+  const out: string[] = []
+  for (const p of parts) {
+    if (out.length === 0 || out[out.length - 1].toLowerCase() !== p.toLowerCase()) {
+      out.push(p)
+    }
+  }
+  return out.join(' ')
+}
+
+function displayName(p: { contact_name?: string | null; first_name: string | null; last_name: string | null; username: string | null }): string {
+  // contact.name — основной источник (имя контакта как «человека»)
+  const fromContact = dedupName(p.contact_name)
+  if (fromContact) return fromContact
+  const fromPU = dedupName([p.first_name, p.last_name].filter(Boolean).join(' '))
+  if (fromPU) return fromPU
+  if (p.username) return `@${p.username.replace(/^@+/, '')}`
+  return 'Без имени'
 }
 
 type RegisteredFilter = 'all' | 'yes' | 'no'
@@ -35,8 +59,9 @@ interface Counts {
 function referrerLabel(p: Participant): string {
   if (!p.referrer_ref_code) return '—'
   const username = p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : ''
-  if (p.referrer_name) {
-    return username ? `${p.referrer_name} (${username})` : p.referrer_name
+  const name = dedupName(p.referrer_name)
+  if (name) {
+    return username ? `${name} (${username})` : name
   }
   if (username) return username
   // контакт-реферер не нашёлся в БД — показываем код
@@ -52,7 +77,7 @@ function ContactCard({
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const name = [p.first_name, p.last_name].filter(Boolean).join(' ') || p.username || 'Без имени'
+  const name = displayName(p)
   const initial = name[0]?.toUpperCase() || '?'
 
   async function toggle(e: React.MouseEvent) {
@@ -85,28 +110,22 @@ function ContactCard({
           </div>
         </div>
 
-        {/* Колонка «От кого пришёл» */}
-        <div className="hidden sm:flex w-44 shrink-0 min-w-0 items-center justify-end">
+        {/* Колонка «Кто привёл» (имя реферера) */}
+        <div className="hidden sm:flex flex-1 max-w-xs shrink-0 min-w-0 items-center">
           {p.referrer_ref_code ? (
-            <span className="text-xs text-gray-600 truncate" title={referrerLabel(p)}>
-              {p.referrer_name || (p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : `код ${p.referrer_ref_code}`)}
+            <span className="text-xs text-gray-700 truncate" title={referrerLabel(p)}>
+              {dedupName(p.referrer_name) || (p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : `код ${p.referrer_ref_code}`)}
+              {p.referrer_username && p.referrer_name && (
+                <span className="text-gray-400"> @{p.referrer_username.replace(/^@+/, '')}</span>
+              )}
             </span>
           ) : (
-            <span className="text-xs text-gray-300">—</span>
-          )}
-        </div>
-
-        {/* Колонка «Привёл» (количество приведённых) — только если ненулевое */}
-        <div className="hidden md:flex w-12 justify-center shrink-0">
-          {p.referral_count > 0 ? (
-            <span className="text-xs text-brand font-medium">+{p.referral_count}</span>
-          ) : (
-            <span className="text-xs text-gray-300">—</span>
+            <span className="text-xs text-gray-300">— пришёл сам</span>
           )}
         </div>
 
         {/* Колонка «Дата регистрации» */}
-        <div className="w-20 text-center shrink-0">
+        <div className="w-24 text-center shrink-0">
           {p.registered_at ? (
             <span className="text-xs text-gray-500">
               {new Date(p.registered_at).toLocaleDateString('ru')}
@@ -117,7 +136,7 @@ function ContactCard({
         </div>
 
         {/* Колонка «Зарегистрирован» — чекбокс */}
-        <div className="w-20 flex justify-center shrink-0">
+        <div className="w-24 flex justify-center shrink-0">
           <button
             type="button"
             onClick={toggle}
@@ -164,10 +183,9 @@ function ListHeader() {
   return (
     <div className="hidden sm:flex items-center gap-3 px-5 py-2.5 border-b border-gray-100 bg-gray-50/50 text-[11px] font-medium uppercase tracking-wider text-gray-400">
       <div className="flex-1 min-w-0">Имя</div>
-      <div className="w-44 text-right">От кого пришёл</div>
-      <div className="hidden md:block w-12 text-center" title="Сколько друзей привёл этот участник">Привёл</div>
-      <div className="w-20 text-center">Регистрация</div>
-      <div className="w-20 text-center">Зарегистр.</div>
+      <div className="flex-1 max-w-xs">Кто привёл</div>
+      <div className="w-24 text-center">Регистрация</div>
+      <div className="w-24 text-center">Зарегистр.</div>
       <div className="w-4" />
     </div>
   )
@@ -300,7 +318,7 @@ export default function EventParticipants({ eventId }: { eventId: number }) {
   }
 
   return (
-    <div className="max-w-2xl">
+    <div>
       {/* Фильтр-таблетки */}
       <div className="flex gap-2 mb-3 flex-wrap">
         <FilterPill label="Все" count={counts.total} active={filter === 'all'} onClick={() => setFilter('all')} />
