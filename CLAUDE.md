@@ -99,6 +99,31 @@
 - Ссылка в Telegram: `https://plusson.app/l/ivision-7?app=tg`
 - С партнёром и UTM: `https://plusson.app/l/ivision-7?app=tg&new_partner_id=123&utm_source=insta`
 
+### Файловое хранилище R2 (миграция 037 от 26.04.2026)
+
+**Все файлы клиента (афиши, лид-магниты, сертификаты, материалы шеринга, фото спикеров) грузятся через единый endpoint `POST /api/v1/uploads` (FastAPI, не Next.js).** Бэкенд: ресайз картинок (Pillow) → upload в R2 (boto3) → запись в `client_files` → инкремент `clients.storage_used_bytes`.
+
+**Структура ключей в R2:**
+```
+clients/{client_id}/events/{event_id}/posters/{horizontal|vertical|square}/{uuid}.jpg
+clients/{client_id}/events/{event_id}/certificates/{uuid}.jpg
+clients/{client_id}/events/{event_id}/referral_materials/{uuid}.jpg
+clients/{client_id}/lead_magnets/{uuid}.{ext}
+clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
+```
+
+**Ресайз** (Pillow LANCZOS, JPEG q=85): афиши/материалы → 1920px, сертификаты → 1600px, фото спикеров → 800px. Без потери визуального качества для веб/мобильного, экономит 10–16× места.
+
+**Квота:** `clients.storage_quota_bytes` = 500 МБ по умолчанию (`clients.storage_used_bytes` — кэш). На каждый upload — проверка `used + new_size <= quota` → 413. Индикатор использования в `/dashboard/settings` (зелёный/жёлтый ≥70%/красный ≥90%).
+
+**Таблица `client_files`** (id, client_id, kind, r2_key UNIQUE, url, size_bytes, content_type, event_id, collaborator_id, lead_magnet_id, created_at) — учёт каждого загруженного файла.
+
+**API:** `POST /api/v1/uploads` (kind, event_id, poster_type, collaborator_id), `DELETE /api/v1/uploads/by-url?url=...`, `GET /api/v1/storage/usage`.
+
+**На фронте:** универсальный компонент `<FileUploader />` ([`web/src/components/FileUploader.tsx`](web/src/components/FileUploader.tsx)) с `mode=single|multiple`, `kind`, drag&drop, превью, кнопками «Ссылка»/«Удалить». Используется во ВСЕХ местах загрузки.
+
+**Старый Next.js `/api/upload-poster`** — оставлен для обратной совместимости со старыми afishами, новые загрузки идут через FastAPI.
+
 ### Структура БД (после миграции 036 от 26.04.2026 — иерархия Контактов)
 
 **Пять связанных таблиц для контактов и каналов:**
