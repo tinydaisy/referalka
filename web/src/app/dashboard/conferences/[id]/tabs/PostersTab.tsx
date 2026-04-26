@@ -123,18 +123,20 @@ export default function PostersTab({ eventId }: { eventId: number }) {
           ) : (
             <div className="grid grid-cols-3 gap-3">
               {posters[pt.key].map((url, i) => (
-                <div key={i} className={`relative ${pt.aspect} rounded-xl overflow-hidden bg-gray-100`}>
-                  <ImageThumb url={url} alt={`poster ${i+1}`}
-                    className="w-full h-full block cursor-zoom-in" />
-                  <div className="absolute top-1.5 right-1.5 flex gap-1 z-10">
+                <div key={i} className="flex flex-col gap-2">
+                  <div className={`relative ${pt.aspect} rounded-xl overflow-hidden bg-gray-100`}>
+                    <ImageThumb url={url} alt={`poster ${i+1}`}
+                      className="w-full h-full block cursor-zoom-in" />
+                  </div>
+                  <div className="flex gap-1.5">
                     <button
                       onClick={() => copyUrl(url)}
-                      className="bg-black/60 hover:bg-black/80 rounded-full p-1.5 transition-colors"
-                      title={lang === 'ru' ? 'Скопировать URL' : 'Copy URL'}
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
+                      title={url}
                     >
                       {copiedUrl === url
-                        ? <Check size={14} className="text-green-400" />
-                        : <Copy size={14} className="text-white" />}
+                        ? <><Check size={13} className="text-green-600" /> {lang === 'ru' ? 'Скопировано' : 'Copied'}</>
+                        : <><Copy size={13} /> {lang === 'ru' ? 'Ссылка' : 'Link'}</>}
                     </button>
                     <button
                       onClick={() => {
@@ -142,10 +144,10 @@ export default function PostersTab({ eventId }: { eventId: number }) {
                           removeposter(pt.key, url)
                         }
                       }}
-                      className="bg-black/60 hover:bg-red-600 rounded-full p-1.5 transition-colors"
+                      className="flex items-center justify-center px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-red-50 hover:border-red-200 hover:text-red-600 text-xs font-medium text-gray-700 transition-colors"
                       title={lang === 'ru' ? 'Удалить' : 'Delete'}
                     >
-                      <Trash2 size={14} className="text-white" />
+                      <Trash2 size={13} />
                     </button>
                   </div>
                 </div>
