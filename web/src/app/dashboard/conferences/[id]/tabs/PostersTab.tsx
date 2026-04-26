@@ -123,22 +123,27 @@ export default function PostersTab({ eventId }: { eventId: number }) {
           ) : (
             <div className="grid grid-cols-3 gap-3">
               {posters[pt.key].map((url, i) => (
-                <div key={i} className={`relative group ${pt.aspect} rounded-xl overflow-hidden bg-gray-100`}>
+                <div key={i} className={`relative ${pt.aspect} rounded-xl overflow-hidden bg-gray-100`}>
                   <ImageThumb url={url} alt={`poster ${i+1}`}
                     className="w-full h-full block cursor-zoom-in" />
-                  <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <div className="absolute top-1.5 right-1.5 flex gap-1 z-10">
                     <button
                       onClick={() => copyUrl(url)}
-                      className="bg-black/50 rounded-full p-1"
-                      title="Скопировать URL"
+                      className="bg-black/60 hover:bg-black/80 rounded-full p-1.5 transition-colors"
+                      title={lang === 'ru' ? 'Скопировать URL' : 'Copy URL'}
                     >
                       {copiedUrl === url
                         ? <Check size={14} className="text-green-400" />
                         : <Copy size={14} className="text-white" />}
                     </button>
                     <button
-                      onClick={() => removeposter(pt.key, url)}
-                      className="bg-black/50 rounded-full p-1"
+                      onClick={() => {
+                        if (confirm(lang === 'ru' ? 'Удалить афишу?' : 'Delete poster?')) {
+                          removeposter(pt.key, url)
+                        }
+                      }}
+                      className="bg-black/60 hover:bg-red-600 rounded-full p-1.5 transition-colors"
+                      title={lang === 'ru' ? 'Удалить' : 'Delete'}
                     >
                       <Trash2 size={14} className="text-white" />
                     </button>
