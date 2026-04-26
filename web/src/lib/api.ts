@@ -200,6 +200,22 @@ export const api = {
     list: (search: string, limit: number, offset: number, showUnsubscribed = false) =>
       request(`/api/v1/contacts?search=${encodeURIComponent(search)}&limit=${limit}&offset=${offset}&show_unsubscribed=${showUnsubscribed}`),
     get: (id: number) => request(`/api/v1/contacts/${id}`),
+    duplicates: (id: number) => request(`/api/v1/contacts/${id}/duplicates`),
+    merge: (primaryId: number, targetId: number) =>
+      request(`/api/v1/contacts/${primaryId}/merge`, { method: 'POST', body: JSON.stringify({ target_id: targetId }) }),
+  },
+  platforms: {
+    list: () => request('/api/v1/platforms'),
+  },
+  channels: {
+    list: () => request('/api/v1/channels'),
+    get: (id: number) => request(`/api/v1/channels/${id}`),
+    create: (data: any) =>
+      request('/api/v1/channels', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: any) =>
+      request(`/api/v1/channels/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/channels/${id}`, { method: 'DELETE' }),
   },
   broadcasts: {
     list: () => request('/api/v1/broadcasts/schedules'),

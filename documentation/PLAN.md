@@ -6,19 +6,42 @@
 
 ## ⚠️ Ключевые архитектурные принципы (не нарушать!)
 
-### Один человек = один реф-код, живёт ТОЛЬКО в platform_users (миграция 032 от 26.04.2026)
-- `platform_users.ref_code` UNIQUE — единственный источник истины
-- Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ (миграция 032)
-- Резолв реферера всегда через `JOIN platform_users WHERE pu.ref_code = referrer_ref_code`
-- Резолв спикера: `pu.ref_code → collaborators.platform_user_id → conf_speaker_events`
-- Поле `platform_users.referrer_ref_code` переименовано → `first_referrer_ref_code` (кто впервые привёл контакт)
-- В `event_participants.referrer_ref_code` остаётся per-event реферер
+### Иерархия Контактов — пять связанных таблиц (миграция 036 от 26.04.2026)
 
-### Мультиплатформа — каналы доставки (миграции 033+034 от 26.04.2026)
+```
+platforms (telegram/vk/max справочник)
+   ↑
+contacts (ЧЕЛОВЕК) ← ref_code, email, phone, имя
+   ↓
+platform_users (его аккаунт на платформе) ← username, tg_id/vk_id
+   ↓
+platform_user_channels (подписка аккаунта на канал клиента)
+   ↑
+channels (боты/группы клиента)
+```
+
+- Один человек = одна запись в `contacts`. Если у него TG и VK — две `platform_users`, ссылающиеся на тот же `contact_id`.
+- Реф-код, email, phone, теги — на уровне человека (`contacts`), а не аккаунта.
+- Username, tg_id — на уровне аккаунта (`platform_users`).
+- Один аккаунт может быть в нескольких каналах клиента (например, в двух его TG-ботах) — каждая подписка отдельной строкой в `platform_user_channels`.
+- Платформа — справочник `platforms` (нельзя ввести опечатку). У платформы метаданные: иконка, цвет, лимит сообщения.
+- Автомердж при импорте: ищем существующий contact по email/phone, привязываем новую идентичность. Не нашли — создаём. Дубли — через ручной мердж в UI.
+
+### Один реф-код на человека (миграция 032 от 26.04.2026, переехал в contacts миграцией 036)
+- Источник истины — `contacts.ref_code` UNIQUE
+- Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ (миграция 032)
+- Резолв реферера всегда через `JOIN contacts WHERE c.ref_code = referrer_ref_code`
+- Резолв спикера: `c.ref_code → collaborators.contact_id → conf_speaker_events`
+- В `contacts.first_referrer_contact_id` — кто впервые привёл (вместо `first_referrer_ref_code`)
+- В `event_participants.referrer_ref_code` остаётся per-event реферер
+- Слитые реф-коды — в `contacts.merged_ref_codes` JSONB
+
+### Мультиплатформа — каналы доставки (миграции 033+034+036)
 - `bot_token` живёт в `channels` (per-канал), у клиента может быть несколько ботов
 - Подписка/отписка — в `platform_user_channels` per-канал, не на самом контакте
-- `clients.bot_token`, `platform_users.platform`, `platform_users.is_unsubscribed` УДАЛЕНЫ
-- UNIQUE `platform_users` теперь `(client_id, platform_user_id)`
+- `clients.bot_token` УДАЛЕНО (033), `platform_users.is_unsubscribed` УДАЛЕНО (034)
+- `platform_users.platform` возвращена как `platform_slug` → `platforms(slug)` (036)
+- Составные FK гарантируют совпадение платформ: TG-аккаунт нельзя подписать на VK-группу
 
 ### Реф-программа — вкладка события, не отдельный раздел (миграция 035 от 26.04.2026)
 - Раздел «Рефералки» из сайдбара убран
@@ -38,6 +61,7 @@
 | **033** | 2026-04-26 | **Мультиплатформа — каналы доставки**: новые таблицы `channels` и `platform_user_channels`; данные перенесены из `clients.bot_token` и `platform_users.is_unsubscribed` |
 | **034** | 2026-04-26 | **Удаление унаследованных полей**: `clients.bot_token`, `platform_users.platform`, `platform_users.is_unsubscribed`. UNIQUE на `platform_users` сменён на `(client_id, platform_user_id)` |
 | **035** | 2026-04-26 | **Лид-магниты + реф-программа как вкладка**: `lead_magnets`, `event_posters`, `event_referral_settings`, `event_referral_thresholds`, `event_referral_materials`. Расширение `events`: `address`, `start_at`, `end_at` |
+| **036** | 2026-04-26 | **Иерархия Контактов**: справочник `platforms` (telegram/vk/max + метаданные); таблица `contacts` (человек, ref_code, email, phone, first_referrer_contact_id, merged_into); `platform_users` теперь идентичность с `contact_id` + `platform_slug` FK; `event_participants` и `collaborators` переключены на `contact_id`. Автомердж по email/phone + ручной мердж |
 
 ---
 
@@ -304,11 +328,17 @@
 
 ### Концепция
 
-Сейчас один бот (`clients.bot_token`) на всё. После конференции нужно поддержать несколько ботов у одного Клиента (`@pluson_bot`, `@margo_forbs_bot`) и в перспективе другие платформы (VK, Max).
+Полная иерархия после миграций 033/034/036:
+- `platforms` — справочник платформ (telegram/vk/max + метаданные).
+- `contacts` — ЧЕЛОВЕК (один на клиента, ref_code, email, phone).
+- `platform_users` — АККАУНТ человека на платформе (один человек может иметь несколько идентичностей: TG + VK).
+- `channels` — каналы клиента (его боты/группы).
+- `platform_user_channels` — подписка идентичности на канал клиента.
 
 Терминология которую нужно соблюдать везде:
 - **Клиенты** → таблица `clients` (пользователи платформы ПЛЮСОН)
-- **Контакты** → таблица `platform_users` (все люди в базе Клиента)
+- **Контакты** → таблица `contacts` (все люди в базе Клиента, после миграции 036)
+- **Идентичности** → таблица `platform_users` (аккаунт человека на платформе)
 - **Коллабораторы** → таблица `collaborators` (подмножество Контактов: спикеры, партнёры)
 - **Спикеры** → таблица `conf_speaker_events` (роль Коллаборатора в конкретном событии)
 - **Участники** → таблица `event_participants` (Контакты зарегистрированные в событии)
@@ -316,74 +346,89 @@
 ### Иерархия сущностей
 
 ```
-Контакты (platform_users)
-    ├── Коллабораторы (collaborators) ← подмножество Контактов
-    │       └── Спикеры (conf_speaker_events) ← роль Коллаборатора в конкретном событии
-    └── Участники (event_participants) ← Контакты зарегистрированные в событии
+platforms (справочник)
+    ↑
+Контакты (contacts) — человек
+    ├── Идентичности (platform_users) — TG/VK/MAX-аккаунты человека
+    │       └── Подписки (platform_user_channels) — на каналы клиента
+    ├── Коллабораторы (collaborators) ← подмножество Контактов (FK contact_id)
+    │       └── Спикеры (conf_speaker_events) ← роль в конкретном событии
+    └── Участники (event_participants) ← Контакты в событии (FK contact_id)
 ```
 
-### Целевая структура таблиц
+### Целевая структура таблиц (после миграции 036)
+
+**`platforms` — справочник платформ**
+```
+platforms
+├── slug PRIMARY KEY  ← 'telegram' | 'vk' | 'max'
+├── display_name      ← 'Telegram' | 'VK' | 'MAX'
+├── icon_url, color_hex
+├── id_format         ← 'numeric' | 'string' (формат platform_user_id)
+├── max_message_length
+├── supports_buttons, supports_photo, supports_video
+├── api_base_url
+└── is_active, sort_order
+```
 
 **`clients` — Клиенты ПЛЮСОН**
 ```
 clients
 ├── id, email, name, phone, telegram_username
-├── password_hash
-├── tariff_slug → tariffs
-├── partner_code → partners
+├── password_hash, tariff_slug, partner_code
 ├── test_telegram_ids TEXT[]
 ├── trial_ends_at, is_active
-└── ❌ bot_token — УБРАТЬ, переезжает в channels
+└── ❌ bot_token — переехал в channels (миграция 033)
 ```
 
 **`channels` — каналы доставки (боты, группы VK, каналы Max)**
 ```
 channels
-├── id
-├── client_id → clients
-├── platform ('telegram' | 'vk' | 'max')  ← тип платформы живёт ЗДЕСЬ, не в platform_users
-├── display_name
-├── handle  ← @username бота или id группы
-├── bot_token  ← переехал из clients.bot_token
+├── id, client_id → clients
+├── platform_slug → platforms(slug)  ← FK на справочник (036)
+├── display_name, handle, bot_token, is_active
+```
+
+**`contacts` — Контакт (ЧЕЛОВЕК), миграция 036**
+```
+contacts
+├── id, client_id → clients
+├── name, email, email_normalized, phone, phone_normalized
+├── tags JSONB, utm_source, salebot_id, last_contact_at
+├── ref_code UNIQUE                       ← переехал из platform_users
+├── first_referrer_contact_id → contacts  ← кто впервые привёл
+├── merged_into → contacts                ← soft-delete при ручном мердже
+├── merged_ref_codes JSONB                ← реф-коды слитых контактов
 └── is_active
 ```
 
-**`platform_users` — Контакты**
+**`platform_users` — Идентичность контакта на платформе, миграция 036 переосмыслена**
 ```
 platform_users
-├── id
-├── client_id → clients
-├── platform_user_id  ← tg_id / vk_id (TEXT)
-├── username, first_name, last_name
-├── email, phone, tags JSONB, utm_source
-├── salebot_id, platform_meta JSONB
-├── referrer_tg_id TEXT                 ← кто привёл (tg_id реферера, текущее поле)
-├── referrer_ref_code VARCHAR(100)      ← реф-код реферера (текущее поле)
-├── first_referrer_id → platform_users  ← НОВ: кто впервые привёл (только аналитика)
-├── first_referred_at                   ← НОВ: когда впервые привёл
-├── last_contact_at
-├── UNIQUE(client_id, platform_user_id)
-└── ❌ platform — УБРАТЬ, переехал в channels.platform
-└── ❌ is_unsubscribed — УБРАТЬ, переехал в platform_user_channels
-└── ❌ ref_code — УБРАТЬ, ref_code живёт в event_participants (Участники) и conf_speaker_events (Спикеры)
+├── id, contact_id → contacts             ← НОВ: связь с человеком
+├── platform_slug → platforms(slug)       ← возвращена в 036, FK на справочник
+├── platform_user_id (TEXT)               ← tg_id / vk_id / max_id
+├── username, first_name, last_name       ← как они в этой платформе
+├── platform_meta JSONB
+├── UNIQUE(contact_id, platform_slug)     ← один контакт — одна идентичность на платформу
+├── UNIQUE(client_id, platform_slug, platform_user_id)
+└── ❌ email/phone/tags/ref_code/first_referrer_*/utm_source/salebot_id/last_contact_at — переехали в contacts
 ```
 
-**`platform_user_channels` — кто в каком боте подписан**
+**`platform_user_channels` — подписка идентичности на канал**
 ```
 platform_user_channels
-├── id
-├── platform_user_id → platform_users
-├── channel_id → channels
-├── is_unsubscribed  ← переехал из platform_users, теперь per-канал
-├── subscribed_at
-└── unsubscribed_at
+├── id, platform_user_id → platform_users, channel_id → channels
+├── platform_slug → platforms(slug)       ← дубль для составного FK
+├── is_unsubscribed, subscribed_at, unsubscribed_at
+├── UNIQUE(platform_user_id, channel_id)
+└── Составные FK: (platform_user_id, platform_slug) и (channel_id, platform_slug)
 ```
 
-**`collaborators` — Коллабораторы**
+**`collaborators` — Коллабораторы (миграция 036: переключено на contact_id)**
 ```
 collaborators
-├── id
-├── platform_user_id → platform_users  ← НОВ: Коллаборатор является Контактом
+├── id, contact_id → contacts             ← НОВ: было platform_user_id
 ├── created_by_client_id → clients
 ├── name, title, achievements TEXT[]
 ├── photo_url, photo_folder_url, video_folder_url
@@ -396,31 +441,23 @@ collaborators
 **`conf_speaker_events` — Спикер = Коллаборатор в конкретной конференции**
 ```
 conf_speaker_events
-├── id
-├── speaker_id → collaborators
-├── event_id → events
-├── role ('speaker'|'headliner'|'partner'|'organizer'|'commercial'|'general_partner')
-├── gift_after_speech_title, gift_after_speech_url
-├── gift_raffle_title, gift_raffle_url
-├── poster_url, partner_url, extra_info
-├── ref_code UNIQUE
-├── referrer_ref_code TEXT  ← кто привёл спикера (реф-код реферера)
-├── bot_in_channel BOOLEAN
-├── is_visible, sort_order
+├── id, speaker_id → collaborators, event_id → events
+├── role, gift_*, poster_url, partner_url, extra_info
+├── referrer_ref_code TEXT  ← кто привёл спикера (резолв через contacts.ref_code)
+├── bot_in_channel BOOLEAN, is_visible, sort_order
 └── UNIQUE(speaker_id, event_id)
 ```
 
-**`event_participants` — Участники конкретного события**
+**`event_participants` — Участники конкретного события (миграция 036: переключено на contact_id)**
 ```
 event_participants
-├── id
-├── event_id → events
-├── platform_user_id → platform_users
-├── referrer_participant_id → event_participants  ← кто пригласил (per-событие, не помним между событиями)
-├── referrer_ref_code TEXT  ← реф-код рефовода (ищем в event_participants или conf_speaker_events)
-├── ref_code TEXT UNIQUE
-├── status ('interested' | 'registered' | 'in_chat')
-└── UNIQUE(event_id, platform_user_id)
+├── id, event_id → events
+├── contact_id → contacts                 ← НОВ: было platform_user_id
+├── referrer_participant_id → event_participants
+├── referrer_ref_code TEXT  ← per-event реферер (резолв через contacts.ref_code)
+├── is_registered BOOL, is_in_chat BOOL
+├── registered_at, activated_at
+└── UNIQUE(event_id, contact_id)
 ```
 
 **`broadcast_templates` — шаблоны рассылок**

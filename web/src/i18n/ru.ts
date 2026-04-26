@@ -11,6 +11,7 @@ export const ru = {
     collaborations: 'Коллаборации',
     clients: 'Контакты',
     leadMagnets: 'Лид-магниты',
+    channels: 'Каналы',
     broadcasts: 'Рассылки',
     soon: 'СКОРО',
     awards: 'Премии',

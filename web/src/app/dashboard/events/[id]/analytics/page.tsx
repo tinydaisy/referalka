@@ -98,10 +98,10 @@ export default function AnalyticsPage() {
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full gradient-bg flex items-center justify-center text-white text-xs font-bold">
-                        {(r.first_name || '?')[0]}
+                        {(r.contact_name || r.username || '?')[0]}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{r.first_name}</p>
+                        <p className="text-sm font-medium text-gray-900">{r.contact_name || '—'}</p>
                         {r.username && <p className="text-xs text-gray-400">@{r.username.replace(/^@+/, '')}</p>}
                       </div>
                     </div>

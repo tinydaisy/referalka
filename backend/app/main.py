@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config import settings
 from app.database import get_pool, close_pool
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, integrations, subscription_check, contacts, lead_magnets, referral_program
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, integrations, subscription_check, contacts, lead_magnets, referral_program, platforms, channels
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
 from app.api import broadcasts_general
@@ -58,6 +58,8 @@ app.include_router(subscription_check.router)  # /api/v1/public/...
 app.include_router(contacts.router,     prefix="/api/v1")
 app.include_router(lead_magnets.router, prefix="/api/v1")
 app.include_router(referral_program.router, prefix="/api/v1")
+app.include_router(platforms.router,    prefix="/api/v1")  # справочник платформ (миграция 036)
+app.include_router(channels.router,     prefix="/api/v1")  # каналы клиента (миграция 036)
 
 
 @app.get("/", tags=["health"])

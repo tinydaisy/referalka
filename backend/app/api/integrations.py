@@ -1,45 +1,30 @@
+"""
+API интеграции с Salebot (миграция 036+).
+
+Использует helper `upsert_contact_with_identity` — автомердж по email/phone
+при импорте Salebot.
+"""
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, validator
 from typing import Optional, Union
 import asyncpg
-import secrets
-import string
 
 from app.database import get_db
 from app.config import settings
+from app.services.contact_merge import upsert_contact_with_identity
 
 router = APIRouter(prefix="/integrations", tags=["Интеграции"])
 
 
-def clean_username(username: Optional[str]) -> Optional[str]:
-    if username is None:
-        return None
-    return username.lstrip('@') or None
-
-
-def generate_ref_code() -> str:
-    alphabet = string.ascii_lowercase + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(8))
-
-
-async def get_unique_ref_code(db: asyncpg.Connection) -> str:
-    for _ in range(10):
-        code = generate_ref_code()
-        exists = await db.fetchval(
-            "SELECT 1 FROM platform_users WHERE ref_code = $1", code
-        )
-        if not exists:
-            return code
-    raise HTTPException(status_code=500, detail="Не удалось сгенерировать уникальный ref_code")
-
-
 class SalebotRegisterRequest(BaseModel):
     client_id: int                          # зашит в настройках Salebot
-    platform: str = "telegram"             # 'telegram' | 'max'
-    platform_user_id: str                  # tg_id или max_id — строкой
+    platform: str = "telegram"             # 'telegram' | 'vk' | 'max'
+    platform_user_id: str                  # tg_id / vk_id / max_id — строкой
     username: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
     salebot_id: Optional[str] = None
     event_id: Optional[str] = None         # зашит в настройках Salebot (опционально, строка или число)
     is_registered: Union[str, int, bool] = False
@@ -85,46 +70,19 @@ async def salebot_register(
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
 
-    # Upsert platform_users — уникальность теперь (client_id, platform_user_id)
-    # Поле data.platform остаётся в API ради совместимости с Salebot,
-    # но в БД больше не пишется (платформа живёт в channels)
-    existing_user = await db.fetchrow(
-        """
-        SELECT id FROM platform_users
-        WHERE client_id = $1 AND platform_user_id = $2
-        """,
-        data.client_id, data.platform_user_id
+    # Создаём/находим контакт + идентичность (автомердж по email/phone)
+    contact_id, pluson_id, is_new_user = await upsert_contact_with_identity(
+        db,
+        client_id=data.client_id,
+        platform_slug=data.platform,
+        platform_user_id=data.platform_user_id,
+        username=data.username,
+        first_name=data.first_name,
+        last_name=data.last_name,
+        email=data.email,
+        phone=data.phone,
+        salebot_id=data.salebot_id,
     )
-
-    is_new_user = existing_user is None
-
-    if is_new_user:
-        new_ref_code = await get_unique_ref_code(db)
-        pluson_id = await db.fetchval(
-            """
-            INSERT INTO platform_users
-              (client_id, platform_user_id, username, first_name, last_name, salebot_id, ref_code)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id
-            """,
-            data.client_id, data.platform_user_id,
-            clean_username(data.username), data.first_name, data.last_name, data.salebot_id, new_ref_code
-        )
-    else:
-        pluson_id = existing_user["id"]
-        # Обновляем данные (имя могло поменяться, salebot_id мог появиться)
-        await db.execute(
-            """
-            UPDATE platform_users SET
-              username   = COALESCE($1, username),
-              first_name = COALESCE($2, first_name),
-              last_name  = COALESCE($3, last_name),
-              salebot_id = COALESCE($4, salebot_id),
-              updated_at = NOW()
-            WHERE id = $5
-            """,
-            clean_username(data.username), data.first_name, data.last_name, data.salebot_id, pluson_id
-        )
 
     # Если event_id передан — upsert event_participants
     participant_id = None
@@ -142,20 +100,14 @@ async def salebot_register(
             raise HTTPException(status_code=404, detail="Событие не найдено у этого клиента")
 
         existing_participant = await db.fetchrow(
-            "SELECT id FROM event_participants WHERE event_id = $1 AND platform_user_id = $2",
-            event_id_int, pluson_id
+            "SELECT id FROM event_participants WHERE event_id = $1 AND contact_id = $2",
+            event_id_int, contact_id
         )
 
-        # Реф-код берём из platform_users — единственный источник
+        # Реф-код берём из contacts — единственный источник
         ref_code = await db.fetchval(
-            "SELECT ref_code FROM platform_users WHERE id = $1", pluson_id
+            "SELECT ref_code FROM contacts WHERE id = $1", contact_id
         )
-        if not ref_code:
-            ref_code = await get_unique_ref_code(db)
-            await db.execute(
-                "UPDATE platform_users SET ref_code = $1 WHERE id = $2",
-                ref_code, pluson_id
-            )
 
         if existing_participant:
             participant_id = existing_participant["id"]
@@ -173,25 +125,27 @@ async def salebot_register(
         else:
             is_new_participant = True
 
-            # Ищем ref_code рефовода по partner_tg_id (через platform_users)
+            # Ищем ref_code рефовода по partner_tg_id (через platform_users → contacts)
             referrer_ref_code = None
             if data.partner_tg_id:
                 referrer_ref_code = await db.fetchval(
                     """
-                    SELECT pu.ref_code FROM platform_users pu
-                    WHERE pu.platform_user_id = $1 AND pu.client_id = $2
+                    SELECT c.ref_code FROM platform_users pu
+                    JOIN contacts c ON c.id = pu.contact_id
+                    WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram'
+                      AND pu.platform_user_id = $2
                     """,
-                    str(data.partner_tg_id), data.client_id
+                    data.client_id, str(data.partner_tg_id)
                 )
 
             participant_id = await db.fetchval(
                 """
                 INSERT INTO event_participants
-                  (event_id, platform_user_id, is_registered, is_in_chat, registered_at, referrer_ref_code)
+                  (event_id, contact_id, is_registered, is_in_chat, registered_at, referrer_ref_code)
                 VALUES ($1, $2, $3, $4, NOW(), $5)
                 RETURNING id
                 """,
-                event_id_int, pluson_id, data.is_registered, data.is_in_chat, referrer_ref_code
+                event_id_int, contact_id, data.is_registered, data.is_in_chat, referrer_ref_code
             )
 
     return {
@@ -217,6 +171,8 @@ async def salebot_register_get(
     username: Optional[str] = None,
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
     is_registered: bool = False,
     is_in_chat: bool = False,
     platform: str = "telegram",
@@ -232,6 +188,8 @@ async def salebot_register_get(
         username=username,
         first_name=first_name,
         last_name=last_name,
+        email=email,
+        phone=phone,
         salebot_id=salebot_id,
         event_id=str(event_id),
         is_registered=is_registered,
@@ -258,13 +216,14 @@ async def salebot_get_user(
     user = await db.fetchrow(
         """
         SELECT pu.id as pluson_id, pu.username, pu.first_name, pu.last_name,
-               pu.salebot_id, pu.created_at, pu.ref_code,
+               c.salebot_id, pu.created_at, c.ref_code,
                ep.id as participant_id, ep.event_id, ep.is_registered, ep.is_in_chat
         FROM platform_users pu
-        LEFT JOIN event_participants ep ON ep.platform_user_id = pu.id
-        WHERE pu.client_id = $1 AND pu.platform_user_id = $2
+        JOIN contacts c ON c.id = pu.contact_id
+        LEFT JOIN event_participants ep ON ep.contact_id = c.id
+        WHERE pu.client_id = $1 AND pu.platform_slug = $2 AND pu.platform_user_id = $3
         """,
-        client_id, platform_user_id
+        client_id, platform, platform_user_id
     )
     if not user:
         raise HTTPException(status_code=404, detail="Участник не найден")

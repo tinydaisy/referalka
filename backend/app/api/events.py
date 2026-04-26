@@ -434,16 +434,17 @@ async def event_analytics(
         event_id
     )
 
-    # Топ рефереров (ref_code живёт в platform_users)
+    # Топ рефереров (ref_code живёт в contacts с миграции 036)
     top = await db.fetch(
         """
-        SELECT pu.ref_code, pu.first_name, pu.username,
+        SELECT c.ref_code, c.name AS contact_name,
+               (SELECT username FROM platform_users pu WHERE pu.contact_id = c.id LIMIT 1) AS username,
                COUNT(re.id) as referrals_count
         FROM event_participants ep
-        JOIN platform_users pu ON pu.id = ep.platform_user_id
-        LEFT JOIN referral_events re ON re.ref_code = pu.ref_code AND re.type IN ('free','paid')
+        JOIN contacts c ON c.id = ep.contact_id
+        LEFT JOIN referral_events re ON re.ref_code = c.ref_code AND re.type IN ('free','paid')
         WHERE ep.event_id = $1
-        GROUP BY ep.id, pu.first_name, pu.username, pu.ref_code
+        GROUP BY ep.id, c.id
         ORDER BY referrals_count DESC
         LIMIT 10
         """,
@@ -470,18 +471,27 @@ async def event_participants(
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     rows = await db.fetch(
-        """SELECT ep.id, pu.platform_user_id, pu.ref_code, ep.referrer_ref_code,
+        """SELECT ep.id,
+                  c.id AS contact_id,
+                  c.ref_code, ep.referrer_ref_code,
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
-                  pu.first_name, pu.last_name, pu.username,
-                  pu.salebot_id, pu.phone, pu.email,
+                  c.name AS contact_name,
+                  c.email, c.phone, c.salebot_id,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram' LIMIT 1) AS platform_user_id,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = c.id LIMIT 1) AS username,
+                  (SELECT pu.first_name FROM platform_users pu
+                    WHERE pu.contact_id = c.id LIMIT 1) AS first_name,
+                  (SELECT pu.last_name FROM platform_users pu
+                    WHERE pu.contact_id = c.id LIMIT 1) AS last_name,
                   COUNT(re.id) FILTER (WHERE re.type IN ('free','paid')) as referral_count
            FROM event_participants ep
-           JOIN platform_users pu ON pu.id = ep.platform_user_id
-           LEFT JOIN referral_events re ON re.ref_code = pu.ref_code AND re.event_id = ep.event_id
+           JOIN contacts c ON c.id = ep.contact_id
+           LEFT JOIN referral_events re ON re.ref_code = c.ref_code AND re.event_id = ep.event_id
            WHERE ep.event_id = $1
-           GROUP BY ep.id, pu.platform_user_id, pu.ref_code, ep.referrer_ref_code,
-                    ep.is_registered, ep.is_in_chat, pu.first_name, pu.last_name, pu.username,
-                    pu.salebot_id, pu.phone, pu.email
+           GROUP BY ep.id, c.id, ep.referrer_ref_code,
+                    ep.is_registered, ep.is_in_chat
            ORDER BY ep.registered_at DESC""",
         event_id
     )

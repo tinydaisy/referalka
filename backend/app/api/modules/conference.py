@@ -31,59 +31,58 @@ async def check_conference_access(event_id: int, client_id: int, db: asyncpg.Con
 
 async def ensure_collaborator_contact(collaborator_id: int, db: asyncpg.Connection) -> str:
     """
-    Гарантирует что у коллаборатора есть связанный контакт в platform_users
+    Гарантирует что у коллаборатора есть связанный контакт в contacts
     с заполненным ref_code. Возвращает ref_code.
 
     Логика:
-    - Если у collaborators.platform_user_id уже стоит FK → вернём pu.ref_code (создадим если NULL)
-    - Иначе попробуем найти контакт по personal_tg_id (для людей)
-    - Иначе создадим контакт-плейсхолдер с psевдо-id 'org_{collaborator_id}' (для организаций)
+    - Если у collaborators.contact_id уже стоит FK → вернём contacts.ref_code
+      (генерим если NULL — но в новой схеме ref_code обязателен при создании contacts)
+    - Иначе создаём contact (с уникальным ref_code) и привязываем его к collaborator
+    - Если у коллаба есть personal_tg_id — также создаём/находим platform_users
+      (platform_slug='telegram') с привязкой к этому contact_id
     """
-    import secrets, string as _str
+    from app.services.contact_merge import _generate_unique_ref_code, upsert_platform_user
+
     coll = await db.fetchrow(
-        "SELECT id, created_by_client_id, personal_tg_id, platform_user_id, name FROM collaborators WHERE id = $1",
+        "SELECT id, created_by_client_id, personal_tg_id, personal_tg_username, contact_id, name FROM collaborators WHERE id = $1",
         collaborator_id
     )
     if not coll:
         raise HTTPException(status_code=404, detail="Коллаборатор не найден")
 
-    pu_id = coll["platform_user_id"]
+    contact_id = coll["contact_id"]
 
-    # 1. Если связки нет — попробуем найти/создать контакт
-    if not pu_id:
-        if coll["personal_tg_id"]:
-            existing = await db.fetchval(
-                """SELECT id FROM platform_users
-                   WHERE client_id = $1 AND platform_user_id = $2""",
-                coll["created_by_client_id"], coll["personal_tg_id"]
-            )
-            pu_id = existing
-        if not pu_id:
-            # Создаём контакт-плейсхолдер
-            placeholder_id = coll["personal_tg_id"] or f"org_{coll['id']}"
-            pu_id = await db.fetchval(
-                """INSERT INTO platform_users (client_id, platform, platform_user_id, first_name, created_at, updated_at)
-                   VALUES ($1, 'telegram', $2, $3, NOW(), NOW())
-                   ON CONFLICT (client_id, platform, platform_user_id) DO UPDATE SET updated_at = NOW()
-                   RETURNING id""",
-                coll["created_by_client_id"], placeholder_id, coll["name"]
-            )
+    # 1. Если контакта ещё нет — создаём
+    if not contact_id:
+        ref_code = await _generate_unique_ref_code(db)
+        contact_id = await db.fetchval(
+            """INSERT INTO contacts (client_id, name, ref_code, is_active, tags, merged_ref_codes)
+               VALUES ($1, $2, $3, TRUE, '[]'::JSONB, '[]'::JSONB)
+               RETURNING id""",
+            coll["created_by_client_id"], coll["name"], ref_code
+        )
         # Запишем FK в коллаб
         await db.execute(
-            "UPDATE collaborators SET platform_user_id = $1 WHERE id = $2",
-            pu_id, coll["id"]
+            "UPDATE collaborators SET contact_id = $1 WHERE id = $2",
+            contact_id, coll["id"]
         )
+    else:
+        ref_code = await db.fetchval("SELECT ref_code FROM contacts WHERE id = $1", contact_id)
+        if not ref_code:
+            ref_code = await _generate_unique_ref_code(db)
+            await db.execute("UPDATE contacts SET ref_code = $1 WHERE id = $2", ref_code, contact_id)
 
-    # 2. Гарантируем ref_code у контакта
-    ref_code = await db.fetchval("SELECT ref_code FROM platform_users WHERE id = $1", pu_id)
-    if not ref_code:
-        alphabet = _str.ascii_lowercase + _str.digits
-        for _ in range(10):
-            candidate = "".join(secrets.choice(alphabet) for _ in range(8))
-            if not await db.fetchval("SELECT 1 FROM platform_users WHERE ref_code = $1", candidate):
-                ref_code = candidate
-                break
-        await db.execute("UPDATE platform_users SET ref_code = $1 WHERE id = $2", ref_code, pu_id)
+    # 2. Если есть personal_tg_id — создаём/обновляем platform_users (telegram)
+    if coll["personal_tg_id"]:
+        await upsert_platform_user(
+            db,
+            contact_id=contact_id,
+            client_id=coll["created_by_client_id"],
+            platform_slug="telegram",
+            platform_user_id=str(coll["personal_tg_id"]),
+            username=coll["personal_tg_username"],
+            first_name=coll["name"],
+        )
 
     return ref_code
 
@@ -411,7 +410,7 @@ async def list_event_speakers(
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.poster_url, cse.partner_url, cse.extra_info,
-                  pu.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
+                  c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   cse.bot_in_channel, cse.priority,
                   cse.exclude_gift_from_broadcast, cse.exclude_channel_from_subscription,
                   sp.name, sp.title, sp.achievements,
@@ -420,7 +419,7 @@ async def list_event_speakers(
                   sp.personal_tg_username
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
-           LEFT JOIN platform_users pu ON pu.id = sp.platform_user_id
+           LEFT JOIN contacts c ON c.id = sp.contact_id
            WHERE cse.event_id = $1
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -1382,21 +1381,21 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
     Возвращает полные данные спикера по его персональному ref_code.
     Используется для страницы самопроверки/редактирования спикером.
     """
-    # Резолв: ref_code → platform_users → collaborators → conf_speaker_events
+    # Резолв: ref_code → contacts → collaborators → conf_speaker_events
     row = await db.fetchrow(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
-                  cse.is_commercial, pu.ref_code, cse.keyword_code,
+                  cse.is_commercial, c.ref_code, cse.keyword_code,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
-           FROM platform_users pu
-           JOIN collaborators sp ON sp.platform_user_id = pu.id
+           FROM contacts c
+           JOIN collaborators sp ON sp.contact_id = c.id
            JOIN conf_speaker_events cse ON cse.speaker_id = sp.id
-           WHERE pu.ref_code = $1 AND cse.event_id = $2""",
+           WHERE c.ref_code = $1 AND cse.event_id = $2""",
         ref_code, event_id
     )
     if not row:
@@ -1421,10 +1420,10 @@ async def update_speaker_by_ref_code(
     """
     cse = await db.fetchrow(
         """SELECT cse.id, cse.speaker_id
-           FROM platform_users pu
-           JOIN collaborators c ON c.platform_user_id = pu.id
+           FROM contacts ct
+           JOIN collaborators c ON c.contact_id = ct.id
            JOIN conf_speaker_events cse ON cse.speaker_id = c.id
-           WHERE pu.ref_code = $1 AND cse.event_id = $2""",
+           WHERE ct.ref_code = $1 AND cse.event_id = $2""",
         ref_code, event_id
     )
     if not cse:
@@ -1503,7 +1502,7 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
         raise HTTPException(status_code=403, detail="Неверный код доступа")
 
     rows = await db.fetch(
-        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, pu.ref_code, cse.keyword_code,
+        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, c.ref_code, cse.keyword_code,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.is_commercial,
@@ -1514,7 +1513,7 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
-           LEFT JOIN platform_users pu ON pu.id = sp.platform_user_id
+           LEFT JOIN contacts c ON c.id = sp.contact_id
            WHERE cse.event_id = $1
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -1599,7 +1598,7 @@ async def update_speaker_as_editor(
 
     # Возвращаем обновлённые данные
     row = await db.fetchrow(
-        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, pu.ref_code, cse.keyword_code,
+        """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role, c.ref_code, cse.keyword_code,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
@@ -1609,7 +1608,7 @@ async def update_speaker_as_editor(
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
-           LEFT JOIN platform_users pu ON pu.id = sp.platform_user_id
+           LEFT JOIN contacts c ON c.id = sp.contact_id
            WHERE cse.id = $1""",
         speaker_event_id
     )
@@ -2384,10 +2383,11 @@ async def list_raffle_tickets(
                   pu.username  AS pu_username,
                   pu.first_name AS pu_first_name,
                   pu.last_name  AS pu_last_name,
-                  pu.salebot_id AS pu_salebot_id
+                  c.salebot_id AS pu_salebot_id
              FROM conf_raffle_tickets rt
         LEFT JOIN event_participants ep ON ep.id = rt.pluson_participant_id
-        LEFT JOIN platform_users     pu ON pu.id = ep.platform_user_id
+        LEFT JOIN contacts           c  ON c.id = ep.contact_id
+        LEFT JOIN platform_users     pu ON pu.contact_id = c.id AND pu.platform_slug = 'telegram'
             WHERE rt.event_id = $1
          ORDER BY rt.ticket_number""",
         event_id
@@ -2407,21 +2407,22 @@ async def add_raffle_ticket_public(
         raise HTTPException(status_code=404, detail="Конференция не найдена")
 
     # Ищем pluson_participant_id: сначала по tg_id (platform_user_id в platform_users),
-    # затем по salebot_client_id (поле salebot_id в platform_users)
+    # затем по salebot_client_id (поле salebot_id в contacts)
     pluson_participant_id = None
     if data.tg_id:
         pluson_participant_id = await db.fetchval(
             """SELECT ep.id FROM event_participants ep
-               JOIN platform_users pu ON pu.id = ep.platform_user_id
-               WHERE pu.platform_user_id = $1
+               JOIN platform_users pu ON pu.contact_id = ep.contact_id
+               WHERE pu.platform_slug = 'telegram'
+                 AND pu.platform_user_id = $1
                  AND ep.event_id = $2""",
             str(data.tg_id), event_id
         )
     if not pluson_participant_id and data.salebot_client_id:
         pluson_participant_id = await db.fetchval(
             """SELECT ep.id FROM event_participants ep
-               JOIN platform_users pu ON pu.id = ep.platform_user_id
-               WHERE pu.salebot_id = $1 AND ep.event_id = $2""",
+               JOIN contacts c ON c.id = ep.contact_id
+               WHERE c.salebot_id = $1 AND ep.event_id = $2""",
             data.salebot_client_id, event_id
         )
 
@@ -2461,20 +2462,20 @@ async def create_report(
     await check_conference_access(event_id, int(client["sub"]), db)
 
     # Все спикеры/организаторы конференции с трафиком по реф-коду
-    # ref_code теперь живёт в platform_users (через collaborators.platform_user_id)
+    # ref_code теперь живёт в contacts (через collaborators.contact_id)
     speakers_rows = await db.fetch(
-        """SELECT cse.id AS speaker_event_id, cse.speaker_id, pu.ref_code,
+        """SELECT cse.id AS speaker_event_id, cse.speaker_id, c.ref_code,
                   cse.role, cse.is_commercial, cse.sort_order,
                   col.name, col.personal_tg_username AS username,
                   COUNT(ep.id) FILTER (WHERE ep.id IS NOT NULL) AS entered,
                   COUNT(ep.id) FILTER (WHERE ep.is_registered = TRUE) AS registered
            FROM conf_speaker_events cse
            JOIN collaborators col ON col.id = cse.speaker_id
-           LEFT JOIN platform_users pu ON pu.id = col.platform_user_id
+           LEFT JOIN contacts c ON c.id = col.contact_id
            LEFT JOIN event_participants ep ON ep.event_id = $1
-               AND ep.referrer_ref_code = pu.ref_code
+               AND ep.referrer_ref_code = c.ref_code
            WHERE cse.event_id = $1
-           GROUP BY cse.id, cse.speaker_id, pu.ref_code, cse.role,
+           GROUP BY cse.id, cse.speaker_id, c.ref_code, cse.role,
                     cse.is_commercial, cse.sort_order, col.name, col.personal_tg_username
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -2515,29 +2516,30 @@ async def create_report(
         })
 
     # Рефоводы = те кто привёл других И сами являются участниками события
-    # Исключаем спикеров через JOIN: спикер — это коллаб со связкой на pu, и есть запись в conf_speaker_events
+    # Исключаем спикеров через JOIN: спикер — это коллаб со связкой на contact, и есть запись в conf_speaker_events
     referrals_rows = await db.fetch(
         """SELECT ep2.referrer_ref_code,
                   COUNT(ep2.id) AS entered,
                   COUNT(ep2.id) FILTER (WHERE ep2.is_registered = TRUE) AS registered,
-                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, pu.id AS pu_id
+                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, ct.id AS contact_id
            FROM event_participants ep2
-           JOIN platform_users pu ON pu.ref_code = ep2.referrer_ref_code AND pu.client_id = (
+           JOIN contacts ct ON ct.ref_code = ep2.referrer_ref_code AND ct.client_id = (
                SELECT client_id FROM events WHERE id = $1
            )
+           LEFT JOIN platform_users pu ON pu.contact_id = ct.id AND pu.platform_slug = 'telegram'
            WHERE ep2.event_id = $1
              AND ep2.referrer_ref_code IS NOT NULL
              AND ep2.referrer_ref_code <> ''
              AND NOT EXISTS (
                  SELECT 1 FROM collaborators c
                  JOIN conf_speaker_events cse ON cse.speaker_id = c.id
-                 WHERE c.platform_user_id = pu.id AND cse.event_id = $1
+                 WHERE c.contact_id = ct.id AND cse.event_id = $1
              )
              AND EXISTS (
                  SELECT 1 FROM event_participants ep_check
-                 WHERE ep_check.platform_user_id = pu.id AND ep_check.event_id = $1
+                 WHERE ep_check.contact_id = ct.id AND ep_check.event_id = $1
              )
-           GROUP BY ep2.referrer_ref_code, pu.platform_user_id, pu.first_name, pu.last_name, pu.username, pu.id
+           GROUP BY ep2.referrer_ref_code, pu.platform_user_id, pu.first_name, pu.last_name, pu.username, ct.id
            ORDER BY entered DESC""",
         event_id
     )
@@ -2547,7 +2549,7 @@ async def create_report(
         name_parts = [row["first_name"] or "", row["last_name"] or ""]
         name = " ".join(p for p in name_parts if p).strip() or row["username"] or row["referrer_ref_code"] or "—"
         referrals_data.append({
-            "participant_id": row["pu_id"] or 0,
+            "participant_id": row["contact_id"] or 0,
             "name": name,
             "username": row["username"] or "",
             "tg_id": str(row["tg_id"] or ""),
@@ -2560,7 +2562,8 @@ async def create_report(
         """SELECT ep.id, ep.is_registered,
                   pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username
            FROM event_participants ep
-           JOIN platform_users pu ON pu.id = ep.platform_user_id
+           JOIN contacts ct ON ct.id = ep.contact_id
+           LEFT JOIN platform_users pu ON pu.contact_id = ct.id AND pu.platform_slug = 'telegram'
            WHERE ep.event_id = $1
              AND (ep.referrer_ref_code IS NULL OR ep.referrer_ref_code = '')
            ORDER BY ep.id""",
@@ -2573,24 +2576,25 @@ async def create_report(
         """SELECT ep2.referrer_ref_code,
                   COUNT(ep2.id) AS entered,
                   COUNT(ep2.id) FILTER (WHERE ep2.is_registered = TRUE) AS registered,
-                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, pu.id AS pu_id
+                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, ct.id AS contact_id
            FROM event_participants ep2
-           JOIN platform_users pu ON pu.ref_code = ep2.referrer_ref_code AND pu.client_id = (
+           JOIN contacts ct ON ct.ref_code = ep2.referrer_ref_code AND ct.client_id = (
                SELECT client_id FROM events WHERE id = $1
            )
+           LEFT JOIN platform_users pu ON pu.contact_id = ct.id AND pu.platform_slug = 'telegram'
            WHERE ep2.event_id = $1
              AND ep2.referrer_ref_code IS NOT NULL
              AND ep2.referrer_ref_code <> ''
              AND NOT EXISTS (
                  SELECT 1 FROM collaborators c
                  JOIN conf_speaker_events cse ON cse.speaker_id = c.id
-                 WHERE c.platform_user_id = pu.id AND cse.event_id = $1
+                 WHERE c.contact_id = ct.id AND cse.event_id = $1
              )
              AND NOT EXISTS (
                  SELECT 1 FROM event_participants ep_check
-                 WHERE ep_check.platform_user_id = pu.id AND ep_check.event_id = $1
+                 WHERE ep_check.contact_id = ct.id AND ep_check.event_id = $1
              )
-           GROUP BY ep2.referrer_ref_code, pu.platform_user_id, pu.first_name, pu.last_name, pu.username, pu.id
+           GROUP BY ep2.referrer_ref_code, pu.platform_user_id, pu.first_name, pu.last_name, pu.username, ct.id
            ORDER BY entered DESC""",
         event_id
     )
@@ -2611,7 +2615,7 @@ async def create_report(
         name_parts = [row["first_name"] or "", row["last_name"] or ""]
         name = " ".join(p for p in name_parts if p).strip() or row["username"] or str(row["tg_id"] or "")
         base_data.append({
-            "participant_id": row["pu_id"] or 0,
+            "participant_id": row["contact_id"] or 0,
             "name": name,
             "username": row["username"] or "",
             "tg_id": str(row["tg_id"] or ""),

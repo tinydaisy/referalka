@@ -1,3 +1,5 @@
+# ⚠️ BROKEN_AFTER_036: использует удалённые поля platform_users.platform/email/phone/ref_code/etc.
+# Требуется переписать через services/contact_merge.py (find_or_create_contact) — миграция 036.
 #!/usr/bin/env python3
 """
 Импорт базы Salebot (ivision_2_db.numbers) в platform_users + event_participants.

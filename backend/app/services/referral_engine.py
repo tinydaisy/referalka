@@ -34,16 +34,18 @@ async def process_conversion(
     5. Проверяет, разблокировался ли новый подарок
     6. Возвращает результат
     """
-    # Ищем участника и его событие (ref_code живёт в platform_users)
+    # Ищем участника и его событие (ref_code живёт в contacts с миграции 036)
+    # Fallback: ищем в merged_ref_codes для исторических связей после ручного мерджа
     participant = await db.fetchrow(
         """
         SELECT ep.id, ep.event_id,
                e.points_free, e.points_paid, e.title as event_title,
                0 as points_total
-        FROM platform_users pu
-        JOIN event_participants ep ON ep.platform_user_id = pu.id
+        FROM contacts c
+        JOIN event_participants ep ON ep.contact_id = c.id
         JOIN events e ON e.id = ep.event_id
-        WHERE pu.ref_code = $1
+        WHERE c.ref_code = $1
+           OR c.merged_ref_codes ? $1
         ORDER BY ep.registered_at DESC
         LIMIT 1
         """,

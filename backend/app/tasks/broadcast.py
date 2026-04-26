@@ -210,7 +210,7 @@ async def _send_broadcast(schedule_id: int):
                 """
                 SELECT platform_user_id, COALESCE(NULLIF(first_name, ''), 'друг') AS first_name
                 FROM platform_users
-                WHERE client_id=$1 AND platform_user_id = ANY($2::text[])
+                WHERE client_id=$1 AND platform_slug='telegram' AND platform_user_id = ANY($2::text[])
                 """,
                 schedule["client_id"], list(final_ids)
             )
@@ -242,7 +242,7 @@ async def _send_broadcast(schedule_id: int):
                 INSERT INTO broadcast_log (schedule_id, platform_user_id, status, error, sent_at)
                 SELECT $1, pu.id, $2, $3, NOW()
                 FROM platform_users pu
-                WHERE pu.platform_user_id = $4 AND pu.client_id = $5
+                WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $4 AND pu.client_id = $5
                 """,
                 schedule_id,
                 "sent" if success else "failed",
@@ -302,21 +302,22 @@ async def _build_audience(conn, schedule) -> set:
             JOIN channels ch ON ch.id = puc.channel_id
             WHERE puc.platform_user_id = pu.id
               AND ch.client_id = pu.client_id
-              AND ch.platform = 'telegram'
+              AND ch.platform_slug = 'telegram'
               AND puc.is_unsubscribed = TRUE
         )
     """
 
     if aud_include == "all_client":
         rows = await conn.fetch(
-            f"SELECT pu.platform_user_id FROM platform_users pu WHERE pu.client_id=$1 AND {SUBSCRIBED_CLAUSE}",
+            f"SELECT pu.platform_user_id FROM platform_users pu "
+            f"WHERE pu.client_id=$1 AND pu.platform_slug='telegram' AND {SUBSCRIBED_CLAUSE}",
             client_id
         )
     elif aud_include == "registered_event":
         rows = await conn.fetch(
             f"""
             SELECT pu.platform_user_id FROM event_participants ep
-            JOIN platform_users pu ON pu.id = ep.platform_user_id
+            JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug='telegram'
             WHERE ep.event_id=$1 AND ep.is_registered=TRUE AND {SUBSCRIBED_CLAUSE}
             """,
             event_id
@@ -325,7 +326,7 @@ async def _build_audience(conn, schedule) -> set:
         rows = await conn.fetch(
             f"""
             SELECT pu.platform_user_id FROM event_participants ep
-            JOIN platform_users pu ON pu.id = ep.platform_user_id
+            JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug='telegram'
             WHERE ep.event_id=$1 AND {SUBSCRIBED_CLAUSE}
             """,
             event_id
@@ -335,19 +336,25 @@ async def _build_audience(conn, schedule) -> set:
     exclude_ids: set = set()
     if aud_exclude == "registered_event":
         ex = await conn.fetch(
-            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1 AND ep.is_registered=TRUE",
+            "SELECT pu.platform_user_id FROM event_participants ep "
+            "JOIN platform_users pu ON pu.contact_id=ep.contact_id AND pu.platform_slug='telegram' "
+            "WHERE ep.event_id=$1 AND ep.is_registered=TRUE",
             event_id
         )
         exclude_ids = {r["platform_user_id"] for r in ex}
     elif aud_exclude == "unregistered_event":
         ex = await conn.fetch(
-            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1 AND ep.is_registered=FALSE",
+            "SELECT pu.platform_user_id FROM event_participants ep "
+            "JOIN platform_users pu ON pu.contact_id=ep.contact_id AND pu.platform_slug='telegram' "
+            "WHERE ep.event_id=$1 AND ep.is_registered=FALSE",
             event_id
         )
         exclude_ids = {r["platform_user_id"] for r in ex}
     elif aud_exclude == "all_event":
         ex = await conn.fetch(
-            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1",
+            "SELECT pu.platform_user_id FROM event_participants ep "
+            "JOIN platform_users pu ON pu.contact_id=ep.contact_id AND pu.platform_slug='telegram' "
+            "WHERE ep.event_id=$1",
             event_id
         )
         exclude_ids = {r["platform_user_id"] for r in ex}

@@ -11,6 +11,7 @@ export const en = {
     collaborations: 'Collaborations',
     clients: 'Contacts',
     leadMagnets: 'Lead magnets',
+    channels: 'Channels',
     broadcasts: 'Broadcasts',
     soon: 'SOON',
     awards: 'Awards',

@@ -99,34 +99,91 @@
 - Ссылка в Telegram: `https://plusson.app/l/ivision-7?app=tg`
 - С партнёром и UTM: `https://plusson.app/l/ivision-7?app=tg&new_partner_id=123&utm_source=insta`
 
-### Структура БД
-- **Many-to-Many для участников:** `platform_users` (личные данные, per-client) + `event_participants` (факт участия)
-- `platform_users` привязана к `client_id` — один Telegram-пользователь у разных клиентов ПЛЮСОН = разные записи
-- Уникальность: `(client_id, platform, platform_user_id)` — один человек, один клиент, одна платформа
-- `event_participants.platform_user_id` → `platform_users.id`
-- `referrer_participant_id` ссылается на `event_participants` — реферальная связь контекстная, только внутри события
-- ⚠️ `telegram_users` и `notifications_log` — удалены (пустые, заменены миграцией 011 и системой broadcast)
-- **Модульные таблицы** с префиксом `conf_` принадлежат модулю «Конференция»
-- **Спикеры — per-client:** таблица `speakers` (client_id) + `conf_speaker_events` (speaker_id + event_id)
+### Структура БД (после миграции 036 от 26.04.2026 — иерархия Контактов)
 
-### Архитектура дашборда (зафиксировано 2026-04-17)
+**Пять связанных таблиц для контактов и каналов:**
+- **`platforms`** — справочник платформ (telegram/vk/max + метаданные: иконка, цвет, лимит сообщения, поддержка кнопок). Везде FK вместо TEXT-значений — нельзя записать опечатку.
+- **`contacts`** — Контакт (ЧЕЛОВЕК). Один на клиента. Хранит: name, email, phone (с нормализованными версиями для мерджа), `ref_code` UNIQUE, `first_referrer_contact_id`, tags, salebot_id, utm_source, last_contact_at, `merged_into`, `merged_ref_codes`. Один человек = одна запись.
+- **`platform_users`** — Идентичность контакта на платформе. `contact_id → contacts`, `platform_slug → platforms`. Один человек может иметь несколько идентичностей: TG-аккаунт + VK-аккаунт = две записи под одним contact_id. UNIQUE(contact_id, platform_slug) и UNIQUE(client_id, platform_slug, platform_user_id).
+- **`channels`** — Каналы доставки клиента (его боты, группы VK, MAX-каналы). `platform_slug → platforms`.
+- **`platform_user_channels`** — Подписка идентичности на канал. `platform_slug` дублируется + составные FK: TG-аккаунт нельзя подписать на VK-группу. `is_unsubscribed` per-канал.
 
-**Дашборд = набор модулей.** Рефералка — не тип события, а механика поверх любого события.
+**Иерархия использования:**
+- `event_participants.contact_id → contacts` (был `platform_user_id`). Один человек = одно участие в событии.
+- `collaborators.contact_id → contacts` (был `platform_user_id`).
+- `referrer_participant_id` ссылается на `event_participants` — реферальная связь контекстная, только внутри события.
+- ⚠️ `telegram_users` и `notifications_log` — удалены.
+- Модульные таблицы с префиксом `conf_` принадлежат модулю «Конференция».
+- Коллабораторы — глобальная база: `collaborators` + `conf_speaker_events`. У `collaborators` FK `contact_id → contacts(id)`.
 
-**Роутинг веб-кабинета:**
-- `/dashboard` — главная: плитки модулей (Рефералки, Конференции, Премии, Турниры)
-- `/dashboard/referrals` — список реферальных кампаний
-- `/dashboard/referrals/[id]` — кампания (метрики, ссылка, подарки, аналитика)
-- `/dashboard/conferences` — список конференций
-- `/dashboard/conferences/[id]` — конференция (основное, спикеры, программа, промо)
-- `/dashboard/conferences/[id]/broadcasts` — раздел «Рассылки», общий layout с подвкладками
-- `/dashboard/conferences/[id]/broadcasts/templates` — страница «Шаблоны»
-- `/dashboard/conferences/[id]/broadcasts/queue` — страница «Очередь рассылок»
-- `/dashboard/speakers` — база спикеров клиента (глобальная)
+### Мердж контактов (миграция 036)
 
-**Сайдбар-секции:** РЕФЕРАЛКИ (Мои кампании) → КОНФЕРЕНЦИИ (Мои конференции, Мои спикеры) → Премии/Турниры (скоро)
+**Автомердж при создании идентичности** (TG /start, импорт Salebot, Event_leads, регистрация на лендинге):
+1. Нормализуем email (lowercase + trim) и phone (только цифры, `8` → `+7`)
+2. Ищем `contact` у того же клиента где `email_normalized` или `phone_normalized` совпали
+3. Нашли → новая `platform_users` ссылается на найденный `contact_id`
+4. Не нашли → создаём `contact` + `platform_users`
 
-**Создание реф. кампании** — два пути: 1) новое событие, 2) привязать к существующему событию (конференция и т.д.)
+⚠️ Поиск **только при создании**, не при апдейте.
+
+**Ручной мердж** — кнопка «Объединить» в карточке. Все `platform_users`/`event_participants`/`collaborators`/`referrer_*` → главный контакт. Реф-код второстепенного → в `merged_ref_codes` JSONB. Второстепенный: `merged_into = главный.id`, `is_active = false`.
+
+### ⚠️ Реф-код — один на человека, живёт в `contacts.ref_code` (миграция 032 от 26.04.2026, переехал в contacts миграцией 036)
+- Поля `event_participants.ref_code` и `conf_speaker_events.ref_code` УДАЛЕНЫ (миграция 032)
+- В `contacts.first_referrer_contact_id` хранится «кто впервые привёл человека в базу клиента»
+- В `event_participants.referrer_ref_code` остаётся per-event реферер
+- Резолв реферера: `JOIN contacts WHERE c.ref_code = referrer_ref_code` (с fallback на `merged_ref_codes`)
+- Резолв спикера: `c.ref_code → collaborators.contact_id → conf_speaker_events`
+
+### Лид-магниты + реф-программа как вкладка события (миграция 035, 26.04.2026)
+- Таблица **`lead_magnets`** (id, client_id, name, description, url) — общая база per-client. Один материал = одна запись (чек-лист, гайд, видео).
+- Таблица **`event_posters`** (id, event_id, url, orientation `horizontal|vertical`, sort) — афиши события для лендинга/шеринга
+- Таблица **`event_referral_settings`** (event_id UNIQUE, welcome_text, share_text) — общие тексты реф-программы события
+- Таблица **`event_referral_thresholds`** (event_id, threshold_count, lead_magnet_id, certificate_url, gift_template_text) — пороги-подарки. UNIQUE (event_id, threshold_count). Один порог = одно количество приведённых.
+- Таблица **`event_referral_materials`** (event_id, image_url, source `event_poster|custom`, source_poster_id) — картинки для шеринга участником
+- Расширение `events`: `address` (одно поле — URL стрима / ссылка на видео / офлайн-адрес), `start_at`, `end_at`
+- API: `/api/v1/lead-magnets`, `/api/v1/events/{id}/posters`, `/api/v1/events/{id}/referral/{settings|thresholds|materials}`
+- UI (БЛОК 3.Б, ещё не сделан): новый раздел сайдбара «Лид-магниты», новый раздел «Мероприятия», убрать «Рефералки», вкладки в карточке события (Основное / Афиши / Реф-программа / Рассылки)
+
+### ⚠️ Мультиплатформа — каналы доставки (миграции 033+034+036, 26.04.2026)
+- Таблица **`channels`** (id, client_id, `platform_slug` → platforms, display_name, handle, bot_token, is_active) — каналы доставки клиента (бот в TG / группа VK / канал MAX). У клиента может быть несколько каналов.
+- Таблица **`platform_user_channels`** (platform_user_id, channel_id, platform_slug, is_unsubscribed, subscribed_at, unsubscribed_at) — подписка идентичности на конкретный канал, отписка per-канал. Составные FK гарантируют совпадение платформ.
+- Поле `clients.bot_token` УДАЛЕНО (033) — живёт в `channels.bot_token`
+- Поле `platform_users.is_unsubscribed` УДАЛЕНО (034) — живёт в `platform_user_channels.is_unsubscribed` per-канал
+- Поле `platform_users.platform` ВОЗВРАЩЕНО как `platform_slug → platforms(slug)` (036) — без него нельзя интерпретировать `platform_user_id` (это tg_id или vk_id?)
+- UNIQUE `platform_users` после 036: `(contact_id, platform_slug)` + `(client_id, platform_slug, platform_user_id)`
+- Helper `app/services/channels.py`: `get_client_telegram_token(client_id, db)`, `mark_unsubscribed_by_tg_id(client_id, tg_id, db)`, `upsert_client_telegram_token(client_id, token, db)`
+
+### Архитектура дашборда (зафиксировано 2026-04-25)
+
+**Концепция:** дашборд = модули. **Реферальная программа — не отдельная сущность**, а вкладка внутри каждого события. Раздел «Рефералки» из сайдбара убирается.
+
+**Сайдбар:**
+
+**База** (видна всегда, общая для клиента):
+- Контакты — `contacts` (человек), карточка с группами по платформам и блоком «Каналы»
+- Коллабораторы — `collaborators` с FK `contact_id → contacts`
+- **Лид-магниты** — общая база per-client: `name`, `description`, `url`. Используется в реф-программе любого события.
+- **Каналы** (новое, миграция 036) — CRUD по `channels`. Боты Telegram, группы VK, MAX-каналы клиента. С формы выбирается платформа (FK на `platforms`), задаётся `bot_token`/`handle`/`display_name`.
+
+**События:**
+- **Мероприятия** — базовый раздел, у всех клиентов. Покрывает вебинары, уроки в записи, нетворкинги, эфиры, мастер-классы. Все они — записи в `events` с разным `module_slug`.
+- **Конференции** — опциональный модуль (расширенные настройки: спикеры, программа, услуги, промо-партнёры). Живёт в отдельном разделе дашборда `/dashboard/conferences` и в этой переустройстве не затрагивается.
+- **Премии** — опциональный модуль (скоро)
+- **Турниры** — опциональный модуль (скоро)
+
+**Карточка Мероприятия — вкладки:**
+1. **Основное** — название, описание, даты, лендинг URL, адрес (одно поле — либо URL стрима, либо офлайн-адрес)
+2. **Афиши** — список изображений с ориентацией (горизонтальная/вертикальная), несколько штук. Используются на лендинге, в рассылках, в шеринге.
+3. **Реф-программа** — три подвкладки в порядке:
+   - **Подарки** — пороги (1/3/10 друзей и т.д.) → к каждому свой `lead_magnet_id` + опциональный сертификат (картинка)
+   - **Материалы** — изображения (выбор из афиш события + загрузка своих) + текст-анонс. Готово для шеринга участником.
+   - **Шаблоны** — текст приветствия (включает список всех подарков) + тексты выдачи каждого подарка от бота
+4. **Рассылки** — шаблоны и очередь, на это конкретное мероприятие
+
+**Лендинг и адрес — у всех мероприятий** (не зависит от типа). Если не нужно — оставляют пустым.
+
+**Сертификаты у подарков** — в MVP просто загрузка картинки. Идея на будущее: автогенерация именных сертификатов (аватарка участника + имя на шаблоне через Pillow + Telegram `getUserProfilePhotos`).
 
 ### Продуктовые решения
 - **Один общий бот и один Mini App для всех Клиентов** — кастомные боты не предусмотрены (в MVP)
