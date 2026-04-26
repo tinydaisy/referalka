@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { Users, TrendingUp, Gift, MousePointerClick, Save } from 'lucide-react'
+import { useState } from 'react'
+import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export default function OverviewTab({
@@ -10,7 +10,6 @@ export default function OverviewTab({
   eventId: number
   onReload: () => Promise<void>
 }) {
-  const [analytics, setAnalytics] = useState<any>(null)
   const [title, setTitle] = useState(event.title || '')
   const [description, setDescription] = useState(event.description || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
@@ -20,10 +19,6 @@ export default function OverviewTab({
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-
-  useEffect(() => {
-    api.events.analytics(eventId).then(setAnalytics).catch(() => {})
-  }, [eventId])
 
   function toLocalInput(iso: string | null | undefined) {
     if (!iso) return ''
@@ -55,24 +50,6 @@ export default function OverviewTab({
 
   return (
     <div className="space-y-6">
-      {/* Метрики */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Участников',  value: analytics?.participants_total || 0, icon: Users },
-          { label: 'Переходов',   value: analytics?.clicks_total       || 0, icon: MousePointerClick },
-          { label: 'Конверсий',   value: analytics?.conversions_free   || 0, icon: TrendingUp },
-          { label: 'Подарков',    value: analytics?.gifts_issued       || 0, icon: Gift },
-        ].map(({ label, value, icon: Icon }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-500">{label}</span>
-              <Icon size={16} className="text-gray-300" />
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{value}</p>
-          </div>
-        ))}
-      </div>
-
       {/* Поля события */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
         <h2 className="font-semibold text-gray-800 mb-4">Параметры мероприятия</h2>
