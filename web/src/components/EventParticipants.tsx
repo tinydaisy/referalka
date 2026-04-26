@@ -25,29 +25,6 @@ interface Participant {
   referral_count: number
 }
 
-// Убирает подряд идущие дубли слов (case-insensitive). Лечит «Сергей Анисимов Анисимов» → «Сергей Анисимов»
-function dedupName(s: string | null | undefined): string {
-  if (!s) return ''
-  const parts = s.trim().split(/\s+/)
-  const out: string[] = []
-  for (const p of parts) {
-    if (out.length === 0 || out[out.length - 1].toLowerCase() !== p.toLowerCase()) {
-      out.push(p)
-    }
-  }
-  return out.join(' ')
-}
-
-function displayName(p: { contact_name?: string | null; first_name: string | null; last_name: string | null; username: string | null }): string {
-  // contact.name — основной источник (имя контакта как «человека»)
-  const fromContact = dedupName(p.contact_name)
-  if (fromContact) return fromContact
-  const fromPU = dedupName([p.first_name, p.last_name].filter(Boolean).join(' '))
-  if (fromPU) return fromPU
-  if (p.username) return `@${p.username.replace(/^@+/, '')}`
-  return 'Без имени'
-}
-
 type RegisteredFilter = 'all' | 'yes' | 'no'
 
 interface Counts {
@@ -59,12 +36,10 @@ interface Counts {
 function referrerLabel(p: Participant): string {
   if (!p.referrer_ref_code) return '—'
   const username = p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : ''
-  const name = dedupName(p.referrer_name)
-  if (name) {
-    return username ? `${name} (${username})` : name
+  if (p.referrer_name) {
+    return username ? `${p.referrer_name} (${username})` : p.referrer_name
   }
   if (username) return username
-  // контакт-реферер не нашёлся в БД — показываем код
   return `код ${p.referrer_ref_code}`
 }
 
@@ -77,7 +52,7 @@ function ContactCard({
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const name = displayName(p)
+  const name = p.contact_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || p.username || 'Без имени'
   const initial = name[0]?.toUpperCase() || '?'
 
   async function toggle(e: React.MouseEvent) {
@@ -114,7 +89,7 @@ function ContactCard({
         <div className="hidden sm:flex flex-1 max-w-xs shrink-0 min-w-0 items-center">
           {p.referrer_ref_code ? (
             <span className="text-xs text-gray-700 truncate" title={referrerLabel(p)}>
-              {dedupName(p.referrer_name) || (p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : `код ${p.referrer_ref_code}`)}
+              {p.referrer_name || (p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : `код ${p.referrer_ref_code}`)}
               {p.referrer_username && p.referrer_name && (
                 <span className="text-gray-400"> @{p.referrer_username.replace(/^@+/, '')}</span>
               )}
