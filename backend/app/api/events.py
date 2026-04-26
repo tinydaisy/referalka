@@ -53,32 +53,30 @@ async def list_events(
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
+    # effective_start: для конференций fallback на минимальную дату из conf_days,
+    # для остальных — собственный start_at
+    base_select = """
+        SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
+               e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
+               COALESCE(
+                 e.start_at,
+                 CASE WHEN e.module_slug = 'conference' THEN
+                   (SELECT MIN(day_date)::timestamp AT TIME ZONE 'Europe/Moscow'
+                    FROM conf_days WHERE event_id = e.id)
+                 END
+               ) AS effective_start_at,
+               COUNT(DISTINCT ep.id) as participants_count
+        FROM events e
+        LEFT JOIN event_participants ep ON ep.event_id = e.id
+    """
     if module_slug:
         events = await db.fetch(
-            """
-            SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
-                   e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
-                   COUNT(DISTINCT ep.id) as participants_count
-            FROM events e
-            LEFT JOIN event_participants ep ON ep.event_id = e.id
-            WHERE e.client_id = $1 AND e.module_slug = $2
-            GROUP BY e.id
-            ORDER BY e.created_at DESC
-            """,
+            base_select + " WHERE e.client_id = $1 AND e.module_slug = $2 GROUP BY e.id ORDER BY e.created_at DESC",
             client_id, module_slug
         )
     else:
         events = await db.fetch(
-            """
-            SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
-                   e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
-                   COUNT(DISTINCT ep.id) as participants_count
-            FROM events e
-            LEFT JOIN event_participants ep ON ep.event_id = e.id
-            WHERE e.client_id = $1
-            GROUP BY e.id
-            ORDER BY e.created_at DESC
-            """,
+            base_select + " WHERE e.client_id = $1 GROUP BY e.id ORDER BY e.created_at DESC",
             client_id
         )
     return {"events": [dict(e) for e in events]}

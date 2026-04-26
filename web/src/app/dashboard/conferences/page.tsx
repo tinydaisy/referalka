@@ -119,7 +119,7 @@ export default function ConferencesPage() {
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
           {events.map(e => {
             const st = STATUS_LABELS[e.status]
-            const dateLabel = formatDate(e.start_at || e.created_at)
+            const dateLabel = formatDate(e.effective_start_at || e.start_at || e.created_at)
             return (
               <div key={e.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
                 <Link href={`/dashboard/conferences/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
@@ -164,7 +164,7 @@ export default function ConferencesPage() {
           {events.map(event => {
             const status = STATUS_LABELS[event.status]
             const isDeleting = deleting === event.id
-            const dateLabel = formatDate(event.start_at || event.created_at)
+            const dateLabel = formatDate(event.effective_start_at || event.start_at || event.created_at)
             return (
               <div key={event.id} className="relative group">
                 <Link
