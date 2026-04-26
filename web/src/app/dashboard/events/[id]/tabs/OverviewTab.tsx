@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
+import PublicLinks from '@/components/PublicLinks'
 
 export default function OverviewTab({
   event, eventId, onReload,
@@ -50,6 +51,9 @@ export default function OverviewTab({
 
   return (
     <div className="space-y-6">
+      {/* Публичные ссылки */}
+      <PublicLinks slug={event?.slug} />
+
       {/* Поля события */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
         <h2 className="font-semibold text-gray-800 mb-4">Параметры мероприятия</h2>
