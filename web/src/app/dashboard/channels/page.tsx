@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Plus, Radio, Users, BellOff, Edit2, Trash2, X } from 'lucide-react'
+import { Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Platform {
@@ -22,7 +22,7 @@ interface Channel {
   subscribers: number
   unsubscribed: number
   created_at: string
-  bot_token?: string | null
+  bot_token: string | null
 }
 
 function PlatformBadge({ slug, color }: { slug: string; color?: string | null }) {
@@ -103,41 +103,12 @@ export default function ChannelsPage() {
       ) : (
         <div className="space-y-3">
           {channels.map(ch => (
-            <div key={ch.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
-              <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-semibold text-gray-900 truncate">{ch.display_name}</h3>
-                  {!ch.is_active && (
-                    <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">выключен</span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500 truncate">
-                  {ch.platform_display_name}
-                  {ch.handle && <span className="ml-2 font-mono">{ch.handle}</span>}
-                </p>
-              </div>
-              <div className="flex items-center gap-4 text-sm shrink-0">
-                <div className="flex items-center gap-1.5 text-green-600">
-                  <Users size={14} />
-                  <span>{ch.subscribers.toLocaleString('ru')}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-red-400">
-                  <BellOff size={14} />
-                  <span>{ch.unsubscribed.toLocaleString('ru')}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => setEditing(ch)}
-                  className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-[#25455D]"
-                ><Edit2 size={14} /></button>
-                <button
-                  onClick={() => handleDelete(ch.id)}
-                  className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500"
-                ><Trash2 size={14} /></button>
-              </div>
-            </div>
+            <ChannelCard
+              key={ch.id}
+              channel={ch}
+              onEdit={() => setEditing(ch)}
+              onDelete={() => handleDelete(ch.id)}
+            />
           ))}
         </div>
       )}
@@ -149,6 +120,91 @@ export default function ChannelsPage() {
           onClose={() => { setEditing(null); setCreating(false) }}
           onSaved={() => { setEditing(null); setCreating(false); load() }}
         />
+      )}
+    </div>
+  )
+}
+
+function ChannelCard({ channel: ch, onEdit, onDelete }: {
+  channel: Channel
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const [showToken, setShowToken] = useState(false)
+
+  const copyToken = async () => {
+    if (!ch.bot_token) return
+    try {
+      await navigator.clipboard.writeText(ch.bot_token)
+    } catch {
+      // fallback
+      const ta = document.createElement('textarea')
+      ta.value = ch.bot_token
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+      <div className="flex items-center gap-4">
+        <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-gray-900 truncate">{ch.display_name}</h3>
+            {!ch.is_active && (
+              <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">выключен</span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 truncate">
+            {ch.platform_display_name}
+            {ch.handle && <span className="ml-2 font-mono">{ch.handle}</span>}
+          </p>
+        </div>
+        <div className="flex items-center gap-4 text-sm shrink-0">
+          <div className="flex items-center gap-1.5 text-green-600">
+            <Users size={14} />
+            <span>{ch.subscribers.toLocaleString('ru')}</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-red-400">
+            <BellOff size={14} />
+            <span>{ch.unsubscribed.toLocaleString('ru')}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={onEdit}
+            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-[#25455D]"
+            title="Редактировать"
+          ><Edit2 size={14} /></button>
+          <button
+            onClick={onDelete}
+            className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500"
+            title="Удалить"
+          ><Trash2 size={14} /></button>
+        </div>
+      </div>
+
+      {/* Bot token */}
+      {ch.bot_token && (
+        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2">
+          <span className="text-xs text-gray-500 shrink-0">Bot Token:</span>
+          <code className="flex-1 text-xs text-gray-700 font-mono bg-gray-50 px-2 py-1 rounded truncate">
+            {showToken ? ch.bot_token : '•'.repeat(Math.min(ch.bot_token.length, 40))}
+          </code>
+          <button
+            onClick={() => setShowToken(v => !v)}
+            className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
+            title={showToken ? 'Скрыть' : 'Показать'}
+          >{showToken ? <EyeOff size={13} /> : <Eye size={13} />}</button>
+          <button
+            onClick={copyToken}
+            className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
+            title="Скопировать"
+          ><Copy size={13} /></button>
+        </div>
       )}
     </div>
   )
