@@ -109,8 +109,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <PublicLinks slug={event?.slug} />
-
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
         <h2 className="font-semibold text-gray-900">{ts.section}</h2>
         <div>
@@ -202,6 +200,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
       </div>
 
       <SaveBar saving={saving} saved={saved} onSave={handleSave} />
+
+      {/* Публичные ссылки — внизу */}
+      <PublicLinks slug={event?.slug} />
     </div>
   )
 }

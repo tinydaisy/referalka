@@ -51,9 +51,6 @@ export default function OverviewTab({
 
   return (
     <div className="space-y-6">
-      {/* Публичные ссылки */}
-      <PublicLinks slug={event?.slug} />
-
       {/* Поля события */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
         <h2 className="font-semibold text-gray-800 mb-4">Параметры мероприятия</h2>
@@ -104,6 +101,9 @@ export default function OverviewTab({
           {savedFlash && <span className="text-sm text-green-600">Сохранено ✓</span>}
         </div>
       </div>
+
+      {/* Публичные ссылки — внизу */}
+      <PublicLinks slug={event?.slug} />
 
       <style jsx>{`
         .input {
