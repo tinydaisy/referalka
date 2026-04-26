@@ -469,6 +469,7 @@ async def event_analytics(
 @router.get("/{event_id}/participants", summary="Список участников события")
 async def event_participants(
     event_id: int,
+    registered: str = "all",  # all | yes | no
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
@@ -479,8 +480,14 @@ async def event_participants(
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
+    where_extra = ""
+    if registered == "yes":
+        where_extra = " AND ep.is_registered = TRUE"
+    elif registered == "no":
+        where_extra = " AND ep.is_registered = FALSE"
+
     rows = await db.fetch(
-        """SELECT ep.id,
+        f"""SELECT ep.id,
                   c.id AS contact_id,
                   c.ref_code, ep.referrer_ref_code,
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
@@ -498,10 +505,54 @@ async def event_participants(
            FROM event_participants ep
            JOIN contacts c ON c.id = ep.contact_id
            LEFT JOIN referral_events re ON re.ref_code = c.ref_code AND re.event_id = ep.event_id
-           WHERE ep.event_id = $1
+           WHERE ep.event_id = $1{where_extra}
            GROUP BY ep.id, c.id, ep.referrer_ref_code,
                     ep.is_registered, ep.is_in_chat
            ORDER BY ep.registered_at DESC""",
         event_id
     )
-    return {"participants": [dict(r) for r in rows]}
+
+    counts = await db.fetchrow(
+        """SELECT
+             COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE is_registered = TRUE) AS registered,
+             COUNT(*) FILTER (WHERE is_registered = FALSE) AS not_registered
+           FROM event_participants WHERE event_id = $1""",
+        event_id
+    )
+    return {
+        "participants": [dict(r) for r in rows],
+        "counts": dict(counts) if counts else {"total": 0, "registered": 0, "not_registered": 0},
+    }
+
+
+class UpdateParticipantRequest(BaseModel):
+    is_registered: Optional[bool] = None
+
+
+@router.patch("/{event_id}/participants/{participant_id}", summary="Обновить статус участника (вручную)")
+async def update_event_participant(
+    event_id: int,
+    participant_id: int,
+    data: UpdateParticipantRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        """SELECT ep.id FROM event_participants ep
+           JOIN events e ON e.id = ep.event_id
+           WHERE ep.id = $1 AND ep.event_id = $2 AND e.client_id = $3""",
+        participant_id, event_id, client_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+
+    if data.is_registered is None:
+        raise HTTPException(status_code=400, detail="Нечего обновлять")
+
+    await db.execute(
+        "UPDATE event_participants SET is_registered = $1 WHERE id = $2",
+        data.is_registered, participant_id
+    )
+    return {"id": participant_id, "is_registered": data.is_registered}

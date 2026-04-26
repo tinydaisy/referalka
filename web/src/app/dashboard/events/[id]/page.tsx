@@ -7,6 +7,7 @@ import OverviewTab from './tabs/OverviewTab'
 import PostersTab from './tabs/PostersTab'
 import ReferralProgramTab from './tabs/ReferralProgramTab'
 import BroadcastsTab from './tabs/BroadcastsTab'
+import EventParticipants from '@/components/EventParticipants'
 
 const STATUS_LABELS: Record<string, { label: string; cls: string; next: string; nextLabel: string }> = {
   draft:  { label: 'Черновик',  cls: 'bg-gray-100 text-gray-600',   next: 'active', nextLabel: 'Активировать' },
@@ -14,13 +15,14 @@ const STATUS_LABELS: Record<string, { label: string; cls: string; next: string; 
   ended:  { label: 'Завершено', cls: 'bg-red-100 text-red-700',     next: 'active', nextLabel: 'Возобновить' },
 }
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'broadcasts'
+type TabKey = 'overview' | 'posters' | 'referral' | 'participants' | 'broadcasts'
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'overview',   label: 'Основное' },
-  { key: 'posters',    label: 'Афиши' },
-  { key: 'referral',   label: 'Реф-программа' },
-  { key: 'broadcasts', label: 'Рассылки' },
+  { key: 'overview',     label: 'Основное' },
+  { key: 'posters',      label: 'Афиши' },
+  { key: 'referral',     label: 'Реф-программа' },
+  { key: 'participants', label: 'Участники' },
+  { key: 'broadcasts',   label: 'Рассылки' },
 ]
 
 export default function EventPage() {
@@ -114,10 +116,11 @@ export default function EventPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'overview'   && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
-      {activeTab === 'posters'    && <PostersTab eventId={eventId} />}
-      {activeTab === 'referral'   && <ReferralProgramTab eventId={eventId} />}
-      {activeTab === 'broadcasts' && <BroadcastsTab eventId={eventId} isConference={isConference} />}
+      {activeTab === 'overview'     && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
+      {activeTab === 'posters'      && <PostersTab eventId={eventId} />}
+      {activeTab === 'referral'     && <ReferralProgramTab eventId={eventId} />}
+      {activeTab === 'participants' && <EventParticipants eventId={eventId} />}
+      {activeTab === 'broadcasts'   && <BroadcastsTab eventId={eventId} isConference={isConference} />}
     </div>
   )
 }

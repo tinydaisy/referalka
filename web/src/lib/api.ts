@@ -44,7 +44,13 @@ export const api = {
     copy: (id: number) =>
       request(`/api/v1/events/${id}/copy`, { method: 'POST' }),
     analytics: (id: number) => request(`/api/v1/events/${id}/analytics`),
-    participants: (id: number) => request(`/api/v1/events/${id}/participants`),
+    participants: (id: number, registered: 'all' | 'yes' | 'no' = 'all') =>
+      request(`/api/v1/events/${id}/participants?registered=${registered}`),
+    setRegistered: (id: number, participantId: number, isRegistered: boolean) =>
+      request(`/api/v1/events/${id}/participants/${participantId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_registered: isRegistered }),
+      }),
   },
   collaborators: {
     list: (q?: string) => request(`/api/v1/collaborators/${q ? `?q=${encodeURIComponent(q)}` : ''}`),
