@@ -58,9 +58,10 @@ async def get_contacts(
           )
         """
 
-    # Считаем что контакт «отписался», если все его идентичности отписались на всех каналах клиента,
-    # и хотя бы одна подписка существует. Иначе — подписан (или нет подписок вообще).
-    UNSUB_EXISTS = """EXISTS (
+    # Считаем что контакт «отписался», если у него все подписки отписаны
+    # (есть хотя бы одна с unsub=TRUE и нет ни одной с unsub=FALSE).
+    # Если подписок нет вообще — считаем подписанным (по умолчанию).
+    UNSUB_EXISTS = """(EXISTS (
         SELECT 1 FROM platform_users pu
         JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
         JOIN channels ch ON ch.id = puc.channel_id
@@ -72,7 +73,7 @@ async def get_contacts(
         JOIN channels ch ON ch.id = puc.channel_id
         WHERE pu.contact_id = c.id AND ch.client_id = c.client_id
           AND puc.is_unsubscribed = FALSE
-    )"""
+    ))"""
 
     where = where_base
     if not show_unsubscribed:
