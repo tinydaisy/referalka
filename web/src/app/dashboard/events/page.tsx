@@ -126,7 +126,7 @@ export default function EventsPage() {
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
           {items.map(e => {
             const st = STATUS_LABEL[e.status]
-            const dateLabel = formatDate((e as any).effective_start_at || e.start_at || e.created_at)
+            const dateLabel = formatDate((e as any).effective_start_at || e.start_at)
             return (
               <div key={e.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
                 <Link href={`/dashboard/events/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
@@ -141,8 +141,7 @@ export default function EventsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-gray-900 truncate">{e.title}</div>
                     <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
-                      <span>{dateLabel}</span>
-                      <span>·</span>
+                      {dateLabel && <><span>{dateLabel}</span><span>·</span></>}
                       <span>{e.participants_count} {e.participants_count === 1 ? 'участник' : 'участников'}</span>
                     </div>
                   </div>
@@ -171,7 +170,7 @@ export default function EventsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {items.map(e => {
             const st = STATUS_LABEL[e.status]
-            const dateLabel = formatDate((e as any).effective_start_at || e.start_at || e.created_at)
+            const dateLabel = formatDate((e as any).effective_start_at || e.start_at)
             return (
               <div key={e.id} className="relative group">
                 <Link href={`/dashboard/events/${e.id}`}
@@ -196,10 +195,12 @@ export default function EventsPage() {
                         <Users size={14} className="text-gray-400" />
                         {e.participants_count || 0} участников
                       </span>
-                      <span className="flex items-center gap-1.5">
-                        <Calendar size={14} className="text-gray-400" />
-                        {dateLabel}
-                      </span>
+                      {dateLabel && (
+                        <span className="flex items-center gap-1.5">
+                          <Calendar size={14} className="text-gray-400" />
+                          {dateLabel}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Link>
