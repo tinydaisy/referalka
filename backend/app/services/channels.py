@@ -30,8 +30,23 @@ async def get_client_telegram_channel_id(client_id: int, db) -> Optional[int]:
     )
 
 
+async def _fetch_bot_username(bot_token: str) -> Optional[str]:
+    """Спрашиваем у Telegram реальный @username бота через getMe. Без сети — None."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as http:
+            r = await http.get(f"https://api.telegram.org/bot{bot_token}/getMe")
+            data = r.json()
+            if data.get("ok"):
+                return data["result"].get("username")
+    except Exception:
+        pass
+    return None
+
+
 async def upsert_client_telegram_token(client_id: int, bot_token: str, db) -> None:
-    """Сохраняет bot_token в telegram-канале клиента. Если канала нет — создаёт его."""
+    """Сохраняет bot_token в telegram-канале клиента. Если канала нет — создаёт его,
+    подтягивая username бота через getMe (а не из личного telegram_username клиента)."""
     existing = await db.fetchval(
         "SELECT id FROM channels WHERE client_id = $1 AND platform_slug = 'telegram' ORDER BY id LIMIT 1",
         client_id
@@ -42,16 +57,18 @@ async def upsert_client_telegram_token(client_id: int, bot_token: str, db) -> No
             bot_token or None, existing
         )
     elif bot_token:
-        c = await db.fetchrow(
-            "SELECT name, telegram_username FROM clients WHERE id = $1", client_id
-        )
+        bot_username = await _fetch_bot_username(bot_token)
+        c = await db.fetchrow("SELECT name FROM clients WHERE id = $1", client_id)
+        if bot_username:
+            display_name = f'Telegram бот @{bot_username}'
+            handle = f'@{bot_username}'
+        else:
+            display_name = 'Telegram бот ' + (c['name'] if c else '')
+            handle = None
         await db.execute(
             """INSERT INTO channels (client_id, platform_slug, display_name, handle, bot_token, is_active)
                VALUES ($1, 'telegram', $2, $3, $4, TRUE)""",
-            client_id,
-            'Telegram бот ' + (('@' + c['telegram_username']) if c and c['telegram_username'] else (c['name'] if c else '')),
-            ('@' + c['telegram_username']) if c and c['telegram_username'] else None,
-            bot_token
+            client_id, display_name, handle, bot_token
         )
 
 
