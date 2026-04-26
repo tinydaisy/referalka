@@ -3,16 +3,19 @@ import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
 
+type Orientation = 'horizontal' | 'vertical' | 'square'
+
 interface Poster {
   id: number
   url: string
-  orientation: 'horizontal' | 'vertical'
+  orientation: Orientation
   sort: number
 }
 
-const ORIENTATIONS: { key: 'horizontal' | 'vertical'; label: string; ratio: string; aspect: string }[] = [
+const ORIENTATIONS: { key: Orientation; label: string; ratio: string; aspect: string }[] = [
   { key: 'horizontal', label: 'Горизонтальные', ratio: '16:9', aspect: 'aspect-video' },
   { key: 'vertical',   label: 'Вертикальные',   ratio: '9:16', aspect: 'aspect-[9/16]' },
+  { key: 'square',     label: 'Квадратные',     ratio: '1:1',  aspect: 'aspect-square' },
 ]
 
 export default function PostersTab({ eventId }: { eventId: number }) {
@@ -31,7 +34,7 @@ export default function PostersTab({ eventId }: { eventId: number }) {
   }
   useEffect(() => { load() }, [eventId])
 
-  async function handleChange(orientation: 'horizontal' | 'vertical', newUrls: string[]) {
+  async function handleChange(orientation: Orientation, newUrls: string[]) {
     const oldItems = items.filter(p => p.orientation === orientation)
     const oldUrls = oldItems.map(p => p.url)
 

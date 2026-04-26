@@ -136,7 +136,7 @@ async def _check_event_owned(event_id: int, client_id: int, db: asyncpg.Connecti
 
 class PosterIn(BaseModel):
     url: str
-    orientation: str = "horizontal"   # 'horizontal' | 'vertical'
+    orientation: str = "horizontal"   # 'horizontal' | 'vertical' | 'square'
     sort: int = 0
 
 
@@ -162,8 +162,8 @@ async def add_poster(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
-    if data.orientation not in ("horizontal", "vertical"):
-        raise HTTPException(status_code=400, detail="orientation должен быть 'horizontal' или 'vertical'")
+    if data.orientation not in ("horizontal", "vertical", "square"):
+        raise HTTPException(status_code=400, detail="orientation должен быть 'horizontal', 'vertical' или 'square'")
     row = await db.fetchrow(
         """INSERT INTO event_posters (event_id, url, orientation, sort)
            VALUES ($1, $2, $3, $4)
