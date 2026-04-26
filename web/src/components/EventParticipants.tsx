@@ -9,6 +9,9 @@ interface Participant {
   platform_user_id: string
   ref_code: string
   referrer_ref_code: string | null
+  referrer_contact_id: number | null
+  referrer_name: string | null
+  referrer_username: string | null
   is_registered: boolean
   is_in_chat: boolean
   registered_at: string | null
@@ -27,6 +30,17 @@ interface Counts {
   total: number
   registered: number
   not_registered: number
+}
+
+function referrerLabel(p: Participant): string {
+  if (!p.referrer_ref_code) return '—'
+  const username = p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : ''
+  if (p.referrer_name) {
+    return username ? `${p.referrer_name} (${username})` : p.referrer_name
+  }
+  if (username) return username
+  // контакт-реферер не нашёлся в БД — показываем код
+  return `код ${p.referrer_ref_code}`
 }
 
 function ContactCard({
@@ -117,7 +131,11 @@ function ContactCard({
         <div className="px-5 pb-4 bg-gray-50 border-t border-gray-100">
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 pt-3 text-xs">
             <Field label="Свой реф-код (его ссылка)" value={p.ref_code || '—'} mono />
-            <Field label="Реф-код, от кого пришёл" value={p.referrer_ref_code || '—'} mono highlight={!!p.referrer_ref_code} />
+            <Field
+              label="От кого пришёл"
+              value={referrerLabel(p)}
+              highlight={!!p.referrer_ref_code}
+            />
             <Field label="Telegram ID" value={p.platform_user_id || '—'} />
             <Field label="Salebot ID" value={p.salebot_id || '—'} />
             <Field label="Телефон" value={p.phone || '—'} />
