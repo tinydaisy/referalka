@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift } from 'lucide-react'
 import { useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 
@@ -20,16 +20,22 @@ export default function Sidebar() {
     {
       items: [
         { href: '/dashboard', label: t.nav.dashboard, icon: LayoutDashboard, exact: true },
-        { href: '/dashboard/referrals', label: t.nav.referrals, icon: Link2 },
-        { href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic },
+        { href: '/dashboard/broadcasts', label: t.nav.broadcasts, icon: Send },
       ],
     },
     {
       label: t.nav.base,
       items: [
-        { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users },
         { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
-        { href: '/dashboard/broadcasts', label: t.nav.broadcasts, icon: Send },
+        { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users },
+        { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
+      ],
+    },
+    {
+      label: t.nav.eventsSection,
+      items: [
+        { href: '/dashboard/events', label: t.nav.events, icon: Calendar },
+        { href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic },
       ],
     },
     {

@@ -218,6 +218,48 @@ export const api = {
     setFireAt: (id: number, data: any) =>
       request(`/api/v1/broadcasts/schedules/${id}/fire-at`, { method: 'PUT', body: JSON.stringify(data) }),
   },
+  leadMagnets: {
+    list: () => request('/api/v1/lead-magnets'),
+    create: (data: any) =>
+      request('/api/v1/lead-magnets', { method: 'POST', body: JSON.stringify(data) }),
+    get: (id: number) => request(`/api/v1/lead-magnets/${id}`),
+    update: (id: number, data: any) =>
+      request(`/api/v1/lead-magnets/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/lead-magnets/${id}`, { method: 'DELETE' }),
+  },
+  referralProgram: {
+    posters: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/posters`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/posters`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (eventId: number, id: number, data: any) =>
+        request(`/api/v1/events/${eventId}/posters/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/posters/${id}`, { method: 'DELETE' }),
+    },
+    settings: {
+      get: (eventId: number) => request(`/api/v1/events/${eventId}/referral/settings`),
+      save: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/referral/settings`, { method: 'PUT', body: JSON.stringify(data) }),
+    },
+    thresholds: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/referral/thresholds`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/referral/thresholds`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (eventId: number, id: number, data: any) =>
+        request(`/api/v1/events/${eventId}/referral/thresholds/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/referral/thresholds/${id}`, { method: 'DELETE' }),
+    },
+    materials: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/referral/materials`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/referral/materials`, { method: 'POST', body: JSON.stringify(data) }),
+      delete: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/referral/materials/${id}`, { method: 'DELETE' }),
+    },
+  },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
     clients: (params?: string) => request(`/api/v1/admin/clients${params ? '?' + params : ''}`),
