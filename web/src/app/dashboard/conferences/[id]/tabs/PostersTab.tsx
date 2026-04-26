@@ -1,9 +1,8 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
-import { Upload, Trash2, ImageIcon, Loader2, Copy, Check } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
-import { ImageThumb } from '@/components/ImagePreview'
+import FileUploader from '@/components/FileUploader'
 
 type PosterType = 'horizontal' | 'vertical' | 'square'
 
@@ -18,19 +17,6 @@ export default function PostersTab({ eventId }: { eventId: number }) {
   const [posters, setPosters] = useState<Record<PosterType, string[]>>({
     horizontal: [], vertical: [], square: []
   })
-  const [uploading, setUploading] = useState<PosterType | null>(null)
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
-
-  function copyUrl(url: string) {
-    navigator.clipboard.writeText(url)
-    setCopiedUrl(url)
-    setTimeout(() => setCopiedUrl(null), 2000)
-  }
-  const fileRefs = {
-    horizontal: useRef<HTMLInputElement>(null),
-    vertical:   useRef<HTMLInputElement>(null),
-    square:     useRef<HTMLInputElement>(null),
-  }
 
   useEffect(() => {
     api.conference.get(eventId).then(r => {
@@ -45,115 +31,30 @@ export default function PostersTab({ eventId }: { eventId: number }) {
     }).catch(() => {})
   }, [eventId])
 
-  async function handleUpload(type: PosterType, files: FileList | null) {
-    if (!files || files.length === 0) return
-    setUploading(type)
-    try {
-      const newUrls: string[] = []
-      for (const file of Array.from(files)) {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('type', type)
-        const r = await fetch(`/api/upload-poster?event_id=${eventId}`, {
-          method: 'POST',
-          body: formData,
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('plusson_token') || ''}`,
-          },
-        })
-        if (!r.ok) throw new Error(lang === 'ru' ? 'Ошибка загрузки' : 'Upload error')
-        const data = await r.json()
-        newUrls.push(data.url)
-      }
-      const updated = { ...posters, [type]: [...posters[type], ...newUrls] }
-      setPosters(updated)
-      await api.conference.update(eventId, {
-        [`poster_${type}`]: updated[type],
-      })
-    } catch (err: any) {
-      alert(err.message)
-    } finally {
-      setUploading(null)
-      if (fileRefs[type].current) fileRefs[type].current.value = ''
-    }
-  }
-
-  async function removeposter(type: PosterType, url: string) {
-    const updated = { ...posters, [type]: posters[type].filter(u => u !== url) }
-    setPosters(updated)
-    await api.conference.update(eventId, {
-      [`poster_${type}`]: updated[type],
-    })
+  async function updatePosters(type: PosterType, urls: string[]) {
+    setPosters(p => ({ ...p, [type]: urls }))
+    await api.conference.update(eventId, { [`poster_${type}`]: urls })
   }
 
   return (
     <div className="max-w-2xl space-y-6">
       {POSTER_TYPES.map(pt => (
         <div key={pt.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-semibold text-gray-900">{lang === 'ru' ? pt.labelRu : pt.labelEn}</h3>
-              <p className="text-xs text-gray-400 mt-0.5">{lang === 'ru' ? `Соотношение сторон ${pt.ratio}` : `Aspect ratio ${pt.ratio}`}</p>
-            </div>
-            <button
-              onClick={() => fileRefs[pt.key].current?.click()}
-              disabled={uploading === pt.key}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-            >
-              {uploading === pt.key
-                ? <Loader2 size={15} className="animate-spin" />
-                : <Upload size={15} />}
-              {lang === 'ru' ? 'Загрузить' : 'Upload'}
-            </button>
-            <input
-              ref={fileRefs[pt.key]}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={e => handleUpload(pt.key, e.target.files)}
-            />
+          <div className="mb-4">
+            <h3 className="font-semibold text-gray-900">{lang === 'ru' ? pt.labelRu : pt.labelEn}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{lang === 'ru' ? `Соотношение сторон ${pt.ratio}` : `Aspect ratio ${pt.ratio}`}</p>
           </div>
-
-          {posters[pt.key].length === 0 ? (
-            <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center text-gray-400">
-              <ImageIcon size={24} className="mx-auto mb-2 opacity-40" />
-              <p className="text-sm">{lang === 'ru' ? 'Афиши не загружены' : 'No posters uploaded'}</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-3">
-              {posters[pt.key].map((url, i) => (
-                <div key={i} className="flex flex-col gap-2">
-                  <div className={`relative ${pt.aspect} rounded-xl overflow-hidden bg-gray-100`}>
-                    <ImageThumb url={url} alt={`poster ${i+1}`}
-                      className="w-full h-full block cursor-zoom-in" />
-                  </div>
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={() => copyUrl(url)}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
-                      title={url}
-                    >
-                      {copiedUrl === url
-                        ? <><Check size={13} className="text-green-600" /> {lang === 'ru' ? 'Скопировано' : 'Copied'}</>
-                        : <><Copy size={13} /> {lang === 'ru' ? 'Ссылка' : 'Link'}</>}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm(lang === 'ru' ? 'Удалить афишу?' : 'Delete poster?')) {
-                          removeposter(pt.key, url)
-                        }
-                      }}
-                      className="flex items-center justify-center px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-red-50 hover:border-red-200 hover:text-red-600 text-xs font-medium text-gray-700 transition-colors"
-                      title={lang === 'ru' ? 'Удалить' : 'Delete'}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <FileUploader
+            mode="multiple"
+            kind="event_poster"
+            eventId={eventId}
+            posterType={pt.key}
+            value={posters[pt.key]}
+            onChange={urls => updatePosters(pt.key, urls)}
+            aspectClass={pt.aspect}
+            emptyText={lang === 'ru' ? 'Афиши не загружены' : 'No posters uploaded'}
+            buttonLabel={lang === 'ru' ? 'Загрузить' : 'Upload'}
+          />
         </div>
       ))}
     </div>
