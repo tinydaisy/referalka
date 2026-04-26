@@ -31,11 +31,11 @@ class ChannelUpdate(BaseModel):
 
 @router.get("")
 async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
-    """Список каналов клиента с количеством подписчиков. Токен возвращаем — клиент видит свои секреты."""
+    """Список каналов клиента. bot_token наружу не отдаём — только при редактировании одного канала."""
     client_id = int(client["sub"])
     rows = await db.fetch(
         """SELECT
-              ch.id, ch.platform_slug, ch.display_name, ch.handle, ch.bot_token, ch.is_active,
+              ch.id, ch.platform_slug, ch.display_name, ch.handle, ch.is_active,
               ch.created_at, ch.updated_at,
               p.display_name AS platform_display_name,
               p.icon_url AS platform_icon_url,

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff, Copy } from 'lucide-react'
+import { Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Platform {
@@ -130,82 +130,43 @@ function ChannelCard({ channel: ch, onEdit, onDelete }: {
   onEdit: () => void
   onDelete: () => void
 }) {
-  const [showToken, setShowToken] = useState(false)
-
-  const copyToken = async () => {
-    if (!ch.bot_token) return
-    try {
-      await navigator.clipboard.writeText(ch.bot_token)
-    } catch {
-      // fallback
-      const ta = document.createElement('textarea')
-      ta.value = ch.bot_token
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
-    }
-  }
-
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-      <div className="flex items-center gap-4">
-        <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900 truncate">{ch.display_name}</h3>
-            {!ch.is_active && (
-              <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">выключен</span>
-            )}
-          </div>
-          <p className="text-xs text-gray-500 truncate">
-            {ch.platform_display_name}
-            {ch.handle && <span className="ml-2 font-mono">{ch.handle}</span>}
-          </p>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
+      <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <h3 className="font-semibold text-gray-900 truncate">{ch.display_name}</h3>
+          {!ch.is_active && (
+            <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">выключен</span>
+          )}
         </div>
-        <div className="flex items-center gap-4 text-sm shrink-0">
-          <div className="flex items-center gap-1.5 text-green-600">
-            <Users size={14} />
-            <span>{ch.subscribers.toLocaleString('ru')}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-red-400">
-            <BellOff size={14} />
-            <span>{ch.unsubscribed.toLocaleString('ru')}</span>
-          </div>
+        <p className="text-xs text-gray-500 truncate">
+          {ch.platform_display_name}
+          {ch.handle && <span className="ml-2 font-mono">{ch.handle}</span>}
+        </p>
+      </div>
+      <div className="flex items-center gap-4 text-sm shrink-0">
+        <div className="flex items-center gap-1.5 text-green-600">
+          <Users size={14} />
+          <span>{ch.subscribers.toLocaleString('ru')}</span>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={onEdit}
-            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-[#25455D]"
-            title="Редактировать"
-          ><Edit2 size={14} /></button>
-          <button
-            onClick={onDelete}
-            className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500"
-            title="Удалить"
-          ><Trash2 size={14} /></button>
+        <div className="flex items-center gap-1.5 text-red-400">
+          <BellOff size={14} />
+          <span>{ch.unsubscribed.toLocaleString('ru')}</span>
         </div>
       </div>
-
-      {/* Bot token */}
-      {ch.bot_token && (
-        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2">
-          <span className="text-xs text-gray-500 shrink-0">Bot Token:</span>
-          <code className="flex-1 text-xs text-gray-700 font-mono bg-gray-50 px-2 py-1 rounded truncate">
-            {showToken ? ch.bot_token : '•'.repeat(Math.min(ch.bot_token.length, 40))}
-          </code>
-          <button
-            onClick={() => setShowToken(v => !v)}
-            className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
-            title={showToken ? 'Скрыть' : 'Показать'}
-          >{showToken ? <EyeOff size={13} /> : <Eye size={13} />}</button>
-          <button
-            onClick={copyToken}
-            className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
-            title="Скопировать"
-          ><Copy size={13} /></button>
-        </div>
-      )}
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={onEdit}
+          className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-[#25455D]"
+          title="Редактировать"
+        ><Edit2 size={14} /></button>
+        <button
+          onClick={onDelete}
+          className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500"
+          title="Удалить"
+        ><Trash2 size={14} /></button>
+      </div>
     </div>
   )
 }
@@ -220,6 +181,7 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
   const [displayName, setDisplayName] = useState(channel?.display_name || '')
   const [handle, setHandle] = useState(channel?.handle || '')
   const [botToken, setBotToken] = useState('')
+  const [showToken, setShowToken] = useState(false)
   const [isActive, setIsActive] = useState(channel?.is_active ?? true)
   const [saving, setSaving] = useState(false)
 
@@ -317,13 +279,21 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
             <label className="block text-xs text-gray-500 mb-1">
               Bot Token <span className="text-gray-400">(секрет — для отправки сообщений)</span>
             </label>
-            <input
-              type="password"
-              value={botToken}
-              onChange={e => setBotToken(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
-              placeholder="123456:ABC-DEF..."
-            />
+            <div className="relative">
+              <input
+                type={showToken ? 'text' : 'password'}
+                value={botToken}
+                onChange={e => setBotToken(e.target.value)}
+                className="w-full px-3 py-2 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                placeholder="123456:ABC-DEF..."
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken(v => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700"
+                title={showToken ? 'Скрыть' : 'Показать'}
+              >{showToken ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+            </div>
           </div>
 
           <label className="flex items-center gap-2 cursor-pointer">
