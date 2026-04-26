@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
+import FileUploader from '@/components/FileUploader'
 
 const IMPORTANT_FIELDS: { key: string; label: string }[] = [
   { key: 'name', label: 'Имя и фамилия' },
@@ -187,31 +188,31 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           <h2 className="font-semibold text-gray-900">{t.fields.media}</h2>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.photo}</label>
-            <div className="flex gap-2">
-              <input type="url" value={form.photo_url || ''} onChange={set('photo_url')} placeholder="https://..."
-                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-              <ImageThumb url={form.photo_url} alt={form.name} />
-              {form.photo_url && (
-                <a href={form.photo_url} target="_blank" rel="noopener"
-                  className="px-3 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-brand transition-colors">
-                  <ExternalLink size={15} />
-                </a>
-              )}
-            </div>
+            <FileUploader
+              mode="single"
+              kind="speaker_photo"
+              collaboratorId={collaboratorId}
+              value={form.photo_url || null}
+              onChange={u => setForm((f: any) => ({ ...f, photo_url: u || '' }))}
+              accept="image/*"
+              aspectClass="aspect-square"
+              emptyText="Фото коллаборатора"
+              buttonLabel="Загрузить"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.posterUrl}</label>
-            <div className="flex gap-2">
-              <input type="url" value={form.poster_url || ''} onChange={set('poster_url')} placeholder="https://..."
-                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-              <ImageThumb url={form.poster_url} alt={`Афиша ${form.name}`} />
-              {form.poster_url && (
-                <a href={form.poster_url} target="_blank" rel="noopener"
-                  className="px-3 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:text-brand transition-colors">
-                  <ExternalLink size={15} />
-                </a>
-              )}
-            </div>
+            <FileUploader
+              mode="single"
+              kind="speaker_photo"
+              collaboratorId={collaboratorId}
+              value={form.poster_url || null}
+              onChange={u => setForm((f: any) => ({ ...f, poster_url: u || '' }))}
+              accept="image/*"
+              aspectClass="aspect-video"
+              emptyText="Афиша/обложка"
+              buttonLabel="Загрузить"
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

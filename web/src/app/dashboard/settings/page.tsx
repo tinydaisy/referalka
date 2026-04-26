@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge } from 'lucide-react'
+import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive } from 'lucide-react'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
 
@@ -25,6 +25,7 @@ const TIMEZONES = [
 export default function SettingsPage() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
   const [tariff, setTariff] = useState<any>(null)
+  const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -48,6 +49,13 @@ export default function SettingsPage() {
       })
       setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
     }).catch(() => {})
+    // fetch storage usage
+    const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    fetch(`${apiUrl}/api/v1/storage/usage`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setStorage(d))
+      .catch(() => {})
   }, [])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -277,6 +285,47 @@ export default function SettingsPage() {
             ))}
           </select>
         </div>
+
+        {/* Storage usage */}
+        {storage && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+                <HardDrive size={18} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-800">Файловое хранилище</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Афиши, лид-магниты, сертификаты и фото — всё хранится в общем месте клиента.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-baseline justify-between mb-2">
+              <div className="text-sm text-gray-700">
+                <span className="font-semibold">{storage.used_human}</span>
+                <span className="text-gray-400"> из {storage.quota_human}</span>
+              </div>
+              <div className={`text-sm font-medium ${
+                storage.used_percent >= 90 ? 'text-red-600' :
+                storage.used_percent >= 70 ? 'text-amber-600' : 'text-gray-500'
+              }`}>
+                {storage.used_percent}%
+              </div>
+            </div>
+            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${
+                storage.used_percent >= 90 ? 'bg-red-500' :
+                storage.used_percent >= 70 ? 'bg-amber-500' : 'gradient-bg'
+              }`}
+                style={{ width: `${Math.min(100, storage.used_percent)}%` }} />
+            </div>
+            {storage.used_percent >= 90 && (
+              <p className="text-xs text-red-600 mt-2">
+                Хранилище почти заполнено. Удалите ненужные файлы или увеличьте квоту в тарифе.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Tariff */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

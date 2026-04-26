@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Gift, Plus, Pencil, Trash2, ExternalLink, X } from 'lucide-react'
 import { api } from '@/lib/api'
+import FileUploader from '@/components/FileUploader'
 
 interface LeadMagnet {
   id: number
@@ -197,11 +198,16 @@ function LeadMagnetForm({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Ссылка *</label>
-            <input
-              type="url" value={url} onChange={e => setUrl(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="https://example.com/file.pdf"
+            <label className="block text-sm font-medium text-gray-700 mb-1">Файл лид-магнита *</label>
+            <FileUploader
+              mode="single"
+              kind="lead_magnet"
+              value={url || null}
+              onChange={u => setUrl(u || '')}
+              accept="image/*,application/pdf"
+              aspectClass="aspect-[4/3]"
+              emptyText="Загрузите PDF, картинку или другой файл"
+              buttonLabel="Выбрать файл"
             />
           </div>
           {err && <div className="text-sm text-red-600">{err}</div>}

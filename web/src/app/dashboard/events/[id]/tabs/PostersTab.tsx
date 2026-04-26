@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, ImageIcon } from 'lucide-react'
 import { api } from '@/lib/api'
+import FileUploader from '@/components/FileUploader'
 
 interface Poster {
   id: number
@@ -10,10 +10,14 @@ interface Poster {
   sort: number
 }
 
+const ORIENTATIONS: { key: 'horizontal' | 'vertical'; label: string; ratio: string; aspect: string }[] = [
+  { key: 'horizontal', label: 'Горизонтальные', ratio: '16:9', aspect: 'aspect-video' },
+  { key: 'vertical',   label: 'Вертикальные',   ratio: '9:16', aspect: 'aspect-[9/16]' },
+]
+
 export default function PostersTab({ eventId }: { eventId: number }) {
   const [items, setItems] = useState<Poster[]>([])
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   async function load() {
@@ -27,121 +31,64 @@ export default function PostersTab({ eventId }: { eventId: number }) {
   }
   useEffect(() => { load() }, [eventId])
 
-  async function handleDelete(id: number) {
-    if (!confirm('Удалить афишу?')) return
-    await api.referralProgram.posters.delete(eventId, id).catch((e: any) => alert(e.message))
-    load()
+  async function handleChange(orientation: 'horizontal' | 'vertical', newUrls: string[]) {
+    const oldItems = items.filter(p => p.orientation === orientation)
+    const oldUrls = oldItems.map(p => p.url)
+
+    // 1. Новые URL (есть в new, нет в old) — создаём через api.create
+    const added = newUrls.filter(u => !oldUrls.includes(u))
+    for (const url of added) {
+      try {
+        await api.referralProgram.posters.create(eventId, { url, orientation, sort: 0 })
+      } catch (e: any) { setErr(e.message) }
+    }
+
+    // 2. Удалённые URL — удаляем через api.delete (R2 уже почищен FileUploader-ом)
+    const removed = oldUrls.filter(u => !newUrls.includes(u))
+    for (const url of removed) {
+      const item = oldItems.find(p => p.url === url)
+      if (item) {
+        try {
+          await api.referralProgram.posters.delete(eventId, item.id)
+        } catch (e: any) { setErr(e.message) }
+      }
+    }
+
+    await load()
   }
 
+  if (loading) return <div className="text-gray-400 text-sm">Загрузка…</div>
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">
-          Афиши используются на лендинге события и в материалах для шеринга. Поддерживаются горизонтальные и вертикальные.
-        </p>
-        <button onClick={() => setShowForm(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium"
-                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-          <Plus size={16} /> Добавить
-        </button>
-      </div>
+    <div className="max-w-2xl space-y-6">
+      <p className="text-sm text-gray-500">
+        Афиши используются на лендинге события и в материалах для шеринга.
+      </p>
 
       {err && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{err}</div>}
 
-      {loading ? (
-        <div className="text-gray-400 text-sm">Загрузка…</div>
-      ) : items.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-          <ImageIcon className="mx-auto mb-3 text-gray-300" size={36} />
-          <p className="text-gray-500 text-sm">Афиш пока нет</p>
-        </div>
-      ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map(p => (
-            <div key={p.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden group">
-              <div className={`bg-gray-100 ${p.orientation === 'vertical' ? 'aspect-[3/4]' : 'aspect-video'}`}>
-                <img src={p.url} alt="" className="w-full h-full object-cover" />
-              </div>
-              <div className="p-3 flex items-center justify-between">
-                <span className="text-xs text-gray-500">
-                  {p.orientation === 'horizontal' ? 'Горизонтальная' : 'Вертикальная'}
-                </span>
-                <button onClick={() => handleDelete(p.id)}
-                        className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
-                  <Trash2 size={14} />
-                </button>
-              </div>
+      {ORIENTATIONS.map(o => {
+        const urls = items.filter(p => p.orientation === o.key).map(p => p.url)
+        return (
+          <div key={o.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="mb-4">
+              <h3 className="font-semibold text-gray-900">{o.label}</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Соотношение сторон {o.ratio}</p>
             </div>
-          ))}
-        </div>
-      )}
-
-      {showForm && (
-        <PosterForm eventId={eventId}
-                    onClose={() => setShowForm(false)}
-                    onSaved={() => { setShowForm(false); load() }} />
-      )}
-    </div>
-  )
-}
-
-
-function PosterForm({ eventId, onClose, onSaved }: {
-  eventId: number; onClose: () => void; onSaved: () => void
-}) {
-  const [url, setUrl] = useState('')
-  const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal')
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!url.trim()) return setErr('Укажите URL')
-    setSaving(true); setErr(null)
-    try {
-      await api.referralProgram.posters.create(eventId, { url: url.trim(), orientation, sort: 0 })
-      onSaved()
-    } catch (e: any) { setErr(e.message); setSaving(false) }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold mb-4" style={{ color: '#25455D' }}>Добавить афишу</h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">URL картинки</label>
-            <input type="url" value={url} onChange={e => setUrl(e.target.value)}
-                   placeholder="https://..."
-                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                   autoFocus />
+            <FileUploader
+              mode="multiple"
+              kind="event_poster"
+              eventId={eventId}
+              posterType={o.key}
+              value={urls}
+              onChange={u => handleChange(o.key, u)}
+              aspectClass={o.aspect}
+              emptyText="Афиш пока нет"
+              buttonLabel="Загрузить"
+            />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Ориентация</label>
-            <div className="flex gap-2">
-              {(['horizontal','vertical'] as const).map(o => (
-                <button type="button" key={o} onClick={() => setOrientation(o)}
-                        className={`flex-1 px-3 py-2 rounded-lg text-sm border transition ${
-                          orientation === o
-                            ? 'border-gray-900 bg-gray-50 font-medium'
-                            : 'border-gray-200 text-gray-500 hover:border-gray-400'
-                        }`}>
-                  {o === 'horizontal' ? 'Горизонтальная' : 'Вертикальная'}
-                </button>
-              ))}
-            </div>
-          </div>
-          {err && <div className="text-sm text-red-600">{err}</div>}
-          <div className="flex gap-2 justify-end">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600">Отмена</button>
-            <button type="submit" disabled={saving}
-                    className="px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
-                    style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-              {saving ? 'Сохраняю…' : 'Добавить'}
-            </button>
-          </div>
-        </form>
-      </div>
+        )
+      })}
     </div>
   )
 }

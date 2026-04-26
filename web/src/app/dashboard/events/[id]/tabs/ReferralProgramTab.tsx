@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { Gift, Plus, Trash2, ImageIcon, MessageSquare, Save, ExternalLink, Download, X } from 'lucide-react'
 import { api } from '@/lib/api'
+import FileUploader from '@/components/FileUploader'
 
 type SubTab = 'gifts' | 'materials' | 'templates'
 
@@ -303,11 +304,18 @@ function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any)
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">URL сертификата (опц.)</label>
-            <input type="url" value={certificateUrl}
-                   onChange={e => setCertificateUrl(e.target.value)}
-                   placeholder="https://..."
-                   className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Сертификат (опц.)</label>
+            <FileUploader
+              mode="single"
+              kind="certificate"
+              eventId={eventId}
+              value={certificateUrl || null}
+              onChange={u => setCertificateUrl(u || '')}
+              accept="image/*"
+              aspectClass="aspect-[4/3]"
+              emptyText="Картинка сертификата за этот порог"
+              buttonLabel="Загрузить"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Текст выдачи от бота</label>
@@ -468,9 +476,17 @@ function MaterialForm({ eventId, posters, onClose, onSaved }: any) {
               </select>
             )
           ) : (
-            <input type="url" value={url} onChange={e => setUrl(e.target.value)}
-                   placeholder="https://..."
-                   className="w-full px-3 py-2 border border-gray-300 rounded-lg" autoFocus />
+            <FileUploader
+              mode="single"
+              kind="referral_material"
+              eventId={eventId}
+              value={url || null}
+              onChange={u => setUrl(u || '')}
+              accept="image/*"
+              aspectClass="aspect-video"
+              emptyText="Загрузите свою картинку для шеринга"
+              buttonLabel="Загрузить"
+            />
           )}
 
           {err && <div className="text-sm text-red-600">{err}</div>}
