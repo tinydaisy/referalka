@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     mini_app_url: str = "http://localhost:5173"
 
+    cf_account_id: str = ""
+    cf_r2_access_key_id: str = ""
+    cf_r2_secret_access_key: str = ""
+    cf_r2_bucket_name: str = "referalka"
+    cf_r2_public_url: str = "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
