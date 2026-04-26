@@ -54,7 +54,7 @@ async def ensure_collaborator_contact(collaborator_id: int, db: asyncpg.Connecti
         if coll["personal_tg_id"]:
             existing = await db.fetchval(
                 """SELECT id FROM platform_users
-                   WHERE client_id = $1 AND platform = 'telegram' AND platform_user_id = $2""",
+                   WHERE client_id = $1 AND platform_user_id = $2""",
                 coll["created_by_client_id"], coll["personal_tg_id"]
             )
             pu_id = existing
@@ -649,7 +649,7 @@ async def verify_speaker_channel(
     await check_conference_access(event_id, client_id, db)
 
     client_row = await db.fetchrow(
-        "SELECT bot_token, work_tg_id, work_tg_username FROM clients WHERE id = $1", client_id
+        "SELECT work_tg_id, work_tg_username FROM clients WHERE id = $1", client_id
     )
     if not client_row:
         raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -659,7 +659,8 @@ async def verify_speaker_channel(
         raise HTTPException(status_code=400, detail="Укажите ID рабочего аккаунта в настройках")
 
     from app.config import settings
-    token = (client_row["bot_token"] or "").strip() or settings.telegram_bot_token
+    from app.services.channels import get_client_telegram_token
+    token = (await get_client_telegram_token(client_id, db)) or settings.telegram_bot_token
     if not token:
         raise HTTPException(status_code=400, detail="Не настроен токен бота")
 
@@ -1960,11 +1961,9 @@ async def send_speaker_to_telegram(
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
 
-    # Получаем bot_token клиента
-    client_row = await db.fetchrow("SELECT bot_token FROM clients WHERE id = $1", client_id)
-    bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
-    if not bot_token:
-        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    # Получаем bot_token из channels (telegram-канал клиента)
+    from app.services.channels import get_client_telegram_token
+    bot_token = (await get_client_telegram_token(client_id, db)) or os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not bot_token:
         raise HTTPException(status_code=400, detail="bot_token не настроен в профиле клиента")
 
@@ -2146,11 +2145,9 @@ async def send_schedule_to_telegram(
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
 
-    # bot_token
-    client_row = await db.fetchrow("SELECT bot_token FROM clients WHERE id = $1", client_id)
-    bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
-    if not bot_token:
-        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    # bot_token из channels (telegram-канал клиента)
+    from app.services.channels import get_client_telegram_token
+    bot_token = (await get_client_telegram_token(client_id, db)) or os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not bot_token:
         raise HTTPException(status_code=400, detail="bot_token не настроен в профиле клиента")
 
@@ -2294,11 +2291,9 @@ async def send_raffle_gifts_to_telegram(
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
 
-    # bot_token
-    client_row = await db.fetchrow("SELECT bot_token FROM clients WHERE id = $1", client_id)
-    bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
-    if not bot_token:
-        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    # bot_token из channels (telegram-канал клиента)
+    from app.services.channels import get_client_telegram_token
+    bot_token = (await get_client_telegram_token(client_id, db)) or os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not bot_token:
         raise HTTPException(status_code=400, detail="bot_token не настроен в профиле клиента")
 
@@ -2418,8 +2413,7 @@ async def add_raffle_ticket_public(
         pluson_participant_id = await db.fetchval(
             """SELECT ep.id FROM event_participants ep
                JOIN platform_users pu ON pu.id = ep.platform_user_id
-               WHERE pu.platform = 'telegram'
-                 AND pu.platform_user_id = $1
+               WHERE pu.platform_user_id = $1
                  AND ep.event_id = $2""",
             str(data.tg_id), event_id
         )
@@ -2568,7 +2562,6 @@ async def create_report(
            FROM event_participants ep
            JOIN platform_users pu ON pu.id = ep.platform_user_id
            WHERE ep.event_id = $1
-             AND pu.platform = 'telegram'
              AND (ep.referrer_ref_code IS NULL OR ep.referrer_ref_code = '')
            ORDER BY ep.id""",
         event_id

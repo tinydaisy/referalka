@@ -85,14 +85,15 @@ async def salebot_register(
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
 
-    # Upsert platform_users
-    # Ищем по (client_id, platform, platform_user_id) — уникальный ключ
+    # Upsert platform_users — уникальность теперь (client_id, platform_user_id)
+    # Поле data.platform остаётся в API ради совместимости с Salebot,
+    # но в БД больше не пишется (платформа живёт в channels)
     existing_user = await db.fetchrow(
         """
         SELECT id FROM platform_users
-        WHERE client_id = $1 AND platform = $2 AND platform_user_id = $3
+        WHERE client_id = $1 AND platform_user_id = $2
         """,
-        data.client_id, data.platform, data.platform_user_id
+        data.client_id, data.platform_user_id
     )
 
     is_new_user = existing_user is None
@@ -102,11 +103,11 @@ async def salebot_register(
         pluson_id = await db.fetchval(
             """
             INSERT INTO platform_users
-              (client_id, platform, platform_user_id, username, first_name, last_name, salebot_id, ref_code)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              (client_id, platform_user_id, username, first_name, last_name, salebot_id, ref_code)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
             """,
-            data.client_id, data.platform, data.platform_user_id,
+            data.client_id, data.platform_user_id,
             clean_username(data.username), data.first_name, data.last_name, data.salebot_id, new_ref_code
         )
     else:
@@ -261,9 +262,9 @@ async def salebot_get_user(
                ep.id as participant_id, ep.event_id, ep.is_registered, ep.is_in_chat
         FROM platform_users pu
         LEFT JOIN event_participants ep ON ep.platform_user_id = pu.id
-        WHERE pu.client_id = $1 AND pu.platform = $2 AND pu.platform_user_id = $3
+        WHERE pu.client_id = $1 AND pu.platform_user_id = $2
         """,
-        client_id, platform, platform_user_id
+        client_id, platform_user_id
     )
     if not user:
         raise HTTPException(status_code=404, detail="Участник не найден")

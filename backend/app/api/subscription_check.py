@@ -73,10 +73,8 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     if not rows:
         return {"status": 1, "not_subscribed": []}
 
-    client_row = await db.fetchrow(
-        "SELECT bot_token FROM clients WHERE id = $1", event["client_id"]
-    )
-    token = (client_row["bot_token"] or "").strip() if client_row else ""
+    from app.services.channels import get_client_telegram_token
+    token = await get_client_telegram_token(event["client_id"], db)
     if not token:
         token = settings.telegram_bot_token
     if not token:

@@ -43,10 +43,21 @@ async def get_contacts(
           )
         """
 
-    # where — добавляем фильтр по отписке только для списка и total
+    # is_unsubscribed теперь живёт в platform_user_channels per-канал.
+    # Считаем что контакт «отписался», если есть хотя бы одна строка с is_unsubscribed=TRUE
+    # на telegram-канале клиента.
+    UNSUB_EXISTS = """EXISTS (
+        SELECT 1 FROM platform_user_channels puc
+        JOIN channels ch ON ch.id = puc.channel_id
+        WHERE puc.platform_user_id = pu.id
+          AND ch.client_id = pu.client_id
+          AND ch.platform = 'telegram'
+          AND puc.is_unsubscribed = TRUE
+    )"""
+
     where = where_base
     if not show_unsubscribed:
-        where += " AND (pu.is_unsubscribed = FALSE OR pu.is_unsubscribed IS NULL)"
+        where += f" AND NOT {UNSUB_EXISTS}"
 
     total = await db.fetchval(f"""
         SELECT COUNT(*) FROM platform_users pu {where}
@@ -58,12 +69,12 @@ async def get_contacts(
 
     subscribed = await db.fetchval(f"""
         SELECT COUNT(*) FROM platform_users pu {where_base}
-        AND (pu.is_unsubscribed = FALSE OR pu.is_unsubscribed IS NULL)
+        AND NOT {UNSUB_EXISTS}
     """, *params)
 
     unsubscribed = await db.fetchval(f"""
         SELECT COUNT(*) FROM platform_users pu {where_base}
-        AND pu.is_unsubscribed = TRUE
+        AND {UNSUB_EXISTS}
     """, *params)
 
     rows = await db.fetch(f"""
@@ -78,16 +89,21 @@ async def get_contacts(
           pu.utm_source,
           pu.tags,
           pu.ref_code,
-          pu.is_unsubscribed,
+          EXISTS (
+            SELECT 1 FROM platform_user_channels puc
+            JOIN channels ch ON ch.id = puc.channel_id
+            WHERE puc.platform_user_id = pu.id
+              AND ch.client_id = pu.client_id
+              AND ch.platform = 'telegram'
+              AND puc.is_unsubscribed = TRUE
+          ) AS is_unsubscribed,
           pu.last_contact_at,
           pu.created_at,
           pu.salebot_id,
-          -- имя того, кто впервые привёл (через JOIN по first_referrer_ref_code)
           (SELECT TRIM(COALESCE(ref.first_name,'') || ' ' || COALESCE(ref.last_name,''))
            FROM platform_users ref
            WHERE ref.ref_code = pu.first_referrer_ref_code AND ref.client_id = pu.client_id
            LIMIT 1) AS referrer_name,
-          -- участник конфы?
           EXISTS (
             SELECT 1 FROM event_participants ep WHERE ep.platform_user_id = pu.id
           ) AS is_participant
@@ -126,7 +142,14 @@ async def get_contact(
           pu.utm_source,
           pu.tags,
           pu.ref_code,
-          pu.is_unsubscribed,
+          EXISTS (
+            SELECT 1 FROM platform_user_channels puc
+            JOIN channels ch ON ch.id = puc.channel_id
+            WHERE puc.platform_user_id = pu.id
+              AND ch.client_id = pu.client_id
+              AND ch.platform = 'telegram'
+              AND puc.is_unsubscribed = TRUE
+          ) AS is_unsubscribed,
           pu.last_contact_at,
           pu.created_at,
           pu.salebot_id,

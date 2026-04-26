@@ -134,7 +134,13 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     payload = decode_token(credentials.credentials)
     client_id = int(payload["sub"])
     client = await db.fetchrow(
-        "SELECT id, name, email, phone, telegram_username, tariff_slug, trial_ends_at, created_at, timezone, bot_token, test_telegram_ids, work_tg_username, work_tg_id, broadcast_concurrency FROM clients WHERE id = $1",
+        """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
+                c.trial_ends_at, c.created_at, c.timezone,
+                (SELECT bot_token FROM channels
+                 WHERE client_id = c.id AND platform = 'telegram' AND is_active = TRUE
+                 ORDER BY id LIMIT 1) AS bot_token,
+                c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
+           FROM clients c WHERE c.id = $1""",
         client_id
     )
     if not client:
@@ -168,7 +174,13 @@ async def update_me(
     updates = {k: v for k, v in data.model_dump(exclude_unset=True).items()}
     if not updates:
         client = await db.fetchrow(
-            "SELECT id, name, email, phone, telegram_username, tariff_slug, trial_ends_at, created_at, timezone, bot_token, test_telegram_ids, work_tg_username, work_tg_id, broadcast_concurrency FROM clients WHERE id = $1",
+            """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
+                c.trial_ends_at, c.created_at, c.timezone,
+                (SELECT bot_token FROM channels
+                 WHERE client_id = c.id AND platform = 'telegram' AND is_active = TRUE
+                 ORDER BY id LIMIT 1) AS bot_token,
+                c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
+           FROM clients c WHERE c.id = $1""",
             client_id
         )
         return dict(client)
@@ -178,9 +190,28 @@ async def update_me(
         if bc < 1 or bc > 100:
             raise HTTPException(status_code=400, detail="Скорость рассылки: допустимый диапазон 1..100")
         updates["broadcast_concurrency"] = bc
-    set_parts = [f"{k} = ${i+2}" for i, k in enumerate(updates.keys())]
+
+    # bot_token больше не живёт в clients — пишем в channels
+    new_bot_token = updates.pop("bot_token", None)
+    if new_bot_token is not None:
+        from app.services.channels import upsert_client_telegram_token
+        await upsert_client_telegram_token(client_id, new_bot_token, db)
+
+    if updates:
+        set_parts = [f"{k} = ${i+2}" for i, k in enumerate(updates.keys())]
+        await db.execute(
+            f"UPDATE clients SET {', '.join(set_parts)} WHERE id=$1",
+            client_id, *updates.values()
+        )
+
     client = await db.fetchrow(
-        f"UPDATE clients SET {', '.join(set_parts)} WHERE id=$1 RETURNING id, name, email, phone, telegram_username, tariff_slug, trial_ends_at, created_at, timezone, bot_token, test_telegram_ids, work_tg_username, work_tg_id, broadcast_concurrency",
-        client_id, *updates.values()
+        """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
+                  c.trial_ends_at, c.created_at, c.timezone,
+                  (SELECT bot_token FROM channels
+                   WHERE client_id = c.id AND platform = 'telegram' AND is_active = TRUE
+                   ORDER BY id LIMIT 1) AS bot_token,
+                  c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
+             FROM clients c WHERE c.id = $1""",
+        client_id
     )
     return dict(client)

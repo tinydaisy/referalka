@@ -42,12 +42,12 @@ async def register_participant(
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено или не активно")
 
-    # Upsert в platform_users (telegram, привязка к client_id события)
+    # Upsert в platform_users (привязка к client_id события)
     platform_user_id = await db.fetchval(
         """
-        INSERT INTO platform_users (client_id, platform, platform_user_id, username, first_name, last_name)
-        VALUES ($1, 'telegram', $2, $3, $4, $5)
-        ON CONFLICT (client_id, platform, platform_user_id) DO UPDATE SET
+        INSERT INTO platform_users (client_id, platform_user_id, username, first_name, last_name)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (client_id, platform_user_id) DO UPDATE SET
           username   = COALESCE(EXCLUDED.username, platform_users.username),
           first_name = COALESCE(EXCLUDED.first_name, platform_users.first_name),
           last_name  = COALESCE(EXCLUDED.last_name, platform_users.last_name),
@@ -145,7 +145,7 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
         JOIN platform_users pu ON pu.id = ep.platform_user_id
-        WHERE pu.platform = 'telegram' AND pu.platform_user_id = $1
+        WHERE pu.platform_user_id = $1
         ORDER BY ep.registered_at DESC
         """,
         str(tg_id)
@@ -166,7 +166,7 @@ async def get_participant_in_event(
         FROM event_participants ep
         JOIN events e ON e.id = ep.event_id
         JOIN platform_users pu ON pu.id = ep.platform_user_id
-        WHERE e.slug = $1 AND pu.platform = 'telegram' AND pu.platform_user_id = $2
+        WHERE e.slug = $1 AND pu.platform_user_id = $2
         """,
         event_slug, str(tg_id)
     )

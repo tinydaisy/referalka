@@ -118,10 +118,9 @@ async def _send_broadcast(schedule_id: int):
         tmpl_btn_text_val = tmpl["button_text"] if tmpl else None
         tmpl_btn_url_val  = tmpl["button_url"]  if tmpl else ""
 
-        # Токен бота
-        bot_token = await conn.fetchval(
-            "SELECT bot_token FROM clients WHERE id = $1", schedule["client_id"]
-        )
+        # Токен бота — из channels (telegram-канал клиента)
+        from app.services.channels import get_client_telegram_token
+        bot_token = await get_client_telegram_token(schedule["client_id"], conn)
         if not bot_token:
             bot_token = settings.telegram_bot_token
         if not bot_token:
@@ -211,7 +210,7 @@ async def _send_broadcast(schedule_id: int):
                 """
                 SELECT platform_user_id, COALESCE(NULLIF(first_name, ''), 'друг') AS first_name
                 FROM platform_users
-                WHERE client_id=$1 AND platform='telegram' AND platform_user_id = ANY($2::text[])
+                WHERE client_id=$1 AND platform_user_id = ANY($2::text[])
                 """,
                 schedule["client_id"], list(final_ids)
             )
@@ -252,13 +251,9 @@ async def _send_broadcast(schedule_id: int):
                 schedule["client_id"]
             )
             if is_blocked:
-                await conn.execute(
-                    """
-                    UPDATE platform_users SET is_unsubscribed = TRUE
-                    WHERE platform_user_id = $1 AND client_id = $2 AND is_unsubscribed = FALSE
-                    """,
-                    tg_id, schedule["client_id"]
-                )
+                # Помечаем отписавшимся в platform_user_channels (per-канал)
+                from app.services.channels import mark_unsubscribed_by_tg_id
+                await mark_unsubscribed_by_tg_id(schedule["client_id"], tg_id, conn)
             if success:
                 sent += 1
 
@@ -299,26 +294,39 @@ async def _build_audience(conn, schedule) -> set:
     event_id = schedule["event_id"]
     client_id = schedule["client_id"]
 
+    # Подписан = НЕ существует строки в platform_user_channels с is_unsubscribed=TRUE
+    # для telegram-канала клиента. NULL-связи (нет строки) считаем подписанными.
+    SUBSCRIBED_CLAUSE = """
+        NOT EXISTS (
+            SELECT 1 FROM platform_user_channels puc
+            JOIN channels ch ON ch.id = puc.channel_id
+            WHERE puc.platform_user_id = pu.id
+              AND ch.client_id = pu.client_id
+              AND ch.platform = 'telegram'
+              AND puc.is_unsubscribed = TRUE
+        )
+    """
+
     if aud_include == "all_client":
         rows = await conn.fetch(
-            "SELECT pu.platform_user_id FROM platform_users pu WHERE pu.client_id=$1 AND pu.is_unsubscribed=FALSE AND pu.platform='telegram'",
+            f"SELECT pu.platform_user_id FROM platform_users pu WHERE pu.client_id=$1 AND {SUBSCRIBED_CLAUSE}",
             client_id
         )
     elif aud_include == "registered_event":
         rows = await conn.fetch(
-            """
+            f"""
             SELECT pu.platform_user_id FROM event_participants ep
             JOIN platform_users pu ON pu.id = ep.platform_user_id
-            WHERE ep.event_id=$1 AND ep.is_registered=TRUE AND pu.is_unsubscribed=FALSE AND pu.platform='telegram'
+            WHERE ep.event_id=$1 AND ep.is_registered=TRUE AND {SUBSCRIBED_CLAUSE}
             """,
             event_id
         )
     else:
         rows = await conn.fetch(
-            """
+            f"""
             SELECT pu.platform_user_id FROM event_participants ep
             JOIN platform_users pu ON pu.id = ep.platform_user_id
-            WHERE ep.event_id=$1 AND pu.is_unsubscribed=FALSE AND pu.platform='telegram'
+            WHERE ep.event_id=$1 AND {SUBSCRIBED_CLAUSE}
             """,
             event_id
         )
@@ -327,19 +335,19 @@ async def _build_audience(conn, schedule) -> set:
     exclude_ids: set = set()
     if aud_exclude == "registered_event":
         ex = await conn.fetch(
-            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1 AND ep.is_registered=TRUE AND pu.platform='telegram'",
+            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1 AND ep.is_registered=TRUE",
             event_id
         )
         exclude_ids = {r["platform_user_id"] for r in ex}
     elif aud_exclude == "unregistered_event":
         ex = await conn.fetch(
-            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1 AND ep.is_registered=FALSE AND pu.platform='telegram'",
+            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1 AND ep.is_registered=FALSE",
             event_id
         )
         exclude_ids = {r["platform_user_id"] for r in ex}
     elif aud_exclude == "all_event":
         ex = await conn.fetch(
-            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1 AND pu.platform='telegram'",
+            "SELECT pu.platform_user_id FROM event_participants ep JOIN platform_users pu ON pu.id=ep.platform_user_id WHERE ep.event_id=$1",
             event_id
         )
         exclude_ids = {r["platform_user_id"] for r in ex}

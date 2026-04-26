@@ -1465,11 +1465,12 @@ async def test_template(
         raise HTTPException(status_code=404, detail="Шаблон не найден")
 
     client_row = await db.fetchrow(
-        "SELECT bot_token, test_telegram_ids, timezone FROM clients WHERE id=$1", client_id
+        "SELECT test_telegram_ids, timezone FROM clients WHERE id=$1", client_id
     )
-    bot_token = (client_row["bot_token"] or "").strip() if client_row else ""
+    from app.services.channels import get_client_telegram_token
+    bot_token = await get_client_telegram_token(client_id, db)
     if not bot_token:
-        raise HTTPException(status_code=400, detail="Токен бота не задан в настройках")
+        raise HTTPException(status_code=400, detail="Токен бота не задан в настройках (channels)")
     test_ids = client_row["test_telegram_ids"] or []
     if not test_ids:
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
