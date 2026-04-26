@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy } from 'lucide-react'
 import { useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 
@@ -129,6 +129,16 @@ export default function Sidebar() {
           <Settings size={17} />
           {t.nav.settings}
         </Link>
+        <a
+          href="https://t.me/margo_forbs?text=Вопрос_по_Плюсон"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => setMobileOpen(false)}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+        >
+          <LifeBuoy size={17} />
+          Тех.поддержка
+        </a>
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/10 w-full transition-colors"
           onClick={() => {
