@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react'
 import { Gift, Plus, Pencil, Trash2, ExternalLink, X } from 'lucide-react'
 import { api } from '@/lib/api'
-import FileUploader from '@/components/FileUploader'
 
 interface LeadMagnet {
   id: number
@@ -94,9 +93,6 @@ export default function LeadMagnetsPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-gray-900">{lm.name}</div>
-                {lm.description && (
-                  <div className="text-sm text-gray-500 mt-0.5 line-clamp-2">{lm.description}</div>
-                )}
                 <a href={lm.url} target="_blank" rel="noreferrer"
                    className="inline-flex items-center gap-1 text-xs mt-1 text-gray-400 hover:underline truncate">
                   <ExternalLink size={12} />
@@ -138,7 +134,6 @@ function LeadMagnetForm({
   onSaved: () => void
 }) {
   const [name, setName] = useState(initial?.name || '')
-  const [description, setDescription] = useState(initial?.description || '')
   const [url, setUrl] = useState(initial?.url || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -152,7 +147,7 @@ function LeadMagnetForm({
     }
     setSaving(true)
     try {
-      const payload = { name: name.trim(), description: description.trim() || null, url: url.trim() }
+      const payload = { name: name.trim(), description: null, url: url.trim() }
       if (initial) {
         await api.leadMagnets.update(initial.id, payload)
       } else {
@@ -189,25 +184,11 @@ function LeadMagnetForm({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Описание</label>
-            <textarea
-              value={description} onChange={e => setDescription(e.target.value)}
-              rows={2}
+            <label className="block text-sm font-medium text-gray-700 mb-1">Ссылка *</label>
+            <input
+              type="url" value={url} onChange={e => setUrl(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="PDF на 12 страниц с разбором главных ошибок"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Файл лид-магнита *</label>
-            <FileUploader
-              mode="single"
-              kind="lead_magnet"
-              value={url || null}
-              onChange={u => setUrl(u || '')}
-              accept="image/*,application/pdf"
-              aspectClass="aspect-[4/3]"
-              emptyText="Загрузите PDF, картинку или другой файл"
-              buttonLabel="Выбрать файл"
+              placeholder="https://example.com/file.pdf"
             />
           </div>
           {err && <div className="text-sm text-red-600">{err}</div>}
