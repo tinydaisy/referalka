@@ -38,10 +38,16 @@ function sendTgEvent(eventName: string, user: any, partnerId?: string) {
   } catch (_) {}
 }
 
+// Mini App может быть смонтирован по любому базовому пути (например `/tg/`).
+// Парсим slug события устойчиво к этому: ищем `event/{slug}` где угодно в пути.
 function parsePathSlug(): string | null {
-  const m = window.location.pathname.match(/^\/event\/([^/]+)/)
+  const m = window.location.pathname.match(/event\/([^/]+)/)
   return m ? m[1] : null
 }
+
+const BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') // напр. "/tg" или ""
+const homePath  = () => `${BASE}/`
+const eventPath = (slug: string) => `${BASE}/event/${slug}`
 
 const MOCK_USER = { id: 123456789, first_name: 'Тест', username: 'test_user', last_name: '' }
 
@@ -89,12 +95,12 @@ export default function App() {
   }, [])
 
   function openEvent(slug: string) {
-    window.history.pushState({}, '', `/event/${slug}`)
+    window.history.pushState({}, '', eventPath(slug))
     setEventSlug(slug)
   }
 
   function backToHub() {
-    window.history.pushState({}, '', '/')
+    window.history.pushState({}, '', homePath())
     setEventSlug(null)
   }
 

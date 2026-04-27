@@ -144,7 +144,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} />}
         {tab === 'services'  && <ServicesTab event={event} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} />}
-        {tab === 'calendar'  && event.client_id   && <CalendarTab  clientId={event.client_id} onOpenEvent={(s) => { window.location.assign(`/event/${s}`) }} />}
+        {tab === 'calendar'  && event.client_id   && <CalendarTab  clientId={event.client_id} onOpenEvent={(s) => {
+          const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+          window.location.assign(`${base}/event/${s}`)
+        }} />}
         {tab === 'ecosystem' && event.client_id   && <EcosystemTab clientId={event.client_id} />}
       </div>
 
