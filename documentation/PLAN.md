@@ -322,7 +322,7 @@ channels (боты/группы клиента)
 - [x] Та же вкладка «Реф-программа» добавлена и в карточку конференций (общий компонент `ReferralProgramTab`)
 
 ### 2.9 Копирование событий и импорт реф-программы ✅
-- [x] Backend `POST /events/{id}/copy` — глубокое дублирование (event + posters + реф-программа + conf_* + broadcast_templates)
+- [x] Backend `POST /events/{id}/copy` — глубокое дублирование (event + posters + реф-программа + conf_* + broadcast_templates). При копировании conf_conferences исключается колонка `id` (использует sequence).
 - [x] UI кнопка 📋 «Скопировать» в списках мероприятий и конференций
 - [x] Backend `POST /events/{id}/referral/import` — импорт реф-программы из другого события клиента
 - [x] UI кнопка «Импортировать из другого события» в вкладке Реф-программа
