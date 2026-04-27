@@ -71,6 +71,16 @@ class UpdateEventRequest(BaseModel):
     points_paid: Optional[int] = None
     require_subscription: Optional[bool] = None
     poster_url: Optional[str] = None
+    successor_event_id: Optional[int] = None
+    # VIP/Чат конференции (миграция 042)
+    has_vip_tariff: Optional[bool] = None
+    vip_price: Optional[int] = None
+    vip_url: Optional[str] = None
+    vip_title: Optional[str] = None
+    vip_description: Optional[str] = None
+    chat_url: Optional[str] = None
+    chat_subscriptions_required: Optional[bool] = None
+    chat_member_count_label: Optional[str] = None
 
 
 @router.get("/", summary="Список событий клиента")

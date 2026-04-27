@@ -212,8 +212,9 @@ async def delete_poster(
 # ──────────────────────────────────────────────
 
 class ReferralSettingsIn(BaseModel):
-    welcome_text: Optional[str] = None
-    share_text:   Optional[str] = None
+    welcome_text:    Optional[str] = None
+    share_text:      Optional[str] = None
+    gift_count_mode: Optional[str] = None   # 'registered' | 'visited'  (миграция 042)
 
 
 @router.get("/referral/settings", summary="Получить настройки реф-программы")
@@ -224,10 +225,10 @@ async def get_referral_settings(
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
     row = await db.fetchrow(
-        "SELECT welcome_text, share_text FROM event_referral_settings WHERE event_id = $1",
+        "SELECT welcome_text, share_text, gift_count_mode FROM event_referral_settings WHERE event_id = $1",
         event_id
     )
-    return dict(row) if row else {"welcome_text": None, "share_text": None}
+    return dict(row) if row else {"welcome_text": None, "share_text": None, "gift_count_mode": "registered"}
 
 
 @router.put("/referral/settings", summary="Обновить настройки реф-программы (upsert)")
@@ -238,15 +239,19 @@ async def upsert_referral_settings(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
+    mode = data.gift_count_mode or "registered"
+    if mode not in ("registered", "visited"):
+        raise HTTPException(400, "gift_count_mode must be 'registered' or 'visited'")
     row = await db.fetchrow(
-        """INSERT INTO event_referral_settings (event_id, welcome_text, share_text)
-           VALUES ($1, $2, $3)
+        """INSERT INTO event_referral_settings (event_id, welcome_text, share_text, gift_count_mode)
+           VALUES ($1, $2, $3, $4)
            ON CONFLICT (event_id) DO UPDATE
-             SET welcome_text = EXCLUDED.welcome_text,
-                 share_text   = EXCLUDED.share_text,
-                 updated_at   = NOW()
-           RETURNING welcome_text, share_text""",
-        event_id, data.welcome_text, data.share_text
+             SET welcome_text    = EXCLUDED.welcome_text,
+                 share_text      = EXCLUDED.share_text,
+                 gift_count_mode = EXCLUDED.gift_count_mode,
+                 updated_at      = NOW()
+           RETURNING welcome_text, share_text, gift_count_mode""",
+        event_id, data.welcome_text, data.share_text, mode
     )
     return dict(row)
 

@@ -1,0 +1,138 @@
+/* Стильные SVG-иконки для всех макетов
+   Используется техника mask-image: иконка задаётся в mask, цвет задаётся через background-color.
+   Один <span class="ico ico-NAME"> может быть любого цвета через .peach / .dark / .white / inherit. */
+
+.ico {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.18em;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+          mask-size: contain;
+  flex-shrink: 0;
+}
+.ico.peach { background-color: #FFCFA4; }
+.ico.dark  { background-color: #25455D; }
+.ico.white { background-color: #ffffff; }
+.ico.amber { background-color: #f5b97e; }
+.ico.red   { background-color: #d32f2f; }
+.ico.green { background-color: #2e7d32; }
+.ico.gold  { background-color: #b86b00; }
+.ico.muted { background-color: #8a96a3; }
+
+/* Фон-плашка под иконку (персиковая на синем или синяя на персиковом) */
+.ico-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.ico-tile.tile-peach-on-dark { background: rgba(255, 207, 164, 0.15); }
+.ico-tile.tile-dark-on-peach { background: linear-gradient(135deg, #fff4e0, #FFCFA4); }
+.ico-tile.tile-white         { background: rgba(255, 255, 255, 0.1); }
+.ico-tile.tile-soft          { background: #f7f8fa; }
+.ico-tile.size-32 { width: 32px; height: 32px; }
+.ico-tile.size-36 { width: 36px; height: 36px; }
+.ico-tile.size-40 { width: 40px; height: 40px; }
+.ico-tile.size-44 { width: 44px; height: 44px; }
+.ico-tile.size-48 { width: 48px; height: 48px; }
+.ico-tile.size-56 { width: 56px; height: 56px; }
+.ico-tile .ico { font-size: 60%; }
+
+/* === Все иконки. Все в стиле solid в едином весе === */
+
+/* 🎯 → target (партнёрская программа / Игра) */
+.ico-target { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='10' fill='none' stroke='black' stroke-width='2'/><circle cx='12' cy='12' r='6' fill='none' stroke='black' stroke-width='2'/><circle cx='12' cy='12' r='2.2' fill='black'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='10' fill='none' stroke='black' stroke-width='2'/><circle cx='12' cy='12' r='6' fill='none' stroke='black' stroke-width='2'/><circle cx='12' cy='12' r='2.2' fill='black'/></svg>"); }
+
+/* 🎟 → ticket (розыгрыш) */
+.ico-ticket { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4V7zm6 1v8' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4V7zm6 1v8' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'/></svg>"); }
+
+/* 🌐 → ecosystem (узлы сети) */
+.ico-eco { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='9' fill='none' stroke='black' stroke-width='2'/><path d='M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18' fill='none' stroke='black' stroke-width='2'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='9' fill='none' stroke='black' stroke-width='2'/><path d='M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18' fill='none' stroke='black' stroke-width='2'/></svg>"); }
+
+/* 📋 → document (лендинг / итоги) */
+.ico-doc { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='5' y='3' width='14' height='18' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M9 8h6M9 12h6M9 16h4' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='5' y='3' width='14' height='18' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M9 8h6M9 12h6M9 16h4' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 📅 → calendar */
+.ico-cal { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='5' width='18' height='16' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M3 10h18M8 3v4M16 3v4' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='5' width='18' height='16' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M3 10h18M8 3v4M16 3v4' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 🎁 → gift */
+.ico-gift { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='8' width='18' height='13' rx='1' fill='none' stroke='black' stroke-width='2'/><rect x='3' y='8' width='18' height='4' fill='black'/><path d='M12 8v13' stroke='black' stroke-width='2'/><path d='M12 8c-3 0-5-1.5-5-3s2-2 3-1c1.5 1 2 4 2 4M12 8c3 0 5-1.5 5-3s-2-2-3-1c-1.5 1-2 4-2 4' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='8' width='18' height='13' rx='1' fill='none' stroke='black' stroke-width='2'/><rect x='3' y='8' width='18' height='4' fill='black'/><path d='M12 8v13' stroke='black' stroke-width='2'/><path d='M12 8c-3 0-5-1.5-5-3s2-2 3-1c1.5 1 2 4 2 4M12 8c3 0 5-1.5 5-3s-2-2-3-1c-1.5 1-2 4-2 4' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); }
+
+/* 🖼 → image */
+.ico-image { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='5' width='18' height='14' rx='2' fill='none' stroke='black' stroke-width='2'/><circle cx='9' cy='10' r='1.5' fill='black'/><path d='M5 17l5-5 4 3 3-2 4 4' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='5' width='18' height='14' rx='2' fill='none' stroke='black' stroke-width='2'/><circle cx='9' cy='10' r='1.5' fill='black'/><path d='M5 17l5-5 4 3 3-2 4 4' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); }
+
+/* 📤 → share */
+.ico-share { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 4v12M7 9l5-5 5 5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 4v12M7 9l5-5 5 5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>"); }
+
+/* 🏆 → trophy */
+.ico-trophy { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M7 4h10v5a5 5 0 0 1-10 0V4z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M7 6H4v3a3 3 0 0 0 3 3M17 6h3v3a3 3 0 0 1-3 3M9 14v3M15 14v3M8 20h8' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M7 4h10v5a5 5 0 0 1-10 0V4z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M7 6H4v3a3 3 0 0 0 3 3M17 6h3v3a3 3 0 0 1-3 3M9 14v3M15 14v3M8 20h8' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 👥 → people */
+.ico-people { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='9' cy='8' r='3.5' fill='none' stroke='black' stroke-width='2'/><circle cx='17' cy='9' r='3' fill='none' stroke='black' stroke-width='2'/><path d='M3 19c0-3 3-5 6-5s6 2 6 5' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/><path d='M14 14c2-1 7 0 7 5' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='9' cy='8' r='3.5' fill='none' stroke='black' stroke-width='2'/><circle cx='17' cy='9' r='3' fill='none' stroke='black' stroke-width='2'/><path d='M3 19c0-3 3-5 6-5s6 2 6 5' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/><path d='M14 14c2-1 7 0 7 5' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 📦 → box */
+.ico-box { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 7l9-4 9 4v10l-9 4-9-4V7z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M3 7l9 4 9-4M12 11v10' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 7l9-4 9 4v10l-9 4-9-4V7z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M3 7l9 4 9-4M12 11v10' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); }
+
+/* ✓ → check */
+.ico-check { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 12l5 5L20 7' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 12l5 5L20 7' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>"); }
+
+/* 🔒 → lock */
+.ico-lock { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='5' y='10' width='14' height='11' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M8 10V7a4 4 0 0 1 8 0v3' fill='none' stroke='black' stroke-width='2'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='5' y='10' width='14' height='11' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M8 10V7a4 4 0 0 1 8 0v3' fill='none' stroke='black' stroke-width='2'/></svg>"); }
+
+/* 📕 → book */
+.ico-book { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 4h11a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H5V4z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M5 4v14a2 2 0 0 0 2 2h12' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 4h11a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H5V4z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M5 4v14a2 2 0 0 0 2 2h12' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); }
+
+/* 🎓 → cap (graduation) */
+.ico-cap { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M2 9l10-5 10 5-10 5L2 9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M6 11v5c0 2 3 3 6 3s6-1 6-3v-5' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M22 9v5' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M2 9l10-5 10 5-10 5L2 9z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M6 11v5c0 2 3 3 6 3s6-1 6-3v-5' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M22 9v5' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 📞 → phone */
+.ico-phone { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 4h4l2 5-3 2c1 3 4 6 7 7l2-3 5 2v4a2 2 0 0 1-2 2C9 23 1 15 1 6a2 2 0 0 1 2-2h2z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 4h4l2 5-3 2c1 3 4 6 7 7l2-3 5 2v4a2 2 0 0 1-2 2C9 23 1 15 1 6a2 2 0 0 1 2-2h2z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); }
+
+/* 🤖 → bot */
+.ico-bot { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='4' y='8' width='16' height='12' rx='2' fill='none' stroke='black' stroke-width='2'/><circle cx='9' cy='14' r='1.5' fill='black'/><circle cx='15' cy='14' r='1.5' fill='black'/><path d='M12 4v4M9 4h6' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='4' y='8' width='16' height='12' rx='2' fill='none' stroke='black' stroke-width='2'/><circle cx='9' cy='14' r='1.5' fill='black'/><circle cx='15' cy='14' r='1.5' fill='black'/><path d='M12 4v4M9 4h6' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 🎙 → mic */
+.ico-mic { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='9' y='3' width='6' height='12' rx='3' fill='none' stroke='black' stroke-width='2'/><path d='M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='9' y='3' width='6' height='12' rx='3' fill='none' stroke='black' stroke-width='2'/><path d='M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 💬 → chat */
+.ico-chat { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-1-2V5z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-1-2V5z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); }
+
+/* 👑 → crown */
+.ico-crown { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 17l1-9 5 4 3-7 3 7 5-4 1 9H3z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M3 20h18' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 17l1-9 5 4 3-7 3 7 5-4 1 9H3z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M3 20h18' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 🎉 → party (sparkle) */
+.ico-party { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 3v3M12 18v3M3 12h3M18 12h3M5.5 5.5l2 2M16.5 16.5l2 2M5.5 18.5l2-2M16.5 7.5l2-2' stroke='black' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='12' r='4' fill='none' stroke='black' stroke-width='2'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 3v3M12 18v3M3 12h3M18 12h3M5.5 5.5l2 2M16.5 16.5l2 2M5.5 18.5l2-2M16.5 7.5l2-2' stroke='black' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='12' r='4' fill='none' stroke='black' stroke-width='2'/></svg>"); }
+
+/* 📺 → video */
+.ico-video { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='2' y='6' width='14' height='12' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M16 10l5-3v10l-5-3v-4z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='2' y='6' width='14' height='12' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M16 10l5-3v10l-5-3v-4z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/></svg>"); }
+
+/* ⚠ → warning (треугольник) */
+.ico-warn { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 3l10 18H2L12 3z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M12 10v5' stroke='black' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='18' r='1.2' fill='black'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 3l10 18H2L12 3z' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'/><path d='M12 10v5' stroke='black' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='18' r='1.2' fill='black'/></svg>"); }
+
+/* ➕ → plus */
+.ico-plus { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 5v14M5 12h14' stroke='black' stroke-width='3' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 5v14M5 12h14' stroke='black' stroke-width='3' stroke-linecap='round'/></svg>"); }
+
+/* стрелка → arrow */
+.ico-arrow { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 12h14M13 6l6 6-6 6' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 12h14M13 6l6 6-6 6' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>"); }
+
+/* «крас. кружок» live → small circle, для пульса оставлю как есть */
+.ico-live-dot { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='6' fill='black'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='6' fill='black'/></svg>"); }
+
+/* медальки 🥇🥈🥉 — оставим эмодзи (мелкие, функциональные).
+   Если потребуется заменить — добавим .ico-medal */
+
+/* 💻 → laptop / online */
+.ico-online { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='5' width='18' height='12' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M2 19h20' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='5' width='18' height='12' rx='2' fill='none' stroke='black' stroke-width='2'/><path d='M2 19h20' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }
+
+/* 📊 → stats / chart */
+.ico-stats { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 21V11M12 21V3M19 21v-7' stroke='black' stroke-width='2.5' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 21V11M12 21V3M19 21v-7' stroke='black' stroke-width='2.5' stroke-linecap='round'/></svg>"); }
+
+/* ⏱ → clock */
+.ico-clock { -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='9' fill='none' stroke='black' stroke-width='2'/><path d='M12 7v5l3 3' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='9' fill='none' stroke='black' stroke-width='2'/><path d='M12 7v5l3 3' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'/></svg>"); }

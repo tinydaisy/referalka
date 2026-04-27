@@ -48,7 +48,7 @@ def _parse_jsonb(v: Any, default):
 @public.get("/clients/{client_id}/profile", summary="Визитка клиента (для Mini App)")
 async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
-        """SELECT id, name, telegram_username,
+        """SELECT id, name, telegram_username, brand_name,
                   bio, profile_photo_url, positioning,
                   achievements, social_links
              FROM clients
@@ -157,10 +157,11 @@ profile_router = APIRouter(prefix="/clients/me", tags=["Профиль клие�
 
 
 class ProfileUpdate(BaseModel):
+    brand_name:         Optional[str] = None      # бренд (iVISION) — миграция 042
     bio:                Optional[str] = None
     profile_photo_url:  Optional[str] = None
-    positioning:        Optional[str] = None
-    achievements:       Optional[list] = None     # [{label, value}]
+    positioning:        Optional[str] = None      # роль владельца (например «основатель iVISION»)
+    achievements:       Optional[list] = None     # [{label, value}] — регалии 4 шт. для сетки 2×2
     social_links:       Optional[dict] = None     # {instagram, telegram, youtube, vk, website}
 
 
@@ -170,7 +171,7 @@ async def get_my_profile(
     db: asyncpg.Connection = Depends(get_db),
 ):
     row = await db.fetchrow(
-        """SELECT id, name, telegram_username, email,
+        """SELECT id, name, telegram_username, email, brand_name,
                   bio, profile_photo_url, positioning,
                   achievements, social_links
              FROM clients WHERE id = $1""",
@@ -192,6 +193,8 @@ async def update_my_profile(
 ):
     sets = []
     args: list[Any] = []
+    if data.brand_name is not None:
+        sets.append(f"brand_name = ${len(args)+1}");         args.append(data.brand_name or None)
     if data.bio is not None:
         sets.append(f"bio = ${len(args)+1}");                args.append(data.bio)
     if data.profile_photo_url is not None:
@@ -210,7 +213,7 @@ async def update_my_profile(
     row = await db.fetchrow(
         f"""UPDATE clients SET {', '.join(sets)}
             WHERE id = ${len(args)}
-            RETURNING id, bio, profile_photo_url, positioning,
+            RETURNING id, brand_name, bio, profile_photo_url, positioning,
                       achievements, social_links""",
         *args
     )

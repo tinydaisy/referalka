@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ПЛЮСОН — Все макеты Mini App</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="icons.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Roboto', sans-serif; background: linear-gradient(135deg, #25455D, #0a1520); color: white; min-height: 100vh; padding: 40px 20px; }
+  .container { max-width: 900px; margin: 0 auto; }
+  .header-block { text-align: center; margin-bottom: 40px; }
+  .logo-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; }
+  .logo-row img { height: 32px; }
+  .logo-row .logo-text { font-weight: 700; font-size: 16px; letter-spacing: 3px; color: white; }
+  h1 { font-size: 32px; font-weight: 900; margin-bottom: 8px; color: #FFCFA4; }
+  .sub { font-size: 14px; opacity: 0.75; line-height: 1.5; max-width: 600px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 24px; }
+  .card { background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255,207,164,0.2); border-radius: 16px; padding: 20px; text-decoration: none; color: white; display: block; transition: all 0.2s; cursor: pointer; }
+  .card:hover { background: rgba(255,207,164,0.1); border-color: #FFCFA4; transform: translateY(-2px); }
+  .card-icon { width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #fff4e0, #FFCFA4); display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
+  .card-icon .ico { font-size: 28px; background-color: #25455D; }
+  .card-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; color: white; }
+  .card-desc { font-size: 12px; line-height: 1.5; opacity: 0.7; }
+  .card-tag { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #FFCFA4; text-transform: uppercase; margin-top: 10px; }
+  .featured-tag { background: #FFCFA4; color: #25455D; padding: 3px 8px; border-radius: 5px; display: inline-block; }
+  .footer { margin-top: 40px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.1); text-align: center; font-size: 12px; opacity: 0.5; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="header-block">
+    <div class="logo-row">
+      <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН">
+      <div class="logo-text">ПЛЮСОН</div>
+    </div>
+    <h1>Mini App — все макеты</h1>
+    <div class="sub">Папка <code>mockups_miniapp/</code>. Стиль иконок — персиковые на тёмном / синие на персиковом, единый <code>icons.css</code>. Логика общих вкладок — в <strong>shared_tabs</strong>, чтобы не править одно и то же в каждом файле.</div>
+  </div>
+
+  <div class="grid">
+
+    <a href="mockup_shared_tabs.html" class="card">
+      <div class="card-icon"><span class="ico ico-target"></span></div>
+      <div class="card-title">Общие вкладки события</div>
+      <div class="card-desc">Игра, Окно подарков, Розыгрыш, Экосистема, Итоги. Одинаковы для мероприятия, конференции и других типов.</div>
+      <div class="card-tag"><span class="featured-tag">Источник правды</span></div>
+    </a>
+
+    <a href="mockup_hub.html" class="card">
+      <div class="card-icon"><span class="ico ico-cal"></span></div>
+      <div class="card-title">Хаб организатора</div>
+      <div class="card-desc">Календарь — лента событий клиента (LIVE / Скоро / Прошедшие). Открывается из своего бота клиента или когда у участника один организатор.</div>
+    </a>
+
+    <a href="mockup_hub_selector.html" class="card">
+      <div class="card-icon"><span class="ico ico-people"></span></div>
+      <div class="card-title">Селектор события</div>
+      <div class="card-desc">Список «Ваши события» когда участник у нескольких клиентов в общем @pluson_bot. Вкладка «ПЛЮСОН» — рекламная, для приглашения новых клиентов.</div>
+    </a>
+
+    <a href="mockup_event.html" class="card">
+      <div class="card-icon"><span class="ico ico-doc"></span></div>
+      <div class="card-title">Мероприятие</div>
+      <div class="card-desc">Лендинг + Программа для базового события (вебинар, нетворкинг, мастер-класс). Без VIP, без чата, простая программа.</div>
+    </a>
+
+    <a href="mockup_conference.html" class="card">
+      <div class="card-icon"><span class="ico ico-crown"></span></div>
+      <div class="card-title">Конференция</div>
+      <div class="card-desc">Расширенный модуль: программа по дням со спикерами, VIP-тариф, чат конференции (за подписку), горизонтальный скролл партнёров.</div>
+    </a>
+
+  </div>
+
+  <div class="footer">
+    Все макеты — кликабельные превью. Реальный код будет в <code>mini-app/src/</code> с теми же визуальными решениями.
+  </div>
+
+</div>
+
+</body>
+</html>

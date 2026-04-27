@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ПЛЮСОН — Общие вкладки события (Игра / Розыгрыш / Экосистема / Итоги)</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="icons.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Roboto', sans-serif; background: #f0f2f5; min-height: 100vh; padding: 24px 12px; }
+  .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 32px; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .label { color: #25455D; font-size: 13px; font-weight: 500; opacity: 0.7; max-width: 375px; text-align: center; }
+  .label strong { color: #25455D; opacity: 1; }
+  .section-banner { width: 100%; max-width: 1280px; margin: 32px auto 16px; padding: 16px 24px; background: linear-gradient(45deg, #25455D, #0a1520); color: #FFCFA4; border-radius: 12px; font-weight: 700; font-size: 16px; letter-spacing: 0.5px; }
+  .section-banner small { display: block; color: rgba(255,255,255,0.7); font-weight: 400; font-size: 12px; margin-top: 4px; letter-spacing: 0; }
+  .top-banner { background: #FFCFA4; color: #25455D; }
+  .top-banner small { color: rgba(37,69,93,0.7); }
+
+  .phone { width: 375px; height: 760px; background: white; border-radius: 32px; overflow: hidden; box-shadow: 0 20px 60px rgba(37, 69, 93, 0.25); display: flex; flex-direction: column; position: relative; }
+
+  .header { background: linear-gradient(45deg, #25455D, #0a1520); color: white; padding: 18px 20px 22px; flex-shrink: 0; position: relative; overflow: hidden; }
+  .header::after { content: ''; position: absolute; top: -40px; right: -40px; width: 160px; height: 160px; background: radial-gradient(circle, rgba(255, 207, 164, 0.18) 0%, transparent 70%); }
+  .header-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; position: relative; }
+  .logo-img { height: 22px; width: auto; display: block; }
+  .logo-text { font-weight: 700; font-size: 12px; letter-spacing: 2px; color: white; opacity: 0.9; }
+  .back-btn { margin-left: auto; font-size: 12px; opacity: 0.75; cursor: pointer; }
+  .header-title { font-size: 19px; font-weight: 700; margin-bottom: 4px; position: relative; line-height: 1.25; }
+  .header-meta { font-size: 12px; opacity: 0.75; position: relative; }
+
+  .content { flex: 1; overflow-y: auto; padding: 16px; background: #f7f8fa; }
+  .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #6b7c8e; margin: 4px 4px 10px; }
+
+  /* Stat-pills (компактная статистика) */
+  .stat-pills { display: flex; gap: 8px; margin-bottom: 12px; }
+  .stat-pill { flex: 1; background: white; border-radius: 10px; padding: 10px 12px; text-align: center; box-shadow: 0 2px 6px rgba(37,69,93,0.05); }
+  .stat-pill.featured { border: 1.5px solid #FFCFA4; background: linear-gradient(135deg, #fff8f0 0%, white 100%); }
+  .stat-pill-num { font-size: 18px; font-weight: 900; color: #25455D; line-height: 1; }
+  .stat-pill-label { font-size: 10px; color: #6b7c8e; margin-top: 4px; }
+
+  /* Получено подарков */
+  .gifts-link-card { background: white; border-radius: 14px; padding: 14px; margin-bottom: 12px; cursor: pointer; box-shadow: 0 2px 8px rgba(37,69,93,0.05); }
+  .gifts-link-row { display: flex; align-items: center; gap: 12px; }
+  .gifts-link-num { font-size: 30px; font-weight: 900; color: #25455D; line-height: 1; }
+  .gifts-link-body { flex: 1; }
+  .gifts-link-label { font-size: 12px; color: #6b7c8e; }
+  .gifts-link-next { font-size: 13px; font-weight: 700; color: #b86b00; margin-top: 2px; }
+  .gifts-link-arrow { color: #c5cdd6; font-size: 22px; font-weight: 300; }
+  .progress-bar-mini { height: 6px; background: #eef2f7; border-radius: 3px; overflow: hidden; margin-top: 12px; }
+  .progress-fill-mini { height: 100%; background: linear-gradient(90deg, #FFCFA4, #f5b97e); border-radius: 3px; }
+
+  /* Expander (свёрнутый/раскрытый блок) */
+  .expander { background: white; border-radius: 14px; padding: 14px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(37,69,93,0.05); }
+  .expander-head { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+  .expander-title { font-size: 13px; font-weight: 700; color: #1a2a3a; }
+  .expander-toggle { font-size: 20px; color: #c5cdd6; transition: transform 0.2s; }
+  .expander.open .expander-toggle { transform: rotate(90deg); color: #FFCFA4; }
+  .expander-body { margin-top: 10px; }
+
+  /* Реф-ссылка */
+  .ref-link-card { background: white; border-radius: 14px; padding: 14px; box-shadow: 0 2px 8px rgba(37, 69, 93, 0.05); margin-bottom: 12px; }
+  .ref-link-label { font-size: 11px; color: #6b7c8e; margin-bottom: 6px; font-weight: 500; }
+  .ref-link-row { display: flex; gap: 8px; }
+  .ref-link-input { flex: 1; background: #f7f8fa; padding: 10px; border-radius: 10px; font-size: 12px; color: #25455D; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ref-link-btn { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: #25455D; padding: 10px 14px; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; }
+
+  /* Игровые пиллы (Подарки/Материалы/Поделиться) */
+  .game-pill { background: white; border-radius: 14px; padding: 14px 8px; text-align: center; cursor: pointer; box-shadow: 0 2px 8px rgba(37, 69, 93, 0.05); }
+  .game-pill-icon { font-size: 22px; margin-bottom: 6px; }
+  .game-pill-label { font-size: 11px; font-weight: 600; color: #25455D; }
+
+  /* Окно подарков */
+  .gift-card { background: white; border-radius: 14px; padding: 14px; margin-bottom: 10px; display: flex; gap: 12px; align-items: center; box-shadow: 0 2px 8px rgba(37,69,93,0.05); }
+  .gift-card.locked { opacity: 0.7; background: #f7f8fa; }
+  .gift-card-icon { width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #fff4e0, #FFCFA4); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; position: relative; }
+  .gift-card.locked .gift-card-icon { background: #eef2f7; color: #b0bcc8; }
+  .gift-lock-overlay { position: absolute; right: -4px; bottom: -4px; background: #25455D; color: #FFCFA4; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid white; }
+  .gift-card-body { flex: 1; min-width: 0; }
+  .gift-card-name { font-size: 13px; font-weight: 700; color: #1a2a3a; margin-bottom: 3px; }
+  .gift-card-meta { font-size: 11px; color: #6b7c8e; }
+  .gift-card-meta.locked-text { color: #b86b00; font-weight: 700; }
+  .gift-open-btn { background: linear-gradient(135deg, #25455D, #0a1520); color: #FFCFA4; padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
+
+  /* Розыгрыш */
+  .raffle-card { background: white; border-radius: 16px; padding: 18px; text-align: center; margin-bottom: 14px; box-shadow: 0 2px 8px rgba(37, 69, 93, 0.05); }
+  .tickets-grid { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  .ticket { background: linear-gradient(135deg, #FFCFA4, #f5b97e); color: #25455D; padding: 7px 10px; border-radius: 8px; font-weight: 700; font-size: 12px; }
+  .program-card { background: white; border-radius: 14px; padding: 14px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(37, 69, 93, 0.05); }
+  .program-title { font-size: 14px; font-weight: 700; color: #1a2a3a; margin-bottom: 4px; }
+  .program-host { font-size: 12px; color: #6b7c8e; }
+  .code-input { display: flex; gap: 8px; margin-bottom: 10px; }
+  .code-input input { flex: 1; padding: 12px; border: 2px solid #e5eaef; border-radius: 10px; font-size: 14px; font-family: 'Roboto', sans-serif; outline: none; }
+  .code-input button { background: #25455D; color: #FFCFA4; padding: 12px 16px; border: none; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; }
+  .expander-prize-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #f0f2f5; }
+  .expander-prize-icon { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #fff4e0, #FFCFA4); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .expander-prize-name { flex: 1; font-size: 12px; font-weight: 600; color: #1a2a3a; }
+  .expander-prize-count { font-size: 10px; font-weight: 700; color: #b86b00; background: #fff4e0; padding: 3px 7px; border-radius: 5px; }
+
+  /* Экосистема — компактный вид: фото слева, 2 строки справа */
+  .eco-compact-hero { padding: 18px 18px 16px; background: linear-gradient(45deg, #25455D, #0a1520); color: white; position: relative; overflow: hidden; flex-shrink: 0; }
+  .eco-compact-hero::after { content: ''; position: absolute; top: -40px; right: -40px; width: 160px; height: 160px; background: radial-gradient(circle, rgba(255,207,164,0.18) 0%, transparent 70%); }
+  .eco-compact-top { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; position: relative; }
+  .eco-compact-back { font-size: 12px; opacity: 0.7; cursor: pointer; }
+  .eco-compact-row { display: flex; gap: 14px; align-items: center; position: relative; margin-bottom: 12px; }
+  .eco-compact-photo { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg, #d4789a, #8b4561); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 22px; flex-shrink: 0; border: 2.5px solid #FFCFA4; }
+  .eco-compact-body { flex: 1; min-width: 0; }
+  .eco-compact-line1 { font-size: 12px; line-height: 1.3; margin-bottom: 4px; }
+  .eco-compact-line1 .label { color: #FFCFA4; font-weight: 700; letter-spacing: 1.5px; opacity: 1; font-size: 10px; }
+  .eco-compact-line1 .brand { font-size: 16px; font-weight: 900; letter-spacing: 1px; margin-left: 6px; }
+  .eco-compact-line2 { font-size: 12px; }
+  .eco-compact-line2 .label { color: rgba(255,255,255,0.6); font-size: 11px; }
+  .eco-compact-line2 .person { font-size: 13px; font-weight: 700; margin-left: 4px; }
+  .eco-compact-stats { display: flex; flex-wrap: wrap; gap: 5px; position: relative; }
+  .eco-compact-stat { flex: 1 0 calc(50% - 3px); background: rgba(255,255,255,0.08); padding: 7px 9px; border-radius: 9px; }
+  .eco-compact-stat-num { font-size: 13px; font-weight: 700; color: #FFCFA4; }
+  .eco-compact-stat-label { font-size: 9.5px; opacity: 0.75; line-height: 1.2; margin-top: 2px; }
+
+  .eco-tab-switch { display: flex; padding: 4px; background: linear-gradient(135deg, #25455D, #0a1520); border-radius: 14px; gap: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.15); margin-bottom: 12px; }
+  .eco-tab { flex: 1; padding: 10px 4px; text-align: center; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.55); border-radius: 11px; cursor: pointer; }
+  .eco-tab.active { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: #25455D; box-shadow: 0 2px 8px rgba(255,207,164,0.4); }
+
+  .service-card { background: white; border-radius: 14px; padding: 14px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(37, 69, 93, 0.05); }
+  .service-row { display: flex; gap: 12px; }
+  .service-icon { width: 44px; height: 44px; border-radius: 10px; background: linear-gradient(135deg, #fff4e0, #FFCFA4); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .service-body { flex: 1; }
+  .service-title { font-size: 14px; font-weight: 700; color: #1a2a3a; margin-bottom: 3px; }
+  .service-desc { font-size: 12px; color: #6b7c8e; line-height: 1.4; margin-bottom: 6px; }
+  .service-price { font-size: 13px; font-weight: 700; color: #25455D; }
+  .service-price.free { color: #2e7d32; }
+  .service-btn { margin-top: 10px; background: linear-gradient(135deg, #FFCFA4, #f5b97e); color: #25455D; padding: 10px; border-radius: 10px; text-align: center; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 2px 6px rgba(255,207,164,0.4); }
+  .service-btn.dark { background: linear-gradient(135deg, #25455D, #0a1520); color: #FFCFA4; box-shadow: none; }
+
+  /* Bottom nav */
+  .bottom-nav { display: flex; background: white; border-top: 1px solid #e5eaef; flex-shrink: 0; }
+  .nav-tab { flex: 1; padding: 9px 4px 11px; text-align: center; cursor: pointer; color: #8a96a3; }
+  .nav-tab.active { color: #25455D; }
+  .nav-tab.active .nav-icon { background: #FFCFA4; color: #25455D; }
+  .nav-icon { width: 34px; height: 34px; margin: 0 auto 3px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 16px; background: transparent; }
+  .nav-label { font-size: 10px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="section-banner top-banner">
+  Общие вкладки события — единые для мероприятия, конференции, премии и т.д.
+  <small>Это один источник правды. Правки сюда → автоматически попадают во все типы событий. В файлах mockup_event.html / mockup_conference.html остаются только специфические вкладки (Лендинг + Программа).</small>
+</div>
+
+<!-- =============== <span class="ico ico-target"></span> ИГРА (свёрнутый вид по умолчанию) =============== -->
+<div class="section-banner">
+  <span class="ico ico-target"></span> Игра — партнёрская программа
+  <small>Базовый вид: ТОП и Ваши люди свёрнуты, чтобы участник не утомлялся. Раскрывает тапом по стрелочке.</small>
+</div>
+
+<div class="row">
+
+  <div class="col">
+    <div class="label"><strong><span class="ico ico-target"></span> Игра</strong> · базовый (свёрнутый) вид</div>
+    <div class="phone">
+      <div class="header">
+        <div class="header-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+          <div class="back-btn">← Все события</div>
+        </div>
+        <div class="header-title">Письма продают</div>
+        <div class="header-meta">Ваш прогресс</div>
+      </div>
+
+      <div class="content">
+
+        <div class="stat-pills">
+          <div class="stat-pill"><div class="stat-pill-num" style="color:#6b7c8e;">12</div><div class="stat-pill-label">переходов</div></div>
+          <div class="stat-pill featured"><div class="stat-pill-num">3</div><div class="stat-pill-label">регистраций</div></div>
+        </div>
+
+        <div class="gifts-link-card">
+          <div class="gifts-link-row">
+            <div class="gifts-link-num">1</div>
+            <div class="gifts-link-body">
+              <div class="gifts-link-label">Получено подарков</div>
+              <div class="gifts-link-next"><span class="ico ico-gift"></span> Ещё 2 человека до подарка «10 формул заголовков»</div>
+            </div>
+            <div class="gifts-link-arrow">›</div>
+          </div>
+          <div class="progress-bar-mini"><div class="progress-fill-mini" style="width:60%;"></div></div>
+        </div>
+
+        <div class="expander">
+          <div class="expander-head">
+            <div class="expander-title"><span class="ico ico-trophy"></span> ТОП рейтинг · вы №14</div>
+            <div class="expander-toggle">›</div>
+          </div>
+        </div>
+
+        <div class="ref-link-card">
+          <div class="ref-link-label">Ваша партнёрская ссылка на событие</div>
+          <div class="ref-link-row">
+            <div class="ref-link-input">pluson.margoforbs.ru/l/letters?p=k4mZ9</div>
+            <div class="ref-link-btn">Копировать</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:14px;">
+          <div class="game-pill">
+            <div class="game-pill-icon"><span class="ico ico-gift"></span></div>
+            <div class="game-pill-label">Подарки</div>
+          </div>
+          <div class="game-pill">
+            <div class="game-pill-icon"><span class="ico ico-image"></span></div>
+            <div class="game-pill-label">Материалы</div>
+          </div>
+          <div class="game-pill">
+            <div class="game-pill-icon"><span class="ico ico-share"></span></div>
+            <div class="game-pill-label">Поделиться</div>
+          </div>
+        </div>
+
+        <div class="expander" style="margin-top:14px;">
+          <div class="expander-head">
+            <div class="expander-title"><span class="ico ico-people"></span> Ваши люди · 3 зарегистрировались</div>
+            <div class="expander-toggle">›</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-cal"></span></div><div class="nav-label">Программа</div></div>
+        <div class="nav-tab active"><div class="nav-icon"><span class="ico ico-target"></span></div><div class="nav-label">Игра</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-ticket"></span></div><div class="nav-label">Розыгрыш</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-eco"></span></div><div class="nav-label">Экосистема</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="label"><strong><span class="ico ico-target"></span> Игра</strong> · ТОП и Ваши люди раскрыты</div>
+    <div class="phone">
+      <div class="header">
+        <div class="header-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+          <div class="back-btn">← Все события</div>
+        </div>
+        <div class="header-title">Письма продают</div>
+        <div class="header-meta">Игра — раскрытые блоки</div>
+      </div>
+
+      <div class="content">
+
+        <div class="expander open">
+          <div class="expander-head">
+            <div class="expander-title"><span class="ico ico-trophy"></span> ТОП рейтинг · вы №14</div>
+            <div class="expander-toggle">›</div>
+          </div>
+          <div class="expander-body">
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #f0f2f5;">
+              <div style="width:24px;text-align:center;font-weight:700;color:#FFCFA4;">🥇</div>
+              <div style="flex:1;font-size:13px;font-weight:600;">Анна Соколова</div>
+              <div style="font-size:13px;font-weight:700;color:#25455D;">42</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #f0f2f5;">
+              <div style="width:24px;text-align:center;font-weight:700;color:#c5cdd6;">🥈</div>
+              <div style="flex:1;font-size:13px;font-weight:600;">Дмитрий Попов</div>
+              <div style="font-size:13px;font-weight:700;color:#25455D;">28</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #f0f2f5;">
+              <div style="width:24px;text-align:center;font-weight:700;color:#b86b00;">🥉</div>
+              <div style="flex:1;font-size:13px;font-weight:600;">Мария В.</div>
+              <div style="font-size:13px;font-weight:700;color:#25455D;">19</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #f0f2f5;">
+              <div style="width:24px;text-align:center;font-size:11px;color:#8a96a3;">…</div>
+              <div style="flex:1;font-size:11px;color:#8a96a3;">10 человек на 4 месте (по 8)</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-top:1px solid #f0f2f5;background:#fff8f0;border-radius:6px;margin-top:4px;">
+              <div style="width:24px;text-align:center;font-weight:700;color:#25455D;">14</div>
+              <div style="flex:1;font-size:13px;font-weight:700;color:#25455D;">Вы</div>
+              <div style="font-size:13px;font-weight:700;color:#25455D;">3</div>
+            </div>
+            <div style="text-align:center;font-size:11px;color:#6b7c8e;margin-top:8px;cursor:pointer;">Смотреть весь рейтинг →</div>
+          </div>
+        </div>
+
+        <div class="expander open">
+          <div class="expander-head">
+            <div class="expander-title"><span class="ico ico-people"></span> Ваши люди · 3 зарегистрировались</div>
+            <div class="expander-toggle">›</div>
+          </div>
+          <div class="expander-body">
+            <div style="padding:10px 0;display:flex;align-items:center;gap:10px;border-top:1px solid #f0f2f5;">
+              <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#d4789a,#8b4561);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">АС</div>
+              <div style="flex:1;">
+                <div style="font-size:13px;font-weight:700;color:#1a2a3a;">Анна Сидорова</div>
+                <div style="font-size:11px;color:#0088cc;font-weight:500;cursor:pointer;text-decoration:underline;">@anna_sid</div>
+              </div>
+              <div style="font-size:14px;color:#2e7d32;font-weight:700;">✓</div>
+            </div>
+            <div style="padding:10px 0;display:flex;align-items:center;gap:10px;border-top:1px solid #f0f2f5;">
+              <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4a90e2,#2c5f9b);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">МК</div>
+              <div style="flex:1;">
+                <div style="font-size:13px;font-weight:700;color:#1a2a3a;">Михаил Каплан</div>
+                <div style="font-size:11px;color:#0088cc;font-weight:500;cursor:pointer;text-decoration:underline;">@kaplan_mk</div>
+              </div>
+              <div style="font-size:14px;color:#2e7d32;font-weight:700;">✓</div>
+            </div>
+            <div style="padding:10px 0;display:flex;align-items:center;gap:10px;border-top:1px solid #f0f2f5;">
+              <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#6bb572,#3d7a44);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">ОВ</div>
+              <div style="flex:1;">
+                <div style="font-size:13px;font-weight:700;color:#1a2a3a;">Ольга Воронина</div>
+                <div style="font-size:11px;color:#0088cc;font-weight:500;cursor:pointer;text-decoration:underline;">@olya_v</div>
+              </div>
+              <div style="font-size:14px;color:#2e7d32;font-weight:700;">✓</div>
+            </div>
+            <div style="padding:10px 0;display:flex;align-items:center;gap:10px;border-top:1px solid #f0f2f5;color:#8a96a3;">
+              <div style="width:32px;height:32px;border-radius:50%;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">?</div>
+              <div style="flex:1;font-size:11px;">9 переходов без регистрации</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:11px;color:#6b7c8e;text-align:center;padding:8px;background:#eef2f7;border-radius:8px;line-height:1.5;">
+          Тап по @… открывает чат в Telegram — можно написать «спасибо, что зарегался»
+        </div>
+
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-cal"></span></div><div class="nav-label">Программа</div></div>
+        <div class="nav-tab active"><div class="nav-icon"><span class="ico ico-target"></span></div><div class="nav-label">Игра</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-ticket"></span></div><div class="nav-label">Розыгрыш</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-eco"></span></div><div class="nav-label">Экосистема</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="label"><strong><span class="ico ico-box"></span> Окно подарков</strong> · открывается по тапу на цифру в Игре или кнопку «<span class="ico ico-gift"></span> Подарки»</div>
+    <div class="phone">
+      <div class="header">
+        <div class="header-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+          <div class="back-btn">← Назад в Игру</div>
+        </div>
+        <div class="header-title">Ваши подарки</div>
+        <div class="header-meta">Письма продают</div>
+      </div>
+
+      <div class="content">
+
+        <!-- Предупреждение что учитывается -->
+        <div style="background:#fff8e1;border:1px solid #ffd54f;border-radius:12px;padding:10px 12px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start;">
+          <svg width="22" height="22" viewBox="0 0 22 22" style="flex-shrink:0;margin-top:1px;"><path d="M11 2L21 19H1L11 2Z" fill="#fbbf24" stroke="#b86b00" stroke-width="0.7"/><rect x="10" y="8" width="2" height="6" fill="#b86b00" rx="1"/><circle cx="11" cy="16" r="1.2" fill="#b86b00"/></svg>
+          <div style="font-size:11px;color:#7a5a00;line-height:1.5;">
+            Подарки выдаются за <strong>зарегистрировавшихся</strong> людей (не за переходы).
+          </div>
+        </div>
+
+        <div class="section-title">✓ Получено · 1</div>
+
+        <div class="gift-card">
+          <div class="gift-card-icon"><span class="ico ico-book"></span></div>
+          <div class="gift-card-body">
+            <div class="gift-card-name">Чек-лист «5 ошибок в письмах»</div>
+            <div class="gift-card-meta">Получено · 24 апр</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
+            <div style="font-size:10px;font-weight:700;color:#2e7d32;background:#e8f5e9;padding:3px 7px;border-radius:5px;">за 1 чел</div>
+            <div class="gift-open-btn">Открыть</div>
+          </div>
+        </div>
+
+        <div class="section-title" style="margin-top:14px;"><span class="ico ico-lock"></span> Заблокировано · 3</div>
+
+        <div class="gift-card locked">
+          <div class="gift-card-icon"><span class="ico ico-book"></span><div class="gift-lock-overlay"><span class="ico ico-lock"></span></div></div>
+          <div class="gift-card-body">
+            <div class="gift-card-name">Гайд «10 формул заголовков»</div>
+            <div class="gift-card-meta locked-text">Нужно ещё 2 человека</div>
+          </div>
+          <div style="font-size:10px;font-weight:700;color:#b86b00;background:#fff4e0;padding:3px 7px;border-radius:5px;flex-shrink:0;">за 3 чел</div>
+        </div>
+
+        <div class="gift-card locked">
+          <div class="gift-card-icon"><span class="ico ico-cap"></span><div class="gift-lock-overlay"><span class="ico ico-lock"></span></div></div>
+          <div class="gift-card-body">
+            <div class="gift-card-name">Скидка 20% на курс</div>
+            <div class="gift-card-meta locked-text">Нужно ещё 7 человек</div>
+          </div>
+          <div style="font-size:10px;font-weight:700;color:#b86b00;background:#fff4e0;padding:3px 7px;border-radius:5px;flex-shrink:0;">за 10 чел</div>
+        </div>
+
+        <div class="gift-card locked">
+          <div class="gift-card-icon"><span class="ico ico-phone"></span><div class="gift-lock-overlay"><span class="ico ico-lock"></span></div></div>
+          <div class="gift-card-body">
+            <div class="gift-card-name">Часовая консультация</div>
+            <div class="gift-card-meta locked-text">Нужно ещё 17 человек</div>
+          </div>
+          <div style="font-size:10px;font-weight:700;color:#b86b00;background:#fff4e0;padding:3px 7px;border-radius:5px;flex-shrink:0;">за 20 чел</div>
+        </div>
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-cal"></span></div><div class="nav-label">Программа</div></div>
+        <div class="nav-tab active"><div class="nav-icon"><span class="ico ico-target"></span></div><div class="nav-label">Игра</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-ticket"></span></div><div class="nav-label">Розыгрыш</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-eco"></span></div><div class="nav-label">Экосистема</div></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- =============== <span class="ico ico-ticket"></span> РОЗЫГРЫШ =============== -->
+<div class="section-banner">
+  <span class="ico ico-ticket"></span> Розыгрыш — подписка + кодовые слова
+  <small>Если все галки подписки стоят — показываем одну зелёную строку. Если нет — попап «Подпишитесь чтобы получить билет» с чек-листом.</small>
+</div>
+
+<div class="row">
+  <div class="col">
+    <div class="label"><strong><span class="ico ico-ticket"></span> Розыгрыш</strong> · участник уже подписан</div>
+    <div class="phone">
+      <div class="header">
+        <div class="header-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+          <div class="back-btn">← Все события</div>
+        </div>
+        <div class="header-title">Розыгрыш призов</div>
+        <div class="header-meta">Финал — 17 мая, 19:00</div>
+      </div>
+
+      <div class="content">
+
+        <div class="raffle-card">
+          <div style="font-size:11px;color:#6b7c8e;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:8px;">У вас 4 билета</div>
+          <div class="tickets-grid">
+            <div class="ticket">№00237</div>
+            <div class="ticket">№00445</div>
+            <div class="ticket">№00667</div>
+            <div class="ticket">№01112</div>
+          </div>
+        </div>
+
+        <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:12px;padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+          <div style="font-size:18px;"><span class="ico ico-check green"></span></div>
+          <div style="flex:1;font-size:12px;color:#1b5e20;font-weight:600;">Вы подписаны — стартовый билет №00237 ваш</div>
+        </div>
+
+        <div class="program-card">
+          <div class="program-title">+1 билет за кодовое слово</div>
+          <div class="program-host" style="margin-top:6px;">Ведущий назовёт слово в эфире:</div>
+          <div class="code-input" style="margin-top:10px;">
+            <input type="text" placeholder="введите слово">
+            <button>OK</button>
+          </div>
+          <div style="font-size:11px;color:#6b7c8e;margin-top:8px;">Использовано: <strong>2</strong> из 5 слов</div>
+        </div>
+
+        <div class="expander open">
+          <div class="expander-head">
+            <div class="expander-title"><span class="ico ico-gift"></span> Призы розыгрыша · 12</div>
+            <div class="expander-toggle">›</div>
+          </div>
+          <div class="expander-body">
+            <div class="expander-prize-row" style="border-top:none;">
+              <div class="expander-prize-icon"><span class="ico ico-cap"></span></div>
+              <div class="expander-prize-name">Курс «Email-маркетинг»</div>
+              <div class="expander-prize-count">1 место</div>
+            </div>
+            <div class="expander-prize-row">
+              <div class="expander-prize-icon"><span class="ico ico-phone"></span></div>
+              <div class="expander-prize-name">Консультация с Марго</div>
+              <div class="expander-prize-count">3 места</div>
+            </div>
+            <div class="expander-prize-row">
+              <div class="expander-prize-icon"><span class="ico ico-book"></span></div>
+              <div class="expander-prize-name">Шаблоны писем «Бизнес»</div>
+              <div class="expander-prize-count">5 мест</div>
+            </div>
+            <div class="expander-prize-row">
+              <div class="expander-prize-icon"><span class="ico ico-gift"></span></div>
+              <div class="expander-prize-name">Подарочный мерч</div>
+              <div class="expander-prize-count">3 места</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-cal"></span></div><div class="nav-label">Программа</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-target"></span></div><div class="nav-label">Игра</div></div>
+        <div class="nav-tab active"><div class="nav-icon"><span class="ico ico-ticket"></span></div><div class="nav-label">Розыгрыш</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-eco"></span></div><div class="nav-label">Экосистема</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =============== <span class="ico ico-eco"></span> ЭКОСИСТЕМА (компактная) =============== -->
+<div class="section-banner">
+  <span class="ico ico-eco"></span> Экосистема — компактный вид
+  <small>Фото слева, имя/роль справа. Регалии в 4 квадрата 2×2. Бренд (iVISION) и владелец (Марго Форбс «основатель») настраиваются клиентом в /dashboard/mini-app.</small>
+</div>
+
+<div class="row">
+  <div class="col">
+    <div class="label"><strong><span class="ico ico-eco"></span> Экосистема</strong> · бесплатные продукты</div>
+    <div class="phone">
+      <div class="eco-compact-hero">
+        <div class="eco-compact-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+          <div class="back-btn eco-compact-back" style="margin-left:auto;">← Все события</div>
+        </div>
+        <div class="eco-compact-row">
+          <div class="eco-compact-photo">МФ</div>
+          <div class="eco-compact-body">
+            <div class="eco-compact-line1"><span class="label">ЭКОСИСТЕМА</span><span class="brand">iVISION</span></div>
+            <div class="eco-compact-line2"><span class="label">Основатель</span><span class="person">Марго Форбс</span></div>
+          </div>
+        </div>
+        <div class="eco-compact-stats">
+          <div class="eco-compact-stat"><div class="eco-compact-stat-num">20 млн ₽</div><div class="eco-compact-stat-label">продаж клиентов</div></div>
+          <div class="eco-compact-stat"><div class="eco-compact-stat-num">50+</div><div class="eco-compact-stat-label">лидеров рынка</div></div>
+          <div class="eco-compact-stat"><div class="eco-compact-stat-num">15</div><div class="eco-compact-stat-label">событий</div></div>
+          <div class="eco-compact-stat"><div class="eco-compact-stat-num">3 600+</div><div class="eco-compact-stat-label">участников</div></div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="eco-tab-switch">
+          <div class="eco-tab active">Бесплатно</div>
+          <div class="eco-tab">Платно</div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-row">
+            <div class="service-icon"><span class="ico ico-book"></span></div>
+            <div class="service-body">
+              <div class="service-title">Гайд: 7 шагов к реф-системе</div>
+              <div class="service-desc">PDF-инструкция, как запустить рефералку</div>
+              <div class="service-price free">Бесплатно</div>
+            </div>
+          </div>
+          <div class="service-btn dark">Получить</div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-row">
+            <div class="service-icon"><span class="ico ico-mic"></span></div>
+            <div class="service-body">
+              <div class="service-title">Подкаст «Растём через клиентов»</div>
+              <div class="service-desc">Каждую среду — новый кейс</div>
+              <div class="service-price free">Бесплатно</div>
+            </div>
+          </div>
+          <div class="service-btn dark">Получить</div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-row">
+            <div class="service-icon"><span class="ico ico-chat"></span></div>
+            <div class="service-body">
+              <div class="service-title">Закрытый чат «Маркетологи»</div>
+              <div class="service-desc">450+ предпринимателей</div>
+              <div class="service-price free">Вступить</div>
+            </div>
+          </div>
+          <div class="service-btn dark">Получить</div>
+        </div>
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-cal"></span></div><div class="nav-label">Программа</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-target"></span></div><div class="nav-label">Игра</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-ticket"></span></div><div class="nav-label">Розыгрыш</div></div>
+        <div class="nav-tab active"><div class="nav-icon"><span class="ico ico-eco"></span></div><div class="nav-label">Экосистема</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="label"><strong><span class="ico ico-eco"></span> Экосистема</strong> · платные продукты (вкладка «Платно» персиковая)</div>
+    <div class="phone">
+      <div class="eco-compact-hero">
+        <div class="eco-compact-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+          <div class="back-btn eco-compact-back" style="margin-left:auto;">← Все события</div>
+        </div>
+        <div class="eco-compact-row">
+          <div class="eco-compact-photo">МФ</div>
+          <div class="eco-compact-body">
+            <div class="eco-compact-line1"><span class="label">ЭКОСИСТЕМА</span><span class="brand">iVISION</span></div>
+            <div class="eco-compact-line2"><span class="label">Основатель</span><span class="person">Марго Форбс</span></div>
+          </div>
+        </div>
+        <div class="eco-compact-stats">
+          <div class="eco-compact-stat"><div class="eco-compact-stat-num">20 млн ₽</div><div class="eco-compact-stat-label">продаж клиентов</div></div>
+          <div class="eco-compact-stat"><div class="eco-compact-stat-num">50+</div><div class="eco-compact-stat-label">лидеров рынка</div></div>
+          <div class="eco-compact-stat"><div class="eco-compact-stat-num">15</div><div class="eco-compact-stat-label">событий</div></div>
+          <div class="eco-compact-stat"><div class="eco-compact-stat-num">3 600+</div><div class="eco-compact-stat-label">участников</div></div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="eco-tab-switch">
+          <div class="eco-tab">Бесплатно</div>
+          <div class="eco-tab active">Платно</div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-row">
+            <div class="service-icon"><span class="ico ico-cap"></span></div>
+            <div class="service-body">
+              <div class="service-title">Курс «Email-маркетинг»</div>
+              <div class="service-desc">8 недель практики, разбор ваших рассылок</div>
+              <div class="service-price">от 49 000 ₽</div>
+            </div>
+          </div>
+          <div class="service-btn">Получить</div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-row">
+            <div class="service-icon"><span class="ico ico-phone"></span></div>
+            <div class="service-body">
+              <div class="service-title">Часовая консультация Марго</div>
+              <div class="service-desc">Разбор воронки и точек роста</div>
+              <div class="service-price">15 000 ₽</div>
+            </div>
+          </div>
+          <div class="service-btn">Получить</div>
+        </div>
+
+        <div class="service-card">
+          <div class="service-row">
+            <div class="service-icon"><span class="ico ico-book"></span></div>
+            <div class="service-body">
+              <div class="service-title">Шаблоны писем «Бизнес»</div>
+              <div class="service-desc">42 шаблона под разные сценарии</div>
+              <div class="service-price">4 900 ₽</div>
+            </div>
+          </div>
+          <div class="service-btn">Получить</div>
+        </div>
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-cal"></span></div><div class="nav-label">Программа</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-target"></span></div><div class="nav-label">Игра</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-ticket"></span></div><div class="nav-label">Розыгрыш</div></div>
+        <div class="nav-tab active"><div class="nav-icon"><span class="ico ico-eco"></span></div><div class="nav-label">Экосистема</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =============== <span class="ico ico-doc"></span> ИТОГИ =============== -->
+<div class="section-banner">
+  <span class="ico ico-doc"></span> Итоги — после завершения события
+  <small>Иконка + «Событие завершилось!» в одну строку. Большая цифра охвата. 3 квадрата результатов в линию. Кнопка «Просмотреть подарки». ВИП-кнопка «КУПИТЬ ВИП-ТАРИФ С ЗАПИСЯМИ» показывается ТОЛЬКО в конференциях (см. mockup_conference.html).</small>
+</div>
+
+<div class="row">
+  <div class="col">
+    <div class="label"><strong><span class="ico ico-doc"></span> Итоги</strong> участника</div>
+    <div class="phone">
+      <div class="header">
+        <div class="header-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+          <div class="back-btn">← Все события</div>
+        </div>
+        <div class="header-title">Письма продают</div>
+        <div style="font-size:13px;color:#FFCFA4;font-weight:600;margin-top:6px;position:relative;">Событие завершилось! Спасибо вам!</div>
+        <div class="header-meta" style="margin-top:4px;">12 мая · 18:00</div>
+      </div>
+
+      <div class="content">
+
+        <!-- Большая цифра охвата -->
+        <div style="background:linear-gradient(135deg,#25455D,#0a1520);color:white;border-radius:16px;padding:22px 16px;margin-bottom:14px;text-align:center;">
+          <div style="font-size:44px;font-weight:900;color:#FFCFA4;line-height:1;">847</div>
+          <div style="font-size:13px;opacity:0.85;margin-top:8px;">человек охватили вместе</div>
+        </div>
+
+        <div class="section-title">Ваши результаты</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+          <div style="background:white;border-radius:12px;padding:12px 6px;text-align:center;box-shadow:0 2px 8px rgba(37,69,93,0.05);">
+            <div style="font-size:18px;font-weight:900;color:#25455D;">5 / 12</div>
+            <div style="font-size:11px;color:#6b7c8e;margin-top:4px;">привели / переходов</div>
+          </div>
+          <div style="background:white;border-radius:12px;padding:12px 6px;text-align:center;box-shadow:0 2px 8px rgba(37,69,93,0.05);">
+            <div style="font-size:22px;font-weight:900;color:#25455D;">2</div>
+            <div style="font-size:11px;color:#6b7c8e;margin-top:4px;">подарка</div>
+          </div>
+          <div style="background:white;border-radius:12px;padding:12px 6px;text-align:center;box-shadow:0 2px 8px rgba(37,69,93,0.05);border:2px solid #FFCFA4;">
+            <div style="font-size:22px;font-weight:900;color:#b86b00;">№14</div>
+            <div style="font-size:11px;color:#6b7c8e;margin-top:4px;">место в ТОПе</div>
+          </div>
+        </div>
+
+        <!-- Кнопка просмотра подарков -->
+        <div style="background:white;border-radius:14px;padding:14px;margin-bottom:14px;display:flex;align-items:center;gap:12px;cursor:pointer;box-shadow:0 2px 8px rgba(37,69,93,0.05);">
+          <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#fff4e0,#FFCFA4);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="12" rx="2" fill="#25455D"/><rect x="3" y="9" width="18" height="3" fill="#0a1520"/><rect x="11" y="9" width="2" height="12" fill="#FFCFA4"/><path d="M8 9C8 6.79 9.79 5 12 5C14.21 5 16 6.79 16 9" stroke="#25455D" stroke-width="2" fill="none"/></svg>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:14px;font-weight:700;color:#1a2a3a;">Ваши подарки</div>
+            <div style="font-size:11px;color:#6b7c8e;margin-top:2px;">2 получено — посмотрите все</div>
+          </div>
+          <div style="background:linear-gradient(135deg,#FFCFA4,#f5b97e);color:#25455D;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;">Просмотреть</div>
+        </div>
+
+        <div style="background:linear-gradient(135deg,#fff8f0,white);border:2px solid #FFCFA4;border-radius:16px;padding:14px;cursor:pointer;">
+          <div style="font-size:11px;color:#b86b00;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:6px;">А дальше</div>
+          <div style="font-size:15px;font-weight:700;color:#1a2a3a;margin-bottom:4px;">Подкаст «PLG в России»</div>
+          <div style="font-size:12px;color:#6b7c8e;margin-bottom:10px;">2 мая · 19:00 · Закрытый разговор с тремя CEO</div>
+          <div style="background:#25455D;color:#FFCFA4;padding:10px;border-radius:10px;text-align:center;font-weight:700;font-size:13px;">Зарегистрироваться →</div>
+        </div>
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab active"><div class="nav-icon"><span class="ico ico-doc"></span></div><div class="nav-label">Итоги</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-target"></span></div><div class="nav-label">Игра</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-cal"></span></div><div class="nav-label">Календарь</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-eco"></span></div><div class="nav-label">Экосистема</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="label"><strong><span class="ico ico-doc"></span> Итоги</strong> для нового участника (опоздал, не был зарегистрирован)</div>
+    <div class="phone">
+      <div class="header">
+        <div class="header-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+          <div class="back-btn">← Все события</div>
+        </div>
+        <div class="header-title">Письма продают</div>
+        <div style="font-size:13px;color:#FFCFA4;font-weight:600;margin-top:6px;position:relative;">Как жаль! Событие прошло 12 мая</div>
+        <div class="header-meta" style="margin-top:4px;">от Марго Форбс</div>
+      </div>
+
+      <div class="content">
+
+        <div style="background:linear-gradient(135deg,#fff8f0,white);border:2px solid #FFCFA4;border-radius:16px;padding:14px;margin-bottom:12px;cursor:pointer;">
+          <div style="font-size:11px;color:#b86b00;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:6px;">А дальше</div>
+          <div style="font-size:15px;font-weight:700;color:#1a2a3a;margin-bottom:4px;">Подкаст «PLG в России»</div>
+          <div style="font-size:12px;color:#6b7c8e;margin-bottom:10px;">2 мая · 19:00 · Закрытый разговор с тремя CEO</div>
+          <div style="background:#25455D;color:#FFCFA4;padding:10px;border-radius:10px;text-align:center;font-weight:700;font-size:13px;">Зарегистрироваться →</div>
+        </div>
+
+        <div style="font-size:11px;color:#6b7c8e;text-align:center;padding:10px;background:#eef2f7;border-radius:10px;line-height:1.5;">
+          В следующий раз приходите заранее — будет розыгрыш призов, партнёрская программа и приятные подарки за приглашённых друзей
+        </div>
+
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab active"><div class="nav-icon"><span class="ico ico-doc"></span></div><div class="nav-label">Итоги</div></div>
+        <div class="nav-tab" style="opacity:0.4;"><div class="nav-icon"><span class="ico ico-target"></span></div><div class="nav-label">Игра</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-cal"></span></div><div class="nav-label">Календарь</div></div>
+        <div class="nav-tab"><div class="nav-icon"><span class="ico ico-eco"></span></div><div class="nav-label">Экосистема</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

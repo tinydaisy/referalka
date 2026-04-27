@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ПЛЮСОН — Хаб организатора (мокап)</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="icons.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Roboto', sans-serif; background: #f0f2f5; min-height: 100vh; padding: 24px 12px; }
+  .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 32px; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .label { color: #25455D; font-size: 13px; font-weight: 500; opacity: 0.7; max-width: 375px; text-align: center; }
+  .label strong { color: #25455D; opacity: 1; }
+  .section-banner { width: 100%; max-width: 1200px; margin: 32px auto 16px; padding: 16px 24px; background: linear-gradient(45deg, #25455D, #0a1520); color: #FFCFA4; border-radius: 12px; font-weight: 700; font-size: 16px; letter-spacing: 0.5px; }
+  .section-banner small { display: block; color: rgba(255,255,255,0.7); font-weight: 400; font-size: 12px; margin-top: 4px; letter-spacing: 0; }
+
+  .phone { width: 375px; height: 760px; background: white; border-radius: 32px; overflow: hidden; box-shadow: 0 20px 60px rgba(37, 69, 93, 0.25); display: flex; flex-direction: column; position: relative; }
+
+  /* Шапка */
+  .header { background: linear-gradient(45deg, #25455D, #0a1520); color: white; padding: 24px 24px 28px; flex-shrink: 0; position: relative; overflow: hidden; }
+  .header::after { content: ''; position: absolute; top: -40px; right: -40px; width: 160px; height: 160px; background: radial-gradient(circle, rgba(255, 207, 164, 0.18) 0%, transparent 70%); }
+  .header-top { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; position: relative; }
+  .logo-img { height: 26px; width: auto; display: block; }
+  .logo-text { font-weight: 700; font-size: 14px; letter-spacing: 2px; color: white; }
+  .header-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; position: relative; }
+  .header-sub { font-size: 13px; opacity: 0.75; line-height: 1.5; position: relative; }
+
+  /* Контент */
+  .content { flex: 1; overflow-y: auto; padding: 18px 16px 20px; background: #f7f8fa; }
+  .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #6b7c8e; margin: 8px 4px 10px; display: flex; align-items: center; gap: 6px; }
+  .section-title.live { color: #d32f2f; }
+  .live-dot { width: 8px; height: 8px; background: #d32f2f; border-radius: 50%; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* Карточка события */
+  .event-card { background: white; border-radius: 16px; padding: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; cursor: pointer; box-shadow: 0 2px 8px rgba(37, 69, 93, 0.06); }
+  .event-card.featured { border: 2px solid #FFCFA4; background: linear-gradient(135deg, #fff8f0 0%, #ffffff 100%); }
+  .event-thumb { width: 52px; height: 52px; border-radius: 12px; flex-shrink: 0; background: linear-gradient(135deg, #d4789a, #8b4561); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 13px; text-align: center; padding: 4px; line-height: 1.1; }
+  .event-thumb.b { background: linear-gradient(135deg, #4a90e2, #2c5f9b); }
+  .event-thumb.c { background: linear-gradient(135deg, #6bb572, #3d7a44); }
+  .event-thumb.d { background: linear-gradient(135deg, #c9a14b, #8a6b2e); }
+  .ev-info { flex: 1; min-width: 0; }
+  .ev-name { font-size: 15px; font-weight: 700; color: #1a2a3a; margin-bottom: 4px; }
+  .ev-meta { font-size: 12px; color: #6b7c8e; }
+  .ev-meta-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; flex-wrap: wrap; }
+  .meta-pill { background: #eef2f7; color: #25455D; padding: 3px 8px; border-radius: 8px; font-weight: 500; }
+  .meta-pill.soon { background: #fff4e0; color: #b86b00; }
+  .meta-pill.live { background: #ffe5e5; color: #d32f2f; font-weight: 700; }
+  .arrow { color: #c5cdd6; font-size: 22px; font-weight: 300; flex-shrink: 0; }
+
+  /* LIVE-карточка */
+  .live-card { background: linear-gradient(135deg, #25455D 0%, #0a1520 100%); color: white; border-radius: 16px; padding: 16px; margin-bottom: 14px; cursor: pointer; position: relative; overflow: hidden; }
+  .live-card::before { content: ''; position: absolute; top: 0; right: 0; width: 120px; height: 120px; background: radial-gradient(circle, rgba(255, 207, 164, 0.2) 0%, transparent 70%); }
+  .live-card-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; line-height: 1.3; position: relative; }
+  .live-card-meta { font-size: 12px; opacity: 0.7; margin-bottom: 12px; position: relative; }
+  .live-card-cta { background: #FFCFA4; color: #25455D; padding: 10px; border-radius: 10px; text-align: center; font-weight: 700; font-size: 13px; position: relative; }
+  .live-now-badge { display: inline-flex; align-items: center; gap: 5px; background: #d32f2f; color: white; font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 6px; letter-spacing: 0.5px; margin-bottom: 8px; position: relative; }
+
+  /* Bottom nav */
+  .bottom-nav { display: flex; background: white; border-top: 1px solid #e5eaef; flex-shrink: 0; }
+  .nav-tab { flex: 1; padding: 10px 4px 12px; text-align: center; cursor: pointer; color: #8a96a3; }
+  .nav-tab.active { color: #25455D; }
+  .nav-tab.active .nav-icon { background: #FFCFA4; color: #25455D; }
+  .nav-icon { width: 36px; height: 36px; margin: 0 auto 4px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; background: transparent; }
+  .nav-label { font-size: 11px; font-weight: 600; }
+
+  /* === Экосистема === */
+  .eco-hero { padding: 24px 20px; background: linear-gradient(45deg, #25455D, #0a1520); color: white; text-align: center; position: relative; overflow: hidden; flex-shrink: 0; }
+  .eco-hero::after { content: ''; position: absolute; top: -40px; right: -40px; width: 160px; height: 160px; background: radial-gradient(circle, rgba(255, 207, 164, 0.18) 0%, transparent 70%); }
+  .eco-back { position: absolute; top: 14px; left: 16px; font-size: 12px; opacity: 0.7; cursor: pointer; }
+  .eco-avatar { width: 84px; height: 84px; border-radius: 50%; background: linear-gradient(135deg, #d4789a, #8b4561); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 28px; margin: 0 auto 12px; border: 3px solid #FFCFA4; position: relative; }
+  .eco-name { font-size: 20px; font-weight: 700; margin-bottom: 4px; position: relative; }
+  .eco-tagline { font-size: 13px; opacity: 0.85; line-height: 1.5; margin-bottom: 14px; position: relative; }
+  .eco-stats { display: flex; gap: 8px; justify-content: center; margin-bottom: 16px; position: relative; }
+  .eco-stat { background: rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 10px; min-width: 80px; }
+  .eco-stat-num { font-size: 16px; font-weight: 700; color: #FFCFA4; }
+  .eco-stat-label { font-size: 10px; opacity: 0.7; margin-top: 2px; }
+  .eco-socials { display: flex; gap: 8px; justify-content: center; position: relative; }
+  .eco-social { width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; }
+
+  .eco-tab-switch { display: flex; margin: 14px 16px 0; padding: 4px; background: linear-gradient(135deg, #25455D, #0a1520); border-radius: 14px; gap: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.15); }
+  .eco-tab { flex: 1; padding: 11px 4px; text-align: center; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.55); border-radius: 11px; cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px; }
+  .eco-tab.active { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: #25455D; box-shadow: 0 2px 8px rgba(255,207,164,0.4); }
+
+  .offering { background: white; border-radius: 14px; padding: 14px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(37, 69, 93, 0.05); }
+  .offering-row { display: flex; gap: 12px; }
+  .offering-icon { width: 44px; height: 44px; border-radius: 10px; background: linear-gradient(135deg, #fff4e0, #FFCFA4); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .offering-body { flex: 1; }
+  .offering-title { font-size: 14px; font-weight: 700; color: #1a2a3a; margin-bottom: 3px; }
+  .offering-desc { font-size: 12px; color: #6b7c8e; line-height: 1.45; margin-bottom: 6px; }
+  .offering-price { font-size: 13px; font-weight: 700; color: #25455D; margin-top: 2px; }
+  .offering-price.free { color: #2e7d32; }
+  .offering-btn { margin-top: 10px; padding: 10px; border-radius: 10px; text-align: center; font-weight: 700; font-size: 13px; cursor: pointer; }
+  .offering-btn.peach { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: #25455D; box-shadow: 0 2px 6px rgba(255,207,164,0.4); }
+  .offering-btn.dark { background: linear-gradient(135deg, #25455D, #0a1520); color: #FFCFA4; }
+</style>
+</head>
+<body>
+
+<div class="section-banner">
+  Хаб организатора
+  <small>Открывается из своего бота клиента (про-тариф) или из общего @pluson_bot если у участника один клиент. Две вкладки: Календарь и Экосистема.</small>
+</div>
+
+<div class="row">
+
+  <!-- Вкладка Календарь -->
+  <div class="col">
+    <div class="label"><strong>Вкладка 1.</strong> <span class="ico ico-cal"></span> Календарь — все события клиента</div>
+    <div class="phone">
+      <div class="header">
+        <div class="header-top">
+          <img src="../images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" class="logo-img">
+          <div class="logo-text">ПЛЮСОН</div>
+        </div>
+        <div class="header-title">Марго Форбс</div>
+        <div class="header-sub">Реферальный сервис · iVision</div>
+      </div>
+
+      <div class="content">
+
+        <div class="section-title live">
+          <span class="live-dot"></span>
+          Идёт прямо сейчас
+        </div>
+
+        <div class="live-card">
+          <div class="live-now-badge">
+            <span style="width:6px;height:6px;background:white;border-radius:50%;"></span>
+            LIVE
+          </div>
+          <div class="live-card-title">iVision Conference — день 2</div>
+          <div class="live-card-meta">Стрим идёт · 247 участников</div>
+          <div class="live-card-cta">Подключиться к стриму →</div>
+        </div>
+
+        <div class="section-title">Скоро</div>
+
+        <div class="event-card featured">
+          <div class="event-thumb">PLG</div>
+          <div class="ev-info">
+            <div class="ev-name">Подкаст «PLG в России»</div>
+            <div class="ev-meta">Закрытый разговор с тремя CEO</div>
+            <div class="ev-meta-row">
+              <span class="meta-pill soon">2 мая · 19:00</span>
+              <span class="meta-pill">Эфир в TG</span>
+            </div>
+          </div>
+          <div class="arrow">›</div>
+        </div>
+
+        <div class="event-card">
+          <div class="event-thumb b">МК</div>
+          <div class="ev-info">
+            <div class="ev-name">Мастер-класс «Письма продают»</div>
+            <div class="ev-meta">Как писать так, чтобы покупали</div>
+            <div class="ev-meta-row">
+              <span class="meta-pill soon">12 мая · 18:00</span>
+            </div>
+          </div>
+          <div class="arrow">›</div>
+        </div>
+
+        <div class="section-title">Прошедшие</div>
+
+        <div class="event-card">
+          <div class="event-thumb c">iV6</div>
+          <div class="ev-info">
+            <div class="ev-name">iVision Conference 6</div>
+            <div class="ev-meta">Запись доступна</div>
+            <div class="ev-meta-row">
+              <span class="meta-pill">Январь 2026</span>
+            </div>
+          </div>
+          <div class="arrow">›</div>
+        </div>
+
+      </div>
+
+      <div class="bottom-nav">
+        <div class="nav-tab active">
+          <div class="nav-icon"><span class="ico ico-cal"></span></div>
+          <div class="nav-label">Календарь</div>
+        </div>
+        <div class="nav-tab">
+          <div class="nav-icon"><span class="ico ico-eco"></span></div>
+          <div class="nav-label">Экосистема</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Вкладка Экосистема -->
+</div>
+
+<div class="section-banner" style="background:#FFCFA4;color:#25455D;">
+  Вторая вкладка хаба — <span class="ico ico-eco"></span> Экосистема
+  <small>Шаблон Экосистемы общий для хаба и всех типов событий. Открывайте mockup_shared_tabs.html для актуального макета.</small>
+</div>
+</body>
+</html>

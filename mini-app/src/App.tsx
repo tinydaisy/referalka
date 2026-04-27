@@ -20,7 +20,13 @@ function parseStartParam(raw: string): {
   return r
 }
 
-function sendTgEvent(eventName: string, user: any, partnerId?: string) {
+function sendTgEvent(
+  eventName: string,
+  user: any,
+  partnerId?: string,
+  eventSlug?: string,
+  clientId?: number,
+) {
   try {
     fetch(`${import.meta.env.VITE_API_URL}/api/v1/event`, {
       method: 'POST',
@@ -33,6 +39,8 @@ function sendTgEvent(eventName: string, user: any, partnerId?: string) {
         last_name:  user.last_name  || '',
         username:   user.username   || '',
         partner_id: partnerId || '',
+        event_slug: eventSlug || '',
+        client_id: clientId || 0,
       }),
     })
   } catch (_) {}
@@ -77,7 +85,7 @@ export default function App() {
         if (parsed.clientId)  setClientId(parsed.clientId)
         setPartnerId(parsed.partnerId)
         setUtmSource(parsed.utmSource)
-        if (user) sendTgEvent('event_start', user, parsed.partnerId)
+        if (user) sendTgEvent('event_start', user, parsed.partnerId, parsed.eventSlug, parsed.clientId)
       }
 
       twa.requestWriteAccess?.(() => {})

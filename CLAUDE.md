@@ -100,6 +100,27 @@
 - Ссылка в Telegram: `https://plusson.app/l/ivision-7?app=tg`
 - С партнёром и UTM: `https://plusson.app/l/ivision-7?app=tg&new_partner_id=123&utm_source=insta`
 
+### Бренд клиента + Розыгрыш + VIP/Чат конференции (миграция 042 от 27.04.2026)
+
+**Бренд клиента — `clients.brand_name`** (опционально). Используется в Экосистеме Mini App в шапке. Если NULL — fallback на `clients.name`. Работает в паре с уже существующими `clients.profile_photo_url`, `positioning` (роль владельца), `achievements` JSONB (4 регалии {label,value} для сетки 2×2). API: `PATCH /api/v1/clients/me/profile { brand_name, positioning, achievements: [{label,value}×4], profile_photo_url }`. Публичный: `GET /api/v1/public/clients/{id}/profile`.
+
+**Подсчёт подарков — `event_referral_settings.gift_count_mode`** = `'registered'` (default) | `'visited'`. Клиент в дашборде выбирает: подарки выдаются за зарегистрировавшихся или за переходы. Mini App показывает соответствующий счётчик.
+
+**VIP-тариф и Чат — только для конференций** (поля в `events`):
+- `has_vip_tariff` BOOL + `vip_price`, `vip_url`, `vip_title`, `vip_description` — кнопка «ОПЛАТИТЬ VIP-ТАРИФ» в программе и «КУПИТЬ VIP-ТАРИФ С ЗАПИСЯМИ» в итогах
+- `chat_url` + `chat_subscriptions_required` BOOL + `chat_member_count_label` (статичная подпись «900+ человек») — плитка чата в программе
+
+**Розыгрыш** — три новые таблицы:
+- `event_raffle_settings (event_id UNIQUE, is_enabled, draw_at, subscription_grants_starter_ticket, intro_text)` — общие настройки
+- `event_raffle_prizes (event_id, title, description, icon_emoji, icon_url, places_count, value_label, sort_order, is_active)` — список призов в раскрывающемся блоке Mini App
+- `event_raffle_keywords (event_id, keyword, keyword_lower UNIQUE per event, tickets_reward, max_uses, used_count, sort_order, is_active)` — кодовые слова
+
+API: `/api/v1/events/{event_id}/raffle/{settings|prizes|keywords}` (GET/POST/PATCH/DELETE).
+
+**Один активный канал per платформа на клиента** — UNIQUE индекс `channels(client_id, platform_slug) WHERE is_active`. Старый канал можно отключить (`is_active=false`), новый создать с тем же `platform_slug`.
+
+**Приветствие при входе в Mini App теперь шлётся через бот клиента** — `backend/app/api/event.py` использует `get_client_telegram_token(client_id, db)` (определяя клиента по `event_slug` или `client_id` из startapp-параметра). Если у клиента не настроен канал — fallback на общего `@pluson_bot`.
+
 ### Файловое хранилище R2 (миграция 037 от 26.04.2026)
 
 **Все файлы клиента (афиши, лид-магниты, сертификаты, материалы шеринга, фото спикеров) грузятся через единый endpoint `POST /api/v1/uploads` (FastAPI, не Next.js).** Бэкенд: ресайз картинок (Pillow) → upload в R2 (boto3) → запись в `client_files` → инкремент `clients.storage_used_bytes`.
@@ -244,18 +265,18 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 **А. ДО регистрации участника (`event_participants.is_registered = false`):**
 - Контент = только лендинг (афиша + описание + дата + кнопка «Хочу участвовать»)
-- Нижние вкладки (5): `📋 Лендинг (открыта)`, `🔒 Программа`, `🔒 Игра`, `🔒 Розыгрыш`, `🔒 Услуги`
+- Нижние вкладки (5): `📋 Лендинг (открыта)`, `🔒 Программа`, `🔒 Игра`, `🔒 Розыгрыш`, `🔒 Экосистема`
 - Тап по 🔒 → попап «Зарегистрируйтесь чтобы открыть»
 - В контенте никаких «замков с объяснениями» — лендинг чистый
 
 **Б. ПОСЛЕ регистрации (событие активно или ещё впереди):**
 - Шапка: название + дата (через сколько дней / идёт сейчас)
-- Нижние вкладки (4): `📅 Программа`, `🎯 Игра`, `🎟 Розыгрыш`, `💼 Услуги`
+- Нижние вкладки (4): `📅 Программа`, `🎯 Игра`, `🎟 Розыгрыш`, `🌐 Экосистема`
 - **Вкладки «Лендинг» и «Главное» НЕТ** — после регистрации Программа = главный экран
 - Программа: только расписание выступлений + кнопка «Подключиться к стриму» когда событие идёт. **Без афиши, без описания, без статуса** — это уже было показано на лендинге
 - Стрим (`conf_days.stream_url`) виден **только зарегистрированным**
 - Розыгрыш — только если включён модуль для события
-- Услуги — `conf_commercial_items` per-event
+- Экосистема (раньше называлась «Услуги») — единый шаблон с Экосистемой в Хабе и в состоянии В: визитка клиента + переключатель Платно/Бесплатно + продукты клиента и партнёров (`conf_commercial_items` per-event объединяются с `client_offerings` клиента)
 
 **В. ПОСЛЕ завершения события:**
 - Нижние вкладки (4) — комбинация события и хаба:
