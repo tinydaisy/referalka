@@ -299,7 +299,7 @@ async def copy_event(
         if src['module_slug'] == 'conference':
             old_conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
             if old_conf:
-                cols = [k for k in dict(old_conf).keys() if k not in ('event_id', 'editor_code')]
+                cols = [k for k in dict(old_conf).keys() if k not in ('id', 'event_id', 'editor_code')]
                 placeholders = ",".join(f"${i+2}" for i in range(len(cols)))
                 await db.execute(
                     f"INSERT INTO conf_conferences (event_id, {','.join(cols)}) VALUES ($1, {placeholders})",
