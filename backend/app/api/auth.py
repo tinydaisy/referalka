@@ -136,10 +136,9 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
-                EXISTS (SELECT 1 FROM channels
-                        WHERE client_id = c.id AND platform_slug = 'telegram'
-                          AND is_active = TRUE AND bot_token IS NOT NULL
-                          AND bot_token <> '') AS bot_token_set,
+                (SELECT bot_token FROM channels
+                 WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
+                 ORDER BY id LIMIT 1) AS bot_token,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
            FROM clients c WHERE c.id = $1""",
         client_id
@@ -177,10 +176,9 @@ async def update_me(
         client = await db.fetchrow(
             """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
-                EXISTS (SELECT 1 FROM channels
-                        WHERE client_id = c.id AND platform_slug = 'telegram'
-                          AND is_active = TRUE AND bot_token IS NOT NULL
-                          AND bot_token <> '') AS bot_token_set,
+                (SELECT bot_token FROM channels
+                 WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
+                 ORDER BY id LIMIT 1) AS bot_token,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
            FROM clients c WHERE c.id = $1""",
             client_id
