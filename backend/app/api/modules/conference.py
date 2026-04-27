@@ -219,7 +219,6 @@ class ConferenceUpdate(BaseModel):
     vip_upsell_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
     subscription_mode: Optional[str] = None   # none | organizer | all_speakers
-    organizer_speaker_id: Optional[int] = None
     is_live: Optional[bool] = None
     status: Optional[str] = None
     poster_horizontal: Optional[List[str]] = None
@@ -1661,7 +1660,6 @@ async def export_salebot(
 
     event = await db.fetchrow("SELECT * FROM events WHERE id = $1", event_id)
     conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
-    organizer_cse_id = conf["organizer_speaker_id"] if conf else None
 
     # Спикеры
     rows = await db.fetch(
@@ -1713,14 +1711,12 @@ async def export_salebot(
             return f"{val.day} {months[val.month - 1]}"
         return str(val)
 
-    # Разбиваем спикеров на группы для каналов
+    # Разбиваем спикеров на группы для каналов.
+    # Организатор определяется ролью спикера (cse.role == 'organizer'),
+    # а не отдельным полем conf_conferences.organizer_speaker_id (удалено).
     def split_by_role(sp_list, role_key="role"):
-        organizer_ids = set()
-        if organizer_cse_id:
-            org = next((s for s in sp_list if s["id"] == organizer_cse_id), None)
-            if org:
-                organizer_ids.add(org["id"])
-        organizers = [s for s in sp_list if s["id"] in organizer_ids]
+        organizers = [s for s in sp_list if s.get("role") == "organizer"]
+        organizer_ids = {s["id"] for s in organizers}
         partners = [s for s in sp_list if s["id"] not in organizer_ids and s.get("role") == "partner"]
         others = [s for s in sp_list if s["id"] not in organizer_ids and s.get("role") != "partner"]
         return organizers, others, partners

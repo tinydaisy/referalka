@@ -40,18 +40,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
     registration_url: conf?.registration_url || '',
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
-    organizer_speaker_id: conf?.organizer_speaker_id || '',
     telegram_chat_ids: conf?.telegram_chat_ids || '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [speakers, setSpeakers] = useState<any[]>([])
-
-  useEffect(() => {
-    api.conference.speakers.list(eventId)
-      .then(r => setSpeakers(r.speakers || []))
-      .catch(() => {})
-  }, [eventId])
 
   useEffect(() => {
     setForm(f => ({
@@ -60,7 +52,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
       registration_url: conf?.registration_url || '',
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
-      organizer_speaker_id: conf?.organizer_speaker_id || '',
       telegram_chat_ids: conf?.telegram_chat_ids || '',
     }))
   }, [conf])
@@ -91,7 +82,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
         registration_url: form.registration_url || null,
         raffle_url: form.raffle_url || null,
         subscription_mode: form.subscription_mode,
-        organizer_speaker_id: form.organizer_speaker_id ? Number(form.organizer_speaker_id) : null,
         telegram_chat_ids: form.telegram_chat_ids || null,
       } as any)
       onConfUpdated(updated.conference)
@@ -104,7 +94,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
     }
   }
 
-  const organizers = speakers.filter(s => s.role === 'organizer')
   const ts = t.conferences.settings
 
   return (
@@ -150,28 +139,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
             className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none font-mono ${chatIdsError ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-brand'}`} />
           {chatIdsError && <p className="text-xs text-red-500 mt-1">{chatIdsError}</p>}
           <p className="text-xs text-gray-400 mt-1">Узнать ID канала: перешли любое сообщение из него боту @userinfobot</p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <h2 className="font-semibold text-gray-900">{ts.organizer}</h2>
-        <p className="text-sm text-gray-500">{ts.organizerHint}</p>
-        <div>
-          <select value={form.organizer_speaker_id} onChange={set('organizer_speaker_id')}
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white">
-            <option value="">{ts.organizerNone}</option>
-            {organizers.length > 0
-              ? organizers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)
-              : speakers.map(sp => (
-                  <option key={sp.id} value={sp.id}>
-                    {sp.name} ({t.conferences.speakers.roles[sp.role as keyof typeof t.conferences.speakers.roles] || sp.role})
-                  </option>
-                ))
-            }
-          </select>
-          {speakers.length === 0 && (
-            <p className="text-xs text-gray-400 mt-1.5">{ts.organizerNoSpeakers}</p>
-          )}
         </div>
       </div>
 
