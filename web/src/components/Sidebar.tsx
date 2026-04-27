@@ -58,17 +58,14 @@ export default function Sidebar() {
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className="px-5 py-6 border-b border-white/10">
-        <img
-          src="/images/logo_no_ivision_wwhite.png"
-          alt="ПЛЮСОН"
-          className="h-8 w-auto"
-          onError={(e) => {
-            const t = e.target as HTMLImageElement
-            t.style.display = 'none'
-            t.nextElementSibling?.classList.remove('hidden')
-          }}
-        />
-        <span className="hidden text-[#FFCFA4] font-bold text-xl tracking-wide">ПЛЮСОН</span>
+        <div className="flex items-center gap-2.5">
+          <img
+            src="/images/logo_no_ivision_wwhite.png"
+            alt=""
+            className="h-8 w-auto"
+          />
+          <span className="text-[#FFCFA4] font-bold text-xl tracking-wide">ПЛЮСОН</span>
+        </div>
         <p className="text-white/50 text-xs mt-1">реферальный сервис</p>
       </div>
 
