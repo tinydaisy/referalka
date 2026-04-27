@@ -1,23 +1,25 @@
 import { useState, useEffect } from 'react'
-import Dashboard from './pages/Dashboard'
+import Hub from './pages/Hub'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 
-// Парсит startapp Telegram: "ref_pgivision-7_pid5725111966_srcinsta"
-// pg{slug} → event slug (напр. pgivision-7 → 'ivision-7')
-// pid      → partnerId (промо-партнёр события)
-// src      → utmSource
-function parseStartParam(raw: string): { eventSlug?: string; partnerId?: string; utmSource?: string } {
-  const result: { eventSlug?: string; partnerId?: string; utmSource?: string } = {}
+// Fallback: в MVP клиент один (Марго). В будущем — определять через `?cid=N` или через startapp `_cid{N}`.
+const DEFAULT_CLIENT_ID = Number(import.meta.env.VITE_DEFAULT_CLIENT_ID || '1')
+
+// Парсит startapp Telegram: "ref_pgivision-7_pid5725111966_srcinsta_cid1"
+function parseStartParam(raw: string): {
+  eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number
+} {
+  const r: any = {}
   raw.split('_').forEach(p => {
-    if (p.startsWith('pg'))  result.eventSlug  = p.slice(2)
-    if (p.startsWith('pid')) result.partnerId  = p.slice(3)
-    if (p.startsWith('src')) result.utmSource  = p.slice(3)
+    if (p.startsWith('pg'))  r.eventSlug  = p.slice(2)
+    if (p.startsWith('pid')) r.partnerId  = p.slice(3)
+    if (p.startsWith('src')) r.utmSource  = p.slice(3)
+    if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
   })
-  return result
+  return r
 }
 
-// Отправляет событие на бэкенд (бот шлёт приветственное сообщение пользователю)
 function sendTgEvent(eventName: string, user: any, partnerId?: string) {
   try {
     fetch(`${import.meta.env.VITE_API_URL}/api/v1/event`, {
@@ -25,11 +27,11 @@ function sendTgEvent(eventName: string, user: any, partnerId?: string) {
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user_id:    String(user.id || ''),
-        event:      eventName,
-        first_name: user.first_name  || '',
-        last_name:  user.last_name   || '',
-        username:   user.username    || '',
+        user_id: String(user.id || ''),
+        event: eventName,
+        first_name: user.first_name || '',
+        last_name:  user.last_name  || '',
+        username:   user.username   || '',
         partner_id: partnerId || '',
       }),
     })
@@ -46,10 +48,10 @@ const MOCK_USER = { id: 123456789, first_name: 'Тест', username: 'test_user'
 export default function App() {
   const [loading, setLoading] = useState(true)
   const [tgUser, setTgUser] = useState<any>(null)
-  // eventSlug — если задан, сразу открываем EventPage, минуя Dashboard
   const [eventSlug, setEventSlug] = useState<string | null>(() => parsePathSlug())
-  // partnerId / utmSource из startapp — передаём в Dashboard для fallback-регистрации
-  const [startParams, setStartParams] = useState<{ partnerId?: string; utmSource?: string }>({})
+  const [clientId, setClientId] = useState<number>(DEFAULT_CLIENT_ID)
+  const [partnerId, setPartnerId] = useState<string | undefined>()
+  const [utmSource, setUtmSource] = useState<string | undefined>()
 
   useEffect(() => {
     const twa = (window as any).Telegram?.WebApp
@@ -62,33 +64,39 @@ export default function App() {
       const user = twa.initDataUnsafe?.user
       if (user) setTgUser(user)
 
-      // Парсим startapp: ref_pgivision-7_pid123_srcinsta
       const sp = twa.initDataUnsafe?.start_param as string | undefined
-      if (sp?.startsWith('ref')) {
+      if (sp?.startsWith('ref') || sp?.startsWith('hub')) {
         const parsed = parseStartParam(sp)
-        // Если в startapp есть slug события — сразу открываем его
         if (parsed.eventSlug) setEventSlug(parsed.eventSlug)
-        setStartParams({ partnerId: parsed.partnerId, utmSource: parsed.utmSource })
-        // Уведомляем бэкенд — бот отправит приветственное сообщение
+        if (parsed.clientId)  setClientId(parsed.clientId)
+        setPartnerId(parsed.partnerId)
+        setUtmSource(parsed.utmSource)
         if (user) sendTgEvent('event_start', user, parsed.partnerId)
       }
 
-      // Запрашиваем разрешение боту писать пользователю (один раз, при первом визите)
-      // Повторный визит: диалог не показывается, разрешение уже выдано
       twa.requestWriteAccess?.(() => {})
     }
-    // Dev fallback
     setTgUser(prev => prev || MOCK_USER)
-    const t = setTimeout(() => setLoading(false), 700)
+    const t = setTimeout(() => setLoading(false), 600)
     return () => clearTimeout(t)
   }, [])
 
-  // Роутинг: popstate для кнопки "назад" внутри мини-апп
+  // ?? URL роутинг: popstate
   useEffect(() => {
     const handler = () => setEventSlug(parsePathSlug())
     window.addEventListener('popstate', handler)
     return () => window.removeEventListener('popstate', handler)
   }, [])
+
+  function openEvent(slug: string) {
+    window.history.pushState({}, '', `/event/${slug}`)
+    setEventSlug(slug)
+  }
+
+  function backToHub() {
+    window.history.pushState({}, '', '/')
+    setEventSlug(null)
+  }
 
   if (loading) return <LoadingScreen />
 
@@ -97,10 +105,12 @@ export default function App() {
       <EventPage
         slug={eventSlug}
         tgUser={tgUser}
-        partnerId={startParams.partnerId}
-        utmSource={startParams.utmSource}
+        partnerId={partnerId}
+        utmSource={utmSource}
+        onBack={backToHub}
       />
     )
   }
-  return <Dashboard tgUser={tgUser} startParams={startParams} onOpenEvent={setEventSlug} />
+
+  return <Hub clientId={clientId} tgUser={tgUser} onOpenEvent={openEvent} />
 }

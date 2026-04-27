@@ -9,6 +9,7 @@ export async function req(path: string, options?: RequestInit) {
   return res.json()
 }
 
+// ── Регистрация и участники ──
 export const registerParticipant = (data: any) =>
   req('/api/v1/participants/register', { method: 'POST', body: JSON.stringify(data) })
 
@@ -21,6 +22,7 @@ export const getParticipantInEvent = (slug: string, tgId: number) =>
 export const activateParticipant = (id: number) =>
   req(`/api/v1/participants/${id}/activate`, { method: 'POST' })
 
+// ── Подарки и программа ──
 export const getGifts = (slug: string) =>
   req(`/api/v1/events/slug/${slug}/gifts/`)
 
@@ -38,3 +40,16 @@ export const verifyCode = (eventId: number, code: string, participantId: number)
     method: 'POST',
     body: JSON.stringify({ code, participant_id: participantId })
   })
+
+// ── Хаб организатора (миграция 039) ──
+export const getClientProfile = (clientId: number) =>
+  req(`/api/v1/public/clients/${clientId}/profile`)
+
+export const getClientOfferings = (clientId: number) =>
+  req(`/api/v1/public/clients/${clientId}/offerings`)
+
+export const getClientEvents = (clientId: number, bucket?: 'now' | 'upcoming' | 'past') =>
+  req(`/api/v1/public/clients/${clientId}/events${bucket ? `?bucket=${bucket}` : ''}`)
+
+export const getEventLanding = (slug: string) =>
+  req(`/api/v1/public/events/${slug}/landing`)
