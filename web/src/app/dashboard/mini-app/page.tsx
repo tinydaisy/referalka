@@ -2,18 +2,19 @@
 /**
  * Настройка Mini App — что видят участники в Telegram.
  *
- * Две вкладки:
- *   - «Визитка» (clients.bio/photo/positioning/achievements/social_links) → шапка вкладки «Экосистема» в Mini App
- *   - «Продукты» (client_offerings) → блоки «Платно» и «Бесплатно» во вкладке «Экосистема»
+ * Структура страницы повторяет структуру вкладки «Экосистема» в Mini App
+ * сверху вниз — Шапка → Регалии → Соцсети → Продукты — чтобы клиенту
+ * было очевидно, какой блок что настраивает.
+ *
+ * - profile (clients.bio/photo/positioning/achievements/social_links) → одна общая кнопка «Сохранить»
+ * - offerings (client_offerings) → CRUD через модалку, каждый продукт сохраняется отдельно
  */
 import { useEffect, useState } from 'react'
-import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink } from 'lucide-react'
+import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Calendar, Globe } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
 const GRADIENT = 'linear-gradient(45deg, #25455D, #0a1520)'
-
-type Tab = 'profile' | 'offerings'
 
 interface Achievement { label: string; value: string }
 interface Profile {
@@ -44,106 +45,54 @@ const SOCIAL_FIELDS: { key: string; label: string; placeholder: string }[] = [
 ]
 
 export default function MiniAppSettingsPage() {
-  const [tab, setTab] = useState<Tab>('profile')
-
-  return (
-    <div>
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
-        <div className="flex items-start gap-3">
-          <div className="p-2 rounded-lg text-white" style={{ background: GRADIENT }}>
-            <Smartphone size={22} />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: BRAND }}>
-              Настройка Mini App
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Что видят ваши участники, когда открывают Telegram Mini App
-            </p>
-          </div>
-        </div>
-        <a
-          href="/tg/" target="_blank" rel="noreferrer"
-          className="flex items-center gap-2 text-sm border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          <Eye size={15} /> Превью
-        </a>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mb-6">
-        {([
-          { id: 'profile',   label: 'Визитка'  },
-          { id: 'offerings', label: 'Продукты' },
-        ] as { id: Tab; label: string }[]).map(t => {
-          const active = tab === t.id
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                active ? '' : 'border-transparent text-gray-500 hover:text-gray-800'
-              }`}
-              style={active ? { color: BRAND, borderColor: '#FFCFA4' } : undefined}
-            >
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {tab === 'profile'   && <ProfileSection />}
-      {tab === 'offerings' && <OfferingsSection />}
-    </div>
-  )
-}
-
-// ════════════════════════════════════════════
-// ВКЛАДКА «Визитка»
-// ════════════════════════════════════════════
-function ProfileSection() {
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [offerings, setOfferings] = useState<Offering[]>([])
+  const [loadingOff, setLoadingOff] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [editing, setEditing] = useState<Offering | null>(null)
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     api.miniApp.profile.get().then(setProfile).catch(() => {})
+    loadOfferings()
   }, [])
 
-  if (!profile) {
-    return <p className="text-gray-400 text-sm">Загрузка…</p>
+  async function loadOfferings() {
+    setLoadingOff(true)
+    try {
+      const r = await api.miniApp.offerings.list()
+      setOfferings(r.items || [])
+    } finally {
+      setLoadingOff(false)
+    }
   }
 
   function update<K extends keyof Profile>(key: K, value: Profile[K]) {
     setProfile(p => p ? { ...p, [key]: value } : p)
   }
-
   function updateSocial(key: string, value: string) {
     if (!profile) return
     const next = { ...profile.social_links }
-    if (value.trim()) next[key] = value.trim()
-    else delete next[key]
+    if (value.trim()) next[key] = value.trim(); else delete next[key]
     update('social_links', next)
   }
-
   function updateAchievement(idx: number, field: 'label' | 'value', value: string) {
     if (!profile) return
     const ach = [...profile.achievements]
     ach[idx] = { ...ach[idx], [field]: value }
     update('achievements', ach)
   }
-
   function addAchievement() {
     if (!profile) return
     update('achievements', [...profile.achievements, { label: '', value: '' }])
   }
-
   function removeAchievement(idx: number) {
     if (!profile) return
     update('achievements', profile.achievements.filter((_, i) => i !== idx))
   }
 
-  async function save() {
+  async function saveProfile() {
     if (!profile) return
     setSaving(true)
     try {
@@ -156,8 +105,7 @@ function ProfileSection() {
         social_links:      profile.social_links,
       })
       setProfile(p => p ? { ...p, ...updated } : updated)
-      setSavedAt(Date.now())
-      setTimeout(() => setSavedAt(null), 2000)
+      setSavedAt(Date.now()); setTimeout(() => setSavedAt(null), 2000)
     } catch (e: any) {
       alert(e.message || 'Не удалось сохранить')
     } finally {
@@ -165,203 +113,271 @@ function ProfileSection() {
     }
   }
 
+  async function deleteOffering(id: number) {
+    if (!confirm('Удалить продукт? Он сразу пропадёт из Mini App.')) return
+    try { await api.miniApp.offerings.delete(id); await loadOfferings() }
+    catch (e: any) { alert(e.message || 'Ошибка удаления') }
+  }
+
   return (
-    <div className="space-y-5 max-w-2xl">
-      {/* Photo + name + position + bio */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-        <h2 className="font-semibold" style={{ color: BRAND }}>Шапка визитки</h2>
-
-        <div>
-          <label className="label">Ссылка на фото</label>
-          <input
-            type="url"
-            value={profile.profile_photo_url || ''}
-            onChange={e => update('profile_photo_url', e.target.value)}
-            placeholder="https://..."
-            className="input"
-          />
-          {profile.profile_photo_url && (
-            <img src={profile.profile_photo_url} alt=""
-                 className="mt-3 w-24 h-24 rounded-full object-cover border-2"
-                 style={{ borderColor: '#FFCFA4' }}
-                 onError={e => (e.currentTarget.style.display = 'none')} />
-          )}
-          <p className="text-gray-400 text-xs mt-1.5">
-            Можно загрузить через «Лид-магниты» / «Афиши» и скопировать ссылку.
-          </p>
+    <div className="pb-24">
+      {/* Заголовок */}
+      <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div className="flex items-start gap-3">
+          <div className="p-2 rounded-lg text-white" style={{ background: GRADIENT }}>
+            <Smartphone size={22} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold" style={{ color: BRAND }}>
+              Настройка Mini App
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Что видят ваши участники, когда открывают Telegram Mini App
+            </p>
+          </div>
         </div>
+        <a href="/tg/" target="_blank" rel="noreferrer"
+           className="flex items-center gap-2 text-sm border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50 transition-colors">
+          <Eye size={15} /> Открыть Mini App
+        </a>
+      </div>
 
-        <div>
-          <label className="label">Имя</label>
-          <input type="text" value={profile.name} disabled
-                 className="input opacity-60 cursor-not-allowed" />
-          <p className="text-gray-400 text-xs mt-1.5">Имя редактируется в «Настройках» аккаунта</p>
-        </div>
-
-        <div>
-          <label className="label">Позиционирование (одна строка)</label>
-          <input
-            type="text"
-            value={profile.positioning || ''}
-            onChange={e => update('positioning', e.target.value)}
-            placeholder="Эксперт по личному бренду и продажам"
-            className="input"
-            maxLength={120}
-          />
-        </div>
-
-        <div>
-          <label className="label">Биография</label>
-          <textarea
-            value={profile.bio || ''}
-            onChange={e => update('bio', e.target.value)}
-            placeholder="Кратко расскажите о себе и о том, чем занимаетесь..."
-            className="input min-h-[120px]"
-          />
+      {/* Подсказка о структуре Mini App */}
+      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6 max-w-3xl">
+        <p className="text-sm text-gray-700 mb-3">
+          В вашем Mini App две вкладки внизу:
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex items-start gap-2 flex-1">
+            <Calendar size={18} className="mt-0.5 text-gray-500 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-gray-800">📅 Календарь</p>
+              <p className="text-xs text-gray-500 mt-0.5">Список ваших событий — заполняется автоматически из «Мероприятий»</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 flex-1">
+            <Globe size={18} className="mt-0.5 text-amber-500 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-gray-800">🌐 Экосистема ← настраивается здесь</p>
+              <p className="text-xs text-gray-500 mt-0.5">Ваша визитка + продукты, которые продвигаете</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Achievements */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold" style={{ color: BRAND }}>Регалии</h2>
-          <button onClick={addAchievement}
-                  className="text-sm flex items-center gap-1"
-                  style={{ color: BRAND }}>
-            <Plus size={15} /> Добавить
-          </button>
-        </div>
-        <p className="text-gray-500 text-xs">Краткие цифры для шапки. Например: «1500+» / «учеников».</p>
+      <div className="bg-amber-50 border-l-4 border-amber-300 rounded-r-lg px-4 py-2.5 mb-6 max-w-3xl">
+        <p className="text-xs text-amber-900">
+          ↓ Все блоки ниже отображаются на одном экране во вкладке «Экосистема» — сверху вниз в этом же порядке.
+        </p>
+      </div>
 
-        {profile.achievements.map((a, i) => (
-          <div key={i} className="flex gap-2 items-start">
-            <input type="text" value={a.value}
-                   onChange={e => updateAchievement(i, 'value', e.target.value)}
-                   placeholder="1500+" className="input w-28" />
-            <input type="text" value={a.label}
-                   onChange={e => updateAchievement(i, 'label', e.target.value)}
-                   placeholder="учеников" className="input flex-1" />
-            <button onClick={() => removeAchievement(i)}
-                    className="p-2 text-gray-400 hover:text-red-600"
-                    title="Удалить">
-              <Trash2 size={16} />
+      {/* ════════════════════════════════════════════════
+           БЛОК 1: Шапка профиля
+         ════════════════════════════════════════════════ */}
+      {profile && (
+        <Section
+          step={1}
+          title="Шапка профиля"
+          hint="В Mini App: верх вкладки «Экосистема» — фото, имя, позиционирование и описание."
+        >
+          <div className="space-y-4 max-w-2xl">
+            <Field label="Ссылка на фото"
+                   hint="Можно загрузить через «Лид-магниты» или «Афиши» и скопировать URL.">
+              <input type="url" value={profile.profile_photo_url || ''}
+                     onChange={e => update('profile_photo_url', e.target.value)}
+                     placeholder="https://..." className="input" />
+              {profile.profile_photo_url && (
+                <img src={profile.profile_photo_url} alt=""
+                     className="mt-3 w-24 h-24 rounded-full object-cover border-2"
+                     style={{ borderColor: '#FFCFA4' }}
+                     onError={e => (e.currentTarget.style.display = 'none')} />
+              )}
+            </Field>
+
+            <Field label="Имя" hint="Имя редактируется в общих «Настройках» аккаунта.">
+              <input type="text" value={profile.name} disabled
+                     className="input opacity-60 cursor-not-allowed" />
+            </Field>
+
+            <Field label="Позиционирование" hint="Одна короткая строка — что вы делаете и для кого. Покажется крупным золотым текстом под именем.">
+              <input type="text" value={profile.positioning || ''}
+                     onChange={e => update('positioning', e.target.value)}
+                     placeholder="Эксперт по личному бренду и продажам"
+                     className="input" maxLength={120} />
+            </Field>
+
+            <Field label="Биография" hint="Несколько предложений о вас. Покажется обычным текстом ниже позиционирования.">
+              <textarea value={profile.bio || ''}
+                        onChange={e => update('bio', e.target.value)}
+                        placeholder="Кратко расскажите о себе и о том, чем занимаетесь…"
+                        className="input min-h-[120px]" />
+            </Field>
+          </div>
+        </Section>
+      )}
+
+      {/* ════════════════════════════════════════════════
+           БЛОК 2: Регалии
+         ════════════════════════════════════════════════ */}
+      {profile && (
+        <Section
+          step={2}
+          title="Регалии"
+          hint="В Mini App: три карточки под фото с короткими цифрами достижений. Например — «1500+ учеников», «12 лет в нише»."
+          action={
+            <button onClick={addAchievement}
+                    className="text-sm flex items-center gap-1" style={{ color: BRAND }}>
+              <Plus size={15} /> Добавить
+            </button>
+          }
+        >
+          <div className="space-y-2 max-w-2xl">
+            {profile.achievements.map((a, i) => (
+              <div key={i} className="flex gap-2 items-start">
+                <input type="text" value={a.value}
+                       onChange={e => updateAchievement(i, 'value', e.target.value)}
+                       placeholder="Цифра — 1500+" className="input w-40" />
+                <input type="text" value={a.label}
+                       onChange={e => updateAchievement(i, 'label', e.target.value)}
+                       placeholder="Подпись — учеников" className="input flex-1" />
+                <button onClick={() => removeAchievement(i)}
+                        className="p-2 text-gray-400 hover:text-red-600" title="Удалить">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+            {profile.achievements.length === 0 && (
+              <p className="text-gray-400 text-sm">Пока нет регалий — добавьте до 3-х значимых.</p>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* ════════════════════════════════════════════════
+           БЛОК 3: Соцсети
+         ════════════════════════════════════════════════ */}
+      {profile && (
+        <Section
+          step={3}
+          title="Соцсети и сайт"
+          hint="В Mini App: ряд иконок под регалиями. Тап по иконке открывает соцсеть в новой вкладке. Заполните только то что хотите показать."
+        >
+          <div className="space-y-3 max-w-2xl">
+            {SOCIAL_FIELDS.map(f => (
+              <div key={f.key}>
+                <label className="label">{f.label}</label>
+                <input type="url"
+                       value={profile.social_links[f.key] || ''}
+                       onChange={e => updateSocial(f.key, e.target.value)}
+                       placeholder={f.placeholder}
+                       className="input" />
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* ════════════════════════════════════════════════
+           БЛОК 4: Продукты
+         ════════════════════════════════════════════════ */}
+      <Section
+        step={4}
+        title="Продукты и материалы"
+        hint='В Mini App: ниже соцсетей идут два блока — «💼 Платно» и «📄 Бесплатно». Сюда складывайте всё что хотите продавать или раздавать (курсы, мастер-группы, гайды, чек-листы, ссылки на канал).'
+        action={
+          <button onClick={() => setCreating(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-white text-sm font-medium"
+                  style={{ background: GRADIENT }}>
+            <Plus size={15} /> Добавить продукт
+          </button>
+        }
+      >
+        {loadingOff ? (
+          <p className="text-gray-400 text-sm">Загрузка…</p>
+        ) : offerings.length === 0 ? (
+          <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center">
+            <p className="text-gray-500 text-sm">Пока нет продуктов</p>
+            <button onClick={() => setCreating(true)}
+                    className="text-sm underline mt-2" style={{ color: BRAND }}>
+              Создать первый
             </button>
           </div>
-        ))}
-
-        {profile.achievements.length === 0 && (
-          <p className="text-gray-400 text-sm">Пока нет регалий — добавьте до 3-х значимых.</p>
-        )}
-      </div>
-
-      {/* Socials */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-        <h2 className="font-semibold" style={{ color: BRAND }}>Соцсети и сайт</h2>
-
-        {SOCIAL_FIELDS.map(f => (
-          <div key={f.key}>
-            <label className="label">{f.label}</label>
-            <input type="url"
-                   value={profile.social_links[f.key] || ''}
-                   onChange={e => updateSocial(f.key, e.target.value)}
-                   placeholder={f.placeholder}
-                   className="input" />
+        ) : (
+          <div className="space-y-5 max-w-2xl">
+            {offerings.filter(o => o.is_paid).length > 0 && (
+              <SubBlock title="💼 Платно" items={offerings.filter(o => o.is_paid)} onEdit={setEditing} onDelete={deleteOffering} />
+            )}
+            {offerings.filter(o => !o.is_paid).length > 0 && (
+              <SubBlock title="📄 Бесплатно" items={offerings.filter(o => !o.is_paid)} onEdit={setEditing} onDelete={deleteOffering} />
+            )}
           </div>
-        ))}
-      </div>
+        )}
+      </Section>
 
-      {/* Save bar */}
-      <div className="sticky bottom-4 bg-white border border-gray-200 rounded-xl shadow-md p-3 flex items-center justify-between gap-3">
-        <p className="text-gray-600 text-sm">
-          {savedAt ? '✓ Сохранено' : 'Изменения появятся в Mini App сразу после сохранения'}
-        </p>
-        <button onClick={save} disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg btn-gold disabled:opacity-60">
+      {/* ════════════════════════════════════════════════
+           Sticky-панель «Сохранить» (только для профиля)
+         ════════════════════════════════════════════════ */}
+      <div className="fixed bottom-4 left-4 right-4 lg:left-[256px] lg:right-6 bg-white border border-gray-200 rounded-xl shadow-lg p-3 flex items-center justify-between gap-3 z-30">
+        <div className="text-sm">
+          <p className="text-gray-700 font-medium">
+            {savedAt ? '✓ Сохранено — изменения уже видны в Mini App' : 'Шапка / Регалии / Соцсети'}
+          </p>
+          <p className="text-gray-400 text-xs">Продукты сохраняются автоматически при создании / редактировании</p>
+        </div>
+        <button onClick={saveProfile} disabled={saving}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg btn-gold disabled:opacity-60 whitespace-nowrap">
           <Save size={16} />
-          {saving ? 'Сохраняем…' : 'Сохранить'}
+          {saving ? 'Сохраняем…' : 'Сохранить визитку'}
         </button>
       </div>
-    </div>
-  )
-}
-
-// ════════════════════════════════════════════
-// ВКЛАДКА «Продукты»
-// ════════════════════════════════════════════
-function OfferingsSection() {
-  const [items, setItems] = useState<Offering[]>([])
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<Offering | null>(null)
-  const [creating, setCreating] = useState(false)
-
-  async function load() {
-    setLoading(true)
-    try {
-      const r = await api.miniApp.offerings.list()
-      setItems(r.items || [])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { load() }, [])
-
-  async function handleDelete(id: number) {
-    if (!confirm('Удалить продукт? Он сразу пропадёт из Mini App.')) return
-    try {
-      await api.miniApp.offerings.delete(id)
-      await load()
-    } catch (e: any) {
-      alert(e.message || 'Ошибка удаления')
-    }
-  }
-
-  const paid = items.filter(i => i.is_paid)
-  const free = items.filter(i => !i.is_paid)
-
-  return (
-    <div className="max-w-2xl">
-      <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
-        <p className="text-gray-600 text-sm">
-          Карточки во вкладке «Экосистема» в Mini App. Делятся на «Платно» и «Бесплатно».
-        </p>
-        <button onClick={() => setCreating(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium whitespace-nowrap"
-                style={{ background: GRADIENT }}>
-          <Plus size={16} /> Добавить
-        </button>
-      </div>
-
-      {loading ? (
-        <p className="text-gray-400 text-sm">Загрузка…</p>
-      ) : items.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-          <Smartphone className="mx-auto mb-3 text-gray-300" size={40} />
-          <p className="text-gray-500 text-sm mb-4">Пока нет продуктов</p>
-          <button onClick={() => setCreating(true)}
-                  className="text-sm underline" style={{ color: BRAND }}>
-            Создать первый
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {paid.length > 0 && <Block title="💼 Платно"    items={paid} onEdit={setEditing} onDelete={handleDelete} />}
-          {free.length > 0 && <Block title="📄 Бесплатно" items={free} onEdit={setEditing} onDelete={handleDelete} />}
-        </div>
-      )}
 
       {(creating || editing) && (
         <OfferingModal
           initial={editing}
           onClose={() => { setCreating(false); setEditing(null) }}
-          onSaved={async () => { setCreating(false); setEditing(null); await load() }}
+          onSaved={async () => { setCreating(false); setEditing(null); await loadOfferings() }}
         />
       )}
     </div>
   )
 }
 
-function Block({
+// ═══════════════════ Helpers ═══════════════════
+
+function Section({
+  step, title, hint, action, children,
+}: { step: number; title: string; hint: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
+      <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <div className="flex items-start gap-3">
+          <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
+               style={{ background: GRADIENT }}>
+            {step}
+          </div>
+          <div>
+            <h2 className="font-semibold text-lg" style={{ color: BRAND }}>{title}</h2>
+            <p className="text-xs text-gray-500 mt-1 max-w-2xl">{hint}</p>
+          </div>
+        </div>
+        {action}
+      </div>
+      <div className="pt-2">{children}</div>
+    </div>
+  )
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      {children}
+      {hint && <p className="text-gray-400 text-xs mt-1.5">{hint}</p>}
+    </div>
+  )
+}
+
+function SubBlock({
   title, items, onEdit, onDelete,
 }: { title: string; items: Offering[]; onEdit: (o: Offering) => void; onDelete: (id: number) => void }) {
   return (
@@ -453,23 +469,26 @@ function OfferingModal({
                       placeholder="Что это и кому подходит" />
           </div>
           <div>
-            <label className="label">Ссылка (куда ведёт кнопка)</label>
+            <label className="label">Ссылка (куда ведёт кнопка «Узнать подробнее»)</label>
             <input type="url" value={url} onChange={e => setUrl(e.target.value)}
                    className="input" placeholder="https://..." />
           </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setIsPaid(true)}
-                    className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                      isPaid ? 'bg-amber-50 border-amber-300 text-amber-800' : 'border-gray-300 text-gray-500'
-                    }`}>
-              💼 Платно
-            </button>
-            <button type="button" onClick={() => setIsPaid(false)}
-                    className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                      !isPaid ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-300 text-gray-500'
-                    }`}>
-              📄 Бесплатно
-            </button>
+          <div>
+            <label className="label">Куда показывать в Mini App</label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setIsPaid(true)}
+                      className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        isPaid ? 'bg-amber-50 border-amber-300 text-amber-800' : 'border-gray-300 text-gray-500'
+                      }`}>
+                💼 В блок «Платно»
+              </button>
+              <button type="button" onClick={() => setIsPaid(false)}
+                      className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        !isPaid ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-300 text-gray-500'
+                      }`}>
+                📄 В блок «Бесплатно»
+              </button>
+            </div>
           </div>
         </div>
 
