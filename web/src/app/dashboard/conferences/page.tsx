@@ -123,14 +123,6 @@ export default function ConferencesPage() {
             return (
               <div key={e.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
                 <Link href={`/dashboard/conferences/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
-                  {e.poster_url ? (
-                    <img src={e.poster_url} alt="" className="w-10 h-10 rounded object-cover bg-gray-100" />
-                  ) : (
-                    <div className="w-10 h-10 rounded flex items-center justify-center"
-                         style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-                      <Mic size={16} className="text-white/60" />
-                    </div>
-                  )}
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-gray-900 truncate">{e.title}</div>
                     <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
@@ -139,11 +131,6 @@ export default function ConferencesPage() {
                       <span>{e.participants_count || 0} {t.conferences.participants}</span>
                     </div>
                   </div>
-                  {st && (
-                    <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded shrink-0 ${st.cls}`}>
-                      {st.label}
-                    </span>
-                  )}
                 </Link>
                 <button onClick={() => handleCopy(e.id)} disabled={copyingId === e.id}
                         className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50"
@@ -171,16 +158,7 @@ export default function ConferencesPage() {
                   href={`/dashboard/conferences/${event.id}`}
                   className={`block bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
                 >
-                  <div className="h-24 flex items-end p-4 relative" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-                    {event.poster_url && (
-                      <img src={event.poster_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" />
-                    )}
-                    {status && (
-                      <span className={`text-xs px-2.5 py-1 rounded-full relative z-10 ${status.cls}`}>
-                        {status.label}
-                      </span>
-                    )}
-                  </div>
+                  <div className="h-3" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }} />
                   <div className="p-5">
                     <div className="flex items-start justify-between mb-3">
                       <h3 className="font-semibold text-gray-900 leading-snug flex-1 mr-2">
