@@ -235,7 +235,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
    - Блок «Платно» — продукты с ценой / формой заявки (`client_offerings.is_paid = true`)
    - Блок «Бесплатно» — материалы, гайды, открытые сообщества (`client_offerings.is_paid = false`)
 
-Контент Экосистемы редактируется клиентом в `/dashboard/profile`.
+Контент Экосистемы редактируется клиентом в **`/dashboard/mini-app`** (раздел «MINI APP» в сайдбаре). На странице две вкладки: «Визитка» (`PATCH /clients/me/profile`) и «Продукты» (CRUD `/client-offerings`).
 
 #### Уровень 2 — Экран события (3 состояния)
 

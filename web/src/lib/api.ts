@@ -252,6 +252,18 @@ export const api = {
     delete: (id: number) =>
       request(`/api/v1/lead-magnets/${id}`, { method: 'DELETE' }),
   },
+  miniApp: {
+    profile: {
+      get:    () => request('/api/v1/clients/me/profile'),
+      update: (data: any) => request('/api/v1/clients/me/profile', { method: 'PATCH', body: JSON.stringify(data) }),
+    },
+    offerings: {
+      list:   () => request('/api/v1/client-offerings'),
+      create: (data: any) => request('/api/v1/client-offerings', { method: 'POST', body: JSON.stringify(data) }),
+      update: (id: number, data: any) => request(`/api/v1/client-offerings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (id: number) => request(`/api/v1/client-offerings/${id}`, { method: 'DELETE' }),
+    },
+  },
   referralProgram: {
     posters: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/posters`),

@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, Smartphone } from 'lucide-react'
 import { useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 
@@ -37,6 +37,12 @@ export default function Sidebar() {
       items: [
         { href: '/dashboard/events', label: t.nav.events, icon: Calendar },
         { href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic },
+      ],
+    },
+    {
+      label: t.nav.miniAppSection,
+      items: [
+        { href: '/dashboard/mini-app', label: t.nav.miniApp, icon: Smartphone },
       ],
     },
     {
