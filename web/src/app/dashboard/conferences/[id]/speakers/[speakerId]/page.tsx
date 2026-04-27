@@ -128,6 +128,7 @@ export default function ConferenceSpeakerPage() {
     gift_after_speech_url: '',
     gift_raffle_title: '',
     gift_raffle_url: '',
+    notes: '',
     is_commercial: false,
     bot_in_channel: false,
     priority: 60,
@@ -171,6 +172,7 @@ export default function ConferenceSpeakerPage() {
           gift_after_speech_url: sp.gift_after_speech_url || '',
           gift_raffle_title: sp.gift_raffle_title || '',
           gift_raffle_url: sp.gift_raffle_url || '',
+          notes: sp.notes || '',
           is_commercial: sp.is_commercial || false,
           bot_in_channel: sp.bot_in_channel || false,
           priority: sp.priority ?? 60,
@@ -267,6 +269,7 @@ export default function ConferenceSpeakerPage() {
         gift_after_speech_url: eventForm.gift_after_speech_url,
         gift_raffle_title: eventForm.gift_raffle_title,
         gift_raffle_url: eventForm.gift_raffle_url,
+        notes: eventForm.notes,
         is_commercial: eventForm.is_commercial,
         bot_in_channel: eventForm.bot_in_channel,
         priority,
@@ -378,6 +381,21 @@ export default function ConferenceSpeakerPage() {
             <span className="text-sm text-gray-700">Коммерческое выступление</span>
           </label>
 
+        </div>
+
+        {/* Заметки */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+            <span>Заметки</span>
+            <span className="text-xs text-gray-400 font-normal">— только для вас, не показывается участникам</span>
+          </h3>
+          <textarea
+            value={eventForm.notes}
+            onChange={e => setEventForm(f => ({ ...f, notes: e.target.value }))}
+            rows={6}
+            placeholder="Например: текст частушки для ведущего, шпаргалка по гонорару, контакты ассистента"
+            className="input resize-y text-sm w-full"
+          />
         </div>
 
         {/* Чёрный список */}

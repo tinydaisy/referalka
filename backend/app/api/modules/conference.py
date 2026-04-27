@@ -324,6 +324,7 @@ class SpeakerAddToEvent(BaseModel):
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
+    notes: Optional[str] = None
     is_visible: bool = True
     sort_order: int = 0
 
@@ -351,6 +352,7 @@ class SpeakerCreateAndAdd(BaseModel):
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
+    notes: Optional[str] = None
     is_commercial: bool = False
     is_visible: bool = True
     sort_order: int = 0
@@ -368,6 +370,7 @@ class SpeakerEventUpdate(BaseModel):
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
+    notes: Optional[str] = None
     is_commercial: Optional[bool] = None
     is_visible: Optional[bool] = None
     sort_order: Optional[int] = None
@@ -419,7 +422,7 @@ async def list_event_speakers(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
-                  cse.poster_url, cse.partner_url, cse.extra_info,
+                  cse.poster_url, cse.partner_url, cse.extra_info, cse.notes,
                   c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   cse.bot_in_channel, cse.priority,
                   cse.exclude_gift_from_broadcast, cse.exclude_channel_from_subscription,
@@ -529,12 +532,12 @@ async def add_speaker_from_base(
         """INSERT INTO conf_speaker_events
            (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
             gift_raffle_title, gift_raffle_url,
-            poster_url, partner_url, extra_info, is_commercial, is_visible, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
+            poster_url, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
         data.speaker_id, event_id, data.role, first_topic,
         data.gift_after_speech_title, data.gift_after_speech_url,
         data.gift_raffle_title, data.gift_raffle_url,
-        data.poster_url, data.partner_url, data.extra_info,
+        data.poster_url, data.partner_url, data.extra_info, data.notes,
         data.is_commercial, data.is_visible, data.sort_order
     )
     await _save_topics(cse["id"], topics_list, db)
@@ -588,12 +591,12 @@ async def create_and_add_speaker(
         """INSERT INTO conf_speaker_events
            (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
             gift_raffle_title, gift_raffle_url,
-            poster_url, partner_url, extra_info, is_commercial, is_visible, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
+            poster_url, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
         sp["id"], event_id, data.role, first_topic,
         data.gift_after_speech_title, data.gift_after_speech_url,
         data.gift_raffle_title, data.gift_raffle_url,
-        data.poster_url, data.partner_url, data.extra_info,
+        data.poster_url, data.partner_url, data.extra_info, data.notes,
         data.is_commercial, data.is_visible, data.sort_order
     )
     await _save_topics(cse["id"], topics_list, db)
