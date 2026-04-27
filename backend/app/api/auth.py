@@ -137,7 +137,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
                 (SELECT bot_token FROM channels
-                 WHERE client_id = c.id AND platform = 'telegram' AND is_active = TRUE
+                 WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
                  ORDER BY id LIMIT 1) AS bot_token,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
            FROM clients c WHERE c.id = $1""",
@@ -177,7 +177,7 @@ async def update_me(
             """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
                 (SELECT bot_token FROM channels
-                 WHERE client_id = c.id AND platform = 'telegram' AND is_active = TRUE
+                 WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
                  ORDER BY id LIMIT 1) AS bot_token,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
            FROM clients c WHERE c.id = $1""",
@@ -208,7 +208,7 @@ async def update_me(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                   c.trial_ends_at, c.created_at, c.timezone,
                   (SELECT bot_token FROM channels
-                   WHERE client_id = c.id AND platform = 'telegram' AND is_active = TRUE
+                   WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
                    ORDER BY id LIMIT 1) AS bot_token,
                   c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
              FROM clients c WHERE c.id = $1""",
