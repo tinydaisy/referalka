@@ -136,9 +136,10 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
-                (SELECT bot_token FROM channels
-                 WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
-                 ORDER BY id LIMIT 1) AS bot_token,
+                EXISTS (SELECT 1 FROM channels
+                        WHERE client_id = c.id AND platform_slug = 'telegram'
+                          AND is_active = TRUE AND bot_token IS NOT NULL
+                          AND bot_token <> '') AS bot_token_set,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
            FROM clients c WHERE c.id = $1""",
         client_id
@@ -176,9 +177,10 @@ async def update_me(
         client = await db.fetchrow(
             """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
-                (SELECT bot_token FROM channels
-                 WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
-                 ORDER BY id LIMIT 1) AS bot_token,
+                EXISTS (SELECT 1 FROM channels
+                        WHERE client_id = c.id AND platform_slug = 'telegram'
+                          AND is_active = TRUE AND bot_token IS NOT NULL
+                          AND bot_token <> '') AS bot_token_set,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
            FROM clients c WHERE c.id = $1""",
             client_id
@@ -191,11 +193,13 @@ async def update_me(
             raise HTTPException(status_code=400, detail="Скорость рассылки: допустимый диапазон 1..100")
         updates["broadcast_concurrency"] = bc
 
-    # bot_token больше не живёт в clients — пишем в channels
+    # bot_token больше не живёт в clients — пишем в channels.
+    # Пустую строку трактуем как «не менять» — иначе Chrome autofill пароля
+    # в поле type=password может затереть настоящий токен.
     new_bot_token = updates.pop("bot_token", None)
-    if new_bot_token is not None:
+    if new_bot_token is not None and new_bot_token.strip():
         from app.services.channels import upsert_client_telegram_token
-        await upsert_client_telegram_token(client_id, new_bot_token, db)
+        await upsert_client_telegram_token(client_id, new_bot_token.strip(), db)
 
     if updates:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(updates.keys())]
@@ -207,11 +211,47 @@ async def update_me(
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                   c.trial_ends_at, c.created_at, c.timezone,
-                  (SELECT bot_token FROM channels
-                   WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
-                   ORDER BY id LIMIT 1) AS bot_token,
+                  EXISTS (SELECT 1 FROM channels
+                          WHERE client_id = c.id AND platform_slug = 'telegram'
+                            AND is_active = TRUE AND bot_token IS NOT NULL
+                            AND bot_token <> '') AS bot_token_set,
                   c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
              FROM clients c WHERE c.id = $1""",
         client_id
     )
     return dict(client)
+
+
+# ═══════════════════════════════════════════
+# Смена пароля клиента
+# ═══════════════════════════════════════════
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password", summary="Сменить пароль клиента")
+async def change_password(
+    data: ChangePasswordRequest,
+    db: asyncpg.Connection = Depends(get_db),
+    credentials=Depends(__import__("app.auth", fromlist=["security"]).security),
+):
+    from app.auth import decode_token
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    payload = decode_token(credentials.credentials)
+    client_id = int(payload["sub"])
+
+    if not data.new_password or len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Новый пароль должен быть не короче 8 символов")
+
+    row = await db.fetchrow("SELECT password_hash FROM clients WHERE id = $1", client_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    if not verify_password(data.current_password, row["password_hash"]):
+        raise HTTPException(status_code=400, detail="Текущий пароль неверный")
+
+    new_hash = hash_password(data.new_password)
+    await db.execute("UPDATE clients SET password_hash = $1 WHERE id = $2", new_hash, client_id)
+    return {"ok": True}

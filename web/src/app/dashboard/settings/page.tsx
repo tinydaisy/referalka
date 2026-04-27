@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive } from 'lucide-react'
+import { Save, Bot, Globe, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
 
@@ -24,12 +24,13 @@ const TIMEZONES = [
 
 export default function SettingsPage() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
+  const [botTokenSet, setBotTokenSet] = useState(false)
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
-  const [showToken, setShowToken] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
 
   useEffect(() => {
     api.auth.me().then(c => {
@@ -41,12 +42,13 @@ export default function SettingsPage() {
         phone: c.phone || '',
         telegram_username: c.telegram_username || '',
         timezone: tz,
-        bot_token: c.bot_token || '',
+        bot_token: '', // никогда не подставляем — Chrome autofill подсунет пароль
         test_telegram_ids_raw: (c.test_telegram_ids || []).join(', '),
         work_tg_username: c.work_tg_username || '',
         work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
       })
+      setBotTokenSet(!!c.bot_token_set)
       setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
     }).catch(() => {})
     // fetch storage usage
@@ -71,17 +73,22 @@ export default function SettingsPage() {
         .map((s: string) => s.trim())
         .filter(Boolean)
       const concurrency = Math.max(1, Math.min(100, Number(form.broadcast_concurrency) || 30))
-      await api.auth.updateMe({
+      // bot_token отправляем только если пользователь его действительно ввёл
+      // (на бэке пустую строку игнорируем — защита от Chrome autofill)
+      const payload: any = {
         name: form.name,
         phone: form.phone,
         telegram_username: form.telegram_username,
         timezone: form.timezone,
-        bot_token: form.bot_token || null,
         test_telegram_ids: testIds,
         work_tg_username: form.work_tg_username || null,
         work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
         broadcast_concurrency: concurrency,
-      })
+      }
+      if (form.bot_token.trim()) payload.bot_token = form.bot_token.trim()
+      const res = await api.auth.updateMe(payload)
+      if (res?.bot_token_set !== undefined) setBotTokenSet(!!res.bot_token_set)
+      setForm(f => ({ ...f, bot_token: '' })) // очищаем поле после сохранения
       setTimezone(form.timezone)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -138,29 +145,30 @@ export default function SettingsPage() {
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <Bot size={18} className="text-white" />
             </div>
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-gray-800">Telegram Bot Token</h3>
               <p className="text-sm text-gray-500 mt-0.5">
                 Токен вашего бота из BotFather. Используется для рассылок и отправки программы конференции.
               </p>
+              {botTokenSet && (
+                <p className="text-xs text-green-700 mt-2 flex items-center gap-1">
+                  <CheckCircle2 size={13} /> Токен сохранён. Оставьте поле пустым, чтобы не менять его.
+                </p>
+              )}
             </div>
           </div>
-          <div className="relative">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={form.bot_token}
-              onChange={set('bot_token')}
-              placeholder="1234567890:AAF..."
-              className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
-            />
-            <button
-              type="button"
-              onClick={() => setShowToken(v => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
+          <input
+            type="text"
+            value={form.bot_token}
+            onChange={set('bot_token')}
+            placeholder={botTokenSet ? '••• введите новый токен только если хотите заменить •••' : '1234567890:AAF...'}
+            autoComplete="off"
+            data-lpignore="true"
+            data-1p-ignore
+            name="not-a-password-bot-token"
+            spellCheck={false}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+          />
           <p className="text-xs text-gray-400 mt-2">Получить токен можно в <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">@BotFather</a></p>
         </div>
 
@@ -327,6 +335,28 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* Security — change password */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <Lock size={18} className="text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-800">Безопасность</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Пароль для входа в кабинет ПЛЮСОН.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPasswordModal(true)}
+            className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+          >
+            Сменить пароль
+          </button>
+        </div>
+
         {/* Tariff */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h3 className="font-semibold text-gray-800 mb-4">Подписка</h3>
@@ -357,6 +387,95 @@ export default function SettingsPage() {
           <Save size={16} />
           {saved ? 'Сохранено ✓' : saving ? 'Сохраняем...' : 'Сохранить изменения'}
         </button>
+      </form>
+
+      {showPasswordModal && (
+        <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />
+      )}
+    </div>
+  )
+}
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState('')
+  const [next, setNext]       = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [saving, setSaving]   = useState(false)
+  const [error, setError]     = useState('')
+  const [done, setDone]       = useState(false)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (next.length < 8) { setError('Новый пароль должен быть не короче 8 символов'); return }
+    if (next !== confirm) { setError('Пароли не совпадают'); return }
+    setSaving(true)
+    try {
+      await api.auth.changePassword(current, next)
+      setDone(true)
+      setTimeout(onClose, 1500)
+    } catch (e: any) {
+      setError(e.message || 'Не удалось сменить пароль')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <form onSubmit={submit}
+            className="bg-white rounded-2xl max-w-md w-full p-6"
+            onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Сменить пароль</h2>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        {done ? (
+          <div className="text-center py-6">
+            <CheckCircle2 className="mx-auto mb-3 text-green-500" size={40} />
+            <p className="font-medium text-gray-900">Пароль изменён</p>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Текущий пароль</label>
+                <input type="password" value={current} onChange={e => setCurrent(e.target.value)}
+                       autoComplete="current-password"
+                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Новый пароль</label>
+                <input type="password" value={next} onChange={e => setNext(e.target.value)}
+                       autoComplete="new-password"
+                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+                <p className="text-xs text-gray-400 mt-1">Минимум 8 символов</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Повторите новый пароль</label>
+                <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
+                       autoComplete="new-password"
+                       className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+              </div>
+            </div>
+
+            {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+
+            <div className="flex gap-2 mt-5">
+              <button type="button" onClick={onClose}
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50">
+                Отмена
+              </button>
+              <button type="submit" disabled={saving || !current || !next || !confirm}
+                      className="flex-1 px-4 py-2.5 rounded-xl btn-gold disabled:opacity-50">
+                {saving ? 'Меняем…' : 'Сменить'}
+              </button>
+            </div>
+          </>
+        )}
       </form>
     </div>
   )

@@ -31,6 +31,8 @@ export const api = {
       request('/api/v1/auth/admin/login', { method: 'POST', body: JSON.stringify(data) }),
     me: () => request('/api/v1/auth/me'),
     updateMe: (data: any) => request('/api/v1/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
+    changePassword: (current_password: string, new_password: string) =>
+      request('/api/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
   },
   events: {
     list: (moduleSlug?: string) => request(`/api/v1/events/${moduleSlug ? `?module_slug=${moduleSlug}` : ''}`),
