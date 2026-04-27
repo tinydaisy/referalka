@@ -419,8 +419,33 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 **Настройки реф-программы:**
 | Метод | Путь | Что |
 |---|---|---|
-| GET | `/events/{id}/referral/settings` | welcome_text, share_text |
+| GET | `/events/{id}/referral/settings` | welcome_text, share_text, **gift_count_mode** ('registered'\|'visited', миграция 042) |
 | PUT | `/events/{id}/referral/settings` | Upsert |
+
+**Розыгрыш на событии (миграция 042):**
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/events/{id}/raffle/settings` | Настройки розыгрыша (is_enabled, draw_at, subscription_grants_starter_ticket, intro_text) |
+| PUT | `/events/{id}/raffle/settings` | Upsert настроек |
+| GET | `/events/{id}/raffle/prizes` | Список призов |
+| POST | `/events/{id}/raffle/prizes` | Добавить приз (title, description, icon_emoji, icon_url, places_count, value_label, sort_order, is_active) |
+| PATCH | `/events/{id}/raffle/prizes/{prize_id}` | Обновить приз |
+| DELETE | `/events/{id}/raffle/prizes/{prize_id}` | Удалить |
+| GET | `/events/{id}/raffle/keywords` | Список кодовых слов |
+| POST | `/events/{id}/raffle/keywords` | Добавить (keyword, tickets_reward, max_uses, sort_order, is_active) |
+| PATCH | `/events/{id}/raffle/keywords/{kw_id}` | Обновить |
+| DELETE | `/events/{id}/raffle/keywords/{kw_id}` | Удалить |
+
+**VIP-тариф и Чат события (миграция 042):**
+Поля передаются через стандартный `PATCH /events/{id}` (UpdateEventRequest):
+- `has_vip_tariff` BOOL, `vip_price` INT, `vip_url`, `vip_title`, `vip_description`
+- `chat_url`, `chat_subscriptions_required` BOOL, `chat_member_count_label`
+- `successor_event_id` (миграция 039)
+
+**Бренд клиента (миграция 042):**
+Передаётся через `PATCH /clients/me/profile`:
+- `brand_name` — название бренда (например `iVISION`), отображается в Экосистеме
+- Существующие поля визитки: `bio`, `profile_photo_url`, `positioning` (роль владельца), `achievements` JSONB (4 регалии {label,value}), `social_links` JSONB
 
 **Пороги-подарки:**
 | Метод | Путь | Что |
