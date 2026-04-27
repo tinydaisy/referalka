@@ -141,6 +141,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - ⚠️ `telegram_users` и `notifications_log` — удалены.
 - Модульные таблицы с префиксом `conf_` принадлежат модулю «Конференция».
 - Коллабораторы — глобальная база: `collaborators` + `conf_speaker_events`. У `collaborators` FK `contact_id → contacts(id)`.
+- `conf_speaker_events.notes` (миграция 041 от 2026-04-27) — произвольный текст под спикера в конкретной конференции (шпаргалка ведущего, частушка, заметки по гонорару). Редактируется на странице спикера в дашборде, в публичные endpoints (`/speakers/public`, `/speakers/{id}/public`) не отдаётся.
 
 ### Мердж контактов (миграция 036)
 
