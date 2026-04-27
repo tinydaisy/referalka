@@ -332,6 +332,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - База данных: PostgreSQL на VPS, все миграции применены
 - Бот: @pluson_bot, токен в `.env`
 - Mini App: зарегистрирован в BotFather, short name `plusson`
+- Mini App на dev: https://dev.pluson.margoforbs.ru/tg/ (nginx alias на `mini-app/dist/`, vite `base: '/tg/'`)
 - Клиент: margarita.vl2011@gmail.com / Playball8013!
 - Администратор: admin@plusson.app / Mill20ion!Forbs
 
