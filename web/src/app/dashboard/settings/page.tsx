@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2 } from 'lucide-react'
+import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
 
@@ -24,12 +24,12 @@ const TIMEZONES = [
 
 export default function SettingsPage() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
-  const [botTokenSet, setBotTokenSet] = useState(false)
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [showToken, setShowToken] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
 
   useEffect(() => {
@@ -42,13 +42,12 @@ export default function SettingsPage() {
         phone: c.phone || '',
         telegram_username: c.telegram_username || '',
         timezone: tz,
-        bot_token: '', // никогда не подставляем — Chrome autofill подсунет пароль
+        bot_token: c.bot_token || '',
         test_telegram_ids_raw: (c.test_telegram_ids || []).join(', '),
         work_tg_username: c.work_tg_username || '',
         work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
       })
-      setBotTokenSet(!!c.bot_token_set)
       setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
     }).catch(() => {})
     // fetch storage usage
@@ -73,22 +72,17 @@ export default function SettingsPage() {
         .map((s: string) => s.trim())
         .filter(Boolean)
       const concurrency = Math.max(1, Math.min(100, Number(form.broadcast_concurrency) || 30))
-      // bot_token отправляем только если пользователь его действительно ввёл
-      // (на бэке пустую строку игнорируем — защита от Chrome autofill)
-      const payload: any = {
+      await api.auth.updateMe({
         name: form.name,
         phone: form.phone,
         telegram_username: form.telegram_username,
         timezone: form.timezone,
+        bot_token: form.bot_token || null,
         test_telegram_ids: testIds,
         work_tg_username: form.work_tg_username || null,
         work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
         broadcast_concurrency: concurrency,
-      }
-      if (form.bot_token.trim()) payload.bot_token = form.bot_token.trim()
-      const res = await api.auth.updateMe(payload)
-      if (res?.bot_token_set !== undefined) setBotTokenSet(!!res.bot_token_set)
-      setForm(f => ({ ...f, bot_token: '' })) // очищаем поле после сохранения
+      })
       setTimezone(form.timezone)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -149,27 +143,34 @@ export default function SettingsPage() {
               <h3 className="font-semibold text-gray-800">Telegram Bot Token</h3>
               <p className="text-sm text-gray-500 mt-0.5">
                 Токен вашего бота из BotFather. Используется для рассылок и отправки программы конференции.
+                Нажмите на «глаз» чтобы посмотреть текущий токен.
               </p>
-              {botTokenSet && (
-                <p className="text-xs text-green-700 mt-2 flex items-center gap-1">
-                  <CheckCircle2 size={13} /> Токен сохранён. Оставьте поле пустым, чтобы не менять его.
-                </p>
-              )}
             </div>
           </div>
-          <input
-            type="text"
-            value={form.bot_token}
-            onChange={set('bot_token')}
-            placeholder={botTokenSet ? '••• введите новый токен только если хотите заменить •••' : '1234567890:AAF...'}
-            autoComplete="off"
-            data-lpignore="true"
-            data-1p-ignore
-            name="not-a-password-bot-token"
-            spellCheck={false}
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
-          />
-          <p className="text-xs text-gray-400 mt-2">Получить токен можно в <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">@BotFather</a></p>
+          <div className="relative">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={form.bot_token}
+              onChange={set('bot_token')}
+              placeholder="1234567890:AAF..."
+              autoComplete="new-password"
+              data-lpignore="true"
+              data-1p-ignore
+              data-form-type="other"
+              name="bot_api_key"
+              spellCheck={false}
+              className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              tabIndex={-1}
+            >
+              {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">Получить токен можно в <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">@BotFather</a>. Если бэкенд скажет «не похоже на токен» — Chrome autofill подсунул пароль; очистите поле и вставьте токен из BotFather.</p>
         </div>
 
         {/* Test Telegram IDs */}

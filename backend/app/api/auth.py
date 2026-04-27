@@ -194,12 +194,21 @@ async def update_me(
         updates["broadcast_concurrency"] = bc
 
     # bot_token больше не живёт в clients — пишем в channels.
-    # Пустую строку трактуем как «не менять» — иначе Chrome autofill пароля
-    # в поле type=password может затереть настоящий токен.
+    # Пустую строку трактуем как «не менять».
+    # Дополнительно валидируем формат `123456789:AAA...` — защита от Chrome
+    # autofill, который иногда подсовывает пароль клиента в это поле.
+    import re
     new_bot_token = updates.pop("bot_token", None)
     if new_bot_token is not None and new_bot_token.strip():
+        token = new_bot_token.strip()
+        if not re.match(r"^\d{6,15}:[A-Za-z0-9_-]{30,}$", token):
+            raise HTTPException(
+                status_code=400,
+                detail="Не похоже на Telegram-токен. Формат: 123456789:AAFxx... "
+                       "Если в поле случайно попал ваш пароль — очистите поле и сохраните повторно.",
+            )
         from app.services.channels import upsert_client_telegram_token
-        await upsert_client_telegram_token(client_id, new_bot_token.strip(), db)
+        await upsert_client_telegram_token(client_id, token, db)
 
     if updates:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(updates.keys())]
@@ -211,10 +220,9 @@ async def update_me(
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                   c.trial_ends_at, c.created_at, c.timezone,
-                  EXISTS (SELECT 1 FROM channels
-                          WHERE client_id = c.id AND platform_slug = 'telegram'
-                            AND is_active = TRUE AND bot_token IS NOT NULL
-                            AND bot_token <> '') AS bot_token_set,
+                  (SELECT bot_token FROM channels
+                   WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
+                   ORDER BY id LIMIT 1) AS bot_token,
                   c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
              FROM clients c WHERE c.id = $1""",
         client_id
