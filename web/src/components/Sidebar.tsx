@@ -68,7 +68,7 @@ export default function Sidebar() {
             t.nextElementSibling?.classList.remove('hidden')
           }}
         />
-        <span className="hidden text-white font-bold text-xl tracking-wide">ПЛЮСОН</span>
+        <span className="hidden text-[#FFCFA4] font-bold text-xl tracking-wide">ПЛЮСОН</span>
         <p className="text-white/50 text-xs mt-1">реферальный сервис</p>
       </div>
 
