@@ -94,9 +94,6 @@ export default function ConferencePage() {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-gray-900 truncate">{event?.title || t.conferences.header.defaultTitle}</h1>
-          <p className="text-gray-400 text-sm">
-            {conf?.status === 'active' ? t.conferences.header.active : t.conferences.header.draft}
-          </p>
         </div>
         <button
           onClick={handleSalebotExport}

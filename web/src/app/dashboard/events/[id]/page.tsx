@@ -9,12 +9,6 @@ import ReferralProgramTab from './tabs/ReferralProgramTab'
 import BroadcastsTab from './tabs/BroadcastsTab'
 import EventParticipants from '@/components/EventParticipants'
 
-const STATUS_LABELS: Record<string, { label: string; cls: string; next: string; nextLabel: string }> = {
-  draft:  { label: 'Черновик',  cls: 'bg-gray-100 text-gray-600',   next: 'active', nextLabel: 'Активировать' },
-  active: { label: 'Активно',   cls: 'bg-green-100 text-green-700', next: 'ended',  nextLabel: 'Завершить' },
-  ended:  { label: 'Завершено', cls: 'bg-red-100 text-red-700',     next: 'active', nextLabel: 'Возобновить' },
-}
-
 type TabKey = 'overview' | 'posters' | 'referral' | 'participants' | 'broadcasts'
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -52,13 +46,6 @@ export default function EventPage() {
   )
   if (!event) return null
 
-  const status = STATUS_LABELS[event.status] || STATUS_LABELS.draft
-
-  async function changeStatus() {
-    await api.events.update(eventId, { status: status.next })
-    setEvent((e: any) => ({ ...e, status: status.next }))
-  }
-
   // Конференции — отдельный модуль, в нём своя обширная UI; оставляем кнопку перехода
   const isConference = event.module_slug === 'conference'
 
@@ -74,11 +61,7 @@ export default function EventPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-1 flex-wrap">
-            <h1 className="text-2xl font-bold" style={{ color: '#25455D' }}>{event.title}</h1>
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${status.cls}`}>{status.label}</span>
-          </div>
-          <p className="text-gray-500 text-sm">Модуль: {event.module_slug}</p>
+          <h1 className="text-2xl font-bold" style={{ color: '#25455D' }}>{event.title}</h1>
         </div>
         <div className="flex gap-2">
           {isConference && (
@@ -87,13 +70,6 @@ export default function EventPage() {
               Настройки конференции
             </Link>
           )}
-          <button
-            onClick={changeStatus}
-            className="px-4 py-2 rounded-xl text-sm font-medium text-white"
-            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
-          >
-            {status.nextLabel}
-          </button>
         </div>
       </div>
 

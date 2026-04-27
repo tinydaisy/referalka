@@ -137,29 +137,36 @@ export default function FileUploader(props: Props) {
 
   const isImage = accept.includes('image')
 
+  const hasFiles = urls.length > 0
+
   return (
     <div className="space-y-3">
-      {/* Зона загрузки / drop */}
+      {/* Зона загрузки / drop. Когда файлы уже загружены — показываем компактную кнопку «Добавить ещё»
+         (без эмпти-стейта и иконки картинки), иначе — полную дроп-зону с подсказкой. */}
       <div
         onDragOver={e => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
         onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
-        className={`border-2 border-dashed rounded-xl p-4 flex items-center justify-between gap-3 transition-colors ${
-          dragOver ? 'border-brand bg-brand/5' : 'border-gray-200 bg-gray-50/50'
+        className={`rounded-xl p-3 flex items-center justify-between gap-3 transition-colors ${
+          hasFiles
+            ? 'border border-gray-200 bg-white'
+            : `border-2 border-dashed ${dragOver ? 'border-brand bg-brand/5' : 'border-gray-200 bg-gray-50/50'} p-4`
         }`}
       >
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          {isImage ? <ImageIcon size={16} /> : <FileText size={16} />}
-          <span>{emptyText}</span>
-        </div>
+        {!hasFiles && (
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            {isImage ? <ImageIcon size={16} /> : <FileText size={16} />}
+            <span>{emptyText}</span>
+          </div>
+        )}
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 disabled:opacity-50 transition-colors"
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 disabled:opacity-50 transition-colors ${hasFiles ? 'ml-auto' : ''}`}
         >
           {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-          {uploading ? 'Загрузка…' : buttonLabel}
+          {uploading ? 'Загрузка…' : (hasFiles && props.mode === 'multiple' ? 'Добавить ещё' : buttonLabel)}
         </button>
         <input
           ref={fileRef}

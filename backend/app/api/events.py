@@ -126,8 +126,8 @@ async def create_event(
         """
         INSERT INTO events (client_id, slug, title, description, landing_url, address,
                             start_at, end_at, webhook_url,
-                            module_slug, points_free, points_paid, require_subscription)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                            module_slug, points_free, points_paid, require_subscription, status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'active')
         RETURNING *
         """,
         client_id, slug, data.title, data.description, data.landing_url, data.address,
@@ -225,7 +225,7 @@ async def copy_event(
                  (client_id, slug, title, description, landing_url, address, start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
                   require_subscription, status, poster_url)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'draft',$15)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'active',$15)
                RETURNING *""",
             client_id, new_slug, new_title, src['description'], src['landing_url'],
             src.get('address'), src.get('start_at'), src.get('end_at'),
