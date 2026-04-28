@@ -54,14 +54,14 @@ export default function CalendarTab({ clientId, onOpenEvent }: Props) {
       .finally(() => setLoading(false))
   }, [clientId])
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Загружаем события...</div>
+  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Загружаем события…</div>
 
   const empty = !data.now.length && !data.upcoming.length && !data.past.length
   if (empty) {
     return (
       <div style={{ textAlign: 'center', paddingTop: 60, padding: 16 }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>📅</div>
-        <p style={{ color: 'white', fontWeight: 600, fontSize: 16 }}>Пока нет событий</p>
+        <p style={{ color: 'var(--text)', fontWeight: 700, fontSize: 16 }}>Пока нет событий</p>
         <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
           Организатор скоро объявит<br />ближайшие мероприятия
         </p>
