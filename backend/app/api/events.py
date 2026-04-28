@@ -137,7 +137,7 @@ async def create_event(
         INSERT INTO events (client_id, slug, title, description, landing_url, address,
                             start_at, end_at, webhook_url,
                             module_slug, points_free, points_paid, require_subscription, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'active')
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft')
         RETURNING *
         """,
         client_id, slug, data.title, data.description, data.landing_url, data.address,
@@ -229,16 +229,19 @@ async def copy_event(
     new_title = f"Копия — {src['title']}"
     new_slug = await _make_unique_slug(db, slugify(new_title))
 
+    # Копия события — всегда черновик, start_at/end_at не наследуем
+    # (для конференций они вообще берутся из conf_days, для остальных
+    # клиент задаст заново — старые даты всё равно неактуальны).
     async with db.transaction():
         new_event = await db.fetchrow(
             """INSERT INTO events
                  (client_id, slug, title, description, landing_url, address, start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
                   require_subscription, status, poster_url)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'active',$15)
+               VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,$9,$10,$11,$12,'draft',$13)
                RETURNING *""",
             client_id, new_slug, new_title, src['description'], src['landing_url'],
-            src.get('address'), src.get('start_at'), src.get('end_at'),
+            src.get('address'),
             src['webhook_url'], src['module_slug'],
             src['points_free'], src['points_paid'], src['points_scope'],
             src['require_subscription'], src['poster_url']

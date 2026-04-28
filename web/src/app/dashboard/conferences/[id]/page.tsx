@@ -6,6 +6,7 @@ import { ArrowLeft, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
+import { EventStatusToggle } from '@/components/EventStatusToggle'
 import SettingsTab  from './tabs/SettingsTab'
 import SpeakersTab  from './tabs/SpeakersTab'
 import ProgramTab   from './tabs/ProgramTab'
@@ -95,6 +96,11 @@ export default function ConferencePage() {
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-gray-900 truncate">{event?.title || t.conferences.header.defaultTitle}</h1>
         </div>
+        <EventStatusToggle
+          eventId={eventId}
+          status={event?.status || 'draft'}
+          onChange={(s) => setEvent((e: any) => ({ ...e, status: s }))}
+        />
         <button
           onClick={handleSalebotExport}
           disabled={exporting}

@@ -33,11 +33,11 @@ async def register_participant(
     db: asyncpg.Connection = Depends(get_db)
 ):
     event = await db.fetchrow(
-        "SELECT id, client_id FROM events WHERE slug = $1 AND status = 'active'",
+        "SELECT id, client_id FROM events WHERE slug = $1 AND status = 'published'",
         data.event_slug
     )
     if not event:
-        raise HTTPException(status_code=404, detail="Событие не найдено или не активно")
+        raise HTTPException(status_code=404, detail="Событие не найдено или не опубликовано")
 
     # Создаём/находим контакт + идентичность (автомердж по email/phone)
     contact_id, _platform_user_id, _is_new_contact = await upsert_contact_with_identity(

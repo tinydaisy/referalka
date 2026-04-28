@@ -85,18 +85,48 @@ async def public_client_events(
     bucket: Optional[str] = Query(None, description="now | upcoming | past — если не задан, возвращает все три"),
     db: asyncpg.Connection = Depends(get_db),
 ):
+    # Для конференций start_at/end_at в events игнорируем —
+    # источник истины это conf_days (программа дней). Для остальных
+    # типов событий берём поля из events напрямую.
     rows = await db.fetch(
-        """SELECT e.id, e.slug, e.title, e.description, e.module_slug,
-                  e.poster_url, e.start_at, e.end_at, e.status,
-                  CASE
-                    WHEN e.start_at IS NULL OR e.end_at IS NULL THEN 'upcoming'
-                    WHEN NOW() BETWEEN e.start_at AND e.end_at  THEN 'now'
-                    WHEN e.end_at < NOW()                        THEN 'past'
-                    ELSE 'upcoming'
-                  END AS bucket
-             FROM events e
-            WHERE e.client_id = $1 AND e.status != 'draft'
-            ORDER BY e.start_at NULLS LAST""",
+        """WITH conf_dates AS (
+              SELECT event_id,
+                     MIN((day_date + COALESCE(open_time,  '00:00'::time))
+                         AT TIME ZONE 'Europe/Moscow') AS start_at,
+                     MAX((day_date + COALESCE(close_time, '23:59'::time))
+                         AT TIME ZONE 'Europe/Moscow') AS end_at
+                FROM conf_days
+               GROUP BY event_id
+            )
+            SELECT e.id, e.slug, e.title, e.description, e.module_slug,
+                   e.poster_url, e.status,
+                   CASE WHEN e.module_slug = 'conference'
+                        THEN cd.start_at ELSE e.start_at END AS start_at,
+                   CASE WHEN e.module_slug = 'conference'
+                        THEN cd.end_at   ELSE e.end_at   END AS end_at,
+                   CASE
+                     WHEN (CASE WHEN e.module_slug = 'conference'
+                                THEN cd.start_at ELSE e.start_at END) IS NULL
+                       OR (CASE WHEN e.module_slug = 'conference'
+                                THEN cd.end_at   ELSE e.end_at   END) IS NULL
+                          THEN 'upcoming'
+                     WHEN NOW() BETWEEN
+                          (CASE WHEN e.module_slug = 'conference'
+                                THEN cd.start_at ELSE e.start_at END)
+                          AND
+                          (CASE WHEN e.module_slug = 'conference'
+                                THEN cd.end_at   ELSE e.end_at   END)
+                          THEN 'now'
+                     WHEN (CASE WHEN e.module_slug = 'conference'
+                                THEN cd.end_at   ELSE e.end_at   END) < NOW()
+                          THEN 'past'
+                     ELSE 'upcoming'
+                   END AS bucket
+              FROM events e
+              LEFT JOIN conf_dates cd ON cd.event_id = e.id
+             WHERE e.client_id = $1 AND e.status IN ('published','ended')
+             ORDER BY (CASE WHEN e.module_slug = 'conference'
+                            THEN cd.start_at ELSE e.start_at END) NULLS LAST""",
         client_id
     )
     items = [dict(r) for r in rows]
@@ -137,16 +167,30 @@ async def public_raffle_settings(event_id: int, db: asyncpg.Connection = Depends
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")
 async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
-        """SELECT e.id, e.client_id, e.slug, e.title, e.description, e.module_slug,
-                  e.poster_url, e.landing_url, e.address,
-                  e.start_at, e.end_at, e.status,
-                  e.successor_event_id,
-                  e.has_vip_tariff, e.vip_price, e.vip_url, e.vip_title, e.vip_description,
-                  e.chat_url, e.chat_subscriptions_required, e.chat_member_count_label,
-                  c.name AS client_name, c.brand_name AS client_brand, c.profile_photo_url AS client_photo
-             FROM events e
-             JOIN clients c ON c.id = e.client_id
-            WHERE e.slug = $1""",
+        """WITH cd AS (
+              SELECT event_id,
+                     MIN((day_date + COALESCE(open_time,  '00:00'::time))
+                         AT TIME ZONE 'Europe/Moscow') AS start_at,
+                     MAX((day_date + COALESCE(close_time, '23:59'::time))
+                         AT TIME ZONE 'Europe/Moscow') AS end_at
+                FROM conf_days
+               GROUP BY event_id
+            )
+            SELECT e.id, e.client_id, e.slug, e.title, e.description, e.module_slug,
+                   e.poster_url, e.landing_url, e.address, e.status,
+                   CASE WHEN e.module_slug = 'conference'
+                        THEN cd.start_at ELSE e.start_at END AS start_at,
+                   CASE WHEN e.module_slug = 'conference'
+                        THEN cd.end_at   ELSE e.end_at   END AS end_at,
+                   e.successor_event_id,
+                   e.has_vip_tariff, e.vip_price, e.vip_url, e.vip_title, e.vip_description,
+                   e.chat_url, e.chat_subscriptions_required, e.chat_member_count_label,
+                   c.name AS client_name, c.brand_name AS client_brand,
+                   c.profile_photo_url AS client_photo
+              FROM events e
+              JOIN clients c ON c.id = e.client_id
+              LEFT JOIN cd ON cd.event_id = e.id
+             WHERE e.slug = $1""",
         slug
     )
     if not row:

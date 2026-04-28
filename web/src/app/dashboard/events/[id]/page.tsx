@@ -10,6 +10,7 @@ import BroadcastsTab from './tabs/BroadcastsTab'
 import VipChatTab from './tabs/VipChatTab'
 import RaffleTab from './tabs/RaffleTab'
 import EventParticipants from '@/components/EventParticipants'
+import { EventStatusToggle } from '@/components/EventStatusToggle'
 
 type TabKey = 'overview' | 'posters' | 'referral' | 'raffle' | 'vipchat' | 'participants' | 'broadcasts'
 
@@ -69,6 +70,11 @@ export default function EventPage() {
           <h1 className="text-2xl font-bold" style={{ color: '#25455D' }}>{event.title}</h1>
         </div>
         <div className="flex gap-2">
+          <EventStatusToggle
+            eventId={eventId}
+            status={event.status || 'draft'}
+            onChange={(s) => setEvent((e: any) => ({ ...e, status: s }))}
+          />
           {isConference && (
             <Link href={`/dashboard/events/${id}/conference`}
                   className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-300 hover:bg-gray-50">

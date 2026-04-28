@@ -20,7 +20,7 @@ async def platform_stats(
         SELECT
           (SELECT COUNT(*) FROM clients WHERE is_active = TRUE) as clients_total,
           (SELECT COUNT(*) FROM events) as events_total,
-          (SELECT COUNT(*) FROM events WHERE status = 'active') as events_active,
+          (SELECT COUNT(*) FROM events WHERE status = 'published') as events_active,
           (SELECT COUNT(*) FROM event_participants) as participants_total,
           (SELECT COUNT(*) FROM referral_events WHERE type IN ('free','paid')) as conversions_total
         """
