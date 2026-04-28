@@ -21,6 +21,7 @@ import time
 from ..config import settings
 from ..database import get_pool
 from ..services.channels import get_client_telegram_token
+from ..services.contact_merge import upsert_contact_with_identity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -83,21 +84,51 @@ async def handle_tg_event(body: TgEventRequest):
     if _was_welcomed(tg_id, body.event_slug or ""):
         return {"ok": True, "deduped": True}
 
-    # Определяем client_id для выбора бота
+    # Определяем event_id и client_id (из slug или явного client_id)
     pool = await get_pool()
     client_id = body.client_id or 0
+    event_id: int | None = None
 
-    if not client_id and body.event_slug and pool:
+    if body.event_slug and pool:
         try:
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    "SELECT client_id FROM events WHERE slug = $1 LIMIT 1",
+                    "SELECT id, client_id FROM events WHERE slug = $1 LIMIT 1",
                     body.event_slug,
                 )
                 if row:
-                    client_id = row["client_id"]
+                    event_id = row["id"]
+                    if not client_id:
+                        client_id = row["client_id"]
         except Exception as e:
             logger.warning(f"event lookup by slug failed: {e}")
+
+    # Если знаем и событие, и клиента — фиксируем «интересовался»: создаём
+    # contact + event_participants с is_registered=false. Если запись уже
+    # есть — ничего не трогаем (форма регистрации сама поднимет флаг).
+    # Это нужно чтобы статус в селекторе/хабе менялся `new` → `interested`
+    # когда человек открыл событие через Mini App, но до формы не дошёл.
+    if event_id and client_id and pool:
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    contact_id, _pu_id, _is_new = await upsert_contact_with_identity(
+                        conn,
+                        client_id=client_id,
+                        platform_slug='telegram',
+                        platform_user_id=str(tg_id),
+                        username=body.username or None,
+                        first_name=body.first_name or None,
+                        last_name=body.last_name or None,
+                    )
+                    await conn.execute(
+                        """INSERT INTO event_participants (event_id, contact_id, is_registered)
+                                VALUES ($1, $2, FALSE)
+                           ON CONFLICT DO NOTHING""",
+                        event_id, contact_id,
+                    )
+        except Exception as e:
+            logger.warning(f"interested upsert failed for tg_id={tg_id} event_slug={body.event_slug}: {e}")
 
     # Берём токен бота клиента, иначе fallback на общего
     bot_token = None
