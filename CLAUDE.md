@@ -289,11 +289,20 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 | Общий `@pluson_bot/plusson` (бесплатный) | **Селектор** (`mockup_hub_selector`) — список событий участника + вкладка «ПЛЮСОН» (промо стать клиентом) | Экран события |
 | Бот клиента (про-тариф, напр. `@ivision_conf_bot`) | **Хаб владельца бота** (`mockup_hub`) — Календарь + Экосистема этого клиента | Экран события |
 
-**Как определяется клиент:**
-- В боте клиента — по `bot_token` (`channels.bot_token` → `client_id`)
-- В общем боте — селектор всегда. Внутри селектора участник выбирает событие любого клиента из своего списка.
+**Как определяется клиент — через путь URL `/c/{N}/tg/`:**
 
-**Сейчас в MVP:** один общий бот `@pluson_bot` — в нём селектор. Бот клиента со своим Mini App — на верхних тарифах.
+| URL | Что открывается |
+|---|---|
+| `pluson.margoforbs.ru/tg/` | HubSelector (общий @pluson_bot) |
+| `pluson.margoforbs.ru/c/1/tg/` | Hub клиента 1 (бот клиента 1) |
+| `pluson.margoforbs.ru/c/1/tg/event/{slug}` | EventPage в боте клиента 1 |
+| `pluson.margoforbs.ru/tg/?cid=1` | Hub клиента 1 (legacy query, deprecated, для обратной совместимости) |
+
+В BotFather при настройке Mini App для VIP-клиента указывается `https://pluson.margoforbs.ru/c/{N}/tg/`. Vite собран с `base: '/tg/'` — все ассеты грузятся с `/tg/assets/...` независимо от cid в URL. nginx делает internal rewrite `^/c/\d+/(.*)$ → /$1` ([nginx config](memory/dev_server.md)), один статический Mini App обслуживает ботов всех клиентов.
+
+**Безопасность:** идентификатор клиента в URL не криптографически защищён — Telegram WebApp SDK не передаёт `bot_id`/`bot_username` ни в каком виде. Подмена `/c/1/` на `/c/2/` показывает Hub чужого клиента, но **только публичные данные** (визитку, опубликованные события). Приватные данные (рассылки, регистрации) выдаются по `tg_id` из подписанного `initData`, а не по `cid` из URL.
+
+**Сейчас в MVP:** один общий бот `@pluson_bot` — в нём селектор. Бот клиента со своим Mini App — на VIP-тарифе. VIP-клиент сам через BotFather (`/newapp`) привязывает свой бот к URL `https://pluson.margoforbs.ru/c/{N}/tg/`.
 
 #### Уровень 1а — Хаб организатора (бот клиента)
 
