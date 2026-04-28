@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, Smartphone, ChevronDown, BookOpen, MessageCircle } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -11,7 +11,7 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
   const [me, setMe] = useState<{ name?: string; email?: string } | null>(null)
-  const { t, lang, setLang } = useLang()
+  const { t } = useLang()
 
   useEffect(() => {
     api.auth.me().then((data: any) => setMe({ name: data?.name, email: data?.email })).catch(() => {})
@@ -31,15 +31,6 @@ export default function Sidebar() {
       ],
     },
     {
-      label: t.nav.base,
-      items: [
-        { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
-        { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users },
-        { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
-        { href: '/dashboard/channels', label: t.nav.channels, icon: Radio },
-      ],
-    },
-    {
       label: t.nav.eventsSection,
       items: [
         { href: '/dashboard/events', label: t.nav.events, icon: Calendar },
@@ -47,9 +38,12 @@ export default function Sidebar() {
       ],
     },
     {
-      label: t.nav.miniAppSection,
+      label: t.nav.base,
       items: [
-        { href: '/dashboard/mini-app', label: t.nav.miniApp, icon: Smartphone },
+        { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
+        { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users },
+        { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
+        { href: '/dashboard/channels', label: t.nav.channels, icon: Radio },
       ],
     },
     {
@@ -119,29 +113,6 @@ export default function Sidebar() {
 
       {/* Bottom */}
       <div className="px-3 pb-4 pt-3 border-t border-white/10 space-y-0.5">
-        {/* Current user */}
-        {me && (me.name || me.email) && (
-          <div className="flex items-center gap-3 px-3 py-2 mb-1 rounded-lg bg-white/5">
-            <UserCircle size={28} className="text-white/60 shrink-0" />
-            <div className="min-w-0 flex-1">
-              {me.name && (
-                <div className="text-sm font-medium text-white truncate">{me.name}</div>
-              )}
-              {me.email && (
-                <div className="text-[11px] text-white/50 truncate">{me.email}</div>
-              )}
-            </div>
-          </div>
-        )}
-        {/* Language toggle */}
-        <button
-          onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-white/50 hover:text-white hover:bg-white/10 w-full transition-colors"
-        >
-          <span className="text-base leading-none">🌐</span>
-          <span>{t.nav.switchLang}</span>
-        </button>
-
         <Link
           href="/dashboard/settings"
           onClick={() => setMobileOpen(false)}
@@ -192,6 +163,20 @@ export default function Sidebar() {
               <BookOpen size={15} />
               Инструкции
             </Link>
+          </div>
+        )}
+        {/* Current user — над «Выйти» */}
+        {me && (me.name || me.email) && (
+          <div className="flex items-center gap-3 px-3 py-2 mt-2 rounded-lg bg-white/5">
+            <UserCircle size={28} className="text-white/60 shrink-0" />
+            <div className="min-w-0 flex-1">
+              {me.name && (
+                <div className="text-sm font-medium text-white truncate">{me.name}</div>
+              )}
+              {me.email && (
+                <div className="text-[11px] text-white/50 truncate">{me.email}</div>
+              )}
+            </div>
           </div>
         )}
         <button

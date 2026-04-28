@@ -1,8 +1,12 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2 } from 'lucide-react'
+import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard } from 'lucide-react'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
+import { useLang, type Lang } from '@/contexts/LangContext'
+import MiniAppSettingsPage from '../mini-app/page'
+
+type Tab = 'profile' | 'tech' | 'mini-app' | 'subscription'
 
 const TIMEZONES = [
   { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
@@ -23,6 +27,11 @@ const TIMEZONES = [
 ]
 
 export default function SettingsPage() {
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === 'undefined') return 'profile'
+    const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
+    return (t === 'tech' || t === 'mini-app' || t === 'subscription') ? t : 'profile'
+  })
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
@@ -31,6 +40,7 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [showToken, setShowToken] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const { lang, setLang, t } = useLang()
 
   useEffect(() => {
     api.auth.me().then(c => {
@@ -97,11 +107,80 @@ export default function SettingsPage() {
     ? new Date(tariff.trial_ends_at).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })
     : '—'
 
-  return (
-    <div className="max-w-2xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-8">Настройки</h1>
+  const TABS: { id: Tab; label: string; icon: any }[] = [
+    { id: 'profile',      label: 'Профиль',      icon: UserIcon  },
+    { id: 'tech',         label: 'Техническое',  icon: Wrench    },
+    { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
+    { id: 'subscription', label: 'Подписка',     icon: CreditCard},
+  ]
 
+  return (
+    <div className="max-w-3xl">
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Настройки</h1>
+
+      {/* Табы */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
+        {TABS.map(({ id, label, icon: Icon }) => {
+          const active = tab === id
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+                active
+                  ? 'border-[#25455D] text-[#25455D]'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Mini App таб — отдельная страница, без общей формы */}
+      {tab === 'mini-app' && <MiniAppSettingsPage />}
+
+      {/* Подписка — отдельный блок */}
+      {tab === 'subscription' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h3 className="font-semibold text-gray-800 mb-4">Подписка</h3>
+          <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl mb-4">
+            <div>
+              <p className="font-medium text-green-800">
+                {tariff?.slug === 'vip' ? 'VIP' : 'Бесплатный (Beta)'}
+              </p>
+              <p className="text-sm text-green-700 mt-0.5">Действует до: {trialDate}</p>
+            </div>
+            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">Активен</span>
+          </div>
+          <div className="space-y-2 text-sm text-gray-600">
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span> Неограниченное количество событий
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span> Все модули открыты
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span> Безлимитные участники
+            </div>
+            {tariff?.slug === 'vip' && (
+              <div className="flex items-center gap-2">
+                <span className="text-green-500">✓</span> Свой брендовый бот в Telegram
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Профиль и Техническое — общая форма с одной кнопкой Сохранить */}
+      {(tab === 'profile' || tab === 'tech') && (
       <form onSubmit={handleSave} className="space-y-6">
+
+        {tab === 'profile' && (
+        <>
         {/* Profile */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h3 className="font-semibold text-gray-800 mb-5">Профиль</h3>
@@ -132,6 +211,64 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        {/* Security — change password (в Профиле) */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <Lock size={18} className="text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-800">Безопасность</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Пароль для входа в кабинет ПЛЮСОН.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPasswordModal(true)}
+            className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+          >
+            Сменить пароль
+          </button>
+        </div>
+
+        {/* Язык интерфейса (в Профиле) */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <Globe size={18} className="text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-800">Язык интерфейса</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Меняется мгновенно, сохраняется в браузере.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {(['ru', 'en'] as Lang[]).map(code => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setLang(code)}
+                className={`px-4 py-2 rounded-xl text-sm font-medium border ${
+                  lang === code
+                    ? 'border-[#25455D] bg-[#25455D] text-white'
+                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {code === 'ru' ? '🇷🇺 Русский' : '🇬🇧 English'}
+              </button>
+            ))}
+          </div>
+        </div>
+        </>
+        )}
+
+        {tab === 'tech' && (
+        <>
 
         {/* Bot Token */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -335,51 +472,8 @@ export default function SettingsPage() {
             )}
           </div>
         )}
-
-        {/* Security — change password */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
-              <Lock size={18} className="text-white" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-800">Безопасность</h3>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Пароль для входа в кабинет ПЛЮСОН.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowPasswordModal(true)}
-            className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
-          >
-            Сменить пароль
-          </button>
-        </div>
-
-        {/* Tariff */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Подписка</h3>
-          <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl mb-4">
-            <div>
-              <p className="font-medium text-green-800">Бесплатный (Beta)</p>
-              <p className="text-sm text-green-700 mt-0.5">Действует до: {trialDate}</p>
-            </div>
-            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">Активен</span>
-          </div>
-          <div className="space-y-2 text-sm text-gray-600">
-            <div className="flex items-center gap-2">
-              <span className="text-green-500">✓</span> Неограниченное количество событий
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-green-500">✓</span> Все модули открыты
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-green-500">✓</span> Безлимитные участники
-            </div>
-          </div>
-        </div>
+        </>
+        )}
 
         {error && <p className="text-sm text-red-500 text-center">{error}</p>}
 
@@ -389,6 +483,7 @@ export default function SettingsPage() {
           {saved ? 'Сохранено ✓' : saving ? 'Сохраняем...' : 'Сохранить изменения'}
         </button>
       </form>
+      )}
 
       {showPasswordModal && (
         <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />
