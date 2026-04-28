@@ -111,6 +111,10 @@ async def list_events(
     client_id = int(client["sub"])
     # effective_start: для конференций fallback на минимальную дату из conf_days,
     # для остальных — собственный start_at
+    # effective_start_at / effective_end_at:
+    #  - для конференций — MIN/MAX (day_date + open_time/close_time) из conf_days в МСК
+    #    (источник истины это программа, см. CLAUDE.md «Даты конференций»)
+    #  - для остальных модулей — собственные start_at/end_at события
     base_select = """
         SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                (SELECT url FROM event_posters
@@ -123,13 +127,18 @@ async def list_events(
                           END, sort, id
                  LIMIT 1) AS poster_url,
                e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
-               COALESCE(
-                 e.start_at,
-                 CASE WHEN e.module_slug = 'conference' THEN
-                   (SELECT MIN(day_date)::timestamp AT TIME ZONE 'Europe/Moscow'
+               CASE WHEN e.module_slug = 'conference' THEN
+                 (SELECT MIN((day_date + COALESCE(open_time, '00:00'::time))
+                             AT TIME ZONE 'Europe/Moscow')
                     FROM conf_days WHERE event_id = e.id)
-                 END
-               ) AS effective_start_at,
+                 ELSE e.start_at
+               END AS effective_start_at,
+               CASE WHEN e.module_slug = 'conference' THEN
+                 (SELECT MAX((day_date + COALESCE(close_time, '23:59'::time))
+                             AT TIME ZONE 'Europe/Moscow')
+                    FROM conf_days WHERE event_id = e.id)
+                 ELSE e.end_at
+               END AS effective_end_at,
                COUNT(DISTINCT ep.id) as participants_count
         FROM events e
         LEFT JOIN event_participants ep ON ep.event_id = e.id

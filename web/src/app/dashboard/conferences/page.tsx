@@ -12,6 +12,29 @@ function formatDate(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+function formatDayTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const day  = d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  return `${day} ${time}`
+}
+
+// Вилка дат «23 апр 10:00 – 29 апр 23:59».
+// Если только одна из дат — показываем её.
+function formatDateRange(start: string | null | undefined, end: string | null | undefined): string {
+  if (start && end) return `${formatDayTime(start)} – ${formatDayTime(end)}`
+  if (start) return formatDayTime(start)
+  if (end)   return formatDayTime(end)
+  return ''
+}
+
+// Зелёный — событие в будущем или идёт сейчас. Красный — закончилось.
+function dateColorClass(end: string | null | undefined): string {
+  if (!end) return 'text-gray-400'
+  return new Date(end) < new Date() ? 'text-red-600' : 'text-emerald-600'
+}
+
 export default function ConferencesPage() {
   const { t } = useLang()
   const router = useRouter()
@@ -120,7 +143,10 @@ export default function ConferencesPage() {
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
           {events.map(e => {
             const st = STATUS_LABELS[e.status]
-            const dateLabel = formatDate(e.effective_start_at || e.start_at || e.created_at)
+            const startIso = e.effective_start_at || e.start_at
+            const endIso   = e.effective_end_at   || e.end_at
+            const dateLabel = formatDateRange(startIso, endIso) || formatDate(e.created_at)
+            const dateCls   = startIso || endIso ? dateColorClass(endIso) : 'text-gray-400'
             return (
               <div key={e.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
                 <Link href={`/dashboard/conferences/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
@@ -134,10 +160,10 @@ export default function ConferencesPage() {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
-                      <span>{dateLabel}</span>
-                      <span>·</span>
-                      <span>{e.participants_count || 0} {t.conferences.participants}</span>
+                    <div className="flex items-center gap-2 text-xs mt-0.5">
+                      <span className={`font-medium ${dateCls}`}>{dateLabel}</span>
+                      <span className="text-gray-400">·</span>
+                      <span className="text-gray-400">{e.participants_count || 0} {t.conferences.participants}</span>
                     </div>
                   </div>
                 </Link>
@@ -160,7 +186,10 @@ export default function ConferencesPage() {
           {events.map(event => {
             const status = STATUS_LABELS[event.status]
             const isDeleting = deleting === event.id
-            const dateLabel = formatDate(event.effective_start_at || event.start_at || event.created_at)
+            const startIso = event.effective_start_at || event.start_at
+            const endIso   = event.effective_end_at   || event.end_at
+            const dateLabel = formatDateRange(startIso, endIso) || formatDate(event.created_at)
+            const dateCls   = startIso || endIso ? dateColorClass(endIso) : 'text-gray-600'
             return (
               <div key={event.id} className="relative group">
                 <Link
@@ -183,13 +212,13 @@ export default function ConferencesPage() {
                         </span>
                       </div>
                     )}
-                    <div className="flex items-center gap-4 text-sm text-gray-600">
-                      <span className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-4 text-sm">
+                      <span className="flex items-center gap-1.5 text-gray-600">
                         <Users size={14} className="text-gray-400" />
                         {event.participants_count || 0} {t.conferences.participants}
                       </span>
-                      <span className="flex items-center gap-1.5">
-                        <Calendar size={14} className="text-gray-400" />
+                      <span className={`flex items-center gap-1.5 font-medium ${dateCls}`}>
+                        <Calendar size={14} className="opacity-70" />
                         {dateLabel}
                       </span>
                     </div>
