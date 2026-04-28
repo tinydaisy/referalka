@@ -368,7 +368,12 @@ export default function TemplatesPage() {
         const tgChannel = (speaker.tg_channel_url || '').trim()
         const insta = (speaker.instagram_url || '').trim()
         const achList: string[] = (speaker.achievements || []).filter((a: string) => a && a.trim())
-        const topic = (speaker.topics?.[0]?.topic || speaker.topic || '').trim()
+        // Все темы спикера через перенос строки (раньше брали только первую,
+        // и у спикеров с темами на каждый день вторая «терялась»).
+        const topicsArr: string[] = (Array.isArray(speaker.topics) && speaker.topics.length > 0)
+          ? speaker.topics.map((t: any) => (t?.topic || '').trim()).filter(Boolean)
+          : ((speaker.topic || '').trim() ? [(speaker.topic || '').trim()] : [])
+        const topic = topicsArr.join('\n')
         const achText = achList.map((a: string) => `• ${a}`).join('\n')
 
         // Сначала убираем строки с пустыми плейсхолдерами (пока они ещё в тексте)
@@ -413,7 +418,7 @@ export default function TemplatesPage() {
         out = out.trimEnd() + '\n\n' + giftBlock
         out = out
           .replace(/\{speaker_name\}/g, speaker.name || '')
-          .replace(/\{speaker_topic\}/g, speaker.topics?.[0]?.topic || speaker.topic || 'уточняется')
+          .replace(/\{speaker_topic\}/g, ((Array.isArray(speaker.topics) && speaker.topics.length > 0) ? speaker.topics.map((t: any) => t?.topic || '').filter(Boolean).join('\n') : speaker.topic) || 'уточняется')
           .replace(/\{stream_url\}/g, getStreamUrl(day))
       } else {
         // pre_start и другие спикерские шаблоны
@@ -436,7 +441,7 @@ export default function TemplatesPage() {
         }
         out = out
           .replace(/\{speaker_name\}/g, speaker.name || '')
-          .replace(/\{speaker_topic\}/g, speaker.topics?.[0]?.topic || speaker.topic || 'уточняется')
+          .replace(/\{speaker_topic\}/g, ((Array.isArray(speaker.topics) && speaker.topics.length > 0) ? speaker.topics.map((t: any) => t?.topic || '').filter(Boolean).join('\n') : speaker.topic) || 'уточняется')
           .replace(/\{stream_url\}/g, getStreamUrl(day))
       }
     }

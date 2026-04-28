@@ -100,7 +100,10 @@ function tgLink(url?: string | null, username?: string | null): string | null {
 
 export default function ProgramTab({ event }: Props) {
   const isConference = event?.module_slug === 'conference'
-  const hasVip = !!event?.has_vip_tariff
+  // Кнопка VIP появляется как только у события вписан URL — не зависим
+  // от has_vip_tariff (в дашборде юзер вписывает только vip_upsell_url).
+  const vipUrl  = event?.vip_url || event?.vip_upsell_url || ''
+  const hasVip  = !!vipUrl
   const hasChat = !!event?.chat_url
   const hasStream = !!event?.stream_url
 
@@ -205,41 +208,50 @@ export default function ProgramTab({ event }: Props) {
             scrollbarWidth: 'none',
           }}
         >
-          {speakersLoop.map((sp, i) => (
-            <button
-              key={`${sp.id}-${i}`}
-              onClick={() => goToSpeaker(sp.id)}
-              style={{
-                flexShrink: 0, width: 60, textAlign: 'center',
-                background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
-                fontFamily: 'inherit',
-              }}
-            >
-              <div style={{
-                width: 56, height: 56, borderRadius: '50%', margin: '0 auto 4px',
-                background: sp.photo_url
-                  ? `center/cover url(${sp.photo_url})`
-                  : 'linear-gradient(45deg, #25455D, #0a1520)',
-                border: `1.5px solid ${PEACH}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: PEACH, fontWeight: 700, fontSize: 16,
-              }}>
-                {!sp.photo_url && initials(sp.name)}
-              </div>
-              <div style={{
-                fontSize: 10, lineHeight: 1.2, color: 'var(--muted)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {sp.name?.split(' ')[0]}
-              </div>
-            </button>
-          ))}
+          {speakersLoop.map((sp, i) => {
+            const parts = (sp.name || '').trim().split(/\s+/)
+            const firstName = parts[0] || ''
+            const lastName  = parts.slice(1).join(' ')
+            return (
+              <button
+                key={`${sp.id}-${i}`}
+                onClick={() => goToSpeaker(sp.id)}
+                style={{
+                  flexShrink: 0, width: 64, textAlign: 'center',
+                  background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <div style={{
+                  width: 56, height: 56, borderRadius: '50%', margin: '0 auto 4px',
+                  background: sp.photo_url
+                    ? `center/cover url(${sp.photo_url})`
+                    : 'linear-gradient(45deg, #25455D, #0a1520)',
+                  border: `1.5px solid ${PEACH}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: PEACH, fontWeight: 700, fontSize: 16,
+                }}>
+                  {!sp.photo_url && initials(sp.name)}
+                </div>
+                <div style={{ fontSize: 10, lineHeight: 1.15, color: '#1a2a3a', fontWeight: 600,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {firstName}
+                </div>
+                {lastName && (
+                  <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--muted)',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {lastName}
+                  </div>
+                )}
+              </button>
+            )
+          })}
         </div>
       )}
 
       {/* VIP */}
       {isConference && hasVip && (
-        <a href={event?.vip_url || '#'} target="_blank" rel="noreferrer" style={{
+        <a href={vipUrl} target="_blank" rel="noreferrer" style={{
           display: 'block', textDecoration: 'none',
           background: 'linear-gradient(135deg, #FFCFA4, #d4a574)', color: DARK,
           borderRadius: 14, padding: '14px 16px', marginBottom: 12,
@@ -371,7 +383,7 @@ export default function ProgramTab({ event }: Props) {
                             const speakerRoleLabel = s.speaker_role && ROLE_LABELS[s.speaker_role]
                             const roleColors = (s.speaker_role && ROLE_COLORS[s.speaker_role]) || ROLE_COLORS.speaker
                             // Чередуем фон строк программы — белый/полупрозрачный бирюзовый
-                            const altBg = idx % 2 === 0 ? 'transparent' : 'rgba(37,69,93,0.05)'
+                            const altBg = idx % 2 === 0 ? 'transparent' : 'rgba(37,69,93,0.11)'
                             return (
                               <div key={s.id} style={{
                                 background: altBg, padding: '10px 10px',
@@ -486,7 +498,10 @@ export default function ProgramTab({ event }: Props) {
             {speakers.map((sp, idx) => {
               const roleLabel = sp.role && ROLE_LABELS[sp.role]
               const roleColors = (sp.role && ROLE_COLORS[sp.role]) || ROLE_COLORS.speaker
-              const topic = sp.topics?.[0]?.topic || sp.speaker_topic || ''
+              // Берём ВСЕ темы (у Марго их две, например по дням)
+              const topicsList: string[] = Array.isArray(sp.topics) && sp.topics.length > 0
+                ? sp.topics.map(t => t.topic).filter(Boolean)
+                : (sp.speaker_topic ? [sp.speaker_topic] : [])
               const tg = tgLink(sp.tg_channel_url, sp.personal_tg_username)
               const insta = sp.instagram_url
                 ? (sp.instagram_url.startsWith('http') ? sp.instagram_url : `https://instagram.com/${sp.instagram_url.replace(/^@/, '')}`)
@@ -537,16 +552,19 @@ export default function ProgramTab({ event }: Props) {
                     </div>
                   </div>
 
-                  {/* Тема выступления */}
-                  {topic && (
+                  {/* Темы выступлений (может быть несколько по дням) */}
+                  {topicsList.length > 0 && (
                     <div style={{ marginBottom: 8 }}>
                       <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase',
-                                    letterSpacing: 0.4, fontWeight: 700, marginBottom: 2 }}>
-                        Тема
+                                    letterSpacing: 0.4, fontWeight: 700, marginBottom: 4 }}>
+                        {topicsList.length > 1 ? 'Темы' : 'Тема'}
                       </div>
-                      <div style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600, lineHeight: 1.3 }}>
-                        {topic}
-                      </div>
+                      {topicsList.map((t, ti) => (
+                        <div key={ti} style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600,
+                                                lineHeight: 1.35, marginBottom: ti < topicsList.length - 1 ? 6 : 0 }}>
+                          {t}
+                        </div>
+                      ))}
                     </div>
                   )}
 

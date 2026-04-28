@@ -80,6 +80,29 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
       setEvent(landing)
       setParticipant(part?.participant ? { ...part.participant, referrals_count: part.referrals_count } : null)
 
+      // Фиксируем «интересовался» при открытии события — даже если пользователь
+      // попал сюда из селектора (т.е. inline-скрипт в index.html не пускался
+      // с этим event_slug). Бэк делает upsert + ON CONFLICT DO NOTHING,
+      // так что повторно ничего не создаст.
+      if (tgUser?.id && slug && !part?.participant?.is_registered) {
+        fetch(`${import.meta.env.VITE_API_URL}/api/v1/event`, {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id:    String(tgUser.id),
+            event:      'event_start',
+            first_name: tgUser.first_name || '',
+            last_name:  tgUser.last_name  || '',
+            username:   tgUser.username   || '',
+            partner_id: partnerId || '',
+            event_slug: slug,
+            client_id:  0,
+            platform:   'telegram',
+          }),
+        }).catch(() => {})
+      }
+
       // Initial tab по состоянию
       const ended = isEnded(landing)
       const registered = !!part?.participant?.is_registered

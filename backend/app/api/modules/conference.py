@@ -337,6 +337,22 @@ async def update_conference(
     if "stream_url" in data.model_dump(exclude_unset=True):
         await db.execute("UPDATE events SET stream_url = $1 WHERE id = $2", event_stream_url, event_id)
 
+    # Если у конференции вписан vip_upsell_url — зеркалим в events.vip_url
+    # (источник истины для Mini App), чтобы кнопка «Оплатить VIP» появилась
+    # сама без ручной возни с has_vip_tariff/vip_url.
+    if "vip_upsell_url" in data.model_dump(exclude_unset=True):
+        vip_url = (data.vip_upsell_url or "").strip() or None
+        if vip_url:
+            await db.execute(
+                "UPDATE events SET vip_url = $1, has_vip_tariff = TRUE WHERE id = $2",
+                vip_url, event_id,
+            )
+        else:
+            await db.execute(
+                "UPDATE events SET vip_url = NULL, has_vip_tariff = FALSE WHERE id = $1",
+                event_id,
+            )
+
     await regenerate_landing_data(event_id, db)
     conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
     return {"conference": dict(conf)}

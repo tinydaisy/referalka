@@ -359,10 +359,12 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             )
             if sp:
                 topics = await conn.fetch(
-                    "SELECT topic FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order LIMIT 1",
+                    "SELECT topic FROM conf_speaker_topics WHERE cse_id=$1 ORDER BY sort_order",
                     session_id
                 )
-                topic = (topics[0]["topic"] if topics else "").strip()
+                # Все темы спикера через перенос строки (а не первая) —
+                # у спикеров с темами по дням было видно только одну.
+                topic = "\n".join((t["topic"] or "").strip() for t in topics if (t["topic"] or "").strip())
                 if not photo:
                     photo = sp["speaker_poster"]
                 text = build_speaker_intro_message(
