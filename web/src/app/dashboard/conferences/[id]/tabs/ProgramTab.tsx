@@ -64,7 +64,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
 
   async function addDay() {
     const nextNum = days.length > 0 ? Math.max(...days.map((d: any) => d.day_number)) + 1 : 1
-    await api.conference.days.upsert(eventId, nextNum, { day_date: null, stream_url: null })
+    await api.conference.days.upsert(eventId, nextNum, { day_date: null })
     load()
   }
 
@@ -72,7 +72,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
     setSavingDay(dayNum)
     try {
       const f = dayForms[dayNum] || {}
-      await api.conference.days.upsert(eventId, dayNum, { day_date: f.day_date || null, stream_url: f.stream_url || null })
+      await api.conference.days.upsert(eventId, dayNum, { day_date: f.day_date || null })
     } catch (err: any) { alert(err.message) } finally { setSavingDay(null) }
   }
 
@@ -179,12 +179,6 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                 <label className="label">{tp.date}</label>
                 <input type="date" value={df.day_date || ''}
                   onChange={e => setDayForms(f => ({ ...f, [dayNum]: { ...df, day_date: e.target.value } }))}
-                  className="input" />
-              </div>
-              <div className="flex-1">
-                <label className="label">{tp.streamUrl}</label>
-                <input type="url" value={df.stream_url || ''} placeholder="https://..."
-                  onChange={e => setDayForms(f => ({ ...f, [dayNum]: { ...df, stream_url: e.target.value } }))}
                   className="input" />
               </div>
               <div className="flex items-end">

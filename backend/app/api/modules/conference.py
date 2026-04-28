@@ -168,13 +168,17 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
             return val.strftime("%-d %B %Y года")
         return str(val)
 
+    # Stream_url теперь один на всю конференцию (events.stream_url),
+    # но для обратной совместимости лендинга прокидываем его в каждый день.
+    event_stream_url = (event["stream_url"] if event and "stream_url" in event else "") or ""
+
     schedule = []
     for d in days:
         day_sessions = [s for s in sessions if s["day"] == d["day_number"]]
         schedule.append({
             "day": f"День {d['day_number']}",
             "date": date_str(d["day_date"]),
-            "stream_url": d["stream_url"],
+            "stream_url": event_stream_url,
             "slots": [
                 {
                     "time": dt_str(s["start_time"]),
@@ -198,7 +202,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         "dates": f"{date_str(conf['start_date'])} — {date_str(conf['end_date'])}" if conf["start_date"] else "",
         "description": conf["description"] or "",
         "registration_url": conf["registration_url"] or conf["getcourse_form_url"] or "",
-        "chat_url": conf["chat_url"] or "",
+        "chat_url": (event["chat_url"] if event else None) or conf["chat_url"] or "",
+        "stream_url": event_stream_url,
         "landing_template": conf["landing_template"] or "ivision",
         "speakers": [
             {
@@ -240,10 +245,12 @@ class ConferenceUpdate(BaseModel):
     registration_url: Optional[str] = None
     landing_url: Optional[str] = None
     landing_template: Optional[str] = None
+    # chat_url и stream_url пишутся в events, не conf_conferences —
+    # источник истины один. Оставлены здесь как поля, чтобы фронт мог
+    # отправить их в одном PATCH со всеми остальными настройками.
     chat_url: Optional[str] = None
+    stream_url: Optional[str] = None
     getcourse_form_url: Optional[str] = None
-    stream_url_day_1: Optional[str] = None
-    stream_url_day_2: Optional[str] = None
     vip_upsell_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
     subscription_mode: Optional[str] = None   # none | organizer | all_speakers
@@ -263,14 +270,23 @@ async def get_conference(
     await check_conference_access(event_id, int(client["sub"]), db)
     conf = await db.fetchrow(
         """
-        SELECT cc.*, e.title as event_title
+        SELECT cc.*, e.title as event_title,
+               e.chat_url   AS event_chat_url,
+               e.stream_url AS event_stream_url
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
         """,
         event_id
     )
-    return {"conference": dict(conf) if conf else None}
+    if not conf:
+        return {"conference": None}
+    d = dict(conf)
+    # chat_url / stream_url теперь живут в events, отдаём их фронту
+    # под привычными именами поверх легаси-полей в conf_conferences.
+    d["chat_url"]   = d.pop("event_chat_url")   or d.get("chat_url")   or ""
+    d["stream_url"] = d.pop("event_stream_url") or ""
+    return {"conference": d}
 
 
 @router.post("/init", summary="Инициализировать конференцию")
@@ -304,16 +320,22 @@ async def update_conference(
     if not existing:
         await db.execute("INSERT INTO conf_conferences (event_id) VALUES ($1)", event_id)
 
-    updates = {}
-    for k, v in data.model_dump(exclude_unset=True).items():
-        updates[k] = v
+    raw = data.model_dump(exclude_unset=True)
+    # chat_url и stream_url — единый источник в events, не в conf_conferences.
+    event_chat_url   = raw.pop("chat_url", None)   if "chat_url"   in raw else None
+    event_stream_url = raw.pop("stream_url", None) if "stream_url" in raw else None
 
-    if updates:
-        set_parts = [f"{k} = ${i+2}" for i, k in enumerate(updates.keys())]
+    if raw:
+        set_parts = [f"{k} = ${i+2}" for i, k in enumerate(raw.keys())]
         await db.execute(
             f"UPDATE conf_conferences SET {', '.join(set_parts)} WHERE event_id = $1",
-            event_id, *updates.values()
+            event_id, *raw.values()
         )
+
+    if "chat_url" in data.model_dump(exclude_unset=True):
+        await db.execute("UPDATE events SET chat_url = $1 WHERE id = $2", event_chat_url, event_id)
+    if "stream_url" in data.model_dump(exclude_unset=True):
+        await db.execute("UPDATE events SET stream_url = $1 WHERE id = $2", event_stream_url, event_id)
 
     await regenerate_landing_data(event_id, db)
     conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)

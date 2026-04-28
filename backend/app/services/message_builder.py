@@ -233,7 +233,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, cc.registration_url, cc.raffle_url,
-                   cd.stream_url, cd.day_date
+                   e.stream_url, cd.day_date
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
             LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = $2
@@ -386,12 +386,12 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
-                       cd.stream_url
+                       e.stream_url
                 FROM conf_sessions cs
+                LEFT JOIN events e ON e.id = cs.event_id
                 LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
                 LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
-                LEFT JOIN conf_days cd ON cd.event_id = cs.event_id AND cd.day_number = cs.day
                 WHERE cs.id=$1
                 """,
                 session_id
@@ -455,12 +455,16 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             custom_day_ref = row["custom_day_ref"] if row else None
 
         conf_days_rows = await conn.fetch(
-            "SELECT day_number, day_date, stream_url FROM conf_days WHERE event_id=$1 ORDER BY day_number",
+            "SELECT day_number, day_date FROM conf_days WHERE event_id=$1 ORDER BY day_number",
             event_id
         )
         days_by_num = {d["day_number"]: d for d in conf_days_rows}
         first_day = conf_days_rows[0] if conf_days_rows else None
         last_day = conf_days_rows[-1] if conf_days_rows else None
+        # Один stream_url на всю конференцию — теперь хранится в events
+        event_stream_url = await conn.fetchval(
+            "SELECT stream_url FROM events WHERE id=$1", event_id
+        ) or ""
 
         # Определяем «целевой» день для плейсхолдеров
         target_day_num = None
@@ -504,7 +508,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         day_number = target_day_num or (first_day["day_number"] if first_day else 1)
         raw_day_date = target_day["day_date"] if target_day else raw_first_date
         day_date_str = f"{raw_day_date.day} {RU_MONTHS[raw_day_date.month - 1]}" if raw_day_date else ""
-        stream_url = (target_day["stream_url"] or "") if target_day else ""
+        stream_url = event_stream_url
 
         # Программа дня — только если есть привязка к конкретному дню
         day_program = ""
