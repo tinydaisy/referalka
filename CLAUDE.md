@@ -477,7 +477,7 @@ CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Кон
 - Домен: https://pluson.ru (Let's Encrypt SSL, nginx). Старый https://pluson.margoforbs.ru работает параллельно
 - База данных: PostgreSQL на VPS, все миграции применены
 - Бот: @pluson_bot, токен в `.env`
-- Mini App: зарегистрирован в BotFather, short name `plusson`
+- Mini App: зарегистрирован в BotFather, short name `pluson` (ОДНА «с»! не `plusson`)
 - Mini App на dev: https://dev.pluson.ru/tg/ (nginx alias на `mini-app/dist/`, vite `base: '/tg/'`)
 - Клиент: margarita.vl2011@gmail.com / Playball8013!
 - Администратор: admin@plusson.app / Mill20ion!Forbs
