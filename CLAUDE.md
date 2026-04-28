@@ -304,6 +304,13 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 **Сейчас в MVP:** один общий бот `@pluson_bot` — в нём селектор. Бот клиента со своим Mini App — на VIP-тарифе. VIP-клиент сам через BotFather (`/newapp`) привязывает свой бот к URL `https://pluson.margoforbs.ru/c/{N}/tg/`.
 
+**VIP-онбординг (миграция 045 от 28.04.2026)** — фича-флаг `tariffs.allow_custom_bot BOOL`. Тариф `vip` = `true`, дефолтный `beta` = `false`.
+
+- `GET /api/v1/auth/me` отдаёт `tariff_name` и `allow_custom_bot`
+- `POST /api/v1/channels/connect-telegram-bot {bot_token}` — wizard за один вызов: проверка тарифа → `getMe` (валидация токена) → upsert в `channels` → `setChatMenuButton` с URL `/c/{N}/tg/`. Возвращает `{bot_username, mini_app_url}` для копи-пейста в @BotFather (`/newapp`).
+- `POST/PATCH /api/v1/channels` с `bot_token` для `telegram` — 403 если не VIP.
+- В `/dashboard/channels` для не-VIP — read-only с апсейл-блоком, для VIP — 3-шаговый wizard ([web/src/app/dashboard/channels/page.tsx](web/src/app/dashboard/channels/page.tsx)).
+
 #### Уровень 1а — Хаб организатора (бот клиента)
 
 Нижние вкладки (всегда 2):
