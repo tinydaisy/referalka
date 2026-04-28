@@ -143,8 +143,35 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
     summary="События участника для селектора Mini App (с организатором, группировкой now/soon/past)",
 )
 async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get_db)):
+    # Селектор показывает:
+    #   1) события, где пользователь зарегистрирован как участник;
+    #   2) опубликованные/завершённые события клиентов, владельцем которых является
+    #      этот пользователь (определяем по совпадению telegram_username клиента
+    #      с username из platform_users по этому tg_id) — чтобы Маргарита-как-клиент
+    #      видела все свои события, а не только те где она сама зарегистрировалась.
+    # Для конференций даты берём из conf_days (MIN/MAX) — это источник истины,
+    # events.start_at/end_at у конференций (особенно у копий) могут быть NULL.
     rows = await db.fetch(
-        """SELECT e.id, e.slug, e.title, e.module_slug, e.status,
+        """WITH user_username AS (
+              SELECT username FROM platform_users
+               WHERE platform_slug = 'telegram' AND platform_user_id = $1
+               LIMIT 1
+           ),
+           participant_events AS (
+              SELECT DISTINCT ON (ep.event_id)
+                     ep.event_id, ep.id AS participant_id, c.ref_code,
+                     ep.is_registered, ep.is_in_chat
+                FROM event_participants ep
+                JOIN contacts c        ON c.id  = ep.contact_id
+                JOIN platform_users pu ON pu.contact_id = c.id
+               WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $1
+           ),
+           owned_clients AS (
+              SELECT cl.id FROM clients cl
+               WHERE cl.telegram_username IS NOT NULL
+                 AND cl.telegram_username = (SELECT username FROM user_username)
+           )
+           SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                   (SELECT url FROM event_posters
                     WHERE event_id = e.id
                     ORDER BY CASE orientation
@@ -155,18 +182,20 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
                              END, sort, id
                     LIMIT 1) AS poster_url,
                   e.start_at, e.end_at,
-                  ep.id AS participant_id, c.ref_code, ep.is_registered, ep.is_in_chat,
+                  pe.participant_id, pe.ref_code,
+                  COALESCE(pe.is_registered, false) AS is_registered,
+                  COALESCE(pe.is_in_chat,    false) AS is_in_chat,
                   cl.id   AS client_id,
                   cl.name AS client_name,
                   cl.brand_name        AS client_brand_name,
                   cl.profile_photo_url AS client_photo_url,
                   cl.positioning       AS client_positioning
-             FROM event_participants ep
-             JOIN events e   ON e.id  = ep.event_id
+             FROM events e
              JOIN clients cl ON cl.id = e.client_id
-             JOIN contacts c ON c.id  = ep.contact_id
-             JOIN platform_users pu ON pu.contact_id = c.id
-            WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $1
+             LEFT JOIN participant_events pe ON pe.event_id = e.id
+            WHERE pe.event_id IS NOT NULL
+               OR (e.client_id IN (SELECT id FROM owned_clients)
+                   AND e.status IN ('published', 'ended'))
             ORDER BY COALESCE(e.start_at, e.created_at) ASC""",
         str(tg_id),
     )
