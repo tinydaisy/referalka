@@ -347,9 +347,22 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
    - Сначала группы, у которых есть будущие/идущие события — между собой по **ближайшему предстоящему** ASC.
    - Потом группы, у которых **только прошедшие** — между собой по **самому свежему прошедшему** DESC.
 
-**Бэкенд:** `GET /api/v1/participants/miniapp/me/events?tg_id={tg_id}` ([backend/app/api/participants.py](backend/app/api/participants.py)). Ответ: `{ groups: [{ client_id, client_name, client_brand_name, client_photo_url, client_positioning, events: [{..., bucket}] }] }`. Bucket вычисляется на бэке. Для конференций даты — из `conf_days`.
+**Бэкенд:** `GET /api/v1/participants/miniapp/me/events?tg_id={tg_id}` ([backend/app/api/participants.py](backend/app/api/participants.py)). Ответ: `{ groups: [{ client_id, client_name, client_brand_name, client_photo_url, client_positioning, events: [{..., bucket, participation_status}] }] }`. Bucket вычисляется на бэке. Для конференций даты — из `conf_days`.
 
 **Фронтенд:** [mini-app/src/tabs/SelectorEventsTab.tsx](mini-app/src/tabs/SelectorEventsTab.tsx) — рендерит группы с заголовком (аватар + бренд) и карточки событий внутри.
+
+#### Статус участия в карточке (Хаб + Селектор)
+
+В правой части пилюли «Скоро / Идёт сейчас / Завершено» — чип статуса пользователя в этом событии:
+- **`new`** — нет записи в `event_participants` (ещё ни разу не открывал событие). Подпись «Новое», нейтрально-серый.
+- **`interested`** — запись есть, `is_registered=false` (открывал, до регистрации не дошёл). Подпись «Вы интересовались», голубой.
+- **`registered`** — `is_registered=true`. Подпись «✓ Вы записаны», золотой `#FFCFA4`.
+
+Поле `participation_status` приходит с бэка:
+- В Селекторе — всегда (запрос требует `tg_id`).
+- В Хабе организатора — `GET /api/v1/public/clients/{id}/events?tg_id=...` ([backend/app/api/client_profile.py](backend/app/api/client_profile.py)). Без `tg_id` поле `null` и чип не показывается (для публичного просмотра без TG).
+
+CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Контейнер `.badge-row` в `.hub-card .body` через `margin-left: auto` отправляет чип к правому краю строки.
 
 Контент Экосистемы редактируется клиентом в **`/dashboard/mini-app`** (раздел «MINI APP» в сайдбаре). На странице две вкладки: «Визитка» (`PATCH /clients/me/profile`) и «Продукты» (CRUD `/client-offerings`).
 
