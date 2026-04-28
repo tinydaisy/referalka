@@ -85,6 +85,27 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Афиши событий — только в `event_posters` (миграция 044 от 28.04.2026)
+
+Колонка `events.poster_url` **удалена** миграцией 044. Все афиши событий теперь живут только в таблице `event_posters` с ориентациями `square` / `horizontal` / `vertical`.
+
+**Где взять афишу для отображения:**
+```sql
+(SELECT url FROM event_posters
+   WHERE event_id = e.id
+   ORDER BY CASE orientation
+              WHEN 'square'     THEN 1
+              WHEN 'horizontal' THEN 2
+              WHEN 'vertical'   THEN 3
+              ELSE 4
+            END, sort, id
+   LIMIT 1)
+```
+
+API всех эндпоинтов событий ([`backend/app/api/events.py`](backend/app/api/events.py), [`participants.py`](backend/app/api/participants.py), [`client_profile.py`](backend/app/api/client_profile.py)) возвращают это значение в поле `poster_url`. Фронт продолжает читать `event.poster_url` как и раньше.
+
+**Загрузка афиш** — через `POST /api/v1/uploads` с `kind='event_poster'` и `poster_type` ∈ `square|horizontal|vertical`. Запись попадает в `event_posters`. Старая колонка `events.poster_url` миграцией перенесена в `event_posters` как `horizontal`.
+
 ### Статус событий и даты конференций (миграция 043 от 28.04.2026)
 
 **Статусы `events.status`:**
