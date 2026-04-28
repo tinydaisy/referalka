@@ -1,13 +1,14 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, Smartphone } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, Smartphone, ChevronDown, BookOpen, MessageCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 
 export default function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [supportOpen, setSupportOpen] = useState(false)
   const { t, lang, setLang } = useLang()
 
   function isActive(href: string, exact?: boolean) {
@@ -133,16 +134,46 @@ export default function Sidebar() {
           <Settings size={17} />
           {t.nav.settings}
         </Link>
-        <a
-          href="https://t.me/margo_forbs?text=Вопрос_по_Плюсон"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => setMobileOpen(false)}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+        {/* Тех.поддержка с подменю */}
+        <button
+          onClick={() => setSupportOpen(o => !o)}
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium w-full transition-colors ${
+            supportOpen || pathname.startsWith('/dashboard/help')
+              ? 'bg-white/10 text-white'
+              : 'text-white/70 hover:bg-white/10 hover:text-white'
+          }`}
         >
           <LifeBuoy size={17} />
-          Тех.поддержка
-        </a>
+          <span className="flex-1 text-left">Тех.поддержка</span>
+          <ChevronDown size={14} className={`transition-transform ${supportOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {supportOpen && (
+          <div className="ml-4 pl-3 border-l border-white/10 mt-0.5 mb-1 space-y-0.5">
+            <a
+              href="https://t.me/margo_forbs?text=Вопрос_по_Плюсон"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMobileOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <MessageCircle size={15} />
+              Написать разработчику в Telegram
+            </a>
+            <Link
+              href="/dashboard/help/connect-bot"
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                pathname === '/dashboard/help/connect-bot'
+                  ? 'bg-white/15 text-white'
+                  : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <BookOpen size={15} />
+              Инструкции
+            </Link>
+          </div>
+        )}
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/10 w-full transition-colors"
           onClick={() => {

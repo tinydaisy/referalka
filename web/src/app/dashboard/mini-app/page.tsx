@@ -138,10 +138,17 @@ export default function MiniAppSettingsPage() {
             </p>
           </div>
         </div>
-        <a href="/tg/" target="_blank" rel="noreferrer"
-           className="flex items-center gap-2 text-sm border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50 transition-colors">
-          <Eye size={15} /> Открыть Mini App
-        </a>
+        <div className="flex items-center gap-2">
+          <a href="/dashboard/help/connect-bot"
+             className="flex items-center gap-2 text-sm rounded-lg px-3 py-2 text-white hover:opacity-90 transition-colors"
+             style={{ background: GRADIENT }}>
+            📖 Как подключить к боту
+          </a>
+          <a href="/tg/" target="_blank" rel="noreferrer"
+             className="flex items-center gap-2 text-sm border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50 transition-colors">
+            <Eye size={15} /> Открыть Mini App
+          </a>
+        </div>
       </div>
 
       {/* Подсказка о структуре Mini App */}
