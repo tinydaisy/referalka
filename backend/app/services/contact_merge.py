@@ -245,6 +245,28 @@ async def upsert_contact_with_identity(
         tags=tags,
     )
 
+    # Контакт нашли по email/phone, но у него уже привязан ДРУГОЙ tg/vk — не можем
+    # добавить вторую идентичность той же платформы (UNIQUE contact_id, platform_slug).
+    # Создаём свежий контакт под этот новый tg_id; ручной мердж — через UI.
+    if not is_new:
+        clash = await db.fetchval(
+            """SELECT 1 FROM platform_users
+                WHERE contact_id = $1 AND platform_slug = $2
+                  AND platform_user_id <> $3""",
+            contact_id, platform_slug, str(platform_user_id)
+        )
+        if clash:
+            ref_code = await _generate_unique_ref_code(db)
+            contact_id = await db.fetchval(
+                """INSERT INTO contacts (client_id, name, email, email_normalized, phone, phone_normalized,
+                                          salebot_id, utm_source, tags, ref_code)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::JSONB, '[]'::JSONB), $10)
+                 RETURNING id""",
+                client_id, name_from_parts(first_name, last_name), email, normalize_email(email),
+                phone, normalize_phone(phone), salebot_id, utm_source, tags, ref_code
+            )
+            is_new = True
+
     pu_id = await upsert_platform_user(
         db,
         contact_id=contact_id,

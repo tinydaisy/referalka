@@ -188,13 +188,34 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
                  AND COALESCE(t.allow_custom_bot, false) = false
            ),
            conf_dates AS (
-              SELECT event_id,
-                     MIN((day_date + COALESCE(NULLIF(open_time,'')::time,  '00:00'::time))
-                         AT TIME ZONE 'Europe/Moscow') AS start_at,
-                     MAX((day_date + COALESCE(NULLIF(close_time,'')::time, '23:59'::time))
-                         AT TIME ZONE 'Europe/Moscow') AS end_at
-                FROM conf_days
-               GROUP BY event_id
+              -- start = первый день: open_time дня 1, иначе MIN(start_time) сессий дня 1
+              -- end   = последний день: close_time, иначе MAX(end_time) сессий посл. дня
+              SELECT d.event_id,
+                     (SELECT (d2.day_date + COALESCE(
+                                NULLIF(d2.open_time,'')::time,
+                                (SELECT MIN(NULLIF(s.start_time,'')::time)
+                                   FROM conf_sessions s
+                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                '00:00'::time
+                              )) AT TIME ZONE 'Europe/Moscow'
+                        FROM conf_days d2
+                        WHERE d2.event_id = d.event_id
+                        ORDER BY d2.day_number ASC LIMIT 1) AS start_at,
+                     (SELECT (d2.day_date + COALESCE(
+                                NULLIF(d2.close_time,'')::time,
+                                (SELECT MAX(NULLIF(s.end_time,'')::time)
+                                   FROM conf_sessions s
+                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                (SELECT MAX(NULLIF(s.start_time,'')::time)
+                                   FROM conf_sessions s
+                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                '23:59'::time
+                              )) AT TIME ZONE 'Europe/Moscow'
+                        FROM conf_days d2
+                        WHERE d2.event_id = d.event_id
+                        ORDER BY d2.day_number DESC LIMIT 1) AS end_at
+                FROM conf_days d
+               GROUP BY d.event_id
            )
            SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                   (SELECT url FROM event_posters

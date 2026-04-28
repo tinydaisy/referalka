@@ -111,11 +111,10 @@ async def list_events(
     client_id = int(client["sub"])
     # effective_start: для конференций fallback на минимальную дату из conf_days,
     # для остальных — собственный start_at
-    # effective_start_at / effective_end_at:
-    #  - для конференций — MIN/MAX (day_date + open_time/close_time) из conf_days
-    #    (open_time / close_time теперь TEXT — кастуем к ::time)
-    #    Возвращаем как TIMESTAMPTZ в МСК для совместимости с фронтом.
-    #  - для остальных модулей — собственные start_at/end_at события
+    -- effective_start_at / effective_end_at для конференций:
+    --   start = первый день + (open_time дня 1 ИЛИ MIN(start_time) сессий дня 1)
+    --   end   = последний день + (close_time посл. дня ИЛИ MAX(end_time) сессий посл. дня)
+    -- если ничего не задано — fallback на day_date 00:00 / 23:59 чтобы вообще что-то показать.
     base_select = """
         SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                (SELECT url FROM event_posters
@@ -129,15 +128,32 @@ async def list_events(
                  LIMIT 1) AS poster_url,
                e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
                CASE WHEN e.module_slug = 'conference' THEN
-                 (SELECT MIN((day_date + COALESCE(NULLIF(open_time,'')::time, '00:00'::time))
-                             AT TIME ZONE 'Europe/Moscow')
-                    FROM conf_days WHERE event_id = e.id)
+                 (SELECT (d.day_date + COALESCE(
+                            NULLIF(d.open_time,'')::time,
+                            (SELECT MIN(NULLIF(s.start_time,'')::time)
+                               FROM conf_sessions s
+                              WHERE s.event_id = e.id AND s.day = d.day_number),
+                            '00:00'::time
+                          )) AT TIME ZONE 'Europe/Moscow'
+                    FROM conf_days d
+                    WHERE d.event_id = e.id
+                    ORDER BY d.day_number ASC LIMIT 1)
                  ELSE e.start_at
                END AS effective_start_at,
                CASE WHEN e.module_slug = 'conference' THEN
-                 (SELECT MAX((day_date + COALESCE(NULLIF(close_time,'')::time, '23:59'::time))
-                             AT TIME ZONE 'Europe/Moscow')
-                    FROM conf_days WHERE event_id = e.id)
+                 (SELECT (d.day_date + COALESCE(
+                            NULLIF(d.close_time,'')::time,
+                            (SELECT MAX(NULLIF(s.end_time,'')::time)
+                               FROM conf_sessions s
+                              WHERE s.event_id = e.id AND s.day = d.day_number),
+                            (SELECT MAX(NULLIF(s.start_time,'')::time)
+                               FROM conf_sessions s
+                              WHERE s.event_id = e.id AND s.day = d.day_number),
+                            '23:59'::time
+                          )) AT TIME ZONE 'Europe/Moscow'
+                    FROM conf_days d
+                    WHERE d.event_id = e.id
+                    ORDER BY d.day_number DESC LIMIT 1)
                  ELSE e.end_at
                END AS effective_end_at,
                COUNT(DISTINCT ep.id) as participants_count
