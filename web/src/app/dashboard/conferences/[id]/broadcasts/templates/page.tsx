@@ -166,6 +166,9 @@ export default function TemplatesPage() {
   const [confDaysData, setConfDaysData] = useState<any[]>([])
   const [confData, setConfData] = useState<any>(null)
   const [confSessions, setConfSessions] = useState<any[]>([])
+  const [confPosters, setConfPosters] = useState<{ horizontal: string[]; vertical: string[]; square: string[] }>({
+    horizontal: [], vertical: [], square: [],
+  })
   const [previewRegistered, setPreviewRegistered] = useState(false)
 
   useEffect(() => {
@@ -179,6 +182,15 @@ export default function TemplatesPage() {
     }).catch(() => {})
     api.conference.get(eventId).then(r => setConfData(r.conference)).catch(() => {})
     api.conference.sessions.list(eventId).then(r => setConfSessions(r.sessions || [])).catch(() => {})
+    // Афиши лежат в event_posters (общая таблица для всех событий) — забираем все ориентации
+    api.referralProgram.posters.list(eventId).then(r => {
+      const items = r.items || []
+      setConfPosters({
+        horizontal: items.filter((p: any) => p.orientation === 'horizontal').map((p: any) => p.url),
+        vertical:   items.filter((p: any) => p.orientation === 'vertical').map((p: any) => p.url),
+        square:     items.filter((p: any) => p.orientation === 'square').map((p: any) => p.url),
+      })
+    }).catch(() => {})
   }, [eventId])
 
   async function save() {
@@ -1108,7 +1120,7 @@ export default function TemplatesPage() {
                 const isConfTpl = previewModal.def.type.startsWith('day_') || previewModal.def.type === 'pre_conf'
                 const photoSrc = previewModal.tpl.photo_url
                   || (isConfTpl
-                    ? confData?.poster_horizontal?.[0]
+                    ? confPosters.horizontal[0]
                     : previewSpeaker?.poster_url)
                 const placeholder = isConfTpl ? '📸 Горизонтальная афиша конференции' : '📸 Афиша спикера'
                 return photoSrc ? (

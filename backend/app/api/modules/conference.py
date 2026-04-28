@@ -125,6 +125,15 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
            WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_datetime""",
         event_id
     )
+    # Афиши — единый источник истины event_posters
+    posters_rows = await db.fetch(
+        """SELECT url, orientation FROM event_posters
+            WHERE event_id = $1 ORDER BY sort, id""",
+        event_id
+    )
+    poster_horizontal = [p["url"] for p in posters_rows if p["orientation"] == "horizontal"]
+    poster_vertical   = [p["url"] for p in posters_rows if p["orientation"] == "vertical"]
+    poster_square     = [p["url"] for p in posters_rows if p["orientation"] == "square"]
 
     def dt_str(val):
         if val is None:
@@ -189,9 +198,9 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
             for s in speakers
         ],
         "schedule": schedule,
-        "poster_horizontal": list(conf["poster_horizontal"] or []),
-        "poster_vertical": list(conf["poster_vertical"] or []),
-        "poster_square": list(conf["poster_square"] or []),
+        "poster_horizontal": poster_horizontal,
+        "poster_vertical": poster_vertical,
+        "poster_square": poster_square,
     }
 
     await db.execute(
@@ -221,9 +230,6 @@ class ConferenceUpdate(BaseModel):
     subscription_mode: Optional[str] = None   # none | organizer | all_speakers
     is_live: Optional[bool] = None
     status: Optional[str] = None
-    poster_horizontal: Optional[List[str]] = None
-    poster_vertical: Optional[List[str]] = None
-    poster_square: Optional[List[str]] = None
     test_telegram_ids: Optional[List[str]] = None
     raffle_url: Optional[str] = None
     telegram_chat_ids: Optional[str] = None     # ID чатов/каналов через запятую

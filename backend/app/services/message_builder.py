@@ -169,11 +169,8 @@ async def get_default_event_photo(conn, event_id: int) -> Optional[str]:
     Дефолтная афиша события для рассылок: лучшая из event_posters
     с приоритетом square > horizontal > vertical. Используется как
     fallback, когда в шаблоне рассылки photo_url не задан клиентом.
-
-    Если в event_posters ничего нет — пробуем legacy conf_conferences.poster_horizontal[0]
-    (старое поле, которое UI больше не пишет, но у некоторых конференций ещё лежит).
     """
-    url = await conn.fetchval(
+    return await conn.fetchval(
         """SELECT url FROM event_posters
             WHERE event_id = $1
             ORDER BY CASE orientation
@@ -185,17 +182,6 @@ async def get_default_event_photo(conn, event_id: int) -> Optional[str]:
             LIMIT 1""",
         event_id
     )
-    if url:
-        return url
-    legacy = await conn.fetchval(
-        "SELECT poster_horizontal FROM conf_conferences WHERE event_id = $1",
-        event_id
-    )
-    if legacy:
-        if isinstance(legacy, list):
-            return legacy[0] if legacy else None
-        return legacy
-    return None
 
 
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
@@ -246,7 +232,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, cc.registration_url, cc.raffle_url,
-                   cc.poster_horizontal, cd.stream_url, cd.day_date
+                   cd.stream_url, cd.day_date
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
             LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = $2
@@ -260,7 +246,6 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
         day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else f"День {day}"
-        poster_h = conf_row["poster_horizontal"] if conf_row else None
         if not photo:
             photo = await get_default_event_photo(conn, event_id)
 
@@ -424,7 +409,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, cc.description as conf_description,
-                   cc.registration_url, cc.poster_horizontal,
+                   cc.registration_url,
                    cd.day_date
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
@@ -438,7 +423,6 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
         conf_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else ""
-        poster_h = conf_row["poster_horizontal"] if conf_row else None
         if not photo:
             photo = await get_default_event_photo(conn, event_id)
         text = text.replace("{conf_title}", conf_title)
@@ -489,7 +473,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, cc.description as conf_description,
-                   cc.registration_url, cc.raffle_url, cc.poster_horizontal
+                   cc.registration_url, cc.raffle_url
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
             WHERE e.id=$1
@@ -500,7 +484,6 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_desc = (conf_row["conf_description"] or "") if conf_row else ""
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
-        poster_h = conf_row["poster_horizontal"] if conf_row else None
 
         raw_first_date = first_day["day_date"] if first_day else None
         conf_date_str = f"{raw_first_date.day} {RU_MONTHS[raw_first_date.month - 1]}" if raw_first_date else ""

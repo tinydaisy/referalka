@@ -320,8 +320,7 @@ async def list_templates(
         )
 
     # Дефолтная афиша события (если в шаблоне photo_url не задан клиентом):
-    # лучшая из event_posters по приоритету square > horizontal > vertical,
-    # с fallback на legacy conf_conferences.poster_horizontal[0].
+    # лучшая из event_posters по приоритету square > horizontal > vertical.
     from app.services.message_builder import get_default_event_photo
     default_poster = await get_default_event_photo(db, event_id)
     result = []
