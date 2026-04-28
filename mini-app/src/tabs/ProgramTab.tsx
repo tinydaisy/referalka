@@ -140,24 +140,36 @@ export default function ProgramTab({ event }: Props) {
       .finally(() => setLoadingDay(null))
   }, [event?.id, openDay])
 
-  // Авто-скролл ленты спикеров (медленно, бесконечно по кругу)
+  // Авто-скролл ленты спикеров (через requestAnimationFrame — стабильнее
+  // setInterval на iOS Telegram WebApp; шаг считаем от dt в мс)
   useEffect(() => {
     const el = speakersScrollRef.current
-    if (!el || speakers.length < 4) return
+    if (!el || speakers.length === 0) return
+    let raf = 0
+    let last = 0
     let paused = false
-    const onTouch = () => { paused = true; setTimeout(() => paused = false, 4000) }
+    const onTouch = () => { paused = true; setTimeout(() => { paused = false }, 4000) }
     el.addEventListener('touchstart', onTouch, { passive: true })
     el.addEventListener('mousedown',  onTouch)
 
-    const id = setInterval(() => {
-      if (paused) return
-      // Когда дошли до второй половины — прыжок в начало (длина дублирована)
-      const half = el.scrollWidth / 2
-      if (el.scrollLeft >= half) el.scrollLeft -= half
-      else el.scrollLeft += 0.6
-    }, 30)
+    const SPEED = 35  // px в секунду
+
+    const tick = (t: number) => {
+      if (last && !paused) {
+        const dt = t - last
+        const half = el.scrollWidth / 2
+        if (half > 0) {
+          el.scrollLeft += (dt / 1000) * SPEED
+          if (el.scrollLeft >= half) el.scrollLeft -= half
+        }
+      }
+      last = t
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+
     return () => {
-      clearInterval(id)
+      cancelAnimationFrame(raf)
       el.removeEventListener('touchstart', onTouch)
       el.removeEventListener('mousedown',  onTouch)
     }
@@ -507,23 +519,18 @@ export default function ProgramTab({ event }: Props) {
                     </div>
                   )}
 
-                  {/* Регалии */}
+                  {/* Регалии — без заголовка, маркер тёмно-бирюзовый */}
                   {ach.length > 0 && (
-                    <div style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase',
-                                    letterSpacing: 0.4, fontWeight: 700, marginBottom: 4 }}>
-                        О спикере
-                      </div>
-                      <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-                        {ach.map((a, i) => (
-                          <li key={i} style={{ fontSize: 12, color: '#3a4a5a', lineHeight: 1.4,
-                                                paddingLeft: 12, position: 'relative', marginBottom: 2 }}>
-                            <span style={{ position: 'absolute', left: 0, color: PEACH, fontWeight: 700 }}>•</span>
-                            {a}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                    <ul style={{ margin: '0 0 8px', padding: 0, listStyle: 'none' }}>
+                      {ach.map((a, i) => (
+                        <li key={i} style={{ fontSize: 12, color: '#3a4a5a', lineHeight: 1.4,
+                                              paddingLeft: 14, position: 'relative', marginBottom: 3 }}>
+                          <span style={{ position: 'absolute', left: 0, top: -1, color: DARK,
+                                          fontWeight: 700, fontSize: 14 }}>•</span>
+                          {a}
+                        </li>
+                      ))}
+                    </ul>
                   )}
 
                   {/* Подарок на эфире */}
