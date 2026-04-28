@@ -19,8 +19,8 @@
 ## Правила работы
 
 > ### ⚠️ СЕРВЕР ПО УМОЛЧАНИЮ — DEV
-> **Все правки и эксперименты идут на DEV-сервер `62.113.98.30` (dev.pluson.margoforbs.ru).**
-> **Прод `194.156.119.17` (pluson.margoforbs.ru) — ТОЛЬКО по явной команде пользователя** («деплой на прод», «выкати на продакшн» и т.п.).
+> **Все правки и эксперименты идут на DEV-сервер `62.113.98.30` (dev.pluson.ru, старый dev.pluson.margoforbs.ru работает параллельно).**
+> **Прод `194.156.119.17` (pluson.ru / www.pluson.ru, старый pluson.margoforbs.ru работает параллельно) — ТОЛЬКО по явной команде пользователя** («деплой на прод», «выкати на продакшн» и т.п.).
 > Не переспрашивать каждый раз — реквизиты и пароли в `memory/dev_server.md` и `memory/server_access.md`.
 
 - Всегда отвечать на **русском языке**
@@ -58,8 +58,8 @@
 
 ### Деплой и тестирование
 - **Два сервера:**
-  - **Dev:** `62.113.98.30` / `dev.pluson.margoforbs.ru` (Ubuntu 24.04). Все новые правки сначала идут сюда
-  - **Прод:** `194.156.119.17` / `pluson.margoforbs.ru`. Деплой на прод — только после явного подтверждения пользователя
+  - **Dev:** `62.113.98.30` / `dev.pluson.ru` (Ubuntu 24.04). Старый `dev.pluson.margoforbs.ru` работает параллельно. Все новые правки сначала идут сюда
+  - **Прод:** `194.156.119.17` / `pluson.ru` (www-версия и старый `pluson.margoforbs.ru` работают параллельно). Деплой на прод — только после явного подтверждения пользователя
 - **Деплой только через git** — commit локально → `git push` → на сервере `git pull` + build + рестарт. **Никогда** не редактируем файлы напрямую на сервере, не используем `scp` для точечной доставки. Исключение: разовые серверные команды (рестарт, логи, psql, установка пакетов)
 - **Production-режим везде** — даже на dev запускаем через `npm start` (не `npm run dev`), перед деплоем всегда `npm run build`
 - **Тестирование после каждого запроса** — после каждого изменения обязательно протестировать как реальный пользователь через dev-домен и Telegram Mini App. Описать результаты в ответе
@@ -79,7 +79,7 @@
 | Telegram Mini App | React + Vite + @telegram-apps/sdk |
 | Очереди задач (рассылки) | Celery + Redis |
 | Хостинг всего | Beget VPS 194.156.119.17 |
-| Домен | pluson.margoforbs.ru (DNS в Vercel → VPS) |
+| Домен | pluson.ru (Reg.ru DNS → VPS), старый pluson.margoforbs.ru работает параллельно |
 
 ---
 
@@ -295,16 +295,16 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 | URL | Что открывается |
 |---|---|
-| `pluson.margoforbs.ru/tg/` | HubSelector (общий @pluson_bot) |
-| `pluson.margoforbs.ru/c/1/tg/` | Hub клиента 1 (бот клиента 1) |
-| `pluson.margoforbs.ru/c/1/tg/event/{slug}` | EventPage в боте клиента 1 |
-| `pluson.margoforbs.ru/tg/?cid=1` | Hub клиента 1 (legacy query, deprecated, для обратной совместимости) |
+| `pluson.ru/tg/` | HubSelector (общий @pluson_bot) |
+| `pluson.ru/c/1/tg/` | Hub клиента 1 (бот клиента 1) |
+| `pluson.ru/c/1/tg/event/{slug}` | EventPage в боте клиента 1 |
+| `pluson.ru/tg/?cid=1` | Hub клиента 1 (legacy query, deprecated, для обратной совместимости) |
 
-В BotFather при настройке Mini App для VIP-клиента указывается `https://pluson.margoforbs.ru/c/{N}/tg/`. Vite собран с `base: '/tg/'` — все ассеты грузятся с `/tg/assets/...` независимо от cid в URL. nginx делает internal rewrite `^/c/\d+/(.*)$ → /$1` ([nginx config](memory/dev_server.md)), один статический Mini App обслуживает ботов всех клиентов.
+В BotFather при настройке Mini App для VIP-клиента указывается `https://pluson.ru/c/{N}/tg/`. Vite собран с `base: '/tg/'` — все ассеты грузятся с `/tg/assets/...` независимо от cid в URL. nginx делает internal rewrite `^/c/\d+/(.*)$ → /$1` ([nginx config](memory/dev_server.md)), один статический Mini App обслуживает ботов всех клиентов.
 
 **Безопасность:** идентификатор клиента в URL не криптографически защищён — Telegram WebApp SDK не передаёт `bot_id`/`bot_username` ни в каком виде. Подмена `/c/1/` на `/c/2/` показывает Hub чужого клиента, но **только публичные данные** (визитку, опубликованные события). Приватные данные (рассылки, регистрации) выдаются по `tg_id` из подписанного `initData`, а не по `cid` из URL.
 
-**Сейчас в MVP:** один общий бот `@pluson_bot` — в нём селектор. Бот клиента со своим Mini App — на VIP-тарифе. VIP-клиент сам через BotFather (`/newapp`) привязывает свой бот к URL `https://pluson.margoforbs.ru/c/{N}/tg/`.
+**Сейчас в MVP:** один общий бот `@pluson_bot` — в нём селектор. Бот клиента со своим Mini App — на VIP-тарифе. VIP-клиент сам через BotFather (`/newapp`) привязывает свой бот к URL `https://pluson.ru/c/{N}/tg/`.
 
 **VIP-онбординг (миграция 045 от 28.04.2026)** — фича-флаг `tariffs.allow_custom_bot BOOL`. Тариф `vip` = `true`, дефолтный `beta` = `false`.
 
@@ -326,7 +326,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 Нижние вкладки (всегда 2):
 1. **📅 События** — события группируются **по организаторам** (брендам). См. правила ниже.
-2. **➕ ПЛЮСОН** — промо-вкладка «Сделайте так же со своим событием», CTA «Создать кабинет» → `pluson.margoforbs.ru/register`. Видна каждому участнику.
+2. **➕ ПЛЮСОН** — промо-вкладка «Сделайте так же со своим событием», CTA «Создать кабинет» → `pluson.ru/register`. Видна каждому участнику.
 
 **Правила формирования вкладки «События» в селекторе:**
 
@@ -441,11 +441,11 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 **Инфраструктура:**
 - Сервер: Beget VPS 194.156.119.17, Ubuntu 24.04
-- Домен: https://pluson.margoforbs.ru (SSL, nginx)
+- Домен: https://pluson.ru (Let's Encrypt SSL, nginx). Старый https://pluson.margoforbs.ru работает параллельно
 - База данных: PostgreSQL на VPS, все миграции применены
 - Бот: @pluson_bot, токен в `.env`
 - Mini App: зарегистрирован в BotFather, short name `plusson`
-- Mini App на dev: https://dev.pluson.margoforbs.ru/tg/ (nginx alias на `mini-app/dist/`, vite `base: '/tg/'`)
+- Mini App на dev: https://dev.pluson.ru/tg/ (nginx alias на `mini-app/dist/`, vite `base: '/tg/'`)
 - Клиент: margarita.vl2011@gmail.com / Playball8013!
 - Администратор: admin@plusson.app / Mill20ion!Forbs
 
