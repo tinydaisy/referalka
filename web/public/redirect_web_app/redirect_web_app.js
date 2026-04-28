@@ -39,30 +39,7 @@
     var parts = ['ref', 'pg' + PAGE_CODE];
     if(pid) parts.push('pid' + pid);
     if(src) parts.push('src' + src);
-    var startApp = parts.join('_');
-
-    // Парсим botUsername и appName из APP_CONFIG.tg = 'https://t.me/<bot>/<app>'
-    var seg = APP_CONFIG.tg.replace(/^https?:\/\/t\.me\//, '').split('/');
-    var bot  = seg[0] || '';
-    var name = seg[1] || '';
-
-    // Сперва — нативная схема tg://. Открывает Mini App и в Safari, и в
-    // Telegram-webview. Universal Link https://t.me/... в Safari иногда
-    // открывает только чат бота, не Mini App — поэтому он только fallback.
-    var deepLink = 'tg://resolve?domain=' + bot
-      + (name ? '&appname=' + name : '')
-      + (startApp ? '&startapp=' + startApp : '');
-    var httpsLink = APP_CONFIG.tg + '?startapp=' + startApp;
-
-    window.location.replace(deepLink);
-
-    // Если через 1.5 сек страница всё ещё видна — Telegram не установлен
-    // или не подхватил tg://-схему. Откатываемся на https://t.me/...
-    setTimeout(function(){
-      if(!document.hidden){
-        window.location.replace(httpsLink);
-      }
-    }, 1500);
+    window.location.replace(APP_CONFIG.tg + '?startapp=' + parts.join('_'));
     return;
   }
 

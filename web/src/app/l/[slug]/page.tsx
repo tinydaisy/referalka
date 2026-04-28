@@ -37,8 +37,8 @@ export default async function EventLandingPage({ params }: { params: { slug: str
         <Script id="page-code" strategy="beforeInteractive">
           {`var PAGE_CODE = '${event.slug}';`}
         </Script>
-        <Script src="/redirect_web_app/app_config.js?v=2" strategy="beforeInteractive" />
-        <Script src="/redirect_web_app/redirect_web_app.js?v=2" strategy="beforeInteractive" />
+        <Script src="/redirect_web_app/app_config.js?v=3" strategy="beforeInteractive" />
+        <Script src="/redirect_web_app/redirect_web_app.js?v=3" strategy="beforeInteractive" />
       </head>
       <body
         style={{

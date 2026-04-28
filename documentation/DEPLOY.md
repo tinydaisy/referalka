@@ -71,7 +71,7 @@ Supabase (DB)      Beget VPS              Vercel
 4. После регистрации обнови `web/public/redirect_web_app/app_config.js`:
    ```javascript
    var APP_CONFIG = {
-     tg: 'https://t.me/pluson_bot/plusson'
+     tg: 'https://t.me/pluson_bot/pluson'
    };
    ```
 
