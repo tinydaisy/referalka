@@ -133,7 +133,7 @@ export default function ConferencePage() {
         </div>
       </div>
 
-      {tab === 'settings'     && <SettingsTab     eventId={eventId} conf={conf} event={event} onConfUpdated={setConf} />}
+      {tab === 'settings'     && <SettingsTab     eventId={eventId} conf={conf} event={event} onConfUpdated={setConf} onEventUpdated={(patch: any) => setEvent((e: any) => ({ ...e, ...patch }))} />}
       {tab === 'speakers'     && <SpeakersTab     eventId={eventId} />}
       {tab === 'program'      && <ProgramTab      eventId={eventId} />}
       {tab === 'participants' && <ParticipantsTab eventId={eventId} />}

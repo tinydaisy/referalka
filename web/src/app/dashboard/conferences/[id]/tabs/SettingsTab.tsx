@@ -26,11 +26,12 @@ function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; o
   )
 }
 
-export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
+export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEventUpdated }: {
   eventId: number
   conf: any
   event: any
   onConfUpdated: (c: any) => void
+  onEventUpdated?: (patch: any) => void
 }) {
   const { t } = useLang()
   const [chatIdsError, setChatIdsError] = useState('')
@@ -77,6 +78,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated }: {
     setSaving(true); setSaved(false)
     try {
       await api.events.update(eventId, { title: form.title })
+      onEventUpdated?.({ title: form.title })
       const updated = await api.conference.update(eventId, {
         description: form.description || null,
         registration_url: form.registration_url || null,
