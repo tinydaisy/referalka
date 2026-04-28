@@ -158,7 +158,7 @@ export default function ConferencePage() {
       stream_url: confForm.stream_url,
       landing_template: confForm.landing_template || 'ivision',
       landing_url: confForm.landing_url,
-      vip_upsell_url: confForm.vip_upsell_url,
+      vip_url: confForm.vip_url,
     })
     setConf(res.conference)
     setSaving(false)
@@ -435,7 +435,7 @@ export default function ConferencePage() {
                 { key: 'chat_url',         label: 'Ссылка на общий чат участников',           placeholder: 'https://t.me/...' },
                 { key: 'stream_url',       label: 'Ссылка на стрим (одна на все дни)',         placeholder: 'https://youtube.com/live/... или https://t.me/...' },
                 { key: 'landing_url',      label: 'Внешний лендинг (если есть)',                placeholder: 'https://...' },
-                { key: 'vip_upsell_url',   label: 'VIP предложение (upsell)',                   placeholder: 'https://...' },
+                { key: 'vip_url',          label: 'VIP предложение (upsell)',                   placeholder: 'https://...' },
               ].map(({ key, label, placeholder }) => (
                 <div key={key}>
                   <label className="block text-xs text-gray-500 mb-1">{label}</label>

@@ -245,13 +245,13 @@ class ConferenceUpdate(BaseModel):
     registration_url: Optional[str] = None
     landing_url: Optional[str] = None
     landing_template: Optional[str] = None
-    # chat_url и stream_url пишутся в events, не conf_conferences —
+    # chat_url, stream_url, vip_url пишутся в events, не conf_conferences —
     # источник истины один. Оставлены здесь как поля, чтобы фронт мог
     # отправить их в одном PATCH со всеми остальными настройками.
     chat_url: Optional[str] = None
     stream_url: Optional[str] = None
+    vip_url: Optional[str] = None
     getcourse_form_url: Optional[str] = None
-    vip_upsell_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
     subscription_mode: Optional[str] = None   # none | organizer | all_speakers
     is_live: Optional[bool] = None
@@ -272,7 +272,8 @@ async def get_conference(
         """
         SELECT cc.*, e.title as event_title,
                e.chat_url   AS event_chat_url,
-               e.stream_url AS event_stream_url
+               e.stream_url AS event_stream_url,
+               e.vip_url    AS event_vip_url
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
@@ -282,10 +283,10 @@ async def get_conference(
     if not conf:
         return {"conference": None}
     d = dict(conf)
-    # chat_url / stream_url теперь живут в events, отдаём их фронту
-    # под привычными именами поверх легаси-полей в conf_conferences.
-    d["chat_url"]   = d.pop("event_chat_url")   or d.get("chat_url")   or ""
+    # chat_url / stream_url / vip_url — единый источник истины events.
+    d["chat_url"]   = d.pop("event_chat_url")   or d.get("chat_url") or ""
     d["stream_url"] = d.pop("event_stream_url") or ""
+    d["vip_url"]    = d.pop("event_vip_url")    or ""
     return {"conference": d}
 
 
@@ -321,9 +322,10 @@ async def update_conference(
         await db.execute("INSERT INTO conf_conferences (event_id) VALUES ($1)", event_id)
 
     raw = data.model_dump(exclude_unset=True)
-    # chat_url и stream_url — единый источник в events, не в conf_conferences.
+    # chat_url, stream_url, vip_url — единый источник в events, не в conf_conferences.
     event_chat_url   = raw.pop("chat_url", None)   if "chat_url"   in raw else None
     event_stream_url = raw.pop("stream_url", None) if "stream_url" in raw else None
+    event_vip_url    = raw.pop("vip_url", None)    if "vip_url"    in raw else None
 
     if raw:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(raw.keys())]
@@ -332,20 +334,17 @@ async def update_conference(
             event_id, *raw.values()
         )
 
-    if "chat_url" in data.model_dump(exclude_unset=True):
+    sent = data.model_dump(exclude_unset=True)
+    if "chat_url" in sent:
         await db.execute("UPDATE events SET chat_url = $1 WHERE id = $2", event_chat_url, event_id)
-    if "stream_url" in data.model_dump(exclude_unset=True):
+    if "stream_url" in sent:
         await db.execute("UPDATE events SET stream_url = $1 WHERE id = $2", event_stream_url, event_id)
-
-    # Если у конференции вписан vip_upsell_url — зеркалим в events.vip_url
-    # (источник истины для Mini App), чтобы кнопка «Оплатить VIP» появилась
-    # сама без ручной возни с has_vip_tariff/vip_url.
-    if "vip_upsell_url" in data.model_dump(exclude_unset=True):
-        vip_url = (data.vip_upsell_url or "").strip() or None
-        if vip_url:
+    if "vip_url" in sent:
+        vip = (event_vip_url or "").strip() or None
+        if vip:
             await db.execute(
                 "UPDATE events SET vip_url = $1, has_vip_tariff = TRUE WHERE id = $2",
-                vip_url, event_id,
+                vip, event_id,
             )
         else:
             await db.execute(

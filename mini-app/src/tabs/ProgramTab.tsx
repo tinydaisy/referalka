@@ -100,9 +100,9 @@ function tgLink(url?: string | null, username?: string | null): string | null {
 
 export default function ProgramTab({ event }: Props) {
   const isConference = event?.module_slug === 'conference'
-  // Кнопка VIP появляется как только у события вписан URL — не зависим
-  // от has_vip_tariff (в дашборде юзер вписывает только vip_upsell_url).
-  const vipUrl  = event?.vip_url || event?.vip_upsell_url || ''
+  // Кнопка VIP появляется если у события вписан vip_url
+  // (единый источник истины в events.vip_url).
+  const vipUrl  = event?.vip_url || ''
   const hasVip  = !!vipUrl
   const hasChat = !!event?.chat_url
   const hasStream = !!event?.stream_url
@@ -233,12 +233,12 @@ export default function ProgramTab({ event }: Props) {
                 }}>
                   {!sp.photo_url && initials(sp.name)}
                 </div>
-                <div style={{ fontSize: 10, lineHeight: 1.15, color: '#1a2a3a', fontWeight: 600,
+                <div style={{ fontSize: 10, lineHeight: 1.15, color: '#1a2a3a', fontWeight: 700,
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {firstName}
                 </div>
                 {lastName && (
-                  <div style={{ fontSize: 10, lineHeight: 1.15, color: 'var(--muted)',
+                  <div style={{ fontSize: 10, lineHeight: 1.15, color: '#1a2a3a', fontWeight: 700,
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {lastName}
                   </div>
@@ -383,7 +383,7 @@ export default function ProgramTab({ event }: Props) {
                             const speakerRoleLabel = s.speaker_role && ROLE_LABELS[s.speaker_role]
                             const roleColors = (s.speaker_role && ROLE_COLORS[s.speaker_role]) || ROLE_COLORS.speaker
                             // Чередуем фон строк программы — белый/полупрозрачный бирюзовый
-                            const altBg = idx % 2 === 0 ? 'transparent' : 'rgba(37,69,93,0.11)'
+                            const altBg = idx % 2 === 0 ? 'transparent' : 'rgba(37,69,93,0.20)'
                             return (
                               <div key={s.id} style={{
                                 background: altBg, padding: '10px 10px',
