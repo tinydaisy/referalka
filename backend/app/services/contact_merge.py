@@ -247,7 +247,9 @@ async def upsert_contact_with_identity(
 
     # Контакт нашли по email/phone, но у него уже привязан ДРУГОЙ tg/vk — не можем
     # добавить вторую идентичность той же платформы (UNIQUE contact_id, platform_slug).
-    # Создаём свежий контакт под этот новый tg_id; ручной мердж — через UI.
+    # Один email = один человек, у него может быть TG + VK + MAX, но не два разных TG.
+    # Отдаём 409 с человеческим сообщением — пусть пользователь введёт другой email
+    # или зайдёт в Telegram под тем аккаунтом, которым регистрировался раньше.
     if not is_new:
         clash = await db.fetchval(
             """SELECT 1 FROM platform_users
@@ -256,16 +258,21 @@ async def upsert_contact_with_identity(
             contact_id, platform_slug, str(platform_user_id)
         )
         if clash:
-            ref_code = await _generate_unique_ref_code(db)
-            contact_id = await db.fetchval(
-                """INSERT INTO contacts (client_id, name, email, email_normalized, phone, phone_normalized,
-                                          salebot_id, utm_source, tags, ref_code)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::JSONB, '[]'::JSONB), $10)
-                 RETURNING id""",
-                client_id, name_from_parts(first_name, last_name), email, normalize_email(email),
-                phone, normalize_phone(phone), salebot_id, utm_source, tags, ref_code
+            from fastapi import HTTPException
+            platform_label = {
+                "telegram": "Telegram",
+                "vk": "ВКонтакте",
+                "max": "MAX",
+            }.get(platform_slug, platform_slug)
+            matched_by = "email" if normalize_email(email) else "телефону"
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Этот {matched_by} уже привязан к другому аккаунту {platform_label}. "
+                    f"Введите другой {matched_by} или зайдите в {platform_label} тем аккаунтом, "
+                    "которым регистрировались раньше."
+                ),
             )
-            is_new = True
 
     pu_id = await upsert_platform_user(
         db,
