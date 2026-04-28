@@ -27,6 +27,17 @@ body {
   background: linear-gradient(45deg, #25455D, #0a1520);
 }
 
+/* Логотип на auth-страницах: пропорциональный (оригинал 201x164, ratio 1.226).
+   max-width: none нужен потому что Tailwind preflight ставит max-width:100% — оно тянет img. */
+.auth-logo {
+  height: 120px !important;
+  width: 147px !important;
+  max-width: none !important;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
+}
+
 .btn-gold {
   background: #FFCFA4;
   color: #0a1520;
