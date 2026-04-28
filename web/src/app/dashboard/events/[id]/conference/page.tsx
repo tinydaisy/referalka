@@ -942,7 +942,7 @@ export default function ConferencePage() {
                     <td className="px-5 py-3 text-sm text-gray-500">{p.telegram_url || '—'}</td>
                     <td className="px-5 py-3 text-sm font-mono text-gray-600">{p.partner_code}</td>
                     <td className="px-5 py-3">
-                      <button onClick={() => { navigator.clipboard.writeText(`https://pluson.margoforbs.ru/l/${event?.slug}?app=tg&new_partner_id=${p.partner_code}`); flash('Скопировано') }}
+                      <button onClick={() => { navigator.clipboard.writeText(`${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/l/${event?.slug}?app=tg&new_partner_id=${p.partner_code}`); flash('Скопировано') }}
                         className="flex items-center gap-1 text-xs text-[#25455D] hover:underline">
                         <Copy size={11} /> Скопировать
                       </button>

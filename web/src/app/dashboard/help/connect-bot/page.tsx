@@ -7,7 +7,7 @@ const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
 
 export default function ConnectBotInstructionPage() {
-  const [origin, setOrigin] = useState('https://pluson.margoforbs.ru')
+  const [origin, setOrigin] = useState(process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru')
 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin)

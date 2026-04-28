@@ -1,4 +1,6 @@
-const REGISTER_URL = 'https://pluson.margoforbs.ru/register'
+const APP_URL = import.meta.env.VITE_APP_URL || 'https://pluson.ru'
+const REGISTER_URL = `${APP_URL}/register`
+const APP_DOMAIN = APP_URL.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
 const FEATURES = [
   {
@@ -90,7 +92,7 @@ export default function PlussonPromoTab() {
             Создать кабинет →
           </button>
           <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 10 }}>
-            Откроется pluson.margoforbs.ru
+            Откроется {APP_DOMAIN}
           </div>
         </div>
 

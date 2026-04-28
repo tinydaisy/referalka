@@ -3,7 +3,7 @@ import { getGifts } from '../api'
 
 interface Props { event: any; participant: any; tgUser: any }
 
-const APP_URL = import.meta.env.VITE_APP_URL || 'https://pluson.margoforbs.ru'
+const APP_URL = import.meta.env.VITE_APP_URL || 'https://pluson.ru'
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
 
