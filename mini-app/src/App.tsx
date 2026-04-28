@@ -3,6 +3,7 @@ import Hub from './pages/Hub'
 import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
+import { detectPlatform, type PlatformName } from './platform'
 
 /*
  * Маршрутизация без startapp:
@@ -37,12 +38,13 @@ function parseStartParam(raw: string): {
   return r
 }
 
-function sendTgEvent(
+function sendPlatformEvent(
   eventName: string,
   user: any,
   partnerId?: string,
   eventSlug?: string,
   clientId?: number,
+  platform: PlatformName = 'telegram',
 ) {
   try {
     fetch(`${import.meta.env.VITE_API_URL}/api/v1/event`, {
@@ -58,6 +60,7 @@ function sendTgEvent(
         partner_id: partnerId || '',
         event_slug: eventSlug || '',
         client_id: clientId || 0,
+        platform,
       }),
     })
   } catch (_) {}
@@ -90,28 +93,40 @@ export default function App() {
   const [utmSource, setUtmSource] = useState<string | undefined>()
 
   useEffect(() => {
-    const twa = (window as any).Telegram?.WebApp
-    if (twa) {
-      twa.ready()
-      twa.expand()
-      twa.setHeaderColor?.('#0a1520')
-      twa.setBackgroundColor?.('#f7f8fa')
+    const platform = detectPlatform()
+    platform.ready()
+    platform.setHeaderColor?.('#0a1520')
+    platform.setBackgroundColor?.('#f7f8fa')
 
-      const user = twa.initDataUnsafe?.user
-      if (user) setTgUser(user)
+    const user = platform.user
+    if (user) setTgUser(user)
 
-      const sp = twa.initDataUnsafe?.start_param as string | undefined
-      if (sp?.startsWith('ref') || sp?.startsWith('hub')) {
-        const parsed = parseStartParam(sp)
-        if (parsed.eventSlug) setEventSlug(parsed.eventSlug)
-        if (parsed.clientId)  setClientId(parsed.clientId)
-        setPartnerId(parsed.partnerId)
-        setUtmSource(parsed.utmSource)
-        if (user) sendTgEvent('event_start', user, parsed.partnerId, parsed.eventSlug, parsed.clientId)
-      }
-
-      twa.requestWriteAccess?.(() => {})
+    const sp = platform.startParam
+    let parsed: ReturnType<typeof parseStartParam> = {}
+    if (sp && (sp.startsWith('ref') || sp.startsWith('hub'))) {
+      parsed = parseStartParam(sp)
+      if (parsed.eventSlug) setEventSlug(parsed.eventSlug)
+      if (parsed.clientId)  setClientId(parsed.clientId)
+      setPartnerId(parsed.partnerId)
+      setUtmSource(parsed.utmSource)
     }
+
+    // Сначала просим разрешения боту/сообществу писать в ЛС, и только в
+    // колбэке шлём event_start — иначе бэк сделает sendMessage до разрешения,
+    // получит 403 и человек не станет «подписчиком».
+    platform.requestWriteAccess(() => {
+      if (user) {
+        sendPlatformEvent(
+          'event_start',
+          user,
+          parsed.partnerId,
+          parsed.eventSlug,
+          parsed.clientId,
+          platform.name,
+        )
+      }
+    })
+
     setTgUser(prev => prev || MOCK_USER)
     const t = setTimeout(() => setLoading(false), 600)
     return () => clearTimeout(t)

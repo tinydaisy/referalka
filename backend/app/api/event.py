@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class TgEventRequest(BaseModel):
-    user_id: str           # Telegram ID пользователя
+    user_id: str           # ID пользователя на платформе (tg_id / vk_id / max_id)
     event: str             # Тип события: 'event_start'
     first_name: str = ""
     last_name: str = ""
@@ -34,6 +34,7 @@ class TgEventRequest(BaseModel):
     partner_id: str = ""   # промо-партнёр (из startapp pid)
     event_slug: str = ""   # slug события (из startapp pg<slug>) — для определения клиента
     client_id: int = 0     # client_id (из startapp cid<id>) — приоритетнее event_slug
+    platform: str = "telegram"  # telegram | vk | max — Mini App может крепиться к разным
 
 
 @router.post("/event")
@@ -49,6 +50,12 @@ async def handle_tg_event(body: TgEventRequest):
 
     if body.event != "event_start":
         return {"ok": True}
+
+    # Пока приветствие в ЛС умеет только Telegram. Для VK/MAX этот хендлер
+    # принимает событие, но не пытается достучаться до канала — диспетчер
+    # допишется когда подключим соответствующий SDK на фронте.
+    if body.platform != "telegram":
+        return {"ok": True, "platform": body.platform, "skipped": "no dispatcher"}
 
     # Определяем client_id для выбора бота
     pool = await get_pool()

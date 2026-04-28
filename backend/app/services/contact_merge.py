@@ -248,13 +248,13 @@ async def upsert_contact_with_identity(
     # Контакт нашли по email/phone, но у него уже привязан ДРУГОЙ tg/vk — не можем
     # добавить вторую идентичность той же платформы (UNIQUE contact_id, platform_slug).
     # Один email = один человек, у него может быть TG + VK + MAX, но не два разных TG.
-    # Отдаём 409 с человеческим сообщением — пусть пользователь введёт другой email
-    # или зайдёт в Telegram под тем аккаунтом, которым регистрировался раньше.
+    # Отдаём 409 с человеческим сообщением — указываем какой именно аккаунт уже привязан.
     if not is_new:
-        clash = await db.fetchval(
-            """SELECT 1 FROM platform_users
+        clash = await db.fetchrow(
+            """SELECT username FROM platform_users
                 WHERE contact_id = $1 AND platform_slug = $2
-                  AND platform_user_id <> $3""",
+                  AND platform_user_id <> $3
+                ORDER BY id LIMIT 1""",
             contact_id, platform_slug, str(platform_user_id)
         )
         if clash:
@@ -264,13 +264,17 @@ async def upsert_contact_with_identity(
                 "vk": "ВКонтакте",
                 "max": "MAX",
             }.get(platform_slug, platform_slug)
-            matched_by = "email" if normalize_email(email) else "телефону"
+            matched_by_field = "email" if normalize_email(email) else "телефон"
+            matched_by_value = (email or phone or "").strip()
+            existing_handle = (clash["username"] or "").strip()
+            existing_label = f"@{existing_handle}" if existing_handle else "другой аккаунт"
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"Этот {matched_by} уже привязан к другому аккаунту {platform_label}. "
-                    f"Введите другой {matched_by} или зайдите в {platform_label} тем аккаунтом, "
-                    "которым регистрировались раньше."
+                    f"{matched_by_field.capitalize()} {matched_by_value} уже привязан к "
+                    f"{platform_label}-аккаунту {existing_label}. "
+                    f"Введите другой {matched_by_field} или войдите в {platform_label} "
+                    "тем аккаунтом, которым регистрировались раньше."
                 ),
             )
 
