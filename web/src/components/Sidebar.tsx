@@ -2,14 +2,20 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, Smartphone, ChevronDown, BookOpen, MessageCircle } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
+import { api } from '@/lib/api'
 
 export default function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
+  const [me, setMe] = useState<{ name?: string; email?: string } | null>(null)
   const { t, lang, setLang } = useLang()
+
+  useEffect(() => {
+    api.auth.me().then((data: any) => setMe({ name: data?.name, email: data?.email })).catch(() => {})
+  }, [])
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
@@ -113,6 +119,20 @@ export default function Sidebar() {
 
       {/* Bottom */}
       <div className="px-3 pb-4 pt-3 border-t border-white/10 space-y-0.5">
+        {/* Current user */}
+        {me && (me.name || me.email) && (
+          <div className="flex items-center gap-3 px-3 py-2 mb-1 rounded-lg bg-white/5">
+            <UserCircle size={28} className="text-white/60 shrink-0" />
+            <div className="min-w-0 flex-1">
+              {me.name && (
+                <div className="text-sm font-medium text-white truncate">{me.name}</div>
+              )}
+              {me.email && (
+                <div className="text-[11px] text-white/50 truncate">{me.email}</div>
+              )}
+            </div>
+          </div>
+        )}
         {/* Language toggle */}
         <button
           onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')}
