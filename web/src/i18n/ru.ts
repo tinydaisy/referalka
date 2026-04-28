@@ -74,10 +74,13 @@ export const ru = {
 
   status: {
     draft: 'Черновик',
+    published: 'Опубликовано',
     active: 'Активно',
     ended: 'Завершено',
     activeSingle: 'Активна',
     draftSingle: 'Черновик',
+    publish: 'Опубликовать',
+    unpublish: 'В черновик',
   },
 
   dashboard: {

@@ -74,10 +74,13 @@ export const en = {
 
   status: {
     draft: 'Draft',
+    published: 'Published',
     active: 'Active',
     ended: 'Ended',
     activeSingle: 'Active',
     draftSingle: 'Draft',
+    publish: 'Publish',
+    unpublish: 'Unpublish',
   },
 
   dashboard: {

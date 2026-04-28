@@ -21,10 +21,11 @@ export default function ConferencesPage() {
   const [copyingId, setCopyingId] = useState<number | null>(null)
   const [view, setView] = useState<ViewMode>('list')
 
-  const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
-    active: { label: t.status.active, cls: 'bg-green-100 text-green-700' },
-    ended:  { label: t.status.ended,  cls: 'bg-red-50 text-red-600' },
-    // 'draft' не показываем
+  const STATUS_LABELS: Record<string, { label: string; cls: string; dot: string }> = {
+    draft:     { label: t.status.draft,     cls: 'bg-gray-100 text-gray-600 border-gray-200',          dot: 'bg-gray-400' },
+    published: { label: t.status.published, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200',  dot: 'bg-emerald-500' },
+    active:    { label: t.status.active,    cls: 'bg-emerald-50 text-emerald-700 border-emerald-200',  dot: 'bg-emerald-500' },
+    ended:     { label: t.status.ended,     cls: 'bg-red-50 text-red-600 border-red-200',              dot: 'bg-red-400' },
   }
 
   useEffect(() => {
@@ -124,7 +125,15 @@ export default function ConferencesPage() {
               <div key={e.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
                 <Link href={`/dashboard/conferences/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900 truncate">{e.title}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-gray-900 truncate">{e.title}</span>
+                      {st && (
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium border ${st.cls}`}>
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                          {st.label}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
                       <span>{dateLabel}</span>
                       <span>·</span>
@@ -160,12 +169,20 @@ export default function ConferencesPage() {
                 >
                   <div className="h-3" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }} />
                   <div className="p-5">
-                    <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-start justify-between mb-2">
                       <h3 className="font-semibold text-gray-900 leading-snug flex-1 mr-2">
                         {event.title}
                       </h3>
                       <ChevronRight size={16} className="text-gray-400 shrink-0 mt-0.5" />
                     </div>
+                    {status && (
+                      <div className="mb-3">
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium border ${status.cls}`}>
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${status.dot}`} />
+                          {status.label}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-4 text-sm text-gray-600">
                       <span className="flex items-center gap-1.5">
                         <Users size={14} className="text-gray-400" />
