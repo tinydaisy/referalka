@@ -1,17 +1,60 @@
 """
-API каналов доставки клиента (миграция 036).
+API каналов доставки клиента (миграция 036, дополнение 045).
 
 Клиент может иметь несколько каналов: TG-боты, VK-группы, MAX-каналы.
 В UI — раздел сайдбара «Каналы» в группе БАЗА.
+
+Право подключать свой Telegram-бот контролируется фича-флагом тарифа
+`tariffs.allow_custom_bot` (миграция 045). Дешёвые тарифы (например `beta`)
+не могут сохранять `bot_token` — выдаётся 403. На фронте — read-only с апсейл-блоком.
 """
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
 from app.auth import get_current_client
+from app.config import settings
 from app.database import get_db
 
 router = APIRouter(prefix="/channels", tags=["Каналы"])
+
+
+async def _assert_can_use_custom_bot(db, client_id: int):
+    """Проверка фича-флага тарифа. 403 если тариф не разрешает свой бот."""
+    allow = await db.fetchval(
+        """SELECT COALESCE(t.allow_custom_bot, false)
+             FROM clients c
+             LEFT JOIN tariffs t ON t.slug = c.tariff_slug
+            WHERE c.id = $1""",
+        client_id,
+    )
+    if not allow:
+        raise HTTPException(
+            status_code=403,
+            detail="Подключение своего бота доступно на тарифе VIP. Перейдите на VIP в настройках профиля.",
+        )
+
+
+def _mini_app_url_for_client(client_id: int) -> str:
+    """URL Mini App клиента для зашивания в BotFather (`/newapp`) и `setChatMenuButton`."""
+    base = settings.frontend_url.rstrip("/")
+    return f"{base}/c/{client_id}/tg/"
+
+
+async def _tg_call(token: str, method: str, payload: dict | None = None) -> dict:
+    """Вызов Telegram Bot API. Возвращает поле result. Бросает HTTPException при ошибке."""
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            r = await client.post(url, json=payload or {})
+        except httpx.RequestError:
+            raise HTTPException(status_code=502, detail="Не удалось связаться с Telegram")
+    data = r.json()
+    if not data.get("ok"):
+        desc = data.get("description") or "Telegram API error"
+        raise HTTPException(status_code=400, detail=f"Telegram: {desc}")
+    return data.get("result") or {}
 
 
 class ChannelCreate(BaseModel):
@@ -82,6 +125,10 @@ async def create_channel(
     if not platform_exists:
         raise HTTPException(status_code=400, detail="Неизвестная платформа")
 
+    # Сохранение Telegram-бота со своим токеном — только на тарифе с allow_custom_bot
+    if data.platform_slug == "telegram" and data.bot_token:
+        await _assert_can_use_custom_bot(db, client_id)
+
     channel_id = await db.fetchval(
         """INSERT INTO channels (client_id, platform_slug, display_name, handle, bot_token, is_active)
            VALUES ($1, $2, $3, $4, $5, $6)
@@ -112,6 +159,14 @@ async def update_channel(
     if data.handle is not None:
         params.append(data.handle); updates.append(f"handle = ${len(params)}")
     if data.bot_token is not None:
+        # Передача нового токена для telegram → проверяем тариф
+        if data.bot_token:
+            ch_platform = await db.fetchval(
+                "SELECT platform_slug FROM channels WHERE id = $1 AND client_id = $2",
+                channel_id, client_id
+            )
+            if ch_platform == "telegram":
+                await _assert_can_use_custom_bot(db, client_id)
         params.append(data.bot_token); updates.append(f"bot_token = ${len(params)}")
     if data.is_active is not None:
         params.append(data.is_active); updates.append(f"is_active = ${len(params)}")
@@ -125,6 +180,80 @@ async def update_channel(
         *params
     )
     return {"ok": True}
+
+
+class ConnectTelegramBotRequest(BaseModel):
+    bot_token: str
+
+
+@router.post("/connect-telegram-bot", summary="VIP-онбординг: подключить свой Telegram-бот")
+async def connect_telegram_bot(
+    data: ConnectTelegramBotRequest,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """
+    Wizard для VIP-клиента: вставил токен → бэк делает всё остальное.
+      1. Проверяет тариф (allow_custom_bot)
+      2. Валидирует токен через `getMe` (узнаёт username, имя бота)
+      3. Сохраняет / обновляет запись в `channels` (UNIQUE по client_id+platform=telegram)
+      4. Вешает Mini App кнопку через `setChatMenuButton` с URL `/c/{N}/tg/`
+
+    Клиенту останется только зайти в @BotFather → /newapp и привязать тот же URL
+    к своему боту (одноразовый шаг, через API нельзя).
+    """
+    client_id = int(client["sub"])
+
+    await _assert_can_use_custom_bot(db, client_id)
+
+    token = data.bot_token.strip()
+    if not token or ":" not in token:
+        raise HTTPException(status_code=400, detail="Неверный формат токена")
+
+    # 1. getMe → проверка валидности + имя бота
+    me = await _tg_call(token, "getMe")
+    bot_username = me.get("username") or ""
+    bot_name = me.get("first_name") or bot_username
+    if not bot_username:
+        raise HTTPException(status_code=400, detail="Telegram вернул пустой username бота")
+
+    # 2. setChatMenuButton — кнопка «Открыть кабинет» в боте клиента
+    mini_app_url = _mini_app_url_for_client(client_id)
+    await _tg_call(token, "setChatMenuButton", {
+        "menu_button": {
+            "type": "web_app",
+            "text": "Открыть кабинет",
+            "web_app": {"url": mini_app_url},
+        }
+    })
+
+    # 3. Upsert в channels — один активный telegram-канал per клиент
+    existing = await db.fetchval(
+        "SELECT id FROM channels WHERE client_id = $1 AND platform_slug = 'telegram' AND is_active = TRUE LIMIT 1",
+        client_id,
+    )
+    if existing:
+        await db.execute(
+            """UPDATE channels
+                  SET bot_token = $1, display_name = $2, handle = $3, updated_at = NOW()
+                WHERE id = $4""",
+            token, f"Бот {bot_name}", f"@{bot_username}", existing,
+        )
+        channel_id = existing
+    else:
+        channel_id = await db.fetchval(
+            """INSERT INTO channels (client_id, platform_slug, display_name, handle, bot_token, is_active)
+               VALUES ($1, 'telegram', $2, $3, $4, TRUE) RETURNING id""",
+            client_id, f"Бот {bot_name}", f"@{bot_username}", token,
+        )
+
+    return {
+        "ok": True,
+        "channel_id": channel_id,
+        "bot_username": bot_username,
+        "bot_name": bot_name,
+        "mini_app_url": mini_app_url,
+    }
 
 
 @router.delete("/{channel_id}")

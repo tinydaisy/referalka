@@ -139,8 +139,12 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                 (SELECT bot_token FROM channels
                  WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
                  ORDER BY id LIMIT 1) AS bot_token,
-                c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
-           FROM clients c WHERE c.id = $1""",
+                c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                t.name AS tariff_name,
+                COALESCE(t.allow_custom_bot, false) AS allow_custom_bot
+           FROM clients c
+           LEFT JOIN tariffs t ON t.slug = c.tariff_slug
+          WHERE c.id = $1""",
         client_id
     )
     if not client:

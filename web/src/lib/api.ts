@@ -224,6 +224,11 @@ export const api = {
       request(`/api/v1/channels/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/channels/${id}`, { method: 'DELETE' }),
+    connectTelegramBot: (bot_token: string) =>
+      request('/api/v1/channels/connect-telegram-bot', {
+        method: 'POST',
+        body: JSON.stringify({ bot_token }),
+      }),
   },
   broadcasts: {
     list: () => request('/api/v1/broadcasts/schedules'),
