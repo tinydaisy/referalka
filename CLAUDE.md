@@ -85,6 +85,23 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Время программы — строки "HH:MM" + " МСК" везде (миграция 048 от 28.04.2026)
+
+Чтобы убрать сдвиги часовых поясов в Mini App / веб / рассылках, время программы хранится строкой "HH:MM" и считается МСК по соглашению.
+
+**Поля:**
+- `conf_days.open_time` / `close_time` — TEXT ("10:00" / "18:00") или NULL.
+- `conf_sessions.start_time` / `end_time` — TEXT ("11:30" / "12:00") или NULL. Колонки `start_datetime` / `end_datetime` УДАЛЕНЫ. День сессии — поле `day` (INT) и/или JOIN на `conf_days`.
+
+**Отображение:**
+- Везде, где показывается время программы — приписывается " МСК": "11:30–12:00 МСК", "Встречаемся завтра в 12:00 МСК на День 2".
+- Mini App ([ProgramTab.tsx](mini-app/src/tabs/ProgramTab.tsx), [LandingTab.tsx](mini-app/src/tabs/LandingTab.tsx), [SelectorEventsTab.tsx](mini-app/src/tabs/SelectorEventsTab.tsx)) и дашборд: для дат событий жёстко `timeZone: 'Europe/Moscow'` + " МСК" — никаких `toLocaleTimeString` без `timeZone`.
+- Бэкенд ([message_builder.py](backend/app/services/message_builder.py), [conference.py](backend/app/api/modules/conference.py)) форматирует время через `_fmt_time(val)` — это просто `str(val)[:5]`, без `.strftime`/`.astimezone`.
+
+**Под капотом для расчёта `fire_at` рассылок** ([broadcasts.py](backend/app/api/modules/broadcasts.py)) — хелпер `_msk_str_to_utc(day_date, "HH:MM")` собирает naive datetime, вычитает 3 часа и возвращает UTC. Это внутренняя кухня — пользователь видит только "HH:MM МСК".
+
+**Валидация ввода**: хелпер `_normalize_hhmm` в [conference.py](backend/app/api/modules/conference.py) принимает "HH:MM" или ISO с временем, отсекает лишнее, валидирует через regex `^([01]\d|2[0-3]):([0-5]\d)$`.
+
 ### Афиши событий — только в `event_posters` (миграции 044, 046, 047)
 
 Колонка `events.poster_url` **удалена** миграцией 044. Все афиши событий теперь живут только в таблице `event_posters` с ориентациями `square` / `horizontal` / `vertical`.
