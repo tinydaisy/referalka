@@ -42,7 +42,8 @@ export default function RegisterPage() {
       {/* Left — gradient */}
       <div className="hidden lg:flex lg:w-1/2 gradient-bg flex-col justify-center px-16 py-12">
         <div className="mb-8">
-          <img src="/images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" className="h-10 w-auto mb-2"
+          <img src="/images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН"
+            style={{ height: 40, width: 'auto', display: 'block', marginBottom: 8 }}
             onError={e => { (e.target as any).style.display='none' }} />
           <h1 className="text-white text-3xl font-bold mt-6 leading-tight">
             Запустите реферальную<br />программу за 15 минут

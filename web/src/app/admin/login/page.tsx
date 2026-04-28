@@ -31,7 +31,8 @@ export default function AdminLoginPage() {
     <div className="min-h-screen flex">
       {/* Left */}
       <div className="hidden lg:flex lg:w-1/2 gradient-bg flex-col justify-center px-16 py-12">
-        <img src="/images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН" className="h-10 w-auto mb-8"
+        <img src="/images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН"
+          style={{ height: 40, width: 'auto', display: 'block', marginBottom: 32 }}
           onError={e => { (e.target as any).style.display = 'none' }} />
         <h1 className="text-white text-3xl font-bold leading-tight">
           Панель администратора<br />ПЛЮСОН
