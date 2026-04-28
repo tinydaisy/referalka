@@ -55,12 +55,6 @@ const Results = () => (
     <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
   </svg>
 )
-const Lock = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ width: 11, height: 11, position: 'absolute', top: 6, right: 'calc(50% - 18px)' }}>
-    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
-  </svg>
-)
-
 const ICONS = {
   calendar: Calendar, ecosystem: Ecosystem, landing: Landing,
   program: Program, game: Game, raffle: Raffle, services: Services, results: Results,
@@ -94,10 +88,11 @@ export default function BottomNav({ items, active, onTab }: Props) {
               key={it.id}
               className={`bnav-item ${isActive ? 'active' : ''} ${it.locked ? 'locked' : ''}`}
               onClick={() => tap(it)}
-              style={{ position: 'relative' }}
             >
-              {it.locked && <Lock />}
-              <Icon />
+              <span className="bnav-icon-wrap">
+                <Icon />
+                {it.locked && <span className="bnav-lock-overlay">🔒</span>}
+              </span>
               <span>{it.label}</span>
             </button>
           )

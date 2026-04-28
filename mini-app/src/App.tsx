@@ -72,8 +72,8 @@ export default function App() {
     if (twa) {
       twa.ready()
       twa.expand()
-      twa.setHeaderColor?.('#080B12')
-      twa.setBackgroundColor?.('#080B12')
+      twa.setHeaderColor?.('#0a1520')
+      twa.setBackgroundColor?.('#f7f8fa')
 
       const user = twa.initDataUnsafe?.user
       if (user) setTgUser(user)

@@ -29,7 +29,7 @@ export default function Hub({ clientId, onOpenEvent }: Props) {
   const tagline = profile?.positioning || ''
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--bg)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Шапка только на Календаре. На Экосистеме — её собственная шапка-визитка. */}
       {tab === 'calendar' && (
         <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18 }}>

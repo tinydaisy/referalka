@@ -116,20 +116,21 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--bg)' }}>
-      <div className="grad-header" style={{ paddingTop: 14, paddingBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <div className="grad-header" style={{ padding: '14px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
           <button onClick={onBack}
-                  style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white',
-                           width: 32, height: 32, borderRadius: 8, cursor: 'pointer', fontSize: 18 }}>
+                  style={{ background: 'rgba(255, 207, 164, 0.15)', border: 'none', color: 'white',
+                           width: 36, height: 36, borderRadius: 10, cursor: 'pointer', fontSize: 20,
+                           display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             ‹
           </button>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ color: 'white', fontSize: 15, fontWeight: 600,
+            <h1 style={{ color: 'white', fontSize: 16, fontWeight: 700,
                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {event.title}
             </h1>
-            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 2 }}>
+            <p style={{ color: 'rgba(255, 207, 164, 0.85)', fontSize: 12, marginTop: 2, fontWeight: 500 }}>
               {eventDateLabel(event)}
             </p>
           </div>

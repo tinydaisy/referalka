@@ -166,7 +166,7 @@ export default function ProgramTab({ event }: Props) {
                       color: PEACH, fontWeight: 700, fontSize: 14,
                     }}>{s.speaker_name[0].toUpperCase()}</div>
                     <div>
-                      <p style={{ color: 'white', fontSize: 13, fontWeight: 600 }}>{s.speaker_name}</p>
+                      <p style={{ color: 'var(--text)', fontSize: 13, fontWeight: 600 }}>{s.speaker_name}</p>
                       {(s.speaker_title || s.company) && (
                         <p style={{ color: 'var(--muted)', fontSize: 11 }}>
                           {[s.speaker_title, s.company].filter(Boolean).join(' · ')}
@@ -175,7 +175,7 @@ export default function ProgramTab({ event }: Props) {
                     </div>
                   </div>
                 )}
-                <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, lineHeight: 1.4, fontWeight: 500 }}>
+                <p style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.4, fontWeight: 600 }}>
                   {s.title}
                 </p>
                 {s.gift_description && (

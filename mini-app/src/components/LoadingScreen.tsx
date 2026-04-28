@@ -7,7 +7,7 @@ export default function LoadingScreen() {
     return () => clearInterval(t)
   }, [])
   return (
-    <div style={{ background: '#080B12', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
+    <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
       <div style={{ marginBottom: 40, textAlign: 'center' }}>
         <div style={{ fontSize: 36, fontWeight: 700, letterSpacing: 4, color: '#FFCFA4', fontFamily: 'Roboto, sans-serif', textTransform: 'uppercase' }}>
           ПЛЮСОН
