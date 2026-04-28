@@ -15,24 +15,37 @@ const NAV: NavItem[] = [
   { id: 'ecosystem', label: 'Экосистема',  icon: 'ecosystem' },
 ]
 
+const PEACH = '#FFCFA4'
+
 export default function Hub({ clientId, onOpenEvent }: Props) {
   const [tab, setTab] = useState('calendar')
-  const [name, setName] = useState<string>('')
+  const [profile, setProfile] = useState<any>(null)
 
   useEffect(() => {
-    getClientProfile(clientId).then(p => setName(p.name || '')).catch(() => {})
+    getClientProfile(clientId).then(setProfile).catch(() => {})
   }, [clientId])
+
+  const brand = profile?.brand_name || profile?.name || 'Организатор'
+  const tagline = profile?.positioning || ''
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--bg)' }}>
-      <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18 }}>
-        <p style={{ color: 'rgba(255,207,164,0.7)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.2 }}>
-          ПЛЮСОН
-        </p>
-        <h1 style={{ color: 'white', fontSize: 20, fontWeight: 700, marginTop: 4 }}>
-          {name || 'Организатор'}
-        </h1>
-      </div>
+      {/* Шапка только на Календаре. На Экосистеме — её собственная шапка-визитка. */}
+      {tab === 'calendar' && (
+        <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18 }}>
+          <p style={{ color: PEACH, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, opacity: 0.7 }}>
+            ПЛЮСОН
+          </p>
+          <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, marginTop: 6 }}>
+            {brand}
+          </h1>
+          {tagline && (
+            <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 4 }}>
+              {tagline}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="page">
         {tab === 'calendar'  && <CalendarTab  clientId={clientId} onOpenEvent={onOpenEvent} />}
