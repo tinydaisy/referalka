@@ -111,21 +111,33 @@ export default function App() {
       setUtmSource(parsed.utmSource)
     }
 
-    // Сначала просим разрешения боту/сообществу писать в ЛС, и только в
-    // колбэке шлём event_start — иначе бэк сделает sendMessage до разрешения,
-    // получит 403 и человек не станет «подписчиком».
-    platform.requestWriteAccess(() => {
-      if (user) {
-        sendPlatformEvent(
-          'event_start',
-          user,
-          parsed.partnerId,
-          parsed.eventSlug,
-          parsed.clientId,
-          platform.name,
-        )
-      }
-    })
+    const fireStart = () => {
+      if (!user) return
+      sendPlatformEvent(
+        'event_start',
+        user,
+        parsed.partnerId,
+        parsed.eventSlug,
+        parsed.clientId,
+        platform.name,
+      )
+    }
+
+    // 1) event_start уходит сразу — для пользователей, которые уже разрешали
+    //    боту писать (нажимали /start или Allow раньше), приветствие приходит
+    //    мгновенно. Если разрешения ещё нет — sendMessage вернёт 403, ничего
+    //    страшного, UI не блокируется.
+    fireStart()
+
+    // 2) Через паузу просим разрешение писать в ЛС: на iOS этот диалог
+    //    сворачивает Mini App, поэтому даём пользователю сначала увидеть
+    //    контент. В колбэке снова шлём event_start — для НОВОГО юзера
+    //    приветствие дойдёт уже после нажатия «Разрешить».
+    setTimeout(() => {
+      platform.requestWriteAccess((granted) => {
+        if (granted) fireStart()
+      })
+    }, 1500)
 
     setTgUser(prev => prev || MOCK_USER)
     const t = setTimeout(() => setLoading(false), 600)

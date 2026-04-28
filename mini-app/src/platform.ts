@@ -42,7 +42,10 @@ export interface PlatformAdapter {
 
 function telegramAdapter(): PlatformAdapter | null {
   const twa = (window as any).Telegram?.WebApp
-  if (!twa || (!twa.initData && !twa.initDataUnsafe)) return null
+  // Просто проверяем наличие SDK. initData/initDataUnsafe могут быть
+  // пустыми в момент первого открытия — это не повод считать что мы
+  // не в Telegram, иначе уйдём в webFallback и потеряем startParam.
+  if (!twa) return null
   const u = twa.initDataUnsafe?.user
   return {
     name: 'telegram',

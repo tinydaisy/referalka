@@ -17,12 +17,33 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import httpx
 import logging
+import time
 from ..config import settings
 from ..database import get_pool
 from ..services.channels import get_client_telegram_token
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Дедуп приветствий: фронт шлёт event_start дважды (сразу + после
+# requestWriteAccess), чтобы охватить и существующих, и новых юзеров.
+# Чтобы существующий не получил приветствие два раза подряд — держим
+# 5-минутное in-memory окно по ключу (tg_id, event_slug).
+_WELCOME_TTL_SEC = 300
+_welcome_sent: dict[tuple[int, str], float] = {}
+
+def _was_welcomed(tg_id: int, slug: str) -> bool:
+    now = time.time()
+    # лёгкая чистка протухших
+    if len(_welcome_sent) > 1000:
+        for k, t in list(_welcome_sent.items()):
+            if now - t > _WELCOME_TTL_SEC:
+                _welcome_sent.pop(k, None)
+    last = _welcome_sent.get((tg_id, slug))
+    if last and now - last < _WELCOME_TTL_SEC:
+        return True
+    _welcome_sent[(tg_id, slug)] = now
+    return False
 
 
 class TgEventRequest(BaseModel):
@@ -56,6 +77,11 @@ async def handle_tg_event(body: TgEventRequest):
     # допишется когда подключим соответствующий SDK на фронте.
     if body.platform != "telegram":
         return {"ok": True, "platform": body.platform, "skipped": "no dispatcher"}
+
+    # Дедуп: фронт шлёт event_start дважды (сразу + после requestWriteAccess).
+    # Если уже слали приветствие этому tg_id за последние 5 минут — пропускаем.
+    if _was_welcomed(tg_id, body.event_slug or ""):
+        return {"ok": True, "deduped": True}
 
     # Определяем client_id для выбора бота
     pool = await get_pool()
