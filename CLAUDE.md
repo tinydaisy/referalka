@@ -85,6 +85,25 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Статус событий и даты конференций (миграция 043 от 28.04.2026)
+
+**Статусы `events.status`:**
+- `draft` — черновик, в Mini App не показывается. Дефолт для новых и копированных событий.
+- `published` — опубликовано, видно в Календаре Хаба и на лендинге (`GET /api/v1/public/clients/{id}/events` фильтрует `status IN ('published','ended')`).
+- `ended` — завершено.
+
+В дашборде в шапке карточки события и карточки конференции — кнопка-чип «Черновик / Опубликовано» ([`web/src/components/EventStatusToggle.tsx`](web/src/components/EventStatusToggle.tsx)). Клик переключает через `PATCH /api/v1/events/{id} { status }`.
+
+**Даты конференций — источник истины это программа (`conf_days`).**
+
+Для событий с `module_slug = 'conference'` поля `events.start_at` / `events.end_at` НЕ используются и НЕ выставляются в UI. Mini App и лендинг (`/api/v1/public/clients/{id}/events` и `/api/v1/public/events/{slug}/landing` в [`backend/app/api/client_profile.py`](backend/app/api/client_profile.py)) для конференций берут:
+- `start_at = MIN(day_date + open_time)` из `conf_days` (timezone Europe/Moscow)
+- `end_at  = MAX(day_date + close_time)` из `conf_days`
+
+Для остальных модулей (`base`, `webinar` и т.д.) даты — собственные `events.start_at` / `events.end_at`.
+
+При копировании события (`POST /events/{id}/copy`) `start_at`/`end_at` копии = `NULL`, статус = `draft`.
+
 ### PLUSSON — одна платформа, не два продукта
 - **ivision-conf — не отдельный продукт.** Это аккаунт Марго в PLUSSON с модулем «Конференция»
 - **Репо `ivision-conf`** хранит только статичный лендинг текущей конференции. Весь TMA, бэкенд, бот и redirect_web_app — здесь, в `referalka`
