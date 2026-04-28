@@ -16,6 +16,10 @@ export const registerParticipant = (data: any) =>
 export const getParticipantEvents = (tgId: number) =>
   req(`/api/v1/participants/telegram/${tgId}/events`)
 
+// ── Селектор общего бота: события участника со всех клиентов ──
+export const getMiniAppMyEvents = (tgId: number) =>
+  req(`/api/v1/participants/miniapp/me/events?tg_id=${tgId}`)
+
 export const getParticipantInEvent = (slug: string, tgId: number) =>
   req(`/api/v1/participants/event/${slug}/user/${tgId}`)
 

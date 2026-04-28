@@ -1,10 +1,22 @@
 import { useState, useEffect } from 'react'
 import Hub from './pages/Hub'
+import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 
-// Fallback: в MVP клиент один (Марго). В будущем — определять через `?cid=N` или через startapp `_cid{N}`.
-const DEFAULT_CLIENT_ID = Number(import.meta.env.VITE_DEFAULT_CLIENT_ID || '1')
+/*
+ * Маршрутизация без startapp:
+ * - Mini App в общем @pluson_bot   → HubSelector (список событий + промо ПЛЮСОН)
+ * - Mini App в боте клиента (про-тариф, в будущем) → Hub этого клиента
+ *
+ * Сейчас: единственный бот — общий @pluson_bot. Боты клиентов появятся,
+ * когда BotFather зарегистрирует Mini App с query-параметром `?cid={client_id}`.
+ */
+function detectClientIdFromBot(): number | null {
+  const sp = new URLSearchParams(window.location.search)
+  const cid = sp.get('cid')
+  return cid ? Number(cid) : null
+}
 
 // Парсит startapp Telegram: "ref_pgivision-7_pid5725111966_srcinsta_cid1"
 function parseStartParam(raw: string): {
@@ -63,7 +75,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [tgUser, setTgUser] = useState<any>(null)
   const [eventSlug, setEventSlug] = useState<string | null>(() => parsePathSlug())
-  const [clientId, setClientId] = useState<number>(DEFAULT_CLIENT_ID)
+  const [clientId, setClientId] = useState<number | null>(() => detectClientIdFromBot())
   const [partnerId, setPartnerId] = useState<string | undefined>()
   const [utmSource, setUtmSource] = useState<string | undefined>()
 
@@ -126,5 +138,11 @@ export default function App() {
     )
   }
 
-  return <Hub clientId={clientId} tgUser={tgUser} onOpenEvent={openEvent} />
+  // Без startapp:
+  // - в боте клиента (есть `?cid=…` или startapp с `_cid…`) → Hub этого клиента
+  // - в общем @pluson_bot → HubSelector (список событий участника)
+  if (clientId) {
+    return <Hub clientId={clientId} tgUser={tgUser} onOpenEvent={openEvent} />
+  }
+  return <HubSelector tgUser={tgUser} onOpenEvent={openEvent} />
 }

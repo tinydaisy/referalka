@@ -129,6 +129,60 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
     return {"events": [dict(r) for r in rows]}
 
 
+@router.get(
+    "/miniapp/me/events",
+    summary="События участника для селектора Mini App (с организатором, группировкой now/soon/past)",
+)
+async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get_db)):
+    rows = await db.fetch(
+        """SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
+                  e.start_at, e.end_at,
+                  ep.id AS participant_id, c.ref_code, ep.is_registered, ep.is_in_chat,
+                  cl.id   AS client_id,
+                  cl.name AS client_name,
+                  cl.brand_name        AS client_brand_name,
+                  cl.profile_photo_url AS client_photo_url,
+                  cl.positioning       AS client_positioning
+             FROM event_participants ep
+             JOIN events e   ON e.id  = ep.event_id
+             JOIN clients cl ON cl.id = e.client_id
+             JOIN contacts c ON c.id  = ep.contact_id
+             JOIN platform_users pu ON pu.contact_id = c.id
+            WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $1
+            ORDER BY COALESCE(e.start_at, e.created_at) ASC""",
+        str(tg_id),
+    )
+
+    now_list, soon_list, past_list = [], [], []
+    from datetime import datetime, timezone
+    now_ts = datetime.now(timezone.utc)
+
+    for r in rows:
+        item = dict(r)
+        # ISO-формат для фронта
+        if item.get("start_at"): item["start_at"] = item["start_at"].isoformat()
+        if item.get("end_at"):   item["end_at"]   = item["end_at"].isoformat()
+
+        start = r["start_at"]
+        end   = r["end_at"]
+        status = (r["status"] or "").lower()
+
+        is_live = status == "live" or (start and end and start <= now_ts <= end)
+        is_past = status in ("archived", "ended", "completed") or (end and end < now_ts)
+
+        if is_live:
+            now_list.append(item)
+        elif is_past:
+            past_list.append(item)
+        else:
+            soon_list.append(item)
+
+    # past — самые свежие сверху
+    past_list.sort(key=lambda x: x.get("end_at") or "", reverse=True)
+
+    return {"now": now_list, "soon": soon_list, "past": past_list}
+
+
 @router.get("/event/{event_slug}/user/{tg_id}", summary="Данные участника в событии")
 async def get_participant_in_event(
     event_slug: str,

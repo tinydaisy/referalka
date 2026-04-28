@@ -3,7 +3,7 @@ import { useState } from 'react'
 export interface NavItem {
   id: string
   label: string
-  icon: 'calendar' | 'ecosystem' | 'landing' | 'program' | 'game' | 'raffle' | 'services' | 'results'
+  icon: 'calendar' | 'ecosystem' | 'landing' | 'program' | 'game' | 'raffle' | 'services' | 'results' | 'plus'
   locked?: boolean
 }
 
@@ -55,9 +55,14 @@ const Results = () => (
     <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
   </svg>
 )
+const Plus = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+)
 const ICONS = {
   calendar: Calendar, ecosystem: Ecosystem, landing: Landing,
-  program: Program, game: Game, raffle: Raffle, services: Services, results: Results,
+  program: Program, game: Game, raffle: Raffle, services: Services, results: Results, plus: Plus,
 }
 
 export default function BottomNav({ items, active, onTab }: Props) {
