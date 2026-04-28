@@ -4,7 +4,6 @@ import LandingTab from '../tabs/LandingTab'
 import ProgramTab from '../tabs/ProgramTab'
 import GameTab from '../tabs/GameTab'
 import RaffleTab from '../tabs/RaffleTab'
-import ServicesTab from '../tabs/ServicesTab'
 import ResultsTab from '../tabs/ResultsTab'
 import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
@@ -22,23 +21,23 @@ interface Props {
 }
 
 const NAV_NOT_REG: NavItem[] = [
-  { id: 'landing',  label: 'Лендинг',   icon: 'landing'  },
-  { id: 'program',  label: 'Программа', icon: 'program', locked: true },
-  { id: 'game',     label: 'Игра',      icon: 'game',    locked: true },
-  { id: 'raffle',   label: 'Розыгрыш',  icon: 'raffle',  locked: true },
-  { id: 'services', label: 'Услуги',    icon: 'services',locked: true },
+  { id: 'landing',   label: 'Лендинг',    icon: 'landing'   },
+  { id: 'program',   label: 'Программа',  icon: 'program',   locked: true },
+  { id: 'game',      label: 'Игра',       icon: 'game',      locked: true },
+  { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
+  { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem', locked: true },
 ]
 const NAV_REGISTERED: NavItem[] = [
-  { id: 'program',  label: 'Программа', icon: 'program'  },
-  { id: 'game',     label: 'Игра',      icon: 'game'     },
-  { id: 'raffle',   label: 'Розыгрыш',  icon: 'raffle'   },
-  { id: 'services', label: 'Услуги',    icon: 'services' },
+  { id: 'program',   label: 'Программа',  icon: 'program'   },
+  { id: 'game',      label: 'Игра',       icon: 'game'      },
+  { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle'    },
+  { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
 ]
 const NAV_ENDED: NavItem[] = [
-  { id: 'results',   label: 'Итоги',     icon: 'results'   },
-  { id: 'game',      label: 'Игра',      icon: 'game'      },
-  { id: 'calendar',  label: 'Календарь', icon: 'calendar'  },
-  { id: 'ecosystem', label: 'Экосистема',icon: 'ecosystem' },
+  { id: 'results',   label: 'Итоги',      icon: 'results'   },
+  { id: 'game',      label: 'Игра',       icon: 'game'      },
+  { id: 'calendar',  label: 'Календарь',  icon: 'calendar'  },
+  { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
 ]
 
 function isEnded(event: any): boolean {
@@ -142,13 +141,12 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
         {tab === 'program'   && <ProgramTab  event={event} />}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} />}
-        {tab === 'services'  && <ServicesTab event={event} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} />}
-        {tab === 'calendar'  && event.client_id   && <CalendarTab  clientId={event.client_id} onOpenEvent={(s) => {
+        {tab === 'calendar'  && event.client_id && <CalendarTab clientId={event.client_id} onOpenEvent={(s) => {
           const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
           window.location.assign(`${base}/event/${s}`)
         }} />}
-        {tab === 'ecosystem' && event.client_id   && <EcosystemTab clientId={event.client_id} />}
+        {tab === 'ecosystem' && event.client_id && <EcosystemTab clientId={event.client_id} />}
       </div>
 
       <BottomNav items={navItems} active={tab} onTab={setTab} />

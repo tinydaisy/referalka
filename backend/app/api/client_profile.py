@@ -110,6 +110,30 @@ async def public_client_events(
     }
 
 
+@public.get("/events/{event_id}/raffle/prizes", summary="Призы розыгрыша (публично, для Mini App)")
+async def public_raffle_prizes(event_id: int, db: asyncpg.Connection = Depends(get_db)):
+    rows = await db.fetch(
+        """SELECT id, title, description, icon_emoji, icon_url, places_count, value_label, sort_order
+             FROM event_raffle_prizes
+            WHERE event_id = $1 AND is_active = TRUE
+            ORDER BY sort_order, id""",
+        event_id
+    )
+    return {"items": [dict(r) for r in rows]}
+
+
+@public.get("/events/{event_id}/raffle/settings", summary="Настройки розыгрыша (публично, для Mini App)")
+async def public_raffle_settings(event_id: int, db: asyncpg.Connection = Depends(get_db)):
+    row = await db.fetchrow(
+        """SELECT is_enabled, draw_at, subscription_grants_starter_ticket, intro_text
+             FROM event_raffle_settings WHERE event_id = $1""",
+        event_id
+    )
+    if not row:
+        return {"is_enabled": False, "draw_at": None, "subscription_grants_starter_ticket": True, "intro_text": None}
+    return dict(row)
+
+
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")
 async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
@@ -117,7 +141,9 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                   e.poster_url, e.landing_url, e.address,
                   e.start_at, e.end_at, e.status,
                   e.successor_event_id,
-                  c.name AS client_name, c.profile_photo_url AS client_photo
+                  e.has_vip_tariff, e.vip_price, e.vip_url, e.vip_title, e.vip_description,
+                  e.chat_url, e.chat_subscriptions_required, e.chat_member_count_label,
+                  c.name AS client_name, c.brand_name AS client_brand, c.profile_photo_url AS client_photo
              FROM events e
              JOIN clients c ON c.id = e.client_id
             WHERE e.slug = $1""",
