@@ -54,13 +54,21 @@ async def register_participant(
 
     # Уже зарегистрирован?
     existing = await db.fetchrow(
-        """SELECT ep.id, c.ref_code
+        """SELECT ep.id, c.ref_code, ep.is_registered
              FROM event_participants ep
              JOIN contacts c ON c.id = ep.contact_id
             WHERE ep.event_id = $1 AND ep.contact_id = $2""",
         event["id"], contact_id
     )
     if existing:
+        # Запись есть, но человек был только «интересующимся» (например,
+        # event_start при открытии Mini App не дошёл до формы). Раз он
+        # снова прошёл форму — фиксируем как зарегистрированного.
+        if not existing["is_registered"]:
+            await db.execute(
+                "UPDATE event_participants SET is_registered = TRUE WHERE id = $1",
+                existing["id"]
+            )
         return {"participant": dict(existing), "is_new": False}
 
     # Резолв реферера: если передан ref_code — берём, иначе через partner_tg_id
@@ -90,10 +98,13 @@ async def register_participant(
     # ref_code контакта (уже создан в upsert_contact_with_identity, но получим для ответа)
     user_ref_code = await db.fetchval("SELECT ref_code FROM contacts WHERE id = $1", contact_id)
 
+    # Регистрация через форму = is_registered=true. Иначе человек так
+    # и останется в статусе «интересовался» и будет получать форму
+    # регистрации каждый раз при открытии Mini App.
     participant = await db.fetchrow(
         """INSERT INTO event_participants
-              (event_id, contact_id, referrer_participant_id, referrer_ref_code)
-            VALUES ($1, $2, $3, $4)
+              (event_id, contact_id, referrer_participant_id, referrer_ref_code, is_registered)
+            VALUES ($1, $2, $3, $4, TRUE)
          RETURNING id""",
         event["id"], contact_id, referrer_participant_id, resolved_ref_code
     )
