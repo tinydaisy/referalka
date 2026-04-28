@@ -111,10 +111,10 @@ async def list_events(
     client_id = int(client["sub"])
     # effective_start: для конференций fallback на минимальную дату из conf_days,
     # для остальных — собственный start_at
-    -- effective_start_at / effective_end_at для конференций:
-    --   start = первый день + (open_time дня 1 ИЛИ MIN(start_time) сессий дня 1)
-    --   end   = последний день + (close_time посл. дня ИЛИ MAX(end_time) сессий посл. дня)
-    -- если ничего не задано — fallback на day_date 00:00 / 23:59 чтобы вообще что-то показать.
+    # effective_start_at / effective_end_at для конференций:
+    #   start = первый день + (open_time дня 1 ИЛИ MIN(start_time) сессий дня 1)
+    #   end   = последний день + (close_time посл. дня ИЛИ MAX(end_time) сессий посл. дня)
+    # если ничего не задано — fallback на day_date 00:00 / 23:59 чтобы вообще что-то показать.
     base_select = """
         SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                (SELECT url FROM event_posters
