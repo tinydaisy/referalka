@@ -5,6 +5,60 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>ПЛЮСОН</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!--
+    Bridge-скрипт: повторяет логику ivision-conf bot.html.
+    Запускается ДО React, в контексте user gesture (открытие Mini App).
+    Просит у бота разрешения писать в ЛС и сразу шлёт event_start —
+    бэк отвечает приветственным сообщением. Без этого пользователь не
+    становится подписчиком и приветствие не приходит.
+  -->
+  <script>
+  (function () {
+    var twa = window.Telegram && window.Telegram.WebApp;
+    if (!twa) return;
+    try { twa.ready(); } catch (e) {}
+
+    var u  = (twa.initDataUnsafe && twa.initDataUnsafe.user) || null;
+    var sp = (twa.initDataUnsafe && twa.initDataUnsafe.start_param) || '';
+    if (!u) return;
+
+    // Парсим startapp: ref_pg<slug>_pid<id>_src<utm>_cid<id>
+    var eventSlug = '', partnerId = '', clientId = 0;
+    sp.split('_').forEach(function (p) {
+      if (p.indexOf('pg')  === 0) eventSlug = p.slice(2);
+      if (p.indexOf('pid') === 0) partnerId = p.slice(3);
+      if (p.indexOf('cid') === 0) clientId  = parseInt(p.slice(3), 10) || 0;
+    });
+
+    function fireStart() {
+      try {
+        fetch('/api/v1/event', {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id:    String(u.id || ''),
+            event:      'event_start',
+            first_name: u.first_name || '',
+            last_name:  u.last_name  || '',
+            username:   u.username   || '',
+            partner_id: partnerId,
+            event_slug: eventSlug,
+            client_id:  clientId,
+            platform:   'telegram'
+          })
+        });
+      } catch (e) {}
+    }
+
+    if (typeof twa.requestWriteAccess === 'function') {
+      try { twa.requestWriteAccess(function () { fireStart(); }); }
+      catch (e) { fireStart(); }
+    } else {
+      fireStart();
+    }
+  })();
+  </script>
 </head>
 <body>
   <div id="root"></div>
