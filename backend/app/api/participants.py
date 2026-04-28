@@ -167,9 +167,12 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
                WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $1
            ),
            owned_clients AS (
+              -- LTRIM '@' — clients.telegram_username исторически бывает с собакой,
+              -- platform_users.username хранится без неё.
               SELECT cl.id FROM clients cl
                WHERE cl.telegram_username IS NOT NULL
-                 AND cl.telegram_username = (SELECT username FROM user_username)
+                 AND LOWER(LTRIM(cl.telegram_username, '@')) =
+                     LOWER((SELECT username FROM user_username))
            ),
            relevant_clients AS (
               SELECT DISTINCT e.client_id AS id
