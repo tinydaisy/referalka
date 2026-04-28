@@ -38,6 +38,13 @@ function ClientLine({ ev }: { ev: Ev }) {
   )
 }
 
+// Афиша карточки события: ничего не рендерим, если URL пустой или картинка не загрузилась
+function EventPoster({ src, alt }: { src?: string; alt: string }) {
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) return null
+  return <img className="poster" src={src} alt={alt} onError={() => setFailed(true)} />
+}
+
 function Section({ title, items, onOpen, kind }: {
   title: string
   items: Ev[]
@@ -51,10 +58,7 @@ function Section({ title, items, onOpen, kind }: {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '0 16px 4px' }}>
         {items.map(e => (
           <div key={e.id} className="hub-card fade-in" onClick={() => onOpen(e.slug)}>
-            {e.poster_url
-              ? <img className="poster" src={e.poster_url} alt={e.title} />
-              : <div className="poster" />
-            }
+            <EventPoster src={e.poster_url} alt={e.title} />
             <div className="body">
               <span className={`badge badge-${kind === 'now' ? 'green' : kind === 'past' ? 'gray' : 'gold'}`}>
                 {kind === 'now' ? '● Идёт сейчас' : kind === 'past' ? 'Завершено' : 'Скоро'}

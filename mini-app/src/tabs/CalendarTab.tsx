@@ -15,6 +15,13 @@ function formatDate(dt?: string) {
   } catch { return '' }
 }
 
+// Афиша карточки события: ничего не рендерим, если URL пустой или картинка не загрузилась
+function EventPoster({ src, alt }: { src?: string; alt: string }) {
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) return null
+  return <img className="poster" src={src} alt={alt} onError={() => setFailed(true)} />
+}
+
 function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen: (s: string) => void }) {
   if (!items.length) return null
   return (
@@ -23,10 +30,7 @@ function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen:
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '0 16px 4px' }}>
         {items.map(e => (
           <div key={e.id} className="hub-card fade-in" onClick={() => onOpen(e.slug)}>
-            {e.poster_url
-              ? <img className="poster" src={e.poster_url} alt={e.title} />
-              : <div className="poster" />
-            }
+            <EventPoster src={e.poster_url} alt={e.title} />
             <div className="body">
               <span className={`badge badge-${e.bucket === 'now' ? 'green' : e.bucket === 'past' ? 'gray' : 'gold'}`}>
                 {e.bucket === 'now' ? '● Идёт сейчас' : e.bucket === 'past' ? 'Завершено' : 'Скоро'}
