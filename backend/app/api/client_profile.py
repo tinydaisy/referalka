@@ -99,7 +99,19 @@ async def public_client_events(
                GROUP BY event_id
             )
             SELECT e.id, e.slug, e.title, e.description, e.module_slug,
-                   e.poster_url, e.status,
+                   COALESCE(
+                     (SELECT url FROM event_posters
+                       WHERE event_id = e.id
+                       ORDER BY CASE orientation
+                                  WHEN 'square'     THEN 1
+                                  WHEN 'horizontal' THEN 2
+                                  WHEN 'vertical'   THEN 3
+                                  ELSE 4
+                                END, sort, id
+                       LIMIT 1),
+                     e.poster_url
+                   ) AS poster_url,
+                   e.status,
                    CASE WHEN e.module_slug = 'conference'
                         THEN cd.start_at ELSE e.start_at END AS start_at,
                    CASE WHEN e.module_slug = 'conference'
@@ -177,7 +189,19 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                GROUP BY event_id
             )
             SELECT e.id, e.client_id, e.slug, e.title, e.description, e.module_slug,
-                   e.poster_url, e.landing_url, e.address, e.status,
+                   COALESCE(
+                     (SELECT url FROM event_posters
+                       WHERE event_id = e.id
+                       ORDER BY CASE orientation
+                                  WHEN 'square'     THEN 1
+                                  WHEN 'horizontal' THEN 2
+                                  WHEN 'vertical'   THEN 3
+                                  ELSE 4
+                                END, sort, id
+                       LIMIT 1),
+                     e.poster_url
+                   ) AS poster_url,
+                   e.landing_url, e.address, e.status,
                    CASE WHEN e.module_slug = 'conference'
                         THEN cd.start_at ELSE e.start_at END AS start_at,
                    CASE WHEN e.module_slug = 'conference'
