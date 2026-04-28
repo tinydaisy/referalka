@@ -383,11 +383,13 @@ export default function ProgramTab({ event }: Props) {
                             const speakerRoleLabel = s.speaker_role && ROLE_LABELS[s.speaker_role]
                             const roleColors = (s.speaker_role && ROLE_COLORS[s.speaker_role]) || ROLE_COLORS.speaker
                             // Чередуем фон строк программы — белый/полупрозрачный бирюзовый
-                            const altBg = idx % 2 === 0 ? 'transparent' : 'rgba(37,69,93,0.20)'
+                            const altBg = idx % 2 === 0 ? 'transparent' : 'rgba(37,69,93,0.13)'
                             return (
                               <div key={s.id} style={{
                                 background: altBg, padding: '10px 10px',
                                 borderRadius: 10, marginLeft: -4, marginRight: -4,
+                                // Чёткий разделитель между слотами
+                                borderTop: idx === 0 ? 'none' : '1px solid rgba(37,69,93,0.18)',
                               }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                                   {/* Время — ЖИРНОЕ */}
