@@ -161,10 +161,10 @@ export default function Sidebar() {
               Написать разработчику в Telegram
             </a>
             <Link
-              href="/dashboard/help/connect-bot"
+              href="/dashboard/help"
               onClick={() => setMobileOpen(false)}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                pathname === '/dashboard/help/connect-bot'
+                pathname.startsWith('/dashboard/help')
                   ? 'bg-white/15 text-white'
                   : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}

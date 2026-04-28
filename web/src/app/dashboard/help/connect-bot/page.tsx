@@ -18,12 +18,12 @@ export default function ConnectBotInstructionPage() {
 
   return (
     <div className="pb-24 max-w-3xl">
-      <div className="flex items-center gap-3 mb-2">
+      <div className="flex items-center gap-3 mb-2 flex-wrap">
         <Link href="/dashboard" className="text-sm text-gray-400 hover:text-gray-700">Дашборд</Link>
         <span className="text-gray-300">/</span>
-        <Link href="#" className="text-sm text-gray-400 hover:text-gray-700">Тех.поддержка</Link>
+        <Link href="/dashboard/help" className="text-sm text-gray-400 hover:text-gray-700">Инструкции</Link>
         <span className="text-gray-300">/</span>
-        <span className="text-sm text-gray-700">Инструкции</span>
+        <span className="text-sm text-gray-700">Как подключить Mini App к боту</span>
       </div>
 
       <div className="flex items-start gap-3 mb-6">
@@ -57,7 +57,7 @@ export default function ConnectBotInstructionPage() {
       {/* Главная ссылка для копирования */}
       <Section step="●" title="Ваш URL Mini App">
         <p className="text-sm text-gray-600 mb-3">
-          Этот адрес нужен на всех шагах ниже. Сохраните или скопируйте его.
+          Этот адрес нужен на шагах 2–4 ниже. Сохраните или скопируйте.
         </p>
         <CopyBlock value={miniAppUrl} />
         <p className="text-xs text-gray-400 mt-2">
@@ -65,7 +65,23 @@ export default function ConnectBotInstructionPage() {
         </p>
       </Section>
 
-      <Section step="1" title="Открыть @BotFather и выбрать вашего бота">
+      <Section step="1" title="Сначала: добавьте токен бота в Каналы">
+        <p className="text-sm text-gray-700 mb-3">
+          Без этого приветствия и рассылки будут идти от общего <code>@pluson_bot</code>, а не от вашего.
+          Если хотите чтобы участники получали сообщения от <strong>вашего бота</strong> — добавьте его токен в раздел Каналы:
+        </p>
+        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
+          <li>Получите токен у <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">@BotFather <ExternalLink size={12}/></a> (команда <code>/newbot</code> для нового бота или <code>/mybots</code> → API Token для существующего)</li>
+          <li>Откройте раздел <Link href="/dashboard/channels" className="text-blue-600 hover:underline font-medium">«Каналы»</Link> в кабинете</li>
+          <li>Добавьте новый канал → платформа <strong>Telegram</strong> → вставьте токен → сохраните</li>
+        </ol>
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
+          💡 На каждой платформе (Telegram / VK / MAX) можно подключить только <strong>один активный канал</strong> на клиента.
+          Если у вас уже есть бот и хотите его сменить — деактивируйте старый и добавьте новый.
+        </div>
+      </Section>
+
+      <Section step="2" title="Открыть @BotFather и выбрать вашего бота">
         <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5">
           <li>В Telegram найдите и откройте <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">@BotFather <ExternalLink size={12}/></a></li>
           <li>Команда <code>/mybots</code></li>
@@ -73,7 +89,7 @@ export default function ConnectBotInstructionPage() {
         </ol>
       </Section>
 
-      <Section step="2" title="Создать или обновить Mini App">
+      <Section step="3" title="Создать или обновить Mini App">
         <p className="text-sm text-gray-700 mb-3">
           Если у вас ещё нет Mini App в этом боте — создаём:
         </p>
@@ -97,7 +113,7 @@ export default function ConnectBotInstructionPage() {
         </ol>
       </Section>
 
-      <Section step="3" title="Настроить Menu Button">
+      <Section step="4" title="Настроить Menu Button">
         <p className="text-sm text-gray-700 mb-3">
           Чтобы внизу чата с ботом появилась большая кнопка-вход вместо обычного <code>/</code>:
         </p>
@@ -110,7 +126,7 @@ export default function ConnectBotInstructionPage() {
         <div className="mt-3"><CopyBlock value={miniAppUrl} /></div>
       </Section>
 
-      <Section step="4" title="Прописать домен бота">
+      <Section step="5" title="Прописать домен бота">
         <p className="text-sm text-gray-700 mb-3">
           Это нужно для безопасной работы Mini App и Telegram Login:
         </p>
@@ -121,37 +137,29 @@ export default function ConnectBotInstructionPage() {
         <CopyBlock value={origin.replace(/^https?:\/\//, '').replace(/\/$/, '')} />
       </Section>
 
-      <Section step="●" title="Готовые ссылки на ваш Mini App">
-        <p className="text-sm text-gray-600 mb-3">
-          После настройки вашему боту доступны такие виды ссылок (замените <code>my_bot</code> на имя вашего бота, <code>app</code> — на short name из шага 2):
-        </p>
-
-        <div className="space-y-3">
-          <LinkRow
-            label="Хаб организатора (Календарь + Экосистема)"
-            value="https://t.me/my_bot/app"
-          />
-          <LinkRow
-            label="Сразу страница события"
-            value="https://t.me/my_bot/app?startapp=ref_pgEVENT_SLUG"
-            note="Замените EVENT_SLUG на slug события из вашего кабинета"
-          />
-          <LinkRow
-            label="Событие + засчитать партнёра + UTM"
-            value="https://t.me/my_bot/app?startapp=ref_pgEVENT_SLUG_pidPARTNER_srcSOURCE"
-            note="PARTNER — ID партнёра, SOURCE — utm_source (insta, vk, …)"
-          />
-        </div>
-      </Section>
-
-      <Section step="●" title="Smart Bridge — редирект с лендинга">
+      <Section step="●" title="Где взять готовую ссылку для шеринга">
         <p className="text-sm text-gray-700 mb-3">
-          В каждом лендинге события (<code>/l/SLUG</code>) уже подключён скрипт автоматического перехода в Telegram. Если открыть лендинг с <code>?app=tg</code> — Telegram запустится сам:
+          Никаких ссылок руками собирать не нужно — ПЛЮСОН делает их сам. Откройте карточку события и скопируйте готовую:
         </p>
-        <CopyBlock value={`${origin}/l/EVENT_SLUG?app=tg`} />
-        <p className="text-xs text-gray-500 mt-2">
-          Используйте этот формат в постах в соцсетях — на компьютере откроется обычный лендинг, на телефоне с Telegram — сразу Mini App.
+        <ul className="text-sm text-gray-700 space-y-2 list-disc pl-5 mb-3">
+          <li>
+            Для конференции: <Link href="/dashboard/conferences" className="text-blue-600 hover:underline font-medium">Дашборд → Конференции</Link>
+            {' '}→ выбрать конференцию → ссылка для участников
+          </li>
+          <li>
+            Для других событий: <Link href="/dashboard/events" className="text-blue-600 hover:underline font-medium">Дашборд → Мероприятия</Link>
+            {' '}→ выбрать событие → ссылка в шапке
+          </li>
+        </ul>
+        <p className="text-sm text-gray-700 mb-3">
+          Каждый участник в Mini App получает свою <strong>партнёрскую ссылку</strong> — она генерируется автоматически и доступна во вкладке
+          «🎯 Игра». Делиться ей участники могут одной кнопкой «Поделиться».
         </p>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
+          🔗 <strong>Smart Bridge.</strong> В каждом лендинге события (<code>/l/SLUG</code>) уже подключён скрипт автоматического перехода в Telegram.
+          Если открыть лендинг с <code>?app=tg</code> — Telegram запустится сам и Mini App откроется на нужном событии.
+          На компьютере откроется обычный лендинг, на телефоне с Telegram — сразу Mini App. Эту фишку можно использовать в постах в соцсетях.
+        </div>
       </Section>
 
       <Section step="?" title="Если что-то не работает">
@@ -222,12 +230,3 @@ function CopyBlock({ value }: { value: string }) {
   )
 }
 
-function LinkRow({ label, value, note }: { label: string; value: string; note?: string }) {
-  return (
-    <div>
-      <div className="text-xs font-semibold text-gray-700 mb-1">{label}</div>
-      <CopyBlock value={value} />
-      {note && <p className="text-xs text-gray-500 mt-1">{note}</p>}
-    </div>
-  )
-}
