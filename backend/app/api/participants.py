@@ -140,17 +140,17 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
 
 @router.get(
     "/miniapp/me/events",
-    summary="События участника для селектора Mini App (с организатором, группировкой now/soon/past)",
+    summary="События участника для селектора общего бота (группировка по организатору)",
 )
 async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get_db)):
-    # Селектор показывает:
-    #   1) события, где пользователь зарегистрирован как участник;
-    #   2) опубликованные/завершённые события клиентов, владельцем которых является
-    #      этот пользователь (определяем по совпадению telegram_username клиента
-    #      с username из platform_users по этому tg_id) — чтобы Маргарита-как-клиент
-    #      видела все свои события, а не только те где она сама зарегистрировалась.
-    # Для конференций даты берём из conf_days (MIN/MAX) — это источник истины,
-    # events.start_at/end_at у конференций (особенно у копий) могут быть NULL.
+    # Селектор @pluson_bot показывает группы организаторов:
+    #   1. Клиенты, у которых пользователь был участником ИЛИ владельцем (по telegram_username).
+    #   2. VIP-клиенты (tariffs.allow_custom_bot = true) ИСКЛЮЧАЮТСЯ — у них свой бот со своим хабом.
+    # В каждой группе:
+    #   • будущие/идущие опубликованные события клиента — ВСЕ (промо для участника);
+    #   • прошедшие события — только те, где пользователь был участником (личная история);
+    #   • для владельца клиента — все опубликованные/завершённые события его клиента.
+    # Для конференций даты — из conf_days (MIN/MAX), не из events.start_at/end_at.
     rows = await db.fetch(
         """WITH user_username AS (
               SELECT username FROM platform_users
@@ -170,6 +170,28 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
               SELECT cl.id FROM clients cl
                WHERE cl.telegram_username IS NOT NULL
                  AND cl.telegram_username = (SELECT username FROM user_username)
+           ),
+           relevant_clients AS (
+              SELECT DISTINCT e.client_id AS id
+                FROM events e
+                JOIN participant_events pe ON pe.event_id = e.id
+              UNION
+              SELECT id FROM owned_clients
+           ),
+           allowed_clients AS (
+              SELECT cl.id FROM clients cl
+               LEFT JOIN tariffs t ON t.slug = cl.tariff_slug
+               WHERE cl.id IN (SELECT id FROM relevant_clients)
+                 AND COALESCE(t.allow_custom_bot, false) = false
+           ),
+           conf_dates AS (
+              SELECT event_id,
+                     MIN((day_date + COALESCE(open_time,  '00:00'::time))
+                         AT TIME ZONE 'Europe/Moscow') AS start_at,
+                     MAX((day_date + COALESCE(close_time, '23:59'::time))
+                         AT TIME ZONE 'Europe/Moscow') AS end_at
+                FROM conf_days
+               GROUP BY event_id
            )
            SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                   (SELECT url FROM event_posters
@@ -181,7 +203,10 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
                                ELSE 4
                              END, sort, id
                     LIMIT 1) AS poster_url,
-                  e.start_at, e.end_at,
+                  CASE WHEN e.module_slug = 'conference'
+                       THEN cd.start_at ELSE e.start_at END AS start_at,
+                  CASE WHEN e.module_slug = 'conference'
+                       THEN cd.end_at   ELSE e.end_at   END AS end_at,
                   pe.participant_id, pe.ref_code,
                   COALESCE(pe.is_registered, false) AS is_registered,
                   COALESCE(pe.is_in_chat,    false) AS is_in_chat,
@@ -193,20 +218,30 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
              FROM events e
              JOIN clients cl ON cl.id = e.client_id
              LEFT JOIN participant_events pe ON pe.event_id = e.id
-            WHERE pe.event_id IS NOT NULL
-               OR (e.client_id IN (SELECT id FROM owned_clients)
-                   AND e.status IN ('published', 'ended'))
-            ORDER BY COALESCE(e.start_at, e.created_at) ASC""",
+             LEFT JOIN conf_dates cd ON cd.event_id = e.id
+            WHERE e.client_id IN (SELECT id FROM allowed_clients)
+              AND e.status IN ('published', 'ended')
+              AND (
+                -- будущие/идущие опубликованные — все, как промо
+                (e.status = 'published' AND (
+                   (CASE WHEN e.module_slug = 'conference' THEN cd.end_at ELSE e.end_at END) IS NULL
+                   OR (CASE WHEN e.module_slug = 'conference' THEN cd.end_at ELSE e.end_at END) >= NOW()
+                ))
+                -- прошедшие — только если пользователь был участником
+                OR pe.event_id IS NOT NULL
+                -- владелец клиента — все опубликованные/завершённые
+                OR e.client_id IN (SELECT id FROM owned_clients)
+              )""",
         str(tg_id),
     )
 
-    now_list, soon_list, past_list = [], [], []
     from datetime import datetime, timezone
     now_ts = datetime.now(timezone.utc)
 
+    # 1) Раскладываем события по группам организаторов и определяем bucket
+    groups: dict[int, dict] = {}
     for r in rows:
         item = dict(r)
-        # ISO-формат для фронта
         if item.get("start_at"): item["start_at"] = item["start_at"].isoformat()
         if item.get("end_at"):   item["end_at"]   = item["end_at"].isoformat()
 
@@ -216,18 +251,59 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
 
         is_live = status == "live" or (start and end and start <= now_ts <= end)
         is_past = status in ("archived", "ended", "completed") or (end and end < now_ts)
+        item["bucket"] = "now" if is_live else ("past" if is_past else "soon")
 
-        if is_live:
-            now_list.append(item)
-        elif is_past:
-            past_list.append(item)
+        cid = item["client_id"]
+        if cid not in groups:
+            groups[cid] = {
+                "client_id":          cid,
+                "client_name":        item.get("client_name"),
+                "client_brand_name":  item.get("client_brand_name"),
+                "client_photo_url":   item.get("client_photo_url"),
+                "client_positioning": item.get("client_positioning"),
+                "events": [],
+            }
+        groups[cid]["events"].append(item)
+
+    # 2) Внутри группы: now (asc) → soon (asc) → past (desc по end_at)
+    for g in groups.values():
+        evs = g["events"]
+        now_evs  = sorted([e for e in evs if e["bucket"] == "now"],
+                          key=lambda e: e.get("start_at") or "")
+        soon_evs = sorted([e for e in evs if e["bucket"] == "soon"],
+                          key=lambda e: e.get("start_at") or "9999")
+        past_evs = sorted([e for e in evs if e["bucket"] == "past"],
+                          key=lambda e: e.get("end_at") or "", reverse=True)
+        g["events"] = now_evs + soon_evs + past_evs
+
+    # 3) Сортировка групп: сначала с будущими (по ближайшему ASC),
+    #    потом только-прошедшие (по самому свежему прошедшему DESC).
+    def nearest_future(g: dict) -> str | None:
+        candidates = [e["start_at"] for e in g["events"]
+                      if e["bucket"] in ("now", "soon") and e.get("start_at")]
+        return min(candidates) if candidates else None
+
+    def nearest_past(g: dict) -> str | None:
+        candidates = [e["end_at"] for e in g["events"]
+                      if e["bucket"] == "past" and e.get("end_at")]
+        return max(candidates) if candidates else None
+
+    with_future = []
+    only_past   = []
+    for g in groups.values():
+        # Группа считается «с будущим», если в ней есть события now/soon
+        has_future = any(e["bucket"] in ("now", "soon") for e in g["events"])
+        if has_future:
+            with_future.append(g)
         else:
-            soon_list.append(item)
+            only_past.append(g)
 
-    # past — самые свежие сверху
-    past_list.sort(key=lambda x: x.get("end_at") or "", reverse=True)
+    # ближайшее будущее ASC; группы без даты в будущем — в конец этого блока
+    with_future.sort(key=lambda g: (nearest_future(g) is None, nearest_future(g) or ""))
+    # самое свежее прошедшее DESC
+    only_past.sort(key=lambda g: nearest_past(g) or "", reverse=True)
 
-    return {"now": now_list, "soon": soon_list, "past": past_list}
+    return {"groups": with_future + only_past}
 
 
 @router.get("/event/{event_slug}/user/{tg_id}", summary="Данные участника в событии")
