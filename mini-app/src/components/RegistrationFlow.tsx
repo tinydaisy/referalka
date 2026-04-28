@@ -49,7 +49,11 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
       // Через 1.5 сек закрыть и обновить
       setTimeout(() => onDone(r.participant || r), 1400)
     } catch (e: any) {
-      setError('Не удалось зарегистрировать. Попробуйте ещё раз.')
+      // Показываем реальный текст ошибки от бэка (FastAPI detail)
+      // вместо общей заглушки — без этого диагностика вслепую.
+      const msg = (e?.message || '').trim()
+      console.error('[register] failed:', e)
+      setError(msg || 'Не удалось зарегистрировать. Попробуйте ещё раз.')
     } finally {
       setSubmitting(false)
     }
@@ -57,10 +61,25 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
 
   function requestPhoneFromTG() {
     const twa = (window as any).Telegram?.WebApp
-    twa?.requestContact?.((ok: boolean, res: any) => {
-      const c = res?.responseUnsafe?.contact
-      if (ok && c?.phone_number) setPhone(c.phone_number)
-    })
+    if (!twa?.requestContact) {
+      setError('Telegram не отдал телефон. Введите номер вручную в поле ниже.')
+      return
+    }
+    try {
+      twa.requestContact((ok: boolean, res: any) => {
+        const c = res?.responseUnsafe?.contact
+        if (ok && c?.phone_number) {
+          setPhone(c.phone_number)
+          setError(null)
+        } else if (!ok) {
+          // Пользователь отказал или версия Telegram не поддерживает.
+          setError('Не получилось взять телефон из Telegram. Введите вручную.')
+        }
+      })
+    } catch (err) {
+      console.error('[requestContact] failed:', err)
+      setError('Telegram не разрешил взять телефон. Введите вручную.')
+    }
   }
 
   return (

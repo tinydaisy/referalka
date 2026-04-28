@@ -5,7 +5,18 @@ export async function req(path: string, options?: RequestInit) {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) {
+    const raw = await res.text()
+    // FastAPI отдаёт {"detail": "..."} — достаём человеческий текст,
+    // если не JSON — отдаём как есть.
+    let msg = raw
+    try {
+      const j = JSON.parse(raw)
+      if (j && typeof j.detail === 'string') msg = j.detail
+      else if (Array.isArray(j?.detail)) msg = j.detail.map((d: any) => d?.msg || JSON.stringify(d)).join('; ')
+    } catch { /* not JSON */ }
+    throw new Error(msg || `Ошибка ${res.status}`)
+  }
   return res.json()
 }
 

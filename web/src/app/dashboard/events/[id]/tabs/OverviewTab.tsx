@@ -12,6 +12,7 @@ export default function OverviewTab({
   onReload: () => Promise<void>
 }) {
   const [title, setTitle] = useState(event.title || '')
+  const [slug, setSlug] = useState(event.slug || '')
   const [description, setDescription] = useState(event.description || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
   const [address, setAddress] = useState(event.address || '')
@@ -20,6 +21,8 @@ export default function OverviewTab({
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://plusson.app'
 
   function toLocalInput(iso: string | null | undefined) {
     if (!iso) return ''
@@ -31,14 +34,20 @@ export default function OverviewTab({
   async function handleSave() {
     setSaving(true); setErr(null)
     try {
-      await api.events.update(eventId, {
+      const payload: any = {
         title: title.trim() || null,
         description: description.trim() || null,
         landing_url: landingUrl.trim() || null,
         address: address.trim() || null,
         start_at: startAt ? new Date(startAt).toISOString() : null,
         end_at:   endAt   ? new Date(endAt).toISOString()   : null,
-      })
+      }
+      // Slug отправляем только если он реально поменялся (PATCH принимает только то, что пришло).
+      const trimmedSlug = slug.trim().toLowerCase()
+      if (trimmedSlug && trimmedSlug !== event.slug) {
+        payload.slug = trimmedSlug
+      }
+      await api.events.update(eventId, payload)
       await onReload()
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 1800)
@@ -65,6 +74,24 @@ export default function OverviewTab({
             <textarea value={description} onChange={e => setDescription(e.target.value)}
                       rows={3} className="input"
                       placeholder="О чём это мероприятие — пара предложений" />
+          </Field>
+
+          <Field
+            label="Код ссылки"
+            hint="Латиница, цифры и дефис. Можно оставить как есть — будет короткий случайный код. Или впишите свой, например ivision-8."
+          >
+            <input
+              value={slug}
+              onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+              className="input"
+              placeholder="ivision-8"
+            />
+            <p className="text-xs text-gray-500 mt-1.5">
+              Ссылка получится:{' '}
+              <span className="font-mono text-[#25455D]">
+                {APP_URL.replace(/^https?:\/\//, '')}/l/{slug || '...'}
+              </span>
+            </p>
           </Field>
 
           <div className="grid sm:grid-cols-2 gap-4">

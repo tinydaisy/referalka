@@ -17,14 +17,33 @@ def _short_code(n: int = 5) -> str:
     return ''.join(secrets.choice(_SLUG_CODE_ALPHABET) for _ in range(n))
 
 
-async def _make_unique_slug(db: asyncpg.Connection, base: str) -> str:
-    """`<base>-<5 случайных символа>`. Коллизия маловероятна (~1/33M),
-    но повторяем до уникальности на всякий случай."""
+async def _make_unique_short_slug(db: asyncpg.Connection) -> str:
+    """Короткий случайный slug из 5 символов алфавита `_SLUG_CODE_ALPHABET`.
+    Дефолт для новых событий — короткие, неугадываемые ссылки `/l/abcde`.
+    Клиент при желании заменяет на свой `slug` через PATCH /events/{id}.
+    Коллизия маловероятна (~1/33M), но повторяем до уникальности."""
     while True:
-        candidate = f"{base}-{_short_code(5)}"
+        candidate = _short_code(5)
         exists = await db.fetchval("SELECT 1 FROM events WHERE slug = $1", candidate)
         if not exists:
             return candidate
+
+
+# Валидация пользовательского slug: только латиница, цифры, дефис.
+# Длина 3..60. Не начинается и не заканчивается дефисом, нет двойных дефисов.
+_SLUG_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9]|-(?!-))*[a-z0-9]$")
+
+
+def _validate_custom_slug(slug: str) -> str:
+    s = slug.strip().lower()
+    if len(s) < 3 or len(s) > 60:
+        raise HTTPException(status_code=400, detail="Код ссылки — от 3 до 60 символов")
+    if not _SLUG_PATTERN.match(s):
+        raise HTTPException(
+            status_code=400,
+            detail="Код ссылки: только латиница, цифры и дефис. Не должно начинаться/заканчиваться дефисом и не должно быть двойных дефисов."
+        )
+    return s
 
 
 _TRANSLIT_MAP = {
@@ -60,6 +79,7 @@ class CreateEventRequest(BaseModel):
 
 class UpdateEventRequest(BaseModel):
     title: Optional[str] = None
+    slug: Optional[str] = None          # пользовательский код ссылки (или короткий по умолчанию)
     description: Optional[str] = None
     landing_url: Optional[str] = None
     address: Optional[str] = None
@@ -134,7 +154,7 @@ async def create_event(
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
-    slug = await _make_unique_slug(db, slugify(data.title))
+    slug = await _make_unique_short_slug(db)
 
     from datetime import datetime as _dt
     def _parse_dt(s):
@@ -221,6 +241,17 @@ async def update_event(
     if not updates:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
 
+    # Slug: валидация формата + проверка уникальности (если меняется)
+    if "slug" in updates:
+        new_slug = _validate_custom_slug(updates["slug"])
+        taken_by = await db.fetchval(
+            "SELECT id FROM events WHERE slug = $1 AND id <> $2",
+            new_slug, event_id
+        )
+        if taken_by:
+            raise HTTPException(status_code=409, detail="Этот код ссылки уже занят другим событием")
+        updates["slug"] = new_slug
+
     # Преобразование ISO-строк в datetime для timestamp-полей
     from datetime import datetime as _dt
     for dt_field in ("start_at", "end_at"):
@@ -251,7 +282,7 @@ async def copy_event(
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     new_title = f"Копия — {src['title']}"
-    new_slug = await _make_unique_slug(db, slugify(new_title))
+    new_slug = await _make_unique_short_slug(db)
 
     # Копия события — всегда черновик, start_at/end_at не наследуем
     # (для конференций они вообще берутся из conf_days, для остальных
