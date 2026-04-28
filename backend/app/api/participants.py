@@ -117,18 +117,15 @@ async def activate_participant(participant_id: int, db: asyncpg.Connection = Dep
 async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
         """SELECT e.id, e.slug, e.title, e.module_slug, e.status,
-                  COALESCE(
-                    (SELECT url FROM event_posters
-                      WHERE event_id = e.id
-                      ORDER BY CASE orientation
-                                 WHEN 'square'     THEN 1
-                                 WHEN 'horizontal' THEN 2
-                                 WHEN 'vertical'   THEN 3
-                                 ELSE 4
-                               END, sort, id
-                      LIMIT 1),
-                    e.poster_url
-                  ) AS poster_url,
+                  (SELECT url FROM event_posters
+                    WHERE event_id = e.id
+                    ORDER BY CASE orientation
+                               WHEN 'square'     THEN 1
+                               WHEN 'horizontal' THEN 2
+                               WHEN 'vertical'   THEN 3
+                               ELSE 4
+                             END, sort, id
+                    LIMIT 1) AS poster_url,
                   ep.id AS participant_id, c.ref_code, ep.is_registered, ep.is_in_chat
              FROM event_participants ep
              JOIN events e ON e.id = ep.event_id
@@ -148,18 +145,15 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
 async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
         """SELECT e.id, e.slug, e.title, e.module_slug, e.status,
-                  COALESCE(
-                    (SELECT url FROM event_posters
-                      WHERE event_id = e.id
-                      ORDER BY CASE orientation
-                                 WHEN 'square'     THEN 1
-                                 WHEN 'horizontal' THEN 2
-                                 WHEN 'vertical'   THEN 3
-                                 ELSE 4
-                               END, sort, id
-                      LIMIT 1),
-                    e.poster_url
-                  ) AS poster_url,
+                  (SELECT url FROM event_posters
+                    WHERE event_id = e.id
+                    ORDER BY CASE orientation
+                               WHEN 'square'     THEN 1
+                               WHEN 'horizontal' THEN 2
+                               WHEN 'vertical'   THEN 3
+                               ELSE 4
+                             END, sort, id
+                    LIMIT 1) AS poster_url,
                   e.start_at, e.end_at,
                   ep.id AS participant_id, c.ref_code, ep.is_registered, ep.is_in_chat,
                   cl.id   AS client_id,

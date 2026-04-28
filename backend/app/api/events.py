@@ -70,7 +70,6 @@ class UpdateEventRequest(BaseModel):
     points_free: Optional[int] = None
     points_paid: Optional[int] = None
     require_subscription: Optional[bool] = None
-    poster_url: Optional[str] = None
     successor_event_id: Optional[int] = None
     # VIP/Чат конференции (миграция 042)
     has_vip_tariff: Optional[bool] = None
@@ -93,7 +92,16 @@ async def list_events(
     # effective_start: для конференций fallback на минимальную дату из conf_days,
     # для остальных — собственный start_at
     base_select = """
-        SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.poster_url,
+        SELECT e.id, e.slug, e.title, e.module_slug, e.status,
+               (SELECT url FROM event_posters
+                 WHERE event_id = e.id
+                 ORDER BY CASE orientation
+                            WHEN 'square'     THEN 1
+                            WHEN 'horizontal' THEN 2
+                            WHEN 'vertical'   THEN 3
+                            ELSE 4
+                          END, sort, id
+                 LIMIT 1) AS poster_url,
                e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
                COALESCE(
                  e.start_at,
@@ -155,9 +163,25 @@ async def create_event(
     return {"event": dict(event)}
 
 
+# Подзапрос: лучшая афиша из event_posters по приоритету square > horizontal > vertical.
+# Используется во всех ответах API, где раньше отдавалось events.poster_url
+# (миграция 044 удалила это поле, источник истины теперь — event_posters).
+_POSTER_SUBQ = """(
+    SELECT url FROM event_posters
+     WHERE event_id = e.id
+     ORDER BY CASE orientation
+                WHEN 'square'     THEN 1
+                WHEN 'horizontal' THEN 2
+                WHEN 'vertical'   THEN 3
+                ELSE 4
+              END, sort, id
+     LIMIT 1
+) AS poster_url"""
+
+
 @router.get("/slug/{slug}", summary="Получить событие по slug")
 async def get_event_by_slug(slug: str, db: asyncpg.Connection = Depends(get_db)):
-    event = await db.fetchrow("SELECT * FROM events WHERE slug = $1", slug)
+    event = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.slug = $1", slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     return {"event": dict(event)}
@@ -171,7 +195,7 @@ async def get_event(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT * FROM events WHERE id = $1 AND client_id = $2",
+        f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1 AND e.client_id = $2",
         event_id, client_id
     )
     if not event:
@@ -209,7 +233,7 @@ async def update_event(
         f"UPDATE events SET {', '.join(set_parts)} WHERE id = $1",
         event_id, *values
     )
-    updated = await db.fetchrow("SELECT * FROM events WHERE id = $1", event_id)
+    updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1", event_id)
     return {"event": dict(updated)}
 
 
@@ -237,14 +261,14 @@ async def copy_event(
             """INSERT INTO events
                  (client_id, slug, title, description, landing_url, address, start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
-                  require_subscription, status, poster_url)
-               VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,$9,$10,$11,$12,'draft',$13)
+                  require_subscription, status)
+               VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,$9,$10,$11,$12,'draft')
                RETURNING *""",
             client_id, new_slug, new_title, src['description'], src['landing_url'],
             src.get('address'),
             src['webhook_url'], src['module_slug'],
             src['points_free'], src['points_paid'], src['points_scope'],
-            src['require_subscription'], src['poster_url']
+            src['require_subscription']
         )
         new_id = new_event['id']
 

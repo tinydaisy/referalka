@@ -99,18 +99,15 @@ async def public_client_events(
                GROUP BY event_id
             )
             SELECT e.id, e.slug, e.title, e.description, e.module_slug,
-                   COALESCE(
-                     (SELECT url FROM event_posters
-                       WHERE event_id = e.id
-                       ORDER BY CASE orientation
-                                  WHEN 'square'     THEN 1
-                                  WHEN 'horizontal' THEN 2
-                                  WHEN 'vertical'   THEN 3
-                                  ELSE 4
-                                END, sort, id
-                       LIMIT 1),
-                     e.poster_url
-                   ) AS poster_url,
+                   (SELECT url FROM event_posters
+                     WHERE event_id = e.id
+                     ORDER BY CASE orientation
+                                WHEN 'square'     THEN 1
+                                WHEN 'horizontal' THEN 2
+                                WHEN 'vertical'   THEN 3
+                                ELSE 4
+                              END, sort, id
+                     LIMIT 1) AS poster_url,
                    e.status,
                    CASE WHEN e.module_slug = 'conference'
                         THEN cd.start_at ELSE e.start_at END AS start_at,
@@ -189,18 +186,15 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                GROUP BY event_id
             )
             SELECT e.id, e.client_id, e.slug, e.title, e.description, e.module_slug,
-                   COALESCE(
-                     (SELECT url FROM event_posters
-                       WHERE event_id = e.id
-                       ORDER BY CASE orientation
-                                  WHEN 'square'     THEN 1
-                                  WHEN 'horizontal' THEN 2
-                                  WHEN 'vertical'   THEN 3
-                                  ELSE 4
-                                END, sort, id
-                       LIMIT 1),
-                     e.poster_url
-                   ) AS poster_url,
+                   (SELECT url FROM event_posters
+                     WHERE event_id = e.id
+                     ORDER BY CASE orientation
+                                WHEN 'square'     THEN 1
+                                WHEN 'horizontal' THEN 2
+                                WHEN 'vertical'   THEN 3
+                                ELSE 4
+                              END, sort, id
+                     LIMIT 1) AS poster_url,
                    e.landing_url, e.address, e.status,
                    CASE WHEN e.module_slug = 'conference'
                         THEN cd.start_at ELSE e.start_at END AS start_at,
@@ -233,8 +227,17 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
     # Successor (следующее событие)
     if row["successor_event_id"]:
         succ = await db.fetchrow(
-            """SELECT id, slug, title, poster_url, start_at
-                 FROM events WHERE id = $1""",
+            """SELECT e.id, e.slug, e.title, e.start_at,
+                      (SELECT url FROM event_posters
+                        WHERE event_id = e.id
+                        ORDER BY CASE orientation
+                                   WHEN 'square'     THEN 1
+                                   WHEN 'horizontal' THEN 2
+                                   WHEN 'vertical'   THEN 3
+                                   ELSE 4
+                                 END, sort, id
+                        LIMIT 1) AS poster_url
+                 FROM events e WHERE e.id = $1""",
             row["successor_event_id"]
         )
         d["successor"] = dict(succ) if succ else None
