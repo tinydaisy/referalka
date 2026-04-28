@@ -792,6 +792,22 @@ async def list_days(
     return {"days": [dict(d) for d in days]}
 
 
+@router.get("/days/public", summary="Дни конференции (для Mini App)")
+async def list_days_public(event_id: int, db: asyncpg.Connection = Depends(get_db)):
+    """
+    Публичный список дней без stream_url (его видят только зарегистрированные —
+    отдельный запрос). Нужен, чтобы Mini App мог отрисовать аккордеон с днями.
+    """
+    days = await db.fetch(
+        """SELECT day_number, day_date, open_time, close_time
+             FROM conf_days
+            WHERE event_id = $1
+         ORDER BY day_number""",
+        event_id,
+    )
+    return {"days": [dict(d) for d in days]}
+
+
 @router.put("/days/{day_number}", summary="Сохранить день")
 async def upsert_day(
     event_id: int,

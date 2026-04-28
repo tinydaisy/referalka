@@ -44,6 +44,9 @@ export const getGifts = (slug: string) =>
 export const getSpeakers = (eventId: number) =>
   req(`/api/v1/events/${eventId}/conference/speakers/public`)
 
+export const getDays = (eventId: number) =>
+  req(`/api/v1/events/${eventId}/conference/days/public`)
+
 export const getSessions = (eventId: number, day: number) =>
   req(`/api/v1/events/${eventId}/conference/sessions/day/${day}`)
 
