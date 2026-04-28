@@ -17,9 +17,10 @@ const NAV: NavItem[] = [
 
 const PEACH = '#FFCFA4'
 
-export default function Hub({ clientId, onOpenEvent }: Props) {
+export default function Hub({ clientId, tgUser, onOpenEvent }: Props) {
   const [tab, setTab] = useState('calendar')
   const [profile, setProfile] = useState<any>(null)
+  const tgId = tgUser?.id ? Number(tgUser.id) : undefined
 
   useEffect(() => {
     getClientProfile(clientId).then(setProfile).catch(() => {})
@@ -48,7 +49,7 @@ export default function Hub({ clientId, onOpenEvent }: Props) {
       )}
 
       <div className="page">
-        {tab === 'calendar'  && <CalendarTab  clientId={clientId} onOpenEvent={onOpenEvent} />}
+        {tab === 'calendar'  && <CalendarTab  clientId={clientId} tgId={tgId} onOpenEvent={onOpenEvent} />}
         {tab === 'ecosystem' && <EcosystemTab clientId={clientId} />}
       </div>
 

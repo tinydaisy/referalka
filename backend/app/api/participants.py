@@ -256,6 +256,17 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
         is_past = status in ("archived", "ended", "completed") or (end and end < now_ts)
         item["bucket"] = "now" if is_live else ("past" if is_past else "soon")
 
+        # Статус участия пользователя в событии:
+        #   нет записи в event_participants → 'new' (ещё не открывал событие)
+        #   запись есть, is_registered=false → 'interested'
+        #   запись есть, is_registered=true  → 'registered'
+        if r["participant_id"] is None:
+            item["participation_status"] = "new"
+        elif r["is_registered"]:
+            item["participation_status"] = "registered"
+        else:
+            item["participation_status"] = "interested"
+
         cid = item["client_id"]
         if cid not in groups:
             groups[cid] = {

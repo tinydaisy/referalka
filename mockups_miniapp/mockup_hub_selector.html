@@ -192,6 +192,23 @@
   .meta-pill.soon { background: #fff4e0; color: #b86b00; }
   .meta-pill.live { background: #ffe5e5; color: #d32f2f; font-weight: 700; }
 
+  /* Статус участия — справа */
+  .status-pill {
+    margin-left: auto;
+    padding: 3px 8px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .status-pill.new { background: #eef2f7; color: #6b7c8e; }
+  .status-pill.interested { background: #e0ecf8; color: #2c5f9b; }
+  .status-pill.registered { background: linear-gradient(135deg, #FFCFA4 0%, #f5b97e 100%); color: #25455D; box-shadow: 0 1px 3px rgba(255,207,164,0.5); }
+
   .arrow {
     color: #c5cdd6;
     font-size: 22px;
@@ -502,9 +519,10 @@
               <span style="width:6px;height:6px;background:white;border-radius:50%;"></span>
               LIVE
             </div>
+            <span class="status-pill registered">✓ Вы записаны</span>
           </div>
           <div class="live-card-title">iVision Conference — день 2</div>
-          <div class="live-card-meta">Идёт прямо сейчас · вы зарегистрированы</div>
+          <div class="live-card-meta">Идёт прямо сейчас</div>
           <div class="live-card-cta">Подключиться к стриму →</div>
         </div>
 
@@ -517,6 +535,7 @@
             <div class="ev-author">от Марго Форбс</div>
             <div class="ev-meta">
               <span class="meta-pill soon">2 мая · 19:00</span>
+              <span class="status-pill interested">Вы интересовались</span>
             </div>
           </div>
           <div class="arrow">›</div>
@@ -529,6 +548,7 @@
             <div class="ev-author">от Школы Python · Иван Петров</div>
             <div class="ev-meta">
               <span class="meta-pill soon">5 мая · 20:00</span>
+              <span class="status-pill new">Новое</span>
             </div>
           </div>
           <div class="arrow">›</div>

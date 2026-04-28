@@ -3,10 +3,22 @@ import { getClientEvents } from '../api'
 
 interface Props {
   clientId: number
+  tgId?: number
   onOpenEvent: (slug: string) => void
 }
 
-interface Ev { id: number; slug: string; title: string; poster_url?: string; start_at?: string; end_at?: string; bucket: 'now' | 'upcoming' | 'past' }
+type ParticipationStatus = 'new' | 'interested' | 'registered' | null
+
+interface Ev {
+  id: number
+  slug: string
+  title: string
+  poster_url?: string
+  start_at?: string
+  end_at?: string
+  bucket: 'now' | 'upcoming' | 'past'
+  participation_status?: ParticipationStatus
+}
 
 function formatDate(dt?: string) {
   if (!dt) return ''
@@ -22,6 +34,13 @@ function EventPoster({ src, alt }: { src?: string; alt: string }) {
   return <img className="poster" src={src} alt={alt} onError={() => setFailed(true)} />
 }
 
+function StatusPill({ status }: { status: ParticipationStatus }) {
+  if (!status) return null
+  if (status === 'registered') return <span className="status-pill status-pill-registered">✓ Вы записаны</span>
+  if (status === 'interested') return <span className="status-pill status-pill-interested">Вы интересовались</span>
+  return <span className="status-pill status-pill-new">Новое</span>
+}
+
 function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen: (s: string) => void }) {
   if (!items.length) return null
   return (
@@ -32,9 +51,12 @@ function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen:
           <div key={e.id} className="hub-card fade-in" onClick={() => onOpen(e.slug)}>
             <EventPoster src={e.poster_url} alt={e.title} />
             <div className="body">
-              <span className={`badge badge-${e.bucket === 'now' ? 'green' : e.bucket === 'past' ? 'gray' : 'gold'}`}>
-                {e.bucket === 'now' ? '● Идёт сейчас' : e.bucket === 'past' ? 'Завершено' : 'Скоро'}
-              </span>
+              <div className="badge-row">
+                <span className={`badge badge-${e.bucket === 'now' ? 'green' : e.bucket === 'past' ? 'gray' : 'gold'}`}>
+                  {e.bucket === 'now' ? '● Идёт сейчас' : e.bucket === 'past' ? 'Завершено' : 'Скоро'}
+                </span>
+                <StatusPill status={e.participation_status ?? null} />
+              </div>
               <div className="title">{e.title}</div>
               {(e.start_at || e.end_at) && (
                 <div className="meta">{formatDate(e.start_at)}{e.end_at && e.start_at !== e.end_at ? ` — ${formatDate(e.end_at)}` : ''}</div>
@@ -47,16 +69,16 @@ function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen:
   )
 }
 
-export default function CalendarTab({ clientId, onOpenEvent }: Props) {
+export default function CalendarTab({ clientId, tgId, onOpenEvent }: Props) {
   const [data, setData] = useState<{ now: Ev[]; upcoming: Ev[]; past: Ev[] }>({ now: [], upcoming: [], past: [] })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getClientEvents(clientId)
+    getClientEvents(clientId, undefined, tgId)
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [clientId])
+  }, [clientId, tgId])
 
   if (loading) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Загружаем события…</div>
 

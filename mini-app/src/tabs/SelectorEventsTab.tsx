@@ -7,6 +7,8 @@ interface Props {
   onSwitchToPromo: () => void
 }
 
+type ParticipationStatus = 'new' | 'interested' | 'registered'
+
 interface Ev {
   id: number
   slug: string
@@ -18,6 +20,7 @@ interface Ev {
   status?: string
   bucket: 'now' | 'soon' | 'past'
   client_id: number
+  participation_status?: ParticipationStatus
 }
 
 interface Group {
@@ -115,6 +118,13 @@ function GroupHeader({ g }: { g: Group }) {
   )
 }
 
+function StatusPill({ status }: { status?: ParticipationStatus }) {
+  if (!status) return null
+  if (status === 'registered') return <span className="status-pill status-pill-registered">✓ Вы записаны</span>
+  if (status === 'interested') return <span className="status-pill status-pill-interested">Вы интересовались</span>
+  return <span className="status-pill status-pill-new">Новое</span>
+}
+
 function EventCard({ e, onOpen }: { e: Ev; onOpen: (s: string) => void }) {
   const badgeClass =
     e.bucket === 'now' ? 'badge-green' : e.bucket === 'past' ? 'badge-gray' : 'badge-gold'
@@ -125,7 +135,10 @@ function EventCard({ e, onOpen }: { e: Ev; onOpen: (s: string) => void }) {
     <div className="hub-card fade-in" onClick={() => onOpen(e.slug)}>
       <EventPoster src={e.poster_url} alt={e.title} />
       <div className="body">
-        <span className={`badge ${badgeClass}`}>{badgeText}</span>
+        <div className="badge-row">
+          <span className={`badge ${badgeClass}`}>{badgeText}</span>
+          <StatusPill status={e.participation_status} />
+        </div>
         <div className="title">{e.title}</div>
         {(e.start_at || e.end_at) && (
           <div className="meta">

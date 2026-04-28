@@ -83,11 +83,14 @@ async def public_client_offerings(client_id: int, db: asyncpg.Connection = Depen
 async def public_client_events(
     client_id: int,
     bucket: Optional[str] = Query(None, description="now | upcoming | past — если не задан, возвращает все три"),
+    tg_id: Optional[int] = Query(None, description="Telegram ID — для расчёта participation_status"),
     db: asyncpg.Connection = Depends(get_db),
 ):
     # Для конференций start_at/end_at в events игнорируем —
     # источник истины это conf_days (программа дней). Для остальных
     # типов событий берём поля из events напрямую.
+    # Если задан tg_id — добавляем participation_status:
+    #   'new' (нет записи в event_participants) | 'interested' (есть, не зарегистрирован) | 'registered'.
     rows = await db.fetch(
         """WITH conf_dates AS (
               SELECT event_id,
@@ -97,6 +100,14 @@ async def public_client_events(
                          AT TIME ZONE 'Europe/Moscow') AS end_at
                 FROM conf_days
                GROUP BY event_id
+            ),
+            user_participation AS (
+              SELECT ep.event_id, ep.is_registered
+                FROM event_participants ep
+                JOIN contacts c        ON c.id  = ep.contact_id
+                JOIN platform_users pu ON pu.contact_id = c.id
+               WHERE pu.platform_slug = 'telegram'
+                 AND pu.platform_user_id = $2
             )
             SELECT e.id, e.slug, e.title, e.description, e.module_slug,
                    (SELECT url FROM event_posters
@@ -130,13 +141,21 @@ async def public_client_events(
                                 THEN cd.end_at   ELSE e.end_at   END) < NOW()
                           THEN 'past'
                      ELSE 'upcoming'
-                   END AS bucket
+                   END AS bucket,
+                   CASE
+                     WHEN $2::text IS NULL          THEN NULL
+                     WHEN up.event_id IS NULL       THEN 'new'
+                     WHEN up.is_registered IS TRUE  THEN 'registered'
+                     ELSE 'interested'
+                   END AS participation_status
               FROM events e
-              LEFT JOIN conf_dates cd ON cd.event_id = e.id
+              LEFT JOIN conf_dates cd        ON cd.event_id = e.id
+              LEFT JOIN user_participation up ON up.event_id = e.id
              WHERE e.client_id = $1 AND e.status IN ('published','ended')
              ORDER BY (CASE WHEN e.module_slug = 'conference'
                             THEN cd.start_at ELSE e.start_at END) NULLS LAST""",
-        client_id
+        client_id,
+        str(tg_id) if tg_id else None,
     )
     items = [dict(r) for r in rows]
     if bucket:

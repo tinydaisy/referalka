@@ -63,8 +63,17 @@ export const getClientProfile = (clientId: number) =>
 export const getClientOfferings = (clientId: number) =>
   req(`/api/v1/public/clients/${clientId}/offerings`)
 
-export const getClientEvents = (clientId: number, bucket?: 'now' | 'upcoming' | 'past') =>
-  req(`/api/v1/public/clients/${clientId}/events${bucket ? `?bucket=${bucket}` : ''}`)
+export const getClientEvents = (
+  clientId: number,
+  bucket?: 'now' | 'upcoming' | 'past',
+  tgId?: number,
+) => {
+  const params = new URLSearchParams()
+  if (bucket) params.set('bucket', bucket)
+  if (tgId)   params.set('tg_id', String(tgId))
+  const qs = params.toString()
+  return req(`/api/v1/public/clients/${clientId}/events${qs ? `?${qs}` : ''}`)
+}
 
 export const getEventLanding = (slug: string) =>
   req(`/api/v1/public/events/${slug}/landing`)

@@ -1,21 +1,71 @@
+import type { ReactNode } from 'react'
+
 const APP_URL = import.meta.env.VITE_APP_URL || 'https://pluson.ru'
 const REGISTER_URL = `${APP_URL}/register`
 const APP_DOMAIN = APP_URL.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
-const FEATURES = [
+const IconGift = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}>
+    <polyline points="20 12 20 22 4 22 4 12" />
+    <rect x="2" y="7" width="20" height="5" />
+    <line x1="12" y1="22" x2="12" y2="7" />
+    <path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z" />
+    <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z" />
+  </svg>
+)
+
+const IconTarget = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}>
+    <circle cx="12" cy="12" r="10" />
+    <circle cx="12" cy="12" r="6" />
+    <circle cx="12" cy="12" r="2" />
+  </svg>
+)
+
+const IconStats = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}>
+    <line x1="18" y1="20" x2="18" y2="10" />
+    <line x1="12" y1="20" x2="12" y2="4" />
+    <line x1="6"  y1="20" x2="6"  y2="14" />
+  </svg>
+)
+
+const IconBot = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={22} height={22}>
+    <rect x="3" y="8" width="18" height="12" rx="2" />
+    <line x1="12" y1="4" x2="12" y2="8" />
+    <circle cx="12" cy="3" r="1" />
+    <circle cx="9"  cy="14" r="1" />
+    <circle cx="15" cy="14" r="1" />
+    <line x1="8" y1="20" x2="8"  y2="22" />
+    <line x1="16" y1="20" x2="16" y2="22" />
+  </svg>
+)
+
+interface Feature {
+  icon: ReactNode
+  title: string
+  desc: string
+}
+
+const FEATURES: Feature[] = [
   {
+    icon: <IconGift />,
     title: 'Партнёрские ссылки за вас',
     desc: 'Каждый зарегистрированный получает свою ссылку. Приглашает друзей — забирает подарки. Подарки выдаёт бот сам.',
   },
   {
+    icon: <IconTarget />,
     title: 'Лендинг + Mini App за 5 минут',
     desc: 'Афиша, программа, регистрация — без программистов. Готово к запуску в тот же день.',
   },
   {
+    icon: <IconStats />,
     title: 'Видно всё в одном кабинете',
     desc: 'Кто пришёл, кто привёл, какие посты сработали. Никакого Excel по итогам.',
   },
   {
+    icon: <IconBot />,
     title: 'Свой бот в Telegram',
     desc: 'На про-тарифе — свой брендовый бот с приветствиями и рассылками от вашего имени.',
   },
@@ -118,13 +168,33 @@ export default function PlussonPromoTab() {
                 borderRadius: 14,
                 padding: 14,
                 boxShadow: '0 2px 8px rgba(37, 69, 93, 0.06)',
+                display: 'flex',
+                gap: 12,
+                alignItems: 'flex-start',
               }}
             >
-              <div style={{ color: 'var(--text)', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                {f.title}
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #fff4e0, #FFCFA4)',
+                  color: '#25455D',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                {f.icon}
               </div>
-              <div style={{ color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.5 }}>
-                {f.desc}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: 'var(--text)', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                  {f.title}
+                </div>
+                <div style={{ color: 'var(--muted)', fontSize: 12.5, lineHeight: 1.5 }}>
+                  {f.desc}
+                </div>
               </div>
             </div>
           ))}
