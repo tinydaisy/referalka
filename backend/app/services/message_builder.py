@@ -12,6 +12,7 @@ import re
 import logging
 import httpx
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -163,6 +164,40 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
 
 # ─── ЕДИНАЯ функция сборки контента сообщения ───────────────────────────────
 
+async def get_default_event_photo(conn, event_id: int) -> Optional[str]:
+    """
+    Дефолтная афиша события для рассылок: лучшая из event_posters
+    с приоритетом square > horizontal > vertical. Используется как
+    fallback, когда в шаблоне рассылки photo_url не задан клиентом.
+
+    Если в event_posters ничего нет — пробуем legacy conf_conferences.poster_horizontal[0]
+    (старое поле, которое UI больше не пишет, но у некоторых конференций ещё лежит).
+    """
+    url = await conn.fetchval(
+        """SELECT url FROM event_posters
+            WHERE event_id = $1
+            ORDER BY CASE orientation
+                       WHEN 'square'     THEN 1
+                       WHEN 'horizontal' THEN 2
+                       WHEN 'vertical'   THEN 3
+                       ELSE 4
+                     END, sort, id
+            LIMIT 1""",
+        event_id
+    )
+    if url:
+        return url
+    legacy = await conn.fetchval(
+        "SELECT poster_horizontal FROM conf_conferences WHERE event_id = $1",
+        event_id
+    )
+    if legacy:
+        if isinstance(legacy, list):
+            return legacy[0] if legacy else None
+        return legacy
+    return None
+
+
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
                                  event_id: int, session_id, fire_at, tz: ZoneInfo,
                                  template_id=None, snapshot=None) -> dict:
@@ -226,8 +261,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         raw_date = conf_row["day_date"] if conf_row else None
         day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else f"День {day}"
         poster_h = conf_row["poster_horizontal"] if conf_row else None
-        if not photo and poster_h:
-            photo = poster_h[0] if isinstance(poster_h, list) else poster_h
+        if not photo:
+            photo = await get_default_event_photo(conn, event_id)
 
         day_sessions = await conn.fetch(
             """
@@ -404,8 +439,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         raw_date = conf_row["day_date"] if conf_row else None
         conf_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else ""
         poster_h = conf_row["poster_horizontal"] if conf_row else None
-        if not photo and poster_h:
-            photo = poster_h[0] if isinstance(poster_h, list) else poster_h
+        if not photo:
+            photo = await get_default_event_photo(conn, event_id)
         text = text.replace("{conf_title}", conf_title)
         text = text.replace("{conf_description}", conf_desc)
         text = text.replace("{conf_date}", conf_date_str)
@@ -503,8 +538,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 program_lines.append(f"{bold_time}: {topic}{speaker_part}".strip(": "))
             day_program = "\n".join(program_lines)
 
-        if not photo and poster_h:
-            photo = poster_h[0] if isinstance(poster_h, list) else poster_h
+        if not photo:
+            photo = await get_default_event_photo(conn, event_id)
 
         ordinal = ORDINALS.get(day_number, f"{day_number}-м")
         text = text.replace("{conf_title}", conf_title)

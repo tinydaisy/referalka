@@ -319,10 +319,11 @@ async def list_templates(
             event_id
         )
 
-    conf_row = await db.fetchrow(
-        "SELECT poster_horizontal FROM conf_conferences WHERE event_id = $1", event_id
-    )
-    default_poster = (conf_row["poster_horizontal"][0] if conf_row and conf_row["poster_horizontal"] else None)
+    # Дефолтная афиша события (если в шаблоне photo_url не задан клиентом):
+    # лучшая из event_posters по приоритету square > horizontal > vertical,
+    # с fallback на legacy conf_conferences.poster_horizontal[0].
+    from app.services.message_builder import get_default_event_photo
+    default_poster = await get_default_event_photo(db, event_id)
     result = []
     for r in rows:
         d = dict(r)
