@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { getSessions, getSpeakers, getDays } from '../api'
 
 interface Session {
@@ -7,8 +7,10 @@ interface Session {
   start_time?: string
   end_time?: string
   title: string
+  speaker_event_id?: number
   speaker_name?: string
   speaker_title?: string
+  speaker_role?: string
   photo_url?: string
   track_label?: string
   track_color?: string
@@ -24,10 +26,21 @@ interface Day {
 
 interface Speaker {
   id: number
+  speaker_id?: number
   name: string
   title?: string
   photo_url?: string
   role?: string
+  achievements?: string[] | null
+  tg_channel_url?: string | null
+  instagram_url?: string | null
+  personal_tg_username?: string | null
+  speaker_topic?: string | null
+  gift_after_speech_title?: string | null
+  gift_after_speech_url?: string | null
+  gift_raffle_title?: string | null
+  gift_raffle_url?: string | null
+  topics?: { topic: string }[]
 }
 
 interface Props { event: any }
@@ -35,14 +48,31 @@ interface Props { event: any }
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
 
+// Пастельные фоны для чередования карточек спикеров (наши бренд-цвета,
+// слегка приглушённые — чтобы карточки не сливались).
+const PASTELS = ['#fff8f0', '#f0f5fb', '#fbf2f0', '#f3f5f0', '#fdf6e8', '#f5f0fb']
+
+const ROLE_LABELS: Record<string, string> = {
+  speaker:    'Спикер',
+  headliner:  'Хедлайнер',
+  partner:    'Партнёр',
+  organizer:  'Организатор',
+}
+
+const ROLE_COLORS: Record<string, { bg: string; fg: string }> = {
+  speaker:    { bg: 'rgba(37,69,93,0.08)',     fg: DARK },
+  headliner:  { bg: 'rgba(255,207,164,0.25)',  fg: '#a86b2c' },
+  partner:    { bg: 'rgba(76,175,80,0.12)',    fg: '#2e7d32' },
+  organizer:  { bg: 'rgba(156,39,176,0.10)',   fg: '#6a1b9a' },
+}
+
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+
 function fmtDate(d?: string) {
   if (!d) return ''
   const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (!m) return d
-  const day = parseInt(m[3], 10)
-  const month = parseInt(m[2], 10) - 1
-  return `${day} ${MONTHS[month]}`
+  return `${parseInt(m[3], 10)} ${MONTHS[parseInt(m[2], 10) - 1]}`
 }
 function todayIso() {
   const d = new Date()
@@ -55,11 +85,17 @@ function dayState(day: Day): 'past' | 'today' | 'future' {
   if (day.day_date > t) return 'future'
   return 'today'
 }
-
 function initials(name?: string) {
   if (!name) return '?'
   const parts = name.trim().split(/\s+/)
   return (parts[0]?.[0] || '').toUpperCase() + (parts[1]?.[0] || '').toUpperCase()
+}
+function tgLink(url?: string | null, username?: string | null): string | null {
+  if (url && /^https?:\/\//i.test(url)) return url
+  if (url && url.startsWith('@')) return `https://t.me/${url.slice(1)}`
+  if (url) return `https://t.me/${url}`
+  if (username) return `https://t.me/${username.replace(/^@/, '')}`
+  return null
 }
 
 export default function ProgramTab({ event }: Props) {
@@ -73,8 +109,12 @@ export default function ProgramTab({ event }: Props) {
   const [speakers, setSpeakers] = useState<Speaker[]>([])
   const [openDay, setOpenDay] = useState<number | null>(null)
   const [loadingDay, setLoadingDay] = useState<number | null>(null)
+  const [highlightSpeakerId, setHighlightSpeakerId] = useState<number | null>(null)
 
-  // Загружаем дни и спикеров (только для конференции)
+  const speakersScrollRef = useRef<HTMLDivElement | null>(null)
+  const speakerCardRefs   = useRef<Record<number, HTMLDivElement | null>>({})
+
+  // Загрузка дней + спикеров
   useEffect(() => {
     if (!event?.id || !isConference) return
     Promise.all([
@@ -83,7 +123,6 @@ export default function ProgramTab({ event }: Props) {
     ]).then(([d, sp]) => {
       setDays(d)
       setSpeakers(sp)
-      // По умолчанию раскрываем сегодняшний день, иначе ближайший будущий, иначе первый
       const today = d.find(x => dayState(x) === 'today')
       const future = d.find(x => dayState(x) === 'future')
       setOpenDay(today?.day_number || future?.day_number || d[0]?.day_number || null)
@@ -101,25 +140,69 @@ export default function ProgramTab({ event }: Props) {
       .finally(() => setLoadingDay(null))
   }, [event?.id, openDay])
 
+  // Авто-скролл ленты спикеров (медленно, бесконечно по кругу)
+  useEffect(() => {
+    const el = speakersScrollRef.current
+    if (!el || speakers.length < 4) return
+    let paused = false
+    const onTouch = () => { paused = true; setTimeout(() => paused = false, 4000) }
+    el.addEventListener('touchstart', onTouch, { passive: true })
+    el.addEventListener('mousedown',  onTouch)
+
+    const id = setInterval(() => {
+      if (paused) return
+      // Когда дошли до второй половины — прыжок в начало (длина дублирована)
+      const half = el.scrollWidth / 2
+      if (el.scrollLeft >= half) el.scrollLeft -= half
+      else el.scrollLeft += 0.6
+    }, 30)
+    return () => {
+      clearInterval(id)
+      el.removeEventListener('touchstart', onTouch)
+      el.removeEventListener('mousedown',  onTouch)
+    }
+  }, [speakers.length])
+
   const formatTimeMsk = (start?: string, end?: string) => {
     if (!start && !end) return '—:—'
     if (start && end) return `${start.slice(0, 5)}–${end.slice(0, 5)} МСК`
     return `${(start || end || '').slice(0, 5)} МСК`
   }
 
-  const sortedSpeakers = useMemo(() => speakers, [speakers])
+  // Дублируем массив для бесшовного auto-scroll
+  const speakersLoop = useMemo(() => [...speakers, ...speakers], [speakers])
+
+  const goToSpeaker = (speakerEventId?: number) => {
+    if (!speakerEventId) return
+    const card = speakerCardRefs.current[speakerEventId]
+    if (!card) return
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightSpeakerId(speakerEventId)
+    setTimeout(() => setHighlightSpeakerId(null), 1800)
+  }
 
   return (
     <div className="fade-in">
-      {/* Скролл спикеров наверху (макет: горизонтальная лента кружков) */}
-      {isConference && sortedSpeakers.length > 0 && (
-        <div style={{
-          display: 'flex', gap: 12, overflowX: 'auto', padding: '4px 2px 12px',
-          marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16,
-          scrollbarWidth: 'none',
-        }}>
-          {sortedSpeakers.map(sp => (
-            <div key={sp.id} style={{ flexShrink: 0, width: 60, textAlign: 'center' }}>
+      {/* Авто-скролл лента спикеров */}
+      {isConference && speakers.length > 0 && (
+        <div
+          ref={speakersScrollRef}
+          style={{
+            display: 'flex', gap: 12, overflowX: 'auto', padding: '4px 0 12px',
+            marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16,
+            scrollbarWidth: 'none',
+          }}
+        >
+          {speakersLoop.map((sp, i) => (
+            <button
+              key={`${sp.id}-${i}`}
+              onClick={() => goToSpeaker(sp.id)}
+              style={{
+                flexShrink: 0, width: 60, textAlign: 'center',
+                background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
               <div style={{
                 width: 56, height: 56, borderRadius: '50%', margin: '0 auto 4px',
                 background: sp.photo_url
@@ -137,12 +220,12 @@ export default function ProgramTab({ event }: Props) {
               }}>
                 {sp.name?.split(' ')[0]}
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
 
-      {/* VIP-кнопка */}
+      {/* VIP */}
       {isConference && hasVip && (
         <a href={event?.vip_url || '#'} target="_blank" rel="noreferrer" style={{
           display: 'block', textDecoration: 'none',
@@ -170,7 +253,7 @@ export default function ProgramTab({ event }: Props) {
                   padding: '8px 12px', borderRadius: 8, letterSpacing: 1.2,
                   display: 'flex', alignItems: 'center', gap: 5,
                 }}>
-                  <span style={{ width: 6, height: 6, background: 'white', borderRadius: '50%', display: 'inline-block' }}></span>
+                  <span style={{ width: 6, height: 6, background: 'white', borderRadius: '50%', display: 'inline-block' }}/>
                   LIVE
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -226,9 +309,7 @@ export default function ProgramTab({ event }: Props) {
               const accent = state === 'today'
               return (
                 <div key={d.day_number} style={{
-                  background: accent
-                    ? 'linear-gradient(135deg, #fff8f0, white)'
-                    : 'white',
+                  background: accent ? 'linear-gradient(135deg, #fff8f0, white)' : 'white',
                   borderRadius: 12,
                   border: accent ? `1px solid ${PEACH}` : '1px solid transparent',
                   boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
@@ -248,10 +329,8 @@ export default function ProgramTab({ event }: Props) {
                       <div style={{ fontSize: 14, fontWeight: 700, color: '#1a2a3a',
                                     display: 'flex', alignItems: 'center', gap: 6 }}>
                         {state === 'today' && (
-                          <span style={{
-                            width: 8, height: 8, borderRadius: '50%', background: '#d32f2f',
-                            display: 'inline-block',
-                          }}/>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#d32f2f',
+                                         display: 'inline-block' }}/>
                         )}
                         {dayLabel}
                       </div>
@@ -259,11 +338,9 @@ export default function ProgramTab({ event }: Props) {
                         <div style={{ fontSize: 11, color: '#6b7c8e', marginTop: 2 }}>{dateLabel}</div>
                       )}
                     </div>
-                    <div style={{
-                      fontSize: 18, color: '#c5cdd6',
-                      transform: isOpen ? 'rotate(90deg)' : 'none',
-                      transition: 'transform 0.2s',
-                    }}>▸</div>
+                    <div style={{ fontSize: 18, color: '#c5cdd6',
+                                  transform: isOpen ? 'rotate(90deg)' : 'none',
+                                  transition: 'transform 0.2s' }}>▸</div>
                   </button>
 
                   {isOpen && (
@@ -278,44 +355,66 @@ export default function ProgramTab({ event }: Props) {
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                          {(sessionsByDay[d.day_number] || []).map(s => (
-                            <div key={s.id} style={{
-                              borderTop: '1px solid #eef1f4', paddingTop: 10,
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                <span style={{ color: 'var(--muted)', fontSize: 13, fontWeight: 500 }}>
-                                  {formatTimeMsk(s.start_time, s.end_time)}
-                                </span>
-                                {s.track_label && (
-                                  <span style={{
-                                    background: `${s.track_color || PEACH}20`,
-                                    color: s.track_color || PEACH,
-                                    fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 500,
-                                    border: `1px solid ${s.track_color || PEACH}40`,
-                                  }}>{s.track_label}</span>
-                                )}
-                              </div>
-                              {s.speaker_name && (
+                          {(sessionsByDay[d.day_number] || []).map(s => {
+                            const speakerRoleLabel = s.speaker_role && ROLE_LABELS[s.speaker_role]
+                            return (
+                              <div key={s.id} style={{ borderTop: '1px solid #eef1f4', paddingTop: 10 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                  <div style={{
-                                    width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                                    background: s.photo_url
-                                      ? `center/cover url(${s.photo_url})`
-                                      : 'linear-gradient(45deg, #25455D, #0a1520)',
-                                    border: `1px solid ${PEACH}`,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    color: PEACH, fontWeight: 700, fontSize: 11,
-                                  }}>
-                                    {!s.photo_url && initials(s.speaker_name)}
-                                  </div>
-                                  <p style={{ color: 'var(--text)', fontSize: 12, fontWeight: 600 }}>{s.speaker_name}</p>
+                                  <span style={{ color: 'var(--muted)', fontSize: 13, fontWeight: 500 }}>
+                                    {formatTimeMsk(s.start_time, s.end_time)}
+                                  </span>
+                                  {s.track_label && (
+                                    <span style={{
+                                      background: `${s.track_color || PEACH}20`,
+                                      color: s.track_color || PEACH,
+                                      fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 500,
+                                      border: `1px solid ${s.track_color || PEACH}40`,
+                                    }}>{s.track_label}</span>
+                                  )}
                                 </div>
-                              )}
-                              <p style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.4, fontWeight: 600 }}>
-                                {s.title}
-                              </p>
-                            </div>
-                          ))}
+                                {s.speaker_name && (
+                                  <button
+                                    onClick={() => goToSpeaker(s.speaker_event_id)}
+                                    style={{
+                                      display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+                                      background: 'transparent', border: 0, padding: 0, cursor: 'pointer',
+                                      fontFamily: 'inherit', textAlign: 'left',
+                                    }}
+                                  >
+                                    <div style={{
+                                      width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                                      background: s.photo_url
+                                        ? `center/cover url(${s.photo_url})`
+                                        : 'linear-gradient(45deg, #25455D, #0a1520)',
+                                      border: `1px solid ${PEACH}`,
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      color: PEACH, fontWeight: 700, fontSize: 11,
+                                    }}>
+                                      {!s.photo_url && initials(s.speaker_name)}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                      <p style={{ color: 'var(--text)', fontSize: 12, fontWeight: 600,
+                                                  textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                                        {s.speaker_name}
+                                      </p>
+                                      {speakerRoleLabel && (
+                                        <span style={{
+                                          ...(ROLE_COLORS[s.speaker_role!] || ROLE_COLORS.speaker),
+                                          background: (ROLE_COLORS[s.speaker_role!] || ROLE_COLORS.speaker).bg,
+                                          color: (ROLE_COLORS[s.speaker_role!] || ROLE_COLORS.speaker).fg,
+                                          fontSize: 9, padding: '1px 7px', borderRadius: 10, fontWeight: 700,
+                                          textTransform: 'uppercase', letterSpacing: 0.4,
+                                        }}>{speakerRoleLabel}</span>
+                                      )}
+                                    </div>
+                                  </button>
+                                )}
+                                <p style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.4, fontWeight: 600 }}>
+                                  {s.title}
+                                </p>
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -327,7 +426,6 @@ export default function ProgramTab({ event }: Props) {
         </>
       )}
 
-      {/* Если не конференция — простой плоский список сессий (как было) */}
       {!isConference && (
         <div style={{ textAlign: 'center', paddingTop: 40 }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>📅</div>
@@ -335,50 +433,155 @@ export default function ProgramTab({ event }: Props) {
         </div>
       )}
 
-      {/* Карточки спикеров под программой */}
-      {isConference && sortedSpeakers.length > 0 && (
+      {/* Карточки спикеров — расширенная информация (как в шаблоне рассылки speaker_intro) */}
+      {isConference && speakers.length > 0 && (
         <>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', margin: '6px 2px 8px' }}>
             Спикеры конференции
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 16 }}>
-            {sortedSpeakers.map(sp => (
-              <div key={sp.id} style={{
-                background: 'white', borderRadius: 12, padding: 10,
-                display: 'flex', gap: 10, alignItems: 'center',
-                boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-              }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                  background: sp.photo_url
-                    ? `center/cover url(${sp.photo_url})`
-                    : 'linear-gradient(45deg, #25455D, #0a1520)',
-                  border: `1.5px solid ${PEACH}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: PEACH, fontWeight: 700, fontSize: 14,
-                }}>
-                  {!sp.photo_url && initials(sp.name)}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {sp.role && (
-                    <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase',
-                                  letterSpacing: 0.5, fontWeight: 600, marginBottom: 1 }}>
-                      {sp.role}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 16 }}>
+            {speakers.map((sp, idx) => {
+              const roleLabel = sp.role && ROLE_LABELS[sp.role]
+              const roleColors = (sp.role && ROLE_COLORS[sp.role]) || ROLE_COLORS.speaker
+              const topic = sp.topics?.[0]?.topic || sp.speaker_topic || ''
+              const tg = tgLink(sp.tg_channel_url, sp.personal_tg_username)
+              const insta = sp.instagram_url
+                ? (sp.instagram_url.startsWith('http') ? sp.instagram_url : `https://instagram.com/${sp.instagram_url.replace(/^@/, '')}`)
+                : null
+              const ach = (sp.achievements || []).filter(a => a && a.trim())
+              const isHighlighted = highlightSpeakerId === sp.id
+              return (
+                <div
+                  key={sp.id}
+                  ref={el => { speakerCardRefs.current[sp.id] = el }}
+                  style={{
+                    background: PASTELS[idx % PASTELS.length],
+                    borderRadius: 14, padding: 14,
+                    boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+                    border: isHighlighted ? `2px solid ${PEACH}` : '2px solid transparent',
+                    transition: 'border-color 0.3s',
+                  }}
+                >
+                  {/* Шапка карточки */}
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
+                    <div style={{
+                      width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
+                      background: sp.photo_url
+                        ? `center/cover url(${sp.photo_url})`
+                        : 'linear-gradient(45deg, #25455D, #0a1520)',
+                      border: `2px solid ${PEACH}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: PEACH, fontWeight: 700, fontSize: 18,
+                    }}>
+                      {!sp.photo_url && initials(sp.name)}
                     </div>
-                  )}
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a',
-                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {sp.name}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {roleLabel && (
+                        <span style={{
+                          display: 'inline-block', background: roleColors.bg, color: roleColors.fg,
+                          fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 700,
+                          textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4,
+                        }}>{roleLabel}</span>
+                      )}
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a', lineHeight: 1.2 }}>
+                        {sp.name}
+                      </div>
+                      {sp.title && (
+                        <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 2, lineHeight: 1.3 }}>
+                          {sp.title}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  {sp.title && (
-                    <div style={{ fontSize: 11, color: '#6b7c8e',
-                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {sp.title}
+
+                  {/* Тема выступления */}
+                  {topic && (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase',
+                                    letterSpacing: 0.4, fontWeight: 700, marginBottom: 2 }}>
+                        Тема
+                      </div>
+                      <div style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600, lineHeight: 1.3 }}>
+                        {topic}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Регалии */}
+                  {ach.length > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase',
+                                    letterSpacing: 0.4, fontWeight: 700, marginBottom: 4 }}>
+                        О спикере
+                      </div>
+                      <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                        {ach.map((a, i) => (
+                          <li key={i} style={{ fontSize: 12, color: '#3a4a5a', lineHeight: 1.4,
+                                                paddingLeft: 12, position: 'relative', marginBottom: 2 }}>
+                            <span style={{ position: 'absolute', left: 0, color: PEACH, fontWeight: 700 }}>•</span>
+                            {a}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Подарок на эфире */}
+                  {sp.gift_after_speech_title && (
+                    <div style={{
+                      marginTop: 8, padding: '8px 10px', borderRadius: 10,
+                      background: 'rgba(255,207,164,0.18)', border: '1px solid rgba(255,207,164,0.35)',
+                    }}>
+                      <div style={{ fontSize: 10, color: '#a86b2c', textTransform: 'uppercase',
+                                    letterSpacing: 0.4, fontWeight: 700, marginBottom: 2 }}>
+                        🎁 Подарок на эфире
+                      </div>
+                      <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+                        {sp.gift_after_speech_title}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Подарок в розыгрыше */}
+                  {sp.gift_raffle_title && (
+                    <div style={{
+                      marginTop: 8, padding: '8px 10px', borderRadius: 10,
+                      background: 'rgba(156,39,176,0.06)', border: '1px solid rgba(156,39,176,0.18)',
+                    }}>
+                      <div style={{ fontSize: 10, color: '#6a1b9a', textTransform: 'uppercase',
+                                    letterSpacing: 0.4, fontWeight: 700, marginBottom: 2 }}>
+                        🎟 Подарок в розыгрыше
+                      </div>
+                      <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+                        {sp.gift_raffle_title}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Соцсети */}
+                  {(tg || insta) && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      {tg && (
+                        <a href={tg} target="_blank" rel="noreferrer" style={{
+                          flex: 1, textDecoration: 'none',
+                          background: DARK, color: 'white',
+                          padding: '7px 10px', borderRadius: 10,
+                          fontSize: 11, fontWeight: 600, textAlign: 'center',
+                        }}>Тг-канал →</a>
+                      )}
+                      {insta && (
+                        <a href={insta} target="_blank" rel="noreferrer" style={{
+                          flex: 1, textDecoration: 'none',
+                          background: 'white', color: DARK, border: `1px solid ${DARK}`,
+                          padding: '6px 10px', borderRadius: 10,
+                          fontSize: 11, fontWeight: 600, textAlign: 'center',
+                        }}>Нельзяграм →</a>
+                      )}
                     </div>
                   )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </>
       )}

@@ -473,9 +473,11 @@ async def list_event_speakers(
 @router.get("/speakers/public", summary="Спикеры для Mini App")
 async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
-        """SELECT cse.id, cse.role, cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+        """SELECT cse.id, cse.speaker_id, cse.role, cse.speaker_topic,
+                  cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
-                  sp.name, sp.title, sp.photo_url, sp.tg_channel_url
+                  sp.name, sp.title, sp.photo_url, sp.tg_channel_url, sp.instagram_url,
+                  sp.achievements, sp.personal_tg_username
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
@@ -899,8 +901,10 @@ async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = 
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.start_time, s.end_time, s.title,
                   s.gift_description, s.stream_url, s.track_label, s.track_color,
+                  s.speaker_id AS speaker_event_id,
                   col.name as speaker_name, col.title as speaker_title,
-                  col.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
+                  col.photo_url, cse.role as speaker_role,
+                  cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
