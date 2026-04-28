@@ -515,6 +515,7 @@ function MaterialForm({ eventId, posters, onClose, onSaved }: any) {
 function TemplatesSection({ eventId }: { eventId: number }) {
   const [welcomeText, setWelcomeText] = useState('')
   const [shareText, setShareText] = useState('')
+  const [giftCountMode, setGiftCountMode] = useState<'registered' | 'visited'>('registered')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
@@ -525,6 +526,7 @@ function TemplatesSection({ eventId }: { eventId: number }) {
       .then((d: any) => {
         setWelcomeText(d.welcome_text || '')
         setShareText(d.share_text || '')
+        setGiftCountMode((d.gift_count_mode === 'visited') ? 'visited' : 'registered')
       })
       .finally(() => setLoading(false))
   }, [eventId])
@@ -535,6 +537,7 @@ function TemplatesSection({ eventId }: { eventId: number }) {
       await api.referralProgram.settings.save(eventId, {
         welcome_text: welcomeText.trim() || null,
         share_text:   shareText.trim()   || null,
+        gift_count_mode: giftCountMode,
       })
       setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1800)
     } catch (e: any) { setErr(e.message) }
@@ -545,6 +548,34 @@ function TemplatesSection({ eventId }: { eventId: number }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
+      {/* Логика подсчёта подарков */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div className="text-sm font-semibold text-gray-800 mb-2">За что выдаются подарки участнику</div>
+        <p className="text-xs text-gray-500 mb-3">
+          Mini App покажет это правило с жёлтым треугольником наверху окна подарков.
+        </p>
+        <div className="space-y-2">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="radio" className="mt-1" name="gift_count_mode"
+                   checked={giftCountMode === 'registered'}
+                   onChange={() => setGiftCountMode('registered')} />
+            <div>
+              <div className="text-sm font-medium">За зарегистрировавшихся (рекомендуется)</div>
+              <div className="text-xs text-gray-500">Подарок выдаётся когда приведённый человек зарегистрировался на событие.</div>
+            </div>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="radio" className="mt-1" name="gift_count_mode"
+                   checked={giftCountMode === 'visited'}
+                   onChange={() => setGiftCountMode('visited')} />
+            <div>
+              <div className="text-sm font-medium">За переходы по ссылке</div>
+              <div className="text-xs text-gray-500">Любой переход по партнёрской ссылке считается. Будут «накручивать», но проще запустить.</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Текст приветствия от бота

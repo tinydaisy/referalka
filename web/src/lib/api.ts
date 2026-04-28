@@ -304,6 +304,31 @@ export const api = {
         method: 'POST', body: JSON.stringify({ from_event_id: fromEventId }),
       }),
   },
+  raffle: {
+    settings: {
+      get:  (eventId: number) => request(`/api/v1/events/${eventId}/raffle/settings`),
+      save: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/raffle/settings`, { method: 'PUT', body: JSON.stringify(data) }),
+    },
+    prizes: {
+      list:   (eventId: number) => request(`/api/v1/events/${eventId}/raffle/prizes`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/raffle/prizes`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (eventId: number, id: number, data: any) =>
+        request(`/api/v1/events/${eventId}/raffle/prizes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/raffle/prizes/${id}`, { method: 'DELETE' }),
+    },
+    keywords: {
+      list:   (eventId: number) => request(`/api/v1/events/${eventId}/raffle/keywords`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/raffle/keywords`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (eventId: number, id: number, data: any) =>
+        request(`/api/v1/events/${eventId}/raffle/keywords/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/raffle/keywords/${id}`, { method: 'DELETE' }),
+    },
+  },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
     clients: (params?: string) => request(`/api/v1/admin/clients${params ? '?' + params : ''}`),

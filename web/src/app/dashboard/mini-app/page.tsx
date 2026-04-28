@@ -20,6 +20,7 @@ interface Achievement { label: string; value: string }
 interface Profile {
   id: number
   name: string
+  brand_name?: string | null
   bio?: string | null
   profile_photo_url?: string | null
   positioning?: string | null
@@ -98,6 +99,7 @@ export default function MiniAppSettingsPage() {
     try {
       const ach = profile.achievements.filter(a => a.label.trim() && a.value.trim())
       const updated = await api.miniApp.profile.update({
+        brand_name:        profile.brand_name || null,
         bio:               profile.bio || null,
         profile_photo_url: profile.profile_photo_url || null,
         positioning:       profile.positioning || null,
@@ -199,10 +201,17 @@ export default function MiniAppSettingsPage() {
                      className="input opacity-60 cursor-not-allowed" />
             </Field>
 
-            <Field label="Позиционирование" hint="Одна короткая строка — что вы делаете и для кого. Покажется крупным золотым текстом под именем.">
+            <Field label="Название бренда" hint="Крупное название компании/бренда (например iVISION). Если оставить пустым — будет показано имя.">
+              <input type="text" value={profile.brand_name || ''}
+                     onChange={e => update('brand_name', e.target.value)}
+                     placeholder="iVISION"
+                     className="input" maxLength={60} />
+            </Field>
+
+            <Field label="Позиционирование" hint="Одна короткая строка — кто вы внутри бренда. Например: «основатель iVISION».">
               <input type="text" value={profile.positioning || ''}
                      onChange={e => update('positioning', e.target.value)}
-                     placeholder="Эксперт по личному бренду и продажам"
+                     placeholder="основатель iVISION"
                      className="input" maxLength={120} />
             </Field>
 

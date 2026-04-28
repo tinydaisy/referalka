@@ -53,3 +53,11 @@ export const getClientEvents = (clientId: number, bucket?: 'now' | 'upcoming' | 
 
 export const getEventLanding = (slug: string) =>
   req(`/api/v1/public/events/${slug}/landing`)
+
+// ── Розыгрыш (миграция 042) — публичные данные ──
+// Эти эндпоинты сейчас приватные; для Mini App используем заглушки, пока не сделаем public.
+export const getRafflePrizes = (eventId: number) =>
+  req(`/api/v1/events/${eventId}/raffle/prizes`).catch(() => ({ items: [] }))
+
+export const getRaffleSettings = (eventId: number) =>
+  req(`/api/v1/events/${eventId}/raffle/settings`).catch(() => ({ is_enabled: false }))
