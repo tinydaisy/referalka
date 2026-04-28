@@ -487,7 +487,12 @@ function VipBotWizard({ clientId, onClose, onDone }: {
                 <li>Откройте <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="font-medium" style={{ color: '#25455D' }}>@BotFather</a></li>
                 <li>Отправьте команду <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/newapp</code></li>
                 <li>Выберите вашего бота <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">@{result.bot_username}</code></li>
-                <li>На шаге «Web App URL» вставьте URL ниже</li>
+                <li><b>Title</b> (название) — любое, например «ПЛЮСОН» или ваш бренд</li>
+                <li><b>Short description</b> (описание) — короткая фраза, например «Личный кабинет участника»</li>
+                <li><b>Photo</b> — загрузите квадратную картинку 640×640 (можно ваш логотип)</li>
+                <li><b>GIF</b> — нажмите <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/empty</code> чтобы пропустить</li>
+                <li><b>Web App URL</b> — вставьте URL из блока ниже</li>
+                <li><b>Short name</b> — введите ровно <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs font-bold" style={{ color: '#25455D' }}>pluson</code> (одна «с»). Это <b>обязательно</b> — иначе ссылки на ваши события не откроют Mini App.</li>
               </ol>
 
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
@@ -498,6 +503,18 @@ function VipBotWizard({ clientId, onClose, onDone }: {
                   </code>
                   <button
                     onClick={() => copy(result.mini_app_url)}
+                    className="p-2 rounded-lg hover:bg-gray-200 text-gray-600"
+                    title="Скопировать"
+                  ><Copy size={14} /></button>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                <div className="text-xs text-gray-500 mb-1.5">Short name для копирования:</div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs font-mono text-gray-900 font-bold">pluson</code>
+                  <button
+                    onClick={() => copy('pluson')}
                     className="p-2 rounded-lg hover:bg-gray-200 text-gray-600"
                     title="Скопировать"
                   ><Copy size={14} /></button>
