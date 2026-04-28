@@ -610,13 +610,11 @@ export default function ConferencePage() {
           <div className="space-y-3 mt-4">
             {daysSessions.map(s => (
               <div key={s.id} className="bg-white rounded-xl border border-gray-100 p-4 flex gap-4 items-start">
-                <div className="text-sm font-mono text-gray-400 w-20 shrink-0 pt-0.5">
-                  {s.start_datetime
-                    ? new Date(s.start_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })
-                    : '—:—'}
-                  {s.end_datetime && (
+                <div className="text-sm font-mono text-gray-400 w-24 shrink-0 pt-0.5 whitespace-nowrap">
+                  {s.start_time ? `${String(s.start_time).slice(0, 5)} МСК` : '—:—'}
+                  {s.end_time && (
                     <div className="text-xs">
-                      {new Date(s.end_datetime).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}
+                      {String(s.end_time).slice(0, 5)} МСК
                     </div>
                   )}
                 </div>
@@ -1428,15 +1426,15 @@ export default function ConferencePage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Начало</label>
-                  <input type="datetime-local" value={sessionForm.start_datetime || ''}
-                    onChange={e => setSessionForm((f: any) => ({ ...f, start_datetime: e.target.value }))}
+                  <label className="block text-xs text-gray-500 mb-1">Начало (МСК)</label>
+                  <input type="time" value={sessionForm.start_time || ''}
+                    onChange={e => setSessionForm((f: any) => ({ ...f, start_time: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Конец</label>
-                  <input type="datetime-local" value={sessionForm.end_datetime || ''}
-                    onChange={e => setSessionForm((f: any) => ({ ...f, end_datetime: e.target.value }))}
+                  <label className="block text-xs text-gray-500 mb-1">Конец (МСК)</label>
+                  <input type="time" value={sessionForm.end_time || ''}
+                    onChange={e => setSessionForm((f: any) => ({ ...f, end_time: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm" />
                 </div>
               </div>

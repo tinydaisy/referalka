@@ -9,23 +9,22 @@ import ViewToggle, { ViewMode } from '@/components/ViewToggle'
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return ''
-  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Europe/Moscow' })
 }
 
 function formatDayTime(iso: string | null | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
-  const day  = d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
-  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  const day  = d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', timeZone: 'Europe/Moscow' })
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' })
   return `${day} ${time}`
 }
 
-// Вилка дат «23 апр 10:00 – 29 апр 23:59».
-// Если только одна из дат — показываем её.
+// Вилка дат «23 апр 10:00 – 29 апр 23:59 МСК». Время всегда в МСК.
 function formatDateRange(start: string | null | undefined, end: string | null | undefined): string {
-  if (start && end) return `${formatDayTime(start)} – ${formatDayTime(end)}`
-  if (start) return formatDayTime(start)
-  if (end)   return formatDayTime(end)
+  if (start && end) return `${formatDayTime(start)} – ${formatDayTime(end)} МСК`
+  if (start) return `${formatDayTime(start)} МСК`
+  if (end)   return `${formatDayTime(end)} МСК`
   return ''
 }
 

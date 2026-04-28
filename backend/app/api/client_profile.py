@@ -94,9 +94,9 @@ async def public_client_events(
     rows = await db.fetch(
         """WITH conf_dates AS (
               SELECT event_id,
-                     MIN((day_date + COALESCE(open_time,  '00:00'::time))
+                     MIN((day_date + COALESCE(NULLIF(open_time,'')::time,  '00:00'::time))
                          AT TIME ZONE 'Europe/Moscow') AS start_at,
-                     MAX((day_date + COALESCE(close_time, '23:59'::time))
+                     MAX((day_date + COALESCE(NULLIF(close_time,'')::time, '23:59'::time))
                          AT TIME ZONE 'Europe/Moscow') AS end_at
                 FROM conf_days
                GROUP BY event_id
@@ -197,9 +197,9 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
     row = await db.fetchrow(
         """WITH cd AS (
               SELECT event_id,
-                     MIN((day_date + COALESCE(open_time,  '00:00'::time))
+                     MIN((day_date + COALESCE(NULLIF(open_time,'')::time,  '00:00'::time))
                          AT TIME ZONE 'Europe/Moscow') AS start_at,
-                     MAX((day_date + COALESCE(close_time, '23:59'::time))
+                     MAX((day_date + COALESCE(NULLIF(close_time,'')::time, '23:59'::time))
                          AT TIME ZONE 'Europe/Moscow') AS end_at
                 FROM conf_days
                GROUP BY event_id

@@ -29,6 +29,26 @@ def slugify(name: str) -> str:
     return s[:60] or 'item'
 
 
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _normalize_hhmm(val):
+    """Принимает ввод времени "HH:MM" (или ISO с временем), возвращает строку "HH:MM" либо None."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    # Если прилетел ISO datetime — берём час:минута часть напрямую (без TZ-математики).
+    if "T" in s:
+        s = s.split("T", 1)[1][:5]
+    elif len(s) > 5 and s[2] == ":":
+        s = s[:5]
+    if not _HHMM_RE.match(s):
+        raise HTTPException(status_code=422, detail=f"Время должно быть в формате HH:MM, получено: {val!r}")
+    return s
+
+
 async def check_conference_access(event_id: int, client_id: int, db: asyncpg.Connection):
     event = await db.fetchrow(
         "SELECT id, module_slug FROM events WHERE id = $1 AND client_id = $2",
@@ -122,7 +142,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
-           WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_datetime""",
+           WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_time""",
         event_id
     )
     # Афиши — единый источник истины event_posters
@@ -136,11 +156,10 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     poster_square     = [p["url"] for p in posters_rows if p["orientation"] == "square"]
 
     def dt_str(val):
-        if val is None:
+        # Время теперь хранится как строка "HH:MM" — отдаём её прямо.
+        if val is None or val == "":
             return None
-        if isinstance(val, (datetime,)):
-            return val.strftime("%H:%M")
-        return str(val)
+        return str(val)[:5]
 
     def date_str(val):
         if val is None:
@@ -158,8 +177,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
             "stream_url": d["stream_url"],
             "slots": [
                 {
-                    "time": dt_str(s["start_datetime"]),
-                    "time_end": dt_str(s["end_datetime"]),
+                    "time": dt_str(s["start_time"]),
+                    "time_end": dt_str(s["end_time"]),
                     "title": s["title"],
                     "speaker": s["speaker_name"],
                     "speaker_role": s["speaker_role"],
@@ -783,8 +802,9 @@ async def upsert_day(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     day_date = date.fromisoformat(data.day_date) if data.day_date else None
-    open_time = time.fromisoformat(data.open_time) if data.open_time else None
-    close_time = time.fromisoformat(data.close_time) if data.close_time else None
+    # open_time / close_time теперь — простые строки "HH:MM" (МСК по соглашению).
+    open_time = _normalize_hhmm(data.open_time)
+    close_time = _normalize_hhmm(data.close_time)
 
     day = await db.fetchrow(
         """INSERT INTO conf_days (event_id, day_number, day_date, open_time, close_time, stream_url)
@@ -804,8 +824,8 @@ class SessionCreate(BaseModel):
     speaker_id: Optional[int] = None
     topic_id: Optional[int] = None
     day: int
-    start_datetime: Optional[str] = None
-    end_datetime: Optional[str] = None
+    start_time: Optional[str] = None  # "HH:MM" — МСК
+    end_time:   Optional[str] = None  # "HH:MM" — МСК
     title: Optional[str] = None  # если не передан — берётся из topic_id
     gift_description: Optional[str] = None
     stream_url: Optional[str] = None
@@ -818,8 +838,8 @@ class SessionUpdate(BaseModel):
     speaker_id: Optional[int] = None
     topic_id: Optional[int] = None
     day: Optional[int] = None
-    start_datetime: Optional[str] = None
-    end_datetime: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time:   Optional[str] = None
     title: Optional[str] = None
     gift_description: Optional[str] = None
     stream_url: Optional[str] = None
@@ -851,7 +871,7 @@ async def list_sessions(
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            WHERE s.event_id = $1
-           ORDER BY s.day, s.sort_order, s.start_datetime""",
+           ORDER BY s.day, s.sort_order, s.start_time""",
         event_id
     )
     return {"sessions": [dict(s) for s in sessions]}
@@ -861,7 +881,7 @@ async def list_sessions(
 @router.get("/sessions/day/{day}", summary="Сессии по дню (для Mini App)")
 async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = Depends(get_db)):
     sessions = await db.fetch(
-        """SELECT s.id, s.day, s.start_datetime, s.end_datetime, s.title,
+        """SELECT s.id, s.day, s.start_time, s.end_time, s.title,
                   s.gift_description, s.stream_url, s.track_label, s.track_color,
                   col.name as speaker_name, col.title as speaker_title,
                   col.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
@@ -869,7 +889,7 @@ async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = 
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            WHERE s.event_id = $1 AND s.day = $2
-           ORDER BY s.sort_order, s.start_datetime""",
+           ORDER BY s.sort_order, s.start_time""",
         event_id, day
     )
     return {"sessions": [dict(s) for s in sessions], "day": day}
@@ -883,8 +903,8 @@ async def create_session(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
-    start_dt = datetime.fromisoformat(data.start_datetime) if data.start_datetime else None
-    end_dt = datetime.fromisoformat(data.end_datetime) if data.end_datetime else None
+    start_t = _normalize_hhmm(data.start_time)
+    end_t   = _normalize_hhmm(data.end_time)
 
     # Если передан topic_id — берём title из темы (если title не передан явно)
     title = data.title
@@ -897,10 +917,10 @@ async def create_session(
 
     session = await db.fetchrow(
         """INSERT INTO conf_sessions
-          (event_id, speaker_id, topic_id, day, start_datetime, end_datetime, title,
+          (event_id, speaker_id, topic_id, day, start_time, end_time, title,
            gift_description, stream_url, track_label, track_color, sort_order)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
-        event_id, data.speaker_id, data.topic_id, data.day, start_dt, end_dt, title,
+        event_id, data.speaker_id, data.topic_id, data.day, start_t, end_t, title,
         data.gift_description, data.stream_url, data.track_label, data.track_color, data.sort_order
     )
     await regenerate_landing_data(event_id, db)
@@ -919,8 +939,8 @@ async def update_session(
     updates = {}
     for k, v in data.model_dump().items():
         if v is not None:
-            if k in ("start_datetime", "end_datetime") and v:
-                updates[k] = datetime.fromisoformat(v)
+            if k in ("start_time", "end_time"):
+                updates[k] = _normalize_hhmm(v)
             else:
                 updates[k] = v
 
@@ -966,20 +986,18 @@ async def generate_schedule(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
 
-    # Получаем дату дня из conf_days
-    day_row = await db.fetchrow(
-        "SELECT day_date FROM conf_days WHERE event_id=$1 AND day_number=$2", event_id, data.day
-    )
-    base_date = day_row["day_date"] if day_row and day_row["day_date"] else date.today()
-
     # Удаляем старые сессии этого дня
     await db.execute(
         "DELETE FROM conf_sessions WHERE event_id=$1 AND day=$2", event_id, data.day
     )
 
-    # Парсим время начала
-    h, m = map(int, data.start_time.split(":"))
-    current = datetime.combine(base_date, time(h, m))
+    # Парсим время начала и шагаем строкой "HH:MM" — без TZ-математики.
+    h, m = map(int, _normalize_hhmm(data.start_time).split(":"))
+    cursor_min = h * 60 + m  # минут от 00:00 МСК
+
+    def _mm_to_hhmm(mm: int) -> str:
+        mm = mm % (24 * 60)
+        return f"{mm // 60:02d}:{mm % 60:02d}"
 
     created = []
     for idx, speaker_event_id in enumerate(data.speaker_ids):
@@ -992,16 +1010,17 @@ async def generate_schedule(
         )
         if not cse:
             continue
-        end_dt = current + timedelta(minutes=data.slot_duration)
+        slot_start = _mm_to_hhmm(cursor_min)
+        slot_end = _mm_to_hhmm(cursor_min + data.slot_duration)
         session = await db.fetchrow(
             """INSERT INTO conf_sessions
-               (event_id, speaker_id, day, start_datetime, end_datetime, title, sort_order)
+               (event_id, speaker_id, day, start_time, end_time, title, sort_order)
                VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""",
-            event_id, speaker_event_id, data.day, current, end_dt,
+            event_id, speaker_event_id, data.day, slot_start, slot_end,
             "Выступление", idx
         )
         created.append(dict(session))
-        current = end_dt + timedelta(minutes=data.break_duration)
+        cursor_min += data.slot_duration + data.break_duration
 
     await regenerate_landing_data(event_id, db)
     return {"sessions": created, "message": f"Создано {len(created)} сессий"}
@@ -1032,7 +1051,7 @@ async def list_broadcasts(
     await check_conference_access(event_id, int(client["sub"]), db)
     rows = await db.fetch(
         """SELECT b.*, col.name as speaker_name, s.title as session_title,
-                  s.start_datetime as session_time
+                  s.start_time as session_time
            FROM conf_broadcast_messages b
            LEFT JOIN conf_speaker_events cse ON cse.id = b.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
@@ -1175,21 +1194,27 @@ async def generate_broadcasts_from_schedule(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
-        """SELECT s.*, spg.name AS speaker_name, cse.gift_after_speech_title, cse.gift_after_speech_url
+        """SELECT s.*, d.day_date,
+                  spg.name AS speaker_name, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
+           LEFT JOIN conf_days d ON d.event_id = s.event_id AND d.day_number = s.day
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators spg ON spg.id = cse.speaker_id
-           WHERE s.event_id = $1 AND s.start_datetime IS NOT NULL
-           ORDER BY s.day, s.start_datetime""",
+           WHERE s.event_id = $1 AND s.start_time IS NOT NULL
+           ORDER BY s.day, s.start_time""",
         event_id
     )
 
     created = 0
     for s in sessions:
-        if not s["start_datetime"]:
+        if not s["start_time"] or not s["day_date"]:
             continue
-        # За 5 минут до старта
-        pre5 = s["start_datetime"] - timedelta(minutes=5)
+        # Собираем UTC момент отправки: МСК (start_time на day_date) минус 3 часа.
+        sh, sm = map(int, str(s["start_time"])[:5].split(":"))
+        msk_naive_start = datetime.combine(s["day_date"], time(sh, sm))
+        utc_start = msk_naive_start - timedelta(hours=3)
+        pre5 = utc_start - timedelta(minutes=5)
+
         speaker_name = s["speaker_name"] or "Спикер"
         title = s["title"] or "Выступление"
 
@@ -1208,7 +1233,10 @@ async def generate_broadcasts_from_schedule(
             created += 1
 
         # После выступления — подарок
-        if s["end_datetime"] and (s["gift_after_speech_title"] or s.get("gift_description")):
+        if s["end_time"] and (s["gift_after_speech_title"] or s.get("gift_description")):
+            eh, em = map(int, str(s["end_time"])[:5].split(":"))
+            msk_naive_end = datetime.combine(s["day_date"], time(eh, em))
+            utc_end = msk_naive_end - timedelta(hours=3)
             gift_text = s["gift_after_speech_title"] or s["gift_description"] or "Подарок"
             gift_url = s["gift_after_speech_url"] or ""
             existing2 = await db.fetchrow(
@@ -1223,7 +1251,7 @@ async def generate_broadcasts_from_schedule(
                     """INSERT INTO conf_broadcast_messages
                        (event_id, session_id, speaker_id, type, scheduled_at, text, status)
                        VALUES ($1,$2,$3,'post_thanks',$4,$5,'draft')""",
-                    event_id, s["id"], s["speaker_id"], s["end_datetime"], gift_msg
+                    event_id, s["id"], s["speaker_id"], utc_end, gift_msg
                 )
                 created += 1
 
@@ -1682,30 +1710,28 @@ async def export_salebot(
     )
     topics_map = await _load_topics([r["id"] for r in rows], db)
 
-    # Дни + сессии: время читаем как локальное (AT TIME ZONE 'UTC' снимает tzinfo)
+    # Дни + сессии: время хранится строкой "HH:MM" (МСК), показываем как есть.
     days = await db.fetch(
         "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
     )
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.sort_order, s.title,
-                  (s.start_datetime AT TIME ZONE 'UTC') AS start_local,
-                  (s.end_datetime   AT TIME ZONE 'UTC') AS end_local,
+                  s.start_time AS start_local,
+                  s.end_time   AS end_local,
                   sp.name AS speaker_name, cse.role AS speaker_role
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE s.event_id = $1
-           ORDER BY s.day, s.sort_order, s.start_datetime""",
+           ORDER BY s.day, s.sort_order, s.start_time""",
         event_id
     )
 
     speakers_list = [dict(r) for r in rows]
 
     def fmt_time(val):
-        if val is None:
+        if val is None or val == "":
             return ""
-        if hasattr(val, "strftime"):
-            return val.strftime("%H:%M")
         return str(val)[:5]
 
     def fmt_date(val):
@@ -2098,17 +2124,11 @@ def _format_date_ru(d) -> str:
         return f"{d.day} {MONTHS_RU[d.month]}"
     return str(d)
 
-def _fmt_time(dt) -> str:
-    if dt is None:
+def _fmt_time(val) -> str:
+    # Время в БД теперь хранится строкой "HH:MM" — отдаём как есть, без TZ-математики.
+    if val is None or val == "":
         return "?"
-    if hasattr(dt, "strftime"):
-        from datetime import timezone as _tz, timedelta as _td
-        # Конвертируем UTC → Moscow (UTC+3)
-        if dt.tzinfo is not None:
-            moscow_offset = _td(hours=3)
-            dt = dt.astimezone(_tz(moscow_offset))
-        return dt.strftime("%H:%M")
-    return str(dt)
+    return str(val)[:5]
 
 def _build_schedule_text(days_data: list) -> str:
     """Строит текст программы конференции с HTML-разметкой для Telegram."""
@@ -2124,7 +2144,7 @@ def _build_schedule_text(days_data: list) -> str:
             title = s["title"]
             speaker = s["speaker_name"] or ""
             role = s["role"] or ""
-            line = f"<b>{time_start} - {time_end}</b>: {title}"
+            line = f"<b>{time_start} - {time_end} МСК</b>: {title}"
             if speaker:
                 if role in SCHEDULE_ROLES_WITH_LABEL:
                     role_label = ROLE_LABELS_RU.get(role, role)
@@ -2182,13 +2202,13 @@ async def send_schedule_to_telegram(
 
     # Сессии с ролью
     sessions_db = await db.fetch(
-        """SELECT s.day, s.start_datetime, s.end_datetime, s.title, s.sort_order,
+        """SELECT s.day, s.start_time, s.end_time, s.title, s.sort_order,
                   sp.name AS speaker_name, cse.role
            FROM conf_sessions s
            LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE s.event_id = $1
-           ORDER BY s.day, s.sort_order, s.start_datetime""",
+           ORDER BY s.day, s.sort_order, s.start_time""",
         event_id
     )
 
@@ -2206,8 +2226,8 @@ async def send_schedule_to_telegram(
             "date": _format_date_ru(day["day_date"]),
             "sessions": [
                 {
-                    "time_start": _fmt_time(s["start_datetime"]),
-                    "time_end": _fmt_time(s["end_datetime"]),
+                    "time_start": _fmt_time(s["start_time"]),
+                    "time_end": _fmt_time(s["end_time"]),
                     "title": s["title"],
                     "speaker_name": s["speaker_name"],
                     "role": s["role"],

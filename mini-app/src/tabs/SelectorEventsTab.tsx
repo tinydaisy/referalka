@@ -35,7 +35,7 @@ interface Group {
 function formatDate(dt?: string) {
   if (!dt) return ''
   try {
-    return new Date(dt).toLocaleDateString('ru', { day: 'numeric', month: 'long' })
+    return new Date(dt).toLocaleDateString('ru', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' })
   } catch { return '' }
 }
 

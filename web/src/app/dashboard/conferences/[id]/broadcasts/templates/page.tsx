@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
-import { getTimezone } from '@/lib/timezone'
 
 type TypeDef = {
   type: string
@@ -456,10 +455,12 @@ export default function TemplatesPage() {
     const ROLE_LABELS: Record<string, string> = { headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
     const dayProgram = daySessions.length > 0
       ? daySessions.map((s: any) => {
-          const fmt = (dt: string) => { if (!dt) return ''; return new Date(dt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: getTimezone() }) }
-          const timeStart = fmt(s.start_datetime)
-          const timeEnd = fmt(s.end_datetime)
-          const timePart = timeStart && timeEnd ? `${timeStart}-${timeEnd}` : timeStart
+          const fmt = (v: string) => v ? String(v).slice(0, 5) : ''
+          const timeStart = fmt(s.start_time)
+          const timeEnd = fmt(s.end_time)
+          let timePart = ''
+          if (timeStart && timeEnd) timePart = `${timeStart}-${timeEnd} МСК`
+          else if (timeStart) timePart = `${timeStart} МСК`
           const topic = s.title || ''
           const name = s.speaker_name || ''
           const role = s.speaker_role
@@ -504,31 +505,21 @@ export default function TemplatesPage() {
 
     // Умная фраза про следующий день
     const MONTHS_RU = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
-    const curDaySessions = confSessions.filter((s: any) => s.day === d)
     const nextDaySessions = confSessions.filter((s: any) => s.day === d + 1)
     let nextDayMention = ''
-    if (nextDaySessions.length > 0 && nextDaySessions[0].start_datetime) {
-      const nextDt = new Date(nextDaySessions[0].start_datetime)
-      const userTz = getTimezone()
-      const nextTime = nextDt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: userTz })
-      // Для сравнения дат берём дату в таймзоне пользователя
-      // Дата в таймзоне пользователя — форматируем через Intl и парсим поля
-      const dtParts = (dt: Date) => {
-        const s = dt.toLocaleDateString('en-CA', { timeZone: userTz }) // "YYYY-MM-DD"
-        const [y, m, dd] = s.split('-').map(Number)
-        return { year: y, month: m - 1, day: dd } // month 0-based
-      }
-      const nextParts = dtParts(nextDt)
+    const nextDayObj = confDaysData.find((x: any) => x.day_number === d + 1)
+    if (nextDaySessions.length > 0 && nextDaySessions[0].start_time && nextDayObj?.day_date) {
+      const nextTime = String(nextDaySessions[0].start_time).slice(0, 5)
+      const curDayObj = confDaysData.find((x: any) => x.day_number === d)
       let diffDays = 999
-      if (curDaySessions.length > 0 && curDaySessions[0].start_datetime) {
-        const curDt = new Date(curDaySessions[0].start_datetime)
-        const curParts = dtParts(curDt)
-        const nextMs = Date.UTC(nextParts.year, nextParts.month, nextParts.day)
-        const curMs = Date.UTC(curParts.year, curParts.month, curParts.day)
-        diffDays = Math.round((nextMs - curMs) / 86400000)
+      if (curDayObj?.day_date) {
+        const [ny, nm, nd] = String(nextDayObj.day_date).slice(0, 10).split('-').map(Number)
+        const [cy, cm, cd] = String(curDayObj.day_date).slice(0, 10).split('-').map(Number)
+        diffDays = Math.round((Date.UTC(ny, nm - 1, nd) - Date.UTC(cy, cm - 1, cd)) / 86400000)
       }
-      const when = diffDays === 1 ? 'завтра' : `${nextParts.day} ${MONTHS_RU[nextParts.month]}`
-      nextDayMention = `Встречаемся ${when} в ${nextTime} на День ${d + 1}.`
+      const [ny, nm, nd] = String(nextDayObj.day_date).slice(0, 10).split('-').map(Number)
+      const when = diffDays === 1 ? 'завтра' : `${nd} ${MONTHS_RU[nm - 1]}`
+      nextDayMention = `Встречаемся ${when} в ${nextTime} МСК на День ${d + 1}.`
     }
 
     const confDay1 = confDaysData.find((x: any) => x.day_number === 1)

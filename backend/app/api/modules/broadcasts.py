@@ -1,11 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import asyncpg
 import httpx
 import re
 from zoneinfo import ZoneInfo
+
+
+def _msk_str_to_utc(day_date, hhmm) -> Optional[datetime]:
+    """Собирает UTC datetime из day_date (DATE) + строки "HH:MM" в МСК.
+    Используется только под капотом для расчёта fire_at — пользователь видит только строку времени."""
+    if not day_date or not hhmm:
+        return None
+    s = str(hhmm)[:5]
+    if len(s) != 5 or s[2] != ":":
+        return None
+    h, m = int(s[:2]), int(s[3:])
+    msk_naive = datetime.combine(day_date, time(h, m))
+    # МСК = UTC+3 → вычитаем 3 часа и проставляем UTC.
+    return (msk_naive - timedelta(hours=3)).replace(tzinfo=ZoneInfo("UTC"))
 
 from app.database import get_db
 from app.auth import get_current_client
@@ -465,7 +479,7 @@ async def list_schedules(
                bt.name as template_name, bt.type as template_type,
                bt.schedule_mode,
                cs.title as session_title,
-               cs.start_datetime, cs.end_datetime,
+               cs.start_time, cs.end_time,
                CASE
                  WHEN bs.type = 'speaker_intro' THEN ci.name
                  ELSE c.name
@@ -533,12 +547,12 @@ async def generate_schedules(
     """
     Создаёт записи broadcast_schedules:
     - speaker_intro: одна на всё событие, fire_at = NULL (нужна кастомная дата)
-    - pre_start: за offset_minutes до start_datetime сессии
-    - gift: за offset_minutes до end_datetime сессии
+    - pre_start: за offset_minutes до старта сессии (МСК)
+    - gift: за offset_minutes до окончания сессии (МСК)
     - day_start_30min_unreg/reg: за offset_minutes до первой сессии дня
     - day_live: в момент start первой сессии дня
     - day_end: через offset_minutes после последней сессии дня
-    Пропускает дубли. fire_at всегда в UTC.
+    Пропускает дубли. fire_at всегда в UTC (внутреннее представление).
     """
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
@@ -563,11 +577,13 @@ async def generate_schedules(
 
     sessions = await db.fetch(
         """
-        SELECT cs.id, cs.start_datetime, cs.end_datetime, cs.title, cs.day
+        SELECT cs.id, cs.start_time, cs.end_time, cs.title, cs.day,
+               d.day_date
         FROM conf_sessions cs
+        LEFT JOIN conf_days d ON d.event_id = cs.event_id AND d.day_number = cs.day
         WHERE cs.event_id = $1
-          AND cs.start_datetime IS NOT NULL
-        ORDER BY cs.day, cs.start_datetime
+          AND cs.start_time IS NOT NULL
+        ORDER BY cs.day, cs.start_time
         """,
         event_id
     )
@@ -738,52 +754,54 @@ async def generate_schedules(
     # ── pre_start и gift — по каждой сессии со спикером ──
     sessions_with_speaker = await db.fetch(
         """
-        SELECT cs.id, cs.start_datetime, cs.end_datetime, cs.day
+        SELECT cs.id, cs.start_time, cs.end_time, cs.day,
+               d.day_date
         FROM conf_sessions cs
+        LEFT JOIN conf_days d ON d.event_id = cs.event_id AND d.day_number = cs.day
         WHERE cs.event_id = $1
           AND cs.speaker_id IS NOT NULL
-          AND cs.start_datetime IS NOT NULL
-        ORDER BY cs.day, cs.start_datetime
+          AND cs.start_time IS NOT NULL
+        ORDER BY cs.day, cs.start_time
         """,
         event_id
     )
 
     for s in sessions_with_speaker:
-        if "pre_start" in tmpl_map:
+        s_start_utc = _msk_str_to_utc(s["day_date"], s["start_time"])
+        s_end_utc   = _msk_str_to_utc(s["day_date"], s["end_time"])
+
+        if "pre_start" in tmpl_map and s_start_utc:
             tmpl = tmpl_map["pre_start"]
             offset = tmpl["offset_minutes"] or 5
-            fire_at = s["start_datetime"] - timedelta(minutes=offset)
-            await add_schedule(tmpl, fire_at, s["id"], "pre_start")
+            await add_schedule(tmpl, s_start_utc - timedelta(minutes=offset), s["id"], "pre_start")
 
-        if "gift" in tmpl_map and s["end_datetime"]:
+        if "gift" in tmpl_map and s_end_utc:
             tmpl = tmpl_map["gift"]
             offset = tmpl["offset_minutes"] or 5
-            fire_at = s["end_datetime"] - timedelta(minutes=offset)
-            await add_schedule(tmpl, fire_at, s["id"], "gift")
+            await add_schedule(tmpl, s_end_utc - timedelta(minutes=offset), s["id"], "gift")
 
     # ── day_* — по первой/последней сессии каждого дня ──
     for day_num, day_sessions in days.items():
         first_session = day_sessions[0]
         last_session = day_sessions[-1]
+        first_start_utc = _msk_str_to_utc(first_session.get("day_date"), first_session.get("start_time"))
+        last_end_utc    = _msk_str_to_utc(last_session.get("day_date"),  last_session.get("end_time"))
 
         for ttype in ("day_start_30min_unreg", "day_start_30min_reg"):
-            if ttype in tmpl_map and first_session["start_datetime"]:
+            if ttype in tmpl_map and first_start_utc:
                 tmpl = tmpl_map[ttype]
                 offset = tmpl["offset_minutes"] or 30
-                fire_at = first_session["start_datetime"] - timedelta(minutes=offset)
-                await add_schedule(tmpl, fire_at, None, ttype)
+                await add_schedule(tmpl, first_start_utc - timedelta(minutes=offset), None, ttype)
 
-        if "day_live" in tmpl_map and first_session["start_datetime"]:
+        if "day_live" in tmpl_map and first_start_utc:
             tmpl = tmpl_map["day_live"]
             offset = tmpl["offset_minutes"] or 5
-            fire_at = first_session["start_datetime"] - timedelta(minutes=offset)
-            await add_schedule(tmpl, fire_at, None, "day_live")
+            await add_schedule(tmpl, first_start_utc - timedelta(minutes=offset), None, "day_live")
 
-        if "day_end" in tmpl_map and last_session.get("end_datetime"):
+        if "day_end" in tmpl_map and last_end_utc:
             tmpl = tmpl_map["day_end"]
             offset = tmpl["offset_minutes"] or 30
-            fire_at = last_session["end_datetime"] + timedelta(minutes=offset)
-            await add_schedule(tmpl, fire_at, None, "day_end")
+            await add_schedule(tmpl, last_end_utc + timedelta(minutes=offset), None, "day_end")
 
     # ── vip_offer: одна запись на событие с fire_at=NULL (пользователь сам задаёт время) ──
     if "vip_offer" in tmpl_map:
@@ -1513,13 +1531,17 @@ async def test_template(
         return {"ok": True, "sent": len(sessions), "details": results}
 
     else:
-        # Для всех остальных (day_*, pre_conf и любых будущих) — одна отправка
-        # fire_at имитируем через первую сессию выбранного дня
+        # Для всех остальных (day_*, pre_conf и любых будущих) — одна отправка.
+        # fire_at имитируем через первую сессию выбранного дня (МСК → UTC).
         first_session = await db.fetchrow(
-            "SELECT start_datetime FROM conf_sessions WHERE event_id=$1 AND day=$2 ORDER BY start_datetime LIMIT 1",
+            """SELECT cs.start_time, d.day_date
+                 FROM conf_sessions cs
+                 LEFT JOIN conf_days d ON d.event_id = cs.event_id AND d.day_number = cs.day
+                WHERE cs.event_id=$1 AND cs.day=$2 AND cs.start_time IS NOT NULL
+                ORDER BY cs.start_time LIMIT 1""",
             event_id, day
         )
-        fake_fire_at = first_session["start_datetime"] if first_session else None
+        fake_fire_at = _msk_str_to_utc(first_session["day_date"], first_session["start_time"]) if first_session else None
 
         content = await build_message_content(
             conn=db, tpl_type=tpl["type"],

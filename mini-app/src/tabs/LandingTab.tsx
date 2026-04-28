@@ -6,10 +6,14 @@ interface Props {
 function formatDateLong(dt?: string) {
   if (!dt) return ''
   try {
-    return new Date(dt).toLocaleDateString('ru', {
-      day: 'numeric', month: 'long', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
+    // Жёстко в МСК — никаких сдвигов под браузер пользователя.
+    const datePart = new Date(dt).toLocaleDateString('ru', {
+      day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow',
     })
+    const timePart = new Date(dt).toLocaleTimeString('ru', {
+      hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
+    })
+    return `${datePart}, ${timePart} МСК`
   } catch { return '' }
 }
 

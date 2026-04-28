@@ -4,7 +4,6 @@ import { Plus, Calendar, Trash2, Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
-import { formatTime, localTimeToUtcIso } from '@/lib/timezone'
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -103,16 +102,13 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
     if (!sessionModal || !sessionForm.title.trim()) return
     setSavingSession(true)
     try {
-      const dayDate = (dayForms[sessionModal.day]?.day_date) || '2026-01-01'
-      const startDt = sessionForm.start_time ? localTimeToUtcIso(dayDate, sessionForm.start_time) : null
-      const endDt = sessionForm.end_time ? localTimeToUtcIso(dayDate, sessionForm.end_time) : null
       await api.conference.sessions.create(eventId, {
         day: sessionModal.day,
         title: sessionForm.title || undefined,
         topic_id: sessionForm.topic_id ? Number(sessionForm.topic_id) : undefined,
         speaker_id: sessionForm.speaker_id ? Number(sessionForm.speaker_id) : null,
-        start_datetime: startDt,
-        end_datetime: endDt,
+        start_time: sessionForm.start_time || null,
+        end_time: sessionForm.end_time || null,
       })
       setSessionModal(null)
       setSessionForm({ title: '', topic_id: '', speaker_id: '', start_time: '', end_time: '' })
@@ -132,13 +128,12 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
     try {
       const slots = JSON.parse(jsonInput)
       if (!Array.isArray(slots)) throw new Error(tp.jsonModal.errorExpected)
-      const date = dayForms[jsonDay]?.day_date || '2000-01-01'
       for (const slot of slots) {
         await api.conference.sessions.create(eventId, {
           day: jsonDay,
           title: slot.title || slot.topic || '',
           speaker_id: null,
-          start_datetime: slot.time ? localTimeToUtcIso(date, slot.time) : null,
+          start_time: slot.time || null,
         })
       }
       setJsonModal(false); setJsonInput('')
@@ -207,9 +202,10 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                 <div className="space-y-1.5 mb-3">
                   {daySessions.map((s: any) => (
                     <div key={s.id} className="flex items-start gap-3 group py-1.5">
-                      <span className="text-xs text-gray-400 w-32 shrink-0 pt-0.5 font-mono whitespace-nowrap">
-                        {formatTime(s.start_datetime)}
-                        {s.end_datetime ? ` — ${formatTime(s.end_datetime)}` : ''}
+                      <span className="text-xs text-gray-400 w-40 shrink-0 pt-0.5 font-mono whitespace-nowrap">
+                        {s.start_time || ''}
+                        {s.end_time ? ` — ${s.end_time}` : ''}
+                        {s.start_time ? ' МСК' : ''}
                       </span>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-900">{s.title}</p>

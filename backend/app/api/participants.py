@@ -189,9 +189,9 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
            ),
            conf_dates AS (
               SELECT event_id,
-                     MIN((day_date + COALESCE(open_time,  '00:00'::time))
+                     MIN((day_date + COALESCE(NULLIF(open_time,'')::time,  '00:00'::time))
                          AT TIME ZONE 'Europe/Moscow') AS start_at,
-                     MAX((day_date + COALESCE(close_time, '23:59'::time))
+                     MAX((day_date + COALESCE(NULLIF(close_time,'')::time, '23:59'::time))
                          AT TIME ZONE 'Europe/Moscow') AS end_at
                 FROM conf_days
                GROUP BY event_id

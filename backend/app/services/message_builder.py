@@ -34,12 +34,17 @@ SPEAKER_TYPES = ("gift", "speaker_intro", "pre_start")
 CONF_TYPES = ("pre_conf",)
 
 
-def _fmt_time(dt) -> str:
-    if not dt:
+def _fmt_time(val) -> str:
+    # Время теперь хранится строкой "HH:MM" — отдаём как есть, без TZ-математики.
+    if not val:
         return ""
-    if isinstance(dt, datetime):
-        return dt.strftime("%H:%M")
-    return str(dt)
+    return str(val)[:5]
+
+
+def _fmt_time_msk(val) -> str:
+    """Формат HH:MM МСК (для отображения в сообщениях/UI)."""
+    s = _fmt_time(val)
+    return f"{s} МСК" if s else ""
 
 
 # ─── Формирование текста: speaker_intro ─────────────────────────────────────
@@ -213,21 +218,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     btn_url = btn_url or ""
 
     if tpl_type in DAY_TYPES:
-        # Определяем номер дня по fire_at
+        # Определяем номер дня по fire_at (МСК-дата дня в conf_days.day_date)
         day = 1
         if fire_at:
-            fire_local = fire_at.astimezone(tz)
+            fire_local = fire_at.astimezone(ZoneInfo("Europe/Moscow"))
             fire_date = fire_local.date()
             day_row = await conn.fetchrow(
-                """
-                SELECT cs.day FROM conf_sessions cs
-                WHERE cs.event_id=$1 AND DATE(cs.start_datetime AT TIME ZONE $2) = $3
-                ORDER BY cs.start_datetime LIMIT 1
-                """,
-                event_id, str(tz), fire_date
+                "SELECT day_number FROM conf_days WHERE event_id=$1 AND day_date=$2",
+                event_id, fire_date
             )
             if day_row:
-                day = day_row["day"]
+                day = day_row["day_number"]
 
         conf_row = await conn.fetchrow(
             """
@@ -251,21 +252,26 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         day_sessions = await conn.fetch(
             """
-            SELECT cs.start_datetime, cs.end_datetime, cs.title as session_title,
+            SELECT cs.start_time, cs.end_time, cs.title as session_title,
                    c.name as speaker_name, cse.role
             FROM conf_sessions cs
             LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
             LEFT JOIN collaborators c ON c.id = cse.speaker_id
             WHERE cs.event_id=$1 AND cs.day=$2
-            ORDER BY cs.sort_order, cs.start_datetime
+            ORDER BY cs.sort_order, cs.start_time
             """,
             event_id, day
         )
         program_lines = []
         for s in day_sessions:
-            t_start = s["start_datetime"].astimezone(tz).strftime("%H:%M") if s["start_datetime"] else ""
-            t_end = s["end_datetime"].astimezone(tz).strftime("%H:%M") if s["end_datetime"] else ""
-            time_part = f"{t_start}–{t_end}" if t_start and t_end else t_start
+            t_start = _fmt_time(s["start_time"])
+            t_end = _fmt_time(s["end_time"])
+            if t_start and t_end:
+                time_part = f"{t_start}–{t_end} МСК"
+            elif t_start:
+                time_part = f"{t_start} МСК"
+            else:
+                time_part = ""
             bold_time = f"<b>{time_part}</b>" if time_part else ""
             topic = s["session_title"] or ""
             name = s["speaker_name"] or ""
@@ -307,21 +313,28 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 day_speakers_gifts = f"А сейчас ловите подарки от спикеров Дня {day}:\n\n" + "\n\n".join(gift_blocks)
 
             first_next = await conn.fetchrow(
-                "SELECT start_datetime FROM conf_sessions WHERE event_id=$1 AND day=$2 ORDER BY sort_order, start_datetime LIMIT 1",
+                """SELECT cs.start_time, d.day_date
+                     FROM conf_sessions cs
+                     LEFT JOIN conf_days d ON d.event_id = cs.event_id AND d.day_number = cs.day
+                    WHERE cs.event_id=$1 AND cs.day=$2 AND cs.start_time IS NOT NULL
+                    ORDER BY cs.sort_order, cs.start_time LIMIT 1""",
                 event_id, day + 1
             )
             first_cur = await conn.fetchrow(
-                "SELECT start_datetime FROM conf_sessions WHERE event_id=$1 AND day=$2 ORDER BY sort_order, start_datetime LIMIT 1",
+                """SELECT d.day_date
+                     FROM conf_sessions cs
+                     LEFT JOIN conf_days d ON d.event_id = cs.event_id AND d.day_number = cs.day
+                    WHERE cs.event_id=$1 AND cs.day=$2
+                    ORDER BY cs.sort_order, cs.start_time LIMIT 1""",
                 event_id, day
             )
-            if first_next and first_next["start_datetime"]:
-                next_dt = first_next["start_datetime"].astimezone(tz)
-                next_time = next_dt.strftime("%H:%M")
-                next_date = next_dt.date()
-                cur_date = first_cur["start_datetime"].astimezone(tz).date() if first_cur and first_cur["start_datetime"] else None
-                diff = (next_date - cur_date).days if cur_date else 999
-                when = "завтра" if diff == 1 else f"{next_date.day} {RU_MONTHS[next_date.month - 1]}"
-                next_day_mention = f"Встречаемся {when} в {next_time} на День {day + 1}."
+            if first_next and first_next["start_time"]:
+                next_time = _fmt_time(first_next["start_time"])
+                next_date = first_next["day_date"]
+                cur_date = first_cur["day_date"] if first_cur else None
+                diff = (next_date - cur_date).days if (next_date and cur_date) else 999
+                when = "завтра" if diff == 1 else (f"{next_date.day} {RU_MONTHS[next_date.month - 1]}" if next_date else "")
+                next_day_mention = f"Встречаемся {when} в {next_time} МСК на День {day + 1}."
 
         text = build_day_message(text, day, conf_title, day_date_str, day_program,
                                   stream_url, reg_url, raffle_url, day_speakers_gifts, next_day_mention)
@@ -367,7 +380,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if session_id:
             session = await conn.fetchrow(
                 """
-                SELECT cs.title as session_title, cs.start_datetime, cs.end_datetime, cs.day,
+                SELECT cs.title as session_title, cs.start_time, cs.end_time, cs.day,
                        c.name as speaker_name, c.poster_url as speaker_poster,
                        c.personal_tg_username as speaker_personal_tg,
                        cst.topic as speaker_topic,
@@ -498,21 +511,26 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if target_day_num:
             day_sessions = await conn.fetch(
                 """
-                SELECT cs.start_datetime, cs.end_datetime, cs.title as session_title,
+                SELECT cs.start_time, cs.end_time, cs.title as session_title,
                        c.name as speaker_name, cse.role
                 FROM conf_sessions cs
                 LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cs.event_id=$1 AND cs.day=$2
-                ORDER BY cs.sort_order, cs.start_datetime
+                ORDER BY cs.sort_order, cs.start_time
                 """,
                 event_id, target_day_num
             )
             program_lines = []
             for s in day_sessions:
-                t_start = s["start_datetime"].astimezone(tz).strftime("%H:%M") if s["start_datetime"] else ""
-                t_end = s["end_datetime"].astimezone(tz).strftime("%H:%M") if s["end_datetime"] else ""
-                time_part = f"{t_start}–{t_end}" if t_start and t_end else t_start
+                t_start = _fmt_time(s["start_time"])
+                t_end = _fmt_time(s["end_time"])
+                if t_start and t_end:
+                    time_part = f"{t_start}–{t_end} МСК"
+                elif t_start:
+                    time_part = f"{t_start} МСК"
+                else:
+                    time_part = ""
                 bold_time = f"<b>{time_part}</b>" if time_part else ""
                 topic = s["session_title"] or ""
                 name = s["speaker_name"] or ""

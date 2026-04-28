@@ -939,8 +939,8 @@ export default function QueuePage() {
                   const sessionsWithSpeaker = confSessions
                     .filter(s => s.speaker_id && s.speaker_name)
                     .sort((a, b) => {
-                      const ax = `${a.day || 0}-${a.start_datetime || ''}-${a.sort_order || 0}`
-                      const bx = `${b.day || 0}-${b.start_datetime || ''}-${b.sort_order || 0}`
+                      const ax = `${a.day || 0}-${a.start_time || ''}-${a.sort_order || 0}`
+                      const bx = `${b.day || 0}-${b.start_time || ''}-${b.sort_order || 0}`
                       return ax.localeCompare(bx)
                     })
                   return (
@@ -953,11 +953,10 @@ export default function QueuePage() {
                         <option value="">— выберите спикера —</option>
                         {sessionsWithSpeaker.map(s => {
                           let timeLabel = ''
-                          if (s.start_datetime) {
-                            const d = new Date(s.start_datetime)
-                            const pad = (n: number) => String(n).padStart(2, '0')
-                            const mm = pad(d.getMonth() + 1)
-                            timeLabel = ` — ${d.getDate()} ${RU_M[mm] || mm} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+                          if (s.start_time && s.day) {
+                            timeLabel = ` — День ${s.day}, ${String(s.start_time).slice(0, 5)} МСК`
+                          } else if (s.start_time) {
+                            timeLabel = ` — ${String(s.start_time).slice(0, 5)} МСК`
                           } else if (s.day) {
                             timeLabel = ` — День ${s.day}`
                           }

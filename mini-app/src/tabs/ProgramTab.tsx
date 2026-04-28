@@ -4,7 +4,8 @@ import { getSessions } from '../api'
 interface Session {
   id: number
   day: number
-  start_datetime: string
+  start_time?: string  // "HH:MM" — МСК
+  end_time?: string    // "HH:MM" — МСК
   title: string
   speaker_name?: string
   speaker_title?: string
@@ -38,10 +39,10 @@ export default function ProgramTab({ event }: Props) {
       .finally(() => setLoading(false))
   }, [event?.id, day])
 
-  function formatTime(dt: string) {
-    if (!dt) return '—:—'
-    try { return new Date(dt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) }
-    catch { return '—:—' }
+  function formatTimeMsk(start?: string, end?: string) {
+    if (!start && !end) return '—:—'
+    if (start && end) return `${start.slice(0, 5)}–${end.slice(0, 5)} МСК`
+    return `${(start || end || '').slice(0, 5)} МСК`
   }
 
   return (
@@ -144,8 +145,8 @@ export default function ProgramTab({ event }: Props) {
             {sessions.map(s => (
               <div key={s.id} className="card" style={{ padding: '14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                  <span style={{ color: 'var(--muted)', fontSize: 13, fontWeight: 500, minWidth: 44 }}>
-                    {formatTime(s.start_datetime)}
+                  <span style={{ color: 'var(--muted)', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                    {formatTimeMsk(s.start_time, s.end_time)}
                   </span>
                   {s.track_label && (
                     <span style={{
