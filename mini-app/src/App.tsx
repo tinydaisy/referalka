@@ -7,12 +7,17 @@ import LoadingScreen from './components/LoadingScreen'
 /*
  * Маршрутизация без startapp:
  * - Mini App в общем @pluson_bot   → HubSelector (список событий + промо ПЛЮСОН)
- * - Mini App в боте клиента (про-тариф, в будущем) → Hub этого клиента
+ * - Mini App в боте клиента (VIP)  → Hub этого клиента
  *
- * Сейчас: единственный бот — общий @pluson_bot. Боты клиентов появятся,
- * когда BotFather зарегистрирует Mini App с query-параметром `?cid={client_id}`.
+ * Идентификатор клиента берётся из URL пути `/c/{N}/tg/`:
+ *   /tg/                            → общий бот (cid не задан)
+ *   /c/1/tg/                        → бот клиента 1, Hub клиента 1
+ *   /c/1/tg/event/{slug}            → бот клиента 1, конкретное событие
+ * Также поддержан query `?cid=N` (legacy) и startapp `_cid{N}`.
  */
-function detectClientIdFromBot(): number | null {
+function detectClientIdFromPath(): number | null {
+  const m = window.location.pathname.match(/^\/c\/(\d+)\//)
+  if (m) return Number(m[1])
   const sp = new URLSearchParams(window.location.search)
   const cid = sp.get('cid')
   return cid ? Number(cid) : null
@@ -65,9 +70,14 @@ function parsePathSlug(): string | null {
   return m ? m[1] : null
 }
 
-const BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') // напр. "/tg" или ""
-const homePath  = () => `${BASE}/`
-const eventPath = (slug: string) => `${BASE}/event/${slug}`
+// Vite собирает с фиксированным base="/tg/" — ассеты всегда грузятся с /tg/assets/...
+// Но HTML может отдаваться по /c/{N}/tg/ через nginx alias — учитываем cid в URL.
+const TG_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') // напр. "/tg"
+const cidPrefix = (cid: number | null) => (cid ? `/c/${cid}` : '')
+const homePath  = (cid: number | null) =>
+  `${cidPrefix(cid)}${TG_BASE}/`
+const eventPath = (cid: number | null, slug: string) =>
+  `${cidPrefix(cid)}${TG_BASE}/event/${slug}`
 
 const MOCK_USER = { id: 123456789, first_name: 'Тест', username: 'test_user', last_name: '' }
 
@@ -75,7 +85,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [tgUser, setTgUser] = useState<any>(null)
   const [eventSlug, setEventSlug] = useState<string | null>(() => parsePathSlug())
-  const [clientId, setClientId] = useState<number | null>(() => detectClientIdFromBot())
+  const [clientId, setClientId] = useState<number | null>(() => detectClientIdFromPath())
   const [partnerId, setPartnerId] = useState<string | undefined>()
   const [utmSource, setUtmSource] = useState<string | undefined>()
 
@@ -115,12 +125,12 @@ export default function App() {
   }, [])
 
   function openEvent(slug: string) {
-    window.history.pushState({}, '', eventPath(slug))
+    window.history.pushState({}, '', eventPath(clientId, slug))
     setEventSlug(slug)
   }
 
   function backToHub() {
-    window.history.pushState({}, '', homePath())
+    window.history.pushState({}, '', homePath(clientId))
     setEventSlug(null)
   }
 
