@@ -1,6 +1,7 @@
 'use client'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { BookOpen, ChevronRight } from 'lucide-react'
+import { BookOpen, ChevronRight, Copy, Check, ExternalLink } from 'lucide-react'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
@@ -10,6 +11,8 @@ interface Article {
   title: string
   description: string
   emoji: string
+  isPublic?: boolean
+  publicNote?: string
 }
 
 const ARTICLES: Article[] = [
@@ -18,6 +21,14 @@ const ARTICLES: Article[] = [
     title: 'Как подключить Mini App к своему боту',
     description: 'Пошаговая настройка через @BotFather: токен в Каналах, регистрация Mini App, Menu Button и готовые ссылки',
     emoji: '🤖',
+  },
+  {
+    href: '/docs/api/salebot',
+    title: 'API ПЛЮСОНа для Salebot',
+    description: 'Регистрация участника в БД, программа конференции, спикеры и регалии, каналы спикеров, проверка подписки, билет розыгрыша',
+    emoji: '🔌',
+    isPublic: true,
+    publicNote: 'Публичная страница — ссылку можно дать стороннему разработчику или сценаристу Salebot, авторизация не нужна',
   },
 ]
 
@@ -43,27 +54,7 @@ export default function HelpIndexPage() {
       </div>
 
       <div className="space-y-2">
-        {ARTICLES.map(a => (
-          <Link
-            key={a.href}
-            href={a.href}
-            className="block bg-white rounded-2xl border border-gray-100 hover:border-gray-300 hover:shadow-md transition-all p-4"
-          >
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
-                   style={{ background: `linear-gradient(135deg, #fff4e0, ${PEACH})` }}>
-                {a.emoji}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <h2 className="text-base font-bold" style={{ color: BRAND }}>{a.title}</h2>
-                  <ChevronRight size={20} className="text-gray-300 flex-shrink-0" />
-                </div>
-                <p className="text-sm text-gray-500 leading-snug">{a.description}</p>
-              </div>
-            </div>
-          </Link>
-        ))}
+        {ARTICLES.map(a => <ArticleCard key={a.href} article={a} />)}
       </div>
 
       <div className="mt-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
@@ -78,5 +69,63 @@ export default function HelpIndexPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+function ArticleCard({ article }: { article: Article }) {
+  const [origin, setOrigin] = useState('https://pluson.ru')
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined') setOrigin(window.location.origin)
+  }, [])
+  const publicUrl = `${origin}${article.href}`
+  function copyPublic(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    navigator.clipboard.writeText(publicUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
+  }
+  return (
+    <Link
+      href={article.href}
+      className="block bg-white rounded-2xl border border-gray-100 hover:border-gray-300 hover:shadow-md transition-all p-4"
+    >
+      <div className="flex items-start gap-4">
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+             style={{ background: `linear-gradient(135deg, #fff4e0, ${PEACH})` }}>
+          {article.emoji}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <h2 className="text-base font-bold" style={{ color: BRAND }}>{article.title}</h2>
+            <ChevronRight size={20} className="text-gray-300 flex-shrink-0" />
+          </div>
+          <p className="text-sm text-gray-500 leading-snug">{article.description}</p>
+          {article.isPublic && (
+            <div className="mt-3 p-2.5 rounded-lg border border-amber-200 bg-amber-50">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900 mb-1.5">
+                <ExternalLink size={12} /> Публичная ссылка для шеринга
+              </div>
+              {article.publicNote && (
+                <p className="text-xs text-amber-800 mb-2 leading-snug">{article.publicNote}</p>
+              )}
+              <div className="flex gap-2">
+                <code className="flex-1 bg-white border border-amber-200 rounded px-2 py-1.5 text-xs font-mono overflow-x-auto whitespace-nowrap text-gray-700">
+                  {publicUrl}
+                </code>
+                <button
+                  onClick={copyPublic}
+                  className="px-2.5 py-1.5 rounded text-white text-xs font-medium flex items-center gap-1 flex-shrink-0"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+                >
+                  {copied ? <><Check size={12}/> Скопировано</> : <><Copy size={12}/> Копировать</>}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Link>
   )
 }
