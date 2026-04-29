@@ -1,12 +1,13 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard } from 'lucide-react'
+import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard, Plug, Copy, Check, RefreshCw, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
 import { useLang, type Lang } from '@/contexts/LangContext'
 import MiniAppSettingsPage from '../mini-app/page'
 
-type Tab = 'profile' | 'tech' | 'mini-app' | 'subscription'
+type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription'
 
 const TIMEZONES = [
   { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
@@ -30,7 +31,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'profile'
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
-    return (t === 'tech' || t === 'mini-app' || t === 'subscription') ? t : 'profile'
+    return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription') ? t : 'profile'
   })
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
   const [tariff, setTariff] = useState<any>(null)
@@ -110,6 +111,7 @@ export default function SettingsPage() {
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: 'profile',      label: 'Профиль',      icon: UserIcon  },
     { id: 'tech',         label: 'Техническое',  icon: Wrench    },
+    { id: 'integration',  label: 'Интеграция',   icon: Plug      },
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     { id: 'subscription', label: 'Подписка',     icon: CreditCard},
   ]
@@ -142,6 +144,9 @@ export default function SettingsPage() {
 
       {/* Mini App таб — отдельная страница, без общей формы */}
       {tab === 'mini-app' && <MiniAppSettingsPage />}
+
+      {/* Интеграция — токен для чат-ботов */}
+      {tab === 'integration' && <IntegrationTab />}
 
       {/* Подписка — отдельный блок */}
       {tab === 'subscription' && (
@@ -573,6 +578,180 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           </>
         )}
       </form>
+    </div>
+  )
+}
+
+// ─── Таб «Интеграция» ─────────────────────────────────────────────────────────
+function IntegrationTab() {
+  const [me, setMe] = useState<{ id: number; integration_token?: string } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [showToken, setShowToken] = useState(false)
+  const [copiedToken, setCopiedToken] = useState(false)
+  const [copiedId, setCopiedId] = useState(false)
+  const [regenLoading, setRegenLoading] = useState(false)
+  const [showRegenConfirm, setShowRegenConfirm] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.auth.me()
+      .then((c: any) => setMe(c))
+      .catch((e: any) => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  function copy(value: string, which: 'token' | 'id') {
+    navigator.clipboard.writeText(value)
+    if (which === 'token') { setCopiedToken(true); setTimeout(() => setCopiedToken(false), 1800) }
+    else { setCopiedId(true); setTimeout(() => setCopiedId(false), 1800) }
+  }
+
+  async function regenerate() {
+    setRegenLoading(true)
+    setError('')
+    try {
+      const res = await api.auth.regenerateIntegrationToken()
+      setMe(prev => prev ? { ...prev, integration_token: res.integration_token } : prev)
+      setShowRegenConfirm(false)
+      setShowToken(true)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setRegenLoading(false)
+    }
+  }
+
+  if (loading) return <div className="text-sm text-gray-500">Загружаем…</div>
+
+  const token = me?.integration_token || ''
+  const clientId = me?.id || 0
+
+  return (
+    <div className="space-y-6">
+      {/* Зачем нужна эта вкладка */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+            <Plug size={18} className="text-white" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-gray-800">API для конструкторов чат-ботов</h3>
+            <p className="text-sm text-gray-500 mt-0.5 leading-snug">
+              Эти данные нужны, чтобы Salebot, BotHelp, SendPulse, n8n или Make могли регистрировать
+              участников в ПЛЮСОН, проверять подписки и доставать программу конференции.
+              Полная инструкция со всеми эндпоинтами — на{' '}
+              <Link href="/docs/api" target="_blank" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">
+                публичной странице API <ExternalLink size={12}/>
+              </Link>{' '}
+              (её можно дать стороннему разработчику).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Client ID */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h3 className="font-semibold text-gray-800 mb-1">Ваш client_id</h3>
+        <p className="text-sm text-gray-500 mb-3">
+          Подставляется в каждый запрос. У каждого клиента он свой — <strong>не «1»</strong>, как в примерах.
+        </p>
+        <div className="flex gap-2">
+          <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono text-gray-800">
+            {clientId}
+          </code>
+          <button
+            type="button"
+            onClick={() => copy(String(clientId), 'id')}
+            className="px-3 py-2.5 rounded-lg text-white font-medium text-sm flex items-center gap-1.5 flex-shrink-0"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+          >
+            {copiedId ? <><Check size={14}/> Скопировано</> : <><Copy size={14}/> Копировать</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Token */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h3 className="font-semibold text-gray-800 mb-1">Секретный токен</h3>
+        <p className="text-sm text-gray-500 mb-3">
+          Передаётся в заголовке <code className="bg-gray-100 px-1 rounded">X-Salebot-Secret</code>{' '}
+          (или параметром <code className="bg-gray-100 px-1 rounded">?secret=…</code>).
+          Токен <strong>вечный</strong> — не истекает. Создан автоматически при регистрации кабинета.
+        </p>
+        <div className="flex gap-2">
+          <div className="flex-1 relative">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={token}
+              readOnly
+              className="w-full px-3 py-2.5 pr-10 border border-gray-200 rounded-lg bg-gray-50 text-sm font-mono text-gray-800"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(v => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+              tabIndex={-1}
+            >
+              {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => copy(token, 'token')}
+            className="px-3 py-2.5 rounded-lg text-white font-medium text-sm flex items-center gap-1.5 flex-shrink-0"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+          >
+            {copiedToken ? <><Check size={14}/> Скопировано</> : <><Copy size={14}/> Копировать</>}
+          </button>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 mt-4">
+          🔒 Никому не показывайте токен. Если попал в публичный сценарий Salebot или скриншот —
+          сразу перевыпустите и обновите его в настройках бота.
+        </div>
+
+        {/* Перевыпуск */}
+        <div className="mt-5 pt-5 border-t border-gray-100">
+          {!showRegenConfirm ? (
+            <button
+              type="button"
+              onClick={() => setShowRegenConfirm(true)}
+              className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 inline-flex items-center gap-2"
+            >
+              <RefreshCw size={14} /> Перевыпустить токен
+            </button>
+          ) : (
+            <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4">
+              <p className="text-sm font-semibold text-red-800 mb-2">
+                Старый токен сразу перестанет работать
+              </p>
+              <p className="text-sm text-red-700 mb-3">
+                После перевыпуска все боты с этим токеном начнут получать ошибку 401,
+                пока не подставите новый. Действительно перевыпустить?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={regenerate}
+                  disabled={regenLoading}
+                  className="px-3 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {regenLoading ? 'Создаём…' : 'Да, перевыпустить'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRegenConfirm(false)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+      </div>
     </div>
   )
 }

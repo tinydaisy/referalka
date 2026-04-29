@@ -4,7 +4,13 @@ from typing import Optional
 from app.auth import hash_password, verify_password, create_token
 from app.database import get_db
 import asyncpg
+import secrets
 from datetime import timedelta
+
+
+def _new_integration_token() -> str:
+    """64 hex-символа (256 бит энтропии) — для интеграции с Salebot и др. чат-ботами."""
+    return secrets.token_hex(32)
 
 router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
@@ -45,11 +51,11 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
 
     client = await db.fetchrow(
         """
-        INSERT INTO clients (name, email, phone, telegram_username, password_hash, tariff_slug, trial_ends_at, partner_code)
-        VALUES ($1, $2, $3, $4, $5, 'beta', NOW() + INTERVAL '12 months', $6)
+        INSERT INTO clients (name, email, phone, telegram_username, password_hash, tariff_slug, trial_ends_at, partner_code, integration_token)
+        VALUES ($1, $2, $3, $4, $5, 'beta', NOW() + INTERVAL '12 months', $6, $7)
         RETURNING id, name, email, tariff_slug, trial_ends_at
         """,
-        data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code
+        data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token()
     )
 
     # Подключаем базовый модуль
@@ -140,6 +146,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                  WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
                  ORDER BY id LIMIT 1) AS bot_token,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                c.integration_token,
                 t.name AS tariff_name,
                 COALESCE(t.allow_custom_bot, false) AS allow_custom_bot
            FROM clients c
@@ -150,6 +157,24 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     return dict(client)
+
+
+@router.post("/me/regenerate-integration-token", summary="Перевыпустить токен интеграции")
+async def regenerate_integration_token(
+    db: asyncpg.Connection = Depends(get_db),
+    credentials=Depends(__import__("app.auth", fromlist=["security"]).security),
+):
+    from app.auth import decode_token
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    payload = decode_token(credentials.credentials)
+    client_id = int(payload["sub"])
+    new_token = _new_integration_token()
+    await db.execute(
+        "UPDATE clients SET integration_token = $1 WHERE id = $2",
+        new_token, client_id
+    )
+    return {"integration_token": new_token}
 
 
 class ProfileUpdate(BaseModel):

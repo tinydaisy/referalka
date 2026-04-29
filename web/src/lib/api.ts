@@ -33,6 +33,8 @@ export const api = {
     updateMe: (data: any) => request('/api/v1/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
     changePassword: (current_password: string, new_password: string) =>
       request('/api/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
+    regenerateIntegrationToken: () =>
+      request('/api/v1/auth/me/regenerate-integration-token', { method: 'POST' }),
   },
   events: {
     list: (moduleSlug?: string) => request(`/api/v1/events/${moduleSlug ? `?module_slug=${moduleSlug}` : ''}`),

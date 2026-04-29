@@ -16,6 +16,45 @@ from app.services.contact_merge import upsert_contact_with_identity
 router = APIRouter(prefix="/integrations", tags=["Интеграции"])
 
 
+async def _authorize(
+    token: Optional[str],
+    client_id: int,
+    db: asyncpg.Connection,
+) -> None:
+    """
+    Авторизация запросов от чат-ботов.
+
+    Принимаются два варианта токена:
+    1. Per-client `clients.integration_token` — выдаётся клиенту в Настройки → Интеграция.
+       В этом случае токен ДОЛЖЕН принадлежать тому же `client_id`,
+       что передан в запросе (защита от использования чужого токена).
+    2. Глобальный `SALEBOT_SECRET` из окружения — fallback для старых клиентов.
+       Постепенно выводим из эксплуатации.
+    """
+    if not token:
+        raise HTTPException(status_code=401, detail="Не передан секретный токен")
+
+    # 1) Per-client токен
+    owner_id = await db.fetchval(
+        "SELECT id FROM clients WHERE integration_token = $1 AND is_active = TRUE",
+        token,
+    )
+    if owner_id is not None:
+        if owner_id != client_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Токен принадлежит другому клиенту. Используйте свой client_id "
+                       "из Настройки → Интеграция в кабинете ПЛЮСОН.",
+            )
+        return
+
+    # 2) Глобальный legacy-токен
+    if settings.salebot_secret and token == settings.salebot_secret:
+        return
+
+    raise HTTPException(status_code=401, detail="Неверный токен")
+
+
 class SalebotRegisterRequest(BaseModel):
     client_id: int                          # зашит в настройках Salebot
     platform: str = "telegram"             # 'telegram' | 'vk' | 'max'
@@ -60,10 +99,9 @@ async def salebot_register(
 ):
     # Проверка секретного токена (заголовок или тело)
     token = x_salebot_secret or data.secret
-    if settings.salebot_secret and token != settings.salebot_secret:
-        raise HTTPException(status_code=401, detail="Неверный токен")
+    await _authorize(token, data.client_id, db)
 
-    # Проверяем что клиент существует
+    # Проверяем что клиент существует (на случай legacy-токена с client_id чужого клиента)
     client = await db.fetchrow(
         "SELECT id FROM clients WHERE id = $1 AND is_active = TRUE", data.client_id
     )
@@ -178,8 +216,7 @@ async def salebot_register_get(
     platform: str = "telegram",
     db: asyncpg.Connection = Depends(get_db)
 ):
-    if settings.salebot_secret and secret != settings.salebot_secret:
-        raise HTTPException(status_code=401, detail="Неверный токен")
+    await _authorize(secret, client_id, db)
 
     request = SalebotRegisterRequest(
         client_id=client_id,
@@ -210,8 +247,7 @@ async def salebot_get_user(
     x_salebot_secret: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    if settings.salebot_secret and x_salebot_secret != settings.salebot_secret:
-        raise HTTPException(status_code=401, detail="Неверный токен")
+    await _authorize(x_salebot_secret, client_id, db)
 
     user = await db.fetchrow(
         """

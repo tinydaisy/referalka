@@ -68,7 +68,8 @@ export default function ApiDocsPage() {
                 </li>
                 <li>
                   <code className="bg-red-100 px-1 rounded">{'<ВАШ_ТОКЕН>'}</code>
-                  {' '}— секретный <code>SALEBOT_SECRET</code>, выдаёт владелец кабинета.
+                  {' '}— секретный токен из <em>Настройки → Интеграция</em> в кабинете ПЛЮСОН
+                  (у каждого клиента свой).
                 </li>
               </ul>
             </div>
@@ -86,15 +87,16 @@ export default function ApiDocsPage() {
           </p>
 
           <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
-            <strong className="text-gray-900">Где взять свой <code>client_id</code> и <code>event_id</code>:</strong>
-            <ul className="mt-2 space-y-1 list-disc pl-5">
+            <strong className="text-gray-900">Где владельцу кабинета взять свои <code>client_id</code>, <code>event_id</code> и токен:</strong>
+            <ul className="mt-2 space-y-1.5 list-disc pl-5">
               <li>
-                <strong>client_id</strong> — откройте в кабинете <em>Настройки → Профиль</em>,
-                ID клиента указан рядом с email. Его же видно в URL Mini App вашего бота:
-                <code className="ml-1">/c/<strong className="text-red-600">{'<client_id>'}</strong>/tg/</code>
+                <strong>client_id</strong> и <strong>токен</strong> — в кабинете ПЛЮСОН открыть{' '}
+                <em>Настройки → Интеграция</em>. Там одна страница с <code>client_id</code>
+                {' '}и секретным токеном для чат-ботов, обе кнопки «Копировать».
+                Токен <strong>вечный</strong>, создаётся автоматически при регистрации.
               </li>
               <li>
-                <strong>event_id</strong> — откройте событие/конференцию в кабинете,
+                <strong>event_id</strong> — открыть событие/конференцию в кабинете,
                 число в URL после <code>/events/</code> или <code>/conferences/</code> —
                 это и есть <code>event_id</code>.
               </li>
@@ -116,8 +118,9 @@ export default function ApiDocsPage() {
             </li>
           </ul>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
-            🔒 Токен запросите у владельца кабинета ПЛЮСОН —{' '}
-            <a href="https://t.me/margo_forbs" target="_blank" rel="noreferrer" className="underline">@margo_forbs</a>.
+            🔒 Токен у каждого клиента <strong>свой</strong>. Владелец кабинета берёт его
+            в <em>Настройки → Интеграция</em>. Если интеграцию делает сторонний разработчик —
+            владелец передаёт ему токен и <code>client_id</code> с этой же страницы.
           </div>
           <p className="text-sm text-gray-700 mt-3">
             Публичные эндпоинты (программа, спикеры, проверка подписки, билет розыгрыша) — <strong>без токена</strong>.
