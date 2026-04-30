@@ -81,7 +81,7 @@ export default function ResultsTab({ event, participant }: Props) {
     <div className="fade-in">
       {/* Шапка с персиковым подзаголовком */}
       <div style={{ padding: '0 0 14px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'white', lineHeight: 1.2, marginBottom: 6 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2, marginBottom: 6 }}>
           {event?.title || 'Событие'}
         </h1>
         <div style={{ fontSize: 13, color: PEACH, fontWeight: 600 }}>
