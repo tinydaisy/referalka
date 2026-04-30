@@ -247,7 +247,6 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
           channel={mainTgChannel}
           onEdit={() => onEdit(mainTgChannel)}
           onDelete={() => onDelete(mainTgChannel)}
-          onReplaceBot={onOpenWizard}
         />
       )}
 
@@ -275,11 +274,10 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
   )
 }
 
-function ChannelCard({ channel: ch, onEdit, onDelete, onReplaceBot }: {
+function ChannelCard({ channel: ch, onEdit, onDelete }: {
   channel: Channel
   onEdit: () => void
   onDelete: () => void
-  onReplaceBot?: () => void
 }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
@@ -320,16 +318,6 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onReplaceBot }: {
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {onReplaceBot && (
-          <button
-            onClick={onReplaceBot}
-            className="px-3 py-1.5 text-xs rounded-lg font-medium"
-            style={{ background: '#FFCFA4', color: '#25455D' }}
-            title="Заменить бот"
-          >
-            Заменить
-          </button>
-        )}
         <button
           onClick={onEdit}
           className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-[#25455D]"
@@ -685,24 +673,80 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
             </div>
           )}
 
-          <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50">
-            <input
-              type="checkbox"
-              checked={isActive}
-              onChange={e => setIsActive(e.target.checked)}
-              className="mt-0.5 rounded"
-            />
-            <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
-                <Crown size={14} style={{ color: '#FFCFA4' }} />
-                Через этот бот идёт воронка событий
+          {/* Главный канал — переключение через явное действие с подтверждением.
+              Без простой галочки, чтобы случайно не переключить воронку. */}
+          {!channel ? (
+            // Создание нового канала — обычная галочка
+            <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50">
+              <input
+                type="checkbox"
+                checked={isActive}
+                onChange={e => setIsActive(e.target.checked)}
+                className="mt-0.5 rounded"
+              />
+              <div className="flex-1">
+                <div className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
+                  <Crown size={14} style={{ color: '#FFCFA4' }} />
+                  Сделать главным каналом
+                </div>
+                <p className="text-xs text-gray-500 mt-1 leading-snug">
+                  /start, регистрации и приветствия пойдут через этот бот. Текущий главный станет дополнительным.
+                </p>
               </div>
-              <p className="text-xs text-gray-500 mt-1 leading-snug">
-                Отметьте, если хотите, чтобы /start, регистрации и приветствия обрабатывались
-                именно этим ботом. Остальные ваши боты будут работать только как база для рассылок.
+            </label>
+          ) : channel.is_active ? (
+            // Уже главный в БД — просто плашка, переключают через другой канал
+            <div className="p-3 rounded-xl border" style={{ borderColor: '#FFCFA4', background: 'rgba(255,207,164,0.12)' }}>
+              <div className="text-sm font-semibold flex items-center gap-1.5" style={{ color: '#25455D' }}>
+                <Crown size={14} style={{ color: '#FFCFA4' }} />
+                ✓ Это главный канал
+              </div>
+              <p className="text-xs text-gray-600 mt-1 leading-snug">
+                Через него идёт воронка событий: /start, регистрации, приветствия. Чтобы переключить — откройте редактирование другого канала и нажмите «Сделать главным».
               </p>
             </div>
-          </label>
+          ) : isActive ? (
+            // Был неактивен, в этой сессии нажали «Сделать главным» — ждёт сохранения
+            <div className="p-3 rounded-xl border border-amber-300 bg-amber-50">
+              <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                <Crown size={14} style={{ color: '#FFCFA4' }} />
+                Будет сделан главным после «Сохранить»
+              </div>
+              <p className="text-xs text-amber-800 mt-1 leading-snug mb-2">
+                Текущий главный станет дополнительным (только база для рассылок). Действие применится после клика «Сохранить» внизу.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsActive(false)}
+                className="text-xs font-medium text-amber-900 underline"
+              >
+                Отменить — оставить дополнительным
+              </button>
+            </div>
+          ) : (
+            // Неактивен — кнопка с подтверждением
+            <div className="p-3 rounded-xl border border-gray-200">
+              <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                <Megaphone size={14} className="text-gray-400" />
+                Дополнительный канал — только база для рассылок
+              </div>
+              <p className="text-xs text-gray-500 mt-1 leading-snug mb-3">
+                Рассылки через него идут, но воронка событий и Mini App работают через главный канал.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Сделать «${displayName}» главным каналом?\n\nТекущий главный станет дополнительным (только база для рассылок). /start, регистрации и приветствия пойдут через этот бот.\n\nДействие применится после клика «Сохранить».`)) {
+                    setIsActive(true)
+                  }
+                }}
+                className="text-xs font-semibold px-3 py-2 rounded-lg"
+                style={{ background: '#FFCFA4', color: '#25455D' }}
+              >
+                Сделать главным
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
