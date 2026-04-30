@@ -423,6 +423,20 @@ export default function ConferencePage() {
                   onChange={e => setConfForm((f: any) => ({ ...f, description: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none resize-none" />
               </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs text-gray-500 mb-1">Ссылка на вебинарную комнату / стрим</label>
+                <input type="url" value={confForm.stream_url || ''} placeholder="https://us02web.zoom.us/j/... или https://youtube.com/live/..."
+                  onChange={e => setConfForm((f: any) => ({ ...f, stream_url: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#25455D]/20" />
+                <p className="text-xs text-gray-400 mt-1">Одна ссылка на все дни. Если у каждого дня свой стрим — задаётся в редакторе программы по дням.</p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs text-gray-500 mb-1">Ссылка на общий чат участников</label>
+                <input type="url" value={confForm.chat_url || ''} placeholder="https://t.me/+..."
+                  onChange={e => setConfForm((f: any) => ({ ...f, chat_url: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#25455D]/20" />
+                <p className="text-xs text-gray-400 mt-1">Telegram-чат конференции. Появится плиткой в Mini App в программе.</p>
+              </div>
             </div>
           </div>
 
@@ -432,8 +446,6 @@ export default function ConferencePage() {
             <div className="space-y-3">
               {[
                 { key: 'registration_url', label: 'Ссылка на регистрацию (GetCourse и т.п.)', placeholder: 'https://...' },
-                { key: 'chat_url',         label: 'Ссылка на общий чат участников',           placeholder: 'https://t.me/...' },
-                { key: 'stream_url',       label: 'Ссылка на стрим (одна на все дни)',         placeholder: 'https://youtube.com/live/... или https://t.me/...' },
                 { key: 'landing_url',      label: 'Внешний лендинг (если есть)',                placeholder: 'https://...' },
                 { key: 'vip_url',          label: 'VIP предложение (upsell)',                   placeholder: 'https://...' },
               ].map(({ key, label, placeholder }) => (
