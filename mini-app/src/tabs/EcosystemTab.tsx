@@ -144,7 +144,7 @@ export default function EcosystemTab({ clientId }: Props) {
                  style={{
                    width: 72, height: 72, borderRadius: 14,
                    objectFit: 'contain', background: 'transparent',
-                   border: `2px solid ${PEACH}`, flexShrink: 0,
+                   flexShrink: 0,
                  }} />
           ) : (
             <div style={{
