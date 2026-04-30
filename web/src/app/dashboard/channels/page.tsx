@@ -582,7 +582,7 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
   const [handle, setHandle] = useState(channel?.handle || '')
   const [botToken, setBotToken] = useState('')
   const [showToken, setShowToken] = useState(false)
-  const [isActive, setIsActive] = useState(channel?.is_active ?? true)
+  const [isActive, setIsActive] = useState(channel?.is_active ?? false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
