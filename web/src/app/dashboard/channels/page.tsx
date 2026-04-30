@@ -112,6 +112,7 @@ export default function ChannelsPage() {
 
       {(creating || editing) && (
         <ChannelModal
+          key={editing ? `edit-${editing.id}` : 'create-new'}
           channel={editing}
           platforms={platforms}
           onClose={() => { setEditing(null); setCreating(false) }}
@@ -659,6 +660,8 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
               onChange={e => setDisplayName(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
               placeholder="Например: Основной TG-бот"
+              autoComplete="off"
+              name="channel-display-name"
             />
           </div>
 
@@ -671,11 +674,19 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
               onChange={e => setHandle(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
               placeholder="@pluson_bot"
+              autoComplete="off"
+              name="channel-handle"
             />
           </div>
 
           {platformSlug === 'telegram' && (
             <div>
+              {/* Скрытые decoy-поля: Chrome пытается подставить сохранённый login/password
+                  в первую пару text+password — съест эти, оставив реальные пустыми. */}
+              <input type="text" name="fakeusernameremembered" autoComplete="username"
+                     style={{ display: 'none' }} tabIndex={-1} />
+              <input type="password" name="fakepasswordremembered" autoComplete="current-password"
+                     style={{ display: 'none' }} tabIndex={-1} />
               <label className="block text-xs text-gray-500 mb-1">
                 Bot Token <span className="text-gray-400">(секрет)</span>
               </label>
@@ -686,6 +697,8 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
                   onChange={e => setBotToken(e.target.value)}
                   className="w-full px-3 py-2 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
                   placeholder="123456:ABC-DEF..."
+                  autoComplete="new-password"
+                  name="bot-token-secret"
                 />
                 <button
                   type="button"
