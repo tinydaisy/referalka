@@ -39,6 +39,10 @@
     var parts = ['ref', 'pg' + PAGE_CODE];
     if(pid) parts.push('pid' + pid);
     if(src) parts.push('src' + src);
+    // CLIENT_ID — подсказка фронту Mini App: какому клиенту принадлежит
+    // событие. Нужно когда в BotFather у бота клиента URL Mini App общий
+    // (`/tg/` вместо `/c/{N}/tg/`) — иначе откроется HubSelector.
+    if(typeof CLIENT_ID !== 'undefined' && CLIENT_ID) parts.push('cid' + CLIENT_ID);
     window.location.replace(APP_CONFIG.tg + '?startapp=' + parts.join('_'));
     return;
   }

@@ -19,6 +19,7 @@ type LandingEvent = {
   title: string
   description: string | null
   poster_url: string | null
+  client_id: number | null
   client_bot_handle: string | null
 }
 
@@ -34,7 +35,7 @@ async function getEvent(slug: string): Promise<LandingEvent> {
       cache: 'no-store',
     })
     if (!res.ok) {
-      return { slug, title: slug, description: null, poster_url: null, client_bot_handle: null }
+      return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null }
     }
     const data = await res.json()
     return {
@@ -42,10 +43,11 @@ async function getEvent(slug: string): Promise<LandingEvent> {
       title: data.title ?? slug,
       description: data.description ?? null,
       poster_url: data.poster_url ?? null,
+      client_id: data.client_id ?? null,
       client_bot_handle: data.client_bot_handle ?? null,
     }
   } catch {
-    return { slug, title: slug, description: null, poster_url: null, client_bot_handle: null }
+    return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null }
   }
 }
 
@@ -67,12 +69,15 @@ export default async function EventLandingPage({ params }: { params: { slug: str
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{event.title}</title>
 
-        {/* PAGE_CODE и APP_CONFIG задаются динамически — без app_config.js */}
+        {/* PAGE_CODE / CLIENT_ID / APP_CONFIG задаются динамически — без app_config.js.
+            CLIENT_ID попадает в startapp как `_cid{N}` — это страховка на случай, если
+            у бота клиента в BotFather прописан общий URL Mini App вместо /c/{N}/tg/. */}
         <Script id="page-code" strategy="beforeInteractive">
           {`var PAGE_CODE = ${JSON.stringify(event.slug)};
+            var CLIENT_ID = ${JSON.stringify(event.client_id)};
             var APP_CONFIG = { tg: ${JSON.stringify(tgUrl)} };`}
         </Script>
-        <Script src="/redirect_web_app/redirect_web_app.js?v=4" strategy="beforeInteractive" />
+        <Script src="/redirect_web_app/redirect_web_app.js?v=5" strategy="beforeInteractive" />
       </head>
       <body
         style={{
