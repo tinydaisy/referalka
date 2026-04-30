@@ -263,57 +263,76 @@ export default function ProgramTab({ event }: Props) {
         </a>
       )}
 
-      {/* Стрим + Чат */}
-      {(hasStream || hasChat) && (
-        <div style={{ display: 'grid', gridTemplateColumns: hasStream && hasChat ? '1fr 1fr' : '1fr', gap: 8, marginBottom: 12 }}>
-          {hasStream && event?.stream_url && (
-            <a href={event.stream_url} target="_blank" rel="noreferrer" style={{
-              background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
-              borderRadius: 14, padding: 12, textDecoration: 'none',
+      {/* Стрим — отдельная плашка во всю ширину */}
+      {hasStream && event?.stream_url && (
+        <a href={event.stream_url} target="_blank" rel="noreferrer" style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+          borderRadius: 14, padding: 14, textDecoration: 'none', marginBottom: 10,
+        }}>
+          <div style={{
+            background: '#d32f2f', color: 'white', fontSize: 11, fontWeight: 900,
+            padding: '8px 12px', borderRadius: 8, letterSpacing: 1.2,
+            display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+          }}>
+            <span style={{ width: 6, height: 6, background: 'white', borderRadius: '50%', display: 'inline-block' }}/>
+            LIVE
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>Смотреть стрим</div>
+            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>Эфир уже идёт — подключайтесь</div>
+          </div>
+          <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
+        </a>
+      )}
+
+      {/* Чат события — отдельная плашка во всю ширину */}
+      {hasChat && (
+        <>
+          <a href={event.chat_url} target="_blank" rel="noreferrer" style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+            borderRadius: 14, padding: 14, textDecoration: 'none',
+            marginBottom: event?.chat_subscriptions_required ? 0 : 12,
+            borderBottomLeftRadius:  event?.chat_subscriptions_required ? 0 : 14,
+            borderBottomRightRadius: event?.chat_subscriptions_required ? 0 : 14,
+          }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 10,
+              background: 'rgba(255,207,164,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-                <div style={{
-                  background: '#d32f2f', color: 'white', fontSize: 11, fontWeight: 900,
-                  padding: '8px 12px', borderRadius: 8, letterSpacing: 1.2,
-                  display: 'flex', alignItems: 'center', gap: 5,
-                }}>
-                  <span style={{ width: 6, height: 6, background: 'white', borderRadius: '50%', display: 'inline-block' }}/>
-                  LIVE
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>Стрим</div>
-                  <div style={{ fontSize: 10, opacity: 0.7 }}>Эфир идёт</div>
-                </div>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Чат события</div>
+              <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+                {event.chat_member_count_label || 'Общение участников и спикеров'}
               </div>
-              <div style={{ background: PEACH, color: DARK, padding: 7, borderRadius: 8,
-                            textAlign: 'center', fontWeight: 700, fontSize: 11 }}>Смотреть →</div>
-            </a>
-          )}
-          {hasChat && (
-            <a href={event.chat_url} target="_blank" rel="noreferrer" style={{
-              background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
-              borderRadius: 14, padding: 12, textDecoration: 'none',
+            </div>
+            <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
+          </a>
+
+          {/* Условие входа в чат — подписки */}
+          {event?.chat_subscriptions_required && (
+            <div style={{
+              background: PEACH, color: DARK,
+              borderTop: '1px solid rgba(37,69,93,0.15)',
+              borderRadius: '0 0 14px 14px', padding: '10px 14px',
+              fontSize: 12, fontWeight: 700, lineHeight: 1.4, marginBottom: 12,
+              display: 'flex', alignItems: 'center', gap: 10,
             }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-                <div style={{
-                  width: 36, height: 36, borderRadius: 10,
-                  background: 'rgba(255,207,164,0.15)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                }}>
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                  </svg>
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>Чат</div>
-                  <div style={{ fontSize: 10, opacity: 0.7 }}>{event.chat_member_count_label || 'Общение участников'}</div>
-                </div>
-              </div>
-              <div style={{ background: PEACH, color: DARK, padding: 7, borderRadius: 8,
-                            textAlign: 'center', fontWeight: 700, fontSize: 11 }}>Вступить →</div>
-            </a>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={DARK} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8"  x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span>Чтобы войти в чат, подпишитесь на каналы организатора и спикеров</span>
+            </div>
           )}
-        </div>
+        </>
       )}
 
       {/* Программа по дням — аккордеон */}
