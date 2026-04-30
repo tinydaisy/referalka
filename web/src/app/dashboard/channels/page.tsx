@@ -907,6 +907,8 @@ interface ImportResult {
   stats: {
     total_rows: number
     created_contacts: number
+    matched_by_tg_id: number
+    merged_by_email_phone: number
     matched_existing: number
     subscribed: number
     unsubscribed: number
@@ -914,6 +916,7 @@ interface ImportResult {
     skipped_invalid_tgid: number
     duplicates_in_file: number
     mismatches: number
+    tg_clash_skipped: number
   }
   report_text: string
   channel_name: string
@@ -1112,7 +1115,7 @@ function ImportResultView({ result, onDownloadReport, onClose }: {
   onClose: () => void
 }) {
   const s = result.stats
-  const hasIssues = s.skipped_no_tgid + s.skipped_invalid_tgid + s.duplicates_in_file + s.mismatches > 0
+  const hasIssues = s.skipped_no_tgid + s.skipped_invalid_tgid + s.duplicates_in_file + s.mismatches + (s.tg_clash_skipped || 0) > 0
 
   return (
     <div className="space-y-4">
@@ -1128,33 +1131,37 @@ function ImportResultView({ result, onDownloadReport, onClose }: {
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Создано контактов" value={s.created_contacts} color="#25455D" />
-        <StatCard label="Найдено существующих" value={s.matched_existing} color="#25455D" />
+        <StatCard label="Уже были (по tg_id)" value={s.matched_by_tg_id} color="#25455D" />
+        <StatCard label="Объединили по email/телефону" value={s.merged_by_email_phone} color="#7c3aed" />
         <StatCard label="Подписано на канал" value={s.subscribed} color="#16a34a" />
         <StatCard label="Отписано от канала" value={s.unsubscribed} color="#9ca3af" />
+        {s.tg_clash_skipped > 0 && (
+          <StatCard label="Конфликт TG-identity" value={s.tg_clash_skipped} color="#dc2626" />
+        )}
       </div>
 
       {hasIssues && (
-        <div className="space-y-3">
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <div className="font-semibold text-amber-900 text-sm mb-2 flex items-center gap-2">
-              <AlertTriangle size={16} /> Есть нестыковки и пропуски
-            </div>
-            <ul className="text-sm text-amber-900 space-y-1">
-              {s.skipped_no_tgid > 0 && <li>• Пропущено без telegram_id: <b>{s.skipped_no_tgid}</b></li>}
-              {s.skipped_invalid_tgid > 0 && <li>• Пропущено с невалидным telegram_id: <b>{s.skipped_invalid_tgid}</b></li>}
-              {s.duplicates_in_file > 0 && <li>• Дубликатов внутри файла: <b>{s.duplicates_in_file}</b></li>}
-              {s.mismatches > 0 && <li>• Нестыковок (CSV ≠ БД, оставлено как в БД): <b>{s.mismatches}</b></li>}
-            </ul>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="font-semibold text-amber-900 text-sm mb-2 flex items-center gap-2">
+            <AlertTriangle size={16} /> Есть нестыковки и пропуски
           </div>
-          <button
-            onClick={onDownloadReport}
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-medium text-sm"
-            style={{ color: '#25455D' }}
-          >
-            <Download size={15} /> Скачать отчёт об ошибках (TXT)
-          </button>
+          <ul className="text-sm text-amber-900 space-y-1">
+            {s.skipped_no_tgid > 0 && <li>• Пропущено без telegram_id: <b>{s.skipped_no_tgid}</b></li>}
+            {s.skipped_invalid_tgid > 0 && <li>• Пропущено с невалидным telegram_id: <b>{s.skipped_invalid_tgid}</b></li>}
+            {s.duplicates_in_file > 0 && <li>• Дубликатов внутри файла: <b>{s.duplicates_in_file}</b></li>}
+            {s.mismatches > 0 && <li>• Нестыковок (CSV ≠ БД, оставлено как в БД): <b>{s.mismatches}</b></li>}
+            {s.tg_clash_skipped > 0 && <li>• Конфликт TG-identity (не привязали): <b>{s.tg_clash_skipped}</b></li>}
+          </ul>
         </div>
       )}
+
+      <button
+        onClick={onDownloadReport}
+        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-medium text-sm"
+        style={{ color: '#25455D' }}
+      >
+        <Download size={15} /> Скачать полный отчёт (TXT)
+      </button>
 
       <button
         onClick={onClose}

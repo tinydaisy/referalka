@@ -182,16 +182,21 @@ async def import_csv_to_channel(
 
     stats = {
         'total_rows': 0,
-        'created_contacts': 0,      # новый contact
-        'matched_existing': 0,       # contact_id найден через platform_users или email/phone
-        'subscribed': 0,             # стал подписан (новая запись или is_unsubscribed=false)
-        'unsubscribed': 0,           # стал отписан (по CSV)
+        'created_contacts': 0,       # новый contact (вообще не нашли в БД клиента)
+        'matched_by_tg_id': 0,       # tg_id уже был у клиента (другой бот того же клиента) — обычная склейка
+        'merged_by_email_phone': 0,  # ОБЪЕДИНЕНИЕ: новый tg_id, но contact найден по email/phone
+        'matched_existing': 0,       # сумма matched_by_tg_id + merged_by_email_phone (legacy)
+        'subscribed': 0,
+        'unsubscribed': 0,
         'skipped_no_tgid': 0,
         'skipped_invalid_tgid': 0,
         'duplicates_in_file': 0,
-        'mismatches': 0,             # в БД одно, в CSV другое — оставили БД
+        'mismatches': 0,
+        'tg_clash_skipped': 0,       # contact найден по email/phone, но у него уже другая TG-identity
     }
     report_lines: list[str] = []
+    merge_log: list[dict] = []       # детальный лог объединений (новый tg_id + найден contact по email/phone)
+    tg_match_log: list[dict] = []    # детальный лог склеек по tg_id (тот же клиент, другой бот)
 
     if unknown_headers:
         report_lines.append(f"⚠ Незнакомые колонки в файле (проигнорированы): {', '.join(unknown_headers)}")
@@ -262,7 +267,14 @@ async def import_csv_to_channel(
             if pu:
                 contact_id = pu['contact_id']
                 platform_user_id = pu['id']
+                stats['matched_by_tg_id'] += 1
                 stats['matched_existing'] += 1
+                tg_match_log.append({
+                    'row': row_num,
+                    'tg_id': tg_id,
+                    'contact_id': contact_id,
+                    'contact_name': pu['c_name'] or '(без имени)',
+                })
                 _check_mismatches(
                     report_lines, row_num, tg_id,
                     db_name=pu['c_name'], csv_name=csv_name,
@@ -289,7 +301,21 @@ async def import_csv_to_channel(
 
                 if contact_row:
                     contact_id = contact_row['id']
+                    stats['merged_by_email_phone'] += 1
                     stats['matched_existing'] += 1
+                    matched_by = []
+                    if csv_email_n and contact_row['email_normalized'] == csv_email_n:
+                        matched_by.append('email')
+                    if csv_phone_n and contact_row['phone_normalized'] == csv_phone_n:
+                        matched_by.append('телефон')
+                    merge_log.append({
+                        'row': row_num,
+                        'tg_id': tg_id,
+                        'contact_id': contact_id,
+                        'contact_name': contact_row['name'] or '(без имени)',
+                        'matched_by': '/'.join(matched_by) or 'email/phone',
+                        'csv_name': csv_name,
+                    })
                     _check_mismatches(
                         report_lines, row_num, tg_id,
                         db_name=contact_row['name'], csv_name=csv_name,
@@ -332,6 +358,7 @@ async def import_csv_to_channel(
                     contact_id
                 )
                 if clash_tg:
+                    stats['tg_clash_skipped'] += 1
                     report_lines.append(
                         f"Строка {row_num}: telegram_id={tg_id} не привязан — у контакта "
                         f"(совпал по email/phone) уже есть другой TG: {clash_tg}. "
@@ -385,23 +412,65 @@ async def import_csv_to_channel(
         f"Отчёт об импорте в канал «{channel['display_name']}»",
         f"Всего строк (без заголовка): {stats['total_rows']}",
         f"Создано новых контактов: {stats['created_contacts']}",
-        f"Найдено существующих контактов: {stats['matched_existing']}",
+        f"Уже были у клиента (склейка по tg_id, другой бот того же клиента): {stats['matched_by_tg_id']}",
+        f"Объединили со старым контактом по email/phone: {stats['merged_by_email_phone']}",
         f"Подписано на канал: {stats['subscribed']}",
         f"Отписано от канала: {stats['unsubscribed']}",
         f"Пропущено без telegram_id: {stats['skipped_no_tgid']}",
         f"Пропущено с невалидным telegram_id: {stats['skipped_invalid_tgid']}",
         f"Дубликатов внутри файла: {stats['duplicates_in_file']}",
         f"Нестыковок (CSV ≠ БД, оставлено как в БД): {stats['mismatches']}",
+        f"Пропущено из-за конфликта TG-identity: {stats['tg_clash_skipped']}",
         '',
         '─' * 60,
-        '',
     ]
-    if not report_lines:
-        report_lines = ['Все строки обработаны без замечаний.']
+
+    # Раздел: объединения по email/phone (новый tg_id привязан к существующему контакту)
+    merge_section: list[str] = []
+    if merge_log:
+        merge_section.append('')
+        merge_section.append(f"ОБЪЕДИНЕНИЯ ПО EMAIL/ТЕЛЕФОНУ — {len(merge_log)}")
+        merge_section.append('Новый telegram_id привязан к уже существующему контакту в БД клиента.')
+        merge_section.append('')
+        for m in merge_log:
+            line = (
+                f"  Строка {m['row']}: tg_id={m['tg_id']} → contact #{m['contact_id']} "
+                f"«{m['contact_name']}» (совпало по {m['matched_by']})"
+            )
+            if m.get('csv_name') and m['csv_name'].strip().lower() != m['contact_name'].strip().lower():
+                line += f" [в CSV имя: «{m['csv_name']}»]"
+            merge_section.append(line)
+        merge_section.append('')
+        merge_section.append('─' * 60)
+
+    # Раздел: склейки по tg_id (этот человек уже был в другом боте этого же клиента)
+    tg_match_section: list[str] = []
+    if tg_match_log:
+        tg_match_section.append('')
+        tg_match_section.append(f"СКЛЕЙКА ПО TG_ID — {len(tg_match_log)}")
+        tg_match_section.append('Этот telegram_id уже был у клиента (в другом боте). Просто добавили подписку на текущий канал.')
+        tg_match_section.append('')
+        for m in tg_match_log:
+            tg_match_section.append(
+                f"  Строка {m['row']}: tg_id={m['tg_id']} → contact #{m['contact_id']} «{m['contact_name']}»"
+            )
+        tg_match_section.append('')
+        tg_match_section.append('─' * 60)
+
+    # Раздел: проблемы и нестыковки
+    issues_section: list[str] = ['']
+    if report_lines:
+        issues_section.append('ЗАМЕЧАНИЯ И ОШИБКИ')
+        issues_section.append('')
+        issues_section.extend(report_lines)
+    else:
+        issues_section.append('Замечаний и ошибок нет — все строки обработаны чисто.')
+
+    full_text = '\n'.join(header + merge_section + tg_match_section + issues_section)
 
     return {
         'stats': stats,
-        'report_text': '\n'.join(header + report_lines),
+        'report_text': full_text,
         'channel_name': channel['display_name'],
     }
 
