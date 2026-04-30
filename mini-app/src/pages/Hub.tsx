@@ -40,8 +40,8 @@ export default function Hub({ clientId, tgUser, onOpenEvent }: Props) {
                  onClick={() => setTab('ecosystem')}
                  style={{
                    position: 'absolute', top: 14, right: 14,
-                   width: 36, height: 36, borderRadius: 8, objectFit: 'cover',
-                   background: 'rgba(255,255,255,0.95)', padding: 3,
+                   width: 36, height: 36, borderRadius: 8, objectFit: 'contain',
+                   background: 'transparent',
                    cursor: 'pointer',
                  }} />
           )}

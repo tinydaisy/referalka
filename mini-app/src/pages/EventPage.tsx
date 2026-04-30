@@ -161,8 +161,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
             <img src={event.client_brand_logo} alt=""
                  onClick={() => setTab('ecosystem')}
                  style={{
-                   width: 36, height: 36, borderRadius: 8, objectFit: 'cover',
-                   background: 'rgba(255,255,255,0.95)', padding: 3,
+                   width: 36, height: 36, borderRadius: 8, objectFit: 'contain',
+                   background: 'transparent',
                    cursor: 'pointer', flexShrink: 0,
                  }} />
           )}
