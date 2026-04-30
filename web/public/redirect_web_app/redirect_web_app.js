@@ -16,11 +16,12 @@
  *
  * Формат ссылки для открытия в Telegram:
  *   https://plusson.app/l/ivision-7?app=tg
- *   https://plusson.app/l/ivision-7?app=tg&new_partner_id=123&utm_source=insta
+ *   https://plusson.app/l/ivision-7?app=tg&pid=abc123&utm_source=insta
+ *   (старое имя `new_partner_id` тоже понимаем — для обратной совместимости)
  *
  * Формат startapp (передаётся в Telegram):
  *   ref_pg{event_slug}[_pid{partner_id}][_src{utm_source}]
- *   Примеры: ref_pgivision-7 · ref_pgivision-7_pid123 · ref_pgivision-7_pid123_srcinsta
+ *   Примеры: ref_pgivision-7 · ref_pgivision-7_pidabc123 · ref_pgivision-7_pidabc123_srcinsta
  * ─────────────────────────────────────────────────────────────
  */
 (function(){
@@ -31,7 +32,8 @@
   var app = sp.get('app') || '';
   if(!app) return;
 
-  var pid = sp.get('new_partner_id') || '';
+  // pid — короткое имя (новое); new_partner_id — старое (обратная совместимость).
+  var pid = sp.get('pid') || sp.get('new_partner_id') || '';
   var src = sp.get('utm_source')     || '';
 
   // ── Telegram ──────────────────────────────────────────────

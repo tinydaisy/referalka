@@ -160,7 +160,7 @@ API всех эндпоинтов событий ([`backend/app/api/events.py`](
 - Mini App (App.tsx): при открытии вызывает `requestWriteAccess` (разрешение боту писать), отправляет `event_start` на бэкенд, бот шлёт приветствие
 - Веб-ссылка: `https://plusson.app/l/ivision-7`
 - Ссылка в Telegram: `https://plusson.app/l/ivision-7?app=tg`
-- С партнёром и UTM: `https://plusson.app/l/ivision-7?app=tg&new_partner_id=123&utm_source=insta`
+- С партнёром и UTM: `https://plusson.app/l/ivision-7?app=tg&pid=abc123&utm_source=insta` (старое имя `new_partner_id` тоже работает — fallback в `redirect_web_app.js`)
 
 ### Визитка клиента — разделение «Бренд / Основатель» (миграция 052 от 30.04.2026)
 
@@ -585,13 +585,13 @@ CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Кон
 
 **Формат startapp:** `ref_pid{partner_id}_src{utm_source}`
 - `ref` — обязательный префикс-маркер
-- `pid` — промо-партнёр (new_partner_id), опционально
+- `pid` — реф-код партнёра (URL-параметр `?pid=…`, старое имя `?new_partner_id=…` поддержано как fallback), опционально
 - `src` — utm_source, опционально
 - Примеры: `ref`, `ref_pid5725111966`, `ref_srcinsta`, `ref_pid5725111966_srcinsta`
 
 **Ссылки из лендинга (ivision-conf):**
 - Веб: `https://ivision.margoforbs.ru/ivision-conf-7` (без `app=tg`)
-- Бот: `https://ivision.margoforbs.ru/ivision-conf-7?app=tg[&new_partner_id=...][&utm_source=...]`
+- Бот: `https://ivision.margoforbs.ru/ivision-conf-7?app=tg[&pid=...][&utm_source=...]` (старое имя `new_partner_id` поддержано)
 - Каждый HTML-лендинг содержит скрипт: если `app=tg` → redirect на `t.me/Margo_forbs_bot/ivision?startapp=...`
 
 **partnerId / utmSource** передаются в `EventPage` для fallback-регистрации (если участник не был зарегистрирован через GetCourse).

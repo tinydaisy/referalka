@@ -77,7 +77,7 @@ export default async function EventLandingPage({ params }: { params: { slug: str
             var CLIENT_ID = ${JSON.stringify(event.client_id)};
             var APP_CONFIG = { tg: ${JSON.stringify(tgUrl)} };`}
         </Script>
-        <Script src="/redirect_web_app/redirect_web_app.js?v=5" strategy="beforeInteractive" />
+        <Script src="/redirect_web_app/redirect_web_app.js?v=6" strategy="beforeInteractive" />
       </head>
       <body
         style={{
