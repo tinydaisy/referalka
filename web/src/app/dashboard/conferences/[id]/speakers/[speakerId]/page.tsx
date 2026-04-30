@@ -605,6 +605,9 @@ export default function ConferenceSpeakerPage() {
               <div className="font-semibold text-gray-800">Как подключить канал спикера к проверке подписки:</div>
               <ol className="list-decimal pl-4 space-y-1.5">
                 <li>
+                  <span className="font-semibold">Заполните выше «ID канала» и «ID личного аккаунта» спикера и сохраните профиль</span> — без них автопроверка не запустится.
+                </li>
+                <li>
                   Откройте канал спикера в Telegram → «Управление каналом» → «Администраторы» → «Добавить администратора».
                 </li>
                 <li>
