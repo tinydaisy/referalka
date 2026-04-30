@@ -151,11 +151,27 @@ export default function ProgramTab({ event, tgUser }: Props) {
     error?: string | null
   }>({ loading: false, notSubscribed: null })
 
+  // Открываем ссылку через Telegram WebApp SDK — window.open в Mini App
+  // не работает (silently fails). Для t.me-ссылок — openTelegramLink, для
+  // остальных — openLink. Браузер-фолбэк только если SDK недоступен.
+  function openExternal(url: string) {
+    const tg = (window as any).Telegram?.WebApp
+    if (tg?.openTelegramLink && /^https?:\/\/t\.me\//i.test(url)) {
+      tg.openTelegramLink(url)
+      return
+    }
+    if (tg?.openLink) {
+      tg.openLink(url)
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   async function openChatWithCheck() {
     if (!event?.chat_url) return
     // Не конференция → подписочный гейт неприменим, открываем как раньше.
     if (!isConference || !event?.id || !tgUser?.id) {
-      window.open(event.chat_url, '_blank', 'noopener,noreferrer')
+      openExternal(event.chat_url)
       return
     }
     setChatGate({ loading: true, notSubscribed: null, error: null })
@@ -163,7 +179,7 @@ export default function ProgramTab({ event, tgUser }: Props) {
       const r: any = await checkConferenceSubscription(event.id, tgUser.id)
       if (r?.status === 1) {
         setChatGate({ loading: false, notSubscribed: null })
-        window.open(event.chat_url, '_blank', 'noopener,noreferrer')
+        openExternal(event.chat_url)
       } else {
         setChatGate({ loading: false, notSubscribed: r?.not_subscribed || [] })
       }
@@ -179,7 +195,7 @@ export default function ProgramTab({ event, tgUser }: Props) {
       const r: any = await checkConferenceSubscription(event.id, tgUser.id)
       if (r?.status === 1) {
         setChatGate({ loading: false, notSubscribed: null })
-        window.open(event.chat_url, '_blank', 'noopener,noreferrer')
+        openExternal(event.chat_url)
       } else {
         setChatGate({ loading: false, notSubscribed: r?.not_subscribed || [] })
       }
