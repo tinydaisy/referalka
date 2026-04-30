@@ -713,34 +713,40 @@ async def update_speaker_event(
     return {"speaker": d}
 
 
-@router.post("/speakers/{speaker_event_id}/verify-channel", summary="Проверить подписку рабочего аккаунта на канал спикера")
+@router.post("/speakers/{speaker_event_id}/verify-channel", summary="Проверить, что бот видит подписку самого спикера на его канал")
 async def verify_speaker_channel(
     event_id: int,
     speaker_event_id: int,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    """Проверка идёт по personal_tg_id самого спикера — он гарантированно подписан
+    на свой канал. Если бот добавлен в админы канала и видит подписчиков —
+    getChatMember вернёт статус creator/administrator/member. Если нет — ошибка
+    Telegram расскажет почему (бот не в канале, нет прав, и т.п.).
+    """
     client_id = int(client["sub"])
     await check_conference_access(event_id, client_id, db)
-
-    client_row = await db.fetchrow(
-        "SELECT work_tg_id, work_tg_username FROM clients WHERE id = $1", client_id
-    )
-    if not client_row:
-        raise HTTPException(status_code=404, detail="Клиент не найден")
-
-    work_tg_id = client_row["work_tg_id"]
-    if not work_tg_id:
-        raise HTTPException(status_code=400, detail="Укажите ID рабочего аккаунта в настройках")
 
     from app.config import settings
     from app.services.channels import get_client_telegram_token
     token = (await get_client_telegram_token(client_id, db)) or settings.telegram_bot_token
     if not token:
-        raise HTTPException(status_code=400, detail="Не настроен токен бота")
+        raise HTTPException(status_code=400, detail="Не настроен главный бот клиента — подключите его в разделе «Каналы»")
+
+    # Получаем username бота для понятных сообщений об ошибках
+    bot_handle = ""
+    try:
+        async with httpx.AsyncClient(timeout=5) as http:
+            br = await http.get(f"https://api.telegram.org/bot{token}/getMe")
+        bot_handle = ((br.json() or {}).get("result") or {}).get("username", "") or ""
+    except Exception:
+        pass
+    bot_ref = f"@{bot_handle}" if bot_handle else "главный бот"
 
     row = await db.fetchrow(
-        """SELECT c.tg_channel_id FROM conf_speaker_events cse
+        """SELECT c.tg_channel_id, c.personal_tg_id, c.personal_tg_username, c.name
+           FROM conf_speaker_events cse
            JOIN collaborators c ON c.id = cse.speaker_id
            WHERE cse.id = $1 AND cse.event_id = $2""",
         speaker_event_id, event_id
@@ -750,13 +756,20 @@ async def verify_speaker_channel(
 
     channel_id = (row["tg_channel_id"] or "").strip()
     if not channel_id:
-        raise HTTPException(status_code=400, detail="Сначала укажите ID канала спикера")
+        raise HTTPException(status_code=400, detail="Сначала укажите ID канала спикера и сохраните профиль")
+
+    speaker_tg_id = row["personal_tg_id"]
+    if not speaker_tg_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Заполните «ID личного аккаунта» спикера и сохраните — без него не получится проверить канал автоматически"
+        )
 
     try:
         async with httpx.AsyncClient(timeout=8) as http:
             r = await http.get(
                 f"https://api.telegram.org/bot{token}/getChatMember",
-                params={"chat_id": channel_id, "user_id": work_tg_id}
+                params={"chat_id": channel_id, "user_id": speaker_tg_id}
             )
         data = r.json()
     except Exception as e:
@@ -764,33 +777,37 @@ async def verify_speaker_channel(
 
     if not data.get("ok"):
         desc = (data.get("description") or "").lower()
-        if "chat not found" in desc:
-            detail = "Канал не найден. Проверьте правильность ID канала — он должен начинаться с -100."
+        if "member list is inaccessible" in desc:
+            detail = f"Бот не админ канала. Добавьте {bot_ref} в администраторы канала спикера (без прав публикации — достаточно нулевых прав)."
+        elif "chat not found" in desc:
+            detail = "Канал не найден. Проверьте ID канала — он должен начинаться с -100."
         elif "user not found" in desc:
-            detail = "Рабочий аккаунт не найден в Telegram. Проверьте ID в настройках."
+            detail = "Личный аккаунт спикера не найден в Telegram. Проверьте «ID личного аккаунта»."
         elif "bot was kicked" in desc or "kicked" in desc:
-            detail = "Бот удалён из канала. Добавьте @ivision_conf_bot обратно в администраторы."
+            detail = f"Бот удалён из канала. Добавьте {bot_ref} обратно в администраторы."
         elif "not enough rights" in desc or "no rights" in desc:
-            detail = "У бота нет прав администратора в канале. Добавьте @ivision_conf_bot как администратора."
+            detail = f"У бота нет прав видеть подписчиков. Добавьте {bot_ref} как администратора."
         elif "forbidden" in desc:
-            detail = "Нет доступа к каналу. Убедитесь, что бот @ivision_conf_bot добавлен в администраторы."
+            detail = f"Нет доступа к каналу. Убедитесь, что {bot_ref} добавлен в администраторы канала."
         else:
-            detail = f"Не удалось проверить канал. Попробуйте снова или проверьте ID канала."
+            detail = f"Не удалось проверить канал. Telegram ответил: {data.get('description') or 'неизвестная ошибка'}"
         raise HTTPException(status_code=400, detail=detail)
 
     status = (data.get("result") or {}).get("status", "")
     if status not in ("member", "administrator", "creator", "restricted"):
-        username = (client_row["work_tg_username"] or "").lstrip("@") or str(work_tg_id)
+        # Спикер не подписан на собственный канал? Странно, но возможно — сами выгнали себя.
+        speaker_name = row["name"] or "Спикер"
         raise HTTPException(
             status_code=400,
-            detail=f"Рабочий аккаунт @{username} не подписан на канал. Подпишитесь и попробуйте снова."
+            detail=f"Бот видит канал, но {speaker_name} НЕ подписан(а) на свой канал (статус: {status or 'нет данных'}). Подпишитесь и попробуйте снова."
         )
 
     await db.execute(
         "UPDATE conf_speaker_events SET bot_in_channel = TRUE WHERE id = $1",
         speaker_event_id
     )
-    return {"ok": True, "message": "Подписка подтверждена, канал добавлен в список проверки"}
+    speaker_name = row["name"] or "спикер"
+    return {"ok": True, "message": f"Бот видит подписку — {speaker_name} в канале (статус: {status}). Канал добавлен в проверку."}
 
 
 @router.delete("/speakers/{speaker_event_id}", summary="Убрать спикера из события")

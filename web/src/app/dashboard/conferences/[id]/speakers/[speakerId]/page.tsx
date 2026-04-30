@@ -612,15 +612,10 @@ export default function ConferenceSpeakerPage() {
                   {' '}и добавьте его.
                 </li>
                 <li>
-                  <span className="font-semibold">Снимите ВСЕ галки прав</span> — бот не должен ничего делать в канале, он нужен только чтобы проверять, подписан ли участник. Сохраните.
+                  <span className="font-semibold">Снимите ВСЕ галки прав</span> — бот не должен ничего публиковать в канале, он нужен только чтобы видеть подписчиков. Сохраните.
                 </li>
                 <li>
-                  Для теста подпишитесь рабочим аккаунтом{' '}
-                  {clientWorkAccount
-                    ? <><span className="font-medium text-gray-800">{clientWorkAccount.username ? '@' + clientWorkAccount.username.replace(/^@/, '') : ''}</span>{' '}(<span className="font-mono">{clientWorkAccount.id}</span>)</>
-                    : <span className="text-amber-700">— укажите его в <a href="/dashboard/settings" className="underline">настройках</a></span>
-                  }
-                  {' '}на канал и поставьте галку ниже. Если бот видит подписку — канал добавится в проверку.
+                  Поставьте галку ниже — бот сам проверит, видит ли он подписку самого спикера на свой канал. Если видит — канал добавляется в проверку. Если нет — покажет, что не так.
                 </li>
               </ol>
             </div>
