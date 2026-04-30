@@ -176,7 +176,7 @@ export default function OwnerPage({ profile, onBack }: Props) {
                    display: 'inline-flex', alignItems: 'center', gap: 8,
                    background: 'white', padding: '10px 14px', borderRadius: 12,
                    border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
-                   color: DARK, fontWeight: 600, fontSize: 13, textDecoration: 'none',
+                   color: PEACH, fontWeight: 800, fontSize: 13, textDecoration: 'none',
                  }}>
                 <span style={{ display: 'inline-flex', color: PEACH }}><s.Icon /></span> {s.label}
               </a>
