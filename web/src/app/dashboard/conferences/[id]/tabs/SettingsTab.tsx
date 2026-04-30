@@ -38,6 +38,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   const [form, setForm] = useState({
     title: event?.title || '',
     description: conf?.description || '',
+    stream_url: conf?.stream_url || '',
+    chat_url: conf?.chat_url || '',
     registration_url: conf?.registration_url || '',
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
@@ -50,6 +52,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     setForm(f => ({
       ...f,
       description: conf?.description || '',
+      stream_url: conf?.stream_url || '',
+      chat_url: conf?.chat_url || '',
       registration_url: conf?.registration_url || '',
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
@@ -81,6 +85,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       onEventUpdated?.({ title: form.title })
       const updated = await api.conference.update(eventId, {
         description: form.description || null,
+        stream_url: form.stream_url || null,
+        chat_url: form.chat_url || null,
         registration_url: form.registration_url || null,
         raffle_url: form.raffle_url || null,
         subscription_mode: form.subscription_mode,
@@ -112,6 +118,26 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           <textarea value={form.description} onChange={set('description') as any} rows={3}
             placeholder={ts.descPlaceholder}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Ссылка на вебинарную комнату / стрим
+            <span className="text-gray-400 font-normal ml-1">— одна на все дни</span>
+          </label>
+          <input type="url" value={form.stream_url} onChange={set('stream_url')}
+            placeholder="https://us02web.zoom.us/j/... или https://youtube.com/live/..."
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          <p className="text-xs text-gray-400 mt-1">Если у каждого дня свой стрим — задаётся в редакторе программы по дням.</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Ссылка на общий чат участников
+            <span className="text-gray-400 font-normal ml-1">— Telegram-чат конференции</span>
+          </label>
+          <input type="url" value={form.chat_url} onChange={set('chat_url')}
+            placeholder="https://t.me/+..."
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          <p className="text-xs text-gray-400 mt-1">Появится плиткой «Чат» в Mini App в программе.</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
