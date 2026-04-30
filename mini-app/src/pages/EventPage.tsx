@@ -8,7 +8,7 @@ import ResultsTab from '../tabs/ResultsTab'
 import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
 import RegistrationFlow from '../components/RegistrationFlow'
-import { getEventLanding, getParticipantInEvent } from '../api'
+import { getEventLanding, getParticipantInEvent, registerParticipant } from '../api'
 
 type State = 'not_registered' | 'registered' | 'ended'
 
@@ -66,6 +66,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<string>('landing')
   const [showReg, setShowReg] = useState(false)
+  const [autoRegToast, setAutoRegToast] = useState<{ email: string; phone: string } | null>(null)
 
   // Загружаем лендинг события (публично) + проверяем участие (если есть tg_id)
   useEffect(() => {
@@ -75,16 +76,47 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
     Promise.all([
       getEventLanding(slug).catch(() => null),
       tgUser?.id ? getParticipantInEvent(slug, tgUser.id).catch(() => null) : Promise.resolve(null),
-    ]).then(([landing, part]) => {
+    ]).then(async ([landing, part]) => {
       if (cancelled) return
       setEvent(landing)
       setParticipant(part?.participant ? { ...part.participant, referrals_count: part.referrals_count } : null)
 
-      // Фиксируем «интересовался» при открытии события — даже если пользователь
-      // попал сюда из селектора (т.е. inline-скрипт в index.html не пускался
-      // с этим event_slug). Бэк делает upsert + ON CONFLICT DO NOTHING,
-      // так что повторно ничего не создаст.
-      if (tgUser?.id && slug && !part?.participant?.is_registered) {
+      const alreadyRegistered = !!part?.participant?.is_registered
+      const prefill = part?.prefill
+      const canAutoRegister = !!(prefill?.email?.trim() && prefill?.phone?.trim())
+      const ended = isEnded(landing)
+
+      // Авторегистрация: контакты уже в базе у этого клиента, событие не закрыто
+      // и человек ещё не зарегистрирован → регистрируем без формы и показываем
+      // плашку с email/phone полностью.
+      if (!alreadyRegistered && canAutoRegister && !ended && landing) {
+        try {
+          const r: any = await registerParticipant({
+            event_slug: slug,
+            tg_id: tgUser.id,
+            username: tgUser.username,
+            first_name: tgUser.first_name || prefill.name || '',
+            last_name:  tgUser.last_name  || '',
+            email: prefill.email,
+            phone: prefill.phone,
+            ref_code: partnerId,
+            utm_source: utmSource,
+          })
+          if (!cancelled) {
+            const reg = r?.participant || r
+            setParticipant({ ...reg, is_registered: true })
+            setAutoRegToast({ email: prefill.email, phone: prefill.phone })
+            setTab('program')
+            setTimeout(() => { if (!cancelled) setAutoRegToast(null) }, 6000)
+            return
+          }
+        } catch (_) {
+          // Не получилось авторегистрировать — fallback на обычный поток.
+        }
+      }
+
+      // Фиксируем «интересовался» — обычный поток без авторегистрации.
+      if (tgUser?.id && slug && !alreadyRegistered) {
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/event`, {
           method: 'POST',
           keepalive: true,
@@ -104,11 +136,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
       }
 
       // Initial tab по состоянию
-      const ended = isEnded(landing)
-      const registered = !!part?.participant?.is_registered
-      if (ended)             setTab('results')
-      else if (registered)   setTab('program')
-      else                   setTab('landing')
+      if (ended)                  setTab('results')
+      else if (alreadyRegistered) setTab('program')
+      else                        setTab('landing')
     }).finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
@@ -192,6 +222,20 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
           )}
         </div>
       </div>
+
+      {/* Плашка после авторегистрации — показывает email/phone полностью на 6 секунд */}
+      {autoRegToast && (
+        <div style={{
+          background: '#FFCFA4', color: '#25455D', padding: '10px 14px',
+          fontSize: 12, lineHeight: 1.45, fontWeight: 700,
+          borderBottom: '1px solid #f0b87a',
+        }}>
+          ✓ Вы зарегистрированы — данные взяты из вашей карточки:
+          <div style={{ marginTop: 4, fontWeight: 600, wordBreak: 'break-all' }}>
+            {autoRegToast.email} · {autoRegToast.phone}
+          </div>
+        </div>
+      )}
 
       <div className="page">
         {tab === 'landing'   && <LandingTab  event={event} onRegister={() => setShowReg(true)} />}

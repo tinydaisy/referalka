@@ -358,6 +358,21 @@ async def get_participant_in_event(
     tg_id: int,
     db: asyncpg.Connection = Depends(get_db)
 ):
+    # Контакт у клиента ЭТОГО события (по tg_id). Email/phone отсюда —
+    # если оба поля заполнены, фронт пропускает форму регистрации.
+    prefill = await db.fetchrow(
+        """SELECT c.email, c.phone, c.name
+             FROM events e
+             JOIN platform_users pu ON pu.client_id = e.client_id
+                                    AND pu.platform_slug = 'telegram'
+                                    AND pu.platform_user_id = $2
+             JOIN contacts c ON c.id = pu.contact_id
+            WHERE e.slug = $1
+            LIMIT 1""",
+        event_slug, str(tg_id)
+    )
+    prefill_dict = dict(prefill) if prefill else None
+
     row = await db.fetchrow(
         """SELECT ep.id, c.ref_code, ep.is_registered, ep.is_in_chat, ep.registered_at, ep.activated_at,
                   e.title AS event_title, e.module_slug
@@ -370,11 +385,13 @@ async def get_participant_in_event(
         event_slug, str(tg_id)
     )
     if not row:
-        raise HTTPException(status_code=404, detail="Участник не найден")
+        # Участника ещё нет — но prefill может быть (контакт уже в базе клиента
+        # из другого события или из импорта). Возвращаем 200, не 404.
+        return {"participant": None, "referrals_count": 0, "prefill": prefill_dict}
 
     referrals = await db.fetchval(
         "SELECT COUNT(*) FROM event_participants WHERE referrer_participant_id = $1",
         row["id"]
     )
 
-    return {"participant": dict(row), "referrals_count": referrals}
+    return {"participant": dict(row), "referrals_count": referrals, "prefill": prefill_dict}
