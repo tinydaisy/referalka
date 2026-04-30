@@ -6,25 +6,59 @@
  *   /l/ivision-7           → показывает веб-лендинг события
  *   /l/ivision-7?app=tg    → redirect_web_app.js редиректит в Telegram Mini App
  *
- * Данные события берутся из API (из БД). Пока API не подключен — заглушка.
+ * Куда именно редиректит (бот клиента vs общий @pluson_bot) — определяется
+ * прямо на странице через `APP_CONFIG.tg`, который собирается из данных события:
+ *   - есть подключённый главный TG-бот клиента (channels) → t.me/<bot_handle>
+ *   - нет → t.me/pluson_bot/pluson (общий fallback)
  */
 
 import Script from 'next/script'
 
-// TODO: заменить заглушку на реальный запрос к API
-async function getEvent(slug: string) {
-  // В будущем: fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/events/by_slug/${slug}`)
-  return {
-    slug,
-    title: slug,           // пока slug как название
-    description: '',
-    poster_url: null as string | null,
-    landing_url: null as string | null,
+type LandingEvent = {
+  slug: string
+  title: string
+  description: string | null
+  poster_url: string | null
+  client_bot_handle: string | null
+}
+
+const FALLBACK_TG_URL = 'https://t.me/pluson_bot/pluson'
+
+async function getEvent(slug: string): Promise<LandingEvent> {
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.API_URL ||
+    'http://localhost:8000'
+  try {
+    const res = await fetch(`${apiBase}/api/v1/public/events/${slug}/landing`, {
+      cache: 'no-store',
+    })
+    if (!res.ok) {
+      return { slug, title: slug, description: null, poster_url: null, client_bot_handle: null }
+    }
+    const data = await res.json()
+    return {
+      slug: data.slug ?? slug,
+      title: data.title ?? slug,
+      description: data.description ?? null,
+      poster_url: data.poster_url ?? null,
+      client_bot_handle: data.client_bot_handle ?? null,
+    }
+  } catch {
+    return { slug, title: slug, description: null, poster_url: null, client_bot_handle: null }
   }
+}
+
+function buildTgRedirectUrl(botHandle: string | null): string {
+  if (!botHandle) return FALLBACK_TG_URL
+  // Бот клиента: Main Mini App открывается через t.me/<handle> + ?startapp=...
+  // (скрипт redirect_web_app.js допишет ?startapp=ref_pgSLUG_pidX_srcY)
+  return `https://t.me/${botHandle}`
 }
 
 export default async function EventLandingPage({ params }: { params: { slug: string } }) {
   const event = await getEvent(params.slug)
+  const tgUrl = buildTgRedirectUrl(event.client_bot_handle)
 
   return (
     <html lang="ru">
@@ -33,12 +67,12 @@ export default async function EventLandingPage({ params }: { params: { slug: str
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{event.title}</title>
 
-        {/* PAGE_CODE = event slug — передаётся в redirect_web_app.js */}
+        {/* PAGE_CODE и APP_CONFIG задаются динамически — без app_config.js */}
         <Script id="page-code" strategy="beforeInteractive">
-          {`var PAGE_CODE = '${event.slug}';`}
+          {`var PAGE_CODE = ${JSON.stringify(event.slug)};
+            var APP_CONFIG = { tg: ${JSON.stringify(tgUrl)} };`}
         </Script>
-        <Script src="/redirect_web_app/app_config.js?v=3" strategy="beforeInteractive" />
-        <Script src="/redirect_web_app/redirect_web_app.js?v=3" strategy="beforeInteractive" />
+        <Script src="/redirect_web_app/redirect_web_app.js?v=4" strategy="beforeInteractive" />
       </head>
       <body
         style={{
@@ -55,7 +89,6 @@ export default async function EventLandingPage({ params }: { params: { slug: str
           boxSizing: 'border-box',
         }}
       >
-        {/* Афиша события */}
         {event.poster_url && (
           <img
             src={event.poster_url}
@@ -74,7 +107,6 @@ export default async function EventLandingPage({ params }: { params: { slug: str
           </p>
         )}
 
-        {/* Кнопка открытия в Telegram — скрипт обработает редирект через ?app=tg */}
         <a
           href={`?app=tg`}
           style={{

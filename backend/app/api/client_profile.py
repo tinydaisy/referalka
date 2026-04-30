@@ -268,7 +268,14 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    e.chat_url, e.chat_subscriptions_required, e.chat_member_count_label,
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,
-                   c.brand_logo_url AS client_brand_logo
+                   c.brand_logo_url AS client_brand_logo,
+                   (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
+                      FROM channels ch
+                     WHERE ch.client_id = e.client_id
+                       AND ch.platform_slug = 'telegram'
+                       AND ch.is_active = TRUE
+                       AND ch.bot_token IS NOT NULL
+                     LIMIT 1) AS client_bot_handle
               FROM events e
               JOIN clients c ON c.id = e.client_id
               LEFT JOIN cd ON cd.event_id = e.id
