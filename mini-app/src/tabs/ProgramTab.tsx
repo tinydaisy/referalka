@@ -132,8 +132,11 @@ export default function ProgramTab({ event }: Props) {
   const [loadingDay, setLoadingDay] = useState<number | null>(null)
   const [highlightSpeakerId, setHighlightSpeakerId] = useState<number | null>(null)
 
-  // Блок стрима — только в день вебинара / один из дней конференции.
-  const hasStream = !!event?.stream_url && isStreamDay(event, days)
+  // Блок стрима показываем всегда если URL задан. В день вебинара /
+  // один из дней конференции — активная ссылка с LIVE-значком.
+  // В остальные дни — неактивная плашка-«заглушка» с пояснением.
+  const hasStream = !!event?.stream_url
+  const streamLive = hasStream && isStreamDay(event, days)
 
   const speakersScrollRef = useRef<HTMLDivElement | null>(null)
   const speakerCardRefs   = useRef<Record<number, HTMLDivElement | null>>({})
@@ -284,27 +287,54 @@ export default function ProgramTab({ event }: Props) {
         </a>
       )}
 
-      {/* Стрим — отдельная плашка во всю ширину */}
-      {hasStream && event?.stream_url && (
-        <a href={event.stream_url} target="_blank" rel="noreferrer" style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
-          borderRadius: 14, padding: 14, textDecoration: 'none', marginBottom: 10,
-        }}>
-          <div style={{
-            background: '#d32f2f', color: 'white', fontSize: 11, fontWeight: 900,
-            padding: '8px 12px', borderRadius: 8, letterSpacing: 1.2,
-            display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+      {/* Стрим — плашка во всю ширину.
+          В день вебинара/конференции — активная ссылка с LIVE-значком.
+          В остальные дни — неактивная заглушка «появится в день эфира». */}
+      {hasStream && (
+        streamLive ? (
+          <a href={event.stream_url} target="_blank" rel="noreferrer" style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+            borderRadius: 14, padding: 14, textDecoration: 'none', marginBottom: 10,
           }}>
-            <span style={{ width: 6, height: 6, background: 'white', borderRadius: '50%', display: 'inline-block' }}/>
-            LIVE
+            <div style={{
+              background: '#d32f2f', color: 'white', fontSize: 11, fontWeight: 900,
+              padding: '8px 12px', borderRadius: 8, letterSpacing: 1.2,
+              display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+            }}>
+              <span style={{ width: 6, height: 6, background: 'white', borderRadius: '50%', display: 'inline-block' }}/>
+              LIVE
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Смотреть стрим</div>
+              <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>Эфир уже идёт — подключайтесь</div>
+            </div>
+            <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
+          </a>
+        ) : (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+            borderRadius: 14, padding: 14, marginBottom: 10, opacity: 0.85,
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+              background: 'rgba(255,207,164,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7"/>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Стрим</div>
+              <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2, lineHeight: 1.35 }}>
+                В день эфира здесь появится ссылка для подключения
+              </div>
+            </div>
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800 }}>Смотреть стрим</div>
-            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>Эфир уже идёт — подключайтесь</div>
-          </div>
-          <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
-        </a>
+        )
       )}
 
       {/* Чат события — отдельная плашка во всю ширину */}
