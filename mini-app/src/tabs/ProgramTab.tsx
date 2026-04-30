@@ -98,10 +98,15 @@ function tgLink(url?: string | null, username?: string | null): string | null {
   return null
 }
 
-// Блок стрима показывается ТОЛЬКО в дни события — не раньше и не позже.
-// Окно: от 00:00 первого дня (start_at) до 23:59 последнего дня (end_at).
-// Для конференций start_at/end_at в API уже считаются как MIN/MAX из conf_days.
-function isStreamDay(event: any): boolean {
+// Блок стрима показывается ТОЛЬКО в дни события.
+// Для конференций — если сегодня = одна из дат `conf_days.day_date`
+// (поддерживает любые конфигурации, в т.ч. дни с пропусками).
+// Для одиночных событий — если сегодня попадает в [start_at..end_at].
+function isStreamDay(event: any, days: Day[]): boolean {
+  const today = todayIso()
+  if (event?.module_slug === 'conference' && days.length > 0) {
+    return days.some(d => d.day_date === today)
+  }
   if (!event?.start_at) return false
   const start = new Date(event.start_at)
   if (isNaN(start.getTime())) return false
@@ -119,7 +124,6 @@ export default function ProgramTab({ event }: Props) {
   const vipUrl  = event?.vip_url || ''
   const hasVip  = !!vipUrl
   const hasChat = !!event?.chat_url
-  const hasStream = !!event?.stream_url && isStreamDay(event)
 
   const [days, setDays] = useState<Day[]>([])
   const [sessionsByDay, setSessionsByDay] = useState<Record<number, Session[]>>({})
@@ -127,6 +131,9 @@ export default function ProgramTab({ event }: Props) {
   const [openDay, setOpenDay] = useState<number | null>(null)
   const [loadingDay, setLoadingDay] = useState<number | null>(null)
   const [highlightSpeakerId, setHighlightSpeakerId] = useState<number | null>(null)
+
+  // Блок стрима — только в день вебинара / один из дней конференции.
+  const hasStream = !!event?.stream_url && isStreamDay(event, days)
 
   const speakersScrollRef = useRef<HTMLDivElement | null>(null)
   const speakerCardRefs   = useRef<Record<number, HTMLDivElement | null>>({})
@@ -365,10 +372,10 @@ export default function ProgramTab({ event }: Props) {
             {days.map(d => {
               const state = dayState(d)
               const isOpen = openDay === d.day_number
-              const dayLabel = `День ${d.day_number}`
-              const dateLabel = d.day_date
-                ? `${fmtDate(d.day_date)} · ${state === 'past' ? 'завершён' : state === 'today' ? 'идёт сейчас' : 'впереди'}`
-                : ''
+              const dayLabel = d.day_date
+                ? `День ${d.day_number} · ${fmtDate(d.day_date)}`
+                : `День ${d.day_number}`
+              const stateLabel = state === 'past' ? 'завершён' : state === 'today' ? 'идёт сейчас' : 'впереди'
               const accent = state === 'today'
               return (
                 <div key={d.day_number} style={{
@@ -388,22 +395,19 @@ export default function ProgramTab({ event }: Props) {
                       fontFamily: 'inherit', textAlign: 'left',
                     }}
                   >
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#1a2a3a',
-                                    display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {state === 'today' && (
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#d32f2f',
-                                         display: 'inline-block' }}/>
-                        )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                      {state === 'today' && (
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#d32f2f',
+                                       display: 'inline-block', flexShrink: 0 }}/>
+                      )}
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#1a2a3a', lineHeight: 1.2 }}>
                         {dayLabel}
                       </div>
-                      {dateLabel && (
-                        <div style={{ fontSize: 11, color: '#6b7c8e', marginTop: 2 }}>{dateLabel}</div>
-                      )}
+                      <div style={{ fontSize: 11, color: '#6b7c8e', fontWeight: 500 }}>· {stateLabel}</div>
                     </div>
                     <div style={{ fontSize: 18, color: '#c5cdd6',
                                   transform: isOpen ? 'rotate(90deg)' : 'none',
-                                  transition: 'transform 0.2s' }}>▸</div>
+                                  transition: 'transform 0.2s', flexShrink: 0 }}>▸</div>
                   </button>
 
                   {isOpen && (
