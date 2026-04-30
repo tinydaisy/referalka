@@ -25,7 +25,7 @@ export default function LandingTab({ event, onRegister }: Props) {
       {heroPoster && (
         <img src={heroPoster} alt={event?.title}
              style={{ width: 'calc(100% + 32px)', margin: '-16px -16px 0', display: 'block',
-                      aspectRatio: '16/9', objectFit: 'cover', borderRadius: '0 0 16px 16px' }} />
+                      objectFit: 'contain', borderRadius: '0 0 16px 16px' }} />
       )}
 
       <div style={{ padding: '20px 0 0' }}>
@@ -38,15 +38,6 @@ export default function LandingTab({ event, onRegister }: Props) {
             <span style={{ fontSize: 16 }}>📅</span>
             <span style={{ color: 'var(--warn)', fontSize: 13, fontWeight: 600 }}>
               {formatDateLong(event?.start_at)}
-            </span>
-          </div>
-        )}
-
-        {event?.address && (
-          <div className="card" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 16 }}>📍</span>
-            <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1.4, wordBreak: 'break-word' }}>
-              {event.address}
             </span>
           </div>
         )}
