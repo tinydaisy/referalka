@@ -97,16 +97,37 @@ async def delete_gift(
     return {"message": "Подарок удалён"}
 
 
+async def _fetch_gifts_for_event(event_id: int, db: asyncpg.Connection):
+    """
+    Подарки реф-программы из event_referral_thresholds + JOIN lead_magnets.
+    Возвращает список в формате, который ждёт Mini App (id, title, description,
+    points_cost, link_url, sort_order).
+    """
+    rows = await db.fetch(
+        """
+        SELECT t.id,
+               COALESCE(NULLIF(lm.name, ''), 'Подарок') AS title,
+               lm.description                          AS description,
+               t.threshold_count                       AS points_cost,
+               lm.url                                  AS link_url,
+               t.certificate_url                       AS certificate_url,
+               t.sort                                  AS sort_order
+          FROM event_referral_thresholds t
+          LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
+         WHERE t.event_id = $1
+         ORDER BY t.sort, t.threshold_count
+        """,
+        event_id,
+    )
+    return [dict(r) for r in rows]
+
+
 @router.get("/public/{event_slug}", summary="Подарки для Mini App (публично)")
 async def list_gifts_public(event_slug: str, db: asyncpg.Connection = Depends(get_db)):
     event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", event_slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
-    gifts = await db.fetch(
-        "SELECT id, title, description, points_cost, stock, sort_order FROM gifts WHERE event_id = $1 ORDER BY sort_order, points_cost",
-        event["id"]
-    )
-    return {"gifts": [dict(g) for g in gifts]}
+    return {"gifts": await _fetch_gifts_for_event(event["id"], db)}
 
 
 @router_compat.get("/{event_slug}/gifts/", summary="Подарки для Mini App — совместимый URL")
@@ -114,8 +135,4 @@ async def list_gifts_by_slug(event_slug: str, db: asyncpg.Connection = Depends(g
     event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", event_slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
-    gifts = await db.fetch(
-        "SELECT id, title, description, points_cost, stock, sort_order FROM gifts WHERE event_id = $1 ORDER BY sort_order, points_cost",
-        event["id"]
-    )
-    return {"gifts": [dict(g) for g in gifts]}
+    return {"gifts": await _fetch_gifts_for_event(event["id"], db)}
