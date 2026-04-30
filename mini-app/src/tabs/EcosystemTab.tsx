@@ -139,11 +139,12 @@ export default function EcosystemTab({ clientId }: Props) {
           background: 'radial-gradient(circle, rgba(255,207,164,0.18) 0%, transparent 70%)',
         }} />
         <div style={{ display: 'flex', gap: 14, alignItems: 'center', position: 'relative' }}>
-          {profile.profile_photo_url ? (
-            <img src={profile.profile_photo_url} alt=""
+          {profile.brand_logo_url ? (
+            <img src={profile.brand_logo_url} alt=""
                  style={{
                    width: 72, height: 72, borderRadius: 14,
-                   objectFit: 'cover', border: `2px solid ${PEACH}`, flexShrink: 0,
+                   objectFit: 'cover', background: 'rgba(255,255,255,0.95)', padding: 6,
+                   border: `2px solid ${PEACH}`, flexShrink: 0,
                  }} />
           ) : (
             <div style={{

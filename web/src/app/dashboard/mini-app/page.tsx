@@ -121,11 +121,10 @@ export default function MiniAppSettingsPage() {
       const cleanAch = (a: Achievement[]) => a.filter(x => x.label.trim() && x.value.trim())
       const updated = await api.miniApp.profile.update({
         // бренд
-        brand_name:        profile.brand_name        || null,
-        brand_logo_url:    profile.brand_logo_url    || null,
-        profile_photo_url: profile.profile_photo_url || null,
-        positioning:       profile.positioning       || null,
-        achievements:      cleanAch(profile.achievements),
+        brand_name:     profile.brand_name     || null,
+        brand_logo_url: profile.brand_logo_url || null,
+        positioning:    profile.positioning    || null,
+        achievements:   cleanAch(profile.achievements),
         // основатель
         owner_name:         profile.owner_name        || null,
         owner_photo_url:    profile.owner_photo_url   || null,
@@ -235,21 +234,9 @@ export default function MiniAppSettingsPage() {
           <Section
             step={2}
             title="Шапка Экосистемы"
-            hint="Верх вкладки «Экосистема» в Mini App — фото бренда, название и позиционирование."
+            hint="Верх вкладки «Экосистема» в Mini App — название и позиционирование. Картинка слева в шапке — это тот же логотип бренда из шага 1."
           >
             <div className="space-y-4 max-w-2xl">
-              <Field label="Фото бренда" hint="Большое фото вашей компании/команды/продукта.">
-                <FileUploader
-                  mode="single"
-                  kind="brand_photo"
-                  value={profile.profile_photo_url || null}
-                  onChange={url => update('profile_photo_url', url)}
-                  emptyText="Загрузите фото бренда"
-                  buttonLabel="Загрузить фото"
-                  aspectClass="aspect-square"
-                />
-              </Field>
-
               <Field label="Название бренда"
                      hint="Крупно в шапке. Если оставить пустым — будет показано имя из регистрации.">
                 <input type="text" value={profile.brand_name || ''}
