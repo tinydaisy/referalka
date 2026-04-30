@@ -215,6 +215,7 @@ class ReferralSettingsIn(BaseModel):
     welcome_text:    Optional[str] = None
     share_text:      Optional[str] = None
     gift_count_mode: Optional[str] = None   # 'registered' | 'visited'  (миграция 042)
+    is_enabled:      Optional[bool] = None  # вкл/выкл вкладки «Игра» в Mini App  (миграция 053)
 
 
 @router.get("/referral/settings", summary="Получить настройки реф-программы")
@@ -225,10 +226,12 @@ async def get_referral_settings(
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
     row = await db.fetchrow(
-        "SELECT welcome_text, share_text, gift_count_mode FROM event_referral_settings WHERE event_id = $1",
+        "SELECT welcome_text, share_text, gift_count_mode, is_enabled FROM event_referral_settings WHERE event_id = $1",
         event_id
     )
-    return dict(row) if row else {"welcome_text": None, "share_text": None, "gift_count_mode": "registered"}
+    if row:
+        return dict(row)
+    return {"welcome_text": None, "share_text": None, "gift_count_mode": "registered", "is_enabled": False}
 
 
 @router.put("/referral/settings", summary="Обновить настройки реф-программы (upsert)")
@@ -242,16 +245,18 @@ async def upsert_referral_settings(
     mode = data.gift_count_mode or "registered"
     if mode not in ("registered", "visited"):
         raise HTTPException(400, "gift_count_mode must be 'registered' or 'visited'")
+    is_enabled = bool(data.is_enabled) if data.is_enabled is not None else False
     row = await db.fetchrow(
-        """INSERT INTO event_referral_settings (event_id, welcome_text, share_text, gift_count_mode)
-           VALUES ($1, $2, $3, $4)
+        """INSERT INTO event_referral_settings (event_id, welcome_text, share_text, gift_count_mode, is_enabled)
+           VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (event_id) DO UPDATE
              SET welcome_text    = EXCLUDED.welcome_text,
                  share_text      = EXCLUDED.share_text,
                  gift_count_mode = EXCLUDED.gift_count_mode,
+                 is_enabled      = EXCLUDED.is_enabled,
                  updated_at      = NOW()
-           RETURNING welcome_text, share_text, gift_count_mode""",
-        event_id, data.welcome_text, data.share_text, mode
+           RETURNING welcome_text, share_text, gift_count_mode, is_enabled""",
+        event_id, data.welcome_text, data.share_text, mode, is_enabled
     )
     return dict(row)
 

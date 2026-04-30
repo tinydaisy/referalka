@@ -275,7 +275,11 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                        AND ch.platform_slug = 'telegram'
                        AND ch.is_active = TRUE
                        AND ch.bot_token IS NOT NULL
-                     LIMIT 1) AS client_bot_handle
+                     LIMIT 1) AS client_bot_handle,
+                   COALESCE((SELECT is_enabled FROM event_referral_settings
+                              WHERE event_id = e.id), FALSE) AS referral_enabled,
+                   COALESCE((SELECT is_enabled FROM event_raffle_settings
+                              WHERE event_id = e.id), FALSE) AS raffle_enabled
               FROM events e
               JOIN clients c ON c.id = e.client_id
               LEFT JOIN cd ON cd.event_id = e.id

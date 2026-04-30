@@ -19,6 +19,9 @@ export default function ReferralProgramTab({ eventId }: { eventId: number }) {
 
   return (
     <div>
+      {/* Активация вкладки «Игра» в Mini App */}
+      <ReferralEnabledToggle eventId={eventId} />
+
       {/* Sub-tabs + import */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div className="inline-flex p-1 bg-gray-100 rounded-lg">
@@ -51,6 +54,79 @@ export default function ReferralProgramTab({ eventId }: { eventId: number }) {
           onImported={() => { setShowImport(false); setReloadKey(k => k + 1) }}
         />
       )}
+    </div>
+  )
+}
+
+
+function ReferralEnabledToggle({ eventId }: { eventId: number }) {
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const settingsRef = { current: null as any }
+
+  useEffect(() => {
+    api.referralProgram.settings.get(eventId)
+      .then((d: any) => { settingsRef.current = d; setEnabled(!!d?.is_enabled) })
+      .catch(() => setEnabled(false))
+  }, [eventId])
+
+  async function toggle() {
+    if (enabled === null) return
+    const next = !enabled
+    setSaving(true); setErr(null)
+    try {
+      const cur = settingsRef.current || {}
+      await api.referralProgram.settings.save(eventId, {
+        welcome_text:    cur.welcome_text ?? null,
+        share_text:      cur.share_text ?? null,
+        gift_count_mode: cur.gift_count_mode ?? 'registered',
+        is_enabled:      next,
+      })
+      setEnabled(next)
+    } catch (e: any) {
+      setErr(e?.message || 'Не получилось сохранить')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (enabled === null) {
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5 text-sm text-gray-400">
+        Загружаем…
+      </div>
+    )
+  }
+
+  return (
+    <div className={`rounded-xl p-4 mb-5 border ${
+      enabled ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
+    }`}>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={toggle}
+          disabled={saving}
+          aria-label="Переключить активность"
+          className={`relative w-12 h-7 rounded-full transition flex-shrink-0 ${
+            enabled ? 'bg-green-600' : 'bg-gray-300'
+          } disabled:opacity-50`}>
+          <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition shadow ${
+            enabled ? 'translate-x-5' : ''
+          }`} />
+        </button>
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-gray-800">
+            {enabled ? 'Реф-программа активна' : 'Реф-программа выключена'}
+          </div>
+          <div className="text-xs text-gray-600 mt-0.5">
+            {enabled
+              ? 'Участники видят вкладку «🎯 Игра» в Mini App — партнёрская ссылка, прогресс, подарки.'
+              : 'Включите чтобы вкладка «🎯 Игра» появилась в Mini App у участников события.'}
+          </div>
+          {err && <div className="text-xs text-red-600 mt-1">{err}</div>}
+        </div>
+      </div>
     </div>
   )
 }
@@ -516,6 +592,7 @@ function TemplatesSection({ eventId }: { eventId: number }) {
   const [welcomeText, setWelcomeText] = useState('')
   const [shareText, setShareText] = useState('')
   const [giftCountMode, setGiftCountMode] = useState<'registered' | 'visited'>('registered')
+  const [isEnabled, setIsEnabled] = useState<boolean>(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
@@ -527,6 +604,7 @@ function TemplatesSection({ eventId }: { eventId: number }) {
         setWelcomeText(d.welcome_text || '')
         setShareText(d.share_text || '')
         setGiftCountMode((d.gift_count_mode === 'visited') ? 'visited' : 'registered')
+        setIsEnabled(!!d.is_enabled)
       })
       .finally(() => setLoading(false))
   }, [eventId])
@@ -538,6 +616,7 @@ function TemplatesSection({ eventId }: { eventId: number }) {
         welcome_text: welcomeText.trim() || null,
         share_text:   shareText.trim()   || null,
         gift_count_mode: giftCountMode,
+        is_enabled:   isEnabled,
       })
       setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1800)
     } catch (e: any) { setErr(e.message) }

@@ -126,10 +126,23 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
   const ended      = isEnded(event)
   const registered = !!participant?.is_registered
   const state: State = ended ? 'ended' : registered ? 'registered' : 'not_registered'
-  // Если событие завершено и участника нет — Игру не показываем
-  const navItemsEnded = participant ? NAV_ENDED : NAV_ENDED.filter(n => n.id !== 'game')
-  const navItems = state === 'not_registered' ? NAV_NOT_REG
-                 : state === 'registered'     ? NAV_REGISTERED
+
+  // Активность игры/розыгрыша определяется тогглами в дашборде клиента.
+  // Если клиент не включил — соответствующая вкладка вообще не показывается.
+  const refOn    = !!event?.referral_enabled
+  const raffleOn = !!event?.raffle_enabled
+
+  // Если событие завершено и участника нет — Игру тоже не показываем.
+  const filterByEnabled = (items: NavItem[]) => items.filter(n =>
+    (n.id !== 'game'   || refOn)    &&
+    (n.id !== 'raffle' || raffleOn)
+  )
+
+  const navItemsEnded = participant
+    ? filterByEnabled(NAV_ENDED)
+    : filterByEnabled(NAV_ENDED).filter(n => n.id !== 'game')
+  const navItems = state === 'not_registered' ? filterByEnabled(NAV_NOT_REG)
+                 : state === 'registered'     ? filterByEnabled(NAV_REGISTERED)
                  :                              navItemsEnded
 
   function handleRegistered(p: any) {
@@ -137,6 +150,15 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
     setShowReg(false)
     setTab('program')
   }
+
+  // Если текущая вкладка пропала из navItems (например клиент выключил
+  // рефералку/розыгрыш) — переключаем на первую доступную.
+  useEffect(() => {
+    if (!navItems.some(n => n.id === tab)) {
+      setTab(navItems[0]?.id || 'landing')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refOn, raffleOn, state])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
