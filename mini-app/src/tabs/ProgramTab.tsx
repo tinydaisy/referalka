@@ -377,23 +377,22 @@ export default function ProgramTab({ event, tgUser }: Props) {
         ) : (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12,
-            background: '#eef2f6', color: '#8a96a3',
-            border: '1px solid #e2e8ee',
+            background: '#7a8a9a', color: 'white',
             borderRadius: 14, padding: 14, marginBottom: 10,
           }}>
             <div style={{
               width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-              background: '#e2e8ee',
+              background: 'rgba(255,255,255,0.18)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8a96a3" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="23 7 16 12 23 17 23 7"/>
                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
               </svg>
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#6b7c8e' }}>Стрим</div>
-              <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.35, color: '#9ca8b4' }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Стрим</div>
+              <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.35, opacity: 0.9 }}>
                 В день эфира здесь появится ссылка для подключения
               </div>
             </div>
@@ -418,7 +417,11 @@ export default function ProgramTab({ event, tgUser }: Props) {
               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                <polyline points="20 12 20 22 4 22 4 12"/>
+                <rect x="2" y="7" width="20" height="5"/>
+                <line x1="12" y1="22" x2="12" y2="7"/>
+                <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/>
+                <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
               </svg>
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
