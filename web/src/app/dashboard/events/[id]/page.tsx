@@ -76,7 +76,7 @@ export default function EventPage() {
             onChange={(s) => setEvent((e: any) => ({ ...e, status: s }))}
           />
           {isConference && (
-            <Link href={`/dashboard/events/${id}/conference`}
+            <Link href={`/dashboard/conferences/${id}`}
                   className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-300 hover:bg-gray-50">
               Настройки конференции
             </Link>

@@ -19,7 +19,7 @@ export default function BroadcastsTab({ eventId, isConference }: {
           : 'Произвольные рассылки по аудитории события — в общем разделе «Рассылки».'}
       </p>
       <Link
-        href={isConference ? `/dashboard/events/${eventId}/conference` : `/dashboard/broadcasts`}
+        href={isConference ? `/dashboard/conferences/${eventId}/broadcasts/templates` : `/dashboard/broadcasts`}
         className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium"
         style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
       >

@@ -20,7 +20,7 @@ export default function AnalyticsPage() {
     { label: 'Обзор', href: `/dashboard/events/${id}` },
     { label: 'Аналитика', href: `/dashboard/events/${id}/analytics`, active: true },
     { label: 'Материалы', href: `/dashboard/events/${id}/materials` },
-    ...(event?.module_slug === 'conference' ? [{ label: 'Конференция', href: `/dashboard/events/${id}/conference` }] : []),
+    ...(event?.module_slug === 'conference' ? [{ label: 'Конференция', href: `/dashboard/conferences/${id}` }] : []),
   ]
 
   return (

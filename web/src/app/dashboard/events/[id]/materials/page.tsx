@@ -26,7 +26,7 @@ export default function MaterialsPage() {
     { label: 'Обзор', href: `/dashboard/events/${id}` },
     { label: 'Аналитика', href: `/dashboard/events/${id}/analytics` },
     { label: 'Материалы', href: `/dashboard/events/${id}/materials`, active: true },
-    ...(event?.module_slug === 'conference' ? [{ label: 'Конференция', href: `/dashboard/events/${id}/conference` }] : []),
+    ...(event?.module_slug === 'conference' ? [{ label: 'Конференция', href: `/dashboard/conferences/${id}` }] : []),
   ]
 
   return (
