@@ -111,24 +111,16 @@ export default function OwnerPage({ profile, onBack }: Props) {
         )}
       </div>
 
-      {/* Фото — большое */}
-      <div style={{ margin: '14px 0 16px' }}>
-        {profile.owner_photo_url ? (
+      {/* Фото — большое. Если фото нет — ничего не показываем (без заглушек). */}
+      {profile.owner_photo_url && (
+        <div style={{ margin: '14px 0 16px' }}>
           <img src={profile.owner_photo_url} alt={name}
                style={{
                  width: '100%', maxHeight: 360, objectFit: 'cover',
                  borderRadius: 16, border: `2px solid ${PEACH}`,
                }} />
-        ) : (
-          <div style={{
-            width: '100%', aspectRatio: '1', maxHeight: 360,
-            background: 'linear-gradient(135deg, #d4789a, #8b4561)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', fontWeight: 700, fontSize: 64,
-            borderRadius: 16, border: `2px solid ${PEACH}`,
-          }}>{initials(name)}</div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Регалии основателя */}
       {ach.length > 0 && (

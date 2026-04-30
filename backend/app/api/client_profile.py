@@ -295,25 +295,48 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
     )
     d["posters"] = [dict(p) for p in posters]
 
-    # Successor (следующее событие)
-    if row["successor_event_id"]:
-        succ = await db.fetchrow(
-            """SELECT e.id, e.slug, e.title, e.start_at,
-                      (SELECT url FROM event_posters
-                        WHERE event_id = e.id
-                        ORDER BY CASE orientation
-                                   WHEN 'square'     THEN 1
-                                   WHEN 'horizontal' THEN 2
-                                   WHEN 'vertical'   THEN 3
-                                   ELSE 4
-                                 END, sort, id
-                        LIMIT 1) AS poster_url
-                 FROM events e WHERE e.id = $1""",
-            row["successor_event_id"]
-        )
-        d["successor"] = dict(succ) if succ else None
-    else:
-        d["successor"] = None
+    # Successor — автоматически: ближайшее опубликованное событие того же
+    # клиента, начинающееся ПОСЛЕ конца текущего. Для конференций start_at
+    # берём из conf_days (MIN day_date + open_time, Europe/Moscow), для
+    # остальных модулей — events.start_at. Текущее событие исключаем.
+    succ = await db.fetchrow(
+        """WITH ev_start AS (
+              SELECT e.id, e.client_id, e.slug, e.title, e.module_slug, e.status,
+                     CASE WHEN e.module_slug = 'conference' THEN
+                       (SELECT (d.day_date + COALESCE(
+                                  NULLIF(d.open_time,'')::time,
+                                  (SELECT MIN(NULLIF(s.start_time,'')::time)
+                                     FROM conf_sessions s
+                                    WHERE s.event_id = e.id AND s.day = d.day_number),
+                                  '00:00'::time
+                                )) AT TIME ZONE 'Europe/Moscow'
+                          FROM conf_days d
+                         WHERE d.event_id = e.id
+                         ORDER BY d.day_number ASC LIMIT 1)
+                     ELSE e.start_at END AS start_at
+                FROM events e
+            )
+            SELECT s.id, s.slug, s.title, s.start_at,
+                   (SELECT url FROM event_posters
+                     WHERE event_id = s.id
+                     ORDER BY CASE orientation
+                                WHEN 'square'     THEN 1
+                                WHEN 'horizontal' THEN 2
+                                WHEN 'vertical'   THEN 3
+                                ELSE 4
+                              END, sort, id
+                     LIMIT 1) AS poster_url
+              FROM ev_start s
+             WHERE s.client_id = $1
+               AND s.status = 'published'
+               AND s.id <> $2
+               AND s.start_at IS NOT NULL
+               AND s.start_at > COALESCE($3::timestamptz, NOW())
+             ORDER BY s.start_at ASC
+             LIMIT 1""",
+        row["client_id"], row["id"], d.get("end_at") or d.get("start_at")
+    )
+    d["successor"] = dict(succ) if succ else None
 
     return d
 

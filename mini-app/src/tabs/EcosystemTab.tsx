@@ -194,17 +194,10 @@ export default function EcosystemTab({ clientId }: Props) {
                   border: '1px solid #FFE0C2', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
                   marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12,
                 }}>
-          {profile.owner_photo_url ? (
+          {profile.owner_photo_url && (
             <img src={profile.owner_photo_url} alt=""
                  style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', flexShrink: 0,
                           border: `2px solid ${PEACH}` }} />
-          ) : (
-            <div style={{
-              width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-              background: 'linear-gradient(135deg, #d4789a, #8b4561)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'white', fontWeight: 700, fontSize: 16, border: `2px solid ${PEACH}`,
-            }}>{initials(ownerName || profile.name)}</div>
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, color: DARK, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase' }}>
