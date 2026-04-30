@@ -45,6 +45,47 @@ def generate_ref_code(length: int = 8) -> str:
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
+async def resolve_ref_code(db, ref_code: Optional[str], client_id: Optional[int] = None):
+    """
+    Принимает входящий ref_code (любого формата, включая legacy длинный из
+    Salebot/GetCourse) и возвращает (актуальный_ref_code, contact_id).
+
+    Сначала пробуем точное совпадение в contacts.ref_code, затем fallback
+    на contacts.merged_ref_codes (туда положены старые ref_code после
+    миграции на короткий формат). Это нужно чтобы старые ссылки в воронках
+    клиента продолжали резолвиться.
+
+    Возвращает (None, None) если ничего не нашли.
+    """
+    if not ref_code:
+        return None, None
+
+    where_client = ""
+    args = [ref_code]
+    if client_id:
+        where_client = "AND client_id = $2"
+        args.append(client_id)
+
+    # 1) Прямое совпадение по актуальному ref_code
+    row = await db.fetchrow(
+        f"SELECT id, ref_code FROM contacts WHERE ref_code = $1 {where_client} LIMIT 1",
+        *args,
+    )
+    if row:
+        return row["ref_code"], row["id"]
+
+    # 2) Fallback: ищем в JSONB-массиве merged_ref_codes (legacy коды)
+    row = await db.fetchrow(
+        f"SELECT id, ref_code FROM contacts "
+        f"WHERE merged_ref_codes ? $1 {where_client} LIMIT 1",
+        *args,
+    )
+    if row:
+        return row["ref_code"], row["id"]
+
+    return None, None
+
+
 async def find_or_create_contact(
     db,
     *,

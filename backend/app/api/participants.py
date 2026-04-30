@@ -10,7 +10,7 @@ from typing import Optional
 import asyncpg
 
 from app.database import get_db
-from app.services.contact_merge import upsert_contact_with_identity
+from app.services.contact_merge import upsert_contact_with_identity, resolve_ref_code
 
 router = APIRouter(prefix="/participants", tags=["Участники"])
 
@@ -71,28 +71,34 @@ async def register_participant(
             )
         return {"participant": dict(existing), "is_new": False}
 
-    # Резолв реферера: если передан ref_code — берём, иначе через partner_tg_id
-    resolved_ref_code = data.ref_code
+    # Резолв реферера: если передан ref_code (может быть legacy длинный из
+    # старой ссылки в Salebot) — нормализуем в актуальный короткий через
+    # merged_ref_codes. Иначе пробуем достать по partner_tg_id.
+    resolved_ref_code = None
+    referrer_contact_id = None
+    if data.ref_code:
+        resolved_ref_code, referrer_contact_id = await resolve_ref_code(
+            db, data.ref_code, client_id=event["client_id"]
+        )
     if not resolved_ref_code and data.partner_tg_id:
-        partner_code = await db.fetchval(
-            """SELECT c.ref_code
+        partner_row = await db.fetchrow(
+            """SELECT c.id, c.ref_code
                  FROM platform_users pu
                  JOIN contacts c ON c.id = pu.contact_id
                 WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $2""",
             event["client_id"], str(data.partner_tg_id)
         )
-        if partner_code:
-            resolved_ref_code = partner_code
+        if partner_row:
+            resolved_ref_code = partner_row["ref_code"]
+            referrer_contact_id = partner_row["id"]
 
     # Если контакт-реферер тоже участник этого события — связываем
     referrer_participant_id = None
-    if resolved_ref_code:
+    if referrer_contact_id:
         referrer_participant_id = await db.fetchval(
-            """SELECT ep.id
-                 FROM contacts c
-                 JOIN event_participants ep ON ep.contact_id = c.id
-                WHERE c.ref_code = $1 AND ep.event_id = $2""",
-            resolved_ref_code, event["id"]
+            """SELECT id FROM event_participants
+                WHERE contact_id = $1 AND event_id = $2 LIMIT 1""",
+            referrer_contact_id, event["id"]
         )
 
     # ref_code контакта (уже создан в upsert_contact_with_identity, но получим для ответа)
