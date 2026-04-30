@@ -2,18 +2,21 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, ExternalLink, Copy, Check } from 'lucide-react'
+import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
 
 export default function ConnectBotInstructionPage() {
   const [origin, setOrigin] = useState(process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru')
+  const [clientId, setClientId] = useState<number | null>(null)
 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin)
+    api.auth.me().then((me: any) => setClientId(me?.id ?? null)).catch(() => {})
   }, [])
 
-  const miniAppUrl = `${origin}/tg/`
+  const miniAppUrl = clientId ? `${origin}/c/${clientId}/tg/` : `${origin}/c/.../tg/`
   const isDev = origin.includes('dev.')
 
   return (
@@ -55,13 +58,15 @@ export default function ConnectBotInstructionPage() {
       </div>
 
       {/* Главная ссылка для копирования */}
-      <Section step="●" title="Ваш URL Mini App">
+      <Section step="●" title="Ваш персональный URL Mini App">
         <p className="text-sm text-gray-600 mb-3">
-          Этот адрес нужен на шагах 2–4 ниже. Сохраните или скопируйте.
+          Это <strong>ваш</strong> адрес — у каждого клиента ПЛЮСОН он свой (отличается номером после <code>/c/</code>).
+          Используется на шагах 3 и 4 ниже.
         </p>
         <CopyBlock value={miniAppUrl} />
         <p className="text-xs text-gray-400 mt-2">
           ⚠️ Слэш в конце обязателен — без него Telegram не загрузит ассеты.
+          {!clientId && ' Загружаем ваш номер клиента…'}
         </p>
       </Section>
 
@@ -93,23 +98,35 @@ export default function ConnectBotInstructionPage() {
         <p className="text-sm text-gray-700 mb-3">
           Если у вас ещё нет Mini App в этом боте — создаём:
         </p>
-        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-4">
+        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-2">
           <li>Команда <code>/newapp</code> → выбрать вашего бота</li>
           <li><strong>Title:</strong> <code>ПЛЮСОН</code></li>
           <li><strong>Description:</strong> ваше описание</li>
           <li><strong>Photo:</strong> картинка 640×360 (логотип или превью)</li>
           <li><strong>GIF:</strong> можно пропустить — пришлите <code>/empty</code></li>
-          <li><strong>Web App URL:</strong> вставьте ссылку выше</li>
-          <li><strong>Short name:</strong> <code>app</code> (или любое короткое имя на латинице)</li>
+          <li>
+            <strong>Web App URL:</strong> вставьте эту ссылку →
+            <div className="mt-2 mb-1"><CopyBlock value={miniAppUrl} /></div>
+          </li>
+          <li>
+            <strong>Short name:</strong> любое короткое имя на латинице — например <code>app</code>, <code>kabinet</code>, <code>vip</code>.
+            <div className="text-xs text-gray-500 mt-1">
+              Это имя видит только Telegram (часть deep-link). На работу Mini App никак не влияет —
+              можно ставить какое угодно, главное чтобы Telegram его принял (если занято — попробуйте другое).
+            </div>
+          </li>
         </ol>
 
-        <p className="text-sm text-gray-700 mb-3">
+        <p className="text-sm text-gray-700 mt-4 mb-3">
           Если Mini App уже есть — обновляем URL:
         </p>
         <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5">
           <li>Команда <code>/myapps</code> → выбрать существующий Mini App</li>
           <li>Нажать <strong>«Edit Web App URL»</strong></li>
-          <li>Вставить ссылку выше — придёт <em>«Success! URL updated»</em></li>
+          <li>
+            Вставить эту ссылку — придёт <em>«Success! URL updated»</em>:
+            <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
+          </li>
         </ol>
       </Section>
 
@@ -121,9 +138,11 @@ export default function ConnectBotInstructionPage() {
           <li>В @BotFather: <code>/mybots</code> → выбрать бота → <strong>«Bot Settings»</strong></li>
           <li>Нажать <strong>«Menu Button»</strong> → <strong>«Configure menu button»</strong></li>
           <li><strong>Текст кнопки:</strong> <code>Открыть ПЛЮСОН</code></li>
-          <li><strong>URL:</strong> вставьте ссылку:</li>
+          <li>
+            <strong>URL:</strong> вставьте эту ссылку →
+            <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
+          </li>
         </ol>
-        <div className="mt-3"><CopyBlock value={miniAppUrl} /></div>
       </Section>
 
       <Section step="5" title="Прописать домен бота">
