@@ -137,6 +137,7 @@ export default function ConferenceSpeakerPage() {
   })
 
   const [clientWorkAccount, setClientWorkAccount] = useState<{ username: string; id: string } | null>(null)
+  const [mainBotHandle, setMainBotHandle] = useState<string>('')
 
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -151,6 +152,7 @@ export default function ConferenceSpeakerPage() {
   useEffect(() => {
     api.auth.me().then((c: any) => {
       if (c.work_tg_id) setClientWorkAccount({ username: c.work_tg_username || '', id: String(c.work_tg_id) })
+      if (c.main_bot_handle) setMainBotHandle(String(c.main_bot_handle))
     }).catch(() => {})
   }, [])
 
@@ -593,15 +595,35 @@ export default function ConferenceSpeakerPage() {
 
           {/* Подписка бота на канал */}
           <div className="pt-2 border-t border-gray-100 space-y-3">
-            <p className="text-xs text-gray-500 leading-relaxed">
-              Убедитесь, что бот <span className="font-medium text-gray-700">@ivision_conf_bot</span> добавлен в администраторы канала спикера.
-              Для теста подпишитесь аккаунтом{' '}
-              {clientWorkAccount
-                ? <><span className="font-medium text-gray-700">{clientWorkAccount.username ? '@' + clientWorkAccount.username.replace(/^@/, '') : ''}</span>{' '}(<span className="font-mono">{clientWorkAccount.id}</span>)</>
-                : <span className="text-amber-600">— укажите рабочий аккаунт в <a href="/dashboard/settings" className="underline">настройках</a></span>
-              }{' '}
-              на канал и установите галочку. Если проверка пройдёт успешно — канал будет добавлен в список подписки.
-            </p>
+            <div className="text-xs text-gray-600 leading-relaxed bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+              <div className="font-semibold text-gray-800">Как подключить канал спикера к проверке подписки:</div>
+              <ol className="list-decimal pl-4 space-y-1.5">
+                <li>
+                  Откройте канал спикера в Telegram → «Управление каналом» → «Администраторы» → «Добавить администратора».
+                </li>
+                <li>
+                  Найдите бота{' '}
+                  <span className="font-mono font-semibold text-gray-800">
+                    @{mainBotHandle || 'ваш_главный_бот'}
+                  </span>
+                  {!mainBotHandle && (
+                    <span className="text-amber-700"> (подключите главный бот в разделе <a href="/dashboard/channels" className="underline">«Каналы»</a>)</span>
+                  )}
+                  {' '}и добавьте его.
+                </li>
+                <li>
+                  <span className="font-semibold">Снимите ВСЕ галки прав</span> — бот не должен ничего делать в канале, он нужен только чтобы проверять, подписан ли участник. Сохраните.
+                </li>
+                <li>
+                  Для теста подпишитесь рабочим аккаунтом{' '}
+                  {clientWorkAccount
+                    ? <><span className="font-medium text-gray-800">{clientWorkAccount.username ? '@' + clientWorkAccount.username.replace(/^@/, '') : ''}</span>{' '}(<span className="font-mono">{clientWorkAccount.id}</span>)</>
+                    : <span className="text-amber-700">— укажите его в <a href="/dashboard/settings" className="underline">настройках</a></span>
+                  }
+                  {' '}на канал и поставьте галку ниже. Если бот видит подписку — канал добавится в проверку.
+                </li>
+              </ol>
+            </div>
             <div className="flex items-start gap-2">
               <input
                 type="checkbox"
