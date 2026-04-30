@@ -22,12 +22,52 @@ interface Props {
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
 
-const SOCIAL_META: { key: keyof NonNullable<Profile['social_links']>; label: string; icon: string }[] = [
-  { key: 'telegram',  label: 'Telegram',  icon: '✈️' },
-  { key: 'instagram', label: 'Instagram', icon: '📸' },
-  { key: 'youtube',   label: 'YouTube',   icon: '▶️' },
-  { key: 'vk',        label: 'VK',        icon: '🅥'  },
-  { key: 'website',   label: 'Сайт',      icon: '🌐' },
+function IconTelegram() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19l-9.49 5.99-4.1-1.3c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71l-4.1-3.03-1.97 1.92c-.23.23-.42.42-.86.42z"/>
+    </svg>
+  )
+}
+function IconInstagram() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="3" width="18" height="18" rx="5" ry="5"/>
+      <circle cx="12" cy="12" r="4"/>
+      <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+    </svg>
+  )
+}
+function IconYoutube() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.6 3.6 12 3.6 12 3.6s-7.6 0-9.4.5A3 3 0 0 0 .5 6.2C0 8 0 12 0 12s0 4 .5 5.8A3 3 0 0 0 2.6 19.9c1.8.5 9.4.5 9.4.5s7.6 0 9.4-.5a3 3 0 0 0 2.1-2.1C24 16 24 12 24 12s0-4-.5-5.8zM9.6 15.6V8.4l6.3 3.6-6.3 3.6z"/>
+    </svg>
+  )
+}
+function IconVk() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12.8 17.4c-6.5 0-10.2-4.4-10.4-11.8h3.3c.1 5.4 2.5 7.7 4.4 8.2V5.6h3.1v4.7c1.9-.2 3.9-2.4 4.6-4.7h3.1c-.5 2.9-2.7 5.1-4.3 6 1.6.7 4.2 2.6 5.2 6.1h-3.4c-.8-2.5-2.6-4.4-5.2-4.6v4.6h-.4z"/>
+    </svg>
+  )
+}
+function IconGlobe() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="2" y1="12" x2="22" y2="12"/>
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+    </svg>
+  )
+}
+
+const SOCIAL_META: { key: keyof NonNullable<Profile['social_links']>; label: string; Icon: () => JSX.Element }[] = [
+  { key: 'telegram',  label: 'Telegram',  Icon: IconTelegram },
+  { key: 'instagram', label: 'Instagram', Icon: IconInstagram },
+  { key: 'youtube',   label: 'YouTube',   Icon: IconYoutube },
+  { key: 'vk',        label: 'VK',        Icon: IconVk },
+  { key: 'website',   label: 'Сайт',      Icon: IconGlobe },
 ]
 
 function initials(name: string): string {
@@ -133,12 +173,12 @@ export default function OwnerPage({ profile, onBack }: Props) {
             {socials.map(s => (
               <a key={s.key} href={profile.social_links?.[s.key]} target="_blank" rel="noreferrer"
                  style={{
-                   display: 'flex', alignItems: 'center', gap: 8,
+                   display: 'inline-flex', alignItems: 'center', gap: 8,
                    background: 'white', padding: '10px 14px', borderRadius: 12,
                    border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
                    color: DARK, fontWeight: 600, fontSize: 13, textDecoration: 'none',
                  }}>
-                <span style={{ fontSize: 16 }}>{s.icon}</span> {s.label}
+                <span style={{ display: 'inline-flex', color: PEACH }}><s.Icon /></span> {s.label}
               </a>
             ))}
           </div>
