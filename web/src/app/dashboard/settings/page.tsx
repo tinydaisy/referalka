@@ -33,13 +33,12 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', bot_token: '', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
-  const [showToken, setShowToken] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const { lang, setLang, t } = useLang()
 
@@ -53,7 +52,6 @@ export default function SettingsPage() {
         phone: c.phone || '',
         telegram_username: c.telegram_username || '',
         timezone: tz,
-        bot_token: c.bot_token || '',
         test_telegram_ids_raw: (c.test_telegram_ids || []).join(', '),
         work_tg_username: c.work_tg_username || '',
         work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
@@ -88,7 +86,6 @@ export default function SettingsPage() {
         phone: form.phone,
         telegram_username: form.telegram_username,
         timezone: form.timezone,
-        bot_token: form.bot_token || null,
         test_telegram_ids: testIds,
         work_tg_username: form.work_tg_username || null,
         work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
@@ -275,44 +272,21 @@ export default function SettingsPage() {
         {tab === 'tech' && (
         <>
 
-        {/* Bot Token */}
+        {/* Bot Token живёт в разделе «Каналы» — здесь только подсказка-указатель */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-start gap-3 mb-4">
+          <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
               <Bot size={18} className="text-white" />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-gray-800">Telegram Bot Token</h3>
+              <h3 className="font-semibold text-gray-800">Telegram-бот</h3>
               <p className="text-sm text-gray-500 mt-0.5">
-                Токен вашего бота из BotFather. Используется для рассылок и отправки программы конференции.
-                Нажмите на «глаз» чтобы посмотреть текущий токен.
+                Токен бота настраивается в разделе{' '}
+                <a href="/dashboard/channels" className="text-brand hover:underline font-medium">Каналы</a>.
+                Там есть пошаговый помощник: проверка токена, привязка Mini App к боту через @BotFather.
               </p>
             </div>
           </div>
-          <div className="relative">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={form.bot_token}
-              onChange={set('bot_token')}
-              placeholder="1234567890:AAF..."
-              autoComplete="new-password"
-              data-lpignore="true"
-              data-1p-ignore
-              data-form-type="other"
-              name="bot_api_key"
-              spellCheck={false}
-              className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
-            />
-            <button
-              type="button"
-              onClick={() => setShowToken(v => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              tabIndex={-1}
-            >
-              {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-          <p className="text-xs text-gray-400 mt-2">Получить токен можно в <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">@BotFather</a>. Если бэкенд скажет «не похоже на токен» — Chrome autofill подсунул пароль; очистите поле и вставьте токен из BotFather.</p>
         </div>
 
         {/* Test Telegram IDs */}

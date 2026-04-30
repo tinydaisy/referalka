@@ -142,9 +142,6 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
-                (SELECT bot_token FROM channels
-                 WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
-                 ORDER BY id LIMIT 1) AS bot_token,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                 c.integration_token,
                 t.name AS tariff_name,
@@ -182,7 +179,6 @@ class ProfileUpdate(BaseModel):
     phone: Optional[str] = None
     telegram_username: Optional[str] = None
     timezone: Optional[str] = None
-    bot_token: Optional[str] = None
     test_telegram_ids: Optional[list] = None
     work_tg_username: Optional[str] = None
     work_tg_id: Optional[int] = None
@@ -205,9 +201,6 @@ async def update_me(
         client = await db.fetchrow(
             """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
-                (SELECT bot_token FROM channels
-                 WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
-                 ORDER BY id LIMIT 1) AS bot_token,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
            FROM clients c WHERE c.id = $1""",
             client_id
@@ -220,22 +213,9 @@ async def update_me(
             raise HTTPException(status_code=400, detail="Скорость рассылки: допустимый диапазон 1..100")
         updates["broadcast_concurrency"] = bc
 
-    # bot_token больше не живёт в clients — пишем в channels.
-    # Пустую строку трактуем как «не менять».
-    # Дополнительно валидируем формат `123456789:AAA...` — защита от Chrome
-    # autofill, который иногда подсовывает пароль клиента в это поле.
-    import re
-    new_bot_token = updates.pop("bot_token", None)
-    if new_bot_token is not None and new_bot_token.strip():
-        token = new_bot_token.strip()
-        if not re.match(r"^\d{6,15}:[A-Za-z0-9_-]{30,}$", token):
-            raise HTTPException(
-                status_code=400,
-                detail="Не похоже на Telegram-токен. Формат: 123456789:AAFxx... "
-                       "Если в поле случайно попал ваш пароль — очистите поле и сохраните повторно.",
-            )
-        from app.services.channels import upsert_client_telegram_token
-        await upsert_client_telegram_token(client_id, token, db)
+    # bot_token живёт только в channels (раздел «Каналы» в дашборде).
+    # Этот эндпоинт его больше не принимает — игнорируем если кто-то прислал.
+    updates.pop("bot_token", None)
 
     if updates:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(updates.keys())]
@@ -247,9 +227,6 @@ async def update_me(
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                   c.trial_ends_at, c.created_at, c.timezone,
-                  (SELECT bot_token FROM channels
-                   WHERE client_id = c.id AND platform_slug = 'telegram' AND is_active = TRUE
-                   ORDER BY id LIMIT 1) AS bot_token,
                   c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
              FROM clients c WHERE c.id = $1""",
         client_id
