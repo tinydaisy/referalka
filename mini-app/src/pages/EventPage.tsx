@@ -114,15 +114,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
     return () => { cancelled = true }
   }, [slug, tgUser?.id])
 
-  if (loading || !event) {
-    return (
-      <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
-        Загружаем...
-      </div>
-    )
-  }
-
-  // Определяем состояние и набор вкладок
+  // Определяем состояние и набор вкладок (вычисляется ДО early return —
+  // иначе useEffect ниже сломает порядок хуков React).
   const ended      = isEnded(event)
   const registered = !!participant?.is_registered
   const state: State = ended ? 'ended' : registered ? 'registered' : 'not_registered'
@@ -145,20 +138,29 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
                  : state === 'registered'     ? filterByEnabled(NAV_REGISTERED)
                  :                              navItemsEnded
 
+  // Если текущая вкладка пропала из navItems (например клиент выключил
+  // рефералку/розыгрыш) — переключаем на первую доступную.
+  useEffect(() => {
+    if (!event) return
+    if (!navItems.some(n => n.id === tab)) {
+      setTab(navItems[0]?.id || 'landing')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refOn, raffleOn, state, event])
+
+  if (loading || !event) {
+    return (
+      <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
+        Загружаем...
+      </div>
+    )
+  }
+
   function handleRegistered(p: any) {
     setParticipant({ ...p, is_registered: true })
     setShowReg(false)
     setTab('program')
   }
-
-  // Если текущая вкладка пропала из navItems (например клиент выключил
-  // рефералку/розыгрыш) — переключаем на первую доступную.
-  useEffect(() => {
-    if (!navItems.some(n => n.id === tab)) {
-      setTab(navItems[0]?.id || 'landing')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refOn, raffleOn, state])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
