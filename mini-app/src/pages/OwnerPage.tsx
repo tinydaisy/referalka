@@ -90,15 +90,9 @@ export default function OwnerPage({ profile, onBack }: Props) {
         )}
       </div>
 
-      {/* Факты в цифрах основателя */}
+      {/* Регалии основателя */}
       {ach.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{
-            fontSize: 10, color: PEACH, fontWeight: 700, letterSpacing: 1.5,
-            textTransform: 'uppercase', marginBottom: 8, paddingLeft: 2,
-          }}>
-            Факты в цифрах
-          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
             {ach.map((a, i) => (
               <div key={i} style={{

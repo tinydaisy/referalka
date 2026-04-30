@@ -143,7 +143,7 @@ export default function EcosystemTab({ clientId }: Props) {
             <img src={profile.brand_logo_url} alt=""
                  style={{
                    width: 72, height: 72, borderRadius: 14,
-                   objectFit: 'cover', background: 'rgba(255,255,255,0.95)', padding: 6,
+                   objectFit: 'contain', background: 'transparent',
                    border: `2px solid ${PEACH}`, flexShrink: 0,
                  }} />
           ) : (
@@ -166,15 +166,9 @@ export default function EcosystemTab({ clientId }: Props) {
         </div>
       </div>
 
-      {/* Факты в цифрах (бренда) — скрываем если пусто */}
+      {/* Регалии бренда — скрываем если пусто */}
       {brandAch.length > 0 && (
         <div style={{ marginBottom: 14 }}>
-          <div style={{
-            fontSize: 10, color: PEACH, fontWeight: 700, letterSpacing: 1.5,
-            textTransform: 'uppercase', marginBottom: 8, paddingLeft: 2,
-          }}>
-            Факты в цифрах
-          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
             {brandAch.map((a, i) => (
               <div key={i} style={{
