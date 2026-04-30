@@ -540,7 +540,14 @@ function SubBlock({
 }: { title: string; items: Offering[]; onEdit: (o: Offering) => void; onDelete: (id: number) => void }) {
   return (
     <div>
-      <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">{title}</p>
+      <div className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-bold uppercase tracking-wider mb-2"
+           style={{
+             background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)',
+             color: '#25455D',
+             boxShadow: '0 2px 6px rgba(255,207,164,0.4)',
+           }}>
+        {title}
+      </div>
       <div className="bg-white rounded-xl border border-gray-200 divide-y">
         {items.map(o => (
           <div key={o.id} className="p-4 flex gap-3 items-start hover:bg-gray-50">
@@ -651,15 +658,19 @@ function OfferingModal({
             <label className="label">Куда показывать в Mini App</label>
             <div className="flex gap-2">
               <button type="button" onClick={() => setIsPaid(true)}
-                      className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                        isPaid ? 'bg-amber-50 border-amber-300 text-amber-800' : 'border-gray-300 text-gray-500'
-                      }`}>
+                      className="flex-1 px-4 py-2.5 rounded-lg text-sm font-bold border-2 transition-all"
+                      style={isPaid
+                        ? { background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)', borderColor: '#f5b97e', color: '#25455D', boxShadow: '0 2px 8px rgba(255,207,164,0.5)' }
+                        : { background: 'white', borderColor: '#e5e7eb', color: '#9ca3af' }
+                      }>
                 💼 В блок «Платно»
               </button>
               <button type="button" onClick={() => setIsPaid(false)}
-                      className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                        !isPaid ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-300 text-gray-500'
-                      }`}>
+                      className="flex-1 px-4 py-2.5 rounded-lg text-sm font-bold border-2 transition-all"
+                      style={!isPaid
+                        ? { background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)', borderColor: '#f5b97e', color: '#25455D', boxShadow: '0 2px 8px rgba(255,207,164,0.5)' }
+                        : { background: 'white', borderColor: '#e5e7eb', color: '#9ca3af' }
+                      }>
                 📄 В блок «Бесплатно»
               </button>
             </div>
