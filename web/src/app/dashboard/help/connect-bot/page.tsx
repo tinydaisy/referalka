@@ -94,40 +94,28 @@ export default function ConnectBotInstructionPage() {
         </ol>
       </Section>
 
-      <Section step="3" title="Создать или обновить Mini App">
+      <Section step="3" title="Configure Mini App в Bot Settings">
         <p className="text-sm text-gray-700 mb-3">
-          Если у вас ещё нет Mini App в этом боте — создаём:
+          Привязываем ПЛЮСОН как <strong>главный Mini App</strong> бота. Это самый удобный способ —
+          ссылки получаются короткие (<code>t.me/ваш_бот?startapp=…</code>), без коротких имён, и работают везде одинаково.
         </p>
-        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-2">
-          <li>Команда <code>/newapp</code> → выбрать вашего бота</li>
-          <li><strong>Title:</strong> <code>ПЛЮСОН</code></li>
-          <li><strong>Description:</strong> ваше описание</li>
-          <li><strong>Photo:</strong> картинка 640×360 (логотип или превью)</li>
-          <li><strong>GIF:</strong> можно пропустить — пришлите <code>/empty</code></li>
+        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
+          <li>В @BotFather: <code>/mybots</code> → выбрать вашего бота</li>
+          <li>Нажать <strong>«Bot Settings»</strong></li>
+          <li>Нажать <strong>«Configure Mini App»</strong></li>
+          <li>Если Mini App ещё не настроен — нажать <strong>«Enable Mini App»</strong></li>
           <li>
-            <strong>Web App URL:</strong> вставьте эту ссылку →
-            <div className="mt-2 mb-1"><CopyBlock value={miniAppUrl} /></div>
-          </li>
-          <li>
-            <strong>Short name:</strong> любое короткое имя на латинице — например <code>app</code>, <code>kabinet</code>, <code>vip</code>.
-            <div className="text-xs text-gray-500 mt-1">
-              Это имя видит только Telegram (часть deep-link). На работу Mini App никак не влияет —
-              можно ставить какое угодно, главное чтобы Telegram его принял (если занято — попробуйте другое).
-            </div>
+            Нажать <strong>«Edit Mini App URL»</strong> и вставить эту ссылку →
+            <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
+            Должно прийти <em>«Success! URL updated»</em>.
           </li>
         </ol>
 
-        <p className="text-sm text-gray-700 mt-4 mb-3">
-          Если Mini App уже есть — обновляем URL:
-        </p>
-        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5">
-          <li>Команда <code>/myapps</code> → выбрать существующий Mini App</li>
-          <li>Нажать <strong>«Edit Web App URL»</strong></li>
-          <li>
-            Вставить эту ссылку — придёт <em>«Success! URL updated»</em>:
-            <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
-          </li>
-        </ol>
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
+          💡 Не путать с <code>/newapp</code> — это старый путь, он создаёт <strong>short-named</strong> Mini App
+          (с именем в URL типа <code>t.me/bot/myapp</code>). Для ПЛЮСОНа используем <strong>Main Mini App</strong>
+          через Bot Settings — она ведёт себя как «главное приложение бота» и не требует короткого имени.
+        </div>
       </Section>
 
       <Section step="4" title="Настроить Menu Button">
