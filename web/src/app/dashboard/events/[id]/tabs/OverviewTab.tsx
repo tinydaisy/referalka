@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
@@ -17,9 +17,23 @@ export default function OverviewTab({
   const [address, setAddress] = useState(event.address || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
+  const [successorEventId, setSuccessorEventId] = useState<string>(
+    event.successor_event_id ? String(event.successor_event_id) : ''
+  )
+  const [otherEvents, setOtherEvents] = useState<{ id: number; title: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.events.list().then((res: any) => {
+      const items: any[] = res?.items || res || []
+      setOtherEvents(items
+        .filter(e => e.id !== eventId)
+        .map(e => ({ id: e.id, title: e.title || `Событие #${e.id}` }))
+      )
+    }).catch(() => {})
+  }, [eventId])
 
   function toLocalInput(iso: string | null | undefined) {
     if (!iso) return ''
@@ -38,6 +52,7 @@ export default function OverviewTab({
         address: address.trim() || null,
         start_at: startAt ? new Date(startAt).toISOString() : null,
         end_at:   endAt   ? new Date(endAt).toISOString()   : null,
+        successor_event_id: successorEventId ? Number(successorEventId) : null,
       }
       await api.events.update(eventId, payload)
       await onReload()
@@ -87,6 +102,16 @@ export default function OverviewTab({
           <Field label="URL лендинга" hint="Если у вас есть отдельная страница события на сайте">
             <input value={landingUrl} onChange={e => setLandingUrl(e.target.value)}
                    className="input" placeholder="https://yoursite.com/event" />
+          </Field>
+
+          <Field label="Следующее событие" hint="Покажется участникам в Mini App после завершения этого события — блок «А дальше». Можно оставить пустым.">
+            <select value={successorEventId} onChange={e => setSuccessorEventId(e.target.value)}
+                    className="input">
+              <option value="">— Не выбрано —</option>
+              {otherEvents.map(e => (
+                <option key={e.id} value={e.id}>{e.title}</option>
+              ))}
+            </select>
           </Field>
         </div>
 

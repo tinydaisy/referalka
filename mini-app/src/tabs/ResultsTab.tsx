@@ -32,7 +32,7 @@ export default function ResultsTab({ event, participant }: Props) {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2, marginBottom: 6 }}>
             {event?.title || 'Событие'}
           </h1>
-          <div style={{ fontSize: 13, color: PEACH, fontWeight: 600 }}>
+          <div style={{ fontSize: 13, color: PEACH, fontWeight: 800 }}>
             Как жаль! Событие прошло{endDateLabel ? ` ${endDateLabel}` : ''}
           </div>
         </div>
@@ -84,7 +84,7 @@ export default function ResultsTab({ event, participant }: Props) {
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1.2, marginBottom: 6 }}>
           {event?.title || 'Событие'}
         </h1>
-        <div style={{ fontSize: 13, color: PEACH, fontWeight: 600 }}>
+        <div style={{ fontSize: 13, color: PEACH, fontWeight: 800 }}>
           Событие завершилось! Спасибо вам!
         </div>
         {endDateLabel && (
