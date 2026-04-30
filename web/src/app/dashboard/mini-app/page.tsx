@@ -12,7 +12,7 @@
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
 import { useEffect, useState } from 'react'
-import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Calendar, Globe, Building2, User } from 'lucide-react'
+import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Calendar, Globe, Building2, User, ChevronUp, ChevronDown } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import { api } from '@/lib/api'
 
@@ -146,6 +146,34 @@ export default function MiniAppSettingsPage() {
     if (!confirm('Удалить продукт? Он сразу пропадёт из Mini App.')) return
     try { await api.miniApp.offerings.delete(id); await loadOfferings() }
     catch (e: any) { alert(e.message || 'Ошибка удаления') }
+  }
+
+  // Перестановка продукта внутри своего блока (платно/бесплатно).
+  // Перенормируем sort_order у всего блока: 0..N-1 после перемещения.
+  // Это гарантирует устойчивый порядок даже если изначально у всех было sort_order=0.
+  async function moveOffering(item: Offering, direction: -1 | 1) {
+    const block = offerings.filter(o => o.is_paid === item.is_paid)
+                           .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+    const idx = block.findIndex(o => o.id === item.id)
+    const newIdx = idx + direction
+    if (idx < 0 || newIdx < 0 || newIdx >= block.length) return
+    const reordered = [...block]
+    ;[reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]]
+    // Оптимистично обновляем UI
+    const updatedAll = offerings.map(o => {
+      const newPos = reordered.findIndex(x => x.id === o.id)
+      return newPos >= 0 ? { ...o, sort_order: newPos } : o
+    })
+    setOfferings(updatedAll)
+    // Параллельно отправляем PATCH для всех элементов блока
+    try {
+      await Promise.all(reordered.map((o, i) =>
+        o.sort_order === i ? Promise.resolve() : api.miniApp.offerings.update(o.id, { sort_order: i })
+      ))
+    } catch (e: any) {
+      alert(e.message || 'Не удалось сохранить порядок')
+      await loadOfferings()
+    }
   }
 
   return (
@@ -407,10 +435,14 @@ export default function MiniAppSettingsPage() {
           ) : (
             <div className="space-y-5 max-w-2xl">
               {offerings.filter(o => o.is_paid).length > 0 && (
-                <SubBlock title="💼 Платно" items={offerings.filter(o => o.is_paid)} onEdit={setEditing} onDelete={deleteOffering} />
+                <SubBlock title="💼 Платно"
+                          items={offerings.filter(o => o.is_paid).sort((a,b) => a.sort_order - b.sort_order || a.id - b.id)}
+                          onEdit={setEditing} onDelete={deleteOffering} onMove={moveOffering} />
               )}
               {offerings.filter(o => !o.is_paid).length > 0 && (
-                <SubBlock title="📄 Бесплатно" items={offerings.filter(o => !o.is_paid)} onEdit={setEditing} onDelete={deleteOffering} />
+                <SubBlock title="📄 Бесплатно"
+                          items={offerings.filter(o => !o.is_paid).sort((a,b) => a.sort_order - b.sort_order || a.id - b.id)}
+                          onEdit={setEditing} onDelete={deleteOffering} onMove={moveOffering} />
               )}
             </div>
           )}
@@ -536,8 +568,14 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 function SubBlock({
-  title, items, onEdit, onDelete,
-}: { title: string; items: Offering[]; onEdit: (o: Offering) => void; onDelete: (id: number) => void }) {
+  title, items, onEdit, onDelete, onMove,
+}: {
+  title: string
+  items: Offering[]
+  onEdit: (o: Offering) => void
+  onDelete: (id: number) => void
+  onMove: (o: Offering, dir: -1 | 1) => void
+}) {
   return (
     <div>
       <div className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-bold uppercase tracking-wider mb-2"
@@ -549,8 +587,21 @@ function SubBlock({
         {title}
       </div>
       <div className="bg-white rounded-xl border border-gray-200 divide-y">
-        {items.map(o => (
+        {items.map((o, i) => (
           <div key={o.id} className="p-4 flex gap-3 items-start hover:bg-gray-50">
+            {/* Стрелки порядка */}
+            <div className="flex flex-col gap-0.5 -my-1">
+              <button onClick={() => onMove(o, -1)} disabled={i === 0}
+                      title="Поднять выше"
+                      className="p-1 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                <ChevronUp size={15} />
+              </button>
+              <button onClick={() => onMove(o, 1)} disabled={i === items.length - 1}
+                      title="Опустить ниже"
+                      className="p-1 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                <ChevronDown size={15} />
+              </button>
+            </div>
             <div className="flex-1 min-w-0">
               <p className="font-medium text-gray-900">{o.title}</p>
               {o.description && (
