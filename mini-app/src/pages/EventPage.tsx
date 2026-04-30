@@ -240,7 +240,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
 
       <div className="page">
         {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
-        {tab === 'program'   && <ProgramTab  event={event} />}
+        {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} />}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} />}

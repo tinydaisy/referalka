@@ -58,15 +58,29 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     if not event:
         return {"status": 0, "not_subscribed": []}
 
+    # Режим подписки задаётся в настройках конференции:
+    #   none          — проверка не требуется (status всегда 1)
+    #   organizer     — только канал организатора (role = 'organizer')
+    #   all_speakers  — все спикеры (текущий дефолт)
+    conf = await db.fetchrow(
+        "SELECT subscription_mode FROM conf_conferences WHERE event_id = $1", event_id
+    )
+    mode = (dict(conf).get("subscription_mode") if conf else None) or "all_speakers"
+    if mode == "none":
+        return {"status": 1, "not_subscribed": []}
+
+    role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
+
     rows = await db.fetch(
-        """SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
+        f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
            FROM conf_speaker_events cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
              AND cse.bot_in_channel = TRUE
              AND cse.exclude_channel_from_subscription = FALSE
              AND sp.tg_channel_id IS NOT NULL
-             AND sp.tg_channel_id <> ''""",
+             AND sp.tg_channel_id <> ''
+             {role_filter}""",
         event["id"],
     )
 

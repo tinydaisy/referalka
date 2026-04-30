@@ -20,6 +20,10 @@ export async function req(path: string, options?: RequestInit) {
   return res.json()
 }
 
+// ── Проверка подписки на каналы конференции ──
+export const checkConferenceSubscription = (eventId: number, tgId: number) =>
+  req(`/api/v1/public/conference/${eventId}/check-subscription?tg_id=${tgId}`)
+
 // ── Регистрация и участники ──
 export const registerParticipant = (data: any) =>
   req('/api/v1/participants/register', { method: 'POST', body: JSON.stringify(data) })
