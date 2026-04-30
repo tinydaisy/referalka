@@ -111,12 +111,6 @@ export default function OwnerPage({ profile, onBack }: Props) {
       {profile.bio && (
         <div style={{ marginBottom: 16 }}>
           <div style={{
-            fontSize: 10, color: PEACH, fontWeight: 700, letterSpacing: 1.5,
-            textTransform: 'uppercase', marginBottom: 8, paddingLeft: 2,
-          }}>
-            Биография
-          </div>
-          <div style={{
             background: 'white', padding: 14, borderRadius: 14,
             border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
             fontSize: 14, color: '#3a4a5a', lineHeight: 1.55, whiteSpace: 'pre-wrap',
