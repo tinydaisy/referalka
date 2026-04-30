@@ -578,9 +578,6 @@ function OfferingModal({
   const [url,    setUrl]    = useState(initial?.action_url || '')
   const [isPaid, setIsPaid] = useState<boolean>(initial?.is_paid ?? true)
   const [saving, setSaving] = useState(false)
-  // Чтобы не закрывать окно когда пользователь начал выделение текста внутри
-  // и отпустил мышь снаружи (браузер считает это кликом по бэкдропу).
-  const [downOnBackdrop, setDownOnBackdrop] = useState(false)
 
   function isDirty(): boolean {
     if (!initial) {
@@ -621,17 +618,9 @@ function OfferingModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-         onMouseDown={e => setDownOnBackdrop(e.target === e.currentTarget)}
-         onMouseUp={e => {
-           const wasOnBackdrop = downOnBackdrop
-           setDownOnBackdrop(false)
-           if (wasOnBackdrop && e.target === e.currentTarget) attemptClose()
-         }}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <form onSubmit={save}
-            className="bg-white rounded-xl max-w-md w-full p-6"
-            onMouseDown={e => e.stopPropagation()}
-            onMouseUp={e => e.stopPropagation()}>
+            className="bg-white rounded-xl max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold" style={{ color: BRAND }}>
             {initial ? 'Редактировать продукт' : 'Новый продукт'}
