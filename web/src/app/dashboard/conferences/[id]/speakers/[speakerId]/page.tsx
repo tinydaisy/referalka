@@ -138,6 +138,7 @@ export default function ConferenceSpeakerPage() {
 
   const [clientWorkAccount, setClientWorkAccount] = useState<{ username: string; id: string } | null>(null)
   const [mainBotHandle, setMainBotHandle] = useState<string>('')
+  const [subscriptionMode, setSubscriptionMode] = useState<'none' | 'organizer' | 'all_speakers'>('none')
 
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -154,7 +155,12 @@ export default function ConferenceSpeakerPage() {
       if (c.work_tg_id) setClientWorkAccount({ username: c.work_tg_username || '', id: String(c.work_tg_id) })
       if (c.main_bot_handle) setMainBotHandle(String(c.main_bot_handle))
     }).catch(() => {})
-  }, [])
+    api.conference.get(confId).then((r: any) => {
+      const m = r?.conference?.subscription_mode
+      if (m === 'organizer' || m === 'all_speakers') setSubscriptionMode(m)
+      else setSubscriptionMode('none')
+    }).catch(() => {})
+  }, [confId])
 
   useEffect(() => {
     api.conference.speakers.list(confId)
@@ -599,57 +605,78 @@ export default function ConferenceSpeakerPage() {
             </div>
           </div>
 
-          {/* Подписка бота на канал */}
-          <div className="pt-2 border-t border-gray-100 space-y-3">
-            <div className="text-xs text-gray-600 leading-relaxed bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-              <div className="font-semibold text-gray-800">Как подключить канал спикера к проверке подписки:</div>
-              <ol className="list-decimal pl-4 space-y-1.5">
-                <li>
-                  <span className="font-semibold">Заполните выше «ID канала» и «ID личного аккаунта» спикера и сохраните профиль</span> — без них автопроверка не запустится.
-                </li>
-                <li>
-                  Откройте канал спикера в Telegram → «Управление каналом» → «Администраторы» → «Добавить администратора».
-                </li>
-                <li>
-                  Найдите бота{' '}
-                  <span className="font-mono font-semibold text-gray-800">
-                    @{mainBotHandle || 'ваш_главный_бот'}
-                  </span>
-                  {!mainBotHandle && (
-                    <span className="text-amber-700"> (подключите главный бот в разделе <a href="/dashboard/channels" className="underline">«Каналы»</a>)</span>
-                  )}
-                  {' '}и добавьте его.
-                </li>
-                <li>
-                  <span className="font-semibold">Снимите ВСЕ галки прав</span> — бот не должен ничего публиковать в канале, он нужен только чтобы видеть подписчиков. Сохраните.
-                </li>
-                <li>
-                  Поставьте галку ниже — бот сам проверит, видит ли он подписку самого спикера на свой канал. Если видит — канал добавляется в проверку. Если нет — покажет, что не так.
-                </li>
-              </ol>
-            </div>
-            <div className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                id="bot_in_channel_check"
-                checked={eventForm.bot_in_channel}
-                disabled={verifyingChannel}
-                onChange={e => handleBotInChannelChange(e.target.checked)}
-                className="w-4 h-4 mt-0.5 rounded border-gray-300 text-brand cursor-pointer"
-              />
-              <label htmlFor="bot_in_channel_check" className="text-sm text-gray-700 cursor-pointer select-none">
-                {verifyingChannel
-                  ? 'Проверяю подписку...'
-                  : 'Бот добавлен в администраторы канала'
-                }
-              </label>
-            </div>
-            {channelVerifyMsg && (
-              <p className={`text-xs px-3 py-2 rounded-lg ${channelVerifyMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-                {channelVerifyMsg.text}
-              </p>
-            )}
-          </div>
+          {/* Подписка бота на канал — показываем только когда конференция требует
+              подписку и канал ЭТОГО спикера учитывается в проверке. */}
+          {(() => {
+            const channelMatters =
+              subscriptionMode === 'all_speakers' ||
+              (subscriptionMode === 'organizer' && eventForm.role === 'organizer')
+            if (!channelMatters) {
+              return (
+                <div className="pt-2 border-t border-gray-100">
+                  <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl p-3">
+                    Подключение канала к проверке подписки отключено.{' '}
+                    {subscriptionMode === 'none'
+                      ? <>В <a href={`/dashboard/conferences/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Не требовать подписку».</>
+                      : <>В <a href={`/dashboard/conferences/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Только канал организатора», поэтому канал этого спикера не участвует в проверке.</>
+                    }
+                  </div>
+                </div>
+              )
+            }
+            return (
+              <div className="pt-2 border-t border-gray-100 space-y-3">
+                <div className="text-xs text-gray-600 leading-relaxed bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                  <div className="font-semibold text-gray-800">Как подключить канал спикера к проверке подписки:</div>
+                  <ol className="list-decimal pl-4 space-y-1.5">
+                    <li>
+                      <span className="font-semibold">Заполните выше «ID канала» и «ID личного аккаунта» спикера и сохраните профиль</span> — без них автопроверка не запустится.
+                    </li>
+                    <li>
+                      Откройте канал спикера в Telegram → «Управление каналом» → «Администраторы» → «Добавить администратора».
+                    </li>
+                    <li>
+                      Найдите бота{' '}
+                      <span className="font-mono font-semibold text-gray-800">
+                        @{mainBotHandle || 'ваш_главный_бот'}
+                      </span>
+                      {!mainBotHandle && (
+                        <span className="text-amber-700"> (подключите главный бот в разделе <a href="/dashboard/channels" className="underline">«Каналы»</a>)</span>
+                      )}
+                      {' '}и добавьте его.
+                    </li>
+                    <li>
+                      <span className="font-semibold">Снимите ВСЕ галки прав</span> — бот не должен ничего публиковать в канале, он нужен только чтобы видеть подписчиков. Сохраните.
+                    </li>
+                    <li>
+                      Поставьте галку ниже — бот сам проверит, видит ли он подписку самого спикера на свой канал. Если видит — канал добавляется в проверку. Если нет — покажет, что не так.
+                    </li>
+                  </ol>
+                </div>
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="bot_in_channel_check"
+                    checked={eventForm.bot_in_channel}
+                    disabled={verifyingChannel}
+                    onChange={e => handleBotInChannelChange(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded border-gray-300 text-brand cursor-pointer"
+                  />
+                  <label htmlFor="bot_in_channel_check" className="text-sm text-gray-700 cursor-pointer select-none">
+                    {verifyingChannel
+                      ? 'Проверяю подписку...'
+                      : 'Бот добавлен в администраторы канала'
+                    }
+                  </label>
+                </div>
+                {channelVerifyMsg && (
+                  <p className={`text-xs px-3 py-2 rounded-lg ${channelVerifyMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                    {channelVerifyMsg.text}
+                  </p>
+                )}
+              </div>
+            )
+          })()}
         </div>
 
         <div className="flex gap-3 items-center">
