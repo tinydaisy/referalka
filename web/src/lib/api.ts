@@ -21,6 +21,16 @@ async function request(path: string, options?: RequestInit) {
   return res.json()
 }
 
+export interface ContactFilters {
+  subscription?: 'any' | 'subscribed' | 'unsubscribed'
+  platforms?: string[]
+  channelIds?: number[]
+  utmSources?: string[]
+  tags?: string[]
+  dateFrom?: string
+  dateTo?: string
+}
+
 export const api = {
   auth: {
     register: (data: any) =>
@@ -207,9 +217,24 @@ export const api = {
     },
   },
   contacts: {
-    list: (search: string, limit: number, offset: number, showUnsubscribed = false) =>
-      request(`/api/v1/contacts?search=${encodeURIComponent(search)}&limit=${limit}&offset=${offset}&show_unsubscribed=${showUnsubscribed}`),
+    list: (search: string, limit: number, offset: number, showUnsubscribed = false, filters?: ContactFilters) => {
+      const params = new URLSearchParams({
+        search,
+        limit: String(limit),
+        offset: String(offset),
+        show_unsubscribed: String(showUnsubscribed),
+      })
+      if (filters?.subscription)  params.set('subscription', filters.subscription)
+      if (filters?.platforms?.length)  params.set('platforms', filters.platforms.join(','))
+      if (filters?.channelIds?.length) params.set('channel_ids', filters.channelIds.join(','))
+      if (filters?.utmSources?.length) params.set('utm_sources', filters.utmSources.join(','))
+      if (filters?.tags?.length)       params.set('tags', filters.tags.join(','))
+      if (filters?.dateFrom)           params.set('date_from', filters.dateFrom)
+      if (filters?.dateTo)             params.set('date_to', filters.dateTo)
+      return request(`/api/v1/contacts?${params.toString()}`)
+    },
     get: (id: number) => request(`/api/v1/contacts/${id}`),
+    filterOptions: () => request('/api/v1/contacts/filter-options'),
     duplicates: (id: number) => request(`/api/v1/contacts/${id}/duplicates`),
     merge: (primaryId: number, targetId: number) =>
       request(`/api/v1/contacts/${primaryId}/merge`, { method: 'POST', body: JSON.stringify({ target_id: targetId }) }),

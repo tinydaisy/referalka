@@ -26,18 +26,35 @@ def parse_tags(tags):
 router = APIRouter()
 
 
+def _split_csv(val: str | None) -> list[str]:
+    """Парсит query-параметр вида 'a,b,c' в список ['a','b','c']."""
+    if not val:
+        return []
+    return [x.strip() for x in val.split(",") if x.strip()]
+
+
 @router.get("/contacts")
 async def get_contacts(
     search: str = Query(default="", alias="search"),
     limit: int = Query(default=50),
     offset: int = Query(default=0),
     show_unsubscribed: bool = Query(default=False),
+    subscription: str = Query(default="any", description="any | subscribed | unsubscribed"),
+    platforms: str | None = Query(default=None, description="CSV slug-ов платформ: telegram,vk"),
+    channel_ids: str | None = Query(default=None, description="CSV id каналов клиента"),
+    utm_sources: str | None = Query(default=None, description="CSV utm_source значений"),
+    tags: str | None = Query(default=None, description="CSV тегов (любой из них)"),
+    date_from: str | None = Query(default=None, description="ISO дата >= last_contact_at"),
+    date_to: str | None = Query(default=None, description="ISO дата <= last_contact_at"),
     client=Depends(get_current_client),
     db=Depends(get_db)
 ):
     """
     Список контактов клиента. Поиск идёт по contacts.name/email/phone +
     по username/first_name/last_name любой идентичности контакта.
+
+    Дополнительные фильтры (см. query-параметры): платформы, конкретные каналы
+    подписки, utm_source, теги, диапазон по last_contact_at, состояние подписки.
     """
     client_id = int(client["sub"])
 
@@ -58,6 +75,65 @@ async def get_contacts(
           )
         """
 
+    # Фильтр по платформам идентичностей: контакт должен иметь хоть одну
+    # идентичность на одной из выбранных платформ.
+    platforms_list = _split_csv(platforms)
+    if platforms_list:
+        params.append(platforms_list)
+        idx = len(params)
+        where_base += f"""
+          AND EXISTS (
+            SELECT 1 FROM platform_users pu
+             WHERE pu.contact_id = c.id AND pu.platform_slug = ANY(${idx}::text[])
+          )
+        """
+
+    # Фильтр по каналам: контакт подписан хотя бы на один из выбранных каналов
+    # (запись в platform_user_channels с is_unsubscribed = FALSE).
+    channel_ids_raw = _split_csv(channel_ids)
+    channel_ids_int: list[int] = []
+    for x in channel_ids_raw:
+        try:
+            channel_ids_int.append(int(x))
+        except ValueError:
+            pass
+    if channel_ids_int:
+        params.append(channel_ids_int)
+        idx = len(params)
+        where_base += f"""
+          AND EXISTS (
+            SELECT 1 FROM platform_users pu
+            JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+             WHERE pu.contact_id = c.id
+               AND puc.channel_id = ANY(${idx}::int[])
+               AND puc.is_unsubscribed = FALSE
+          )
+        """
+
+    # UTM source — точное совпадение из выбранных значений
+    utm_list = _split_csv(utm_sources)
+    if utm_list:
+        params.append(utm_list)
+        idx = len(params)
+        where_base += f" AND c.utm_source = ANY(${idx}::text[])"
+
+    # Теги — JSONB, проверка «есть хотя бы один из выбранных»
+    tags_list = _split_csv(tags)
+    if tags_list:
+        params.append(tags_list)
+        idx = len(params)
+        where_base += f" AND c.tags ?| ${idx}::text[]"
+
+    # Диапазон по last_contact_at
+    if date_from:
+        params.append(date_from)
+        idx = len(params)
+        where_base += f" AND c.last_contact_at >= ${idx}::timestamptz"
+    if date_to:
+        params.append(date_to)
+        idx = len(params)
+        where_base += f" AND c.last_contact_at <= ${idx}::timestamptz"
+
     # Считаем что контакт «отписался», если у него все подписки отписаны
     # (есть хотя бы одна с unsub=TRUE и нет ни одной с unsub=FALSE).
     # Если подписок нет вообще — считаем подписанным (по умолчанию).
@@ -76,8 +152,16 @@ async def get_contacts(
     ))"""
 
     where = where_base
-    if not show_unsubscribed:
+    # Параметр subscription приоритетнее show_unsubscribed (последний оставлен
+    # для обратной совместимости со старым фронтом).
+    sub_state = (subscription or "any").lower()
+    if sub_state == "subscribed":
         where += f" AND NOT {UNSUB_EXISTS}"
+    elif sub_state == "unsubscribed":
+        where += f" AND {UNSUB_EXISTS}"
+    elif sub_state == "any":
+        if not show_unsubscribed:
+            where += f" AND NOT {UNSUB_EXISTS}"
 
     total = await db.fetchval(f"SELECT COUNT(*) FROM contacts c {where}", *params)
     total_all = await db.fetchval(f"SELECT COUNT(*) FROM contacts c {where_base}", *params)
@@ -146,6 +230,57 @@ async def get_contacts(
         "subscribed": subscribed,
         "unsubscribed": unsubscribed,
         "items": items,
+    }
+
+
+@router.get("/contacts/filter-options")
+async def get_filter_options(
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Опции для окошка фильтра: список платформ, каналов, utm-источников и тегов
+    клиента. Используется фронтом контактов для выпадашек."""
+    client_id = int(client["sub"])
+
+    platforms = await db.fetch("""
+        SELECT p.slug, p.display_name, p.color_hex
+          FROM platforms p
+         WHERE p.is_active = TRUE
+           AND EXISTS (
+              SELECT 1 FROM platform_users pu
+               WHERE pu.client_id = $1 AND pu.platform_slug = p.slug
+           )
+         ORDER BY p.sort_order, p.slug
+    """, client_id)
+
+    channels = await db.fetch("""
+        SELECT ch.id, ch.platform_slug, ch.display_name, ch.handle, ch.is_active
+          FROM channels ch
+         WHERE ch.client_id = $1
+         ORDER BY ch.platform_slug, ch.is_active DESC, ch.id
+    """, client_id)
+
+    utm_rows = await db.fetch("""
+        SELECT DISTINCT utm_source
+          FROM contacts
+         WHERE client_id = $1 AND is_active = TRUE
+           AND utm_source IS NOT NULL AND utm_source <> ''
+         ORDER BY utm_source
+    """, client_id)
+
+    tag_rows = await db.fetch("""
+        SELECT DISTINCT jsonb_array_elements_text(tags) AS tag
+          FROM contacts
+         WHERE client_id = $1 AND is_active = TRUE
+           AND tags IS NOT NULL AND jsonb_typeof(tags) = 'array'
+         ORDER BY tag
+    """, client_id)
+
+    return {
+        "platforms": [dict(r) for r in platforms],
+        "channels": [dict(r) for r in channels],
+        "utm_sources": [r["utm_source"] for r in utm_rows],
+        "tags": [r["tag"] for r in tag_rows if r["tag"]],
     }
 
 

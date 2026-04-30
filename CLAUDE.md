@@ -162,9 +162,44 @@ API всех эндпоинтов событий ([`backend/app/api/events.py`](
 - Ссылка в Telegram: `https://plusson.app/l/ivision-7?app=tg`
 - С партнёром и UTM: `https://plusson.app/l/ivision-7?app=tg&new_partner_id=123&utm_source=insta`
 
+### Визитка клиента — разделение «Бренд / Основатель» (миграция 052 от 30.04.2026)
+
+Визитка в Mini App — **две сущности**:
+
+**Бренд** — то что в шапке Экосистемы:
+- `clients.brand_name` — название (iVISION). Если NULL → fallback на `clients.name`.
+- `clients.profile_photo_url` — фото бренда.
+- `clients.brand_logo_url` — **логотип в правом углу всех страниц Mini App** (тап → Экосистема).
+- `clients.positioning` — позиционирование бренда.
+- `clients.achievements` JSONB `[{label,value}]` — «Факты в цифрах» бренда (скрывается если пусто).
+
+**Основатель** — отдельная страница [`mini-app/src/pages/OwnerPage.tsx`](mini-app/src/pages/OwnerPage.tsx):
+- `clients.owner_name` — имя основателя (отдельно от технического `clients.name` из регистрации).
+- `clients.owner_photo_url` — фото основателя.
+- `clients.owner_positioning` — позиционирование основателя.
+- `clients.owner_achievements` JSONB `[{label,value}]` — «Факты в цифрах» основателя.
+- `clients.bio` — биография.
+- `clients.social_links` JSONB — соцсети основателя (бренд без соцсетей в MVP).
+
+⚠️ `clients.name` — техническое имя для регистрации/JWT/админки. В дашборде показывается **readonly** с подписью «Имя из регистрации. Для смены — напишите в Тех.поддержку».
+
+**Mini App** ([`EcosystemTab.tsx`](mini-app/src/tabs/EcosystemTab.tsx)):
+- Шапка-бренд: фото бренда + название + позиционирование, **без слова «ЭКОСИСТЕМА»**.
+- Блок «Факты в цифрах» (бренда) — скрыт если массив пуст.
+- Карточка-тизер «Об основателе» со стрелкой → открывает `OwnerPage` (большое фото, имя, позиционирование, факты, биография, соцсети).
+- Логотип бренда (`brand_logo_url`) в правом верхнем углу шапок [`Hub.tsx`](mini-app/src/pages/Hub.tsx) и [`EventPage.tsx`](mini-app/src/pages/EventPage.tsx) — тап навигирует в Экосистему.
+
+**Дашборд** [`/dashboard/mini-app`](web/src/app/dashboard/mini-app/page.tsx) — **3 вкладки**: «Бренд» / «Основатель» / «Продукты». Все фото грузятся через `<FileUploader />` с новыми kinds: `brand_photo`, `brand_logo`, `owner_photo`. R2-структура: `clients/{cid}/profile/{kind}/{uuid}.jpg`. Лимиты ресайза: brand_photo 1200px, brand_logo 600px, owner_photo 1200px.
+
+API:
+- `PATCH /api/v1/clients/me/profile` принимает все 11 полей (бренд + основатель)
+- `GET /api/v1/clients/me/profile` возвращает все поля
+- `GET /api/v1/public/clients/{id}/profile` — публично для Mini App
+- `GET /api/v1/public/events/{slug}/landing` дополнительно возвращает `client_brand_logo` (для логотипа в углу страницы события)
+
 ### Бренд клиента + Розыгрыш + VIP/Чат конференции (миграция 042 от 27.04.2026)
 
-**Бренд клиента — `clients.brand_name`** (опционально). Используется в Экосистеме Mini App в шапке. Если NULL — fallback на `clients.name`. Работает в паре с уже существующими `clients.profile_photo_url`, `positioning` (роль владельца), `achievements` JSONB (4 регалии {label,value} для сетки 2×2). API: `PATCH /api/v1/clients/me/profile { brand_name, positioning, achievements: [{label,value}×4], profile_photo_url }`. Публичный: `GET /api/v1/public/clients/{id}/profile`.
+**Бренд клиента — `clients.brand_name`** (опционально). Используется в Экосистеме Mini App в шапке. Если NULL — fallback на `clients.name`. ⚠️ С миграции 052 расширено — см. раздел выше про разделение «Бренд / Основатель».
 
 **Подсчёт подарков — `event_referral_settings.gift_count_mode`** = `'registered'` (default) | `'visited'`. Клиент в дашборде выбирает: подарки выдаются за зарегистрировавшихся или за переходы. Mini App показывает соответствующий счётчик.
 
@@ -179,7 +214,14 @@ API всех эндпоинтов событий ([`backend/app/api/events.py`](
 
 API: `/api/v1/events/{event_id}/raffle/{settings|prizes|keywords}` (GET/POST/PATCH/DELETE).
 
-**Один активный канал per платформа на клиента** — UNIQUE индекс `channels(client_id, platform_slug) WHERE is_active`. Старый канал можно отключить (`is_active=false`), новый создать с тем же `platform_slug`.
+**Один главный канал per платформа на клиента — UNIQUE индекс `channels(client_id, platform_slug) WHERE is_active`.** С 2026-04-30 семантика `is_active` уточнена и появилась возможность подключать **несколько TG-ботов на одного клиента** (только VIP).
+
+- `is_active = TRUE` — **главный** канал. Через него: `/start`, регистрации, приветствия, callback'и бота, Mini App-кнопка, системные уведомления (приветствия спикерам, «привёл друга», подтверждения регистрации). Один на платформу клиента (UNIQUE-индекс).
+- `is_active = FALSE` — **дополнительный** канал. Только база для рассылок — события не слушает, Mini App у него нет, callback'и игнорятся. Сколько угодно на одной платформе.
+- Архивных каналов отдельно нет: ненужный — удаляется (`DELETE /api/v1/channels/{id}`, фронт защищён вводом слова «ПОДТВЕРДИТЬ» + предупреждением «лучше переведите в неактивный, если хотите отдать управление в другой сервис, и продолжать рассылать»).
+- При смене главного (`PATCH ... { is_active: true }`) бэк одной транзакцией снимает флаг у предыдущего главного на этой платформе и ставит новому.
+- В рассылках («по базе») — каждый получатель получает сообщение через **тот канал, на который реально подписан** (`platform_user_channels.is_unsubscribed=FALSE`). Если подписан на оба — приоритет главному. Если в базе нет привязки (легаси) — fallback на главный/первый канал клиента. Реализация — helper `get_telegram_send_targets` ([backend/app/services/channels.py](backend/app/services/channels.py)) + цикл в [backend/app/tasks/broadcast.py](backend/app/tasks/broadcast.py).
+- Подписан/не подписан в `_build_audience` определяется как «есть хотя бы один не-отписанный telegram-канал клиента, либо записей в `platform_user_channels` нет». Отписан от ВСЕХ — исключаем.
 
 **Приветствие при входе в Mini App теперь шлётся через бот клиента** — `backend/app/api/event.py` использует `get_client_telegram_token(client_id, db)` (определяя клиента по `event_slug` или `client_id` из startapp-параметра). Если у клиента не настроен канал — fallback на общего `@pluson_bot`.
 

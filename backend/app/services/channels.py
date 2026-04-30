@@ -72,9 +72,14 @@ async def upsert_client_telegram_token(client_id: int, bot_token: str, db) -> No
         )
 
 
-async def mark_unsubscribed_by_tg_id(client_id: int, tg_id: str, db) -> None:
-    """Помечает контакт отписавшимся на telegram-канале клиента."""
-    channel_id = await get_client_telegram_channel_id(client_id, db)
+async def mark_unsubscribed_by_tg_id(client_id: int, tg_id: str, db, channel_id: Optional[int] = None) -> None:
+    """Помечает контакт отписавшимся на telegram-канале клиента.
+
+    Если `channel_id` не передан — берётся главный telegram-канал клиента.
+    Если передан — отметка ставится именно для него (используется в воркере
+    рассылок: блокировку фиксируем для того канала, через который реально слали)."""
+    if channel_id is None:
+        channel_id = await get_client_telegram_channel_id(client_id, db)
     if not channel_id:
         return
     await db.execute(
@@ -87,3 +92,48 @@ async def mark_unsubscribed_by_tg_id(client_id: int, tg_id: str, db) -> None:
                  unsubscribed_at = COALESCE(platform_user_channels.unsubscribed_at, NOW())""",
         channel_id, client_id, tg_id
     )
+
+
+async def get_telegram_send_targets(client_id: int, tg_ids: list[str], db) -> dict[str, dict]:
+    """Для каждого `platform_user_id` (tg_id) возвращает канал, через который
+    нужно слать рассылку: тот, на который человек реально подписан.
+
+    Приоритет:
+      1) канал, отмеченный как «главный» (is_active=TRUE) и не-отписанный;
+      2) любой не-отписанный канал;
+      3) если нет подписок вовсе — каналу передаём главный (fallback).
+
+    Возвращает: { tg_id: {"bot_token": "...", "channel_id": 12} }.
+    Те, для кого не нашли никакого telegram-канала с токеном — отсутствуют в map.
+    """
+    if not tg_ids:
+        return {}
+    rows = await db.fetch(
+        """
+        WITH ranked AS (
+          SELECT
+              pu.platform_user_id AS tg_id,
+              ch.id AS channel_id,
+              ch.bot_token,
+              ROW_NUMBER() OVER (
+                  PARTITION BY pu.platform_user_id
+                  ORDER BY ch.is_active DESC, ch.id ASC
+              ) AS rn
+            FROM platform_users pu
+            JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+            JOIN channels ch ON ch.id = puc.channel_id
+           WHERE pu.client_id = $1
+             AND pu.platform_slug = 'telegram'
+             AND ch.platform_slug = 'telegram'
+             AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+             AND puc.is_unsubscribed = FALSE
+             AND pu.platform_user_id = ANY($2::text[])
+        )
+        SELECT tg_id, channel_id, bot_token FROM ranked WHERE rn = 1
+        """,
+        client_id, tg_ids
+    )
+    return {
+        r["tg_id"]: {"bot_token": r["bot_token"], "channel_id": r["channel_id"]}
+        for r in rows
+    }

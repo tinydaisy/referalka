@@ -129,12 +129,24 @@ async def create_channel(
     if data.platform_slug == "telegram" and data.bot_token:
         await _assert_can_use_custom_bot(db, client_id)
 
-    channel_id = await db.fetchval(
-        """INSERT INTO channels (client_id, platform_slug, display_name, handle, bot_token, is_active)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id""",
-        client_id, data.platform_slug, data.display_name, data.handle, data.bot_token, data.is_active
-    )
+    # Если новый канал создаём главным — снимаем флаг у текущего главного
+    # на той же платформе (иначе INSERT упадёт на UNIQUE-индексе).
+    async with db.transaction():
+        if data.is_active:
+            await db.execute(
+                """UPDATE channels
+                      SET is_active = FALSE, updated_at = NOW()
+                    WHERE client_id = $1
+                      AND platform_slug = $2
+                      AND is_active = TRUE""",
+                client_id, data.platform_slug
+            )
+        channel_id = await db.fetchval(
+            """INSERT INTO channels (client_id, platform_slug, display_name, handle, bot_token, is_active)
+               VALUES ($1, $2, $3, $4, $5, $6)
+               RETURNING id""",
+            client_id, data.platform_slug, data.display_name, data.handle, data.bot_token, data.is_active
+        )
     return {"id": channel_id, "ok": True}
 
 
@@ -174,11 +186,31 @@ async def update_channel(
     if not updates:
         return {"ok": True}
 
-    params.append(channel_id)
-    await db.execute(
-        f"UPDATE channels SET {', '.join(updates)}, updated_at = NOW() WHERE id = ${len(params)}",
-        *params
-    )
+    # Если включаем канал главным (is_active=true) — сначала снимаем флаг
+    # у текущего главного на этой платформе (UNIQUE-индекс не даёт двух активных).
+    # Делаем в транзакции: сперва UPDATE старого главного → потом UPDATE нашего.
+    async with db.transaction():
+        if data.is_active is True:
+            ch_platform = await db.fetchval(
+                "SELECT platform_slug FROM channels WHERE id = $1 AND client_id = $2",
+                channel_id, client_id
+            )
+            if ch_platform:
+                await db.execute(
+                    """UPDATE channels
+                          SET is_active = FALSE, updated_at = NOW()
+                        WHERE client_id = $1
+                          AND platform_slug = $2
+                          AND is_active = TRUE
+                          AND id <> $3""",
+                    client_id, ch_platform, channel_id
+                )
+
+        params.append(channel_id)
+        await db.execute(
+            f"UPDATE channels SET {', '.join(updates)}, updated_at = NOW() WHERE id = ${len(params)}",
+            *params
+        )
     return {"ok": True}
 
 

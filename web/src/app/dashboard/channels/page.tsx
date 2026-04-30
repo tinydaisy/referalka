@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
-  Crown, Copy, ExternalLink, CheckCircle2, ArrowRight,
+  Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -55,6 +55,7 @@ export default function ChannelsPage() {
   const [editing, setEditing] = useState<Channel | null>(null)
   const [creating, setCreating] = useState(false)
   const [vipWizardOpen, setVipWizardOpen] = useState(false)
+  const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -75,16 +76,6 @@ export default function ChannelsPage() {
   }
 
   useEffect(() => { load() }, [])
-
-  const handleDelete = async (id: number) => {
-    if (!confirm('Удалить канал? Все подписки на нём пропадут.')) return
-    try {
-      await api.channels.delete(id)
-      await load()
-    } catch (e) {
-      alert('Ошибка: ' + (e as Error).message)
-    }
-  }
 
   if (loading) {
     return <div className="p-6 text-gray-400 text-sm">Загрузка...</div>
@@ -111,7 +102,7 @@ export default function ChannelsPage() {
           platforms={platforms}
           onEdit={ch => setEditing(ch)}
           onCreate={() => setCreating(true)}
-          onDelete={handleDelete}
+          onDelete={ch => setDeletingChannel(ch)}
           onOpenWizard={() => setVipWizardOpen(true)}
         />
       )}
@@ -130,6 +121,14 @@ export default function ChannelsPage() {
           clientId={me!.id}
           onClose={() => setVipWizardOpen(false)}
           onDone={() => { setVipWizardOpen(false); load() }}
+        />
+      )}
+
+      {deletingChannel && (
+        <DeleteChannelModal
+          channel={deletingChannel}
+          onClose={() => setDeletingChannel(null)}
+          onDone={() => { setDeletingChannel(null); load() }}
         />
       )}
     </div>
@@ -208,14 +207,14 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
   platforms: Platform[]
   onEdit: (ch: Channel) => void
   onCreate: () => void
-  onDelete: (id: number) => void
+  onDelete: (ch: Channel) => void
   onOpenWizard: () => void
 }) {
-  const tgChannel = channels.find(c => c.platform_slug === 'telegram' && c.is_active)
+  const mainTgChannel = channels.find(c => c.platform_slug === 'telegram' && c.is_active)
 
   return (
     <div className="space-y-4">
-      {!tgChannel ? (
+      {!mainTgChannel ? (
         <div
           className="rounded-2xl p-6 border-2 border-dashed cursor-pointer hover:bg-gray-50 transition"
           style={{ borderColor: '#FFCFA4' }}
@@ -245,31 +244,33 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
         </div>
       ) : (
         <ChannelCard
-          channel={tgChannel}
-          onEdit={() => onEdit(tgChannel)}
-          onDelete={() => onDelete(tgChannel.id)}
+          channel={mainTgChannel}
+          onEdit={() => onEdit(mainTgChannel)}
+          onDelete={() => onDelete(mainTgChannel)}
           onReplaceBot={onOpenWizard}
         />
       )}
 
-      {/* Остальные каналы (VK/MAX) и доп. каналы */}
-      {channels.filter(c => c !== tgChannel).map(ch => (
+      {/* Остальные каналы (VK/MAX и дополнительные TG-боты для рассылок) */}
+      {channels.filter(c => c !== mainTgChannel).map(ch => (
         <ChannelCard
           key={ch.id}
           channel={ch}
           onEdit={() => onEdit(ch)}
-          onDelete={() => onDelete(ch.id)}
+          onDelete={() => onDelete(ch)}
         />
       ))}
 
-      {platforms.length > 1 && (
-        <button
-          onClick={onCreate}
-          className="w-full py-3 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-2"
-        >
-          <Plus size={16} /> Добавить канал на другой платформе
-        </button>
-      )}
+      <button
+        onClick={onCreate}
+        className="w-full py-3 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-2"
+      >
+        <Plus size={16} /> Добавить ещё канал
+      </button>
+      <p className="text-xs text-gray-400 text-center -mt-2">
+        Можно подключить несколько ботов на одной площадке. «Воронка событий» (приветствия, /start,
+        регистрации) — только через один из них, остальные = база для рассылок.
+      </p>
     </div>
   )
 }
@@ -284,10 +285,23 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onReplaceBot }: {
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
       <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <h3 className="font-semibold text-gray-900 truncate">{ch.display_name}</h3>
-          {!ch.is_active && (
-            <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">выключен</span>
+          {ch.is_active ? (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold"
+              style={{ background: '#FFCFA4', color: '#25455D' }}
+              title="Через этот бот идут /start, регистрации и приветствия"
+            >
+              <Crown size={10} /> Воронка событий
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500"
+              title="Бот используется только как база для рассылок — события не слушает"
+            >
+              <Megaphone size={10} /> Только рассылки
+            </span>
           )}
         </div>
         <p className="text-xs text-gray-500 truncate">
@@ -296,11 +310,11 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onReplaceBot }: {
         </p>
       </div>
       <div className="flex items-center gap-4 text-sm shrink-0">
-        <div className="flex items-center gap-1.5 text-green-600">
+        <div className="flex items-center gap-1.5 text-green-600" title="Подписчики">
           <Users size={14} />
           <span>{ch.subscribers.toLocaleString('ru')}</span>
         </div>
-        <div className="flex items-center gap-1.5 text-red-400">
+        <div className="flex items-center gap-1.5 text-red-400" title="Отписавшиеся">
           <BellOff size={14} />
           <span>{ch.unsubscribed.toLocaleString('ru')}</span>
         </div>
@@ -324,7 +338,7 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onReplaceBot }: {
         <button
           onClick={onDelete}
           className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500"
-          title="Удалить"
+          title="Удалить навсегда"
         ><Trash2 size={14} /></button>
       </div>
     </div>
@@ -671,14 +685,23 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
             </div>
           )}
 
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50">
             <input
               type="checkbox"
               checked={isActive}
               onChange={e => setIsActive(e.target.checked)}
-              className="rounded"
+              className="mt-0.5 rounded"
             />
-            <span className="text-sm text-gray-700">Канал активен</span>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
+                <Crown size={14} style={{ color: '#FFCFA4' }} />
+                Через этот бот идёт воронка событий
+              </div>
+              <p className="text-xs text-gray-500 mt-1 leading-snug">
+                Отметьте, если хотите, чтобы /start, регистрации и приветствия обрабатывались
+                именно этим ботом. Остальные ваши боты будут работать только как база для рассылок.
+              </p>
+            </div>
           </label>
         </div>
 
@@ -693,6 +716,104 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
             style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
           >
             {saving ? 'Сохранение...' : 'Сохранить'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────── Модалка удаления с защитой от случайности ─────── */
+function DeleteChannelModal({ channel, onClose, onDone }: {
+  channel: Channel
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [confirmText, setConfirmText] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const canDelete = confirmText === 'ПОДТВЕРДИТЬ'
+
+  async function doDelete() {
+    if (!canDelete) return
+    setError('')
+    setSubmitting(true)
+    try {
+      await api.channels.delete(channel.id)
+      onDone()
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось удалить канал')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <AlertTriangle size={18} className="text-red-500" />
+            Удалить канал навсегда?
+          </h2>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="font-semibold mb-1">Перед удалением подумайте</div>
+            <p className="leading-snug">
+              Если вы хотите перестать использовать этот бот, но <b>сохранить базу подписчиков</b> —
+              лучше переведите его в неактивный (рассылки по нему всё равно можно будет делать).
+              Удалять стоит только если бот вам совсем не нужен — например, вы передаёте управление
+              этим ботом в другой сервис.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            При удалении канала <b className="font-mono">{channel.display_name}</b>: бот, его
+            подписчики (<b>{channel.subscribers.toLocaleString('ru')}</b>) и история отписок будут
+            стёрты безвозвратно.
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-700 mb-2">
+              Чтобы подтвердить, введите <b className="font-mono">ПОДТВЕРДИТЬ</b> заглавными
+              буквами:
+            </label>
+            <input
+              value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono uppercase tracking-wider focus:outline-none focus:border-red-500"
+              placeholder="ПОДТВЕРДИТЬ"
+              autoFocus
+              disabled={submitting}
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl p-3">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+            disabled={submitting}
+          >
+            Отмена
+          </button>
+          <button
+            onClick={doDelete}
+            disabled={!canDelete || submitting}
+            className="px-4 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed bg-red-600 hover:bg-red-700"
+          >
+            {submitting ? 'Удаляем…' : 'ОК, удалить навсегда'}
           </button>
         </div>
       </div>

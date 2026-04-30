@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff } from 'lucide-react'
-import { api } from '@/lib/api'
+import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X } from 'lucide-react'
+import { api, ContactFilters } from '@/lib/api'
 
 interface Identity {
   platform_slug: string
@@ -112,9 +112,33 @@ function Avatar({ contact }: { contact: Contact }) {
   )
 }
 
+const EMPTY_FILTERS: ContactFilters = {
+  subscription: 'any',
+  platforms: [],
+  channelIds: [],
+  utmSources: [],
+  tags: [],
+  dateFrom: '',
+  dateTo: '',
+}
+
+function countActiveFilters(f: ContactFilters): number {
+  let n = 0
+  if (f.subscription && f.subscription !== 'any') n++
+  if (f.platforms?.length) n++
+  if (f.channelIds?.length) n++
+  if (f.utmSources?.length) n++
+  if (f.tags?.length) n++
+  if (f.dateFrom) n++
+  if (f.dateTo) n++
+  return n
+}
+
 export default function ContactsPage() {
   const [search, setSearch] = useState('')
   const [showUnsubscribed, setShowUnsubscribed] = useState(false)
+  const [filters, setFilters] = useState<ContactFilters>(EMPTY_FILTERS)
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [total, setTotal] = useState(0)
   const [totalAll, setTotalAll] = useState(0)
@@ -127,11 +151,12 @@ export default function ContactsPage() {
   const [offset, setOffset] = useState(0)
   const [merging, setMerging] = useState(false)
   const LIMIT = 50
+  const activeFilterCount = countActiveFilters(filters)
 
-  const fetchContacts = useCallback(async (q: string, off: number, unsub: boolean) => {
+  const fetchContacts = useCallback(async (q: string, off: number, unsub: boolean, f: ContactFilters) => {
     setLoading(true)
     try {
-      const data = await api.contacts.list(q, LIMIT, off, unsub)
+      const data = await api.contacts.list(q, LIMIT, off, unsub, f)
       setContacts(data.items || [])
       setTotal(data.total || 0)
       setTotalAll(data.total_all || 0)
@@ -147,13 +172,13 @@ export default function ContactsPage() {
   useEffect(() => {
     const t = setTimeout(() => {
       setOffset(0)
-      fetchContacts(search, 0, showUnsubscribed)
+      fetchContacts(search, 0, showUnsubscribed, filters)
     }, 300)
     return () => clearTimeout(t)
-  }, [search, showUnsubscribed, fetchContacts])
+  }, [search, showUnsubscribed, filters, fetchContacts])
 
   useEffect(() => {
-    fetchContacts(search, offset, showUnsubscribed)
+    fetchContacts(search, offset, showUnsubscribed, filters)
   }, [offset])
 
   const selectContact = async (id: number) => {
@@ -179,7 +204,7 @@ export default function ContactsPage() {
     try {
       await api.contacts.merge(selected.id, targetId)
       await selectContact(selected.id)
-      await fetchContacts(search, offset, showUnsubscribed)
+      await fetchContacts(search, offset, showUnsubscribed, filters)
     } catch (e) {
       console.error(e)
       alert('Ошибка объединения: ' + (e as Error).message)
@@ -193,14 +218,32 @@ export default function ContactsPage() {
       {/* Левая колонка — список */}
       <div className="w-80 shrink-0 flex flex-col bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="p-3 border-b border-gray-100">
-          <div className="relative">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 rounded-lg border border-gray-200 focus:outline-none focus:border-[#25455D]"
-              placeholder="Имя, никнейм, email..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 rounded-lg border border-gray-200 focus:outline-none focus:border-[#25455D]"
+                placeholder="Имя, никнейм, email..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <button
+              onClick={() => setFilterPanelOpen(true)}
+              className={`relative px-2.5 rounded-lg border text-sm flex items-center gap-1 shrink-0 ${
+                activeFilterCount > 0
+                  ? 'border-[#25455D] bg-[#25455D] text-white'
+                  : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'
+              }`}
+              title="Настройки фильтра"
+            >
+              <SlidersHorizontal size={14} />
+              {activeFilterCount > 0 && (
+                <span className="text-[10px] font-bold bg-white text-[#25455D] rounded-full px-1.5 leading-4">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
           </div>
           <div className="mt-2 px-1 flex items-center justify-between">
             <div className="flex flex-col gap-0.5">
@@ -220,6 +263,14 @@ export default function ContactsPage() {
               <span className="text-xs text-gray-500">Отписавшиеся</span>
             </label>
           </div>
+          {activeFilterCount > 0 && (
+            <button
+              onClick={() => setFilters(EMPTY_FILTERS)}
+              className="mt-2 w-full text-xs text-gray-500 hover:text-red-500 flex items-center justify-center gap-1 py-1"
+            >
+              <X size={12} /> Сбросить фильтры ({activeFilterCount})
+            </button>
+          )}
         </div>
 
         {/* Список */}
@@ -502,6 +553,228 @@ export default function ContactsPage() {
             )}
           </div>
         )}
+      </div>
+
+      {filterPanelOpen && (
+        <FilterPanel
+          initial={filters}
+          onApply={f => { setFilters(f); setFilterPanelOpen(false) }}
+          onClose={() => setFilterPanelOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ─────── Окошко фильтра контактов ─────── */
+interface FilterOptions {
+  platforms: { slug: string; display_name: string; color_hex: string | null }[]
+  channels:  { id: number; platform_slug: string; display_name: string; handle: string | null; is_active: boolean }[]
+  utm_sources: string[]
+  tags: string[]
+}
+
+function FilterPanel({ initial, onApply, onClose }: {
+  initial: ContactFilters
+  onApply: (f: ContactFilters) => void
+  onClose: () => void
+}) {
+  const [draft, setDraft] = useState<ContactFilters>(initial)
+  const [opts, setOpts] = useState<FilterOptions | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.contacts.filterOptions()
+      .then(setOpts)
+      .catch(() => setOpts({ platforms: [], channels: [], utm_sources: [], tags: [] }))
+      .finally(() => setLoading(false))
+  }, [])
+
+  function toggleArrayItem<T>(arr: T[] | undefined, item: T): T[] {
+    const cur = arr || []
+    return cur.includes(item) ? cur.filter(x => x !== item) : [...cur, item]
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <SlidersHorizontal size={18} /> Фильтр контактов
+          </h2>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {loading && (
+            <div className="text-center text-gray-400 text-sm py-4">Загрузка опций…</div>
+          )}
+
+          {!loading && opts && (
+            <>
+              {/* Платформа */}
+              {opts.platforms.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Платформа</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {opts.platforms.map(p => {
+                      const active = (draft.platforms || []).includes(p.slug)
+                      return (
+                        <button
+                          key={p.slug}
+                          onClick={() => setDraft(d => ({ ...d, platforms: toggleArrayItem(d.platforms, p.slug) }))}
+                          className={`text-xs px-2.5 py-1 rounded-full border ${
+                            active
+                              ? 'bg-[#25455D] text-white border-[#25455D]'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >{p.display_name}</button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Канал */}
+              {opts.channels.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Канал подписки</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {opts.channels.map(ch => {
+                      const active = (draft.channelIds || []).includes(ch.id)
+                      return (
+                        <button
+                          key={ch.id}
+                          onClick={() => setDraft(d => ({ ...d, channelIds: toggleArrayItem(d.channelIds, ch.id) }))}
+                          className={`text-xs px-2.5 py-1 rounded-full border flex items-center gap-1 ${
+                            active
+                              ? 'bg-[#25455D] text-white border-[#25455D]'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                          title={ch.is_active ? 'Главный канал' : 'Только рассылки'}
+                        >
+                          {ch.display_name}
+                          {!ch.is_active && <span className="opacity-60 text-[10px]">(рассылка)</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* UTM-источник */}
+              {opts.utm_sources.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">UTM-источник</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {opts.utm_sources.map(u => {
+                      const active = (draft.utmSources || []).includes(u)
+                      return (
+                        <button
+                          key={u}
+                          onClick={() => setDraft(d => ({ ...d, utmSources: toggleArrayItem(d.utmSources, u) }))}
+                          className={`text-xs px-2.5 py-1 rounded-full border font-mono ${
+                            active
+                              ? 'bg-[#25455D] text-white border-[#25455D]'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >{u}</button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Теги */}
+              {opts.tags.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Теги</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {opts.tags.map(t => {
+                      const active = (draft.tags || []).includes(t)
+                      return (
+                        <button
+                          key={t}
+                          onClick={() => setDraft(d => ({ ...d, tags: toggleArrayItem(d.tags, t) }))}
+                          className={`text-xs px-2.5 py-1 rounded-full border ${
+                            active
+                              ? 'bg-[#25455D] text-white border-[#25455D]'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >{t}</button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Состояние подписки */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Подписка</h3>
+                <div className="flex gap-1.5">
+                  {([
+                    { v: 'any',          label: 'Любая' },
+                    { v: 'subscribed',   label: 'Подписан' },
+                    { v: 'unsubscribed', label: 'Отписан' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setDraft(d => ({ ...d, subscription: opt.v }))}
+                      className={`flex-1 text-xs px-2 py-1.5 rounded-lg border ${
+                        (draft.subscription || 'any') === opt.v
+                          ? 'bg-[#25455D] text-white border-[#25455D]'
+                          : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Дата последнего контакта */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Последний контакт</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-gray-400 mb-1">от</label>
+                    <input
+                      type="date"
+                      value={draft.dateFrom || ''}
+                      onChange={e => setDraft(d => ({ ...d, dateFrom: e.target.value }))}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-400 mb-1">до</label>
+                    <input
+                      type="date"
+                      value={draft.dateTo || ''}
+                      onChange={e => setDraft(d => ({ ...d, dateTo: e.target.value }))}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-between gap-2 p-5 border-t border-gray-100 sticky bottom-0 bg-white">
+          <button
+            onClick={() => setDraft(EMPTY_FILTERS)}
+            className="px-4 py-2 text-sm text-gray-500 hover:text-red-500"
+          >
+            Сбросить
+          </button>
+          <button
+            onClick={() => onApply(draft)}
+            className="px-5 py-2 text-sm rounded-lg text-white font-medium"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+          >
+            Применить
+          </button>
+        </div>
       </div>
     </div>
   )

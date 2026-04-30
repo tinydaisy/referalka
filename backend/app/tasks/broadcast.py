@@ -118,12 +118,27 @@ async def _send_broadcast(schedule_id: int):
         tmpl_btn_text_val = tmpl["button_text"] if tmpl else None
         tmpl_btn_url_val  = tmpl["button_url"]  if tmpl else ""
 
-        # Токен бота — из channels (telegram-канал клиента)
-        from app.services.channels import get_client_telegram_token
-        bot_token = await get_client_telegram_token(schedule["client_id"], conn)
-        if not bot_token:
-            bot_token = settings.telegram_bot_token
-        if not bot_token:
+        # Токен бота для тех получателей, у кого нет привязки к конкретному каналу
+        # (легаси-контакты без записи в platform_user_channels). Берём главный
+        # активный канал клиента; если такого нет — любой канал клиента с токеном;
+        # если и таких нет — глобальный @pluson_bot.
+        from app.services.channels import (
+            get_client_telegram_token,
+            get_telegram_send_targets,
+            mark_unsubscribed_by_tg_id,
+        )
+        default_bot_token = await get_client_telegram_token(schedule["client_id"], conn)
+        if not default_bot_token:
+            default_bot_token = await conn.fetchval(
+                """SELECT bot_token FROM channels
+                    WHERE client_id = $1 AND platform_slug = 'telegram'
+                      AND bot_token IS NOT NULL AND bot_token <> ''
+                    ORDER BY is_active DESC, id ASC LIMIT 1""",
+                schedule["client_id"],
+            )
+        if not default_bot_token:
+            default_bot_token = settings.telegram_bot_token
+        if not default_bot_token:
             await conn.execute(
                 "UPDATE broadcast_schedules SET status='cancelled', error_log=$1, finished_at=NOW() WHERE id=$2",
                 "Нет токена бота", schedule_id
@@ -216,6 +231,12 @@ async def _send_broadcast(schedule_id: int):
             )
             name_by_tg = {r["platform_user_id"]: r["first_name"] for r in name_rows}
 
+        # Карта «через какой канал слать конкретному получателю».
+        # Пустая запись ⇒ fallback на default_bot_token (главный/единственный канал клиента).
+        target_by_tg = await get_telegram_send_targets(
+            schedule["client_id"], list(final_ids), conn
+        )
+
         # Отправляем параллельно (скорость = clients.broadcast_concurrency)
         sent = 0
         sem = asyncio.Semaphore(concurrency)
@@ -225,17 +246,21 @@ async def _send_broadcast(schedule_id: int):
                 msg_text = text
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
-                return tg_id, await send_telegram_message(
-                    http_client, bot_token, tg_id, msg_text, photo_url, button_text, button_url,
+                target = target_by_tg.get(tg_id) or {}
+                token = target.get("bot_token") or default_bot_token
+                channel_id = target.get("channel_id")
+                ok, err = await send_telegram_message(
+                    http_client, token, tg_id, msg_text, photo_url, button_text, button_url,
                     buttons=buttons
                 )
+                return tg_id, channel_id, (ok, err)
 
         async with httpx.AsyncClient(timeout=15, limits=httpx.Limits(max_connections=max(concurrency + 20, 50))) as http_client:
             results = await asyncio.gather(*[send_one(tid, http_client) for tid in final_ids])
 
         # Пишем лог одной пачкой после отправки
         BLOCKED_ERRORS = ("bot was blocked by the user", "user is deactivated", "chat not found", "have no rights to send a message")
-        for tg_id, (success, tg_error) in results:
+        for tg_id, channel_id, (success, tg_error) in results:
             is_blocked = not success and tg_error and any(e in tg_error.lower() for e in BLOCKED_ERRORS)
             await conn.execute(
                 """
@@ -251,13 +276,16 @@ async def _send_broadcast(schedule_id: int):
                 schedule["client_id"]
             )
             if is_blocked:
-                # Помечаем отписавшимся в platform_user_channels (per-канал)
-                from app.services.channels import mark_unsubscribed_by_tg_id
-                await mark_unsubscribed_by_tg_id(schedule["client_id"], tg_id, conn)
+                # Помечаем отписавшимся в КОНКРЕТНОМ канале через который слали.
+                # Если канала не было (легаси) — отметим в главном.
+                await mark_unsubscribed_by_tg_id(
+                    schedule["client_id"], tg_id, conn, channel_id=channel_id
+                )
             if success:
                 sent += 1
 
         # Отправка копии в дополнительные чаты (telegram_chat_ids из настроек конференции)
+        # Эти чаты — служебные группы клиента, шлём через главного бота.
         if not schedule["is_test"]:
             chat_ids_row = await conn.fetchrow(
                 "SELECT telegram_chat_ids FROM conf_conferences WHERE event_id=$1",
@@ -268,7 +296,7 @@ async def _send_broadcast(schedule_id: int):
                 async with httpx.AsyncClient(timeout=10) as http_extra:
                     for cid in extra_ids:
                         await send_telegram_message(
-                            http_extra, bot_token, cid, text, photo_url, button_text, button_url,
+                            http_extra, default_bot_token, cid, text, photo_url, button_text, button_url,
                             buttons=buttons
                         )
 
@@ -294,16 +322,26 @@ async def _build_audience(conn, schedule) -> set:
     event_id = schedule["event_id"]
     client_id = schedule["client_id"]
 
-    # Подписан = НЕ существует строки в platform_user_channels с is_unsubscribed=TRUE
-    # для telegram-канала клиента. NULL-связи (нет строки) считаем подписанными.
+    # Подписан = есть хотя бы один не-отписанный telegram-канал клиента,
+    # либо записей в platform_user_channels нет вовсе (легаси-контакты).
+    # Если человек отписался от ВСЕХ каналов клиента — исключаем.
     SUBSCRIBED_CLAUSE = """
-        NOT EXISTS (
+        (
+          EXISTS (
             SELECT 1 FROM platform_user_channels puc
             JOIN channels ch ON ch.id = puc.channel_id
             WHERE puc.platform_user_id = pu.id
               AND ch.client_id = pu.client_id
               AND ch.platform_slug = 'telegram'
-              AND puc.is_unsubscribed = TRUE
+              AND puc.is_unsubscribed = FALSE
+          )
+          OR NOT EXISTS (
+            SELECT 1 FROM platform_user_channels puc
+            JOIN channels ch ON ch.id = puc.channel_id
+            WHERE puc.platform_user_id = pu.id
+              AND ch.client_id = pu.client_id
+              AND ch.platform_slug = 'telegram'
+          )
         )
     """
 
