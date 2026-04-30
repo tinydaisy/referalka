@@ -265,7 +265,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                         THEN cd.end_at   ELSE e.end_at   END AS end_at,
                    e.successor_event_id,
                    e.has_vip_tariff, e.vip_price, e.vip_url, e.vip_title, e.vip_description,
-                   e.chat_url, e.chat_subscriptions_required, e.chat_member_count_label,
+                   e.chat_url, e.chat_member_count_label, e.require_subscription,
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,
                    c.brand_logo_url AS client_brand_logo,

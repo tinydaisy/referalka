@@ -293,9 +293,9 @@ export default function ProgramTab({ event }: Props) {
             display: 'flex', alignItems: 'center', gap: 12,
             background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
             borderRadius: 14, padding: 14, textDecoration: 'none',
-            marginBottom: event?.chat_subscriptions_required ? 0 : 12,
-            borderBottomLeftRadius:  event?.chat_subscriptions_required ? 0 : 14,
-            borderBottomRightRadius: event?.chat_subscriptions_required ? 0 : 14,
+            marginBottom: event?.require_subscription ? 0 : 12,
+            borderBottomLeftRadius:  event?.require_subscription ? 0 : 14,
+            borderBottomRightRadius: event?.require_subscription ? 0 : 14,
           }}>
             <div style={{
               width: 40, height: 40, borderRadius: 10,
@@ -315,8 +315,10 @@ export default function ProgramTab({ event }: Props) {
             <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
           </a>
 
-          {/* Условие входа в чат — подписки */}
-          {event?.chat_subscriptions_required && (
+          {/* Условие входа в чат — переиспользуем общее «Требование подписки»
+              события (events.require_subscription). Для конференций — подписки
+              на организатора и спикеров; для мероприятий — только на организатора. */}
+          {event?.require_subscription && (
             <div style={{
               background: PEACH, color: DARK,
               borderTop: '1px solid rgba(37,69,93,0.15)',
@@ -329,7 +331,11 @@ export default function ProgramTab({ event }: Props) {
                 <line x1="12" y1="8"  x2="12" y2="12"/>
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
-              <span>Чтобы войти в чат, подпишитесь на каналы организатора и спикеров</span>
+              <span>
+                {isConference
+                  ? 'Чтобы войти в чат, подпишитесь на каналы организатора и спикеров'
+                  : 'Чтобы войти в чат, подпишитесь на канал организатора'}
+              </span>
             </div>
           )}
         </>
