@@ -9,13 +9,14 @@ API каналов доставки клиента (миграция 036, доп
 не могут сохранять `bot_token` — выдаётся 403. На фронте — read-only с апсейл-блоком.
 """
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional
 
 from app.auth import get_current_client
 from app.config import settings
 from app.database import get_db
+from app.services.channel_import import import_csv_to_channel
 
 router = APIRouter(prefix="/channels", tags=["Каналы"])
 
@@ -299,3 +300,33 @@ async def delete_channel(channel_id: int, client=Depends(get_current_client), db
     if deleted == "DELETE 0":
         raise HTTPException(status_code=404, detail="Канал не найден")
     return {"ok": True}
+
+
+@router.post("/{channel_id}/import-csv", summary="Импорт пользователей в канал из CSV")
+async def import_channel_csv(
+    channel_id: int,
+    file: UploadFile = File(...),
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Загружает CSV с пользователями (telegram_id, name, telegram_username, email, phone, subscribed)
+    и подписывает их на канал. Существующие контакты — мерджит по tg_id или email/phone.
+    Поля БД не перетираются — нестыковки идут в текстовый отчёт."""
+    client_id = int(client["sub"])
+
+    # Лимит 10 МБ
+    MAX_SIZE = 10 * 1024 * 1024
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="Файл больше 10 МБ. Разбейте на несколько частей.")
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Файл пустой")
+
+    try:
+        result = await import_csv_to_channel(
+            db, client_id=client_id, channel_id=channel_id, file_bytes=file_bytes
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return result

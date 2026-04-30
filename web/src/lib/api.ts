@@ -256,6 +256,21 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ bot_token }),
       }),
+    importCsv: async (id: number, file: File) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      const token = getToken()
+      const res = await fetch(`${API_URL}/api/v1/channels/${id}/import-csv`, {
+        method: 'POST',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: fd,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || 'Ошибка импорта')
+      }
+      return res.json()
+    },
   },
   broadcasts: {
     list: () => request('/api/v1/broadcasts/schedules'),

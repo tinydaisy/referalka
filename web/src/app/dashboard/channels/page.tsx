@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
   Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
+  Upload, Download, FileText,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -56,6 +57,7 @@ export default function ChannelsPage() {
   const [creating, setCreating] = useState(false)
   const [vipWizardOpen, setVipWizardOpen] = useState(false)
   const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null)
+  const [importingChannel, setImportingChannel] = useState<Channel | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -104,6 +106,7 @@ export default function ChannelsPage() {
           onCreate={() => setCreating(true)}
           onDelete={ch => setDeletingChannel(ch)}
           onOpenWizard={() => setVipWizardOpen(true)}
+          onImport={ch => setImportingChannel(ch)}
         />
       )}
 
@@ -129,6 +132,14 @@ export default function ChannelsPage() {
           channel={deletingChannel}
           onClose={() => setDeletingChannel(null)}
           onDone={() => { setDeletingChannel(null); load() }}
+        />
+      )}
+
+      {importingChannel && (
+        <ImportCsvModal
+          channel={importingChannel}
+          onClose={() => setImportingChannel(null)}
+          onDone={() => { setImportingChannel(null); load() }}
         />
       )}
     </div>
@@ -202,13 +213,14 @@ function NonVipView({ onUpgrade }: { onUpgrade: () => void }) {
 }
 
 /* ─────── VIP: полный CRUD + кнопка wizard ─────── */
-function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard }: {
+function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard, onImport }: {
   channels: Channel[]
   platforms: Platform[]
   onEdit: (ch: Channel) => void
   onCreate: () => void
   onDelete: (ch: Channel) => void
   onOpenWizard: () => void
+  onImport: (ch: Channel) => void
 }) {
   const mainTgChannel = channels.find(c => c.platform_slug === 'telegram' && c.is_active)
 
@@ -247,6 +259,7 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
           channel={mainTgChannel}
           onEdit={() => onEdit(mainTgChannel)}
           onDelete={() => onDelete(mainTgChannel)}
+          onImport={() => onImport(mainTgChannel)}
         />
       )}
 
@@ -257,6 +270,7 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
           channel={ch}
           onEdit={() => onEdit(ch)}
           onDelete={() => onDelete(ch)}
+          onImport={() => onImport(ch)}
         />
       ))}
 
@@ -274,11 +288,13 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
   )
 }
 
-function ChannelCard({ channel: ch, onEdit, onDelete }: {
+function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
   channel: Channel
   onEdit: () => void
   onDelete: () => void
+  onImport: () => void
 }) {
+  const isTelegram = ch.platform_slug === 'telegram'
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
       <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
@@ -318,6 +334,13 @@ function ChannelCard({ channel: ch, onEdit, onDelete }: {
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
+        {isTelegram && (
+          <button
+            onClick={onImport}
+            className="p-2 hover:bg-amber-50 rounded-lg text-gray-500 hover:text-[#c98852]"
+            title="Импорт пользователей из CSV"
+          ><Upload size={14} /></button>
+        )}
         <button
           onClick={onEdit}
           className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-[#25455D]"
@@ -861,6 +884,279 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ─────── Импорт из CSV ─────── */
+
+interface ImportResult {
+  stats: {
+    total_rows: number
+    created_contacts: number
+    matched_existing: number
+    subscribed: number
+    unsubscribed: number
+    skipped_no_tgid: number
+    skipped_invalid_tgid: number
+    duplicates_in_file: number
+    mismatches: number
+  }
+  report_text: string
+  channel_name: string
+}
+
+const CSV_TEMPLATE = `telegram_id,name,telegram_username,email,phone,subscribed
+123456789,Иван Петров,ivan_p,ivan@mail.ru,+79991234567,1
+987654321,Мария Сидорова,,maria@mail.ru,89998887766,1
+555444333,Пётр,petr_x,,,0
+`
+
+function ImportCsvModal({ channel, onClose, onDone }: {
+  channel: Channel
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [file, setFile] = useState<File | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState<ImportResult | null>(null)
+
+  function downloadTemplate() {
+    const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'plusson_import_template.csv'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function downloadReport() {
+    if (!result) return
+    const blob = new Blob([result.report_text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const safeName = channel.display_name.replace(/[^a-zа-я0-9_-]/gi, '_')
+    a.download = `import_report_${safeName}.txt`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function submit() {
+    if (!file) return
+    setError('')
+    setSubmitting(true)
+    try {
+      const r = await api.channels.importCsv(channel.id, file)
+      setResult(r)
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось импортировать файл')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragOver(false)
+    const f = e.dataTransfer.files?.[0]
+    if (f) setFile(f)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <Upload size={18} />
+            Импорт пользователей в «{channel.display_name}»
+          </h2>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {!result ? (
+            <>
+              {/* Инструкция */}
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-900 space-y-2">
+                <div className="font-semibold">Как сформировать CSV</div>
+                <p className="leading-snug">
+                  Файл с заголовком в первой строке. Колонки:
+                </p>
+                <ul className="space-y-1 pl-4 list-disc text-[13px] leading-snug">
+                  <li><b className="font-mono">telegram_id</b> — обязательно. Без него строка пропускается.</li>
+                  <li><b className="font-mono">name</b> — имя контакта</li>
+                  <li><b className="font-mono">telegram_username</b> — никнейм без @</li>
+                  <li><b className="font-mono">email</b>, <b className="font-mono">phone</b> — для мерджа с существующими контактами</li>
+                  <li><b className="font-mono">subscribed</b> — <code className="bg-blue-100 px-1 rounded">1</code>/<code className="bg-blue-100 px-1 rounded">да</code> (по умолчанию) или <code className="bg-blue-100 px-1 rounded">0</code>/<code className="bg-blue-100 px-1 rounded">нет</code></li>
+                </ul>
+                <p className="leading-snug pt-1">
+                  <b>Что делает мердж:</b> если человек с таким <code className="bg-blue-100 px-1 rounded">telegram_id</code> уже
+                  есть (например, подписан на другой ваш канал) — он не дублируется, ему просто добавляется подписка
+                  на этот канал. То же если в базе уже есть контакт с таким email или телефоном.
+                </p>
+                <p className="leading-snug">
+                  <b>Что НЕ перетираем:</b> если в базе уже есть имя/email/телефон, и в CSV пришли другие — оставим
+                  как в базе. Все нестыковки попадут в отчёт об ошибках.
+                </p>
+              </div>
+
+              <button
+                onClick={downloadTemplate}
+                className="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50"
+                style={{ color: '#25455D' }}
+              >
+                <Download size={14} /> Скачать шаблон CSV
+              </button>
+
+              {/* Зона выбора файла */}
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                className={`rounded-2xl border-2 border-dashed p-8 text-center transition cursor-pointer
+                  ${dragOver ? 'bg-amber-50' : 'bg-gray-50 hover:bg-gray-100'}`}
+                style={dragOver ? { borderColor: '#FFCFA4' } : { borderColor: '#e5e7eb' }}
+                onClick={() => document.getElementById('csv-file-input')?.click()}
+              >
+                <input
+                  id="csv-file-input"
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={e => setFile(e.target.files?.[0] || null)}
+                />
+                {file ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <FileText size={28} style={{ color: '#25455D' }} />
+                    <div className="text-left">
+                      <div className="font-semibold text-gray-900 text-sm">{file.name}</div>
+                      <div className="text-xs text-gray-500">{(file.size / 1024).toFixed(1)} КБ</div>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); setFile(null) }}
+                      className="text-xs text-red-500 hover:text-red-700 font-medium ml-2"
+                    >Убрать</button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload size={32} className="mx-auto mb-2 text-gray-400" />
+                    <p className="text-sm text-gray-700 font-medium">
+                      Перетащите CSV-файл или нажмите чтобы выбрать
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">До 10 МБ. UTF-8 или CP1251.</p>
+                  </>
+                )}
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-100 text-red-700 text-sm rounded-xl p-3">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+                  disabled={submitting}
+                >Отмена</button>
+                <button
+                  onClick={submit}
+                  disabled={!file || submitting}
+                  className="px-5 py-2 text-sm rounded-lg text-white font-semibold disabled:opacity-50"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+                >
+                  {submitting ? 'Загружаем…' : 'Импортировать'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <ImportResultView
+              result={result}
+              onDownloadReport={downloadReport}
+              onClose={onDone}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ImportResultView({ result, onDownloadReport, onClose }: {
+  result: ImportResult
+  onDownloadReport: () => void
+  onClose: () => void
+}) {
+  const s = result.stats
+  const hasIssues = s.skipped_no_tgid + s.skipped_invalid_tgid + s.duplicates_in_file + s.mismatches > 0
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
+        <CheckCircle2 size={20} className="text-green-600 mt-0.5 shrink-0" />
+        <div>
+          <p className="font-semibold text-green-900">Импорт завершён</p>
+          <p className="text-sm text-green-800 mt-0.5">
+            Обработано {s.total_rows.toLocaleString('ru')} строк
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard label="Создано контактов" value={s.created_contacts} color="#25455D" />
+        <StatCard label="Найдено существующих" value={s.matched_existing} color="#25455D" />
+        <StatCard label="Подписано на канал" value={s.subscribed} color="#16a34a" />
+        <StatCard label="Отписано от канала" value={s.unsubscribed} color="#9ca3af" />
+      </div>
+
+      {hasIssues && (
+        <div className="space-y-3">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="font-semibold text-amber-900 text-sm mb-2 flex items-center gap-2">
+              <AlertTriangle size={16} /> Есть нестыковки и пропуски
+            </div>
+            <ul className="text-sm text-amber-900 space-y-1">
+              {s.skipped_no_tgid > 0 && <li>• Пропущено без telegram_id: <b>{s.skipped_no_tgid}</b></li>}
+              {s.skipped_invalid_tgid > 0 && <li>• Пропущено с невалидным telegram_id: <b>{s.skipped_invalid_tgid}</b></li>}
+              {s.duplicates_in_file > 0 && <li>• Дубликатов внутри файла: <b>{s.duplicates_in_file}</b></li>}
+              {s.mismatches > 0 && <li>• Нестыковок (CSV ≠ БД, оставлено как в БД): <b>{s.mismatches}</b></li>}
+            </ul>
+          </div>
+          <button
+            onClick={onDownloadReport}
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-medium text-sm"
+            style={{ color: '#25455D' }}
+          >
+            <Download size={15} /> Скачать отчёт об ошибках (TXT)
+          </button>
+        </div>
+      )}
+
+      <button
+        onClick={onClose}
+        className="w-full py-3 rounded-xl font-semibold text-sm text-white"
+        style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+      >Готово</button>
+    </div>
+  )
+}
+
+function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
+      <div className="text-xs text-gray-500 mb-1">{label}</div>
+      <div className="text-2xl font-bold" style={{ color }}>{value.toLocaleString('ru')}</div>
     </div>
   )
 }

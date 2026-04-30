@@ -225,6 +225,28 @@ API: `/api/v1/events/{event_id}/raffle/{settings|prizes|keywords}` (GET/POST/PAT
 
 **Приветствие при входе в Mini App теперь шлётся через бот клиента** — `backend/app/api/event.py` использует `get_client_telegram_token(client_id, db)` (определяя клиента по `event_slug` или `client_id` из startapp-параметра). Если у клиента не настроен канал — fallback на общего `@pluson_bot`.
 
+### Импорт пользователей в канал из CSV (2026-04-30)
+
+На карточке Telegram-канала в `/dashboard/channels` — кнопка-иконка `Upload`. Открывает модалку с инструкцией, кнопкой «Скачать шаблон» и зоной выбора файла.
+
+**Колонки CSV** (любой регистр и порядок, поддержка алиасов и UTF-8 / CP1251):
+- `telegram_id` — обязательно. Без него строка пропускается (без tg_id бот не сможет отправить).
+- `name`, `telegram_username` (без @), `email`, `phone` — опционально.
+- `subscribed` — `1`/`да` (default) или `0`/`нет`.
+
+**Логика обработки строки** (см. [`backend/app/services/channel_import.py`](backend/app/services/channel_import.py)):
+1. Ищем `platform_users (client_id, platform=telegram, tg_id)`. Нашли → `contact_id` известен, поля БД **не трогаем**.
+2. Не нашли → ищем `contacts` по `email_normalized` или `phone_normalized` у того же клиента (мердж кросс-канал). Нашли → дозаполняем пустые поля COALESCE-ом, не перетираем непустые. Перед INSERT в `platform_users` проверяем коллизию `UNIQUE (contact_id, platform_slug)` — если у contact уже есть другой TG, пишем в отчёт и пропускаем.
+3. Не нашли → создаём `contact` + `platform_users`.
+4. `platform_user_channels` — UPDATE/INSERT с `is_unsubscribed = !subscribed` (целевое действие импорта, перетираем).
+
+**Отчёт об ошибках** (TXT, скачивается из UI после импорта):
+- Заголовок со статистикой (строк / создано / найдено / подписано / отписано / пропущено / нестыковок).
+- Построчные нестыковки (CSV ≠ БД — оставлено как в БД).
+- Пропуски (нет tg_id, невалидный tg_id, дубль внутри файла, конфликт identity).
+
+**Endpoint:** `POST /api/v1/channels/{id}/import-csv` (multipart/form-data, поле `file`). Лимит 10 МБ. Только для Telegram-каналов.
+
 ### Файловое хранилище R2 (миграция 037 от 26.04.2026)
 
 **Все файлы клиента (афиши, лид-магниты, сертификаты, материалы шеринга, фото спикеров) грузятся через единый endpoint `POST /api/v1/uploads` (FastAPI, не Next.js).** Бэкенд: ресайз картинок (Pillow) → upload в R2 (boto3) → запись в `client_files` → инкремент `clients.storage_used_bytes`.
