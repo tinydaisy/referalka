@@ -15,6 +15,7 @@ export default function OverviewTab({
   const [description, setDescription] = useState(event.description || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
   const [address, setAddress] = useState(event.address || '')
+  const [chatUrl, setChatUrl] = useState(event.chat_url || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [saving, setSaving] = useState(false)
@@ -36,6 +37,7 @@ export default function OverviewTab({
         description: description.trim() || null,
         landing_url: landingUrl.trim() || null,
         address: address.trim() || null,
+        chat_url: chatUrl.trim() || null,
         start_at: startAt ? new Date(startAt).toISOString() : null,
         end_at:   endAt   ? new Date(endAt).toISOString()   : null,
       }
@@ -82,6 +84,11 @@ export default function OverviewTab({
           <Field label="Ссылка на ZOOM или вебинарную комнату (для онлайн-событий)" hint="Можно вставить ссылку трансляции, запись или офлайн-адрес">
             <input value={address} onChange={e => setAddress(e.target.value)}
                    className="input" placeholder="https://us02web.zoom.us/j/..." />
+          </Field>
+
+          <Field label="Ссылка на чат события" hint="Telegram-чат участников. Появится плиткой в Mini App">
+            <input value={chatUrl} onChange={e => setChatUrl(e.target.value)}
+                   className="input" placeholder="https://t.me/+abc123..." />
           </Field>
 
           <Field label="URL лендинга" hint="Если у вас есть отдельная страница события на сайте">
