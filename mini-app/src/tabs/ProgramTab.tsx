@@ -361,22 +361,23 @@ export default function ProgramTab({ event, tgUser }: Props) {
         ) : (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12,
-            background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
-            borderRadius: 14, padding: 14, marginBottom: 10, opacity: 0.85,
+            background: '#eef2f6', color: '#8a96a3',
+            border: '1px solid #e2e8ee',
+            borderRadius: 14, padding: 14, marginBottom: 10,
           }}>
             <div style={{
               width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-              background: 'rgba(255,207,164,0.15)',
+              background: '#e2e8ee',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8a96a3" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="23 7 16 12 23 17 23 7"/>
                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
               </svg>
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 800 }}>Стрим</div>
-              <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2, lineHeight: 1.35 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#6b7c8e' }}>Стрим</div>
+              <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.35, color: '#9ca8b4' }}>
                 В день эфира здесь появится ссылка для подключения
               </div>
             </div>
@@ -407,7 +408,7 @@ export default function ProgramTab({ event, tgUser }: Props) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 800 }}>Чат события</div>
               <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
-                {chatGate.loading ? 'Проверяем подписку…' : (event.chat_member_count_label || 'Общение участников и спикеров')}
+                {chatGate.loading ? 'Проверяем подписку…' : (event.chat_member_count_label || 'Нетворкинг и подарки за регистрацию')}
               </div>
             </div>
             <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
