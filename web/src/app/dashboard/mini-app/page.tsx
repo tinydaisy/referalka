@@ -578,6 +578,26 @@ function OfferingModal({
   const [url,    setUrl]    = useState(initial?.action_url || '')
   const [isPaid, setIsPaid] = useState<boolean>(initial?.is_paid ?? true)
   const [saving, setSaving] = useState(false)
+  // Чтобы не закрывать окно когда пользователь начал выделение текста внутри
+  // и отпустил мышь снаружи (браузер считает это кликом по бэкдропу).
+  const [downOnBackdrop, setDownOnBackdrop] = useState(false)
+
+  function isDirty(): boolean {
+    if (!initial) {
+      return !!(title.trim() || desc.trim() || url.trim())
+    }
+    return title  !== (initial.title       || '')
+        || desc   !== (initial.description || '')
+        || url    !== (initial.action_url  || '')
+        || isPaid !== (initial.is_paid ?? true)
+  }
+
+  function attemptClose() {
+    if (isDirty() && !confirm('У вас несохранённые изменения. Закрыть карточку и потерять их?')) {
+      return
+    }
+    onClose()
+  }
 
   async function save(e?: React.FormEvent) {
     e?.preventDefault()
@@ -601,15 +621,22 @@ function OfferingModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+         onMouseDown={e => setDownOnBackdrop(e.target === e.currentTarget)}
+         onMouseUp={e => {
+           const wasOnBackdrop = downOnBackdrop
+           setDownOnBackdrop(false)
+           if (wasOnBackdrop && e.target === e.currentTarget) attemptClose()
+         }}>
       <form onSubmit={save}
             className="bg-white rounded-xl max-w-md w-full p-6"
-            onClick={e => e.stopPropagation()}>
+            onMouseDown={e => e.stopPropagation()}
+            onMouseUp={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold" style={{ color: BRAND }}>
             {initial ? 'Редактировать продукт' : 'Новый продукт'}
           </h2>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button type="button" onClick={attemptClose} className="text-gray-400 hover:text-gray-600">
             <X size={20} />
           </button>
         </div>
@@ -651,7 +678,7 @@ function OfferingModal({
         </div>
 
         <div className="flex gap-2 mt-5">
-          <button type="button" onClick={onClose}
+          <button type="button" onClick={attemptClose}
                   className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
             Отмена
           </button>
