@@ -16,7 +16,7 @@ export default function ConnectBotInstructionPage() {
     api.auth.me().then((me: any) => setClientId(me?.id ?? null)).catch(() => {})
   }, [])
 
-  const miniAppUrl = clientId ? `${origin}/c/${clientId}/tg/` : `${origin}/c/.../tg/`
+  const miniAppUrl = clientId ? `${origin}/c/${clientId}/tg/` : ''
   const isDev = origin.includes('dev.')
 
   return (
@@ -246,19 +246,26 @@ function Section({ step, title, children }: { step: string; title: string; child
 
 function CopyBlock({ value }: { value: string }) {
   const [copied, setCopied] = useState(false)
+  const isLoading = !value
   function copy() {
+    if (isLoading) return
     navigator.clipboard.writeText(value)
     setCopied(true)
     setTimeout(() => setCopied(false), 1800)
   }
   return (
     <div className="flex gap-2">
-      <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 font-mono overflow-x-auto whitespace-nowrap">
-        {value}
+      <code className={`flex-1 border rounded-lg px-3 py-2.5 text-sm font-mono overflow-x-auto whitespace-nowrap ${
+        isLoading ? 'bg-gray-100 border-gray-200 text-gray-400 italic' : 'bg-gray-50 border-gray-200 text-gray-800'
+      }`}>
+        {isLoading ? 'Загружаем ваш персональный URL…' : value}
       </code>
-      <button onClick={copy} className="px-3 py-2.5 rounded-lg text-white font-medium text-sm flex items-center gap-1.5 flex-shrink-0"
-              style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-        {copied ? <><Check size={15}/> Скопировано</> : <><Copy size={15}/> Копировать</>}
+      <button
+        onClick={copy}
+        disabled={isLoading}
+        className="px-3 py-2.5 rounded-lg text-white font-medium text-sm flex items-center gap-1.5 flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+        {isLoading ? <><Copy size={15}/> Копировать</> : copied ? <><Check size={15}/> Скопировано</> : <><Copy size={15}/> Копировать</>}
       </button>
     </div>
   )

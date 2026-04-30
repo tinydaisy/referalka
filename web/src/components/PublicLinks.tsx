@@ -66,7 +66,7 @@ export default function PublicLinks({
       badge: 'TG',
       color: '#229ED9',
       url: `${APP_URL}/l/${slug}?app=tg`,
-      hint: 'Открывает событие в @ivision_conf_bot. Используй в TG-постах и личке',
+      hint: 'Открывает событие в вашем Telegram-боте (или @pluson_bot, если свой не подключён). Используй в TG-постах и личке',
     },
     {
       key: 'max',
