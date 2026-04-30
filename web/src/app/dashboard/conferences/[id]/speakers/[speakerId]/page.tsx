@@ -241,8 +241,14 @@ export default function ConferenceSpeakerPage() {
       setChannelVerifyMsg(null)
       return
     }
-    if (!profile?.tg_channel_id?.trim()) {
-      setChannelVerifyMsg({ ok: false, text: 'Сначала укажите ID канала в профиле спикера и сохраните' })
+    const missing: string[] = []
+    if (!profile?.tg_channel_id?.toString().trim()) missing.push('«ID канала»')
+    if (!profile?.personal_tg_id?.toString().trim()) missing.push('«ID личного аккаунта»')
+    if (missing.length > 0) {
+      setChannelVerifyMsg({
+        ok: false,
+        text: `Сначала заполните и сохраните ${missing.join(' и ')} в профиле спикера — без них автопроверка не запустится.`,
+      })
       return
     }
     setVerifyingChannel(true)
