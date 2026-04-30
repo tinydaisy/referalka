@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Bot, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard, Plug, Copy, Check, RefreshCw, ExternalLink } from 'lucide-react'
+import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard, Plug, Copy, Check, RefreshCw, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
@@ -271,23 +271,6 @@ export default function SettingsPage() {
 
         {tab === 'tech' && (
         <>
-
-        {/* Bot Token живёт в разделе «Каналы» — здесь только подсказка-указатель */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
-              <Bot size={18} className="text-white" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-800">Telegram-бот</h3>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Токен бота настраивается в разделе{' '}
-                <a href="/dashboard/channels" className="text-brand hover:underline font-medium">Каналы</a>.
-                Там есть пошаговый помощник: проверка токена, привязка Mini App к боту через @BotFather.
-              </p>
-            </div>
-          </div>
-        </div>
 
         {/* Test Telegram IDs */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
