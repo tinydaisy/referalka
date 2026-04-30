@@ -166,11 +166,11 @@ export default function OwnerPage({ profile, onBack }: Props) {
               <a key={s.key} href={profile.social_links?.[s.key]} target="_blank" rel="noreferrer"
                  style={{
                    display: 'inline-flex', alignItems: 'center', gap: 8,
-                   background: 'white', padding: '10px 14px', borderRadius: 12,
-                   border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
-                   color: PEACH, fontWeight: 800, fontSize: 13, textDecoration: 'none',
+                   background: PEACH, padding: '10px 14px', borderRadius: 12,
+                   border: 'none',
+                   color: DARK, fontWeight: 800, fontSize: 13, textDecoration: 'none',
                  }}>
-                <span style={{ display: 'inline-flex', color: PEACH }}><s.Icon /></span> {s.label}
+                <span style={{ display: 'inline-flex', color: DARK }}><s.Icon /></span> {s.label}
               </a>
             ))}
           </div>

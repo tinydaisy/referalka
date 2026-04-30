@@ -149,8 +149,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
             ‹
           </button>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ color: 'white', fontSize: 16, fontWeight: 700,
-                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <h1 style={{ color: 'white', fontSize: 15, fontWeight: 700, lineHeight: 1.25,
+                         whiteSpace: 'normal', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
               {event.title}
             </h1>
             <p style={{ color: 'rgba(255, 207, 164, 0.85)', fontSize: 12, marginTop: 2, fontWeight: 500 }}>
