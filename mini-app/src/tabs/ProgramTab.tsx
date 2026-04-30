@@ -98,6 +98,20 @@ function tgLink(url?: string | null, username?: string | null): string | null {
   return null
 }
 
+// Блок стрима показывается ТОЛЬКО в дни события — не раньше и не позже.
+// Окно: от 00:00 первого дня (start_at) до 23:59 последнего дня (end_at).
+// Для конференций start_at/end_at в API уже считаются как MIN/MAX из conf_days.
+function isStreamDay(event: any): boolean {
+  if (!event?.start_at) return false
+  const start = new Date(event.start_at)
+  if (isNaN(start.getTime())) return false
+  const end = event.end_at ? new Date(event.end_at) : start
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0)
+  const endDay   = new Date(end.getFullYear(),   end.getMonth(),   end.getDate(),   23, 59, 59)
+  const now = new Date()
+  return now >= startDay && now <= endDay
+}
+
 export default function ProgramTab({ event }: Props) {
   const isConference = event?.module_slug === 'conference'
   // Кнопка VIP появляется если у события вписан vip_url
@@ -105,7 +119,7 @@ export default function ProgramTab({ event }: Props) {
   const vipUrl  = event?.vip_url || ''
   const hasVip  = !!vipUrl
   const hasChat = !!event?.chat_url
-  const hasStream = !!event?.stream_url
+  const hasStream = !!event?.stream_url && isStreamDay(event)
 
   const [days, setDays] = useState<Day[]>([])
   const [sessionsByDay, setSessionsByDay] = useState<Record<number, Session[]>>({})
