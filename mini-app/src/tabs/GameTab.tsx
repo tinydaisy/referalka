@@ -46,7 +46,7 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
   const registered  = participant?.registered_count ?? participant?.points_total    ?? 0
   const giftsCount  = participant?.gifts_received_count ?? 0
   const myRank      = participant?.my_rank
-  const refLink = `${APP_URL}/l/${slug}?p=${refCode}`
+  const refLink = `${APP_URL}/l/${slug}?app=tg&new_partner_id=${refCode}`
 
   // Загружаем подарки → понимаем «следующий» по порогу
   useEffect(() => {
