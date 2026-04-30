@@ -190,8 +190,8 @@ export default function EcosystemTab({ clientId }: Props) {
         <button onClick={() => setShowOwner(true)}
                 style={{
                   width: '100%', textAlign: 'left', cursor: 'pointer',
-                  background: 'white', borderRadius: 14, padding: 12,
-                  border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
+                  background: '#FFF1E2', borderRadius: 14, padding: 12,
+                  border: '1px solid #FFE0C2', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
                   marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12,
                 }}>
           {profile.owner_photo_url ? (
@@ -207,7 +207,7 @@ export default function EcosystemTab({ clientId }: Props) {
             }}>{initials(ownerName || profile.name)}</div>
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 10, color: '#9ca8b4', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
+            <div style={{ fontSize: 11, color: DARK, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase' }}>
               Об основателе
             </div>
             <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginTop: 2, lineHeight: 1.2 }}>
@@ -221,7 +221,7 @@ export default function EcosystemTab({ clientId }: Props) {
               </div>
             )}
           </div>
-          <div style={{ fontSize: 24, color: PEACH, fontWeight: 300, marginRight: 4 }}>›</div>
+          <div style={{ fontSize: 24, color: DARK, fontWeight: 600, marginRight: 4 }}>›</div>
         </button>
       )}
 
