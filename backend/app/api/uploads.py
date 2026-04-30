@@ -11,6 +11,9 @@ GET    /api/v1/storage/usage     — текущее использование �
     referral_material (требует event_id)
     lead_magnet
     speaker_photo     (требует collaborator_id)
+    brand_photo       (профиль клиента: фото бренда)
+    brand_logo        (профиль клиента: логотип в углу страниц Mini App)
+    owner_photo       (профиль клиента: фото основателя)
 
 Картинки автоматически ресайзятся под kind (см. image_processor.MAX_DIM_BY_KIND).
 """
@@ -68,7 +71,10 @@ async def upload_file(
     client_id = int(client["sub"])
 
     # 1. Валидация kind и обязательных параметров
-    if kind not in {"event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo"}:
+    if kind not in {
+        "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
+        "brand_photo", "brand_logo", "owner_photo",
+    }:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 
     if kind in ("event_poster", "certificate", "referral_material"):

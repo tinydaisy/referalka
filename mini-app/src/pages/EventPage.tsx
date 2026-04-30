@@ -157,6 +157,15 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
               {eventDateLabel(event)}
             </p>
           </div>
+          {event.client_brand_logo && (
+            <img src={event.client_brand_logo} alt=""
+                 onClick={() => setTab('ecosystem')}
+                 style={{
+                   width: 36, height: 36, borderRadius: 8, objectFit: 'cover',
+                   background: 'rgba(255,255,255,0.95)', padding: 3,
+                   cursor: 'pointer', flexShrink: 0,
+                 }} />
+          )}
         </div>
       </div>
 

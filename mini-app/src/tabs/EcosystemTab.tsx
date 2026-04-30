@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getClientProfile, getClientOfferings } from '../api'
+import OwnerPage from '../pages/OwnerPage'
 
 interface Props { clientId: number }
 
@@ -7,11 +8,18 @@ interface Achievement { label: string; value: string }
 interface Profile {
   id: number
   name: string
+  // Бренд
   brand_name?: string | null
-  bio?: string
-  profile_photo_url?: string
-  positioning?: string
+  brand_logo_url?: string | null
+  profile_photo_url?: string | null   // фото бренда
+  positioning?: string | null         // позиционирование бренда
   achievements?: Achievement[]
+  // Основатель
+  owner_name?: string | null
+  owner_photo_url?: string | null
+  owner_positioning?: string | null
+  owner_achievements?: Achievement[]
+  bio?: string | null
   social_links?: { instagram?: string; telegram?: string; youtube?: string; vk?: string; website?: string }
 }
 interface Offering {
@@ -85,6 +93,7 @@ export default function EcosystemTab({ clientId }: Props) {
   const [free, setFree] = useState<Offering[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'free' | 'paid'>('free')
+  const [showOwner, setShowOwner] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -102,16 +111,25 @@ export default function EcosystemTab({ clientId }: Props) {
   if (loading) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Загружаем…</div>
   if (!profile) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Нет данных</div>
 
+  // Отдельная страница «Об основателе»
+  if (showOwner) {
+    return <OwnerPage profile={profile} onBack={() => setShowOwner(false)} />
+  }
+
   const brand = profile.brand_name || profile.name
-  const role = profile.positioning || ''
-  const ach = (profile.achievements || []).slice(0, 4)
+  const brandRole = profile.positioning || ''
+  const brandAch = (profile.achievements || []).slice(0, 4)
   const items = tab === 'free' ? free : paid
+
+  // Карточка-тизер основателя — показываем только если хоть что-то заполнено
+  const ownerName = profile.owner_name || ''
+  const hasOwner = !!(ownerName || profile.owner_photo_url || profile.owner_positioning || profile.bio)
 
   return (
     <div className="fade-in">
       {/* Шапка-бренд */}
       <div style={{
-        padding: '18px 18px 16px',
+        padding: '20px 18px 16px',
         background: 'linear-gradient(45deg, #25455D, #0a1520)',
         color: 'white', position: 'relative', overflow: 'hidden',
         margin: '-16px -16px 12px', borderRadius: 0,
@@ -120,54 +138,97 @@ export default function EcosystemTab({ clientId }: Props) {
           position: 'absolute', top: -40, right: -40, width: 160, height: 160,
           background: 'radial-gradient(circle, rgba(255,207,164,0.18) 0%, transparent 70%)',
         }} />
-        <div style={{ display: 'flex', gap: 14, alignItems: 'center', position: 'relative', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center', position: 'relative' }}>
           {profile.profile_photo_url ? (
             <img src={profile.profile_photo_url} alt=""
                  style={{
-                   width: 64, height: 64, borderRadius: '50%',
-                   objectFit: 'cover', border: `2.5px solid ${PEACH}`, flexShrink: 0,
+                   width: 72, height: 72, borderRadius: 14,
+                   objectFit: 'cover', border: `2px solid ${PEACH}`, flexShrink: 0,
                  }} />
           ) : (
             <div style={{
-              width: 64, height: 64, borderRadius: '50%',
+              width: 72, height: 72, borderRadius: 14,
               background: 'linear-gradient(135deg, #d4789a, #8b4561)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'white', fontWeight: 700, fontSize: 22,
-              border: `2.5px solid ${PEACH}`, flexShrink: 0,
-            }}>{initials(profile.name)}</div>
+              color: 'white', fontWeight: 700, fontSize: 24,
+              border: `2px solid ${PEACH}`, flexShrink: 0,
+            }}>{initials(brand)}</div>
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, lineHeight: 1.3, marginBottom: 4 }}>
-              <span style={{ color: PEACH, fontWeight: 700, letterSpacing: 1.5, fontSize: 10 }}>ЭКОСИСТЕМА</span>
-              <span style={{ fontSize: 16, fontWeight: 900, letterSpacing: 1, marginLeft: 6 }}>{brand}</span>
-            </div>
-            <div style={{ fontSize: 12 }}>
-              {role ? (
-                <>
-                  <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>{role}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, marginLeft: 6 }}>{profile.name}</span>
-                </>
-              ) : (
-                <span style={{ fontSize: 13, fontWeight: 700 }}>{profile.name}</span>
-              )}
-            </div>
+            <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 0.5, lineHeight: 1.15 }}>{brand}</div>
+            {brandRole && (
+              <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.75)', marginTop: 5, lineHeight: 1.35 }}>
+                {brandRole}
+              </div>
+            )}
           </div>
         </div>
-        {ach.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, position: 'relative' }}>
-            {ach.map((a, i) => (
+      </div>
+
+      {/* Факты в цифрах (бренда) — скрываем если пусто */}
+      {brandAch.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{
+            fontSize: 10, color: PEACH, fontWeight: 700, letterSpacing: 1.5,
+            textTransform: 'uppercase', marginBottom: 8, paddingLeft: 2,
+          }}>
+            Факты в цифрах
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            {brandAch.map((a, i) => (
               <div key={i} style={{
-                flex: '1 0 calc(50% - 3px)',
-                background: 'rgba(255,255,255,0.08)',
-                padding: '7px 9px', borderRadius: 9,
+                background: 'white',
+                padding: '10px 12px', borderRadius: 12,
+                boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
+                border: '1px solid #f0f0f0',
               }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: PEACH }}>{a.value}</div>
-                <div style={{ fontSize: 9.5, opacity: 0.75, marginTop: 2, lineHeight: 1.2 }}>{a.label}</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: DARK, lineHeight: 1.1 }}>{a.value}</div>
+                <div style={{ fontSize: 11, color: '#6b7c8e', marginTop: 3, lineHeight: 1.25 }}>{a.label}</div>
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Карточка-тизер основателя */}
+      {hasOwner && (
+        <button onClick={() => setShowOwner(true)}
+                style={{
+                  width: '100%', textAlign: 'left', cursor: 'pointer',
+                  background: 'white', borderRadius: 14, padding: 12,
+                  border: '1px solid #f0f0f0', boxShadow: '0 1px 4px rgba(37,69,93,0.06)',
+                  marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12,
+                }}>
+          {profile.owner_photo_url ? (
+            <img src={profile.owner_photo_url} alt=""
+                 style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', flexShrink: 0,
+                          border: `2px solid ${PEACH}` }} />
+          ) : (
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
+              background: 'linear-gradient(135deg, #d4789a, #8b4561)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'white', fontWeight: 700, fontSize: 16, border: `2px solid ${PEACH}`,
+            }}>{initials(ownerName || profile.name)}</div>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 10, color: '#9ca8b4', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
+              Об основателе
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginTop: 2, lineHeight: 1.2 }}>
+              {ownerName || profile.name}
+            </div>
+            {profile.owner_positioning && (
+              <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3,
+                            overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                            WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                {profile.owner_positioning}
+              </div>
+            )}
+          </div>
+          <div style={{ fontSize: 24, color: PEACH, fontWeight: 300, marginRight: 4 }}>›</div>
+        </button>
+      )}
 
       {/* Переключатель Бесплатно/Платно */}
       <div style={{

@@ -48,9 +48,10 @@ def _parse_jsonb(v: Any, default):
 @public.get("/clients/{client_id}/profile", summary="Визитка клиента (для Mini App)")
 async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
-        """SELECT id, name, telegram_username, brand_name,
-                  bio, profile_photo_url, positioning,
-                  achievements, social_links
+        """SELECT id, name, telegram_username,
+                  brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
+                  owner_name, owner_photo_url, owner_positioning, owner_achievements,
+                  bio, social_links
              FROM clients
             WHERE id = $1 AND is_active = TRUE""",
         client_id
@@ -58,8 +59,9 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
     if not row:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     d = dict(row)
-    d["achievements"] = _parse_jsonb(d.get("achievements"), [])
-    d["social_links"] = _parse_jsonb(d.get("social_links"), {})
+    d["achievements"]       = _parse_jsonb(d.get("achievements"), [])
+    d["owner_achievements"] = _parse_jsonb(d.get("owner_achievements"), [])
+    d["social_links"]       = _parse_jsonb(d.get("social_links"), {})
     return d
 
 
@@ -265,7 +267,8 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    e.has_vip_tariff, e.vip_price, e.vip_url, e.vip_title, e.vip_description,
                    e.chat_url, e.chat_subscriptions_required, e.chat_member_count_label,
                    c.name AS client_name, c.brand_name AS client_brand,
-                   c.profile_photo_url AS client_photo
+                   c.profile_photo_url AS client_photo,
+                   c.brand_logo_url AS client_brand_logo
               FROM events e
               JOIN clients c ON c.id = e.client_id
               LEFT JOIN cd ON cd.event_id = e.id
@@ -315,12 +318,19 @@ profile_router = APIRouter(prefix="/clients/me", tags=["Профиль клие�
 
 
 class ProfileUpdate(BaseModel):
-    brand_name:         Optional[str] = None      # бренд (iVISION) — миграция 042
-    bio:                Optional[str] = None
-    profile_photo_url:  Optional[str] = None
-    positioning:        Optional[str] = None      # роль владельца (например «основатель iVISION»)
-    achievements:       Optional[list] = None     # [{label, value}] — регалии 4 шт. для сетки 2×2
-    social_links:       Optional[dict] = None     # {instagram, telegram, youtube, vk, website}
+    # Бренд
+    brand_name:         Optional[str]  = None
+    brand_logo_url:     Optional[str]  = None       # логотип в углу страниц
+    profile_photo_url:  Optional[str]  = None       # фото бренда
+    positioning:        Optional[str]  = None       # позиционирование бренда
+    achievements:       Optional[list] = None       # [{label, value}] факты бренда
+    # Основатель
+    owner_name:         Optional[str]  = None
+    owner_photo_url:    Optional[str]  = None
+    owner_positioning:  Optional[str]  = None
+    owner_achievements: Optional[list] = None       # [{label, value}] факты основателя
+    bio:                Optional[str]  = None       # биография основателя
+    social_links:       Optional[dict] = None       # соцсети основателя
 
 
 @profile_router.get("/profile", summary="Получить свою визитку")
@@ -329,17 +339,19 @@ async def get_my_profile(
     db: asyncpg.Connection = Depends(get_db),
 ):
     row = await db.fetchrow(
-        """SELECT id, name, telegram_username, email, brand_name,
-                  bio, profile_photo_url, positioning,
-                  achievements, social_links
+        """SELECT id, name, telegram_username, email,
+                  brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
+                  owner_name, owner_photo_url, owner_positioning, owner_achievements,
+                  bio, social_links
              FROM clients WHERE id = $1""",
         int(client["sub"])
     )
     if not row:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     d = dict(row)
-    d["achievements"] = _parse_jsonb(d.get("achievements"), [])
-    d["social_links"] = _parse_jsonb(d.get("social_links"), {})
+    d["achievements"]       = _parse_jsonb(d.get("achievements"), [])
+    d["owner_achievements"] = _parse_jsonb(d.get("owner_achievements"), [])
+    d["social_links"]       = _parse_jsonb(d.get("social_links"), {})
     return d
 
 
@@ -349,20 +361,26 @@ async def update_my_profile(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    sets = []
+    sets: list[str] = []
     args: list[Any] = []
-    if data.brand_name is not None:
-        sets.append(f"brand_name = ${len(args)+1}");         args.append(data.brand_name or None)
-    if data.bio is not None:
-        sets.append(f"bio = ${len(args)+1}");                args.append(data.bio)
-    if data.profile_photo_url is not None:
-        sets.append(f"profile_photo_url = ${len(args)+1}");  args.append(data.profile_photo_url)
-    if data.positioning is not None:
-        sets.append(f"positioning = ${len(args)+1}");        args.append(data.positioning)
-    if data.achievements is not None:
-        sets.append(f"achievements = ${len(args)+1}::jsonb"); args.append(json.dumps(data.achievements))
-    if data.social_links is not None:
-        sets.append(f"social_links = ${len(args)+1}::jsonb"); args.append(json.dumps(data.social_links))
+
+    def add(field: str, value: Any, jsonb: bool = False):
+        sets.append(f"{field} = ${len(args)+1}" + ("::jsonb" if jsonb else ""))
+        args.append(json.dumps(value) if jsonb else value)
+
+    if data.brand_name        is not None: add("brand_name",        data.brand_name or None)
+    if data.brand_logo_url    is not None: add("brand_logo_url",    data.brand_logo_url or None)
+    if data.profile_photo_url is not None: add("profile_photo_url", data.profile_photo_url or None)
+    if data.positioning       is not None: add("positioning",       data.positioning or None)
+    if data.achievements      is not None: add("achievements",      data.achievements, jsonb=True)
+
+    if data.owner_name         is not None: add("owner_name",         data.owner_name or None)
+    if data.owner_photo_url    is not None: add("owner_photo_url",    data.owner_photo_url or None)
+    if data.owner_positioning  is not None: add("owner_positioning",  data.owner_positioning or None)
+    if data.owner_achievements is not None: add("owner_achievements", data.owner_achievements, jsonb=True)
+
+    if data.bio          is not None: add("bio",          data.bio or None)
+    if data.social_links is not None: add("social_links", data.social_links, jsonb=True)
 
     if not sets:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
@@ -371,13 +389,16 @@ async def update_my_profile(
     row = await db.fetchrow(
         f"""UPDATE clients SET {', '.join(sets)}
             WHERE id = ${len(args)}
-            RETURNING id, brand_name, bio, profile_photo_url, positioning,
-                      achievements, social_links""",
+            RETURNING id,
+                      brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
+                      owner_name, owner_photo_url, owner_positioning, owner_achievements,
+                      bio, social_links""",
         *args
     )
     d = dict(row)
-    d["achievements"] = _parse_jsonb(d.get("achievements"), [])
-    d["social_links"] = _parse_jsonb(d.get("social_links"), {})
+    d["achievements"]       = _parse_jsonb(d.get("achievements"), [])
+    d["owner_achievements"] = _parse_jsonb(d.get("owner_achievements"), [])
+    d["social_links"]       = _parse_jsonb(d.get("social_links"), {})
     return d
 
 

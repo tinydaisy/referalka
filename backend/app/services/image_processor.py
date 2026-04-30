@@ -10,6 +10,9 @@
     certificate       → 1600px
     lead_magnet       → 1920px (если картинка)
     speaker_photo     →  800px
+    brand_photo       → 1200px
+    brand_logo        →  600px (мелкий, для угла страниц)
+    owner_photo       → 1200px
 
 PDF и не-картинки пропускаются как есть.
 """
@@ -24,6 +27,9 @@ MAX_DIM_BY_KIND = {
     "certificate":       1600,
     "lead_magnet":       1920,
     "speaker_photo":     800,
+    "brand_photo":       1200,
+    "brand_logo":         600,
+    "owner_photo":       1200,
 }
 
 JPEG_QUALITY = 85

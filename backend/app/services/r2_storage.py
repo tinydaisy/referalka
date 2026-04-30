@@ -7,6 +7,9 @@ Cloudflare R2 storage — общий клиент для загрузки/уда
     clients/{client_id}/events/{event_id}/referral_materials/{uuid}.{ext}
     clients/{client_id}/lead_magnets/{uuid}.{ext}
     clients/{client_id}/speakers/{collaborator_id}/{uuid}.{ext}
+    clients/{client_id}/profile/brand_photo/{uuid}.{ext}
+    clients/{client_id}/profile/brand_logo/{uuid}.{ext}
+    clients/{client_id}/profile/owner_photo/{uuid}.{ext}
 """
 import asyncio
 import uuid
@@ -72,6 +75,9 @@ def build_key(
         if not collaborator_id:
             raise ValueError("speaker_photo требует collaborator_id")
         return f"{base}/speakers/{collaborator_id}/{fname}"
+
+    if kind in ("brand_photo", "brand_logo", "owner_photo"):
+        return f"{base}/profile/{kind}/{fname}"
 
     raise ValueError(f"Неизвестный kind: {kind}")
 

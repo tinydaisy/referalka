@@ -2,15 +2,18 @@
 /**
  * Настройка Mini App — что видят участники в Telegram.
  *
- * Структура страницы повторяет структуру вкладки «Экосистема» в Mini App
- * сверху вниз — Шапка → Регалии → Соцсети → Продукты — чтобы клиенту
- * было очевидно, какой блок что настраивает.
+ * Структура:
+ *   • Вкладка «Бренд»     — настраивает шапку Экосистемы и логотип в углу всех страниц.
+ *   • Вкладка «Основатель» — карточка-тизер «Об основателе» в Экосистеме + страница «Об основателе».
+ *   • Вкладка «Продукты»   — то что в Mini App в блоках «Платно / Бесплатно».
  *
- * - profile (clients.bio/photo/positioning/achievements/social_links) → одна общая кнопка «Сохранить»
- * - offerings (client_offerings) → CRUD через модалку, каждый продукт сохраняется отдельно
+ * Сохранение:
+ *   • profile (бренд + основатель) — общая кнопка «Сохранить визитку» внизу.
+ *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
 import { useEffect, useState } from 'react'
-import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Calendar, Globe } from 'lucide-react'
+import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Calendar, Globe, Building2, User } from 'lucide-react'
+import FileUploader from '@/components/FileUploader'
 import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
@@ -19,13 +22,20 @@ const GRADIENT = 'linear-gradient(45deg, #25455D, #0a1520)'
 interface Achievement { label: string; value: string }
 interface Profile {
   id: number
-  name: string
+  name: string                              // техническое (из регистрации, readonly)
+  // Бренд
   brand_name?: string | null
-  bio?: string | null
-  profile_photo_url?: string | null
-  positioning?: string | null
-  achievements: Achievement[]
-  social_links: Record<string, string>
+  brand_logo_url?: string | null
+  profile_photo_url?: string | null         // фото бренда
+  positioning?: string | null               // позиционирование бренда
+  achievements: Achievement[]               // факты в цифрах бренда
+  // Основатель
+  owner_name?: string | null
+  owner_photo_url?: string | null
+  owner_positioning?: string | null
+  owner_achievements: Achievement[]         // факты в цифрах основателя
+  bio?: string | null                       // биография основателя
+  social_links: Record<string, string>      // соцсети основателя
 }
 interface Offering {
   id: number
@@ -45,6 +55,8 @@ const SOCIAL_FIELDS: { key: string; label: string; placeholder: string }[] = [
   { key: 'website',   label: 'Сайт',      placeholder: 'https://yourwebsite.ru' },
 ]
 
+type Tab = 'brand' | 'owner' | 'products'
+
 export default function MiniAppSettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [offerings, setOfferings] = useState<Offering[]>([])
@@ -53,9 +65,18 @@ export default function MiniAppSettingsPage() {
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [editing, setEditing] = useState<Offering | null>(null)
   const [creating, setCreating] = useState(false)
+  const [tab, setTab] = useState<Tab>('brand')
 
   useEffect(() => {
-    api.miniApp.profile.get().then(setProfile).catch(() => {})
+    api.miniApp.profile.get().then((p: any) => {
+      // нормализуем — на всякий случай
+      setProfile({
+        ...p,
+        achievements:       Array.isArray(p.achievements)       ? p.achievements       : [],
+        owner_achievements: Array.isArray(p.owner_achievements) ? p.owner_achievements : [],
+        social_links:       p.social_links || {},
+      })
+    }).catch(() => {})
     loadOfferings()
   }, [])
 
@@ -78,33 +99,40 @@ export default function MiniAppSettingsPage() {
     if (value.trim()) next[key] = value.trim(); else delete next[key]
     update('social_links', next)
   }
-  function updateAchievement(idx: number, field: 'label' | 'value', value: string) {
+  function updateAch(field: 'achievements' | 'owner_achievements', idx: number, key: 'label' | 'value', value: string) {
     if (!profile) return
-    const ach = [...profile.achievements]
-    ach[idx] = { ...ach[idx], [field]: value }
-    update('achievements', ach)
+    const next = [...profile[field]]
+    next[idx] = { ...next[idx], [key]: value }
+    update(field, next)
   }
-  function addAchievement() {
+  function addAch(field: 'achievements' | 'owner_achievements') {
     if (!profile) return
-    update('achievements', [...profile.achievements, { label: '', value: '' }])
+    update(field, [...profile[field], { label: '', value: '' }])
   }
-  function removeAchievement(idx: number) {
+  function removeAch(field: 'achievements' | 'owner_achievements', idx: number) {
     if (!profile) return
-    update('achievements', profile.achievements.filter((_, i) => i !== idx))
+    update(field, profile[field].filter((_, i) => i !== idx))
   }
 
   async function saveProfile() {
     if (!profile) return
     setSaving(true)
     try {
-      const ach = profile.achievements.filter(a => a.label.trim() && a.value.trim())
+      const cleanAch = (a: Achievement[]) => a.filter(x => x.label.trim() && x.value.trim())
       const updated = await api.miniApp.profile.update({
-        brand_name:        profile.brand_name || null,
-        bio:               profile.bio || null,
+        // бренд
+        brand_name:        profile.brand_name        || null,
+        brand_logo_url:    profile.brand_logo_url    || null,
         profile_photo_url: profile.profile_photo_url || null,
-        positioning:       profile.positioning || null,
-        achievements:      ach,
-        social_links:      profile.social_links,
+        positioning:       profile.positioning       || null,
+        achievements:      cleanAch(profile.achievements),
+        // основатель
+        owner_name:         profile.owner_name        || null,
+        owner_photo_url:    profile.owner_photo_url   || null,
+        owner_positioning:  profile.owner_positioning || null,
+        owner_achievements: cleanAch(profile.owner_achievements),
+        bio:                profile.bio || null,
+        social_links:       profile.social_links,
       })
       setProfile(p => p ? { ...p, ...updated } : updated)
       setSavedAt(Date.now()); setTimeout(() => setSavedAt(null), 2000)
@@ -134,7 +162,7 @@ export default function MiniAppSettingsPage() {
               Настройка Mini App
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Что видят ваши участники, когда открывают Telegram Mini App
+              Что видят участники в Telegram — на всех страницах.
             </p>
           </div>
         </div>
@@ -154,198 +182,272 @@ export default function MiniAppSettingsPage() {
       {/* Подсказка о структуре Mini App */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6 max-w-3xl">
         <p className="text-sm text-gray-700 mb-3">
-          В вашем Mini App две вкладки внизу:
+          Внизу Mini App две вкладки:
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex items-start gap-2 flex-1">
             <Calendar size={18} className="mt-0.5 text-gray-500 shrink-0" />
             <div>
               <p className="text-sm font-semibold text-gray-800">📅 Календарь</p>
-              <p className="text-xs text-gray-500 mt-0.5">Список ваших событий — заполняется автоматически из «Мероприятий»</p>
+              <p className="text-xs text-gray-500 mt-0.5">События — заполняются автоматически из «Мероприятий»</p>
             </div>
           </div>
           <div className="flex items-start gap-2 flex-1">
             <Globe size={18} className="mt-0.5 text-amber-500 shrink-0" />
             <div>
               <p className="text-sm font-semibold text-gray-800">🌐 Экосистема ← настраивается здесь</p>
-              <p className="text-xs text-gray-500 mt-0.5">Ваша визитка + продукты, которые продвигаете</p>
+              <p className="text-xs text-gray-500 mt-0.5">Бренд + основатель + продукты, которые продвигаете</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-amber-50 border-l-4 border-amber-300 rounded-r-lg px-4 py-2.5 mb-6 max-w-3xl">
-        <p className="text-xs text-amber-900">
-          ↓ Все блоки ниже отображаются на одном экране во вкладке «Экосистема» — сверху вниз в этом же порядке.
-        </p>
+      {/* Табы */}
+      <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl max-w-2xl">
+        <TabBtn active={tab === 'brand'}    onClick={() => setTab('brand')}    icon={<Building2 size={15} />} label="Бренд" />
+        <TabBtn active={tab === 'owner'}    onClick={() => setTab('owner')}    icon={<User size={15} />}      label="Основатель" />
+        <TabBtn active={tab === 'products'} onClick={() => setTab('products')} icon={<Globe size={15} />}     label="Продукты" />
       </div>
 
       {/* ════════════════════════════════════════════════
-           БЛОК 1: Шапка профиля
+           ВКЛАДКА: БРЕНД
          ════════════════════════════════════════════════ */}
-      {profile && (
-        <Section
-          step={1}
-          title="Шапка профиля"
-          hint="В Mini App: верх вкладки «Экосистема» — фото, имя, позиционирование и описание."
-        >
-          <div className="space-y-4 max-w-2xl">
-            <Field label="Ссылка на фото"
-                   hint="Можно загрузить через «Лид-магниты» или «Афиши» и скопировать URL.">
-              <input type="url" value={profile.profile_photo_url || ''}
-                     onChange={e => update('profile_photo_url', e.target.value)}
-                     placeholder="https://..." className="input" />
-              {profile.profile_photo_url && (
-                <img src={profile.profile_photo_url} alt=""
-                     className="mt-3 w-24 h-24 rounded-full object-cover border-2"
-                     style={{ borderColor: '#FFCFA4' }}
-                     onError={e => (e.currentTarget.style.display = 'none')} />
-              )}
-            </Field>
+      {tab === 'brand' && profile && (
+        <>
+          <Section
+            step={1}
+            title="Логотип бренда"
+            hint="Маленькая иконка в правом верхнем углу всех страниц Mini App. Тап → открывает Экосистему. Лучше квадратная картинка на прозрачном/белом фоне."
+          >
+            <div className="max-w-2xl">
+              <FileUploader
+                mode="single"
+                kind="brand_logo"
+                value={profile.brand_logo_url || null}
+                onChange={url => update('brand_logo_url', url)}
+                emptyText="Загрузите логотип (PNG/JPG)"
+                buttonLabel="Загрузить логотип"
+                aspectClass="aspect-square"
+              />
+            </div>
+          </Section>
 
-            <Field label="Имя" hint="Имя редактируется в общих «Настройках» аккаунта.">
-              <input type="text" value={profile.name} disabled
-                     className="input opacity-60 cursor-not-allowed" />
-            </Field>
+          <Section
+            step={2}
+            title="Шапка Экосистемы"
+            hint="Верх вкладки «Экосистема» в Mini App — фото бренда, название и позиционирование."
+          >
+            <div className="space-y-4 max-w-2xl">
+              <Field label="Фото бренда" hint="Большое фото вашей компании/команды/продукта.">
+                <FileUploader
+                  mode="single"
+                  kind="brand_photo"
+                  value={profile.profile_photo_url || null}
+                  onChange={url => update('profile_photo_url', url)}
+                  emptyText="Загрузите фото бренда"
+                  buttonLabel="Загрузить фото"
+                  aspectClass="aspect-square"
+                />
+              </Field>
 
-            <Field label="Название бренда" hint="Крупное название компании/бренда (например iVISION). Если оставить пустым — будет показано имя.">
-              <input type="text" value={profile.brand_name || ''}
-                     onChange={e => update('brand_name', e.target.value)}
-                     placeholder="iVISION"
-                     className="input" maxLength={60} />
-            </Field>
+              <Field label="Название бренда"
+                     hint="Крупно в шапке. Если оставить пустым — будет показано имя из регистрации.">
+                <input type="text" value={profile.brand_name || ''}
+                       onChange={e => update('brand_name', e.target.value)}
+                       placeholder="iVISION"
+                       className="input" maxLength={60} />
+              </Field>
 
-            <Field label="Позиционирование" hint="Одна короткая строка — кто вы внутри бренда. Например: «основатель iVISION».">
-              <input type="text" value={profile.positioning || ''}
-                     onChange={e => update('positioning', e.target.value)}
-                     placeholder="основатель iVISION"
-                     className="input" maxLength={120} />
-            </Field>
+              <Field label="Позиционирование бренда"
+                     hint="Одна короткая строка под названием — что вы делаете. Пример: «Сообщество предпринимателей».">
+                <input type="text" value={profile.positioning || ''}
+                       onChange={e => update('positioning', e.target.value)}
+                       placeholder="Сообщество предпринимателей"
+                       className="input" maxLength={120} />
+              </Field>
+            </div>
+          </Section>
 
-            <Field label="Биография" hint="Несколько предложений о вас. Покажется обычным текстом ниже позиционирования.">
-              <textarea value={profile.bio || ''}
-                        onChange={e => update('bio', e.target.value)}
-                        placeholder="Кратко расскажите о себе и о том, чем занимаетесь…"
-                        className="input min-h-[120px]" />
-            </Field>
-          </div>
-        </Section>
+          <Section
+            step={3}
+            title="Факты в цифрах"
+            hint="Карточки под фото бренда. Пара «цифра + подпись». Если фактов нет — блок не показывается."
+            action={
+              <button onClick={() => addAch('achievements')}
+                      className="text-sm flex items-center gap-1" style={{ color: BRAND }}>
+                <Plus size={15} /> Добавить
+              </button>
+            }
+          >
+            <AchievementsEditor
+              items={profile.achievements}
+              onChange={(idx, key, val) => updateAch('achievements', idx, key, val)}
+              onRemove={idx => removeAch('achievements', idx)}
+            />
+          </Section>
+        </>
       )}
 
       {/* ════════════════════════════════════════════════
-           БЛОК 2: Регалии
+           ВКЛАДКА: ОСНОВАТЕЛЬ
          ════════════════════════════════════════════════ */}
-      {profile && (
+      {tab === 'owner' && profile && (
+        <>
+          <div className="bg-amber-50 border-l-4 border-amber-300 rounded-r-lg px-4 py-3 mb-5 max-w-3xl">
+            <p className="text-xs text-amber-900">
+              В Mini App: на главной Экосистемы под Фактами бренда — <b>карточка-тизер «Об основателе»</b>.
+              Тап → отдельная страница с большим фото, биографией и соцсетями.
+            </p>
+          </div>
+
+          <Section
+            step={1}
+            title="Карточка основателя"
+            hint="Имя, позиционирование, фото — это и попадёт в карточку-тизер на главной Экосистемы."
+          >
+            <div className="space-y-4 max-w-2xl">
+              <Field label="Имя основателя" hint="Будет показано на карточке-тизере и на странице «Об основателе».">
+                <input type="text" value={profile.owner_name || ''}
+                       onChange={e => update('owner_name', e.target.value)}
+                       placeholder="Маргарита Владимировна"
+                       className="input" maxLength={80} />
+              </Field>
+
+              <Field label="Имя из регистрации (нередактируемо)"
+                     hint="Это техническое имя для входа в кабинет. Если хотите изменить — напишите в Тех.поддержку.">
+                <input type="text" value={profile.name} disabled
+                       className="input opacity-60 cursor-not-allowed" />
+              </Field>
+
+              <Field label="Фото основателя">
+                <FileUploader
+                  mode="single"
+                  kind="owner_photo"
+                  value={profile.owner_photo_url || null}
+                  onChange={url => update('owner_photo_url', url)}
+                  emptyText="Загрузите фото основателя"
+                  buttonLabel="Загрузить фото"
+                  aspectClass="aspect-square"
+                />
+              </Field>
+
+              <Field label="Позиционирование основателя"
+                     hint="Одна строка о роли. Пример: «Эксперт по личному бренду и реферальному маркетингу».">
+                <input type="text" value={profile.owner_positioning || ''}
+                       onChange={e => update('owner_positioning', e.target.value)}
+                       placeholder="Эксперт по личному бренду…"
+                       className="input" maxLength={140} />
+              </Field>
+            </div>
+          </Section>
+
+          <Section
+            step={2}
+            title="Факты в цифрах"
+            hint="Цифры о основателе — на странице «Об основателе». Если пусто — блок скрыт."
+            action={
+              <button onClick={() => addAch('owner_achievements')}
+                      className="text-sm flex items-center gap-1" style={{ color: BRAND }}>
+                <Plus size={15} /> Добавить
+              </button>
+            }
+          >
+            <AchievementsEditor
+              items={profile.owner_achievements}
+              onChange={(idx, key, val) => updateAch('owner_achievements', idx, key, val)}
+              onRemove={idx => removeAch('owner_achievements', idx)}
+            />
+          </Section>
+
+          <Section
+            step={3}
+            title="Биография"
+            hint="Подробный текст для страницы «Об основателе». Если пусто — раздела на странице нет."
+          >
+            <textarea value={profile.bio || ''}
+                      onChange={e => update('bio', e.target.value)}
+                      placeholder="Несколько абзацев о вас: опыт, проекты, история…"
+                      className="input min-h-[160px] max-w-2xl block" />
+          </Section>
+
+          <Section
+            step={4}
+            title="Соцсети основателя"
+            hint="Ряд иконок на странице «Об основателе». Заполняйте только то что хотите показать."
+          >
+            <div className="space-y-3 max-w-2xl">
+              {SOCIAL_FIELDS.map(f => (
+                <div key={f.key}>
+                  <label className="label">{f.label}</label>
+                  <input type="url"
+                         value={profile.social_links[f.key] || ''}
+                         onChange={e => updateSocial(f.key, e.target.value)}
+                         placeholder={f.placeholder}
+                         className="input" />
+                </div>
+              ))}
+            </div>
+          </Section>
+        </>
+      )}
+
+      {/* ════════════════════════════════════════════════
+           ВКЛАДКА: ПРОДУКТЫ
+         ════════════════════════════════════════════════ */}
+      {tab === 'products' && (
         <Section
-          step={2}
-          title="Регалии"
-          hint="В Mini App: три карточки под фото с короткими цифрами достижений. Например — «1500+ учеников», «12 лет в нише»."
+          step={1}
+          title="Продукты и материалы"
+          hint='В Mini App: внизу Экосистемы два блока — «💼 Платно» и «📄 Бесплатно». Сюда складывайте всё что хотите продавать или раздавать.'
           action={
-            <button onClick={addAchievement}
-                    className="text-sm flex items-center gap-1" style={{ color: BRAND }}>
-              <Plus size={15} /> Добавить
+            <button onClick={() => setCreating(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-white text-sm font-medium"
+                    style={{ background: GRADIENT }}>
+              <Plus size={15} /> Добавить продукт
             </button>
           }
         >
-          <div className="space-y-2 max-w-2xl">
-            {profile.achievements.map((a, i) => (
-              <div key={i} className="flex gap-2 items-start">
-                <input type="text" value={a.value}
-                       onChange={e => updateAchievement(i, 'value', e.target.value)}
-                       placeholder="Цифра — 1500+" className="input w-40" />
-                <input type="text" value={a.label}
-                       onChange={e => updateAchievement(i, 'label', e.target.value)}
-                       placeholder="Подпись — учеников" className="input flex-1" />
-                <button onClick={() => removeAchievement(i)}
-                        className="p-2 text-gray-400 hover:text-red-600" title="Удалить">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))}
-            {profile.achievements.length === 0 && (
-              <p className="text-gray-400 text-sm">Пока нет регалий — добавьте до 3-х значимых.</p>
-            )}
-          </div>
+          {loadingOff ? (
+            <p className="text-gray-400 text-sm">Загрузка…</p>
+          ) : offerings.length === 0 ? (
+            <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center">
+              <p className="text-gray-500 text-sm">Пока нет продуктов</p>
+              <button onClick={() => setCreating(true)}
+                      className="text-sm underline mt-2" style={{ color: BRAND }}>
+                Создать первый
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-5 max-w-2xl">
+              {offerings.filter(o => o.is_paid).length > 0 && (
+                <SubBlock title="💼 Платно" items={offerings.filter(o => o.is_paid)} onEdit={setEditing} onDelete={deleteOffering} />
+              )}
+              {offerings.filter(o => !o.is_paid).length > 0 && (
+                <SubBlock title="📄 Бесплатно" items={offerings.filter(o => !o.is_paid)} onEdit={setEditing} onDelete={deleteOffering} />
+              )}
+            </div>
+          )}
         </Section>
       )}
-
-      {/* ════════════════════════════════════════════════
-           БЛОК 3: Соцсети
-         ════════════════════════════════════════════════ */}
-      {profile && (
-        <Section
-          step={3}
-          title="Соцсети и сайт"
-          hint="В Mini App: ряд иконок под регалиями. Тап по иконке открывает соцсеть в новой вкладке. Заполните только то что хотите показать."
-        >
-          <div className="space-y-3 max-w-2xl">
-            {SOCIAL_FIELDS.map(f => (
-              <div key={f.key}>
-                <label className="label">{f.label}</label>
-                <input type="url"
-                       value={profile.social_links[f.key] || ''}
-                       onChange={e => updateSocial(f.key, e.target.value)}
-                       placeholder={f.placeholder}
-                       className="input" />
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* ════════════════════════════════════════════════
-           БЛОК 4: Продукты
-         ════════════════════════════════════════════════ */}
-      <Section
-        step={4}
-        title="Продукты и материалы"
-        hint='В Mini App: ниже соцсетей идут два блока — «💼 Платно» и «📄 Бесплатно». Сюда складывайте всё что хотите продавать или раздавать (курсы, мастер-группы, гайды, чек-листы, ссылки на канал).'
-        action={
-          <button onClick={() => setCreating(true)}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-white text-sm font-medium"
-                  style={{ background: GRADIENT }}>
-            <Plus size={15} /> Добавить продукт
-          </button>
-        }
-      >
-        {loadingOff ? (
-          <p className="text-gray-400 text-sm">Загрузка…</p>
-        ) : offerings.length === 0 ? (
-          <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center">
-            <p className="text-gray-500 text-sm">Пока нет продуктов</p>
-            <button onClick={() => setCreating(true)}
-                    className="text-sm underline mt-2" style={{ color: BRAND }}>
-              Создать первый
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-5 max-w-2xl">
-            {offerings.filter(o => o.is_paid).length > 0 && (
-              <SubBlock title="💼 Платно" items={offerings.filter(o => o.is_paid)} onEdit={setEditing} onDelete={deleteOffering} />
-            )}
-            {offerings.filter(o => !o.is_paid).length > 0 && (
-              <SubBlock title="📄 Бесплатно" items={offerings.filter(o => !o.is_paid)} onEdit={setEditing} onDelete={deleteOffering} />
-            )}
-          </div>
-        )}
-      </Section>
 
       {/* ════════════════════════════════════════════════
            Sticky-панель «Сохранить» (только для профиля)
          ════════════════════════════════════════════════ */}
-      <div className="fixed bottom-4 left-4 right-4 lg:left-[256px] lg:right-6 bg-white border border-gray-200 rounded-xl shadow-lg p-3 flex items-center justify-between gap-3 z-30">
-        <div className="text-sm">
-          <p className="text-gray-700 font-medium">
-            {savedAt ? '✓ Сохранено — изменения уже видны в Mini App' : 'Шапка / Регалии / Соцсети'}
-          </p>
-          <p className="text-gray-400 text-xs">Продукты сохраняются автоматически при создании / редактировании</p>
+      {tab !== 'products' && (
+        <div className="fixed bottom-4 left-4 right-4 lg:left-[256px] lg:right-6 bg-white border border-gray-200 rounded-xl shadow-lg p-3 flex items-center justify-between gap-3 z-30">
+          <div className="text-sm">
+            <p className="text-gray-700 font-medium">
+              {savedAt ? '✓ Сохранено — изменения уже видны в Mini App' : (tab === 'brand' ? 'Настройки бренда' : 'Настройки основателя')}
+            </p>
+            <p className="text-gray-400 text-xs">Файлы сохраняются в момент загрузки. Текстовые поля — по кнопке.</p>
+          </div>
+          <button onClick={saveProfile} disabled={saving}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg btn-gold disabled:opacity-60 whitespace-nowrap">
+            <Save size={16} />
+            {saving ? 'Сохраняем…' : 'Сохранить визитку'}
+          </button>
         </div>
-        <button onClick={saveProfile} disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg btn-gold disabled:opacity-60 whitespace-nowrap">
-          <Save size={16} />
-          {saving ? 'Сохраняем…' : 'Сохранить визитку'}
-        </button>
-      </div>
+      )}
 
       {(creating || editing) && (
         <OfferingModal
@@ -359,6 +461,59 @@ export default function MiniAppSettingsPage() {
 }
 
 // ═══════════════════ Helpers ═══════════════════
+
+function TabBtn({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+        active
+          ? 'bg-white text-[#25455D] shadow-sm'
+          : 'text-gray-500 hover:text-gray-700'
+      }`}
+    >
+      {icon} {label}
+    </button>
+  )
+}
+
+function AchievementsEditor({
+  items, onChange, onRemove,
+}: {
+  items: Achievement[]
+  onChange: (idx: number, key: 'label' | 'value', val: string) => void
+  onRemove: (idx: number) => void
+}) {
+  return (
+    <div className="space-y-2 max-w-2xl">
+      {items.map((a, i) => (
+        <div key={i} className="grid grid-cols-12 gap-2 items-start">
+          <div className="col-span-4">
+            <label className="text-xs text-gray-500 mb-1 block">Цифра</label>
+            <input type="text" value={a.value}
+                   onChange={e => onChange(i, 'value', e.target.value)}
+                   placeholder="1500+" className="input" />
+          </div>
+          <div className="col-span-7">
+            <label className="text-xs text-gray-500 mb-1 block">Подпись</label>
+            <input type="text" value={a.label}
+                   onChange={e => onChange(i, 'label', e.target.value)}
+                   placeholder="учеников" className="input" />
+          </div>
+          <div className="col-span-1 pt-6">
+            <button onClick={() => onRemove(i)}
+                    className="p-2 text-gray-400 hover:text-red-600" title="Удалить">
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+      ))}
+      {items.length === 0 && (
+        <p className="text-gray-400 text-sm">Пока нет фактов — добавьте 2–4 значимых.</p>
+      )}
+    </div>
+  )
+}
 
 function Section({
   step, title, hint, action, children,
