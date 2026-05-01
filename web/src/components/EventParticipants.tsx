@@ -141,6 +141,12 @@ function ContactCard({
               value={referrerLabel(p)}
               highlight={!!p.referrer_ref_code}
             />
+            <Field
+              label="Реф-код реферера"
+              value={p.referrer_ref_code || '—'}
+              mono
+              highlight={!!p.referrer_ref_code}
+            />
             <Field label="Telegram ID" value={p.platform_user_id || '—'} />
             <Field label="Salebot ID" value={p.salebot_id || '—'} />
             <Field label="Телефон" value={p.phone || '—'} />
