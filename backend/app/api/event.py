@@ -21,7 +21,7 @@ import time
 from ..config import settings
 from ..database import get_pool
 from ..services.channels import get_client_telegram_token
-from ..services.contact_merge import upsert_contact_with_identity
+from ..services.contact_merge import upsert_contact_with_identity, resolve_ref_code
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -121,12 +121,45 @@ async def handle_tg_event(body: TgEventRequest):
                         first_name=body.first_name or None,
                         last_name=body.last_name or None,
                     )
-                    await conn.execute(
-                        """INSERT INTO event_participants (event_id, contact_id, is_registered)
-                                VALUES ($1, $2, FALSE)
-                           ON CONFLICT DO NOTHING""",
-                        event_id, contact_id,
+
+                    # Резолвим реферера: pid из startapp может быть legacy
+                    # длинным — нормализуем через merged_ref_codes.
+                    resolved_ref_code = None
+                    referrer_contact_id = None
+                    if body.partner_id:
+                        resolved_ref_code, referrer_contact_id = await resolve_ref_code(
+                            conn, body.partner_id, client_id=client_id
+                        )
+
+                    referrer_participant_id = None
+                    if referrer_contact_id:
+                        referrer_participant_id = await conn.fetchval(
+                            """SELECT id FROM event_participants
+                                WHERE contact_id = $1 AND event_id = $2 LIMIT 1""",
+                            referrer_contact_id, event_id,
+                        )
+
+                    # Если записи нет — создаём с реферером сразу.
+                    # Если есть, но реферер ещё не проставлен — досчитываем
+                    # (человек мог открыть событие без pid в первый раз, а
+                    # потом перейти по партнёрской ссылке).
+                    inserted = await conn.fetchval(
+                        """INSERT INTO event_participants
+                              (event_id, contact_id, is_registered, referrer_ref_code, referrer_participant_id)
+                            VALUES ($1, $2, FALSE, $3, $4)
+                           ON CONFLICT DO NOTHING
+                         RETURNING id""",
+                        event_id, contact_id, resolved_ref_code, referrer_participant_id,
                     )
+                    if inserted is None and resolved_ref_code:
+                        await conn.execute(
+                            """UPDATE event_participants
+                                  SET referrer_ref_code = $3,
+                                      referrer_participant_id = COALESCE(referrer_participant_id, $4)
+                                WHERE event_id = $1 AND contact_id = $2
+                                  AND referrer_ref_code IS NULL""",
+                            event_id, contact_id, resolved_ref_code, referrer_participant_id,
+                        )
         except Exception as e:
             logger.warning(f"interested upsert failed for tg_id={tg_id} event_slug={body.event_slug}: {e}")
 

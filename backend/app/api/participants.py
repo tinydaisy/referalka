@@ -54,7 +54,7 @@ async def register_participant(
 
     # Уже зарегистрирован?
     existing = await db.fetchrow(
-        """SELECT ep.id, c.ref_code, ep.is_registered
+        """SELECT ep.id, c.ref_code, ep.is_registered, ep.referrer_ref_code
              FROM event_participants ep
              JOIN contacts c ON c.id = ep.contact_id
             WHERE ep.event_id = $1 AND ep.contact_id = $2""",
@@ -64,10 +64,29 @@ async def register_participant(
         # Запись есть, но человек был только «интересующимся» (например,
         # event_start при открытии Mini App не дошёл до формы). Раз он
         # снова прошёл форму — фиксируем как зарегистрированного.
-        if not existing["is_registered"]:
+        # Заодно досчитываем реферера, если он ещё не проставлен и
+        # форма пришла с ref_code (event_start мог быть без pid).
+        upd_ref_code = None
+        upd_referrer_pid = None
+        if existing["referrer_ref_code"] is None and data.ref_code:
+            upd_ref_code, upd_referrer_contact_id = await resolve_ref_code(
+                db, data.ref_code, client_id=event["client_id"]
+            )
+            if upd_referrer_contact_id:
+                upd_referrer_pid = await db.fetchval(
+                    """SELECT id FROM event_participants
+                        WHERE contact_id = $1 AND event_id = $2 LIMIT 1""",
+                    upd_referrer_contact_id, event["id"]
+                )
+
+        if not existing["is_registered"] or upd_ref_code:
             await db.execute(
-                "UPDATE event_participants SET is_registered = TRUE WHERE id = $1",
-                existing["id"]
+                """UPDATE event_participants
+                      SET is_registered = TRUE,
+                          referrer_ref_code = COALESCE(referrer_ref_code, $2),
+                          referrer_participant_id = COALESCE(referrer_participant_id, $3)
+                    WHERE id = $1""",
+                existing["id"], upd_ref_code, upd_referrer_pid
             )
         return {"participant": dict(existing), "is_new": False}
 
