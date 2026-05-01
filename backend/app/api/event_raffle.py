@@ -178,7 +178,6 @@ async def delete_prize(event_id: int, prize_id: int, client=Depends(get_current_
 class KeywordIn(BaseModel):
     keyword: str
     tickets_reward: int = 1
-    max_uses: Optional[int] = None
     sort_order: int = 0
     is_active: bool = True
 
@@ -186,7 +185,6 @@ class KeywordIn(BaseModel):
 class KeywordPatch(BaseModel):
     keyword: Optional[str] = None
     tickets_reward: Optional[int] = None
-    max_uses: Optional[int] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
 
@@ -195,7 +193,7 @@ class KeywordPatch(BaseModel):
 async def list_keywords(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_event_access(db, int(client["sub"]), event_id)
     rows = await db.fetch(
-        """SELECT id, keyword, tickets_reward, max_uses, used_count, sort_order, is_active
+        """SELECT id, keyword, tickets_reward, sort_order, is_active
              FROM event_raffle_keywords WHERE event_id = $1 ORDER BY sort_order, id""",
         event_id,
     )
@@ -216,10 +214,10 @@ async def create_keyword(
     try:
         row = await db.fetchrow(
             """INSERT INTO event_raffle_keywords
-               (event_id, keyword, keyword_lower, tickets_reward, max_uses, sort_order, is_active)
-               VALUES ($1,$2,$3,$4,$5,$6,$7)
-               RETURNING id, keyword, tickets_reward, max_uses, used_count, sort_order, is_active""",
-            event_id, kw, kw.lower(), data.tickets_reward, data.max_uses, data.sort_order, data.is_active,
+               (event_id, keyword, keyword_lower, tickets_reward, sort_order, is_active)
+               VALUES ($1,$2,$3,$4,$5,$6)
+               RETURNING id, keyword, tickets_reward, sort_order, is_active""",
+            event_id, kw, kw.lower(), data.tickets_reward, data.sort_order, data.is_active,
         )
     except asyncpg.UniqueViolationError:
         raise HTTPException(409, "Это кодовое слово уже добавлено")
@@ -236,7 +234,7 @@ async def update_keyword(
 ):
     await _check_event_access(db, int(client["sub"]), event_id)
     sets, args = [], []
-    for f in ("tickets_reward","max_uses","sort_order","is_active"):
+    for f in ("tickets_reward","sort_order","is_active"):
         v = getattr(data, f)
         if v is not None:
             sets.append(f"{f} = ${len(args)+1}")
@@ -251,7 +249,7 @@ async def update_keyword(
     row = await db.fetchrow(
         f"""UPDATE event_raffle_keywords SET {', '.join(sets)}
             WHERE id = ${len(args)-1} AND event_id = ${len(args)}
-            RETURNING id, keyword, tickets_reward, max_uses, used_count, sort_order, is_active""",
+            RETURNING id, keyword, tickets_reward, sort_order, is_active""",
         *args,
     )
     if not row:

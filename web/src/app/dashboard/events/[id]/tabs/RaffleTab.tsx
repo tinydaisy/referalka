@@ -28,8 +28,6 @@ interface Keyword {
   id: number
   keyword: string
   tickets_reward: number
-  max_uses: number | null
-  used_count: number
   sort_order: number
   is_active: boolean
 }
@@ -46,7 +44,7 @@ export default function RaffleTab({ eventId }: Props) {
 
   // Local input для нового приза/слова
   const [newPrize, setNewPrize] = useState({ title: '', description: '', places_count: 1, value_label: '', icon_emoji: '🎁' })
-  const [newKw,    setNewKw]    = useState({ keyword: '', tickets_reward: 1, max_uses: '' as string | number })
+  const [newKw,    setNewKw]    = useState({ keyword: '', tickets_reward: 1 })
 
   useEffect(() => { reload() }, [eventId])
 
@@ -113,11 +111,10 @@ export default function RaffleTab({ eventId }: Props) {
       await api.raffle.keywords.create(eventId, {
         keyword: newKw.keyword.trim(),
         tickets_reward: Number(newKw.tickets_reward) || 1,
-        max_uses: newKw.max_uses === '' ? null : Number(newKw.max_uses),
         sort_order: keywords.length,
         is_active: true,
       })
-      setNewKw({ keyword: '', tickets_reward: 1, max_uses: '' })
+      setNewKw({ keyword: '', tickets_reward: 1 })
       await reload()
     } catch (e: any) {
       if (e.message?.includes('409') || /already/i.test(e.message || ''))
@@ -269,9 +266,6 @@ export default function RaffleTab({ eventId }: Props) {
                          onChange={e => setKeywords(prev => prev.map(x => x.id === k.id ? { ...x, tickets_reward: Number(e.target.value) } : x))} />
                   <span className="text-xs text-gray-500">билет(ов)</span>
                 </div>
-                <div className="text-xs text-gray-500 w-28 text-center">
-                  Использовано: <strong>{k.used_count}</strong>{k.max_uses ? ` / ${k.max_uses}` : ''}
-                </div>
                 <button onClick={() => removeKeyword(k.id)} className="text-red-500 hover:text-red-700 text-sm px-2">✕</button>
               </div>
             ))}
@@ -287,13 +281,10 @@ export default function RaffleTab({ eventId }: Props) {
             <input className="input w-20" type="number" min="1" placeholder="+билеты"
                    value={newKw.tickets_reward}
                    onChange={e => setNewKw({ ...newKw, tickets_reward: Number(e.target.value) || 1 })} />
-            <input className="input w-24" type="number" min="1" placeholder="лимит"
-                   value={newKw.max_uses}
-                   onChange={e => setNewKw({ ...newKw, max_uses: e.target.value })} />
           </div>
           <button onClick={addKeyword} className="px-4 py-2 rounded-lg text-sm font-medium"
                   style={{ background: PEACH, color: BRAND }}>+ Добавить слово</button>
-          <p className="text-xs text-gray-500">Лимит — необязательно. Если не задан, слово можно вводить сколько угодно раз.</p>
+          <p className="text-xs text-gray-500">Слово может ввести любое число участников — каждый получит свой билет. Один участник одно слово вводит только раз.</p>
         </div>
       </section>
     </div>

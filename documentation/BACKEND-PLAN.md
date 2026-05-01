@@ -432,7 +432,7 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 | PATCH | `/events/{id}/raffle/prizes/{prize_id}` | Обновить приз |
 | DELETE | `/events/{id}/raffle/prizes/{prize_id}` | Удалить |
 | GET | `/events/{id}/raffle/keywords` | Список кодовых слов |
-| POST | `/events/{id}/raffle/keywords` | Добавить (keyword, tickets_reward, max_uses, sort_order, is_active) |
+| POST | `/events/{id}/raffle/keywords` | Добавить (keyword, tickets_reward, sort_order, is_active). `max_uses`/`used_count` дропнуты миграцией 054 — слово может ввести любое число участников |
 | PATCH | `/events/{id}/raffle/keywords/{kw_id}` | Обновить |
 | DELETE | `/events/{id}/raffle/keywords/{kw_id}` | Удалить |
 

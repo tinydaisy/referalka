@@ -66,6 +66,7 @@ channels (боты/группы клиента)
 | **039** | 2026-04-27 | **Профиль клиента (Экосистема)**: `clients.bio`, `profile_photo_url`, `positioning`, `achievements` (JSONB), `social_links` (JSONB); таблица `client_offerings`; `events.successor_event_id` |
 | **041** | 2026-04-27 | `conf_speaker_events.notes` — заметки спикера в конкретной конференции |
 | **042** | 2026-04-27 | **Бренд клиента + VIP/Чат конференции + Призы розыгрыша**: `clients.brand_name`; `events.has_vip_tariff/vip_price/vip_url/vip_title/vip_description/chat_url/chat_subscriptions_required/chat_member_count_label`; `event_referral_settings.gift_count_mode` ('registered' default \| 'visited'); новые таблицы `event_raffle_settings`, `event_raffle_prizes`, `event_raffle_keywords`; UNIQUE индекс `channels(client_id, platform_slug) WHERE is_active` |
+| **052** | 2026-04-30 | **Разделение визитки на «Бренд» и «Основатель»**: `clients.brand_logo_url` (логотип в углу страниц Mini App), `owner_name`, `owner_photo_url`, `owner_positioning`, `owner_achievements` JSONB. Существующие поля переосмыслены — `profile_photo_url`/`positioning`/`achievements` = бренд, `bio`/`social_links` = основатель. Дашборд `/dashboard/mini-app` — 3 вкладки. Mini App: убрано слово «ЭКОСИСТЕМА», логотип в углу шапок, новая страница `OwnerPage.tsx` |
 
 ---
 
@@ -422,10 +423,16 @@ Backend готов. Нужны UI-страницы:
   - [ ] Поля `chat_url`, `chat_subscriptions_required`, `chat_member_count_label`
 - [ ] `/dashboard/events/[id]/referral` (Реф-программа):
   - [ ] Радио «Считать подарки за: ⦿ зарегистрировавшихся / ◯ переходы» → `gift_count_mode`
-- [ ] `/dashboard/events/[id]/raffle` (новая вкладка «Розыгрыш»):
-  - [ ] Включение розыгрыша + время финала (`event_raffle_settings`)
-  - [ ] CRUD призов (`event_raffle_prizes`): иконка, название, описание, мест, оценка стоимости
-  - [ ] CRUD кодовых слов (`event_raffle_keywords`): слово, +N билетов, лимит использований
+- [ ] `/dashboard/events/[id]/raffle` (новая вкладка «Розыгрыш»). **Модель — `memory/project_raffle_model.md`** (зафиксировано 2026-05-01):
+  - [ ] Подвкладка «Настройки»: включение розыгрыша + время финала (`event_raffle_settings`) + чекбокс обязательной подписки + текст intro + перечень кодовых слов
+  - [x] Миграция **054** (2026-05-01) — дропнули `max_uses` и `used_count` из `event_raffle_keywords`. Логика их не использует. Бэкенд + RaffleTab.tsx обновлены
+  - [ ] Подвкладка «Кодовые слова»: CRUD `event_raffle_keywords` — поля `keyword`, `tickets_reward`. **БЕЗ `max_uses`** (одно слово может ввести любое число участников). Сравнение ввода регистронезависимое (`lower(trim(input)) === keyword_lower`), точное по буквам
+  - [ ] **Учёт «в эфире» — сквозной**. Подвкладки Участники / Билеты / Генератор используют `event_participants.live_at` как фильтр. Чекбокс «только в эфире» по умолчанию ВКЛ
+  - [ ] Подвкладка «Участники розыгрыша»: публичная live-ссылка (копировать) + ссылка на инструкцию + таблица «№ · Имя (link) · Ник (link) · Билеты · Кодовые слова» + фильтр «в эфире»
+  - [ ] Подвкладка «Билеты»: таблица `event_raffle_tickets` — «№ билета · Кодовое слово (либо слово, либо `Free`) · Имя · Ник · Дата». Фильтр «в эфире»
+  - [ ] Подвкладка «Генератор победителей»: список спикеров (имя · подарок розыгрыша · кнопка «Выбрать победителя» · поле «Победитель») + чекбокс «только в эфире» (вкл по умолчанию). Клик — рандом из `event_raffle_tickets` (с фильтром live_at), запись в `event_raffle_winners (speaker_event_id → conf_speaker_events, ticket_id → event_raffle_tickets, won_at)` — только два FK, без contact_id/event_id (джойнятся через ticket). ЛС победителю в бот клиента
+  - [ ] **Призов как отдельной сущности НЕТ** — берутся из `conf_speaker_events.gift_raffle_title/url`. Таблица `event_raffle_prizes` (миграция 042) — мертва, не использовать. Для мероприятий без спикеров — открытый вопрос
+  - [ ] У конференций добавить тумблер «Включить розыгрыш» (сейчас есть только у мероприятий)
 
 ### 2.15 Бот клиента в Telegram — webhook вместо polling (открытая задача)
 
@@ -493,6 +500,43 @@ Backend готов. Нужны UI-страницы:
 - Бонус начисляется при регистрации или при первом платеже клиента?
 
 → Подробное обсуждение и история решений: [memory/idea_plusson_referrals.md](../.claude/projects/-Users-macbookair-Documents-projects-referalka/memory/idea_plusson_referrals.md)
+
+### 3.Y Своя вебинарная комната через Zoom RTMP (идея, обсуждено 2026-04-30)
+
+**Суть:** убрать зависимость от внешних стримов (YouTube Live, VK Видео) — зритель смотрит трансляцию прямо в Mini App / на лендинге, в нашем брендинге. Ведущий продолжает работать в привычном Zoom.
+
+**Схема:**
+1. Ведущий запускает Zoom как обычно (Webinar или Meeting с включённым Live Streaming)
+2. Zoom стримит на наш RTMP-эндпоинт через встроенную функцию «Live Stream to Custom Service» (RTMP URL + stream key уникальный per-event)
+3. На сервере — RTMP→HLS конвертер (MediaMTX / SRS / nginx-rtmp)
+4. Mini App во вкладке «Программа» / «Эфир» показывает HLS-плеер (hls.js) поверх нашей вёрстки
+5. Чат — отдельным слоем сбоку (через WebSocket, упор на текст без видео-интеракции)
+
+**Преимущества:**
+- Зритель не ставит Zoom, не уходит из Mini App
+- Полный брендинг (логотип ПЛЮСОН, цвета, чат с реакциями, статус «идёт сейчас»)
+- Ведущий работает в Zoom — без переучивания
+- Контроль над данными (кто смотрел, сколько, какие комментарии)
+
+**Тред-офф:**
+- Задержка 10-30 секунд (HLS) против 200 мс у WebRTC. Для вебинара ОК (зритель пассивный), для интерактива — нет
+- Нагрузка на сервер: трафик HLS-сегментов на каждого зрителя. На 1000 одновременных — нужен CDN или отдельный VPS под видео
+
+**Что нужно сделать:**
+- [ ] Поднять MediaMTX / SRS на отдельном поддомене (`stream.pluson.ru`) — отдаёт HLS на 8888, принимает RTMP на 1935
+- [ ] Таблица `event_streams` (event_id UNIQUE, stream_key UNIQUE, rtmp_url, hls_url, is_live, started_at, ended_at) — связка события с потоком
+- [ ] API: `POST /api/v1/events/{id}/stream/start` (создаёт stream_key, отдаёт RTMP URL+key для копи-пейста в Zoom), `POST /stream/stop`, `GET /stream/status`
+- [ ] Дашборд клиента: вкладка «Эфир» в карточке события — показ RTMP URL/Key + кнопка «Начать эфир» / «Завершить»
+- [ ] Mini App: новая вкладка «📺 Эфир» (или замена `stream_url` в Программе) с HLS-плеером, появляется только когда `is_live=true`
+- [ ] Чат: таблица `event_chat_messages` (event_id, contact_id, text, created_at) + WebSocket-эндпоинт `/ws/event/{id}/chat`
+- [ ] Запись эфира: MediaMTX умеет писать MP4 — после завершения сохранить ссылку в `events.recording_url`, показать на лендинге как «Запись»
+
+**Альтернативы (на случай если RTMP-схема не зайдёт):**
+- Zoom Web SDK — встраивает Zoom-плеер в iframe внутри Mini App. Меньше работы, но Zoom-UI поверх нашего, частичный брендинг
+- LiveKit / 100ms / Daily.co — полная замена Zoom (WebRTC SFU), но ведущий должен переучиваться
+- Просто принимаем YouTube/VK Live в `events.stream_url` (текущий MVP-подход)
+
+**Когда делать:** после того как платформа заработает на нескольких клиентах и встанет реальная задача убрать зависимость от внешних стримов. Сейчас `events.stream_url` = ссылка на YouTube/VK — этого достаточно.
 
 ---
 
