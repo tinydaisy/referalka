@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config import settings
 from app.database import get_pool, close_pool
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, integrations, subscription_check, contacts, lead_magnets, referral_program, platforms, channels, uploads, client_profile, event_raffle
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, integrations, subscription_check, contacts, lead_magnets, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
 from app.api import broadcasts_general
@@ -64,7 +64,9 @@ app.include_router(uploads.router,      prefix="/api/v1")  # POST /uploads, DELE
 app.include_router(client_profile.public,           prefix="/api/v1")  # /api/v1/public/clients/{id}/profile|offerings|events; /events/{slug}/landing
 app.include_router(client_profile.profile_router,   prefix="/api/v1")  # /api/v1/clients/me/profile (миграция 039)
 app.include_router(client_profile.offerings_router, prefix="/api/v1")  # /api/v1/client-offerings (миграция 039)
-app.include_router(event_raffle.router,             prefix="/api/v1")  # /api/v1/events/{id}/raffle/{settings|prizes|keywords} (миграция 042)
+app.include_router(event_raffle.router,             prefix="/api/v1")  # /api/v1/events/{id}/raffle/{settings|prizes|keywords|tickets|participants|winners|draw} (миграции 042, 056)
+app.include_router(event_raffle_public.router,            prefix="/api/v1")  # Mini App: /events/{slug}/raffle/{free-ticket|keyword|me} (миграция 056)
+app.include_router(event_raffle_public.event_root_router, prefix="/api/v1")  # Mini App: /events/{slug}/live — отметка «в эфире» (миграция 056)
 
 
 @app.get("/", tags=["health"])
