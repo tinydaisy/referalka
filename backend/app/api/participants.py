@@ -431,17 +431,22 @@ async def get_participant_in_event(
                WHERE cse.event_id = $1 AND col.contact_id IS NOT NULL
            ),
            leaders AS (
-              SELECT ep.referrer_participant_id AS pid, COUNT(*) AS cnt
+              -- count: все приведённые (visited), reg_count: из них зарегавшиеся.
+              -- Сортируем сначала по reg_count (полезное действие), потом по
+              -- общему числу — чтобы зарегавшийся приведённый «весил» больше.
+              SELECT ep.referrer_participant_id AS pid,
+                     COUNT(*) AS cnt,
+                     COUNT(*) FILTER (WHERE ep.is_registered) AS reg_count
                 FROM event_participants ep
                 JOIN event_participants rp ON rp.id = ep.referrer_participant_id
                WHERE ep.event_id = $1
-                 AND ep.is_registered = TRUE
                  AND ep.referrer_participant_id IS NOT NULL
                  AND rp.contact_id NOT IN (SELECT contact_id FROM speaker_contacts)
               GROUP BY ep.referrer_participant_id
            ),
            ranked AS (
-              SELECT pid, cnt, ROW_NUMBER() OVER (ORDER BY cnt DESC, pid) AS rank
+              SELECT pid, cnt, reg_count,
+                     ROW_NUMBER() OVER (ORDER BY reg_count DESC, cnt DESC, pid) AS rank
                 FROM leaders
            )
            SELECT r.pid, r.cnt, r.rank,
