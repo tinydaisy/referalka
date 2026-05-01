@@ -87,6 +87,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
         registered_count:     part.registered_count,
         gifts_received_count: part.gifts_received_count,
         my_people:            part.my_people || [],
+        top:                  part.top       || [],
+        my_rank:              part.my_rank,
       } : null)
       setPrefill(part?.prefill || null)
 

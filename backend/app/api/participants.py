@@ -383,6 +383,13 @@ async def get_participant_in_event(
     tg_id: int,
     db: asyncpg.Connection = Depends(get_db)
 ):
+    # Событие — нужно для топа (его считаем независимо от участия пользователя).
+    event_id = await db.fetchval(
+        "SELECT id FROM events WHERE slug = $1 LIMIT 1", event_slug
+    )
+    if not event_id:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
     # Контакт у клиента ЭТОГО события (по tg_id). Email/phone отсюда —
     # если оба поля заполнены, фронт пропускает форму регистрации.
     prefill = await db.fetchrow(
@@ -410,6 +417,63 @@ async def get_participant_in_event(
             LIMIT 1""",
         event_slug, str(tg_id)
     )
+    my_pid = row["id"] if row else None
+
+    # Топ-рейтинг события: кто сколько привёл зарегавшихся.
+    # Считаем по всем участникам, у которых referrer_participant_id указывает
+    # на ДРУГОГО участника (не спикера) этого события. Спикеры исключаются:
+    # их contact_id есть в collaborators ⇄ conf_speaker_events.
+    leaderboard = await db.fetch(
+        """WITH speaker_contacts AS (
+              SELECT col.contact_id
+                FROM conf_speaker_events cse
+                JOIN collaborators col ON col.id = cse.speaker_id
+               WHERE cse.event_id = $1 AND col.contact_id IS NOT NULL
+           ),
+           leaders AS (
+              SELECT ep.referrer_participant_id AS pid, COUNT(*) AS cnt
+                FROM event_participants ep
+                JOIN event_participants rp ON rp.id = ep.referrer_participant_id
+               WHERE ep.event_id = $1
+                 AND ep.is_registered = TRUE
+                 AND ep.referrer_participant_id IS NOT NULL
+                 AND rp.contact_id NOT IN (SELECT contact_id FROM speaker_contacts)
+              GROUP BY ep.referrer_participant_id
+           ),
+           ranked AS (
+              SELECT pid, cnt, ROW_NUMBER() OVER (ORDER BY cnt DESC, pid) AS rank
+                FROM leaders
+           )
+           SELECT r.pid, r.cnt, r.rank,
+                  COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ',
+                      (SELECT pu.first_name FROM platform_users pu
+                        WHERE pu.contact_id = ep.contact_id LIMIT 1),
+                      (SELECT pu.last_name FROM platform_users pu
+                        WHERE pu.contact_id = ep.contact_id LIMIT 1)
+                    )), ''),
+                    c.name
+                  ) AS name
+             FROM ranked r
+             JOIN event_participants ep ON ep.id = r.pid
+             JOIN contacts c ON c.id = ep.contact_id
+            ORDER BY r.rank""",
+        event_id
+    )
+    top = [
+        {
+            "rank":  int(l["rank"]),
+            "name":  l["name"] or "Без имени",
+            "count": int(l["cnt"]),
+            "isMe":  my_pid is not None and l["pid"] == my_pid,
+        }
+        for l in leaderboard[:10]
+    ]
+    my_rank = (
+        next((int(l["rank"]) for l in leaderboard if l["pid"] == my_pid), None)
+        if my_pid is not None else None
+    )
+
     if not row:
         # Участника ещё нет — но prefill может быть (контакт уже в базе клиента
         # из другого события или из импорта). Возвращаем 200, не 404.
@@ -420,6 +484,8 @@ async def get_participant_in_event(
             "registered_count": 0,
             "gifts_received_count": 0,
             "my_people": [],
+            "top": top,
+            "my_rank": None,
             "prefill": prefill_dict,
         }
 
@@ -481,5 +547,7 @@ async def get_participant_in_event(
         "registered_count": registered_count,
         "gifts_received_count": gifts_received_count,
         "my_people": my_people,
+        "top": top,
+        "my_rank": my_rank,
         "prefill": prefill_dict,
     }
