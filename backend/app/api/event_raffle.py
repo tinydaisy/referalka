@@ -26,9 +26,15 @@ from pydantic import BaseModel, Field
 from typing import Optional, Any
 from datetime import datetime
 import asyncpg
+import httpx
+import logging
 
 from app.database import get_db
 from app.auth import get_current_client
+from app.services.channels import get_client_telegram_token
+from app.config import settings as app_settings
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/events/{event_id}/raffle", tags=["Розыгрыш события"])
@@ -456,7 +462,7 @@ async def draw_winner(
         data.speaker_event_id, ticket["id"],
     )
 
-    # Возвращаем расширенную инфу о победителе (для UI)
+    # Возвращаем расширенную инфу о победителе + всё нужное для отправки ЛС.
     row = await db.fetchrow(
         """
         SELECT
@@ -466,17 +472,88 @@ async def draw_winner(
             t.code_word,
             c.id   AS contact_id,
             c.name AS winner_name,
-            (SELECT pu.username FROM platform_users pu
+            (SELECT pu.username      FROM platform_users pu
               WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
-              ORDER BY pu.id LIMIT 1) AS winner_username
+              ORDER BY pu.id LIMIT 1) AS winner_username,
+            (SELECT pu.platform_user_id FROM platform_users pu
+              WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+              ORDER BY pu.id LIMIT 1) AS winner_tg_id,
+            cse.gift_raffle_title,
+            cse.gift_raffle_url,
+            col.name                  AS speaker_name,
+            col.personal_tg_username  AS speaker_tg_username,
+            e.client_id
           FROM event_raffle_winners w
           JOIN event_raffle_tickets t ON t.id = w.ticket_id
           JOIN contacts c ON c.id = t.contact_id
+          JOIN conf_speaker_events cse ON cse.id = w.speaker_event_id
+          JOIN collaborators col ON col.id = cse.speaker_id
+          JOIN events e ON e.id = t.event_id
          WHERE w.id = $1
         """,
         winner_id,
     )
+
+    # Шлём ЛС победителю через бот клиента (fallback на общего @pluson_bot).
+    # Падение отправки не должно ломать запись в БД — победитель уже сохранён.
+    try:
+        await _send_winner_dm(db, row)
+    except Exception as e:
+        logger.warning(f"DM to winner failed (winner_id={winner_id}): {e}")
+
     return dict(row)
+
+
+async def _send_winner_dm(db, row) -> None:
+    """Шлёт сообщение в ЛС победителю через бот клиента.
+
+    Текст по шаблону:
+      🎉 Поздравляем! Вы выиграли *{приз}* от *{спикер}*.
+      Чтобы забрать — {ссылка / напишите спикеру}.
+    """
+    tg_id = row["winner_tg_id"]
+    if not tg_id:
+        return  # без tg_id отправлять некуда
+
+    bot_token = await get_client_telegram_token(int(row["client_id"]), db)
+    if not bot_token:
+        bot_token = app_settings.telegram_bot_token
+    if not bot_token:
+        return
+
+    prize = (row["gift_raffle_title"] or "приз").strip()
+    speaker = (row["speaker_name"] or "спикера").strip()
+    url = (row["gift_raffle_url"] or "").strip()
+    speaker_username = (row["speaker_tg_username"] or "").lstrip('@').strip()
+
+    if url:
+        action = f"Забрать подарок: {url}"
+    elif speaker_username:
+        action = f"Чтобы забрать — напишите спикеру: @{speaker_username}"
+    else:
+        action = "Чтобы забрать подарок — свяжитесь с организатором события."
+
+    text = (
+        f"🎉 Поздравляем! Вы выиграли *{_md_escape(prize)}* "
+        f"от *{_md_escape(speaker)}*.\n\n"
+        f"{action}"
+    )
+
+    async with httpx.AsyncClient(timeout=5) as http:
+        await http.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={
+                "chat_id": int(tg_id),
+                "text": text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": False,
+            },
+        )
+
+
+def _md_escape(s: str) -> str:
+    """Экранирует спецсимволы для legacy Markdown (parse_mode=Markdown)."""
+    return s.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`').replace('[', '\\[')
 
 
 @router.delete("/winners/{winner_id}", summary="Сбросить выигрыш (для переразыгрывания)")

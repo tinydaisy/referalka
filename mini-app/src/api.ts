@@ -99,3 +99,22 @@ export const getRafflePrizes = (eventId: number) =>
 
 export const getRaffleSettings = (eventId: number) =>
   req(`/api/v1/public/events/${eventId}/raffle/settings`).catch(() => ({ is_enabled: false }))
+
+// ── Розыгрыш v2 (миграция 056) — новая модель: билеты, кодовые слова, live-метка ──
+
+type TgUser = { tg_id: number; first_name?: string; last_name?: string; username?: string }
+
+export const markLive = (slug: string, user: TgUser) =>
+  req(`/api/v1/events/${slug}/live`, { method: 'POST', body: JSON.stringify(user) })
+
+export const issueFreeTicket = (slug: string, user: TgUser) =>
+  req(`/api/v1/events/${slug}/raffle/free-ticket`, { method: 'POST', body: JSON.stringify(user) })
+
+export const submitRaffleKeyword = (slug: string, user: TgUser, keyword: string) =>
+  req(`/api/v1/events/${slug}/raffle/keyword`, {
+    method: 'POST',
+    body: JSON.stringify({ ...user, keyword }),
+  })
+
+export const getMyRaffle = (slug: string, tgId: number) =>
+  req(`/api/v1/events/${slug}/raffle/me?tg_id=${tgId}`)

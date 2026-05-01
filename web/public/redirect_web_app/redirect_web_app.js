@@ -33,8 +33,11 @@
   if(!app) return;
 
   // pid — короткое имя (новое); new_partner_id — старое (обратная совместимость).
-  var pid = sp.get('pid') || sp.get('new_partner_id') || '';
-  var src = sp.get('utm_source')     || '';
+  var pid  = sp.get('pid') || sp.get('new_partner_id') || '';
+  var src  = sp.get('utm_source')     || '';
+  // live=1 — публичная live-ссылка из дашборда розыгрыша. Mini App
+  // получит суффикс _live в startapp и поставит event_participants.live_at=now().
+  var live = sp.get('live') === '1';
 
   // ── Telegram ──────────────────────────────────────────────
   if(app === 'tg' && APP_CONFIG.tg){
@@ -45,6 +48,7 @@
     // событие. Нужно когда в BotFather у бота клиента URL Mini App общий
     // (`/tg/` вместо `/c/{N}/tg/`) — иначе откроется HubSelector.
     if(typeof CLIENT_ID !== 'undefined' && CLIENT_ID) parts.push('cid' + CLIENT_ID);
+    if(live) parts.push('live');
     window.location.replace(APP_CONFIG.tg + '?startapp=' + parts.join('_'));
     return;
   }

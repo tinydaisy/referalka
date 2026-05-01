@@ -1,204 +1,336 @@
 import { useEffect, useState } from 'react'
-import { verifyCode, getRafflePrizes } from '../api'
+import {
+  checkConferenceSubscription,
+  issueFreeTicket,
+  submitRaffleKeyword,
+  getMyRaffle,
+  getRaffleSettings,
+} from '../api'
 
-interface Props { event: any; participant: any }
+interface Props { event: any; participant: any; tgUser: any }
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
 
-interface Prize {
-  id: number
-  title: string
-  description?: string
-  icon_emoji?: string
-  places_count: number
-  value_label?: string
-}
-
 interface Ticket {
-  number: string
+  id: number
+  code_word: string
+  created_at: string
+}
+interface WonPrize {
+  prize_title: string
+  prize_url: string | null
+  speaker_name: string
+  speaker_tg_username: string | null
+  won_at: string
+  ticket_id: number
 }
 
-export default function RaffleTab({ event, participant }: Props) {
+function ticketNo(id: number): string {
+  return '№' + String(id).padStart(5, '0')
+}
+
+export default function RaffleTab({ event, participant, tgUser }: Props) {
+  const slug: string = event?.slug || ''
+  const tgId: number | null = tgUser?.id ? Number(tgUser.id) : null
+
+  const [introText, setIntroText] = useState<string | null>(null)
+  const [grantsFree, setGrantsFree] = useState<boolean>(true)
+  const [subsOk, setSubsOk] = useState<boolean | null>(null)
+  const [subsText, setSubsText] = useState<string | null>(null)
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [wonPrizes, setWonPrizes] = useState<WonPrize[]>([])
+  const [loading, setLoading] = useState(true)
   const [code, setCode] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<{ valid: boolean; message: string; tickets?: number } | null>(null)
-  const [tickets, setTickets] = useState<Ticket[]>(participant?.tickets || [])
-  const [prizes, setPrizes] = useState<Prize[]>([])
-  const [prizesOpen, setPrizesOpen] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [issuing, setIssuing] = useState(false)
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
-  // Подписки на спикеров — статус
-  const subsAllOk = !!participant?.subscriptions_ok
-  const starterTicket = participant?.starter_ticket_number
+  const hasFree = tickets.some(t => t.code_word === 'Free')
 
-  useEffect(() => {
-    if (event?.id) {
-      getRafflePrizes(event.id)
-        .then((r: any) => setPrizes(r.items || []))
-        .catch(() => setPrizes([]))
-    }
-  }, [event?.id])
+  useEffect(() => { reload() }, [slug, tgId])
 
-  async function checkCode() {
-    if (!code.trim()) return
-    setLoading(true); setResult(null)
+  async function reload() {
+    setLoading(true)
     try {
-      const res = await verifyCode(event?.id || 1, code.trim(), participant?.id || 1)
-      setResult({ valid: res.valid, message: res.message, tickets: res.tickets_reward })
-      if (res.valid && res.tickets_reward) {
-        // Добавляем мокнутые номера, реальные подгрузим при следующем reload
-        const newOnes: Ticket[] = Array.from({ length: res.tickets_reward }, (_, i) => ({
-          number: `№${String(Math.floor(Math.random() * 99999)).padStart(5, '0')}`,
-        }))
-        setTickets(t => [...t, ...newOnes])
-        setCode('')
+      const [s, my] = await Promise.all([
+        getRaffleSettings(event?.id || 0).catch(() => ({})),
+        tgId ? getMyRaffle(slug, tgId).catch(() => ({ tickets: [], won_prizes: [] })) : Promise.resolve({ tickets: [], won_prizes: [] }),
+      ])
+      setIntroText(s?.intro_text || null)
+      setGrantsFree(s?.subscription_grants_starter_ticket !== false)
+      setTickets(my?.tickets || [])
+      setWonPrizes(my?.won_prizes || [])
+
+      // Подписка проверяется только в этой вкладке (не при регистрации события).
+      if (event?.id && tgId) {
+        const sub = await checkConferenceSubscription(event.id, tgId).catch(() => null)
+        if (sub) {
+          setSubsOk(!sub.not_subscribed)
+          setSubsText(sub.not_subscribed_text || null)
+        } else {
+          setSubsOk(true)
+        }
+      } else {
+        setSubsOk(true)
       }
-    } catch {
-      setResult({ valid: false, message: 'Ошибка при проверке. Попробуйте ещё раз.' })
     } finally {
       setLoading(false)
     }
   }
 
+  async function getFree() {
+    if (!tgUser?.id) return
+    setIssuing(true); setMsg(null)
+    try {
+      await issueFreeTicket(slug, {
+        tg_id:      Number(tgUser.id),
+        first_name: tgUser.first_name || '',
+        last_name:  tgUser.last_name  || '',
+        username:   tgUser.username   || '',
+      })
+      await reload()
+    } catch (e: any) {
+      setMsg({ kind: 'err', text: e.message || 'Не удалось выдать билет' })
+    } finally {
+      setIssuing(false)
+    }
+  }
+
+  async function submitWord() {
+    const w = code.trim()
+    if (!w || !tgUser?.id) return
+    setSubmitting(true); setMsg(null)
+    try {
+      const r = await submitRaffleKeyword(slug, {
+        tg_id:      Number(tgUser.id),
+        first_name: tgUser.first_name || '',
+        last_name:  tgUser.last_name  || '',
+        username:   tgUser.username   || '',
+      }, w)
+      setCode('')
+      setMsg({ kind: 'ok', text: `Билет ${ticketNo(r.ticket_id)} ваш!` })
+      await reload()
+    } catch (e: any) {
+      setMsg({ kind: 'err', text: e.message || 'Не удалось проверить слово' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: 'center', color: '#6b7c8e', fontSize: 14 }}>Загружаем…</div>
+  }
+
+  if (subsOk === false) {
+    return (
+      <div className="fade-in" style={{ padding: '12px 0' }}>
+        <div style={{
+          background: 'white', borderRadius: 16, padding: 18, marginBottom: 14,
+          boxShadow: '0 2px 8px rgba(37,69,93,0.05)', textAlign: 'center',
+        }}>
+          <div style={{
+            fontSize: 11, color: '#6b7c8e', fontWeight: 700, letterSpacing: 0.8,
+            textTransform: 'uppercase', marginBottom: 8,
+          }}>
+            Розыгрыш закрыт
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: DARK, lineHeight: 1.35, marginBottom: 6 }}>
+            Чтобы участвовать, подпишитесь на каналы организатора и спикеров
+          </div>
+          <div style={{ fontSize: 13, color: '#6b7c8e', lineHeight: 1.45 }}>
+            После подписки получите стартовый билет и сможете вводить кодовые слова.
+          </div>
+        </div>
+        {subsText && (
+          <div
+            style={{
+              background: 'white', borderRadius: 12, padding: 12, fontSize: 13,
+              color: DARK, lineHeight: 1.5, whiteSpace: 'pre-line',
+              boxShadow: '0 2px 8px rgba(37,69,93,0.05)', marginBottom: 14,
+            }}
+            dangerouslySetInnerHTML={{ __html: subsText }}
+          />
+        )}
+        <button
+          onClick={reload}
+          style={{
+            width: '100%', padding: '14px 18px', borderRadius: 14,
+            background: PEACH, color: DARK, fontSize: 15, fontWeight: 700,
+            border: 'none', cursor: 'pointer',
+          }}
+        >
+          Я подписался — проверить
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className="fade-in">
-      {/* Билеты участника */}
+    <div className="fade-in" style={{ padding: '12px 0' }}>
+      {introText && (
+        <div style={{
+          background: 'white', borderRadius: 12, padding: 12, fontSize: 13,
+          color: DARK, lineHeight: 1.5, marginBottom: 14,
+          boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+        }}>
+          {introText}
+        </div>
+      )}
+
       <div style={{
         background: 'white', borderRadius: 16, padding: 18, textAlign: 'center', marginBottom: 14,
         boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
       }}>
         <div style={{
           fontSize: 11, color: '#6b7c8e', fontWeight: 700, letterSpacing: 0.8,
-          textTransform: 'uppercase', marginBottom: 8,
+          textTransform: 'uppercase', marginBottom: 10,
         }}>
           У вас {tickets.length} {tickets.length === 1 ? 'билет' : 'билетов'}
         </div>
         {tickets.length === 0 ? (
-          <div style={{ fontSize: 13, color: '#6b7c8e', padding: 10 }}>
-            Подпишитесь на каналы — получите первый билет
+          <div style={{ fontSize: 13, color: '#6b7c8e', padding: 6, lineHeight: 1.5 }}>
+            {grantsFree
+              ? 'Получите стартовый билет — нажмите кнопку ниже, и вводите кодовые слова, которые называют спикеры.'
+              : 'Вводите кодовые слова, которые называют спикеры — за каждое получите билет.'}
           </div>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
-            {tickets.map((t, i) => (
-              <div key={i} style={{
-                background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)', color: DARK,
+            {tickets.map(t => (
+              <span key={t.id} style={{
+                background: `linear-gradient(135deg, ${PEACH}, #f5b97e)`, color: DARK,
                 padding: '7px 10px', borderRadius: 8, fontWeight: 700, fontSize: 12,
-              }}>{t.number}</div>
+              }}>
+                {ticketNo(t.id)}
+              </span>
             ))}
           </div>
         )}
       </div>
 
-      {/* Подписка → стартовый билет (свёрнуто если ОК) */}
-      {subsAllOk ? (
+      {grantsFree && !hasFree && (
+        <button
+          onClick={getFree}
+          disabled={issuing}
+          style={{
+            width: '100%', padding: '14px 18px', borderRadius: 14, marginBottom: 14,
+            background: PEACH, color: DARK, fontSize: 15, fontWeight: 700,
+            border: 'none', cursor: 'pointer', opacity: issuing ? 0.6 : 1,
+          }}
+        >
+          {issuing ? 'Выдаём…' : '🎟 Получить бесплатный билет'}
+        </button>
+      )}
+
+      {grantsFree && hasFree && (
         <div style={{
           background: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: 12,
-          padding: '12px 14px', marginBottom: 12,
-          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          <div style={{ fontSize: 18 }}>✅</div>
+          <div style={{ fontSize: 18 }}>✓</div>
           <div style={{ flex: 1, fontSize: 12, color: '#1b5e20', fontWeight: 600 }}>
-            Вы подписаны{starterTicket ? ` — стартовый билет ${starterTicket} ваш` : ''}
-          </div>
-        </div>
-      ) : (
-        <div style={{
-          background: 'linear-gradient(135deg, #fff8f0, white)',
-          border: `2px solid ${PEACH}`, borderRadius: 16,
-          padding: 14, marginBottom: 12, textAlign: 'center',
-        }}>
-          <div style={{ fontSize: 26, marginBottom: 6 }}>🔒</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a', marginBottom: 4 }}>
-            Подпишитесь на наши каналы
-          </div>
-          <div style={{ fontSize: 11, color: '#6b7c8e', lineHeight: 1.5 }}>
-            После подписки автоматически получите стартовый билет
+            Стартовый билет получен
           </div>
         </div>
       )}
 
-      {/* Кодовое слово */}
       <div style={{
-        background: 'white', borderRadius: 14, padding: 14, marginBottom: 12,
+        background: 'white', borderRadius: 16, padding: 14, marginBottom: 14,
         boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
       }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: '#1a2a3a', marginBottom: 4 }}>
-          + билет за кодовое слово
-        </div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 4 }}>+1 билет за кодовое слово</div>
         <div style={{ fontSize: 12, color: '#6b7c8e', marginBottom: 10 }}>
-          Спикер назовёт слово в эфире — введите ниже:
+          Спикер назовёт слово в эфире — введите его здесь.
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
-            type="text" placeholder="введите слово"
+            type="text"
+            placeholder="введите слово"
             value={code}
-            onChange={e => { setCode(e.target.value); setResult(null) }}
-            onKeyDown={e => e.key === 'Enter' && checkCode()}
+            onChange={e => setCode(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submitWord()}
+            disabled={submitting}
             style={{
-              flex: 1, padding: 12, border: '2px solid #e5eaef', borderRadius: 10,
-              fontSize: 14, outline: 'none', color: DARK,
+              flex: 1, padding: '11px 12px', borderRadius: 10, border: '1px solid #e0e4e8',
+              fontSize: 14, fontFamily: 'inherit', outline: 'none',
             }}
           />
-          <button onClick={checkCode} disabled={loading || !code.trim()}
-                  style={{
-                    background: DARK, color: PEACH, padding: '12px 16px', border: 'none',
-                    borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer',
-                    opacity: loading || !code.trim() ? 0.5 : 1,
-                  }}>{loading ? '…' : 'OK'}</button>
+          <button
+            onClick={submitWord}
+            disabled={submitting || !code.trim()}
+            style={{
+              padding: '11px 18px', borderRadius: 10, border: 'none',
+              background: DARK, color: PEACH, fontSize: 14, fontWeight: 700,
+              cursor: 'pointer', opacity: submitting || !code.trim() ? 0.5 : 1,
+            }}
+          >
+            OK
+          </button>
         </div>
-        {result && (
+
+        {msg && (
           <div style={{
-            marginTop: 10, padding: '10px 12px', borderRadius: 10, fontSize: 12, fontWeight: 600,
-            background: result.valid ? '#e8f5e9' : '#ffe5e5',
-            color: result.valid ? '#1b5e20' : '#c62828',
+            marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 12,
+            background: msg.kind === 'ok' ? '#e8f5e9' : '#ffebee',
+            color: msg.kind === 'ok' ? '#1b5e20' : '#c62828',
           }}>
-            {result.valid ? `🎉 ${result.message}` : `❌ ${result.message}`}
+            {msg.text}
+          </div>
+        )}
+
+        {tickets.filter(t => t.code_word !== 'Free').length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {tickets.filter(t => t.code_word !== 'Free').map(t => (
+              <span key={t.id} style={{
+                background: '#f1f3f6', color: '#6b7c8e', padding: '4px 10px',
+                borderRadius: 8, fontSize: 11, fontWeight: 600,
+              }}>
+                ✓ {t.code_word}
+              </span>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Призы — раскрывающийся блок */}
-      {prizes.length > 0 && (
+      {wonPrizes.length > 0 && (
         <div style={{
-          background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
-          boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+          background: `linear-gradient(45deg, ${DARK}, #0a1520)`, color: 'white',
+          borderRadius: 16, padding: 16, marginBottom: 14,
         }}>
-          <div onClick={() => setPrizesOpen(!prizesOpen)}
-               style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a' }}>
-              🎁 Призы розыгрыша · {prizes.length}
-            </div>
-            <div style={{ fontSize: 20, color: prizesOpen ? PEACH : '#c5cdd6',
-                          transform: prizesOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>›</div>
+          <div style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
+            color: PEACH, marginBottom: 10,
+          }}>
+            🏆 Вы выиграли
           </div>
-          {prizesOpen && (
-            <div style={{ marginTop: 10 }}>
-              {prizes.map((p, i) => (
-                <div key={p.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '8px 0', borderTop: i === 0 ? 'none' : '1px solid #f0f2f5',
+          {wonPrizes.map((p, i) => (
+            <div key={i} style={{
+              padding: '10px 0', borderTop: i ? '1px solid rgba(255,255,255,0.1)' : 'none',
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{p.prize_title}</div>
+              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>от {p.speaker_name}</div>
+              {p.prize_url ? (
+                <a href={p.prize_url} target="_blank" rel="noopener noreferrer" style={{
+                  display: 'inline-block', background: PEACH, color: DARK,
+                  padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  textDecoration: 'none',
                 }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: 8,
-                    background: 'linear-gradient(135deg, #fff4e0, #FFCFA4)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0,
-                  }}>{p.icon_emoji || '🎁'}</div>
-                  <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#1a2a3a' }}>
-                    {p.title}
-                    {p.value_label && (
-                      <div style={{ fontSize: 10, color: '#b86b00', fontWeight: 700, marginTop: 2 }}>
-                        {p.value_label}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{
-                    fontSize: 10, fontWeight: 700, color: '#b86b00',
-                    background: '#fff4e0', padding: '3px 7px', borderRadius: 5,
-                  }}>{p.places_count} {p.places_count === 1 ? 'место' : 'места'}</div>
-                </div>
-              ))}
+                  Забрать подарок →
+                </a>
+              ) : p.speaker_tg_username ? (
+                <a href={`https://t.me/${p.speaker_tg_username.replace(/^@/, '')}`}
+                   target="_blank" rel="noopener noreferrer" style={{
+                  display: 'inline-block', background: PEACH, color: DARK,
+                  padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  textDecoration: 'none',
+                }}>
+                  Написать @{p.speaker_tg_username.replace(/^@/, '')} →
+                </a>
+              ) : (
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Свяжитесь с организатором события</div>
+              )}
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>

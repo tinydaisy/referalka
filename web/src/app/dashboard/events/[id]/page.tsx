@@ -8,11 +8,10 @@ import PostersTab from './tabs/PostersTab'
 import ReferralProgramTab from './tabs/ReferralProgramTab'
 import BroadcastsTab from './tabs/BroadcastsTab'
 import VipChatTab from './tabs/VipChatTab'
-import RaffleTab from './tabs/RaffleTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'raffle' | 'vipchat' | 'participants' | 'broadcasts'
+type TabKey = 'overview' | 'posters' | 'referral' | 'vipchat' | 'participants' | 'broadcasts'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -44,12 +43,13 @@ export default function EventPage() {
   // Конференции — отдельный модуль, в нём своя обширная UI; оставляем кнопку перехода
   const isConference = event.module_slug === 'conference'
 
-  // Состав вкладок зависит от типа события: VIP+Чат показываем только конференциям
+  // Состав вкладок зависит от типа события: VIP+Чат показываем только конференциям.
+  // Розыгрыш живёт отдельной вкладкой в /dashboard/conferences/[id] — здесь его нет
+  // (на MVP розыгрыш только в конференциях).
   const TABS: { key: TabKey; label: string }[] = [
     { key: 'overview',     label: 'Основное' },
     { key: 'posters',      label: 'Афиши' },
     { key: 'referral',     label: 'Реф-программа' },
-    { key: 'raffle',       label: 'Розыгрыш' },
     ...(isConference ? [{ key: 'vipchat' as TabKey, label: 'VIP и Чат' }] : []),
     { key: 'participants', label: 'Участники' },
     { key: 'broadcasts',   label: 'Рассылки' },
@@ -106,7 +106,6 @@ export default function EventPage() {
       {activeTab === 'overview'     && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'      && <PostersTab eventId={eventId} />}
       {activeTab === 'referral'     && <ReferralProgramTab eventId={eventId} />}
-      {activeTab === 'raffle'       && <RaffleTab eventId={eventId} />}
       {activeTab === 'vipchat'      && <VipChatTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'participants' && <EventParticipants eventId={eventId} />}
       {activeTab === 'broadcasts'   && <BroadcastsTab eventId={eventId} isConference={isConference} />}

@@ -375,6 +375,18 @@ export const api = {
       delete: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/raffle/keywords/${id}`, { method: 'DELETE' }),
     },
+    participants: (eventId: number, onlyLive: boolean) =>
+      request(`/api/v1/events/${eventId}/raffle/participants${onlyLive ? '?only_live=true' : ''}`),
+    tickets: (eventId: number, onlyLive: boolean) =>
+      request(`/api/v1/events/${eventId}/raffle/tickets${onlyLive ? '?only_live=true' : ''}`),
+    winners: (eventId: number) => request(`/api/v1/events/${eventId}/raffle/winners`),
+    draw: (eventId: number, speakerEventId: number, onlyLive: boolean) =>
+      request(`/api/v1/events/${eventId}/raffle/draw`, {
+        method: 'POST',
+        body: JSON.stringify({ speaker_event_id: speakerEventId, only_live: onlyLive }),
+      }),
+    deleteWinner: (eventId: number, winnerId: number) =>
+      request(`/api/v1/events/${eventId}/raffle/winners/${winnerId}`, { method: 'DELETE' }),
   },
   admin: {
     stats: () => request('/api/v1/admin/stats'),

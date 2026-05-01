@@ -24,9 +24,9 @@ function detectClientIdFromPath(): number | null {
   return cid ? Number(cid) : null
 }
 
-// Парсит startapp Telegram: "ref_pgivision-7_pid5725111966_srcinsta_cid1"
+// Парсит startapp Telegram: "ref_pgivision-7_pid5725111966_srcinsta_cid1_live"
 function parseStartParam(raw: string): {
-  eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number
+  eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number; live?: boolean
 } {
   const r: any = {}
   raw.split('_').forEach(p => {
@@ -34,6 +34,7 @@ function parseStartParam(raw: string): {
     if (p.startsWith('pid')) r.partnerId  = p.slice(3)
     if (p.startsWith('src')) r.utmSource  = p.slice(3)
     if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
+    if (p === 'live')        r.live       = true
   })
   return r
 }
@@ -109,6 +110,22 @@ export default function App() {
       if (parsed.clientId)  setClientId(parsed.clientId)
       setPartnerId(parsed.partnerId)
       setUtmSource(parsed.utmSource)
+    }
+
+    // Live-метка: пользователь пришёл по публичной live-ссылке организатора —
+    // сразу ставим event_participants.live_at = now() (окно «в эфире» 120 минут).
+    if (parsed.live && parsed.eventSlug && user?.id) {
+      fetch(`${import.meta.env.VITE_API_URL}/api/v1/events/${parsed.eventSlug}/live`, {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tg_id:      Number(user.id),
+          first_name: user.first_name || '',
+          last_name:  user.last_name  || '',
+          username:   user.username   || '',
+        }),
+      }).catch(() => {})
     }
 
     // requestWriteAccess + event_start выполняются inline-скриптом в

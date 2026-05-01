@@ -282,7 +282,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
         {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
         {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} />}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
-        {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} />}
+        {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} />}
         {tab === 'calendar'  && event.client_id && <CalendarTab clientId={event.client_id} onOpenEvent={(s) => {
           const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
