@@ -600,7 +600,20 @@ async def event_participants(
                   (SELECT pu.last_name FROM platform_users pu
                     WHERE pu.contact_id = c.id LIMIT 1) AS last_name,
                   (SELECT rc.id FROM contacts rc WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1) AS referrer_contact_id,
-                  (SELECT rc.name FROM contacts rc WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1) AS referrer_name,
+                  -- referrer_name: имя из platform_users (Telegram) актуальнее
+                  -- и короче, чем contacts.name, в который при импорте из
+                  -- Salebot могла попасть склеенная мусорная строка.
+                  COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ',
+                      (SELECT rpu.first_name FROM platform_users rpu
+                         JOIN contacts rc ON rc.id = rpu.contact_id
+                        WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1),
+                      (SELECT rpu.last_name FROM platform_users rpu
+                         JOIN contacts rc ON rc.id = rpu.contact_id
+                        WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1)
+                    )), ''),
+                    (SELECT rc.name FROM contacts rc WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1)
+                  ) AS referrer_name,
                   (SELECT rpu.username FROM platform_users rpu
                      JOIN contacts rc ON rc.id = rpu.contact_id
                     WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1) AS referrer_username,
