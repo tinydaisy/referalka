@@ -377,6 +377,116 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
     return {"groups": with_future + only_past}
 
 
+def _build_messenger_url(platform_slug: str, username: str | None, pid: str | None) -> str | None:
+    """URL для перехода в ЛС на конкретной платформе."""
+    if platform_slug == 'telegram':
+        if username:
+            return f"https://t.me/{username.lstrip('@')}"
+        if pid:
+            return f"tg://user?id={pid}"
+        return None
+    if platform_slug == 'vk':
+        if username:
+            return f"https://vk.com/{username.lstrip('@')}"
+        if pid:
+            return f"https://vk.com/id{pid}"
+        return None
+    if platform_slug == 'max':
+        # У MAX публичный username даёт ссылку вида max.ru/{username}.
+        if username:
+            return f"https://max.ru/{username.lstrip('@')}"
+        return None
+    return None
+
+
+@router.get(
+    "/event/{event_slug}/participants/{participant_id}/card",
+    summary="Карточка участника со списком его мессенджеров",
+)
+async def get_participant_card(
+    event_slug: str,
+    participant_id: int,
+    viewer_tg_id: int,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    # Зрителем может быть только участник того же события (или владелец клиента).
+    # Иначе любой посторонний мог бы вытащить контакты всей базы клиента.
+    target = await db.fetchrow(
+        """SELECT ep.id, ep.contact_id, e.client_id,
+                  COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ',
+                      (SELECT pu.first_name FROM platform_users pu
+                        WHERE pu.contact_id = ep.contact_id LIMIT 1),
+                      (SELECT pu.last_name FROM platform_users pu
+                        WHERE pu.contact_id = ep.contact_id LIMIT 1)
+                    )), ''),
+                    c.name
+                  ) AS name
+             FROM event_participants ep
+             JOIN events e   ON e.id = ep.event_id
+             JOIN contacts c ON c.id = ep.contact_id
+            WHERE ep.id = $1 AND e.slug = $2
+            LIMIT 1""",
+        participant_id, event_slug,
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+
+    viewer_ok = await db.fetchval(
+        """SELECT 1
+             FROM event_participants ep
+             JOIN events e ON e.id = ep.event_id
+             JOIN platform_users pu ON pu.contact_id = ep.contact_id
+            WHERE e.slug = $1
+              AND pu.platform_slug = 'telegram'
+              AND pu.platform_user_id = $2
+            LIMIT 1""",
+        event_slug, str(viewer_tg_id),
+    )
+    if not viewer_ok:
+        # Владелец клиента тоже может смотреть (через сверку telegram_username).
+        owner_ok = await db.fetchval(
+            """SELECT 1 FROM clients cl
+                JOIN platform_users pu
+                  ON pu.platform_slug = 'telegram'
+                 AND pu.platform_user_id = $1
+                 AND LOWER(LTRIM(cl.telegram_username, '@')) = LOWER(pu.username)
+               WHERE cl.id = $2
+               LIMIT 1""",
+            str(viewer_tg_id), target["client_id"],
+        )
+        if not owner_ok:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+
+    messengers_rows = await db.fetch(
+        """SELECT pu.platform_slug, pu.username, pu.platform_user_id,
+                  p.display_name AS platform_name,
+                  p.icon_url, p.color_hex, p.sort_order
+             FROM platform_users pu
+             JOIN platforms p ON p.slug = pu.platform_slug
+            WHERE pu.contact_id = $1
+            ORDER BY p.sort_order""",
+        target["contact_id"],
+    )
+    messengers = []
+    for m in messengers_rows:
+        url = _build_messenger_url(m["platform_slug"], m["username"], m["platform_user_id"])
+        messengers.append({
+            "platform_slug": m["platform_slug"],
+            "platform_name": m["platform_name"],
+            "icon_url":      m["icon_url"],
+            "color_hex":     m["color_hex"],
+            "username":      m["username"],
+            "url":           url,
+        })
+
+    return {
+        "id":         target["id"],
+        "name":       target["name"] or "Без имени",
+        "messengers": messengers,
+    }
+
+
 @router.get("/event/{event_slug}/user/{tg_id}", summary="Данные участника в событии")
 async def get_participant_in_event(
     event_slug: str,
@@ -478,6 +588,7 @@ async def get_participant_in_event(
             "count":    int(l["cnt"]),
             "username": l["username"],
             "tg_id":    l["tg_id"],
+            "participant_id": l["pid"],
             "isMe":     my_pid is not None and l["pid"] == my_pid,
         }
         for l in leaderboard[:10]

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getGifts } from '../api'
+import ContactCardModal from '../components/ContactCardModal'
 
 interface Props { event: any; participant: any; tgUser: any }
 
@@ -32,12 +33,13 @@ const COLORS = [
   ['#9c27b0', '#6a1b9a'],
 ]
 
-export default function GameTab({ event, participant, tgUser: _tgUser }: Props) {
+export default function GameTab({ event, participant, tgUser }: Props) {
   const [gifts, setGifts] = useState<Gift[]>([])
   const [view, setView] = useState<'game' | 'gifts' | 'materials'>('game')
   const [topOpen, setTopOpen] = useState(false)
   const [peopleOpen, setPeopleOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [openCardId, setOpenCardId] = useState<number | null>(null)
 
   // Данные участника
   const refCode  = participant?.ref_code || 'demo'
@@ -71,19 +73,9 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
   // ТОП и Ваши люди — приходят с бэка
   const top: {
     rank: number; name: string; count: number;
-    username?: string | null; tg_id?: string | null; isMe?: boolean
+    username?: string | null; tg_id?: string | null;
+    participant_id?: number; isMe?: boolean
   }[] = participant?.top || []
-
-  // Открываем ЛС в Telegram через WebApp SDK (browser fallback при отсутствии)
-  function openTg(usernameOrUrl: string) {
-    const tg = (window as any).Telegram?.WebApp
-    const url = usernameOrUrl.startsWith('http')
-      ? usernameOrUrl
-      : `https://t.me/${usernameOrUrl.replace(/^@/, '')}`
-    if (tg?.openTelegramLink) tg.openTelegramLink(url)
-    else if (tg?.openLink)    tg.openLink(url)
-    else                      window.open(url, '_blank', 'noopener,noreferrer')
-  }
   const myPeople: RefPerson[] = (participant?.my_people || []).map((p: any, i: number) => ({
     ...p,
     initials: (p.name || '?').slice(0, 2).toUpperCase(),
@@ -291,13 +283,22 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
               </div>
             ) : top.slice(0, 10).map((t, i) => {
               const handle = t.username ? t.username.replace(/^@+/, '') : null
+              const canOpenCard = !t.isMe && !!t.participant_id && !!tgUser?.id
               return (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '6px 8px', borderTop: i === 0 ? 'none' : '1px solid #f0f2f5',
-                  background: t.isMe ? '#fff8f0' : 'transparent',
-                  borderRadius: t.isMe ? 6 : 0,
-                }}>
+                <button
+                  key={i}
+                  onClick={() => canOpenCard && t.participant_id && setOpenCardId(t.participant_id)}
+                  disabled={!canOpenCard}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '6px 8px', borderTop: i === 0 ? 'none' : '1px solid #f0f2f5',
+                    background: t.isMe ? '#fff8f0' : 'transparent',
+                    borderRadius: t.isMe ? 6 : 0,
+                    border: 'none', width: '100%', textAlign: 'left',
+                    fontFamily: 'inherit',
+                    cursor: canOpenCard ? 'pointer' : 'default',
+                  }}
+                >
                   <div style={{ width: 24, textAlign: 'center', fontWeight: 700,
                                 color: t.rank === 1 ? PEACH : t.rank === 2 ? '#c5cdd6' : t.rank === 3 ? '#b86b00' : DARK }}>
                     {t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : t.rank}
@@ -308,22 +309,18 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
                       {t.isMe ? 'Вы' : t.name}
                     </div>
                     {handle ? (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openTg(handle) }}
-                        style={{
-                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                          color: '#0088cc', fontSize: 11, fontWeight: 500, fontFamily: 'inherit',
-                          textDecoration: 'underline',
-                        }}
-                      >
+                      <span style={{ color: '#0088cc', fontSize: 11, fontWeight: 500 }}>
                         @{handle}
-                      </button>
+                      </span>
                     ) : t.tg_id ? (
                       <span style={{ color: '#8a96a3', fontSize: 11 }}>id {t.tg_id}</span>
                     ) : null}
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{t.count}</div>
-                </div>
+                  {canOpenCard && (
+                    <div style={{ color: PEACH, fontSize: 18, fontWeight: 700, marginLeft: 4 }}>›</div>
+                  )}
+                </button>
               )
             })}
           </div>
@@ -391,11 +388,20 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
               </div>
             ) : myPeople.map((p, i) => {
               const [c1, c2] = p.color.split('|')
+              const canOpen = !!tgUser?.id && typeof p.id === 'number'
               return (
-                <div key={p.id} style={{
-                  padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10,
-                  borderTop: i === 0 ? 'none' : '1px solid #f0f2f5',
-                }}>
+                <button
+                  key={p.id}
+                  onClick={() => canOpen && setOpenCardId(p.id as number)}
+                  disabled={!canOpen}
+                  style={{
+                    padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10,
+                    borderTop: i === 0 ? 'none' : '1px solid #f0f2f5',
+                    background: 'transparent', border: 'none',
+                    width: '100%', textAlign: 'left', cursor: canOpen ? 'pointer' : 'default',
+                    fontFamily: 'inherit',
+                  }}
+                >
                   <div style={{
                     width: 32, height: 32, borderRadius: '50%',
                     background: `linear-gradient(135deg, ${c1}, ${c2})`,
@@ -405,14 +411,16 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a' }}>{p.name}</div>
                     {p.username && (
-                      <a href={`https://t.me/${p.username.replace(/^@/, '')}`} target="_blank" rel="noreferrer"
-                         style={{ fontSize: 11, color: '#0088cc', fontWeight: 500, textDecoration: 'underline' }}>
+                      <span style={{ fontSize: 11, color: '#0088cc', fontWeight: 500 }}>
                         @{p.username.replace(/^@/, '')}
-                      </a>
+                      </span>
                     )}
                   </div>
                   {p.is_registered && <div style={{ fontSize: 14, color: '#2e7d32', fontWeight: 700 }}>✓</div>}
-                </div>
+                  {canOpen && (
+                    <div style={{ color: PEACH, fontSize: 18, fontWeight: 700, marginLeft: 4 }}>›</div>
+                  )}
+                </button>
               )
             })}
             {visited > registered && (
@@ -433,6 +441,15 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
           </div>
         )}
       </div>
+
+      {openCardId !== null && tgUser?.id && event?.slug && (
+        <ContactCardModal
+          eventSlug={event.slug}
+          participantId={openCardId}
+          viewerTgId={tgUser.id}
+          onClose={() => setOpenCardId(null)}
+        />
+      )}
     </div>
   )
 }

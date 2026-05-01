@@ -41,6 +41,11 @@ export const getMiniAppMyEvents = (tgId: number) =>
 export const getParticipantInEvent = (slug: string, tgId: number) =>
   req(`/api/v1/participants/event/${slug}/user/${tgId}`)
 
+// Карточка участника со списком его мессенджеров (TG/VK/MAX). Доступна
+// только участникам того же события (защита на бэке).
+export const getParticipantCard = (slug: string, participantId: number, viewerTgId: number) =>
+  req(`/api/v1/participants/event/${slug}/participants/${participantId}/card?viewer_tg_id=${viewerTgId}`)
+
 export const activateParticipant = (id: number) =>
   req(`/api/v1/participants/${id}/activate`, { method: 'POST' })
 
