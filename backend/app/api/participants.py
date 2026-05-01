@@ -399,7 +399,8 @@ async def get_participant_in_event(
     prefill_dict = dict(prefill) if prefill else None
 
     row = await db.fetchrow(
-        """SELECT ep.id, c.ref_code, ep.is_registered, ep.is_in_chat, ep.registered_at, ep.activated_at,
+        """SELECT ep.id, ep.event_id, c.ref_code, ep.is_registered, ep.is_in_chat,
+                  ep.registered_at, ep.activated_at,
                   e.title AS event_title, e.module_slug
              FROM event_participants ep
              JOIN events e ON e.id = ep.event_id
@@ -412,11 +413,73 @@ async def get_participant_in_event(
     if not row:
         # Участника ещё нет — но prefill может быть (контакт уже в базе клиента
         # из другого события или из импорта). Возвращаем 200, не 404.
-        return {"participant": None, "referrals_count": 0, "prefill": prefill_dict}
+        return {
+            "participant": None,
+            "referrals_count": 0,
+            "visited_count": 0,
+            "registered_count": 0,
+            "gifts_received_count": 0,
+            "my_people": [],
+            "prefill": prefill_dict,
+        }
 
-    referrals = await db.fetchval(
+    # Сколько людей пришло по моей ссылке (включая «интересовавшихся»)
+    visited_count = await db.fetchval(
         "SELECT COUNT(*) FROM event_participants WHERE referrer_participant_id = $1",
         row["id"]
     )
+    # Сколько из них зарегистрировались
+    registered_count = await db.fetchval(
+        """SELECT COUNT(*) FROM event_participants
+            WHERE referrer_participant_id = $1 AND is_registered = TRUE""",
+        row["id"]
+    )
 
-    return {"participant": dict(row), "referrals_count": referrals, "prefill": prefill_dict}
+    # Сколько подарков получено: пороги, у которых threshold_count <= registered_count.
+    # Если у события есть подарок за 0 регистраций — он засчитан сразу всем участникам.
+    gifts_received_count = await db.fetchval(
+        """SELECT COUNT(*) FROM event_referral_thresholds
+            WHERE event_id = $1 AND threshold_count <= $2""",
+        row["event_id"], registered_count
+    )
+
+    # Список приведённых людей: имя из platform_users (Telegram-первый), fallback на contacts.name
+    people_rows = await db.fetch(
+        """SELECT ep.id,
+                  COALESCE(
+                    NULLIF(TRIM(CONCAT_WS(' ',
+                      (SELECT pu.first_name FROM platform_users pu
+                        WHERE pu.contact_id = ep.contact_id LIMIT 1),
+                      (SELECT pu.last_name FROM platform_users pu
+                        WHERE pu.contact_id = ep.contact_id LIMIT 1)
+                    )), ''),
+                    c.name
+                  ) AS name,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = ep.contact_id LIMIT 1) AS username,
+                  ep.is_registered
+             FROM event_participants ep
+             JOIN contacts c ON c.id = ep.contact_id
+            WHERE ep.referrer_participant_id = $1
+            ORDER BY ep.is_registered DESC, ep.registered_at DESC""",
+        row["id"]
+    )
+    my_people = [
+        {
+            "id": p["id"],
+            "name": p["name"] or "Без имени",
+            "username": p["username"],
+            "is_registered": p["is_registered"],
+        }
+        for p in people_rows
+    ]
+
+    return {
+        "participant": dict(row),
+        "referrals_count": visited_count,         # legacy alias
+        "visited_count": visited_count,
+        "registered_count": registered_count,
+        "gifts_received_count": gifts_received_count,
+        "my_people": my_people,
+        "prefill": prefill_dict,
+    }

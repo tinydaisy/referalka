@@ -44,7 +44,6 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
   const slug     = event?.slug || 'event'
   const visited     = participant?.visited_count    ?? participant?.referrals_count ?? 0
   const registered  = participant?.registered_count ?? participant?.points_total    ?? 0
-  const giftsCount  = participant?.gifts_received_count ?? 0
   const myRank      = participant?.my_rank
   const refLink = `${APP_URL}/l/${slug}?app=tg&pid=${refCode}`
 
@@ -58,6 +57,13 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
   }, [event?.slug])
 
   const sortedGifts = [...gifts].sort((a, b) => a.points_cost - b.points_cost)
+  // Получено подарков считаем локально из загруженных порогов: даёт честное
+  // число и для случая «подарок за 0 регистраций» (порог 0 ≤ registered).
+  // Если бэк уже вернул gifts_received_count и пороги ещё не догрузились —
+  // используем серверное число, чтобы не моргать нулём.
+  const giftsCount = sortedGifts.length > 0
+    ? sortedGifts.filter(g => registered >= g.points_cost).length
+    : (participant?.gifts_received_count ?? 0)
   const nextGift = sortedGifts.find(g => g.points_cost > registered)
   const toNext = nextGift ? nextGift.points_cost - registered : 0
   const progressPct = nextGift ? Math.min(100, Math.round((registered / nextGift.points_cost) * 100)) : 100
@@ -315,9 +321,9 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
       {/* 3 кнопки: Подарки, Материалы, Поделиться */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
         {[
-          { ico: '🎁', label: 'Подарки', onClick: () => setView('gifts') },
-          { ico: '🖼', label: 'Материалы', onClick: () => setView('materials') },
-          { ico: '📤', label: 'Поделиться', onClick: share },
+          { ico: '🎁', label: 'Мои подарки',            onClick: () => setView('gifts') },
+          { ico: '🖼', label: 'Материалы для приглашения', onClick: () => setView('materials') },
+          { ico: '📤', label: 'Поделиться',             onClick: share },
         ].map((b, i) => (
           <div key={i} onClick={b.onClick} style={{
             background: 'white', borderRadius: 14, padding: '14px 8px',

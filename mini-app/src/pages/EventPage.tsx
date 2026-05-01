@@ -80,7 +80,14 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
     ]).then(async ([landing, part]) => {
       if (cancelled) return
       setEvent(landing)
-      setParticipant(part?.participant ? { ...part.participant, referrals_count: part.referrals_count } : null)
+      setParticipant(part?.participant ? {
+        ...part.participant,
+        referrals_count:      part.referrals_count,
+        visited_count:        part.visited_count,
+        registered_count:     part.registered_count,
+        gifts_received_count: part.gifts_received_count,
+        my_people:            part.my_people || [],
+      } : null)
       setPrefill(part?.prefill || null)
 
       const alreadyRegistered = !!part?.participant?.is_registered
