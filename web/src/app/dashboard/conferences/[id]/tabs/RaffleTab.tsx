@@ -127,7 +127,7 @@ export default function RaffleTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Spinner className="text-3xl" style={{ color: BRAND }} />
+        <Spinner className="text-3xl" />
       </div>
     )
   }
