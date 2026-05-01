@@ -64,10 +64,40 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<string>('landing')
+  const [tab, setTabState] = useState<string>('landing')
   const [showReg, setShowReg] = useState(false)
   const [prefill, setPrefill] = useState<{ name?: string; email?: string; phone?: string } | null>(null)
   const [autoRegToast, setAutoRegToast] = useState<{ email: string; phone: string } | null>(null)
+  // Счётчик «свежести»: увеличивается при переключении вкладок и заставляет
+  // GameTab/ProgramTab перезапросить данные у бэка/пересчитать «активное сейчас».
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Только participant: для GameTab при возврате на вкладку — данные могли
+  // обновиться (новые регистрации, изменения в дашборде).
+  async function reloadParticipant() {
+    if (!tgUser?.id) return
+    try {
+      const part: any = await getParticipantInEvent(slug, tgUser.id)
+      setParticipant(part?.participant ? {
+        ...part.participant,
+        referrals_count:      part.referrals_count,
+        visited_count:        part.visited_count,
+        registered_count:     part.registered_count,
+        gifts_received_count: part.gifts_received_count,
+        my_people:            part.my_people || [],
+        top:                  part.top       || [],
+        my_rank:              part.my_rank,
+      } : null)
+      setPrefill(part?.prefill || null)
+    } catch (_) { /* offline / 5xx — оставляем то, что было */ }
+  }
+
+  // Обёртка над setTab: при каждом переходе перечитываем данные.
+  function setTab(next: string) {
+    setTabState(next)
+    setRefreshKey(k => k + 1)
+    if (next === 'game' || next === 'results') reloadParticipant()
+  }
 
   // Загружаем лендинг события (публично) + проверяем участие (если есть tg_id)
   useEffect(() => {
@@ -117,9 +147,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
       }
 
       // Initial tab по состоянию
-      if (ended)                  setTab('results')
-      else if (alreadyRegistered) setTab('program')
-      else                        setTab('landing')
+      if (ended)                  setTabState('results')
+      else if (alreadyRegistered) setTabState('program')
+      else                        setTabState('landing')
     }).finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
@@ -249,7 +279,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
 
       <div className="page">
         {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
-        {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} />}
+        {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} />}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} />}

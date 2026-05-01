@@ -43,7 +43,23 @@ interface Speaker {
   topics?: { topic: string }[]
 }
 
-interface Props { event: any; tgUser?: any }
+interface Props { event: any; tgUser?: any; refreshKey?: number }
+
+// Сейчас в Москве — "YYYY-MM-DD" и "HH:MM" (24ч), без зависимости от
+// часового пояса устройства. Используется для выделения активной сессии.
+function nowMsk(): { date: string; time: string } {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+  const parts = fmt.formatToParts(new Date())
+  const get = (t: string) => parts.find(p => p.type === t)?.value || ''
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    time: `${get('hour')}:${get('minute')}`,
+  }
+}
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
@@ -117,7 +133,7 @@ function isStreamDay(event: any, days: Day[]): boolean {
   return now >= startDay && now <= endDay
 }
 
-export default function ProgramTab({ event, tgUser }: Props) {
+export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
   const isConference = event?.module_slug === 'conference'
   // Кнопка VIP появляется если у события вписан vip_url
   // (единый источник истины в events.vip_url).
@@ -131,6 +147,15 @@ export default function ProgramTab({ event, tgUser }: Props) {
   const [openDay, setOpenDay] = useState<number | null>(null)
   const [loadingDay, setLoadingDay] = useState<number | null>(null)
   const [highlightSpeakerId, setHighlightSpeakerId] = useState<number | null>(null)
+  // Текущее время МСК: для подсветки сессии, которая идёт прямо сейчас.
+  // Обновляется при возврате на вкладку (refreshKey) и каждые 30 секунд.
+  const [nowTs, setNowTs] = useState(() => nowMsk())
+
+  useEffect(() => {
+    setNowTs(nowMsk())
+    const t = setInterval(() => setNowTs(nowMsk()), 30000)
+    return () => clearInterval(t)
+  }, [refreshKey])
 
   // Блок стрима показываем всегда если URL задан. В день вебинара /
   // один из дней конференции — активная ссылка с LIVE-значком.
@@ -204,7 +229,9 @@ export default function ProgramTab({ event, tgUser }: Props) {
     }
   }
 
-  // Загрузка дней + спикеров
+  // Загрузка дней + спикеров. refreshKey в зависимостях — чтобы при возврате
+  // на вкладку программы данные подтягивались заново (клиент мог поправить
+  // расписание / убрать спикера / сменить статус регистрации).
   useEffect(() => {
     if (!event?.id || !isConference) return
     Promise.all([
@@ -213,11 +240,16 @@ export default function ProgramTab({ event, tgUser }: Props) {
     ]).then(([d, sp]) => {
       setDays(d)
       setSpeakers(sp)
-      const today = d.find(x => dayState(x) === 'today')
-      const future = d.find(x => dayState(x) === 'future')
-      setOpenDay(today?.day_number || future?.day_number || d[0]?.day_number || null)
+      // На refresh сбрасываем кэш сессий, чтобы перезагрузить активный день
+      setSessionsByDay({})
+      setOpenDay(prev => {
+        if (prev != null && d.some(x => x.day_number === prev)) return prev
+        const today = d.find(x => dayState(x) === 'today')
+        const future = d.find(x => dayState(x) === 'future')
+        return today?.day_number || future?.day_number || d[0]?.day_number || null
+      })
     })
-  }, [event?.id, isConference])
+  }, [event?.id, isConference, refreshKey])
 
   // Лениво грузим сессии раскрываемого дня
   useEffect(() => {
@@ -228,7 +260,25 @@ export default function ProgramTab({ event, tgUser }: Props) {
       .then((r: any) => setSessionsByDay(prev => ({ ...prev, [openDay]: r.sessions || [] })))
       .catch(() => setSessionsByDay(prev => ({ ...prev, [openDay]: [] })))
       .finally(() => setLoadingDay(null))
-  }, [event?.id, openDay])
+  }, [event?.id, openDay, sessionsByDay])
+
+  // Активная прямо сейчас сессия (по дню и времени МСК).
+  const activeSession: Session | null = useMemo(() => {
+    for (const d of days) {
+      if (!d.day_date || d.day_date !== nowTs.date) continue
+      const list = sessionsByDay[d.day_number] || []
+      for (const s of list) {
+        const start = (s.start_time || '').slice(0, 5)
+        const end   = (s.end_time   || '').slice(0, 5)
+        if (!start) continue
+        const startsBefore = start <= nowTs.time
+        const endsAfter    = end ? end >= nowTs.time : true
+        if (startsBefore && endsAfter) return s
+      }
+    }
+    return null
+  }, [days, sessionsByDay, nowTs])
+  const activeSpeakerEventId = activeSession?.speaker_event_id || null
 
   // Авто-скролл ленты спикеров (через requestAnimationFrame — стабильнее
   // setInterval на iOS Telegram WebApp; шаг считаем от dt в мс)
@@ -500,20 +550,34 @@ export default function ProgramTab({ event, tgUser }: Props) {
                             const roleColors = (s.speaker_role && ROLE_COLORS[s.speaker_role]) || ROLE_COLORS.speaker
                             // Чередуем фон: чётные — белые, нечётные — полупрозрачный бирюзовый
                             const altBg = idx % 2 === 0 ? 'white' : 'rgba(37,69,93,0.13)'
+                            const isLive = activeSession?.id === s.id
                             return (
                               <div key={s.id} style={{
-                                background: altBg,
-                                border: '1px solid rgba(37,69,93,0.20)',
+                                background: isLive ? 'linear-gradient(135deg, #fff8f0, white)' : altBg,
+                                border: isLive ? `2px solid ${PEACH}` : '1px solid rgba(37,69,93,0.20)',
                                 borderRadius: 12,
                                 padding: '10px 10px',
                                 // Тонкая полоса-разделитель сверху между слотами
                                 marginTop: idx === 0 ? 0 : 4,
+                                boxShadow: isLive ? '0 4px 14px rgba(255,207,164,0.45)' : 'none',
                               }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                                   {/* Время — ЖИРНОЕ */}
                                   <span style={{ color: DARK, fontSize: 13, fontWeight: 800 }}>
                                     {formatTimeMsk(s.start_time, s.end_time)}
                                   </span>
+                                  {isLive && (
+                                    <span style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                                      background: '#d32f2f', color: 'white',
+                                      fontSize: 10, padding: '2px 8px', borderRadius: 10,
+                                      fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
+                                    }}>
+                                      <span style={{ width: 5, height: 5, borderRadius: '50%',
+                                                     background: 'white', display: 'inline-block' }}/>
+                                      Идёт сейчас
+                                    </span>
+                                  )}
                                   {s.track_label && (
                                     <span style={{
                                       background: `${s.track_color || PEACH}20`,
@@ -524,8 +588,9 @@ export default function ProgramTab({ event, tgUser }: Props) {
                                   )}
                                 </div>
 
-                                <p style={{ color: '#1a2a3a', fontSize: 14, lineHeight: 1.4,
-                                            fontWeight: 700, marginBottom: 8 }}>
+                                <p style={{ color: '#1a2a3a',
+                                            fontSize: isLive ? 15 : 14, lineHeight: 1.4,
+                                            fontWeight: isLive ? 900 : 700, marginBottom: 8 }}>
                                   {s.title}
                                 </p>
 
@@ -628,6 +693,7 @@ export default function ProgramTab({ event, tgUser }: Props) {
                 : null
               const ach = (sp.achievements || []).filter(a => a && a.trim())
               const isHighlighted = highlightSpeakerId === sp.id
+              const isLive = activeSpeakerEventId === sp.id
               return (
                 <div
                   key={sp.id}
@@ -635,11 +701,26 @@ export default function ProgramTab({ event, tgUser }: Props) {
                   style={{
                     background: PASTELS[idx % PASTELS.length],
                     borderRadius: 14, padding: 14,
-                    boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-                    border: isHighlighted ? `2px solid ${PEACH}` : '2px solid transparent',
+                    boxShadow: isLive
+                      ? '0 4px 14px rgba(255,207,164,0.45)'
+                      : '0 2px 8px rgba(37,69,93,0.05)',
+                    border: (isHighlighted || isLive) ? `2px solid ${PEACH}` : '2px solid transparent',
                     transition: 'border-color 0.3s',
                   }}
                 >
+                  {isLive && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      background: '#d32f2f', color: 'white',
+                      fontSize: 10, padding: '3px 9px', borderRadius: 10,
+                      fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
+                      marginBottom: 8,
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: '50%',
+                                     background: 'white', display: 'inline-block' }}/>
+                      Сейчас в эфире
+                    </div>
+                  )}
                   {/* Шапка карточки */}
                   <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
                     <div style={{
@@ -661,7 +742,11 @@ export default function ProgramTab({ event, tgUser }: Props) {
                           textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4,
                         }}>{roleLabel}</span>
                       )}
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a', lineHeight: 1.2 }}>
+                      <div style={{
+                        fontSize: isLive ? 16 : 15,
+                        fontWeight: isLive ? 900 : 700,
+                        color: '#1a2a3a', lineHeight: 1.2,
+                      }}>
                         {sp.name}
                       </div>
                       {sp.title && (
