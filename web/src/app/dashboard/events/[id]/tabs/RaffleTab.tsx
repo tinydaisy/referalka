@@ -27,7 +27,6 @@ interface Prize {
 interface Keyword {
   id: number
   keyword: string
-  tickets_reward: number
   sort_order: number
   is_active: boolean
 }
@@ -44,7 +43,7 @@ export default function RaffleTab({ eventId }: Props) {
 
   // Local input для нового приза/слова
   const [newPrize, setNewPrize] = useState({ title: '', description: '', places_count: 1, value_label: '', icon_emoji: '🎁' })
-  const [newKw,    setNewKw]    = useState({ keyword: '', tickets_reward: 1 })
+  const [newKw,    setNewKw]    = useState({ keyword: '' })
 
   useEffect(() => { reload() }, [eventId])
 
@@ -110,11 +109,10 @@ export default function RaffleTab({ eventId }: Props) {
     try {
       await api.raffle.keywords.create(eventId, {
         keyword: newKw.keyword.trim(),
-        tickets_reward: Number(newKw.tickets_reward) || 1,
         sort_order: keywords.length,
         is_active: true,
       })
-      setNewKw({ keyword: '', tickets_reward: 1 })
+      setNewKw({ keyword: '' })
       await reload()
     } catch (e: any) {
       if (e.message?.includes('409') || /already/i.test(e.message || ''))
@@ -259,13 +257,7 @@ export default function RaffleTab({ eventId }: Props) {
                 <input className="input flex-1 font-mono uppercase" value={k.keyword}
                        onBlur={e => e.target.value !== k.keyword && updateKeyword(k.id, { keyword: e.target.value })}
                        onChange={e => setKeywords(prev => prev.map(x => x.id === k.id ? { ...x, keyword: e.target.value } : x))} />
-                <div className="flex items-center gap-1">
-                  <span className="text-sm text-gray-500">+</span>
-                  <input className="input w-16 text-center" type="number" min="1" value={k.tickets_reward}
-                         onBlur={e => Number(e.target.value) !== k.tickets_reward && updateKeyword(k.id, { tickets_reward: Number(e.target.value) })}
-                         onChange={e => setKeywords(prev => prev.map(x => x.id === k.id ? { ...x, tickets_reward: Number(e.target.value) } : x))} />
-                  <span className="text-xs text-gray-500">билет(ов)</span>
-                </div>
+                <span className="text-xs text-gray-500 whitespace-nowrap">+1 билет</span>
                 <button onClick={() => removeKeyword(k.id)} className="text-red-500 hover:text-red-700 text-sm px-2">✕</button>
               </div>
             ))}
@@ -278,13 +270,10 @@ export default function RaffleTab({ eventId }: Props) {
             <input className="input flex-1 font-mono uppercase" placeholder="ROCKETS"
                    value={newKw.keyword}
                    onChange={e => setNewKw({ ...newKw, keyword: e.target.value })} />
-            <input className="input w-20" type="number" min="1" placeholder="+билеты"
-                   value={newKw.tickets_reward}
-                   onChange={e => setNewKw({ ...newKw, tickets_reward: Number(e.target.value) || 1 })} />
           </div>
           <button onClick={addKeyword} className="px-4 py-2 rounded-lg text-sm font-medium"
                   style={{ background: PEACH, color: BRAND }}>+ Добавить слово</button>
-          <p className="text-xs text-gray-500">Слово может ввести любое число участников — каждый получит свой билет. Один участник одно слово вводит только раз.</p>
+          <p className="text-xs text-gray-500">Каждое слово даёт ровно один билет участнику. Слово может ввести любое число участников — один участник одно слово вводит только раз.</p>
         </div>
       </section>
     </div>
