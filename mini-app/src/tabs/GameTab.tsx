@@ -68,8 +68,22 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
   const toNext = nextGift ? nextGift.points_cost - registered : 0
   const progressPct = nextGift ? Math.min(100, Math.round((registered / nextGift.points_cost) * 100)) : 100
 
-  // ТОП и Ваши люди — заглушки до backend endpoints
-  const top: { rank: number; name: string; count: number; isMe?: boolean }[] = participant?.top || []
+  // ТОП и Ваши люди — приходят с бэка
+  const top: {
+    rank: number; name: string; count: number;
+    username?: string | null; tg_id?: string | null; isMe?: boolean
+  }[] = participant?.top || []
+
+  // Открываем ЛС в Telegram через WebApp SDK (browser fallback при отсутствии)
+  function openTg(usernameOrUrl: string) {
+    const tg = (window as any).Telegram?.WebApp
+    const url = usernameOrUrl.startsWith('http')
+      ? usernameOrUrl
+      : `https://t.me/${usernameOrUrl.replace(/^@/, '')}`
+    if (tg?.openTelegramLink) tg.openTelegramLink(url)
+    else if (tg?.openLink)    tg.openLink(url)
+    else                      window.open(url, '_blank', 'noopener,noreferrer')
+  }
   const myPeople: RefPerson[] = (participant?.my_people || []).map((p: any, i: number) => ({
     ...p,
     initials: (p.name || '?').slice(0, 2).toUpperCase(),
@@ -275,23 +289,43 @@ export default function GameTab({ event, participant, tgUser: _tgUser }: Props) 
               <div style={{ fontSize: 12, color: 'var(--muted)', padding: 10, textAlign: 'center' }}>
                 Рейтинг пока пуст
               </div>
-            ) : top.slice(0, 10).map((t, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '6px 8px', borderTop: i === 0 ? 'none' : '1px solid #f0f2f5',
-                background: t.isMe ? '#fff8f0' : 'transparent',
-                borderRadius: t.isMe ? 6 : 0,
-              }}>
-                <div style={{ width: 24, textAlign: 'center', fontWeight: 700,
-                              color: t.rank === 1 ? PEACH : t.rank === 2 ? '#c5cdd6' : t.rank === 3 ? '#b86b00' : DARK }}>
-                  {t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : t.rank}
+            ) : top.slice(0, 10).map((t, i) => {
+              const handle = t.username ? t.username.replace(/^@+/, '') : null
+              return (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '6px 8px', borderTop: i === 0 ? 'none' : '1px solid #f0f2f5',
+                  background: t.isMe ? '#fff8f0' : 'transparent',
+                  borderRadius: t.isMe ? 6 : 0,
+                }}>
+                  <div style={{ width: 24, textAlign: 'center', fontWeight: 700,
+                                color: t.rank === 1 ? PEACH : t.rank === 2 ? '#c5cdd6' : t.rank === 3 ? '#b86b00' : DARK }}>
+                    {t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : t.rank}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: t.isMe ? 700 : 600, color: '#1a2a3a',
+                                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.isMe ? 'Вы' : t.name}
+                    </div>
+                    {handle ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openTg(handle) }}
+                        style={{
+                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                          color: '#0088cc', fontSize: 11, fontWeight: 500, fontFamily: 'inherit',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        @{handle}
+                      </button>
+                    ) : t.tg_id ? (
+                      <span style={{ color: '#8a96a3', fontSize: 11 }}>id {t.tg_id}</span>
+                    ) : null}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{t.count}</div>
                 </div>
-                <div style={{ flex: 1, fontSize: 13, fontWeight: t.isMe ? 700 : 600, color: '#1a2a3a' }}>
-                  {t.isMe ? 'Вы' : t.name}
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{t.count}</div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

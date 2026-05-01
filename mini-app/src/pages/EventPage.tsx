@@ -92,11 +92,12 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
     } catch (_) { /* offline / 5xx — оставляем то, что было */ }
   }
 
-  // Обёртка над setTab: при каждом переходе перечитываем данные.
+  // Обёртка над setTab: при каждом переходе перечитываем данные участника.
+  // Reload без условий — счётчики/топ могли поменяться от чужих действий.
   function setTab(next: string) {
     setTabState(next)
     setRefreshKey(k => k + 1)
-    if (next === 'game' || next === 'results') reloadParticipant()
+    reloadParticipant()
   }
 
   // Загружаем лендинг события (публично) + проверяем участие (если есть tg_id)

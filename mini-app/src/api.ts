@@ -1,8 +1,11 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export async function req(path: string, options?: RequestInit) {
+  // cache: 'no-store' — Telegram WebView (особенно iOS) активно кеширует GET,
+  // из-за чего reload-ы при переключении вкладок возвращали старые данные.
   const res = await fetch(`${API_URL}${path}`, {
     headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
     ...options,
   })
   if (!res.ok) {

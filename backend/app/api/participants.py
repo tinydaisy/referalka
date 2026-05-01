@@ -458,7 +458,13 @@ async def get_participant_in_event(
                         WHERE pu.contact_id = ep.contact_id LIMIT 1)
                     )), ''),
                     c.name
-                  ) AS name
+                  ) AS name,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = ep.contact_id
+                      AND pu.platform_slug = 'telegram' LIMIT 1) AS username,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = ep.contact_id
+                      AND pu.platform_slug = 'telegram' LIMIT 1) AS tg_id
              FROM ranked r
              JOIN event_participants ep ON ep.id = r.pid
              JOIN contacts c ON c.id = ep.contact_id
@@ -467,10 +473,12 @@ async def get_participant_in_event(
     )
     top = [
         {
-            "rank":  int(l["rank"]),
-            "name":  l["name"] or "Без имени",
-            "count": int(l["cnt"]),
-            "isMe":  my_pid is not None and l["pid"] == my_pid,
+            "rank":     int(l["rank"]),
+            "name":     l["name"] or "Без имени",
+            "count":    int(l["cnt"]),
+            "username": l["username"],
+            "tg_id":    l["tg_id"],
+            "isMe":     my_pid is not None and l["pid"] == my_pid,
         }
         for l in leaderboard[:10]
     ]
