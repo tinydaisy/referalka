@@ -92,7 +92,6 @@ export default function App() {
   const [clientId, setClientId] = useState<number | null>(() => detectClientIdFromPath())
   const [partnerId, setPartnerId] = useState<string | undefined>()
   const [utmSource, setUtmSource] = useState<string | undefined>()
-  const [liveMode, setLiveMode] = useState<boolean>(false)
 
   useEffect(() => {
     const platform = detectPlatform()
@@ -111,7 +110,6 @@ export default function App() {
       if (parsed.clientId)  setClientId(parsed.clientId)
       setPartnerId(parsed.partnerId)
       setUtmSource(parsed.utmSource)
-      if (parsed.live) setLiveMode(true)
     }
 
     // Live-метка: пользователь пришёл по публичной live-ссылке организатора —
@@ -166,7 +164,6 @@ export default function App() {
         tgUser={tgUser}
         partnerId={partnerId}
         utmSource={utmSource}
-        liveMode={liveMode}
         onBack={backToHub}
       />
     )

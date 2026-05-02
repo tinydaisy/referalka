@@ -17,7 +17,6 @@ interface Props {
   tgUser: any
   partnerId?: string
   utmSource?: string
-  liveMode?: boolean   // пришёл по публичной live-ссылке организатора
   onBack: () => void
 }
 
@@ -61,7 +60,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, liveMode = false, onBack }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -148,13 +147,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, liveMode
         }).catch(() => {})
       }
 
-      // Initial tab по состоянию.
-      // Live-визитёр (пришёл по публичной live-ссылке) сразу попадает на
-      // Розыгрыш — там либо подписка, либо кнопка получить Free-билет.
-      if (liveMode && landing?.raffle_enabled && !ended) setTabState('raffle')
-      else if (ended)                                     setTabState('results')
-      else if (alreadyRegistered)                         setTabState('program')
-      else                                                setTabState('landing')
+      // Initial tab по состоянию
+      if (ended)                  setTabState('results')
+      else if (alreadyRegistered) setTabState('program')
+      else                        setTabState('landing')
     }).finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
@@ -180,15 +176,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, liveMode
   const navItemsEnded = participant
     ? filterByEnabled(NAV_ENDED)
     : filterByEnabled(NAV_ENDED).filter(n => n.id !== 'game')
-
-  // Live-визитёр (без регистрации, но пришёл с публичной live-ссылки):
-  // открываем ему Розыгрыш + Лендинг как остальные вкладки заблокированы как
-  // у NAV_NOT_REG. Это даёт зайти за билетом без полноценной регистрации.
-  const NAV_LIVE_NOT_REG: NavItem[] = NAV_NOT_REG.map(n =>
-    n.id === 'raffle' ? { ...n, locked: false } : n
-  )
-
-  const navItems = state === 'not_registered' ? filterByEnabled(liveMode && raffleOn ? NAV_LIVE_NOT_REG : NAV_NOT_REG)
+  const navItems = state === 'not_registered' ? filterByEnabled(NAV_NOT_REG)
                  : state === 'registered'     ? filterByEnabled(NAV_REGISTERED)
                  :                              navItemsEnded
 
