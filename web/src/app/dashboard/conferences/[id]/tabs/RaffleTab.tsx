@@ -219,17 +219,51 @@ function SettingsPane({
   }
 
   async function addKw() {
-    const w = newKw.trim()
-    if (!w) return
-    try {
-      await api.raffle.keywords.create(eventId, { keyword: w, sort_order: keywords.length, is_active: true })
-      setNewKw('')
-      const k = await api.raffle.keywords.list(eventId)
-      setKeywords(k.items || [])
-    } catch (e: any) {
-      if (e.message?.includes('409')) alert('Это слово уже добавлено')
-      else alert(e.message || 'Ошибка')
+    const raw = newKw.trim()
+    if (!raw) return
+
+    // Пакетный ввод: разрешаем перечислять слова через запятую, точку с
+    // запятой или перенос строки. Пустые и дубли (case-insensitive) внутри
+    // ввода отбрасываем сразу, не дёргая API.
+    const seen = new Set<string>()
+    const words = raw
+      .split(/[,;\n]/)
+      .map(w => w.trim())
+      .filter(w => {
+        if (!w) return false
+        const key = w.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
+    if (words.length === 0) return
+
+    let sortBase = keywords.length
+    let added = 0
+    const duplicates: string[] = []
+    const errors: string[] = []
+
+    for (const w of words) {
+      try {
+        await api.raffle.keywords.create(eventId, { keyword: w, sort_order: sortBase++, is_active: true })
+        added++
+      } catch (e: any) {
+        if (e?.message?.includes('409')) duplicates.push(w)
+        else errors.push(`${w}: ${e?.message || 'ошибка'}`)
+      }
     }
+
+    setNewKw('')
+    const k = await api.raffle.keywords.list(eventId)
+    setKeywords(k.items || [])
+
+    if (words.length === 1 && added === 1) return // тихий путь для одного слова
+    const parts: string[] = []
+    if (added) parts.push(`Добавлено: ${added}`)
+    if (duplicates.length) parts.push(`уже были: ${duplicates.join(', ')}`)
+    if (errors.length) parts.push(`ошибки: ${errors.join('; ')}`)
+    if (parts.length) alert(parts.join('\n'))
   }
 
   async function delKw(id: number) {
@@ -305,21 +339,33 @@ function SettingsPane({
           </div>
         )}
 
-        <div className="border-2 border-dashed border-gray-300 rounded-xl p-3 flex gap-2">
-          <input
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono uppercase"
-            placeholder="ROCKETS"
+        <div className="border-2 border-dashed border-gray-300 rounded-xl p-3 space-y-2">
+          <textarea
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono uppercase resize-y"
+            rows={2}
+            placeholder="ROCKETS, ПУТЕШЕСТВИЕ, СКОРОСТЬ"
             value={newKw}
             onChange={e => setNewKw(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addKw()}
+            onKeyDown={e => {
+              // Ctrl/⌘+Enter — отправить, обычный Enter добавляет перенос строки
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                addKw()
+              }
+            }}
           />
-          <button
-            onClick={addKw}
-            className="px-4 py-2 rounded-lg text-sm font-medium"
-            style={{ background: PEACH, color: BRAND }}
-          >
-            + Добавить
-          </button>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-gray-500">
+              Можно перечислить несколько слов через запятую или с новой строки — добавятся все сразу.
+            </p>
+            <button
+              onClick={addKw}
+              className="px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+              style={{ background: PEACH, color: BRAND }}
+            >
+              + Добавить
+            </button>
+          </div>
         </div>
       </section>
     </div>
