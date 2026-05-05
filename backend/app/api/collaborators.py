@@ -110,7 +110,13 @@ async def get_collaborator(
 ):
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        "SELECT * FROM collaborators WHERE id = $1 AND created_by_client_id = $2",
+        """SELECT col.*,
+                  c.name  AS contact_name,
+                  c.email AS contact_email,
+                  c.phone AS contact_phone
+             FROM collaborators col
+             LEFT JOIN contacts c ON c.id = col.contact_id
+            WHERE col.id = $1 AND col.created_by_client_id = $2""",
         collaborator_id, client_id
     )
     if not row:

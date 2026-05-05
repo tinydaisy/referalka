@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X } from 'lucide-react'
+import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, Mail, Phone, User as UserIcon } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -163,6 +163,44 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           )
         })()}
       </div>
+
+      {/* Привязка к контакту в общей базе */}
+      {form.contact_id && (form.contact_email || form.contact_phone || (form.contact_name && form.contact_name !== form.name)) && (
+        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+          <div className="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-2">
+            Контакт в общей базе
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            {form.contact_name && form.contact_name !== form.name && (
+              <span className="inline-flex items-center gap-1.5 text-gray-700">
+                <UserIcon size={14} className="text-blue-600" />
+                <span>{form.contact_name}</span>
+              </span>
+            )}
+            {form.contact_email && (
+              <a href={`mailto:${form.contact_email}`}
+                 className="inline-flex items-center gap-1.5 text-gray-800 hover:text-blue-700">
+                <Mail size={14} className="text-blue-600" />
+                <span className="break-all">{form.contact_email}</span>
+              </a>
+            )}
+            {form.contact_phone && (
+              <a href={`tel:${form.contact_phone}`}
+                 className="inline-flex items-center gap-1.5 text-gray-800 hover:text-blue-700">
+                <Phone size={14} className="text-blue-600" />
+                <span>{form.contact_phone}</span>
+              </a>
+            )}
+            <Link href={`/dashboard/clients?contact=${form.contact_id}`}
+                  className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline ml-auto">
+              Открыть карточку <ExternalLink size={11} />
+            </Link>
+          </div>
+          <p className="text-[11px] text-blue-700 mt-2">
+            Email и телефон редактируются в карточке контакта (раздел «Контакты»). Здесь только просмотр.
+          </p>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
