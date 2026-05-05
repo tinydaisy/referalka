@@ -365,14 +365,26 @@ async def copy_event(
 
         # event_referral_settings
         srs = await db.fetchrow(
-            "SELECT welcome_text, share_text FROM event_referral_settings WHERE event_id = $1",
+            "SELECT gift_count_mode, is_enabled FROM event_referral_settings WHERE event_id = $1",
             event_id
         )
         if srs:
             await db.execute(
-                """INSERT INTO event_referral_settings (event_id, welcome_text, share_text)
+                """INSERT INTO event_referral_settings (event_id, gift_count_mode, is_enabled)
                    VALUES ($1, $2, $3)""",
-                new_id, srs['welcome_text'], srs['share_text']
+                new_id, srs['gift_count_mode'], srs['is_enabled']
+            )
+
+        # event_referral_share_texts
+        share_texts = await db.fetch(
+            "SELECT content, sort FROM event_referral_share_texts WHERE event_id = $1 ORDER BY sort, id",
+            event_id
+        )
+        for st in share_texts:
+            await db.execute(
+                """INSERT INTO event_referral_share_texts (event_id, content, sort)
+                   VALUES ($1, $2, $3)""",
+                new_id, st['content'], st['sort']
             )
 
         # event_referral_thresholds

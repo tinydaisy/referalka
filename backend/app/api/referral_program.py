@@ -3,9 +3,11 @@
 
 Включает:
 - Афиши события (event_posters)
-- Настройки реф-программы (event_referral_settings: welcome_text, share_text)
+- Настройки реф-программы (event_referral_settings: gift_count_mode, is_enabled)
 - Пороги-подарки (event_referral_thresholds: 1/3/10 → лид-магнит + сертификат)
-- Материалы для шеринга (event_referral_materials: картинки)
+- Материалы для шеринга:
+    - картинки (event_referral_materials)
+    - тексты-примеры (event_referral_share_texts) — миграция 059
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -48,21 +50,22 @@ async def import_referral_program(
         raise HTTPException(status_code=400, detail="Источник и приёмник совпадают")
 
     async with db.transaction():
-        # Удаляем текущие настройки/пороги/материалы у приёмника
-        await db.execute("DELETE FROM event_referral_settings WHERE event_id = $1", event_id)
-        await db.execute("DELETE FROM event_referral_thresholds WHERE event_id = $1", event_id)
-        await db.execute("DELETE FROM event_referral_materials WHERE event_id = $1", event_id)
+        # Удаляем текущие настройки/пороги/материалы/тексты у приёмника
+        await db.execute("DELETE FROM event_referral_settings    WHERE event_id = $1", event_id)
+        await db.execute("DELETE FROM event_referral_thresholds  WHERE event_id = $1", event_id)
+        await db.execute("DELETE FROM event_referral_materials   WHERE event_id = $1", event_id)
+        await db.execute("DELETE FROM event_referral_share_texts WHERE event_id = $1", event_id)
 
         # settings (если есть)
         srs = await db.fetchrow(
-            "SELECT welcome_text, share_text FROM event_referral_settings WHERE event_id = $1",
+            "SELECT gift_count_mode, is_enabled FROM event_referral_settings WHERE event_id = $1",
             data.from_event_id
         )
         if srs:
             await db.execute(
-                """INSERT INTO event_referral_settings (event_id, welcome_text, share_text)
+                """INSERT INTO event_referral_settings (event_id, gift_count_mode, is_enabled)
                    VALUES ($1, $2, $3)""",
-                event_id, srs['welcome_text'], srs['share_text']
+                event_id, srs['gift_count_mode'], srs['is_enabled']
             )
         # thresholds
         thresholds = await db.fetch(
@@ -77,7 +80,7 @@ async def import_referral_program(
                 event_id, t['threshold_count'], t['lead_magnet_id'],
                 t['certificate_url'], t['gift_template_text'], t['sort']
             )
-        # materials — без поссылки на чужие event_posters; всё переводим в source='custom'
+        # materials — без ссылки на чужие event_posters; всё переводим в source='custom'
         materials = await db.fetch(
             "SELECT image_url, sort FROM event_referral_materials WHERE event_id = $1 ORDER BY id",
             data.from_event_id
@@ -88,8 +91,25 @@ async def import_referral_program(
                    VALUES ($1, $2, 'custom', NULL, $3)""",
                 event_id, m['image_url'], m['sort']
             )
+        # share texts
+        share_texts = await db.fetch(
+            "SELECT content, sort FROM event_referral_share_texts WHERE event_id = $1 ORDER BY sort, id",
+            data.from_event_id
+        )
+        for st in share_texts:
+            await db.execute(
+                """INSERT INTO event_referral_share_texts (event_id, content, sort)
+                   VALUES ($1, $2, $3)""",
+                event_id, st['content'], st['sort']
+            )
 
-    return {"ok": True, "thresholds": len(thresholds), "materials": len(materials), "settings": srs is not None}
+    return {
+        "ok": True,
+        "thresholds":  len(thresholds),
+        "materials":   len(materials),
+        "share_texts": len(share_texts),
+        "settings":    srs is not None,
+    }
 
 
 # ──────────────────────────────────────────────
@@ -110,9 +130,10 @@ async def list_import_sources(
            WHERE e.client_id = $1
              AND e.id <> $2
              AND (
-               EXISTS (SELECT 1 FROM event_referral_thresholds WHERE event_id = e.id) OR
-               EXISTS (SELECT 1 FROM event_referral_materials WHERE event_id = e.id) OR
-               EXISTS (SELECT 1 FROM event_referral_settings WHERE event_id = e.id)
+               EXISTS (SELECT 1 FROM event_referral_thresholds   WHERE event_id = e.id) OR
+               EXISTS (SELECT 1 FROM event_referral_materials    WHERE event_id = e.id) OR
+               EXISTS (SELECT 1 FROM event_referral_share_texts  WHERE event_id = e.id) OR
+               EXISTS (SELECT 1 FROM event_referral_settings     WHERE event_id = e.id)
              )
            ORDER BY e.created_at DESC""",
         client_id, event_id
@@ -212,10 +233,8 @@ async def delete_poster(
 # ──────────────────────────────────────────────
 
 class ReferralSettingsIn(BaseModel):
-    welcome_text:    Optional[str] = None
-    share_text:      Optional[str] = None
-    gift_count_mode: Optional[str] = None   # 'registered' | 'visited'  (миграция 042)
-    is_enabled:      Optional[bool] = None  # вкл/выкл вкладки «Игра» в Mini App  (миграция 053)
+    gift_count_mode: Optional[str]  = None   # 'registered' | 'visited'  (миграция 042)
+    is_enabled:      Optional[bool] = None   # вкл/выкл вкладки «Игра» в Mini App (миграция 053)
 
 
 @router.get("/referral/settings", summary="Получить настройки реф-программы")
@@ -226,12 +245,12 @@ async def get_referral_settings(
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
     row = await db.fetchrow(
-        "SELECT welcome_text, share_text, gift_count_mode, is_enabled FROM event_referral_settings WHERE event_id = $1",
+        "SELECT gift_count_mode, is_enabled FROM event_referral_settings WHERE event_id = $1",
         event_id
     )
     if row:
         return dict(row)
-    return {"welcome_text": None, "share_text": None, "gift_count_mode": "registered", "is_enabled": False}
+    return {"gift_count_mode": "registered", "is_enabled": False}
 
 
 @router.put("/referral/settings", summary="Обновить настройки реф-программы (upsert)")
@@ -247,16 +266,14 @@ async def upsert_referral_settings(
         raise HTTPException(400, "gift_count_mode must be 'registered' or 'visited'")
     is_enabled = bool(data.is_enabled) if data.is_enabled is not None else False
     row = await db.fetchrow(
-        """INSERT INTO event_referral_settings (event_id, welcome_text, share_text, gift_count_mode, is_enabled)
-           VALUES ($1, $2, $3, $4, $5)
+        """INSERT INTO event_referral_settings (event_id, gift_count_mode, is_enabled)
+           VALUES ($1, $2, $3)
            ON CONFLICT (event_id) DO UPDATE
-             SET welcome_text    = EXCLUDED.welcome_text,
-                 share_text      = EXCLUDED.share_text,
-                 gift_count_mode = EXCLUDED.gift_count_mode,
+             SET gift_count_mode = EXCLUDED.gift_count_mode,
                  is_enabled      = EXCLUDED.is_enabled,
                  updated_at      = NOW()
-           RETURNING welcome_text, share_text, gift_count_mode, is_enabled""",
-        event_id, data.welcome_text, data.share_text, mode, is_enabled
+           RETURNING gift_count_mode, is_enabled""",
+        event_id, mode, is_enabled
     )
     return dict(row)
 
@@ -439,4 +456,88 @@ async def delete_material(
     )
     if result.endswith("0"):
         raise HTTPException(status_code=404, detail="Материал не найден")
+    return {"ok": True}
+
+
+# ──────────────────────────────────────────────
+# ТЕКСТЫ-ПРИМЕРЫ ДЛЯ ШЕРИНГА (event_referral_share_texts)
+# ──────────────────────────────────────────────
+
+class ShareTextIn(BaseModel):
+    content: str
+    sort:    int = 0
+
+
+@router.get("/referral/share-texts", summary="Список текстов для шеринга")
+async def list_share_texts(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await _check_event_owned(event_id, int(client["sub"]), db)
+    rows = await db.fetch(
+        """SELECT id, content, sort, created_at, updated_at
+           FROM event_referral_share_texts WHERE event_id = $1
+           ORDER BY sort, id""",
+        event_id
+    )
+    return {"items": [dict(r) for r in rows]}
+
+
+@router.post("/referral/share-texts", summary="Добавить текст-пример")
+async def add_share_text(
+    event_id: int,
+    data: ShareTextIn,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await _check_event_owned(event_id, int(client["sub"]), db)
+    content = (data.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Текст не может быть пустым")
+    row = await db.fetchrow(
+        """INSERT INTO event_referral_share_texts (event_id, content, sort)
+           VALUES ($1, $2, $3)
+           RETURNING id, content, sort, created_at, updated_at""",
+        event_id, content, data.sort
+    )
+    return dict(row)
+
+
+@router.patch("/referral/share-texts/{text_id}", summary="Обновить текст-пример")
+async def update_share_text(
+    event_id: int, text_id: int,
+    data: ShareTextIn,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await _check_event_owned(event_id, int(client["sub"]), db)
+    content = (data.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Текст не может быть пустым")
+    row = await db.fetchrow(
+        """UPDATE event_referral_share_texts
+              SET content = $1, sort = $2, updated_at = NOW()
+            WHERE id = $3 AND event_id = $4
+            RETURNING id, content, sort, created_at, updated_at""",
+        content, data.sort, text_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Текст не найден")
+    return dict(row)
+
+
+@router.delete("/referral/share-texts/{text_id}", summary="Удалить текст-пример")
+async def delete_share_text(
+    event_id: int, text_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await _check_event_owned(event_id, int(client["sub"]), db)
+    result = await db.execute(
+        "DELETE FROM event_referral_share_texts WHERE id=$1 AND event_id=$2",
+        text_id, event_id
+    )
+    if result.endswith("0"):
+        raise HTTPException(status_code=404, detail="Текст не найден")
     return {"ok": True}

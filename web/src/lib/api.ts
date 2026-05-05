@@ -344,6 +344,15 @@ export const api = {
       delete: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/referral/materials/${id}`, { method: 'DELETE' }),
     },
+    shareTexts: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/referral/share-texts`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/referral/share-texts`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (eventId: number, id: number, data: any) =>
+        request(`/api/v1/events/${eventId}/referral/share-texts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (eventId: number, id: number) =>
+        request(`/api/v1/events/${eventId}/referral/share-texts/${id}`, { method: 'DELETE' }),
+    },
     importSources: (eventId: number) =>
       request(`/api/v1/events/${eventId}/referral/import-sources`),
     importFrom: (eventId: number, fromEventId: number) =>
