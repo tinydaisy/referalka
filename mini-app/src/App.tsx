@@ -152,7 +152,28 @@ export default function App() {
     return () => window.removeEventListener('popstate', handler)
   }, [])
 
-  function openEvent(slug: string) {
+  // Перед открытием события через SPA-навигацию (клик из Хаба) проверяем
+  // у бэка — нет ли редиректа на сторонний лендинг клиента. Если есть —
+  // window.location.replace сразу, без рендера EventPage и без заглушки.
+  // Если нет — обычный flow (pushState + setEventSlug → EventPage).
+  // См. documentation/MINI-APP-WEBVIEW-REDIRECT.md
+  async function openEvent(slug: string) {
+    try {
+      const tgId = tgUser?.id ? String(tgUser.id) : ''
+      const qs = new URLSearchParams()
+      if (tgId)     qs.set('tg_id', tgId)
+      if (partnerId) qs.set('pid', partnerId)
+      if (utmSource) qs.set('utm_source', utmSource)
+      const url = `${import.meta.env.VITE_API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/landing-redirect${qs.toString() ? `?${qs}` : ''}`
+      const res = await fetch(url)
+      if (res.ok) {
+        const data = await res.json()
+        if (data && data.redirect_url) {
+          window.location.replace(data.redirect_url)
+          return
+        }
+      }
+    } catch (_) { /* offline / 5xx — fallback на обычный flow */ }
     window.history.pushState({}, '', eventPath(clientId, slug))
     setEventSlug(slug)
   }
