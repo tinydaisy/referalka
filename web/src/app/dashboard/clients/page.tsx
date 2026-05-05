@@ -468,15 +468,6 @@ export default function ContactsPage() {
                   </div>
                 </div>
               )}
-              {selected.salebot_id && (
-                <div className="flex items-start gap-2">
-                  <UserCircle size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-400">Salebot ID</p>
-                    <p className="text-sm text-gray-800 font-mono">{selected.salebot_id}</p>
-                  </div>
-                </div>
-              )}
               <div className="flex items-start gap-2">
                 <Calendar size={15} className="text-gray-400 mt-0.5 shrink-0" />
                 <div>
