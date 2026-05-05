@@ -318,18 +318,35 @@ async def copy_event(
     # (для конференций они вообще берутся из conf_days, для остальных
     # клиент задаст заново — старые даты всё равно неактуальны).
     async with db.transaction():
+        # Копируем ВСЕ настройки события кроме start_at/end_at (даты —
+        # всегда заново) и successor_event_id (это per-event ссылка).
         new_event = await db.fetchrow(
             """INSERT INTO events
-                 (client_id, slug, title, description, landing_url, address, start_at, end_at,
+                 (client_id, slug, title, description, landing_url, address,
+                  start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
-                  require_subscription, status)
-               VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,$7,$8,$9,$10,$11,$12,'draft')
+                  require_subscription, status,
+                  chat_url, stream_url,
+                  has_vip_tariff, vip_price, vip_url, vip_title, vip_description,
+                  chat_subscriptions_required, chat_member_count_label)
+               VALUES ($1,$2,$3,$4,$5,$6,
+                       NULL,NULL,
+                       $7,$8,$9,$10,$11,
+                       $12,'draft',
+                       $13,$14,
+                       $15,$16,$17,$18,$19,
+                       $20,$21)
                RETURNING *""",
             client_id, new_slug, new_title, src['description'], src['landing_url'],
             src.get('address'),
             src['webhook_url'], src['module_slug'],
             src['points_free'], src['points_paid'], src['points_scope'],
-            src['require_subscription']
+            src['require_subscription'],
+            src.get('chat_url'), src.get('stream_url'),
+            src.get('has_vip_tariff') or False, src.get('vip_price'),
+            src.get('vip_url'), src.get('vip_title'), src.get('vip_description'),
+            src.get('chat_subscriptions_required') or False,
+            src.get('chat_member_count_label'),
         )
         new_id = new_event['id']
 
