@@ -132,7 +132,7 @@ async def _bot_token_for_client(client_id: int, db) -> Optional[str]:
     Иначе → общий @pluson_bot (settings.telegram_bot_token)."""
     custom = await db.fetchval(
         """SELECT t.allow_custom_bot
-             FROM clients c JOIN tariffs t ON t.id = c.tariff_id
+             FROM clients c JOIN tariffs t ON t.slug = c.tariff_slug
             WHERE c.id = $1""",
         client_id
     )

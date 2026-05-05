@@ -182,7 +182,7 @@ async def _client_bot_username(client_id: int, db: asyncpg.Connection) -> str:
     row = await db.fetchrow(
         """SELECT t.allow_custom_bot, ch.handle, ch.bot_token
              FROM clients c
-        LEFT JOIN tariffs t ON t.id = c.tariff_id
+        LEFT JOIN tariffs t ON t.slug = c.tariff_slug
         LEFT JOIN channels ch ON ch.client_id = c.id
                               AND ch.platform_slug = 'telegram'
                               AND ch.is_active = TRUE
