@@ -90,7 +90,6 @@ class UpdateEventRequest(BaseModel):
     points_free: Optional[int] = None
     points_paid: Optional[int] = None
     require_subscription: Optional[bool] = None
-    successor_event_id: Optional[int] = None
     # VIP / Чат
     vip_url: Optional[str] = None
     chat_url: Optional[str] = None
@@ -314,8 +313,8 @@ async def copy_event(
     # (для конференций они вообще берутся из conf_days, для остальных
     # клиент задаст заново — старые даты всё равно неактуальны).
     async with db.transaction():
-        # Копируем ВСЕ настройки события кроме start_at/end_at (даты —
-        # всегда заново) и successor_event_id (это per-event ссылка).
+        # Копируем ВСЕ настройки события кроме start_at/end_at — даты
+        # всегда задаются заново у копии.
         new_event = await db.fetchrow(
             """INSERT INTO events
                  (client_id, slug, title, description, landing_url, address,

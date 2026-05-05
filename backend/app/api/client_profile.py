@@ -388,7 +388,6 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                         THEN cd.start_at ELSE e.start_at END AS start_at,
                    CASE WHEN e.module_slug = 'conference'
                         THEN cd.end_at   ELSE e.end_at   END AS end_at,
-                   e.successor_event_id,
                    e.vip_url,
                    e.chat_url, e.chat_member_count_label, e.require_subscription,
                    e.stream_url,

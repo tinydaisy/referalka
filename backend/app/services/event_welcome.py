@@ -104,7 +104,7 @@ async def send_event_open_message(
             ev = await conn.fetchrow(
                 """
                 SELECT e.id, e.slug, e.title, e.module_slug, e.status,
-                       e.successor_event_id, e.client_id,
+                       e.client_id,
                        CASE WHEN e.module_slug = 'conference' THEN
                          (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
                                   AT TIME ZONE 'Europe/Moscow'
@@ -201,34 +201,38 @@ async def send_event_open_message(
                     contact_id,
                 ) or ""
 
-            successor_ev = None
-            if ev["successor_event_id"]:
-                successor_ev = await conn.fetchrow(
-                    """
+            # Успешник — автоматически: ближайшее предстоящее опубликованное
+            # событие того же клиента. Текущее исключаем.
+            successor_ev = await conn.fetchrow(
+                """
+                SELECT * FROM (
                     SELECT e.id, e.slug, e.title, e.status, e.module_slug,
                            CASE WHEN e.module_slug = 'conference' THEN
                              (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
                                       AT TIME ZONE 'Europe/Moscow'
-                                FROM conf_days d
-                               WHERE d.event_id = e.id
-                               ORDER BY d.day_number ASC LIMIT 1)
+                                FROM conf_days d WHERE d.event_id = e.id
+                                ORDER BY d.day_number ASC LIMIT 1)
                              ELSE e.start_at
                            END AS effective_start_at,
                            CASE WHEN e.module_slug = 'conference' THEN
                              (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
                                       AT TIME ZONE 'Europe/Moscow'
-                                FROM conf_days d
-                               WHERE d.event_id = e.id
-                               ORDER BY d.day_number DESC LIMIT 1)
+                                FROM conf_days d WHERE d.event_id = e.id
+                                ORDER BY d.day_number DESC LIMIT 1)
                              ELSE e.end_at
                            END AS effective_end_at
                       FROM events e
-                     WHERE e.id = $1
-                    """,
-                    ev["successor_event_id"],
-                )
-                if successor_ev and successor_ev["status"] == "draft":
-                    successor_ev = None
+                     WHERE e.client_id = $1
+                       AND e.status = 'published'
+                       AND e.id <> $2
+                ) t
+                WHERE t.effective_start_at IS NOT NULL
+                  AND t.effective_start_at > NOW()
+                ORDER BY t.effective_start_at ASC
+                LIMIT 1
+                """,
+                ev["client_id"], ev["id"],
+            )
 
             now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
             is_ended = (ev["status"] == "ended") or (
@@ -242,7 +246,18 @@ async def send_event_open_message(
             else:
                 kind = "referral_reminder"
 
+            # Дедуп: молчим только если ровно это же событие подряд с тем же kind,
+            # и за это время человек не открывал других событий и не получал рассылок.
             if part["last_open_msg_kind"] == kind and part["last_open_msg_at"]:
+                opened_other = await conn.fetchval(
+                    """SELECT 1 FROM event_participants
+                        WHERE contact_id = $1
+                          AND id <> $2
+                          AND last_open_msg_at IS NOT NULL
+                          AND last_open_msg_at > $3
+                        LIMIT 1""",
+                    contact_id, part["id"], part["last_open_msg_at"],
+                )
                 had_broadcast = await conn.fetchval(
                     """SELECT 1 FROM broadcast_log bl
                          JOIN platform_users pu ON pu.id = bl.platform_user_id
@@ -251,7 +266,7 @@ async def send_event_open_message(
                         LIMIT 1""",
                     contact_id, part["last_open_msg_at"],
                 )
-                if not had_broadcast:
+                if not opened_other and not had_broadcast:
                     return {"ok": True, "deduped": True, "kind": kind}
 
             bot_token = await get_client_telegram_token(client_id, conn)
