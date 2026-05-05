@@ -44,8 +44,13 @@ export default function ResultsTab({ event, participant }: Props) {
             border: `2px solid ${PEACH}`, borderRadius: 16,
             padding: 14, marginBottom: 12, cursor: 'pointer',
           }}>
-            <div style={{ fontSize: 11, color: DARK, fontWeight: 800,
-                          letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 }}>А дальше</div>
+            <div style={{
+              background: PEACH, color: DARK,
+              fontSize: 15, fontWeight: 900, letterSpacing: 0.5,
+              textAlign: 'center', textTransform: 'uppercase',
+              padding: '12px 10px', borderRadius: 12, marginBottom: 12,
+              lineHeight: 1.25,
+            }}>Ждём вас на следующем мероприятии 👇👇👇</div>
             {successor.poster_url && (
               <img src={successor.poster_url} alt={successor.title}
                    style={{
@@ -131,8 +136,13 @@ export default function ResultsTab({ event, participant }: Props) {
           border: `2px solid ${PEACH}`, borderRadius: 16,
           padding: 14, marginBottom: 12, cursor: 'pointer',
         }}>
-          <div style={{ fontSize: 11, color: DARK, fontWeight: 800,
-                        letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 }}>А дальше</div>
+          <div style={{
+            background: PEACH, color: DARK,
+            fontSize: 15, fontWeight: 900, letterSpacing: 0.5,
+            textAlign: 'center', textTransform: 'uppercase',
+            padding: '12px 10px', borderRadius: 12, marginBottom: 12,
+            lineHeight: 1.25,
+          }}>Ждём вас на следующем мероприятии 👇👇👇</div>
           {successor.poster_url && (
             <img src={successor.poster_url} alt={successor.title}
                  style={{
