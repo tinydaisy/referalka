@@ -212,7 +212,12 @@ export default function App() {
     setEventSlug(null)
   }
 
-  if (loading) return <LoadingScreen />
+  if (loading) return null  // splash в index.html виден поверх #root
+
+  // Когда React готов показать настоящий контент — снимаем HTML-splash.
+  // useEffect не подойдёт (рендер уже произошёл): делаем синхронно.
+  const splash = typeof document !== 'undefined' ? document.getElementById('plusson-splash') : null
+  if (splash) splash.remove()
 
   if (eventSlug) {
     return (
