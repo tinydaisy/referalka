@@ -1,6 +1,7 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Copy, Check, Globe } from 'lucide-react'
+import { api } from '@/lib/api'
 
 interface Props {
   slug?: string | null
@@ -8,10 +9,31 @@ interface Props {
   onChange: (v: string) => void
 }
 
+// Формат ссылки для возврата с лендинга:
+//  - VIP-клиент с собственным ботом: https://t.me/{bot_handle}?startapp=ref_pg{slug}_reg
+//    (Main Mini App настроена в BotFather для бота клиента, /c/{N}/tg/)
+//  - Без своего бота: https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}_reg
+//    (общий @pluson_bot, short_name «pluson»)
 export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
   const [copied, setCopied] = useState(false)
+  const [botHandle, setBotHandle] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.auth.me()
+      .then((me: any) => {
+        if (cancelled) return
+        const h = (me?.main_bot_handle || '').trim()
+        setBotHandle(h || null)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   const redirectUrl = slug
-    ? `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_reg`
+    ? (botHandle
+        ? `https://t.me/${botHandle}?startapp=ref_pg${slug}_reg`
+        : `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_reg`)
     : ''
 
   async function handleCopy() {
