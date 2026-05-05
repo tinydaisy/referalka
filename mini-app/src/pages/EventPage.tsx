@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import BottomNav, { NavItem } from '../components/BottomNav'
 import LandingTab from '../tabs/LandingTab'
 import ProgramTab from '../tabs/ProgramTab'
@@ -223,16 +223,19 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // Если у события заполнено events.landing_url, а человек ещё не зарегистрирован —
   // Mini App сразу открывает лендинг клиента во встроенном браузере Telegram.
   // Проброс tg_id/pid/utm_source — чтобы клиент мог сматчить регистрацию с tg-аккаунтом.
-  // sessionStorage-флаг — чтобы не зацикливать (человек вернулся в Mini App, не открываем повторно).
+  // useRef-флаг (а не sessionStorage) — Telegram WebView на iOS может сохранять
+  // sessionStorage между запусками Mini App, тогда openLink стрельнет один раз
+  // и больше никогда. useRef живёт ровно в текущей жизни компонента и сбрасывается
+  // при следующем открытии Mini App.
+  const landingOpenedRef = useRef(false)
   useEffect(() => {
     if (!event) return
     if (loading) return
     if (registered || ended) return
+    if (landingOpenedRef.current) return
     const landingUrl: string = (event.landing_url || '').trim()
     if (!landingUrl) return
-    const flagKey = `landing_opened_${slug}`
-    if (sessionStorage.getItem(flagKey)) return
-    sessionStorage.setItem(flagKey, '1')
+    landingOpenedRef.current = true
 
     const params = new URLSearchParams()
     if (tgUser?.id) params.set('tg_id', String(tgUser.id))
@@ -244,7 +247,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
 
     const tg = (window as any).Telegram?.WebApp
     if (tg?.openLink) {
-      tg.openLink(fullUrl, { try_instant_view: false })
+      tg.openLink(fullUrl)
+    } else {
+      window.open(fullUrl, '_blank')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event, loading, registered, ended])
