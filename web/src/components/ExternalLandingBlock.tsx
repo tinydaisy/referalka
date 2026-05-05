@@ -70,6 +70,19 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
               {copied ? <><Check size={13} /> Скопировано</> : <><Copy size={13} /> Копировать</>}
             </button>
           </div>
+
+          <div className="mt-3 rounded-lg bg-red-50 border border-red-200 p-2.5">
+            <p className="text-[11px] font-bold text-red-800 mb-1">
+              ⚠️ Важно: вставьте ссылку как есть
+            </p>
+            <p className="text-[11px] text-red-700 leading-relaxed">
+              Не добавляйте к ней свои параметры через <code className="bg-white px-1 rounded">?</code> или <code className="bg-white px-1 rounded">&</code>
+              {' '}(например <code className="bg-white px-1 rounded">?email=...</code>, <code className="bg-white px-1 rounded">{'{first_name}'}</code> и т.п.)
+              — Telegram такие ссылки отклоняет с ошибкой «Произошла ошибка». Если
+              нужно передать в ПЛЮСОН данные регистрации (email, телефон) — используйте
+              webhook на стороне вашего конструктора.
+            </p>
+          </div>
         </div>
       )}
     </div>
