@@ -138,9 +138,11 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       const alreadyRegistered = !!part?.participant?.is_registered
       const ended = isEnded(landing)
 
-      // Фиксируем «интересовался» — без автоматической регистрации.
-      // Незарегистрированные ВСЕГДА видят сначала лендинг.
-      if (tgUser?.id && slug && !alreadyRegistered) {
+      // event_start — сигнал «открыл событие». Шлём ВСЕГДА (для всех статусов
+      // и для зареганных/нет): бэкенд по статусу/датам выбирает контекстное
+      // приветствие (register_cta / referral_reminder / next_event_cta /
+      // ecosystem_thanks) и сам дедупит через last_open_msg_kind/at.
+      if (tgUser?.id && slug) {
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/event`, {
           method: 'POST',
           keepalive: true,
