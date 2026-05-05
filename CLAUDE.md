@@ -85,6 +85,31 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Лендинг события — единое поле `events.landing_url` + welcome-экран (миграция 057 от 04.05.2026)
+
+**Лендинг для всех типов событий** (мероприятие, конференция, и т.д.) хранится в одном поле `events.landing_url`. Это «URL стороннего лендинга клиента» — Tilda, GetCourse, Taplink, самописный на Vercel и т.п. Если поле заполнено, Mini App показывает лендинг клиента вместо встроенной страницы события.
+
+**Что удалено:**
+- `conf_conferences.registration_url` — DROP, дублировало `events.landing_url`. Данные перенесены автоматически.
+- В шаблонах рассылок `broadcast_templates.text` / `button_url` плейсхолдер `{registration_url}` заменён на `{landing_url}`. Backend ([message_builder.py](backend/app/services/message_builder.py)) поддерживает оба плейсхолдера для совместимости со старыми шаблонами клиентов.
+- Pydantic-модель `ConferenceUpdate` без `registration_url`.
+
+**Дашборд** ([ExternalLandingBlock.tsx](web/src/components/ExternalLandingBlock.tsx)) — общий компонент для карточки мероприятия и конференции:
+- Заголовок «Подключение стороннего лендинга»
+- Поле URL
+- Готовая ссылка для клиента: `https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}_reg` (с кнопкой копирования) — клиент вставляет эту ссылку в редирект после успешной регистрации в своём конструкторе. Тогда после заполнения формы человек возвращается в Mini App с флагом `_reg`.
+
+**Mini App** — флаг `_reg` в startapp:
+- [App.tsx](mini-app/src/App.tsx) парсит `regFromLanding`
+- [EventPage.tsx](mini-app/src/pages/EventPage.tsx) при `regFromLanding=true && !is_registered` автоматически вызывает `/participants/register` без email/phone (данные у клиента, мы их пока не знаем — webhook от клиента отдельная фича на будущее)
+
+**Welcome-экран** ([WelcomePage.tsx](mini-app/src/components/WelcomePage.tsx)):
+- Колонка `event_participants.welcomed_at TIMESTAMPTZ NULL` помечает что человек уже видел экран
+- Показывается ОДИН раз — когда `is_registered=true && welcomed_at IS NULL`
+- Содержит: поздравление, кнопку «Войти в чат» (если `event.chat_url` заполнен), плитки с объяснением вкладок Программа/Игра/Розыгрыш/Экосистема, кнопку «Перейти к программе»
+- POST `/api/v1/participants/{id}/welcomed` ставит `welcomed_at = now()` — больше не показывается
+- Иконки ⓘ для возврата к экрану нет — повторно не показываем
+
 ### Время программы — строки "HH:MM" + " МСК" везде (миграция 048 от 28.04.2026)
 
 Чтобы убрать сдвиги часовых поясов в Mini App / веб / рассылках, время программы хранится строкой "HH:MM" и считается МСК по соглашению.
