@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getGifts, getShareTexts, getShareMaterials } from '../api'
+import { getGifts, getShareTexts, getShareMaterials, sendShareTextToBot } from '../api'
 import ContactCardModal from '../components/ContactCardModal'
 
 interface Props { event: any; participant: any; tgUser: any }
@@ -81,6 +81,7 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   const [openCardId, setOpenCardId] = useState<number | null>(null)
   const [shareTexts, setShareTexts] = useState<{ id: number; content: string; sort: number }[]>([])
   const [shareImages, setShareImages] = useState<{ id: number; image_url: string; source: string }[]>([])
+  const [sendingTextId, setSendingTextId] = useState<number | null>(null)
 
   // Данные участника
   const refCode  = participant?.ref_code || 'demo'
@@ -279,6 +280,22 @@ export default function GameTab({ event, participant, tgUser }: Props) {
       else window.open(url, '_blank')
     }
 
+    async function sendToBot(textId: number, rendered: string) {
+      const tgId = tgUser?.id ?? tgUser?.tg_id
+      if (!event?.slug || !tgId) return
+      setSendingTextId(textId)
+      try {
+        await sendShareTextToBot(event.slug, Number(tgId), rendered)
+        // Закрываем Mini App — Telegram возвращает в чат с ботом, где уже
+        // лежит готовое сообщение. Юзер форвардит его друзьям из чата.
+        const twa = (window as any).Telegram?.WebApp
+        if (twa?.close) twa.close()
+      } catch (e: any) {
+        alert(e?.message || 'Не получилось отправить сообщение в бот')
+        setSendingTextId(null)
+      }
+    }
+
     const isEmpty = shareTexts.length === 0 && shareImages.length === 0
 
     return (
@@ -294,49 +311,13 @@ export default function GameTab({ event, participant, tgUser }: Props) {
           </div>
         )}
 
-        {shareTexts.length > 0 && (
+        {shareImages.length > 0 && (
           <>
             <h3 style={{
               fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
               color: '#6b7c8e', margin: '4px 4px 10px',
             }}>
-              ✍️ Тексты для друзей · {shareTexts.length}
-            </h3>
-            {shareTexts.map(t => {
-              const rendered = applyPlaceholders(t.content)
-              const isCopied = copiedTextId === t.id
-              return (
-                <div key={t.id} style={{
-                  background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
-                  boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-                }}>
-                  <div style={{
-                    fontSize: 13, color: '#1a2a3a', whiteSpace: 'pre-wrap',
-                    lineHeight: 1.55, marginBottom: 10, wordBreak: 'break-word',
-                  }}>{rendered}</div>
-                  <button onClick={() => copyText(t.id, rendered)}
-                    style={{
-                      width: '100%', border: 'none', borderRadius: 10,
-                      padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                      background: isCopied ? '#6bb572' : PEACH,
-                      color: isCopied ? 'white' : DARK,
-                      transition: 'background 0.2s',
-                    }}>
-                    {isCopied ? '✓ Скопировано' : '📋 Скопировать текст'}
-                  </button>
-                </div>
-              )
-            })}
-          </>
-        )}
-
-        {shareImages.length > 0 && (
-          <>
-            <h3 style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
-              color: '#6b7c8e', margin: '18px 4px 10px',
-            }}>
-              🖼 Картинки для друзей · {shareImages.length}
+              🖼 Афиши для друзей · {shareImages.length}
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {shareImages.map(img => (
@@ -358,6 +339,58 @@ export default function GameTab({ event, participant, tgUser }: Props) {
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {shareTexts.length > 0 && (
+          <>
+            <h3 style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
+              color: '#6b7c8e', margin: '18px 4px 10px',
+            }}>
+              ✍️ Тексты для друзей · {shareTexts.length}
+            </h3>
+            {shareTexts.map(t => {
+              const rendered = applyPlaceholders(t.content)
+              const isCopied = copiedTextId === t.id
+              const isSending = sendingTextId === t.id
+              return (
+                <div key={t.id} style={{
+                  background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
+                  boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+                }}>
+                  <div style={{
+                    fontSize: 13, color: '#1a2a3a', whiteSpace: 'pre-wrap',
+                    lineHeight: 1.55, marginBottom: 10, wordBreak: 'break-word',
+                  }}>{rendered}</div>
+
+                  <button onClick={() => sendToBot(t.id, rendered)}
+                    disabled={isSending}
+                    style={{
+                      width: '100%', border: 'none', borderRadius: 10,
+                      padding: '12px 14px', fontSize: 13, fontWeight: 700,
+                      cursor: isSending ? 'wait' : 'pointer',
+                      background: 'linear-gradient(135deg, #25455D, #0a1520)',
+                      color: PEACH,
+                      marginBottom: 8,
+                      opacity: isSending ? 0.7 : 1,
+                    }}>
+                    {isSending ? 'Отправляем…' : '📨 Нажмите, чтобы отправить себе в бот'}
+                  </button>
+
+                  <button onClick={() => copyText(t.id, rendered)}
+                    style={{
+                      width: '100%', border: 'none', borderRadius: 10,
+                      padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                      background: isCopied ? '#6bb572' : PEACH,
+                      color: isCopied ? 'white' : DARK,
+                      transition: 'background 0.2s',
+                    }}>
+                    {isCopied ? '✓ Скопировано' : '📋 Скопировать текст'}
+                  </button>
+                </div>
+              )
+            })}
           </>
         )}
       </div>

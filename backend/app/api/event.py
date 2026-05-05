@@ -195,3 +195,64 @@ async def handle_tg_event(body: TgEventRequest):
         logger.warning(f"sendMessage failed for {tg_id}: {e}")
 
     return {"ok": True, "client_id": client_id}
+
+
+class ShareToBotRequest(BaseModel):
+    tg_id: int
+    event_slug: str
+    text: str
+
+
+@router.post("/event/share-to-bot")
+async def share_to_bot(body: ShareToBotRequest):
+    """Mini App → отправить участнику в его бот готовый текст для шеринга друзьям.
+
+    После успешной отправки фронт закрывает Mini App (`Telegram.WebApp.close()`),
+    и человек попадает в чат с ботом, где только что упало сообщение, готовое
+    для форварда.
+    """
+    if not body.text or not body.text.strip():
+        raise HTTPException(status_code=400, detail="text required")
+    if not body.event_slug:
+        raise HTTPException(status_code=400, detail="event_slug required")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=500, detail="db not available")
+
+    async with pool.acquire() as conn:
+        client_id = await conn.fetchval(
+            "SELECT client_id FROM events WHERE slug = $1 LIMIT 1",
+            body.event_slug,
+        )
+    if not client_id:
+        raise HTTPException(status_code=404, detail="event not found")
+
+    bot_token = None
+    try:
+        async with pool.acquire() as conn:
+            bot_token = await get_client_telegram_token(client_id, conn)
+    except Exception as e:
+        logger.warning(f"get_client_telegram_token failed: {e}")
+    if not bot_token:
+        bot_token = settings.telegram_bot_token
+    if not bot_token:
+        raise HTTPException(status_code=500, detail="no bot token configured")
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as http:
+            r = await http.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={"chat_id": body.tg_id, "text": body.text},
+            )
+            if r.status_code != 200:
+                logger.warning(
+                    f"share-to-bot send failed for tg_id={body.tg_id} event={body.event_slug}: "
+                    f"{r.status_code} {r.text[:200]}"
+                )
+                raise HTTPException(status_code=502, detail="telegram send failed")
+    except httpx.HTTPError as e:
+        logger.warning(f"share-to-bot http error for tg_id={body.tg_id}: {e}")
+        raise HTTPException(status_code=502, detail="telegram send failed")
+
+    return {"ok": True}

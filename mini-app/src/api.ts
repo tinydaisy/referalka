@@ -105,6 +105,15 @@ export const getShareTexts = (eventId: number) =>
 export const getShareMaterials = (eventId: number) =>
   req(`/api/v1/public/events/${eventId}/share-materials`).catch(() => ({ items: [] }))
 
+// Отправить участнику в его бот готовый текст для шеринга. Сразу после ответа
+// фронт делает Telegram.WebApp.close() — Telegram возвращает в чат с ботом,
+// где сообщение уже готово к форварду друзьям.
+export const sendShareTextToBot = (eventSlug: string, tgId: number, text: string) =>
+  req('/api/v1/event/share-to-bot', {
+    method: 'POST',
+    body: JSON.stringify({ event_slug: eventSlug, tg_id: tgId, text }),
+  })
+
 // ── Розыгрыш (миграция 042) — публичные эндпоинты для Mini App ──
 export const getRafflePrizes = (eventId: number) =>
   req(`/api/v1/public/events/${eventId}/raffle/prizes`).catch(() => ({ items: [] }))
