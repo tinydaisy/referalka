@@ -65,6 +65,10 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ is_registered: isRegistered }),
       }),
+    deleteParticipant: (id: number, participantId: number) =>
+      request(`/api/v1/events/${id}/participants/${participantId}`, {
+        method: 'DELETE',
+      }),
   },
   collaborators: {
     list: (q?: string) => request(`/api/v1/collaborators/${q ? `?q=${encodeURIComponent(q)}` : ''}`),

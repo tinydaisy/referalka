@@ -705,3 +705,41 @@ async def update_event_participant(
         data.is_registered, participant_id
     )
     return {"id": participant_id, "is_registered": data.is_registered}
+
+
+@router.delete("/{event_id}/participants/{participant_id}", summary="Удалить участника из события")
+async def delete_event_participant(
+    event_id: int,
+    participant_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Удаляет строку из event_participants. Контакт остаётся, удаляется только участие в этом событии.
+
+    Каскад: gift_issuances этого участника удаляются, у других участников снимается ссылка на этого
+    как реферера (referrer_participant_id → NULL). raffle_tickets.pluson_participant_id → NULL по FK.
+    """
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        """SELECT ep.id FROM event_participants ep
+           JOIN events e ON e.id = ep.event_id
+           WHERE ep.id = $1 AND ep.event_id = $2 AND e.client_id = $3""",
+        participant_id, event_id, client_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+
+    async with db.transaction():
+        await db.execute(
+            "DELETE FROM gift_issuances WHERE participant_id = $1",
+            participant_id
+        )
+        await db.execute(
+            "UPDATE event_participants SET referrer_participant_id = NULL WHERE referrer_participant_id = $1",
+            participant_id
+        )
+        await db.execute(
+            "DELETE FROM event_participants WHERE id = $1",
+            participant_id
+        )
+    return {"deleted": True, "id": participant_id}

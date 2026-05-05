@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { Users, Search, ChevronDown, ChevronUp, X, Check } from 'lucide-react'
+import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 
@@ -46,12 +46,15 @@ function referrerLabel(p: Participant): string {
 function ContactCard({
   p,
   onToggleRegistered,
+  onDelete,
 }: {
   p: Participant
   onToggleRegistered: (next: boolean) => void
+  onDelete: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const name = p.contact_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || p.username || 'Без имени'
   const initial = name[0]?.toUpperCase() || '?'
 
@@ -63,6 +66,18 @@ function ContactCard({
       onToggleRegistered(!p.is_registered)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (deleting) return
+    if (!confirm(`Удалить участника «${name}» из события?\n\nКонтакт и его участие в других событиях останутся.`)) return
+    setDeleting(true)
+    try {
+      onDelete()
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -127,6 +142,21 @@ function ContactCard({
           </button>
         </div>
 
+        {/* Кнопка удаления */}
+        <div className="w-8 flex justify-center shrink-0">
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            title="Удалить из события"
+            className={`w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors ${
+              deleting ? 'opacity-50' : ''
+            }`}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+
         <div className="w-4 shrink-0 text-gray-400">
           {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </div>
@@ -167,6 +197,7 @@ function ListHeader() {
       <div className="flex-1 max-w-xs">Кто привёл</div>
       <div className="w-24 text-center">Регистрация</div>
       <div className="w-24 text-center">Зарегистр.</div>
+      <div className="w-8" />
       <div className="w-4" />
     </div>
   )
@@ -259,6 +290,26 @@ export default function EventParticipants({ eventId }: { eventId: number }) {
     }
   }
 
+  async function deleteParticipant(participantId: number) {
+    const prev = participants
+    const prevCounts = counts
+    const target = participants.find(p => p.id === participantId)
+    if (!target) return
+    setParticipants(list => list.filter(p => p.id !== participantId))
+    setCounts(c => ({
+      total: c.total - 1,
+      registered: c.registered - (target.is_registered ? 1 : 0),
+      not_registered: c.not_registered - (target.is_registered ? 0 : 1),
+    }))
+    try {
+      await api.events.deleteParticipant(eventId, participantId)
+    } catch (e: any) {
+      setParticipants(prev)
+      setCounts(prevCounts)
+      alert(e?.message || 'Не удалось удалить участника')
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return participants
@@ -337,6 +388,7 @@ export default function EventParticipants({ eventId }: { eventId: number }) {
                 key={p.id}
                 p={p}
                 onToggleRegistered={(next) => toggleRegistered(p.id, next)}
+                onDelete={() => deleteParticipant(p.id)}
               />
             ))}
           </>
