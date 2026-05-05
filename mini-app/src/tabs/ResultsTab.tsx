@@ -18,7 +18,7 @@ function formatEndDate(d: string | Date | null | undefined): string {
 export default function ResultsTab({ event, participant, onOpenEvent }: Props) {
   const successor = event?.successor
   const isConference = event?.module_slug === 'conference'
-  const hasVip = !!event?.has_vip_tariff
+  const hasVip = !!event?.vip_url
   const isRegistered = !!participant?.is_registered
 
   // Дата завершения
@@ -113,17 +113,18 @@ export default function ResultsTab({ event, participant, onOpenEvent }: Props) {
         )}
       </div>
 
-      {/* ВИП с записями — только для конференции с has_vip_tariff */}
+      {/* ВИП с записями — только для конференции с заданным vip_url */}
       {isConference && hasVip && (
-        <a href={event?.vip_url || '#'} target="_blank" rel="noreferrer" style={{
+        <a href={event.vip_url} target="_blank" rel="noreferrer" style={{
           display: 'block', textDecoration: 'none',
-          background: 'linear-gradient(135deg, #FFCFA4, #d4a574)', color: DARK,
-          borderRadius: 14, padding: '14px 16px', marginBottom: 14,
-          textAlign: 'center', fontWeight: 900, fontSize: 14,
-          letterSpacing: 1, textTransform: 'uppercase',
-          boxShadow: '0 4px 12px rgba(255,207,164,0.4)',
+          background: PEACH, color: DARK,
+          borderRadius: 14, padding: '16px 16px', marginBottom: 14,
+          textAlign: 'center', fontWeight: 900, fontSize: 15,
+          letterSpacing: 1.2, textTransform: 'uppercase',
+          boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
+          border: `1px solid rgba(37,69,93,0.08)`,
         }}>
-          {event?.vip_title || 'Купить VIP-тариф с записями'}
+          Купить VIP-тариф с записями
         </a>
       )}
 

@@ -430,7 +430,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
           boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
           border: `1px solid rgba(37,69,93,0.08)`,
         }}>
-          {event?.vip_title || 'Расшириться до VIP-тарифа'}
+          Расшириться до VIP-тарифа
         </a>
       )}
 

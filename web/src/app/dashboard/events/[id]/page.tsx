@@ -6,11 +6,10 @@ import { api } from '@/lib/api'
 import OverviewTab from './tabs/OverviewTab'
 import PostersTab from './tabs/PostersTab'
 import ReferralProgramTab from './tabs/ReferralProgramTab'
-import VipChatTab from './tabs/VipChatTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'vipchat' | 'participants'
+type TabKey = 'overview' | 'posters' | 'referral' | 'participants'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -48,7 +47,6 @@ export default function EventPage() {
     { key: 'overview',     label: 'Основное' },
     { key: 'posters',      label: 'Афиши' },
     { key: 'referral',     label: 'Реф-программа' },
-    ...(isConference ? [{ key: 'vipchat' as TabKey, label: 'VIP и Чат' }] : []),
     { key: 'participants', label: 'Участники' },
   ]
 
@@ -108,7 +106,6 @@ export default function EventPage() {
       {activeTab === 'overview'     && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'      && <PostersTab eventId={eventId} />}
       {activeTab === 'referral'     && <ReferralProgramTab eventId={eventId} />}
-      {activeTab === 'vipchat'      && <VipChatTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'participants' && <EventParticipants eventId={eventId} />}
     </div>
   )

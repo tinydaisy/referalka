@@ -91,12 +91,8 @@ class UpdateEventRequest(BaseModel):
     points_paid: Optional[int] = None
     require_subscription: Optional[bool] = None
     successor_event_id: Optional[int] = None
-    # VIP/Чат конференции (миграция 042)
-    has_vip_tariff: Optional[bool] = None
-    vip_price: Optional[int] = None
+    # VIP / Чат
     vip_url: Optional[str] = None
-    vip_title: Optional[str] = None
-    vip_description: Optional[str] = None
     chat_url: Optional[str] = None
     chat_subscriptions_required: Optional[bool] = None
     chat_member_count_label: Optional[str] = None
@@ -326,25 +322,21 @@ async def copy_event(
                   start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
                   require_subscription, status,
-                  chat_url, stream_url,
-                  has_vip_tariff, vip_price, vip_url, vip_title, vip_description,
+                  chat_url, stream_url, vip_url,
                   chat_subscriptions_required, chat_member_count_label)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
                        $12,'draft',
-                       $13,$14,
-                       $15,$16,$17,$18,$19,
-                       $20,$21)
+                       $13,$14,$15,
+                       $16,$17)
                RETURNING *""",
             client_id, new_slug, new_title, src['description'], src['landing_url'],
             src.get('address'),
             src['webhook_url'], src['module_slug'],
             src['points_free'], src['points_paid'], src['points_scope'],
             src['require_subscription'],
-            src.get('chat_url'), src.get('stream_url'),
-            src.get('has_vip_tariff') or False, src.get('vip_price'),
-            src.get('vip_url'), src.get('vip_title'), src.get('vip_description'),
+            src.get('chat_url'), src.get('stream_url'), src.get('vip_url'),
             src.get('chat_subscriptions_required') or False,
             src.get('chat_member_count_label'),
         )

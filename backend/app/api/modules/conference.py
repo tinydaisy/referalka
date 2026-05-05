@@ -344,16 +344,7 @@ async def update_conference(
         await db.execute("UPDATE events SET stream_url = $1 WHERE id = $2", event_stream_url, event_id)
     if "vip_url" in sent:
         vip = (event_vip_url or "").strip() or None
-        if vip:
-            await db.execute(
-                "UPDATE events SET vip_url = $1, has_vip_tariff = TRUE WHERE id = $2",
-                vip, event_id,
-            )
-        else:
-            await db.execute(
-                "UPDATE events SET vip_url = NULL, has_vip_tariff = FALSE WHERE id = $1",
-                event_id,
-            )
+        await db.execute("UPDATE events SET vip_url = $1 WHERE id = $2", vip, event_id)
 
     await regenerate_landing_data(event_id, db)
     # Возвращаем тот же обогащённый объект что и в GET /conference/ —

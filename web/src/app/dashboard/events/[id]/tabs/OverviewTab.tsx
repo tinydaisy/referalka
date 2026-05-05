@@ -20,6 +20,7 @@ export default function OverviewTab({
   // Раньше поле сохраняло в events.address — старые данные подтягиваются как fallback.
   const [streamUrl, setStreamUrl] = useState(event.stream_url || event.address || '')
   const [chatUrl, setChatUrl] = useState(event.chat_url || '')
+  const [vipUrl, setVipUrl] = useState(event.vip_url || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
@@ -52,6 +53,8 @@ export default function OverviewTab({
       if (su !== initStream)                                    payload.stream_url = su || null
       const c = chatUrl.trim()
       if (c !== (event.chat_url || ''))                         payload.chat_url = c || null
+      const v = vipUrl.trim()
+      if (v !== (event.vip_url || ''))                          payload.vip_url = v || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
       const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
       if (startIso !== eventStartIso)                           payload.start_at = startIso
@@ -113,6 +116,11 @@ export default function OverviewTab({
           <Field label="Ссылка на чат события" hint="Telegram-чат участников. Появится плиткой в Mini App">
             <input value={chatUrl} onChange={e => setChatUrl(e.target.value)}
                    className="input" placeholder="https://t.me/+abc123..." />
+          </Field>
+
+          <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App над программой появится персиковая кнопка «Расшириться до VIP-тарифа»">
+            <input value={vipUrl} onChange={e => setVipUrl(e.target.value)}
+                   className="input" placeholder="https://..." />
           </Field>
 
           <ExternalLandingBlock

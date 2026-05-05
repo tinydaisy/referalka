@@ -44,6 +44,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     // landing_url — единое поле для всех событий (events.landing_url),
     // после миграции 057. Старое conf_conferences.registration_url удалено.
     landing_url: event?.landing_url || '',
+    vip_url: conf?.vip_url || '',
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     telegram_chat_ids: conf?.telegram_chat_ids || '',
@@ -58,6 +59,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       stream_url: conf?.stream_url || '',
       chat_url: conf?.chat_url || '',
       landing_url: event?.landing_url || '',
+      vip_url: conf?.vip_url || '',
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       telegram_chat_ids: conf?.telegram_chat_ids || '',
@@ -100,6 +102,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.description !== (conf?.description || ''))             confPatch.description = form.description || null
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
       if (form.chat_url !== (conf?.chat_url || ''))                    confPatch.chat_url = form.chat_url || null
+      if (form.vip_url !== (conf?.vip_url || ''))                      confPatch.vip_url = form.vip_url || null
       if (form.raffle_url !== (conf?.raffle_url || ''))                confPatch.raffle_url = form.raffle_url || null
       if (form.subscription_mode !== (conf?.subscription_mode || 'none')) confPatch.subscription_mode = form.subscription_mode
       if (form.telegram_chat_ids !== (conf?.telegram_chat_ids || ''))  confPatch.telegram_chat_ids = form.telegram_chat_ids || null
@@ -153,6 +156,16 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             placeholder="https://t.me/+..."
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           <p className="text-xs text-gray-400 mt-1">Появится плиткой «Чат» в Mini App в программе.</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Ссылка на оплату VIP-тарифа
+            <span className="text-gray-400 font-normal ml-1">— опционально</span>
+          </label>
+          <input type="url" value={form.vip_url} onChange={set('vip_url')}
+            placeholder="https://..."
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          <p className="text-xs text-gray-400 mt-1">Если задана — в Mini App над программой появится персиковая кнопка «Расшириться до VIP-тарифа», а в итогах — «Купить VIP-тариф с записями».</p>
         </div>
         <ExternalLandingBlock
           slug={event?.slug}
