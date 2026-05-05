@@ -100,15 +100,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // Обёртка над setTab: при каждом переходе перечитываем данные участника.
   // Reload без условий — счётчики/топ могли поменяться от чужих действий.
   function setTab(next: string) {
-    setTabState(next)
-    setRefreshKey(k => k + 1)
-    reloadParticipant()
-    // При первом открытии вкладки «Интро» отмечаем welcomed_at = now() —
-    // дальше эта вкладка перестаёт быть стартовой по умолчанию.
-    if (next === 'welcome' && participant?.id && participant?.welcomed_at == null) {
+    // Уход с «Интро» на любую другую вкладку → отмечаем welcomed_at и
+    // вкладка исчезает из навигации (не возвращается).
+    if (tab === 'welcome' && next !== 'welcome'
+        && participant?.id && participant?.welcomed_at == null) {
       setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
       markParticipantWelcomed(participant.id).catch(() => { /* offline ok */ })
     }
+    setTabState(next)
+    setRefreshKey(k => k + 1)
+    reloadParticipant()
   }
 
   // Загружаем лендинг события (публично) + проверяем участие (если есть tg_id)
@@ -216,10 +217,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   const refOn    = !!event?.referral_enabled
   const raffleOn = !!event?.raffle_enabled
 
+  // Welcome-вкладка («Интро») видна только до того момента, как человек
+  // ушёл с неё на любую другую вкладку. После этого welcomed_at != NULL и
+  // вкладка пропадает — обратно вернуться нельзя.
+  const showWelcomeTab = registered && participant?.welcomed_at == null
+
   // Если событие завершено и участника нет — Игру тоже не показываем.
   const filterByEnabled = (items: NavItem[]) => items.filter(n =>
-    (n.id !== 'game'   || refOn)    &&
-    (n.id !== 'raffle' || raffleOn)
+    (n.id !== 'welcome' || showWelcomeTab) &&
+    (n.id !== 'game'    || refOn)          &&
+    (n.id !== 'raffle'  || raffleOn)
   )
 
   const navItemsEnded = participant
