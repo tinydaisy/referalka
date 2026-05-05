@@ -1,7 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Copy, Check, Globe } from 'lucide-react'
-import { api } from '@/lib/api'
 
 interface Props {
   slug?: string | null
@@ -10,31 +9,17 @@ interface Props {
 }
 
 // Формат ссылки для возврата с лендинга:
-//  - VIP-клиент с собственным ботом: https://t.me/{bot_handle}?startapp=ref_pg{slug}_reg
-//    (Main Mini App настроена в BotFather для бота клиента, /c/{N}/tg/)
-//  - Без своего бота: https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}_reg
-//    (общий @pluson_bot, short_name «pluson»)
+// https://pluson.ru/r/{slug} — наша промежуточная страница, которая регает
+// участника и навигирует в Mini App В ТОМ ЖЕ webview (без второго окна над
+// фантомом-лендингом). Подробности — web/src/app/r/[slug]/page.tsx.
+//
+// Если SDK Telegram.WebApp недоступен (открыли в обычном браузере) — наша
+// страница автоматически делает fallback на t.me/.../?startapp=..._reg.
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
+
 export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
   const [copied, setCopied] = useState(false)
-  const [botHandle, setBotHandle] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    api.auth.me()
-      .then((me: any) => {
-        if (cancelled) return
-        const h = (me?.main_bot_handle || '').trim()
-        setBotHandle(h || null)
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [])
-
-  const redirectUrl = slug
-    ? (botHandle
-        ? `https://t.me/${botHandle}?startapp=ref_pg${slug}_reg`
-        : `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_reg`)
-    : ''
+  const redirectUrl = slug ? `${APP_URL}/r/${slug}` : ''
 
   async function handleCopy() {
     if (!redirectUrl) return
