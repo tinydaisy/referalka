@@ -49,7 +49,7 @@ export default function ResultsTab({ event, participant }: Props) {
             {successor.poster_url && (
               <img src={successor.poster_url} alt={successor.title}
                    style={{
-                     width: '100%', maxHeight: 200, objectFit: 'cover',
+                     width: '100%', height: 'auto',
                      borderRadius: 12, marginBottom: 10, display: 'block',
                    }} />
             )}
@@ -136,7 +136,7 @@ export default function ResultsTab({ event, participant }: Props) {
           {successor.poster_url && (
             <img src={successor.poster_url} alt={successor.title}
                  style={{
-                   width: '100%', maxHeight: 200, objectFit: 'cover',
+                   width: '100%', height: 'auto',
                    borderRadius: 12, marginBottom: 10, display: 'block',
                  }} />
           )}
