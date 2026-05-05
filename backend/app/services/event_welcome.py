@@ -302,11 +302,11 @@ async def send_event_open_message(
         btn_text = "Зарегистрироваться"
         btn_url = f"{bot_url_base}?startapp=ref_pg{ev['slug']}"
     elif kind == "referral_reminder":
-        text = (
-            f"Привет, {name}! 👋\n\n"
-            f"Вы записаны на «{ev_title}».\n\n"
-            f"Вы ещё успеваете получить подарки за приглашение друзей 🎁"
-        )
+        date_str = _fmt_event_period(ev["effective_start_at"], ev["effective_end_at"], is_conf)
+        text = f"Привет, {name}! 👋\n\nВы записаны на «{ev_title}»."
+        if date_str:
+            text += f"\n\n🗓 {date_str}"
+        text += "\n\nВы ещё успеваете получить подарки за приглашение друзей 🎁"
         btn_text = "Получить подарки"
         pid_part = f"_pid{ref_code}" if ref_code else ""
         btn_url = f"{bot_url_base}?startapp=ref_pg{ev['slug']}_tabgame{pid_part}"
