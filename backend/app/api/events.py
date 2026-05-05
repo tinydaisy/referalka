@@ -263,7 +263,11 @@ async def update_event(
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
-    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    # exclude_unset — берём только реально присланные поля. Раньше было
+    # `if v is not None`, из-за чего нельзя было ОБНУЛИТЬ поле (например,
+    # стереть landing_url): null молча отбрасывался. PATCH-семантика —
+    # «отсутствие поля = не трогать», «null = записать NULL».
+    updates = data.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
 
