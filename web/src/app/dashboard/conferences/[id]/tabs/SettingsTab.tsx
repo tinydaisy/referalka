@@ -84,21 +84,30 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     }
     setSaving(true); setSaved(false)
     try {
-      // landing_url — поле events, не conf_conferences (миграция 057).
-      await api.events.update(eventId, {
-        title: form.title,
-        landing_url: form.landing_url || null,
-      })
-      onEventUpdated?.({ title: form.title, landing_url: form.landing_url || null })
-      const updated = await api.conference.update(eventId, {
-        description: form.description || null,
-        stream_url: form.stream_url || null,
-        chat_url: form.chat_url || null,
-        raffle_url: form.raffle_url || null,
-        subscription_mode: form.subscription_mode,
-        telegram_chat_ids: form.telegram_chat_ids || null,
-      } as any)
-      onConfUpdated(updated.conference)
+      // PATCH-семантика: отправляем ТОЛЬКО реально изменённые поля.
+      // Иначе при переключении одного radio (subscription_mode) на бэк
+      // улетают все поля формы — если что-то пустое, оно обнуляет БД.
+      // Сравниваем с props.conf / props.event как с initial-снапшотом.
+      const eventPatch: any = {}
+      if (form.title !== (event?.title || ''))           eventPatch.title = form.title
+      if (form.landing_url !== (event?.landing_url || '')) eventPatch.landing_url = form.landing_url || null
+      if (Object.keys(eventPatch).length > 0) {
+        await api.events.update(eventId, eventPatch)
+        onEventUpdated?.(eventPatch)
+      }
+
+      const confPatch: any = {}
+      if (form.description !== (conf?.description || ''))             confPatch.description = form.description || null
+      if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
+      if (form.chat_url !== (conf?.chat_url || ''))                    confPatch.chat_url = form.chat_url || null
+      if (form.raffle_url !== (conf?.raffle_url || ''))                confPatch.raffle_url = form.raffle_url || null
+      if (form.subscription_mode !== (conf?.subscription_mode || 'none')) confPatch.subscription_mode = form.subscription_mode
+      if (form.telegram_chat_ids !== (conf?.telegram_chat_ids || ''))  confPatch.telegram_chat_ids = form.telegram_chat_ids || null
+
+      if (Object.keys(confPatch).length > 0) {
+        const updated = await api.conference.update(eventId, confPatch)
+        onConfUpdated(updated.conference)
+      }
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err: any) {
