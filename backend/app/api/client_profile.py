@@ -215,6 +215,58 @@ async def public_raffle_settings(event_id: int, db: asyncpg.Connection = Depends
     return dict(row)
 
 
+@public.get(
+    "/events/{slug}/landing-redirect",
+    summary="Узкий endpoint для inline-скрипта Mini App: куда редиректить ДО React",
+)
+async def public_event_landing_redirect(
+    slug: str,
+    tg_id: Optional[int] = None,
+    pid: Optional[str] = None,
+    utm_source: Optional[str] = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Если событию задан landing_url и пользователь ещё не зарегистрирован
+    (или tg_id не передан) — возвращает {redirect_url: ...} с пробросом
+    параметров. Иначе пустой объект. Используется в mini-app/index.html
+    inline-скриптом для мгновенного редиректа на сторонний лендинг."""
+    row = await db.fetchrow(
+        "SELECT id, landing_url, status FROM events WHERE slug = $1 LIMIT 1",
+        slug,
+    )
+    if not row:
+        return {}
+    if row["status"] != "published":
+        return {}
+    landing_url = (row["landing_url"] or "").strip()
+    if not landing_url:
+        return {}
+
+    # Если уже зарегистрирован — не редиректим (Mini App покажет welcome
+    # или сразу Программу).
+    if tg_id is not None:
+        is_reg = await db.fetchval(
+            """SELECT ep.is_registered
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                WHERE ep.event_id = $1
+                  AND pu.platform_slug = 'telegram'
+                  AND pu.platform_user_id = $2
+                LIMIT 1""",
+            row["id"], str(tg_id),
+        )
+        if is_reg:
+            return {}
+
+    from urllib.parse import urlencode
+    qs = {"event_slug": slug}
+    if tg_id is not None: qs["tg_id"] = str(tg_id)
+    if pid:               qs["pid"] = pid
+    if utm_source:        qs["utm_source"] = utm_source
+    sep = "&" if "?" in landing_url else "?"
+    return {"redirect_url": landing_url + sep + urlencode(qs)}
+
+
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")
 async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(

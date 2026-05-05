@@ -22,12 +22,14 @@
     var sp = (twa.initDataUnsafe && twa.initDataUnsafe.start_param) || '';
     if (!u) return;
 
-    // Парсим startapp: ref_pg<slug>_pid<id>_src<utm>_cid<id>
-    var eventSlug = '', partnerId = '', clientId = 0;
+    // Парсим startapp: ref_pg<slug>_pid<id>_src<utm>_cid<id>_reg
+    var eventSlug = '', partnerId = '', utmSource = '', clientId = 0, regFlag = false;
     sp.split('_').forEach(function (p) {
       if (p.indexOf('pg')  === 0) eventSlug = p.slice(2);
       if (p.indexOf('pid') === 0) partnerId = p.slice(3);
+      if (p.indexOf('src') === 0) utmSource = p.slice(3);
       if (p.indexOf('cid') === 0) clientId  = parseInt(p.slice(3), 10) || 0;
+      if (p === 'reg')            regFlag   = true;
     });
 
     function fireStart() {
@@ -51,11 +53,36 @@
       } catch (e) {}
     }
 
+    // Ранний редирект на сторонний лендинг клиента (миграция 057).
+    // Срабатывает ДО React-bundle: пока React грузится, запрос летит,
+    // и при заполненном events.landing_url window сразу уходит на лендинг —
+    // пользователь не видит наш встроенный лендинг-заглушку.
+    // При флаге `_reg` (возврат с лендинга) — редирект НЕ делаем, нужно
+    // прокрутить React и пометить is_registered=true.
+    function maybeRedirectToLanding() {
+      if (!eventSlug || regFlag) return;
+      try {
+        var qs = '?tg_id=' + encodeURIComponent(String(u.id || ''));
+        if (partnerId) qs += '&pid=' + encodeURIComponent(partnerId);
+        if (utmSource) qs += '&utm_source=' + encodeURIComponent(utmSource);
+        fetch('/api/v1/public/events/' + encodeURIComponent(eventSlug) + '/landing-redirect' + qs)
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data && data.redirect_url) {
+              window.location.replace(data.redirect_url);
+            }
+          })
+          .catch(function () {});
+      } catch (e) {}
+    }
+
     if (typeof twa.requestWriteAccess === 'function') {
-      try { twa.requestWriteAccess(function () { fireStart(); }); }
-      catch (e) { fireStart(); }
+      try {
+        twa.requestWriteAccess(function () { fireStart(); maybeRedirectToLanding(); });
+      } catch (e) { fireStart(); maybeRedirectToLanding(); }
     } else {
       fireStart();
+      maybeRedirectToLanding();
     }
   })();
   </script>

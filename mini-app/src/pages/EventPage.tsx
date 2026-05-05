@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import BottomNav, { NavItem } from '../components/BottomNav'
 import LandingTab from '../tabs/LandingTab'
 import ProgramTab from '../tabs/ProgramTab'
@@ -219,37 +219,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refOn, raffleOn, state, event])
 
-  // Авто-открытие стороннего лендинга клиента (миграция 057).
-  // Если у события заполнено events.landing_url, а человек ещё не зарегистрирован —
-  // Mini App автоматически НАВИГИРУЕТ webview на лендинг клиента (window.location).
-  // Это работает на iOS без user-gesture (в отличие от Telegram.WebApp.openLink,
-  // который iOS блокирует как popup). После регистрации лендинг редиректит на
-  // t.me/{bot}/{app}?startapp=..._reg — Telegram перехватит и переоткроет Mini App.
-  // useRef-флаг (а не sessionStorage) — Telegram WebView может сохранять
-  // sessionStorage между запусками Mini App, тогда редирект стрельнет один раз
-  // и больше никогда. useRef живёт ровно в текущей жизни компонента.
-  const landingOpenedRef = useRef(false)
-  useEffect(() => {
-    if (!event) return
-    if (loading) return
-    if (registered || ended) return
-    if (landingOpenedRef.current) return
-    const landingUrl: string = (event.landing_url || '').trim()
-    if (!landingUrl) return
-    landingOpenedRef.current = true
-
-    const params = new URLSearchParams()
-    if (tgUser?.id) params.set('tg_id', String(tgUser.id))
-    if (partnerId)  params.set('pid', partnerId)
-    if (utmSource)  params.set('utm_source', utmSource)
-    params.set('event_slug', slug)
-    const sep = landingUrl.includes('?') ? '&' : '?'
-    const fullUrl = landingUrl + sep + params.toString()
-
-    // Прямая навигация webview — не popup, iOS не блокирует.
-    window.location.href = fullUrl
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event, loading, registered, ended])
+  // Авто-редирект на сторонний лендинг клиента теперь делается inline-скриптом
+  // в mini-app/index.html ДО рендера React (см. maybeRedirectToLanding) — чтобы
+  // пользователь не видел заглушку. Здесь ничего не дублируем.
 
   if (loading || !event) {
     return (
