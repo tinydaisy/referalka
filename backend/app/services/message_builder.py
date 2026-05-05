@@ -83,6 +83,9 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
     text = text.replace("{speaker_achievements}", ach_text)
     text = text.replace("{gift_after_speech_title}", gift_title_v)
     text = text.replace("{gift_raffle_title}", gift_raffle_v)
+    # {landing_url} — новое имя плейсхолдера, {registration_url} оставляем для
+    # совместимости со старыми шаблонами в БД клиентов (миграция 057).
+    text = text.replace("{landing_url}", registration_url or "")
     text = text.replace("{registration_url}", registration_url or "")
     if tg_ch:
         text = text.replace("{speaker_tg}", f"<b>Тг канал:</b> {tg_ch}")
@@ -155,6 +158,7 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
     text = text.replace("{day_date}", day_date or "")
     text = text.replace("{day_program}", day_program or "")
     text = text.replace("{stream_url}", stream_url_val or "")
+    text = text.replace("{landing_url}", registration_url_val or "")
     text = text.replace("{registration_url}", registration_url_val or "")
     text = text.replace("{raffle_url}", raffle_url_val or "")
     text = text.replace("{day_speakers_gifts}", day_speakers_gifts or "")
@@ -232,7 +236,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         conf_row = await conn.fetchrow(
             """
-            SELECT e.title as conf_title, cc.registration_url, cc.raffle_url,
+            SELECT e.title as conf_title,
+                   e.landing_url AS registration_url,
+                   cc.raffle_url,
                    e.stream_url, cd.day_date
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
@@ -338,7 +344,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         text = build_day_message(text, day, conf_title, day_date_str, day_program,
                                   stream_url, reg_url, raffle_url, day_speakers_gifts, next_day_mention)
-        btn_url = btn_url.replace("{stream_url}", stream_url).replace("{registration_url}", reg_url).replace("{raffle_url}", raffle_url)
+        btn_url = (btn_url
+                   .replace("{stream_url}", stream_url)
+                   .replace("{landing_url}", reg_url)
+                   .replace("{registration_url}", reg_url)
+                   .replace("{raffle_url}", raffle_url))
 
     elif tpl_type == "speaker_intro":
         if session_id:
@@ -349,10 +359,10 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        c.achievements,
                        cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
                        cse.gift_raffle_title,
-                       cc.registration_url
+                       e.landing_url AS registration_url
                 FROM conf_speaker_events cse
                 JOIN collaborators c ON c.id = cse.speaker_id
-                LEFT JOIN conf_conferences cc ON cc.event_id = cse.event_id
+                JOIN events e ON e.id = cse.event_id
                 WHERE cse.id=$1
                 """,
                 session_id
@@ -375,7 +385,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                     sp["gift_raffle_title"], sp["registration_url"]
                 )
                 reg_url = sp["registration_url"] or ""
-                btn_url = btn_url.replace("{registration_url}", reg_url)
+                btn_url = (btn_url
+                           .replace("{landing_url}", reg_url)
+                           .replace("{registration_url}", reg_url))
 
     elif tpl_type in ("pre_start", "gift"):
         session_data = {}
@@ -424,7 +436,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, cc.description as conf_description,
-                   cc.registration_url,
+                   e.landing_url AS registration_url,
                    cd.day_date
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
@@ -443,8 +455,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         text = text.replace("{conf_title}", conf_title)
         text = text.replace("{conf_description}", conf_desc)
         text = text.replace("{conf_date}", conf_date_str)
+        text = text.replace("{landing_url}", reg_url)
         text = text.replace("{registration_url}", reg_url)
-        btn_url = btn_url.replace("{registration_url}", reg_url)
+        btn_url = (btn_url
+                   .replace("{landing_url}", reg_url)
+                   .replace("{registration_url}", reg_url))
 
     elif tpl_type == "custom":
         # Кастомный шаблон. Определяем день конференции по fire_at (если матчится дата)
@@ -492,7 +507,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title, cc.description as conf_description,
-                   cc.registration_url, cc.raffle_url
+                   e.landing_url AS registration_url, cc.raffle_url
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
             WHERE e.id=$1
@@ -557,6 +572,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         text = text.replace("{day_date}", day_date_str)
         text = text.replace("{day_program}", day_program)
         text = text.replace("{stream_url}", stream_url)
+        text = text.replace("{landing_url}", reg_url)
         text = text.replace("{registration_url}", reg_url)
         text = text.replace("{raffle_url}", raffle_url)
 
@@ -568,6 +584,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         btn_url = (btn_url
                    .replace("{stream_url}", stream_url)
+                   .replace("{landing_url}", reg_url)
                    .replace("{registration_url}", reg_url)
                    .replace("{raffle_url}", raffle_url))
 

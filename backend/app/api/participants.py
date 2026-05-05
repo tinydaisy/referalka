@@ -149,6 +149,17 @@ async def activate_participant(participant_id: int, db: asyncpg.Connection = Dep
     return {"activated": True}
 
 
+@router.post("/{participant_id}/welcomed", summary="Отметить, что участник увидел welcome-экран")
+async def mark_welcomed(participant_id: int, db: asyncpg.Connection = Depends(get_db)):
+    """Mini App вызывает один раз — после показа экрана-поздравления
+    («Поздравляем с регистрацией!»). Дальше welcome-экран не показывается."""
+    await db.execute(
+        "UPDATE event_participants SET welcomed_at = NOW() WHERE id = $1 AND welcomed_at IS NULL",
+        participant_id
+    )
+    return {"welcomed": True}
+
+
 @router.get("/telegram/{tg_id}/events", summary="События участника по tg_id")
 async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
@@ -517,7 +528,7 @@ async def get_participant_in_event(
 
     row = await db.fetchrow(
         """SELECT ep.id, ep.event_id, c.ref_code, ep.is_registered, ep.is_in_chat,
-                  ep.registered_at, ep.activated_at,
+                  ep.registered_at, ep.activated_at, ep.welcomed_at,
                   e.title AS event_title, e.module_slug
              FROM event_participants ep
              JOIN events e ON e.id = ep.event_id

@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import PublicLinks from '@/components/PublicLinks'
+import ExternalLandingBlock from '@/components/ExternalLandingBlock'
 
 function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; onSave: () => void }) {
   const { t } = useLang()
@@ -40,7 +41,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     description: conf?.description || '',
     stream_url: conf?.stream_url || '',
     chat_url: conf?.chat_url || '',
-    registration_url: conf?.registration_url || '',
+    // landing_url — единое поле для всех событий (events.landing_url),
+    // после миграции 057. Старое conf_conferences.registration_url удалено.
+    landing_url: event?.landing_url || '',
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     telegram_chat_ids: conf?.telegram_chat_ids || '',
@@ -54,12 +57,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       description: conf?.description || '',
       stream_url: conf?.stream_url || '',
       chat_url: conf?.chat_url || '',
-      registration_url: conf?.registration_url || '',
+      landing_url: event?.landing_url || '',
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       telegram_chat_ids: conf?.telegram_chat_ids || '',
     }))
-  }, [conf])
+  }, [conf, event?.landing_url])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -81,13 +84,16 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     }
     setSaving(true); setSaved(false)
     try {
-      await api.events.update(eventId, { title: form.title })
-      onEventUpdated?.({ title: form.title })
+      // landing_url — поле events, не conf_conferences (миграция 057).
+      await api.events.update(eventId, {
+        title: form.title,
+        landing_url: form.landing_url || null,
+      })
+      onEventUpdated?.({ title: form.title, landing_url: form.landing_url || null })
       const updated = await api.conference.update(eventId, {
         description: form.description || null,
         stream_url: form.stream_url || null,
         chat_url: form.chat_url || null,
-        registration_url: form.registration_url || null,
         raffle_url: form.raffle_url || null,
         subscription_mode: form.subscription_mode,
         telegram_chat_ids: form.telegram_chat_ids || null,
@@ -139,15 +145,11 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           <p className="text-xs text-gray-400 mt-1">Появится плиткой «Чат» в Mini App в программе.</p>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            {ts.confUrl}
-            <span className="text-gray-400 font-normal ml-1">{ts.confUrlHint}</span>
-          </label>
-          <input type="url" value={form.registration_url} onChange={set('registration_url')}
-            placeholder="https://..."
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-        </div>
+        <ExternalLandingBlock
+          slug={event?.slug}
+          value={form.landing_url}
+          onChange={(v) => setForm(f => ({ ...f, landing_url: v }))}
+        />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Ссылка на информацию про розыгрыш

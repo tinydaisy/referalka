@@ -8,6 +8,7 @@ import ResultsTab from '../tabs/ResultsTab'
 import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
 import RegistrationFlow from '../components/RegistrationFlow'
+import WelcomePage from '../components/WelcomePage'
 import { getEventLanding, getParticipantInEvent, registerParticipant } from '../api'
 
 type State = 'not_registered' | 'registered' | 'ended'
@@ -17,6 +18,7 @@ interface Props {
   tgUser: any
   partnerId?: string
   utmSource?: string
+  regFromLanding?: boolean   // флаг `_reg` в startapp — вернулись с лендинга клиента
   onBack: () => void
 }
 
@@ -60,7 +62,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromLanding, onBack }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -147,10 +149,32 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
         }).catch(() => {})
       }
 
-      // Initial tab по состоянию
-      if (ended)                  setTabState('results')
-      else if (alreadyRegistered) setTabState('program')
-      else                        setTabState('landing')
+      // Если человек пришёл по ссылке `?startapp=...?_reg` — он только что
+      // зарегистрировался на лендинге клиента. Помечаем is_registered=true
+      // (через регистрацию без email/phone — данные у клиента, мы их пока
+      // не знаем; webhook от клиента — отдельная фича на будущее).
+      if (regFromLanding && tgUser?.id && slug && !alreadyRegistered) {
+        try {
+          const r: any = await registerParticipant({
+            event_slug: slug,
+            tg_id: tgUser.id,
+            username: tgUser.username,
+            first_name: tgUser.first_name || '',
+            last_name:  tgUser.last_name  || '',
+            ref_code: partnerId,
+            utm_source: utmSource,
+          })
+          const reg = r?.participant || r
+          if (!cancelled) setParticipant({ ...reg, is_registered: true })
+          if (!cancelled) setTabState('program')
+        } catch (_) { /* fallback на обычный flow — лендинг */ }
+      } else if (ended) {
+        setTabState('results')
+      } else if (alreadyRegistered) {
+        setTabState('program')
+      } else {
+        setTabState('landing')
+      }
     }).finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
@@ -161,6 +185,11 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
   const ended      = isEnded(event)
   const registered = !!participant?.is_registered
   const state: State = ended ? 'ended' : registered ? 'registered' : 'not_registered'
+
+  // Welcome-экран показываем один раз: только что зарегистрированному
+  // участнику, у которого welcomed_at пуст. После клика «Перейти к программе»
+  // ставим welcomed_at = now() и больше не показываем.
+  const showWelcome = registered && !ended && participant?.welcomed_at == null
 
   // Активность игры/розыгрыша определяется тогглами в дашборде клиента.
   // Если клиент не включил — соответствующая вкладка вообще не показывается.
@@ -195,6 +224,20 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, onBack }
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
         Загружаем...
       </div>
+    )
+  }
+
+  if (showWelcome && participant?.id) {
+    return (
+      <WelcomePage
+        event={event}
+        participantId={participant.id}
+        raffleEnabled={raffleOn}
+        onContinue={() => {
+          setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
+          setTab('program')
+        }}
+      />
     )
   }
 

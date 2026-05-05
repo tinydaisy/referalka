@@ -201,7 +201,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         "name_sub": conf["offer"] or "",
         "dates": f"{date_str(conf['start_date'])} — {date_str(conf['end_date'])}" if conf["start_date"] else "",
         "description": conf["description"] or "",
-        "registration_url": conf["registration_url"] or conf["getcourse_form_url"] or "",
+        "registration_url": (event["landing_url"] if event else None) or conf["getcourse_form_url"] or "",
         "chat_url": (event["chat_url"] if event else None) or conf["chat_url"] or "",
         "stream_url": event_stream_url,
         "landing_template": conf["landing_template"] or "ivision",
@@ -242,7 +242,6 @@ class ConferenceUpdate(BaseModel):
     description: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    registration_url: Optional[str] = None
     landing_url: Optional[str] = None
     landing_template: Optional[str] = None
     # chat_url, stream_url, vip_url пишутся в events, не conf_conferences —
@@ -271,9 +270,10 @@ async def get_conference(
     conf = await db.fetchrow(
         """
         SELECT cc.*, e.title as event_title,
-               e.chat_url   AS event_chat_url,
-               e.stream_url AS event_stream_url,
-               e.vip_url    AS event_vip_url
+               e.chat_url    AS event_chat_url,
+               e.stream_url  AS event_stream_url,
+               e.vip_url     AS event_vip_url,
+               e.landing_url AS event_landing_url
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
@@ -283,10 +283,13 @@ async def get_conference(
     if not conf:
         return {"conference": None}
     d = dict(conf)
-    # chat_url / stream_url / vip_url — единый источник истины events.
+    # chat_url / stream_url / vip_url / landing_url — единый источник истины events.
     d["chat_url"]   = d.pop("event_chat_url")   or d.get("chat_url") or ""
     d["stream_url"] = d.pop("event_stream_url") or ""
     d["vip_url"]    = d.pop("event_vip_url")    or ""
+    # event_landing_url — для шаблонов рассылок и превью; conf_conferences.landing_url
+    # (если осталось) — это устаревший шаблон встроенного лендинга, не путать.
+    d["event_landing_url"] = d.pop("event_landing_url") or ""
     return {"conference": d}
 
 
@@ -2259,14 +2262,18 @@ async def send_schedule_to_telegram(
     if not bot_token:
         raise HTTPException(status_code=400, detail="bot_token не настроен в профиле клиента")
 
-    # Данные конференции (для ссылки)
+    # Данные конференции (для ссылки). Лендинг = events.landing_url
+    # (после миграции 057), fallback на legacy getcourse_form_url.
     conf = await db.fetchrow(
-        "SELECT registration_url, getcourse_form_url FROM conf_conferences WHERE event_id = $1",
+        """SELECT e.landing_url, cc.getcourse_form_url
+             FROM events e
+             LEFT JOIN conf_conferences cc ON cc.event_id = e.id
+            WHERE e.id = $1""",
         event_id
     )
     conf_url = ""
     if conf:
-        conf_url = (conf["registration_url"] or conf["getcourse_form_url"] or "").strip()
+        conf_url = (conf["landing_url"] or conf["getcourse_form_url"] or "").strip()
 
     # Дни конференции
     days_db = await db.fetch(

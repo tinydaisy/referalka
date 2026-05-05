@@ -25,8 +25,12 @@ function detectClientIdFromPath(): number | null {
 }
 
 // Парсит startapp Telegram: "ref_pgivision-7_pid5725111966_srcinsta_cid1_live"
+// Флаг `_reg` — человек только что зарегистрировался на стороннем лендинге
+// клиента и редиректнулся обратно. Mini App тогда сразу ставит is_registered=true
+// (без формы) и показывает welcome-экран.
 function parseStartParam(raw: string): {
-  eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number; live?: boolean
+  eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number;
+  live?: boolean; regFromLanding?: boolean
 } {
   const r: any = {}
   raw.split('_').forEach(p => {
@@ -35,6 +39,7 @@ function parseStartParam(raw: string): {
     if (p.startsWith('src')) r.utmSource  = p.slice(3)
     if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
     if (p === 'live')        r.live       = true
+    if (p === 'reg')         r.regFromLanding = true
   })
   return r
 }
@@ -92,6 +97,7 @@ export default function App() {
   const [clientId, setClientId] = useState<number | null>(() => detectClientIdFromPath())
   const [partnerId, setPartnerId] = useState<string | undefined>()
   const [utmSource, setUtmSource] = useState<string | undefined>()
+  const [regFromLanding, setRegFromLanding] = useState<boolean>(false)
 
   useEffect(() => {
     const platform = detectPlatform()
@@ -110,6 +116,7 @@ export default function App() {
       if (parsed.clientId)  setClientId(parsed.clientId)
       setPartnerId(parsed.partnerId)
       setUtmSource(parsed.utmSource)
+      if (parsed.regFromLanding) setRegFromLanding(true)
     }
 
     // Live-метка: пользователь пришёл по публичной live-ссылке организатора —
@@ -164,6 +171,7 @@ export default function App() {
         tgUser={tgUser}
         partnerId={partnerId}
         utmSource={utmSource}
+        regFromLanding={regFromLanding}
         onBack={backToHub}
       />
     )

@@ -49,6 +49,11 @@ export const getParticipantCard = (slug: string, participantId: number, viewerTg
 export const activateParticipant = (id: number) =>
   req(`/api/v1/participants/${id}/activate`, { method: 'POST' })
 
+// Welcome-экран после первой регистрации (миграция 057). Mini App вызывает
+// один раз — после показа экрана-поздравления. Дальше welcome не показывается.
+export const markParticipantWelcomed = (id: number) =>
+  req(`/api/v1/participants/${id}/welcomed`, { method: 'POST' })
+
 // ── Подарки и программа ──
 export const getGifts = (slug: string) =>
   req(`/api/v1/events/slug/${slug}/gifts/`)

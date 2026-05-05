@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
+import ExternalLandingBlock from '@/components/ExternalLandingBlock'
 
 export default function OverviewTab({
   event, eventId, onReload,
@@ -91,10 +92,11 @@ export default function OverviewTab({
                    className="input" placeholder="https://t.me/+abc123..." />
           </Field>
 
-          <Field label="URL лендинга" hint="Если у вас есть отдельная страница события на сайте">
-            <input value={landingUrl} onChange={e => setLandingUrl(e.target.value)}
-                   className="input" placeholder="https://yoursite.com/event" />
-          </Field>
+          <ExternalLandingBlock
+            slug={event?.slug}
+            value={landingUrl}
+            onChange={setLandingUrl}
+          />
         </div>
 
         {err && <div className="mt-4 text-sm text-red-600">{err}</div>}

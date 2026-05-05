@@ -18,14 +18,14 @@ const TYPE_DEFS: TypeDef[] = [
     type: 'pre_conf',
     title: 'Анонс знакомства со спикерами',
     hint: 'Отправляется за день до старта. Рассказывает о конференции и призывает зарегистрироваться. Фото — горизонтальная афиша.',
-    variables: ['{conf_title}', '{conf_date}', '{conf_description}', '{registration_url}'],
+    variables: ['{conf_title}', '{conf_date}', '{conf_description}', '{landing_url}'],
     showPhoto: true,
   },
   {
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}', '{registration_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -49,7 +49,7 @@ const TYPE_DEFS: TypeDef[] = [
     type: 'day_start_30min_unreg',
     title: 'День конференции — за 2 часа (не зарегистрирован)',
     hint: 'Для тех, кто ещё не зарегистрирован. Кнопка и ссылка — на лендинг регистрации. Фото — горизонтальная афиша.',
-    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{registration_url}'],
+    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{landing_url}'],
     showPhoto: true,
   },
   {
@@ -92,7 +92,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{gift_title}', desc: 'Название подарка (из поля «Подарок» сессии)' },
   { name: '{gift_url}', desc: 'Ссылка на подарок' },
   { name: '{stream_url}', desc: 'Ссылка на эфир (вебинарная комната дня)' },
-  { name: '{registration_url}', desc: 'Ссылка на лендинг регистрации' },
+  { name: '{landing_url}', desc: 'Ссылка на лендинг регистрации' },
   { name: '{conf_title}', desc: 'Название конференции' },
   { name: '{day_number}', desc: 'Номер дня (1, 2, 3…)' },
   { name: '{day_ordinal}', desc: 'Номер дня словом (первом, втором…)' },
@@ -133,7 +133,7 @@ const emptyForm = {
 const CUSTOM_PLACEHOLDERS = [
   '{conf_title}', '{conf_date}', '{conf_description}',
   '{day_number}', '{day_date}', '{day_program}',
-  '{stream_url}', '{registration_url}', '{raffle_url}',
+  '{stream_url}', '{landing_url}', '{raffle_url}',
   '{first_name}',
 ]
 
@@ -395,7 +395,7 @@ export default function TemplatesPage() {
           .replace(/\{speaker_achievements\}/g, achText)
           .replace(/\{gift_after_speech_title\}/g, giftTitle)
           .replace(/\{gift_raffle_title\}/g, giftRaffle)
-          .replace(/\{registration_url\}/g, confData?.registration_url || '')
+          .replace(/\{landing_url\}/g, confData?.event_landing_url || '')
         if (tgChannel) out = out.replace(/\{speaker_tg\}/g, `<b>Тг канал:</b> ${tgChannel}`)
         if (insta) out = out.replace(/\{speaker_instagram\}/g, `<b>Нельзяграм:</b> ${insta}`)
 
@@ -449,7 +449,7 @@ export default function TemplatesPage() {
     const d = day ?? testDay
     const dayObj = confDaysData.find((x: any) => x.day_number === d)
     const realStreamUrl = dayObj?.stream_url || ''
-    const realRegUrl = confData?.registration_url || ''
+    const realRegUrl = confData?.event_landing_url || ''
     const realConfTitle = confData?.event_title || confData?.title || '[Название конференции]'
     const realDayDate = dayObj?.day_date
       ? new Date(dayObj.day_date + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
@@ -545,7 +545,7 @@ export default function TemplatesPage() {
       .replace(/\{raffle_url\}/g, realRaffleUrl || '🔗 [ссылка на розыгрыш]')
       .replace(/\{day_speakers_gifts\}/g, daySpeakersGifts)
       .replace(/\{stream_url\}/g, realStreamUrl || '🔗 [ссылка на эфир]')
-      .replace(/\{registration_url\}/g, realRegUrl || '🔗 [ссылка на регистрацию]')
+      .replace(/\{landing_url\}/g, realRegUrl || '🔗 [ссылка на регистрацию]')
       .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
       .replace(/\{gift_title\}/g, '[название подарка]')
       .replace(/\{gift_after_speech_title\}/g, '[подарок на эфире]')
@@ -1017,7 +1017,7 @@ export default function TemplatesPage() {
                   <label className="text-xs text-gray-500 mb-1 block">Ссылка кнопки</label>
                   <input value={(form as any).button_url}
                     onChange={e => setForm({ ...form, button_url: e.target.value })}
-                    placeholder="{registration_url} или https://..."
+                    placeholder="{landing_url} или https://..."
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none font-mono" />
                 </div>
               </div>

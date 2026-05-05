@@ -94,7 +94,7 @@ DEFAULT_TEMPLATES = [
         ),
         "photo_url": None,
         "button_text": "Зарегистрироваться",
-        "button_url": "{registration_url}",
+        "button_url": "{landing_url}",
         "schedule_mode": "custom_datetime",
         "offset_minutes": 0,
         "audience_include": "all_client",
@@ -150,12 +150,12 @@ DEFAULT_TEMPLATES = [
             "🎁 <b>На эфире подарит:</b> {gift_after_speech_title}\n\n"
             "🏆 <b>Подарок для большого розыгрыша:</b> {gift_raffle_title}\n\n"
             "<b>Если вы ещё не зарегистрированы — вы ещё успеваете это сделать</b>\n"
-            "🔗 {registration_url} \n\n"
+            "🔗 {landing_url} \n\n"
             "<b>Жмите на кнопку</b>"
         ),
         "photo_url": None,
         "button_text": "Зарегистрироваться",
-        "button_url": "{registration_url}",
+        "button_url": "{landing_url}",
         "schedule_mode": "custom_datetime",
         "offset_minutes": 0,
         "audience_include": "all_client",
@@ -167,18 +167,18 @@ DEFAULT_TEMPLATES = [
         "type": "day_start_30min_unreg",
         "text": (
             "<b>[Последний шанс зарегистрироваться] Через 2 часа стартует День {day_number} конференции «{conf_title}»</b>\n\n"
-            "🔗 {registration_url} \n\n"
+            "🔗 {landing_url} \n\n"
             "Сегодня в программе:\n\n"
             "{day_date}\n\n"
             "{day_program}\n\n"
             "Нажимай на кнопку «Зарегистрироваться», чтобы попасть в вебинарную комнату.\n"
-            "🔗 {registration_url}\n\n"
+            "🔗 {landing_url}\n\n"
             "—\n"
             "При возникновении технических трудностей пишите — @forbs_service2"
         ),
         "photo_url": None,
         "button_text": "Зарегистрироваться",
-        "button_url": "{registration_url}",
+        "button_url": "{landing_url}",
         "schedule_mode": "day_offset",
         "offset_minutes": 120,
         "audience_include": "all_client",
