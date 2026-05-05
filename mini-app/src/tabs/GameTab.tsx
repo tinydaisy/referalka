@@ -47,7 +47,16 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   const visited     = participant?.visited_count    ?? participant?.referrals_count ?? 0
   const registered  = participant?.registered_count ?? participant?.points_total    ?? 0
   const myRank      = participant?.my_rank
-  const refLink = `${APP_URL}/l/${slug}?app=tg&pid=${refCode}`
+  // Партнёрская ссылка ведёт прямо в Telegram-бот, через который работает клиент.
+  // VIP-клиент c собственным ботом → t.me/{bot_handle}?startapp=ref_pg{slug}_pid{ref_code}
+  // Без своего бота → общий t.me/pluson_bot/pluson?startapp=...
+  // Раньше использовалась web-ссылка APP_URL/l/{slug}?app=tg&pid=... — она работала,
+  // но добавляла лишний промежуточный переход через наш сайт.
+  const botHandle = (event?.client_bot_handle || '').trim()
+  const startapp  = `ref_pg${slug}_pid${refCode}`
+  const refLink = botHandle
+    ? `https://t.me/${botHandle}?startapp=${startapp}`
+    : `https://t.me/pluson_bot/pluson?startapp=${startapp}`
 
   // Загружаем подарки → понимаем «следующий» по порогу
   useEffect(() => {
