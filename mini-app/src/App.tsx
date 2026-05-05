@@ -3,6 +3,7 @@ import Hub from './pages/Hub'
 import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
+import SpinnerOverlay from './components/SpinnerOverlay'
 import { detectPlatform, type PlatformName } from './platform'
 
 /*
@@ -98,6 +99,9 @@ export default function App() {
   const [partnerId, setPartnerId] = useState<string | undefined>()
   const [utmSource, setUtmSource] = useState<string | undefined>()
   const [regFromLanding, setRegFromLanding] = useState<boolean>(false)
+  // pendingOpen — на время fetch /landing-redirect показываем LoadingScreen,
+  // чтобы пользователь видел что клик принят (а не «ничего не происходит»).
+  const [pendingOpen, setPendingOpen] = useState<boolean>(false)
 
   useEffect(() => {
     const platform = detectPlatform()
@@ -156,8 +160,10 @@ export default function App() {
   // у бэка — нет ли редиректа на сторонний лендинг клиента. Если есть —
   // window.location.replace сразу, без рендера EventPage и без заглушки.
   // Если нет — обычный flow (pushState + setEventSlug → EventPage).
+  // На время fetch показываем LoadingScreen — иначе кажется, что клик не сработал.
   // См. documentation/MINI-APP-WEBVIEW-REDIRECT.md
   async function openEvent(slug: string) {
+    setPendingOpen(true)
     try {
       const tgId = tgUser?.id ? String(tgUser.id) : ''
       const qs = new URLSearchParams()
@@ -170,12 +176,13 @@ export default function App() {
         const data = await res.json()
         if (data && data.redirect_url) {
           window.location.replace(data.redirect_url)
-          return
+          return  // не сбрасываем pendingOpen — webview уже уплывает
         }
       }
     } catch (_) { /* offline / 5xx — fallback на обычный flow */ }
     window.history.pushState({}, '', eventPath(clientId, slug))
     setEventSlug(slug)
+    setPendingOpen(false)
   }
 
   function backToHub() {
@@ -187,14 +194,17 @@ export default function App() {
 
   if (eventSlug) {
     return (
-      <EventPage
-        slug={eventSlug}
-        tgUser={tgUser}
-        partnerId={partnerId}
-        utmSource={utmSource}
-        regFromLanding={regFromLanding}
-        onBack={backToHub}
-      />
+      <>
+        <EventPage
+          slug={eventSlug}
+          tgUser={tgUser}
+          partnerId={partnerId}
+          utmSource={utmSource}
+          regFromLanding={regFromLanding}
+          onBack={backToHub}
+        />
+        {pendingOpen && <SpinnerOverlay />}
+      </>
     )
   }
 
@@ -202,7 +212,17 @@ export default function App() {
   // - в боте клиента (есть `?cid=…` или startapp с `_cid…`) → Hub этого клиента
   // - в общем @pluson_bot → HubSelector (список событий участника)
   if (clientId) {
-    return <Hub clientId={clientId} tgUser={tgUser} onOpenEvent={openEvent} />
+    return (
+      <>
+        <Hub clientId={clientId} tgUser={tgUser} onOpenEvent={openEvent} />
+        {pendingOpen && <SpinnerOverlay />}
+      </>
+    )
   }
-  return <HubSelector tgUser={tgUser} onOpenEvent={openEvent} />
+  return (
+    <>
+      <HubSelector tgUser={tgUser} onOpenEvent={openEvent} />
+      {pendingOpen && <SpinnerOverlay />}
+    </>
+  )
 }
