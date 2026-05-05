@@ -29,7 +29,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import Script from 'next/script'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
@@ -38,6 +38,15 @@ const FALLBACK_TG_URL = 'https://t.me/pluson_bot/pluson'
 export default function RegisteredReturnPage() {
   const { slug: rawSlug } = useParams()
   const slug = String(rawSlug || '')
+  const sp = useSearchParams()
+  // Опциональные данные из конструктора лендинга (GetCourse, Tilda и т.п.)
+  // Передаются клиентом в редиректе: /r/{slug}?email={email}&phone={phone}&first_name={first_name}
+  const qEmail     = sp.get('email')      || ''
+  const qPhone     = sp.get('phone')      || ''
+  const qFirstName = sp.get('first_name') || sp.get('firstname') || sp.get('name') || ''
+  const qLastName  = sp.get('last_name')  || sp.get('lastname')  || sp.get('surname') || ''
+  const qPid       = sp.get('pid')        || sp.get('partner_id') || ''
+  const qUtmSource = sp.get('utm_source') || ''
   const [status, setStatus] = useState<'loading' | 'ok' | 'fallback' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState<string>('')
 
@@ -67,8 +76,9 @@ export default function RegisteredReturnPage() {
         return
       }
 
-      // Регистрируем без email/phone — данные у клиента, мы их пока не знаем.
-      // Webhook от клиента — отдельная фича на будущее.
+      // Регистрация. Email/phone/имя — из query-параметров конструктора (если
+      // клиент их передал) либо из Telegram-профиля. Если ни там ни там
+      // нет — регаем по tg_id, контакт без email/phone.
       try {
         const resp = await fetch(`${API_URL}/api/v1/participants/register`, {
           method: 'POST',
@@ -77,8 +87,12 @@ export default function RegisteredReturnPage() {
             event_slug: slug,
             tg_id: user.id,
             username: user.username || '',
-            first_name: user.first_name || '',
-            last_name:  user.last_name  || '',
+            first_name: qFirstName || user.first_name || '',
+            last_name:  qLastName  || user.last_name  || '',
+            email: qEmail || undefined,
+            phone: qPhone || undefined,
+            ref_code:   qPid       || undefined,
+            utm_source: qUtmSource || undefined,
           }),
         })
         if (!resp.ok && resp.status !== 409 /* already registered */) {

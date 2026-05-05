@@ -78,16 +78,25 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
             </button>
           </div>
 
-          <div className="mt-3 rounded-lg bg-red-50 border border-red-200 p-2.5">
-            <p className="text-[11px] font-bold text-red-800 mb-1">
-              ⚠️ Важно: вставьте ссылку как есть
+          <div className="mt-3 rounded-lg bg-blue-50 border border-blue-200 p-2.5">
+            <p className="text-[11px] font-bold text-blue-900 mb-1">
+              💡 Можно сразу передать email/телефон/имя
             </p>
-            <p className="text-[11px] text-red-700 leading-relaxed">
-              Не добавляйте к ней свои параметры через <code className="bg-white px-1 rounded">?</code> или <code className="bg-white px-1 rounded">&</code>
-              {' '}(например <code className="bg-white px-1 rounded">?email=...</code>, <code className="bg-white px-1 rounded">{'{first_name}'}</code> и т.п.)
-              — Telegram такие ссылки отклоняет с ошибкой «Произошла ошибка». Если
-              нужно передать в ПЛЮСОН данные регистрации (email, телефон) — используйте
-              webhook на стороне вашего конструктора.
+            <p className="text-[11px] text-blue-800 leading-relaxed mb-1.5">
+              Допишите параметры через <code className="bg-white px-1 rounded">?</code> и <code className="bg-white px-1 rounded">&</code>{' '}
+              — мы создадим контакт сразу с этими данными, без отдельного webhook.
+              GetCourse/Tilda сами подставят значения вместо плейсхолдеров:
+            </p>
+            <code className="block text-[10px] text-blue-900 font-mono bg-white px-2 py-1.5 rounded break-all leading-relaxed">
+              {redirectUrl}?email={'{email}'}&phone={'{phone}'}&first_name={'{first_name}'}
+            </code>
+            <p className="text-[10px] text-blue-700 mt-1.5 leading-relaxed">
+              Поддерживаемые параметры: <code className="bg-white px-1 rounded">email</code>,{' '}
+              <code className="bg-white px-1 rounded">phone</code>,{' '}
+              <code className="bg-white px-1 rounded">first_name</code>,{' '}
+              <code className="bg-white px-1 rounded">last_name</code>,{' '}
+              <code className="bg-white px-1 rounded">pid</code> (партнёрский код),{' '}
+              <code className="bg-white px-1 rounded">utm_source</code>.
             </p>
           </div>
         </div>

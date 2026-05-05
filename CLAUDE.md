@@ -117,12 +117,34 @@ iOS блокирует второе как popup без user-gesture.
 - [App.tsx](mini-app/src/App.tsx) парсит `regFromLanding`
 - [EventPage.tsx](mini-app/src/pages/EventPage.tsx) при `regFromLanding=true && !is_registered` автоматически вызывает `/participants/register` без email/phone (данные у клиента, мы их пока не знаем — webhook от клиента отдельная фича на будущее)
 
-**Welcome-экран** ([WelcomePage.tsx](mini-app/src/components/WelcomePage.tsx)):
+**Welcome-экран как отдельная вкладка «Интро»** ([WelcomePage.tsx](mini-app/src/components/WelcomePage.tsx)):
 - Колонка `event_participants.welcomed_at TIMESTAMPTZ NULL` помечает что человек уже видел экран
-- Показывается ОДИН раз — когда `is_registered=true && welcomed_at IS NULL`
+- Welcome — **отдельная вкладка** «Интро» в нижней навигации (первая, с иконкой checkmark в круге). Показывается зарегистрированному с `welcomed_at IS NULL` и автоматически открыта по умолчанию.
 - Содержит: поздравление, кнопку «Войти в чат» (если `event.chat_url` заполнен), плитки с объяснением вкладок Программа/Игра/Розыгрыш/Экосистема, кнопку «Перейти к программе»
-- POST `/api/v1/participants/{id}/welcomed` ставит `welcomed_at = now()` — больше не показывается
-- Иконки ⓘ для возврата к экрану нет — повторно не показываем
+- При уходе с вкладки «Интро» на любую другую — POST `/api/v1/participants/{id}/welcomed` ставит `welcomed_at = now()`, вкладка **исчезает** из навигации навсегда (`filterByEnabled` фильтрует welcome по `welcomed_at`).
+- Не показываем повторно — только сразу после первой регистрации.
+
+### Возврат с лендинга — один webview через /r/{slug} (05.05.2026)
+
+**Проблема:** клиент в редирект после регистрации на Tilda/GetCourse ставил `t.me/.../?startapp=ref_pg{slug}_reg`. iOS перехватывал t.me как universal link → Telegram открывал **новое** Mini App окно поверх старого webview с лендингом → у юзера фантом-окно (закрывает Mini App, попадает на «висящий» лендинг).
+
+**Решение:** промежуточная Next.js-страница [`/r/[slug]/page.tsx`](web/src/app/r/[slug]/page.tsx). Клиент в редирект ставит `https://pluson.ru/r/{slug}` ВМЕСТО t.me-ссылки. Эта страница:
+1. Загружается **в том же webview** (не t.me universal link → нет нового окна)
+2. Имеет доступ к `Telegram.WebApp` (объект инжектится при открытии webview как Mini App, переживает навигацию)
+3. POST `/participants/register` с tg_id из `initDataUnsafe.user.id` + опциональными email/phone/имя из query
+4. `window.location.replace('/tg/event/{slug}')` — Mini App в **том же** webview → видит `welcomed_at IS NULL` → автоматически открывает «Интро»
+
+**Поддерживаемые query-параметры** (опционально, для передачи данных регистрации без webhook):
+```
+https://pluson.ru/r/{slug}?email={email}&phone={phone}&first_name={first_name}&last_name={last_name}&pid={partner_id}&utm_source={utm}
+```
+GetCourse/Tilda сами подставляют `{email}` и т.п. при редиректе. Если параметры не переданы — регаемся по `tg_id` без email/phone (контакт без них).
+
+**Fallback:** если `Telegram.WebApp` недоступен (страница открыта в обычном браузере) — `/r/{slug}` редиректит на `t.me/pluson_bot/pluson?startapp=ref_pg{slug}_reg` (старое поведение, два окна). Срабатывает только в edge-кейсе.
+
+**Где документировано клиентам:** дашборд → событие → «Подключение стороннего лендинга» ([`ExternalLandingBlock.tsx`](web/src/components/ExternalLandingBlock.tsx)).
+
+**ВАЖНО:** не использовать в новых фичах редирект клиента напрямую на `t.me/.../?startapp=..._reg` — только через `/r/{slug}`. Подробности — [memory/project_landing_return_one_webview.md](memory/project_landing_return_one_webview.md).
 
 ### Время программы — строки "HH:MM" + " МСК" везде (миграция 048 от 28.04.2026)
 
