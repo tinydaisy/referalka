@@ -167,10 +167,11 @@ export default function ResultsTab({ event, participant, onOpenEvent }: Props) {
               {formatEndDate(successor.start_at)}
             </div>
           )}
-          <a href={`/event/${successor.slug}`} style={{
+          <a href={`/event/${successor.slug}`} onClick={gotoSuccessor} style={{
             display: 'block', background: DARK, color: PEACH,
             padding: 10, borderRadius: 10, textAlign: 'center',
             fontWeight: 700, fontSize: 13, textDecoration: 'none',
+            cursor: 'pointer',
           }}>Зарегистрироваться →</a>
         </div>
       )}
