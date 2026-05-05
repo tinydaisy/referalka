@@ -229,6 +229,7 @@ export default function App() {
           utmSource={utmSource}
           regFromLanding={regFromLanding}
           onBack={backToHub}
+          onOpenEvent={openEvent}
         />
         {pendingOpen && <SpinnerOverlay />}
       </>

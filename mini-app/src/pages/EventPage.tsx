@@ -20,6 +20,7 @@ interface Props {
   utmSource?: string
   regFromLanding?: boolean   // флаг `_reg` в startapp — вернулись с лендинга клиента
   onBack: () => void
+  onOpenEvent?: (slug: string) => void  // открыть другое событие (для блока «А дальше» в Итогах)
 }
 
 const NAV_NOT_REG: NavItem[] = [
@@ -62,7 +63,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromLanding, onBack }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromLanding, onBack, onOpenEvent }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -366,7 +367,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
         {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} />}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
-        {tab === 'results'   && <ResultsTab  event={event} participant={participant} />}
+        {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} />}
         {tab === 'calendar'  && event.client_id && <CalendarTab clientId={event.client_id} onOpenEvent={(s) => {
           const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
           window.location.assign(`${base}/event/${s}`)

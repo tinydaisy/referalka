@@ -1,6 +1,7 @@
 interface Props {
   event: any
   participant: any
+  onOpenEvent?: (slug: string) => void   // переход на следующее событие через App.tsx::openEvent
 }
 
 const PEACH = '#FFCFA4'
@@ -14,7 +15,7 @@ function formatEndDate(d: string | Date | null | undefined): string {
   return `${date.getDate()} ${months[date.getMonth()]}`
 }
 
-export default function ResultsTab({ event, participant }: Props) {
+export default function ResultsTab({ event, participant, onOpenEvent }: Props) {
   const successor = event?.successor
   const isConference = event?.module_slug === 'conference'
   const hasVip = !!event?.has_vip_tariff
@@ -22,6 +23,15 @@ export default function ResultsTab({ event, participant }: Props) {
 
   // Дата завершения
   const endDateLabel = formatEndDate(event?.end_at || event?.start_at)
+
+  // Клик «Зарегистрироваться» по карточке следующего события — та же логика
+  // что в Хабе: вызываем App.tsx::openEvent(slug). Он либо редиректит на
+  // лендинг клиента (window.location.replace), либо открывает встроенный
+  // лендинг события, либо переоткрывает в зарегистрированном состоянии.
+  function gotoSuccessor(e: React.MouseEvent) {
+    e.preventDefault()
+    if (successor?.slug && onOpenEvent) onOpenEvent(successor.slug)
+  }
 
   // ─── Вариант для НОВОГО участника (опоздал, не зарегистрирован) ───
   if (!isRegistered) {
@@ -64,10 +74,11 @@ export default function ResultsTab({ event, participant }: Props) {
                 {formatEndDate(successor.start_at)}
               </div>
             )}
-            <a href={`/event/${successor.slug}`} style={{
+            <a href={`/event/${successor.slug}`} onClick={gotoSuccessor} style={{
               display: 'block', background: DARK, color: PEACH,
               padding: 10, borderRadius: 10, textAlign: 'center',
               fontWeight: 700, fontSize: 13, textDecoration: 'none',
+              cursor: 'pointer',
             }}>Зарегистрироваться →</a>
           </div>
         )}
