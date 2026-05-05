@@ -221,12 +221,13 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
 
   // Авто-открытие стороннего лендинга клиента (миграция 057).
   // Если у события заполнено events.landing_url, а человек ещё не зарегистрирован —
-  // Mini App сразу открывает лендинг клиента во встроенном браузере Telegram.
-  // Проброс tg_id/pid/utm_source — чтобы клиент мог сматчить регистрацию с tg-аккаунтом.
-  // useRef-флаг (а не sessionStorage) — Telegram WebView на iOS может сохранять
-  // sessionStorage между запусками Mini App, тогда openLink стрельнет один раз
-  // и больше никогда. useRef живёт ровно в текущей жизни компонента и сбрасывается
-  // при следующем открытии Mini App.
+  // Mini App автоматически НАВИГИРУЕТ webview на лендинг клиента (window.location).
+  // Это работает на iOS без user-gesture (в отличие от Telegram.WebApp.openLink,
+  // который iOS блокирует как popup). После регистрации лендинг редиректит на
+  // t.me/{bot}/{app}?startapp=..._reg — Telegram перехватит и переоткроет Mini App.
+  // useRef-флаг (а не sessionStorage) — Telegram WebView может сохранять
+  // sessionStorage между запусками Mini App, тогда редирект стрельнет один раз
+  // и больше никогда. useRef живёт ровно в текущей жизни компонента.
   const landingOpenedRef = useRef(false)
   useEffect(() => {
     if (!event) return
@@ -245,12 +246,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     const sep = landingUrl.includes('?') ? '&' : '?'
     const fullUrl = landingUrl + sep + params.toString()
 
-    const tg = (window as any).Telegram?.WebApp
-    if (tg?.openLink) {
-      tg.openLink(fullUrl)
-    } else {
-      window.open(fullUrl, '_blank')
-    }
+    // Прямая навигация webview — не popup, iOS не блокирует.
+    window.location.href = fullUrl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event, loading, registered, ended])
 
@@ -285,9 +282,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // Клик по «Хочу участвовать»: если контакты этого человека уже есть
   // в базе клиента (email+phone) — регистрируем без формы, иначе показываем форму.
   async function handleWantParticipate() {
-    // Если у события заполнен сторонний лендинг — открываем его (клик по кнопке
-    // даёт возможность вернуться к лендингу, если человек закрыл встроенный
-    // браузер и вернулся в Mini App).
+    // Если у события заполнен сторонний лендинг — переходим на него навигацией
+    // webview (как в auto-useEffect выше). На iOS это работает без user-gesture
+    // ограничений и согласуется с авто-открытием.
     const landingUrl: string = (event?.landing_url || '').trim()
     if (landingUrl) {
       const params = new URLSearchParams()
@@ -297,11 +294,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       params.set('event_slug', slug)
       const sep = landingUrl.includes('?') ? '&' : '?'
       const fullUrl = landingUrl + sep + params.toString()
-      const tg = (window as any).Telegram?.WebApp
-      if (tg?.openLink) {
-        tg.openLink(fullUrl, { try_instant_view: false })
-        return
-      }
+      window.location.href = fullUrl
+      return
     }
 
     const canAutoRegister = !!(prefill?.email?.trim() && prefill?.phone?.trim())
