@@ -85,6 +85,20 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Авто-редирект внутри Mini App webview на iOS (рецепт)
+
+Если из Mini App нужно автоматически (без клика) перебросить webview
+на внешний URL — **только** через `window.location.replace(url)` (или
+`.href`), **не** через `Telegram.WebApp.openLink` или `window.open`.
+iOS блокирует второе как popup без user-gesture.
+
+Полный recipe с готовым кодом, минимальным backend-endpoint и обработкой
+возврата (флаг в startapp + защита от петли) — в
+[documentation/MINI-APP-WEBVIEW-REDIRECT.md](documentation/MINI-APP-WEBVIEW-REDIRECT.md).
+В этом проекте применяется в [mini-app/index.html](mini-app/index.html) для
+авто-перехода на сторонний лендинг клиента (`events.landing_url`) до
+рендера React-бандла.
+
 ### Лендинг события — единое поле `events.landing_url` + welcome-экран (миграция 057 от 04.05.2026)
 
 **Лендинг для всех типов событий** (мероприятие, конференция, и т.д.) хранится в одном поле `events.landing_url`. Это «URL стороннего лендинга клиента» — Tilda, GetCourse, Taplink, самописный на Vercel и т.п. Если поле заполнено, Mini App показывает лендинг клиента вместо встроенной страницы события.
