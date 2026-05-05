@@ -59,6 +59,16 @@
     // пользователь не видит наш встроенный лендинг-заглушку.
     // При флаге `_reg` (возврат с лендинга) — редирект НЕ делаем, нужно
     // прокрутить React и пометить is_registered=true.
+    //
+    // window.__redirectPending — флаг для синхронизации с App.tsx.
+    // Пока флаг true, React не рендерит контент (видит LoadingScreen).
+    // Когда fetch завершается — либо window.location.replace (Mini App
+    // уплывает), либо флаг снимается и React продолжает обычный flow.
+    if (eventSlug && !regFlag) {
+      window.__redirectPending = true;
+      // Safety: даже если бэк завис — через 3 сек разблокируем React.
+      setTimeout(function () { window.__redirectPending = false; }, 3000);
+    }
     function maybeRedirectToLanding() {
       if (!eventSlug || regFlag) return;
       try {
@@ -70,10 +80,13 @@
           .then(function (data) {
             if (data && data.redirect_url) {
               window.location.replace(data.redirect_url);
+              // Не снимаем флаг — webview уже уходит на лендинг клиента.
+            } else {
+              window.__redirectPending = false;
             }
           })
-          .catch(function () {});
-      } catch (e) {}
+          .catch(function () { window.__redirectPending = false; });
+      } catch (e) { window.__redirectPending = false; }
     }
 
     if (typeof twa.requestWriteAccess === 'function') {

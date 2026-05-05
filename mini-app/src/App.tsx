@@ -145,8 +145,30 @@ export default function App() {
     // ivision-conf bot.html. Здесь больше ничего по этому поводу не делаем.
 
     setTgUser(prev => prev || MOCK_USER)
-    const t = setTimeout(() => setLoading(false), 600)
-    return () => clearTimeout(t)
+
+    // Если inline-script в index.html запустил fetch на /landing-redirect и
+    // ещё не получил ответ — НЕ снимаем loading, чтобы React не отрендерил
+    // EventPage до redirect. Опрашиваем флаг каждые 50ms, фолбэк через
+    // 3.5 сек (страховка от зависшего бэка).
+    const minDelayMs = 600
+    const startTs = Date.now()
+    let cancelled = false
+    function tick() {
+      if (cancelled) return
+      const pending = (window as any).__redirectPending === true
+      const elapsed = Date.now() - startTs
+      if (!pending && elapsed >= minDelayMs) {
+        setLoading(false)
+        return
+      }
+      if (elapsed >= 3500) {
+        setLoading(false)
+        return
+      }
+      setTimeout(tick, 50)
+    }
+    tick()
+    return () => { cancelled = true }
   }, [])
 
   // ?? URL роутинг: popstate
