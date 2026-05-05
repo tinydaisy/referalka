@@ -32,6 +32,7 @@ const NAV_NOT_REG: NavItem[] = [
   { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem', locked: true },
 ]
 const NAV_REGISTERED: NavItem[] = [
+  { id: 'welcome',   label: 'Интро',      icon: 'welcome'   },
   { id: 'program',   label: 'Программа',  icon: 'program'   },
   { id: 'game',      label: 'Игра',       icon: 'game'      },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle'    },
@@ -98,13 +99,13 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
 
   // Обёртка над setTab: при каждом переходе перечитываем данные участника.
   // Reload без условий — счётчики/топ могли поменяться от чужих действий.
-  // Если участник ещё на welcome-экране — тап по любой вкладке снимает welcome
-  // (welcomed_at = now), чтобы дальше показывался контент вкладки, а не welcome.
   function setTab(next: string) {
     setTabState(next)
     setRefreshKey(k => k + 1)
     reloadParticipant()
-    if (participant?.id && participant?.welcomed_at == null) {
+    // При первом открытии вкладки «Интро» отмечаем welcomed_at = now() —
+    // дальше эта вкладка перестаёт быть стартовой по умолчанию.
+    if (next === 'welcome' && participant?.id && participant?.welcomed_at == null) {
       setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
       markParticipantWelcomed(participant.id).catch(() => { /* offline ok */ })
     }
@@ -174,16 +175,21 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
           })
           const reg = r?.participant || r
           if (!cancelled) setParticipant({ ...reg, is_registered: true })
-          if (!cancelled) setTabState('program')
+          // Только что зарегистрировался → стартовая вкладка = «Интро»
+          if (!cancelled) setTabState('welcome')
         } catch (_) { /* fallback на обычный flow — лендинг */ }
       } else if (ended) {
         setTabState('results')
       } else if (alreadyRegistered) {
         // initialTab из startapp (_tabgame, _tabraffle и т.п.) — приоритет над дефолтом.
         // Доступен только зарегистрированным; для нерег. остаётся landing.
-        const allowed = ['program', 'game', 'raffle', 'ecosystem']
+        const allowed = ['welcome', 'program', 'game', 'raffle', 'ecosystem']
         if (initialTab && allowed.includes(initialTab)) {
           setTabState(initialTab)
+        } else if (part?.participant?.welcomed_at == null) {
+          // Только что зарегистрировался (welcomed_at пуст) → «Интро» по умолчанию.
+          // После первого открытия welcomed_at проставится и дефолт станет «Программа».
+          setTabState('welcome')
         } else {
           setTabState('program')
         }
@@ -201,10 +207,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   const registered = !!participant?.is_registered
   const state: State = ended ? 'ended' : registered ? 'registered' : 'not_registered'
 
-  // Welcome-экран показываем один раз: только что зарегистрированному
-  // участнику, у которого welcomed_at пуст. После клика «Перейти к программе»
-  // ставим welcomed_at = now() и больше не показываем.
-  const showWelcome = registered && !ended && participant?.welcomed_at == null
+  // Welcome — отдельная вкладка «Интро» в нижней навигации (всегда доступна
+  // зарегистрированному участнику). По умолчанию открывается у тех, у кого
+  // welcomed_at пуст; после первого открытия дефолт переключается на «Программу».
 
   // Активность игры/розыгрыша определяется тогглами в дашборде клиента.
   // Если клиент не включил — соответствующая вкладка вообще не показывается.
@@ -363,7 +368,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       )}
 
       <div className="page">
-        {showWelcome && participant?.id ? (
+        {tab === 'welcome'   && registered && participant?.id && (
           <WelcomePage
             event={event}
             participantId={participant.id}
@@ -373,20 +378,17 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
               setTab('program')
             }}
           />
-        ) : (
-          <>
-            {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
-            {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} />}
-            {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
-            {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
-            {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} />}
-            {tab === 'calendar'  && event.client_id && <CalendarTab clientId={event.client_id} onOpenEvent={(s) => {
-              const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
-              window.location.assign(`${base}/event/${s}`)
-            }} />}
-            {tab === 'ecosystem' && event.client_id && <EcosystemTab clientId={event.client_id} />}
-          </>
         )}
+        {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
+        {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} />}
+        {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
+        {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
+        {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} />}
+        {tab === 'calendar'  && event.client_id && <CalendarTab clientId={event.client_id} onOpenEvent={(s) => {
+          const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+          window.location.assign(`${base}/event/${s}`)
+        }} />}
+        {tab === 'ecosystem' && event.client_id && <EcosystemTab clientId={event.client_id} />}
       </div>
 
       <BottomNav items={navItems} active={tab} onTab={setTab} />
