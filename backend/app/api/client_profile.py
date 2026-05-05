@@ -18,14 +18,15 @@
   PATCH /api/v1/client-offerings/{id}   — обновить продукт
   DELETE /api/v1/client-offerings/{id}  — удалить продукт
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import Optional, Any
 import asyncpg
 import json
 
-from app.database import get_db
+from app.database import get_db, get_pool
 from app.auth import get_current_client
+from app.services.event_welcome import send_event_open_message
 
 
 # ═══════════════════════════════════════════
@@ -251,6 +252,7 @@ async def public_raffle_settings(event_id: int, db: asyncpg.Connection = Depends
 )
 async def public_event_landing_redirect(
     slug: str,
+    background_tasks: BackgroundTasks,
     tg_id: Optional[int] = None,
     pid: Optional[str] = None,
     utm_source: Optional[str] = None,
@@ -319,6 +321,22 @@ async def public_event_landing_redirect(
     redirect_url = landing_url + sep + urlencode(qs)
     if external_ref_param:
         redirect_url += "&" + external_ref_param.lstrip("?&")
+
+    # При редиректе на сторонний лендинг React-bundle Mini App не запустится →
+    # POST /event не придёт. Шлём контекстное приветствие в бот сами,
+    # фоном — чтобы не задерживать ответ. tg_id обязателен (без него некому слать).
+    if tg_id is not None:
+        pool = await get_pool()
+        if pool:
+            background_tasks.add_task(
+                send_event_open_message,
+                pool,
+                tg_id=int(tg_id),
+                event_slug=slug,
+                client_id_hint=row["client_id"],
+                partner_id=pid or "",
+            )
+
     return {"redirect_url": redirect_url}
 
 
