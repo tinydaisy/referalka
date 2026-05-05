@@ -29,8 +29,9 @@ ROLE_LABELS_INTRO = {
 ORDINALS = {1: "первом", 2: "втором", 3: "третьем", 4: "четвёртом", 5: "пятом"}
 ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
 
-DAY_TYPES = ("day_start_30min_unreg", "day_start_30min_reg", "day_live", "day_end")
-SPEAKER_TYPES = ("gift", "speaker_intro", "pre_start")
+DAY_TYPES = ("2h_before_unreg", "2h_before_reg", "30min_before", "day_live", "day_end",
+             "day_before_09_12_unreg", "day_before_09_12_reg")
+SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before")
 CONF_TYPES = ("pre_conf",)
 
 
@@ -222,7 +223,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     btn_url = btn_url or ""
 
     if tpl_type in DAY_TYPES:
-        # Определяем номер дня по fire_at (МСК-дата дня в conf_days.day_date)
+        # Определяем номер дня по fire_at (МСК-дата дня в conf_days.day_date).
+        # Для НЕ-конференций conf_days отсутствует — день всегда 1.
         day = 1
         if fire_at:
             fire_local = fire_at.astimezone(ZoneInfo("Europe/Moscow"))
@@ -234,28 +236,35 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             if day_row:
                 day = day_row["day_number"]
 
+        # JOIN conf_conferences — LEFT, чтобы не-конференции тоже отдавали title/dates.
+        # day_date берём из conf_days (если конференция) или из events.start_at (МСК).
         conf_row = await conn.fetchrow(
             """
             SELECT e.title as conf_title,
+                   e.module_slug,
                    e.landing_url AS registration_url,
                    cc.raffle_url,
-                   e.stream_url, cd.day_date
+                   e.stream_url,
+                   COALESCE(cd.day_date,
+                            (e.start_at AT TIME ZONE 'Europe/Moscow')::date) AS day_date
             FROM events e
-            JOIN conf_conferences cc ON cc.event_id = e.id
+            LEFT JOIN conf_conferences cc ON cc.event_id = e.id
             LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = $2
             WHERE e.id = $1
             """,
             event_id, day
         )
         conf_title = (conf_row["conf_title"] or "") if conf_row else ""
+        is_conference = (conf_row["module_slug"] == "conference") if conf_row else False
         stream_url = (conf_row["stream_url"] or "") if conf_row else ""
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
-        day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else f"День {day}"
+        day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else (f"День {day}" if is_conference else "")
         if not photo:
             photo = await get_default_event_photo(conn, event_id)
 
+        # Программа дня — только у конференций. У мероприятий conf_sessions пуст.
         day_sessions = await conn.fetch(
             """
             SELECT cs.start_time, cs.end_time, cs.title as session_title,
@@ -267,7 +276,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             ORDER BY cs.sort_order, cs.start_time
             """,
             event_id, day
-        )
+        ) if is_conference else []
         program_lines = []
         for s in day_sessions:
             t_start = _fmt_time(s["start_time"])
@@ -389,7 +398,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                            .replace("{landing_url}", reg_url)
                            .replace("{registration_url}", reg_url))
 
-    elif tpl_type in ("pre_start", "gift"):
+    elif tpl_type in ("5min_before", "gift"):
         session_data = {}
         if session_id:
             session = await conn.fetchrow(
@@ -423,7 +432,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 session_data.get("gift_url"),
                 tmpl_text=tmpl_text,
             )
-        else:  # pre_start
+        else:  # 5min_before
             text = build_pre_start_message(
                 text,
                 session_data.get("speaker_name"),

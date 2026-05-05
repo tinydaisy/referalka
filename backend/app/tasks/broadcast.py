@@ -231,6 +231,44 @@ async def _send_broadcast(schedule_id: int):
             )
             name_by_tg = {r["platform_user_id"]: r["first_name"] for r in name_rows}
 
+        # {game_link} — индивидуальная ссылка на вкладку «Игра» события для каждого
+        # получателя. Формат: t.me/{бот_клиента_или_pluson}?startapp=ref_pg{slug}_tabgame_pid{ref_code}
+        # Подставляется и в text, и в button_url.
+        needs_game_link = "{game_link}" in (text or "") or "{game_link}" in (button_url or "")
+        game_link_by_tg: dict[str, str] = {}
+        event_slug_for_glink = ""
+        glink_bot_url = ""
+        if needs_game_link:
+            ev_row = await conn.fetchrow("SELECT slug FROM events WHERE id=$1", event_id)
+            event_slug_for_glink = (ev_row["slug"] if ev_row else "") or ""
+            # Бот клиента (VIP) или общий @pluson_bot/pluson
+            bot_handle = await conn.fetchval(
+                """SELECT REGEXP_REPLACE(handle, '^@', '')
+                     FROM channels
+                    WHERE client_id=$1 AND platform_slug='telegram'
+                      AND is_active=true AND bot_token IS NOT NULL
+                    LIMIT 1""",
+                schedule["client_id"]
+            )
+            glink_bot_url = (f"https://t.me/{bot_handle}" if bot_handle
+                             else "https://t.me/pluson_bot/pluson")
+            if final_ids:
+                ref_rows = await conn.fetch(
+                    """
+                    SELECT pu.platform_user_id, c.ref_code
+                      FROM platform_users pu
+                      JOIN contacts c ON c.id = pu.contact_id
+                     WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram'
+                       AND pu.platform_user_id = ANY($2::text[])
+                    """,
+                    schedule["client_id"], list(final_ids)
+                )
+                for r in ref_rows:
+                    rc = r["ref_code"] or ""
+                    game_link_by_tg[r["platform_user_id"]] = (
+                        f"{glink_bot_url}?startapp=ref_pg{event_slug_for_glink}_tabgame_pid{rc}"
+                    )
+
         # Карта «через какой канал слать конкретному получателю».
         # Пустая запись ⇒ fallback на default_bot_token (главный/единственный канал клиента).
         target_by_tg = await get_telegram_send_targets(
@@ -244,13 +282,22 @@ async def _send_broadcast(schedule_id: int):
         async def send_one(tg_id: str, http_client: httpx.AsyncClient):
             async with sem:
                 msg_text = text
+                msg_btn_url = button_url
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
+                if needs_game_link:
+                    glink = game_link_by_tg.get(
+                        tg_id,
+                        f"{glink_bot_url}?startapp=ref_pg{event_slug_for_glink}_tabgame"
+                    )
+                    msg_text = msg_text.replace("{game_link}", glink)
+                    if msg_btn_url:
+                        msg_btn_url = msg_btn_url.replace("{game_link}", glink)
                 target = target_by_tg.get(tg_id) or {}
                 token = target.get("bot_token") or default_bot_token
                 channel_id = target.get("channel_id")
                 ok, err = await send_telegram_message(
-                    http_client, token, tg_id, msg_text, photo_url, button_text, button_url,
+                    http_client, token, tg_id, msg_text, photo_url, button_text, msg_btn_url,
                     buttons=buttons
                 )
                 return tg_id, channel_id, (ok, err)

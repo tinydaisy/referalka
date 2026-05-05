@@ -30,11 +30,18 @@ const TYPE_DEFS: TypeDef[] = [
     showPhoto: true,
   },
   {
-    type: 'pre_start',
-    title: 'Анонс спикера',
-    hint: 'Отправляется за 5 минут до начала выступления. Фото — афиша спикера.',
+    type: '5min_before',
+    title: 'За 5 минут до старта',
+    hint: 'Отправляется за 5 минут до начала выступления (конф) или до старта мероприятия. Фото — афиша спикера/события.',
     variables: ['{speaker_name}', '{speaker_topic}', '{stream_url}'],
     hasSpeaker: true,
+    showPhoto: true,
+  },
+  {
+    type: '30min_before',
+    title: 'За 30 минут до старта',
+    hint: 'Общий шаблон: за 30 минут до старта дня конференции или до старта мероприятия. Кнопка → ссылка на эфир.',
+    variables: ['{conf_title}', '{stream_url}', '{day_date}'],
     showPhoto: true,
   },
   {
@@ -46,17 +53,31 @@ const TYPE_DEFS: TypeDef[] = [
     showPhoto: false,
   },
   {
-    type: 'day_start_30min_unreg',
-    title: 'День конференции — за 2 часа (не зарегистрирован)',
+    type: '2h_before_unreg',
+    title: 'За 2 часа (не зарегистрирован)',
     hint: 'Для тех, кто ещё не зарегистрирован. Кнопка и ссылка — на лендинг регистрации. Фото — горизонтальная афиша.',
     variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{landing_url}'],
     showPhoto: true,
   },
   {
-    type: 'day_start_30min_reg',
-    title: 'День конференции — за 2 часа (зарегистрирован)',
-    hint: 'Для уже зарегистрированных участников. Кнопка и ссылка — на вебинарную комнату дня. Фото — горизонтальная афиша.',
-    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{stream_url}'],
+    type: '2h_before_reg',
+    title: 'За 2 часа (зарегистрирован)',
+    hint: 'Для уже зарегистрированных. Эфира ещё нет — лучше предложить позвать друзей через свой партнёрский кабинет ({game_link}).',
+    variables: ['{conf_title}', '{day_number}', '{day_date}', '{day_program}', '{game_link}', '{stream_url}'],
+    showPhoto: true,
+  },
+  {
+    type: 'day_before_09_12_unreg',
+    title: 'За сутки в 09:12 МСК (не зарегистрирован)',
+    hint: 'Только для мероприятий. За сутки до events.start_at в 09:12 МСК. Кнопка → ссылка на лендинг регистрации.',
+    variables: ['{conf_title}', '{landing_url}'],
+    showPhoto: true,
+  },
+  {
+    type: 'day_before_09_12_reg',
+    title: 'За сутки в 09:12 МСК (зарегистрирован)',
+    hint: 'Только для мероприятий. За сутки до events.start_at в 09:12 МСК. Кнопка → партнёрский кабинет ({game_link}).',
+    variables: ['{conf_title}', '{game_link}'],
     showPhoto: true,
   },
   {
@@ -102,6 +123,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{raffle_url}', desc: 'Ссылка на розыгрыш' },
   { name: '{day_speakers_gifts}', desc: 'Список подарков спикеров за день' },
   { name: '{first_name}', desc: 'Имя получателя (персонализация)' },
+  { name: '{game_link}', desc: 'Личная ссылка получателя на вкладку «Игра» события (партнёрский кабинет)' },
 ]
 
 const INCLUDE_LABELS: Record<string, string> = {
@@ -124,7 +146,7 @@ function audienceLabel(inc: string, exc: string): string {
 }
 
 const emptyForm = {
-  name: '', type: 'pre_start', text: '', photo_url: '',
+  name: '', type: '5min_before', text: '', photo_url: '',
   button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
   intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
   custom_day_ref: '', custom_time: '12:00',
@@ -314,7 +336,7 @@ export default function TemplatesPage() {
     setTestSending(true)
     setTestResult(null)
     try {
-      const ALL_DAYS_TYPES = ['day_start_30min_unreg', 'day_start_30min_reg', 'day_live', 'day_end']
+      const ALL_DAYS_TYPES = ['2h_before_unreg', '2h_before_reg', 'day_live', 'day_end']
       const SINGLE_DAY_TYPES: string[] = []
       const isDayAllType = ALL_DAYS_TYPES.includes(testModal.def.type)
       const isDaySingleType = SINGLE_DAY_TYPES.includes(testModal.def.type)
@@ -1077,7 +1099,7 @@ export default function TemplatesPage() {
             </div>
 
             {/* Выбор дня — только для дневных шаблонов */}
-            {confDays.length > 1 && !['pre_conf', 'speaker_intro', 'pre_start', 'gift'].includes(previewModal.def.type) && (
+            {confDays.length > 1 && !['pre_conf', 'speaker_intro', '5min_before', 'gift'].includes(previewModal.def.type) && (
               <div className="mb-3">
                 <label className="text-xs text-gray-500 mb-1.5 block">День конференции</label>
                 <div className="flex gap-2">
@@ -1170,15 +1192,15 @@ export default function TemplatesPage() {
               <button onClick={() => setTestModal(null)}><X size={18} /></button>
             </div>
 
-            {['pre_conf', 'gift', 'speaker_intro', 'pre_start', 'day_start_30min_unreg', 'day_start_30min_reg', 'day_live', 'day_end'].includes(testModal.def.type) ? (
+            {['pre_conf', 'gift', 'speaker_intro', '5min_before', '2h_before_unreg', '2h_before_reg', 'day_live', 'day_end'].includes(testModal.def.type) ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
                   {testModal.def.type === 'pre_conf' && 'Отправит анонс знакомства со спикерами с горизонтальной афишей, описанием конференции и ссылкой на регистрацию на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'gift' && 'Отправит сообщения о подарке для каждого спикера выбранного дня (по порядку программы) на тестовые Telegram ID из настроек.'}
                   {testModal.def.type === 'speaker_intro' && 'Отправит «Знакомство со спикером» для каждого спикера выбранного дня (с фото афиши) на тестовые Telegram ID из настроек.'}
-                  {testModal.def.type === 'pre_start' && 'Отправит «Анонс спикера» для каждого спикера выбранного дня (с реальной ссылкой на эфир и фото) на тестовые Telegram ID из настроек.'}
-                  {testModal.def.type === 'day_start_30min_unreg' && `Отправит сообщение для незарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
-                  {testModal.def.type === 'day_start_30min_reg' && `Отправит сообщение для зарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
+                  {testModal.def.type === '5min_before' && 'Отправит «Анонс спикера» для каждого спикера выбранного дня (с реальной ссылкой на эфир и фото) на тестовые Telegram ID из настроек.'}
+                  {testModal.def.type === '2h_before_unreg' && `Отправит сообщение для незарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
+                  {testModal.def.type === '2h_before_reg' && `Отправит сообщение для зарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                   {testModal.def.type === 'day_live' && `Отправит сообщение о старте эфира для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                   {testModal.def.type === 'day_end' && `Отправит итоги дня для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                 </p>

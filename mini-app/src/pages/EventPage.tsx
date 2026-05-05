@@ -19,6 +19,7 @@ interface Props {
   partnerId?: string
   utmSource?: string
   regFromLanding?: boolean   // флаг `_reg` в startapp — вернулись с лендинга клиента
+  initialTab?: string        // флаг `_tabXXX` в startapp — открыть на конкретной вкладке (game, raffle, ...)
   onBack: () => void
   onOpenEvent?: (slug: string) => void  // открыть другое событие (для блока «А дальше» в Итогах)
 }
@@ -63,7 +64,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromLanding, onBack, onOpenEvent }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromLanding, initialTab, onBack, onOpenEvent }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -178,7 +179,14 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       } else if (ended) {
         setTabState('results')
       } else if (alreadyRegistered) {
-        setTabState('program')
+        // initialTab из startapp (_tabgame, _tabraffle и т.п.) — приоритет над дефолтом.
+        // Доступен только зарегистрированным; для нерег. остаётся landing.
+        const allowed = ['program', 'game', 'raffle', 'ecosystem']
+        if (initialTab && allowed.includes(initialTab)) {
+          setTabState(initialTab)
+        } else {
+          setTabState('program')
+        }
       } else {
         setTabState('landing')
       }

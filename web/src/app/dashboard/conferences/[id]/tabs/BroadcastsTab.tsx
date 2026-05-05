@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { Plus, Edit2, Trash2, Eye, ExternalLink, X, Send, Wand2, XCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 
-const emptyForm = { name: '', type: 'pre_start', text: '', photo_url: '', button_text: '', button_url: '' }
+const emptyForm = { name: '', type: '5min_before', text: '', photo_url: '', button_text: '', button_url: '' }
 
 function TemplatesSection({ eventId, templates, setTemplates }: { eventId: number; templates: any[]; setTemplates: (t: any[]) => void }) {
   const [modal, setModal] = useState<any>(null)
@@ -52,8 +52,8 @@ function TemplatesSection({ eventId, templates, setTemplates }: { eventId: numbe
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.type === 'pre_start' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {t.type === 'pre_start' ? 'За 5 мин до старта' : 'Подарок спикера'}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.type === '5min_before' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {t.type === '5min_before' ? 'За 5 мин до старта' : 'Подарок спикера'}
                     </span>
                     <span className="text-sm font-medium text-gray-800">{t.name}</span>
                   </div>
@@ -99,7 +99,8 @@ function TemplatesSection({ eventId, templates, setTemplates }: { eventId: numbe
                 <label className="text-xs text-gray-500 mb-1 block">Тип</label>
                 <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none">
-                  <option value="pre_start">За 5 минут до старта</option>
+                  <option value="5min_before">За 5 минут до старта</option>
+                  <option value="30min_before">За 30 минут до старта</option>
                   <option value="gift">Подарок спикера (за 10 мин до конца)</option>
                 </select>
               </div>
@@ -255,8 +256,8 @@ export default function BroadcastsTab({ eventId }: { eventId: number }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="text-xs font-medium text-gray-700">{statusLabel[s.status] || s.status}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${s.type === 'pre_start' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {s.type === 'pre_start' ? 'Анонс' : 'Подарок'}
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${s.type === '5min_before' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {s.type === '5min_before' ? 'Анонс' : 'Подарок'}
                       </span>
                       {s.speaker_name && <span className="text-xs text-gray-600 font-medium">{s.speaker_name}</span>}
                     </div>

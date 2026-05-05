@@ -102,8 +102,8 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": True,
     },
     {
-        "name": "Анонс спикера (за 5 мин до старта)",
-        "type": "pre_start",
+        "name": "За 5 минут до старта",
+        "type": "5min_before",
         "text": (
             "Через 5 минут выступает {speaker_name}\n\n"
             "Тема: «{speaker_topic}»\n\n"
@@ -116,6 +116,23 @@ DEFAULT_TEMPLATES = [
         "button_url": "{stream_url}",
         "schedule_mode": "fixed_offset",
         "offset_minutes": 5,
+        "audience_include": "all_event",
+        "audience_exclude": "none",
+        "allow_custom_datetime": False,
+    },
+    {
+        "name": "За 30 минут до старта",
+        "type": "30min_before",
+        "text": (
+            "<b>Через 30 минут стартует «{conf_title}»</b>\n\n"
+            "Подключайтесь к эфиру по кнопке ниже 👇\n\n"
+            "🔗 {stream_url}"
+        ),
+        "photo_url": None,
+        "button_text": "Подключиться к эфиру",
+        "button_url": "{stream_url}",
+        "schedule_mode": "fixed_offset",
+        "offset_minutes": 30,
         "audience_include": "all_event",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
@@ -163,8 +180,8 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": True,
     },
     {
-        "name": "День конференции — за 2 часа (не зарегистрирован)",
-        "type": "day_start_30min_unreg",
+        "name": "За 2 часа (не зарегистрирован)",
+        "type": "2h_before_unreg",
         "text": (
             "<b>[Последний шанс зарегистрироваться] Через 2 часа стартует День {day_number} конференции «{conf_title}»</b>\n\n"
             "🔗 {landing_url} \n\n"
@@ -186,24 +203,50 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": False,
     },
     {
-        "name": "День конференции — за 2 часа (зарегистрирован)",
-        "type": "day_start_30min_reg",
+        "name": "За 2 часа (зарегистрирован)",
+        "type": "2h_before_reg",
         "text": (
-            "<b>[Уже через 2 часа] Стартует День {day_number} конференции «{conf_title}»</b>\n\n"
-            "🔗 {stream_url}\n\n"
-            "Сегодня в программе:\n\n"
-            "{day_date}\n\n"
-            "{day_program}\n\n"
-            "Нажимай на кнопку «Войти в эфир», чтобы попасть в вебинарную комнату.\n"
-            "🔗 {stream_url}\n\n"
-            "—\n"
-            "При возникновении технических трудностей пишите — @forbs_service2"
+            "<b>[Уже через 2 часа] Стартует «{conf_title}»</b>\n\n"
+            "Вы записаны — а пока есть время позвать друзей и забрать подарки за приведённых."
         ),
         "photo_url": None,
-        "button_text": "Войти в эфир",
-        "button_url": "{stream_url}",
+        "button_text": "🎯 Вы ещё успеваете позвать друзей и получить подарки",
+        "button_url": "{game_link}",
         "schedule_mode": "day_offset",
         "offset_minutes": 120,
+        "audience_include": "registered_event",
+        "audience_exclude": "none",
+        "allow_custom_datetime": False,
+    },
+    {
+        "name": "За сутки в 09:12 МСК (не зарегистрирован)",
+        "type": "day_before_09_12_unreg",
+        "text": (
+            "<b>Завтра «{conf_title}»</b>\n\n"
+            "Регистрируйтесь по кнопке — встретимся завтра!\n\n"
+            "🔗 {landing_url}"
+        ),
+        "photo_url": None,
+        "button_text": "Зарегистрироваться",
+        "button_url": "{landing_url}",
+        "schedule_mode": "fixed_offset",
+        "offset_minutes": 1440,
+        "audience_include": "all_client",
+        "audience_exclude": "registered_event",
+        "allow_custom_datetime": False,
+    },
+    {
+        "name": "За сутки в 09:12 МСК (зарегистрирован)",
+        "type": "day_before_09_12_reg",
+        "text": (
+            "<b>Завтра «{conf_title}»</b>\n\n"
+            "Вы записаны — а пока есть время позвать друзей и забрать подарки за приведённых:"
+        ),
+        "photo_url": None,
+        "button_text": "🎯 Вы ещё успеваете позвать друзей и получить подарки",
+        "button_url": "{game_link}",
+        "schedule_mode": "fixed_offset",
+        "offset_minutes": 1440,
         "audience_include": "registered_event",
         "audience_exclude": "none",
         "allow_custom_datetime": False,
@@ -308,7 +351,21 @@ async def list_templates(
     )
 
     if not rows:
+        # Какие типы сидим зависит от типа события: для конференции — все,
+        # для обычного мероприятия — только общие + day_before_09_12_*
+        # (pre_conf/gift/speaker_intro/day_live/day_end/vip_offer — конф-специфика).
+        ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
+        is_conf = ev_row and ev_row["module_slug"] == "conference"
+        EVENT_ONLY_TYPES = {
+            "5min_before", "30min_before",
+            "2h_before_unreg", "2h_before_reg",
+            "day_before_09_12_unreg", "day_before_09_12_reg",
+        }
         for tpl in DEFAULT_TEMPLATES:
+            if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
+                continue
+            if is_conf and tpl["type"].startswith("day_before_09_12"):
+                continue  # для конф эту роль играет pre_conf
             await db.execute(
                 """
                 INSERT INTO broadcast_templates
@@ -516,8 +573,11 @@ async def list_schedules(
         if r["fire_at"] and r["status"] in ("pending", "draft"):
             diff = (r["fire_at"] - now_utc).total_seconds()
             d["seconds_until"] = max(0, int(diff))
+            # Флаг overdue: время прошло, но рассылка не активирована (черновик/ожидание)
+            d["is_overdue"] = diff < 0
         else:
             d["seconds_until"] = None
+            d["is_overdue"] = False
         if r["status"] == "running" and r.get("started_at"):
             started = r["started_at"]
             if started.tzinfo is None:
@@ -538,7 +598,7 @@ async def list_schedules(
     }
 
 
-@router.post("/schedules/generate", summary="Создать расписание из программы конференции")
+@router.post("/schedules/generate", summary="Создать расписание из программы события")
 async def generate_schedules(
     event_id: int,
     client=Depends(get_current_client),
@@ -547,15 +607,30 @@ async def generate_schedules(
     """
     Создаёт записи broadcast_schedules:
     - speaker_intro: одна на всё событие, fire_at = NULL (нужна кастомная дата)
-    - pre_start: за offset_minutes до старта сессии (МСК)
-    - gift: за offset_minutes до окончания сессии (МСК)
-    - day_start_30min_unreg/reg: за offset_minutes до первой сессии дня
-    - day_live: в момент start первой сессии дня
-    - day_end: через offset_minutes после последней сессии дня
+    - 5min_before:   за offset_minutes до старта сессии (МСК) — для конф per session,
+                     для мероприятия — единственная за 5 мин до events.start_at
+    - gift:          за offset_minutes до окончания сессии (только конф)
+    - 2h_before_unreg/reg: за 120 мин до первой сессии дня (конф) или events.start_at (меропр)
+    - 30min_before:  за 30 мин до первой сессии дня (конф) или events.start_at (меропр)
+    - day_live:      в момент старта дня (только конф)
+    - day_end:       через offset после последней сессии дня (только конф)
+    - day_before_09_12_unreg/reg: за день в 09:12 МСК до events.start_at (только меропр)
     Пропускает дубли. fire_at всегда в UTC (внутреннее представление).
+
+    Возвращает 400 если у конференции нет программы (conf_days/conf_sessions),
+    или у мероприятия не задан events.start_at.
     """
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
+
+    # Тип события + дата старта (для мероприятий)
+    ev_row = await db.fetchrow(
+        "SELECT module_slug, start_at, end_at FROM events WHERE id=$1",
+        event_id
+    )
+    is_conf = ev_row and ev_row["module_slug"] == "conference"
+    event_start_at = ev_row["start_at"] if ev_row else None
+    event_end_at = ev_row["end_at"] if ev_row else None
 
     templates = await db.fetch(
         """
@@ -575,6 +650,23 @@ async def generate_schedules(
     if not tmpl_map and not custom_tmpls:
         raise HTTPException(status_code=400, detail="Сначала создайте шаблоны рассылок")
 
+    # Валидация: для конференции нужна программа, для мероприятия — start_at.
+    if is_conf:
+        any_day = await db.fetchval(
+            "SELECT 1 FROM conf_days WHERE event_id=$1 LIMIT 1", event_id
+        )
+        if not any_day:
+            raise HTTPException(
+                status_code=400,
+                detail="У конференции нет программы — добавьте дни и сессии во вкладке «Программа»"
+            )
+    else:
+        if not event_start_at:
+            raise HTTPException(
+                status_code=400,
+                detail="У мероприятия не задана дата старта — заполните «Дата начала» во вкладке «Основное»"
+            )
+
     sessions = await db.fetch(
         """
         SELECT cs.id, cs.start_time, cs.end_time, cs.title, cs.day,
@@ -586,7 +678,7 @@ async def generate_schedules(
         ORDER BY cs.day, cs.start_time
         """,
         event_id
-    )
+    ) if is_conf else []
 
     created = 0
     skipped = 0
@@ -751,7 +843,7 @@ async def generate_schedules(
         d = s["day"] or 1
         days.setdefault(d, []).append(s)
 
-    # ── pre_start и gift — по каждой сессии со спикером ──
+    # ── 5min_before и gift — по каждой сессии со спикером (только конф) ──
     sessions_with_speaker = await db.fetch(
         """
         SELECT cs.id, cs.start_time, cs.end_time, cs.day,
@@ -764,30 +856,30 @@ async def generate_schedules(
         ORDER BY cs.day, cs.start_time
         """,
         event_id
-    )
+    ) if is_conf else []
 
     for s in sessions_with_speaker:
         s_start_utc = _msk_str_to_utc(s["day_date"], s["start_time"])
         s_end_utc   = _msk_str_to_utc(s["day_date"], s["end_time"])
 
-        if "pre_start" in tmpl_map and s_start_utc:
-            tmpl = tmpl_map["pre_start"]
+        if "5min_before" in tmpl_map and s_start_utc:
+            tmpl = tmpl_map["5min_before"]
             offset = tmpl["offset_minutes"] or 5
-            await add_schedule(tmpl, s_start_utc - timedelta(minutes=offset), s["id"], "pre_start")
+            await add_schedule(tmpl, s_start_utc - timedelta(minutes=offset), s["id"], "5min_before")
 
         if "gift" in tmpl_map and s_end_utc:
             tmpl = tmpl_map["gift"]
             offset = tmpl["offset_minutes"] or 5
             await add_schedule(tmpl, s_end_utc - timedelta(minutes=offset), s["id"], "gift")
 
-    # ── day_* — по первой/последней сессии каждого дня ──
+    # ── day_* — по первой/последней сессии каждого дня (только конф) ──
     for day_num, day_sessions in days.items():
         first_session = day_sessions[0]
         last_session = day_sessions[-1]
         first_start_utc = _msk_str_to_utc(first_session.get("day_date"), first_session.get("start_time"))
         last_end_utc    = _msk_str_to_utc(last_session.get("day_date"),  last_session.get("end_time"))
 
-        for ttype in ("day_start_30min_unreg", "day_start_30min_reg"):
+        for ttype in ("2h_before_unreg", "2h_before_reg", "30min_before"):
             if ttype in tmpl_map and first_start_utc:
                 tmpl = tmpl_map[ttype]
                 offset = tmpl["offset_minutes"] or 30
@@ -802,6 +894,38 @@ async def generate_schedules(
             tmpl = tmpl_map["day_end"]
             offset = tmpl["offset_minutes"] or 30
             await add_schedule(tmpl, last_end_utc + timedelta(minutes=offset), None, "day_end")
+
+    # ── Расписания для НЕ-конференций (одна точка отсчёта = events.start_at) ──
+    # Все «дневные» рассылки (2h, 30min, 5min, day_before_09_12) — относительно start_at.
+    if not is_conf and event_start_at:
+        # event_start_at в БД хранится как TIMESTAMPTZ — приводим к UTC
+        if event_start_at.tzinfo is None:
+            event_start_utc = event_start_at.replace(tzinfo=ZoneInfo("UTC"))
+        else:
+            event_start_utc = event_start_at.astimezone(ZoneInfo("UTC"))
+
+        # 2h, 30min, 5min — прямой offset до start_at (минуты)
+        for ttype, default_off in (
+            ("2h_before_unreg", 120),
+            ("2h_before_reg", 120),
+            ("30min_before", 30),
+            ("5min_before", 5),
+        ):
+            if ttype in tmpl_map:
+                tmpl = tmpl_map[ttype]
+                offset = tmpl["offset_minutes"] or default_off
+                fire_at = event_start_utc - timedelta(minutes=offset)
+                await add_schedule(tmpl, fire_at, None, ttype)
+
+        # day_before_09_12_*: за день до start_at в 09:12 МСК
+        tz_msk = ZoneInfo("Europe/Moscow")
+        start_msk = event_start_utc.astimezone(tz_msk)
+        day_before = start_msk.date() - timedelta(days=1)
+        fire_at_09_12_msk = datetime(day_before.year, day_before.month, day_before.day, 9, 12, 0, tzinfo=tz_msk)
+        fire_at_09_12_utc = fire_at_09_12_msk.astimezone(ZoneInfo("UTC"))
+        for ttype in ("day_before_09_12_unreg", "day_before_09_12_reg"):
+            if ttype in tmpl_map:
+                await add_schedule(tmpl_map[ttype], fire_at_09_12_utc, None, ttype)
 
     # ── vip_offer: одна запись на событие с fire_at=NULL (пользователь сам задаёт время) ──
     if "vip_offer" in tmpl_map:
@@ -1494,7 +1618,7 @@ async def test_template(
         raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
     tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
 
-    SPEAKER_TYPES = ("gift", "speaker_intro", "pre_start")
+    SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before")
 
     if tpl["type"] in SPEAKER_TYPES:
         # Для спикерских шаблонов — отправляем по одному разу на каждого спикера дня

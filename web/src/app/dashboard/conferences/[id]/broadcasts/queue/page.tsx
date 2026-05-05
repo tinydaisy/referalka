@@ -51,16 +51,19 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  pre_conf:              'Анонс знакомства со спикерами',
-  pre_start:             'Анонс спикера',
-  gift:                  'Подарок спикера',
-  speaker_intro:         'Знакомство со спикером',
-  day_start_30min_unreg: 'За 2 часа (не зарег.)',
-  day_start_30min_reg:   'За 2 часа (зарег.)',
-  day_live:              'Старт эфира',
-  day_end:               'Итоги дня',
-  custom:                'Произвольное',
-  vip_offer:             'VIP-оффер',
+  pre_conf:               'Анонс знакомства со спикерами',
+  '5min_before':          'За 5 минут до старта',
+  '30min_before':         'За 30 минут до старта',
+  gift:                   'Подарок спикера',
+  speaker_intro:          'Знакомство со спикером',
+  '2h_before_unreg':      'За 2 часа (не зарег.)',
+  '2h_before_reg':        'За 2 часа (зарег.)',
+  day_before_09_12_unreg: 'За сутки 09:12 (не зарег.)',
+  day_before_09_12_reg:   'За сутки 09:12 (зарег.)',
+  day_live:               'Старт эфира',
+  day_end:                'Итоги дня',
+  custom:                 'Произвольное',
+  vip_offer:              'VIP-оффер',
 }
 
 function formatTimeLeft(sec: number): string {
@@ -322,7 +325,7 @@ export default function QueuePage() {
     }
     const tpl = templates.find(t => String(t.id) === manualForm.template_id)
     const tplType = tpl?.type || ''
-    const isSpeakerType = ['speaker_intro', 'gift', 'pre_start'].includes(tplType)
+    const isSpeakerType = ['speaker_intro', 'gift', '5min_before'].includes(tplType)
     const isDayType = tplType.startsWith('day_')
     if (isSpeakerType && !manualForm.session_id) {
       showMsg('Выберите спикера', 'err')
@@ -663,7 +666,9 @@ export default function QueuePage() {
                     {/* Строка 3: время */}
                     <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                       {s.fire_at_local ? (
-                        <span className="font-medium text-gray-700">{s.fire_at_local} {tzLabel}</span>
+                        <span className={`font-medium ${s.is_overdue ? 'text-red-700' : 'text-gray-700'}`}>
+                          {s.fire_at_local} {tzLabel}
+                        </span>
                       ) : (
                         <span className="text-amber-600 font-medium">⚠ Время не задано</span>
                       )}
@@ -679,6 +684,13 @@ export default function QueuePage() {
                         <span className="text-red-500 truncate max-w-[200px]" title={s.error_log}>⚠ {s.error_log}</span>
                       )}
                     </div>
+                    {/* Overdue: время прошло, рассылка в черновике/ожидании — не уйдёт сама */}
+                    {s.is_overdue && (s.status === 'draft' || s.status === 'pending') && (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-300 rounded-lg px-2.5 py-1.5">
+                        <AlertCircle size={12} className="shrink-0" />
+                        <span>⚠️ Время прошло — рассылка не отправится автоматически. Перенесите время или отмените.</span>
+                      </div>
+                    )}
                     {/* Предупреждение если running слишком долго */}
                     {s.status === 'running' && s.seconds_running != null && s.seconds_running > 300 && (
                       <div className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
@@ -912,7 +924,7 @@ export default function QueuePage() {
                 </select>
               </div>
 
-              {/* Выбор спикера — для speaker_intro, gift, pre_start */}
+              {/* Выбор спикера — для speaker_intro, gift, 5min_before */}
               {(() => {
                 const tpl = templates.find(t => String(t.id) === manualForm.template_id)
                 const tplType = tpl?.type || ''
@@ -933,8 +945,8 @@ export default function QueuePage() {
                     </div>
                   )
                 }
-                if (['gift', 'pre_start'].includes(tplType)) {
-                  // gift / pre_start используют conf_sessions.id — показываем сессии со спикером
+                if (['gift', '5min_before'].includes(tplType)) {
+                  // gift / 5min_before используют conf_sessions.id — показываем сессии со спикером
                   const RU_M: Record<string,string> = {'01':'янв','02':'фев','03':'мар','04':'апр','05':'май','06':'июн','07':'июл','08':'авг','09':'сен','10':'окт','11':'ноя','12':'дек'}
                   const sessionsWithSpeaker = confSessions
                     .filter(s => s.speaker_id && s.speaker_name)

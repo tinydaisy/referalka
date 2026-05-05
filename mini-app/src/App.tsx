@@ -31,7 +31,7 @@ function detectClientIdFromPath(): number | null {
 // (без формы) и показывает welcome-экран.
 function parseStartParam(raw: string): {
   eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number;
-  live?: boolean; regFromLanding?: boolean
+  live?: boolean; regFromLanding?: boolean; initialTab?: string
 } {
   const r: any = {}
   raw.split('_').forEach(p => {
@@ -41,6 +41,8 @@ function parseStartParam(raw: string): {
     if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
     if (p === 'live')        r.live       = true
     if (p === 'reg')         r.regFromLanding = true
+    // _tabgame / _tabprogram / _tabraffle / _tabecosystem — открыть на конкретной вкладке
+    if (p.startsWith('tab')) r.initialTab = p.slice(3)
   })
   return r
 }
@@ -99,6 +101,7 @@ export default function App() {
   const [partnerId, setPartnerId] = useState<string | undefined>()
   const [utmSource, setUtmSource] = useState<string | undefined>()
   const [regFromLanding, setRegFromLanding] = useState<boolean>(false)
+  const [initialTab, setInitialTab] = useState<string | undefined>()
   // pendingOpen — на время fetch /landing-redirect показываем LoadingScreen,
   // чтобы пользователь видел что клик принят (а не «ничего не происходит»).
   const [pendingOpen, setPendingOpen] = useState<boolean>(false)
@@ -121,6 +124,7 @@ export default function App() {
       setPartnerId(parsed.partnerId)
       setUtmSource(parsed.utmSource)
       if (parsed.regFromLanding) setRegFromLanding(true)
+      if (parsed.initialTab) setInitialTab(parsed.initialTab)
     }
 
     // Live-метка: пользователь пришёл по публичной live-ссылке организатора —
@@ -228,6 +232,7 @@ export default function App() {
           partnerId={partnerId}
           utmSource={utmSource}
           regFromLanding={regFromLanding}
+          initialTab={initialTab}
           onBack={backToHub}
           onOpenEvent={openEvent}
         />
