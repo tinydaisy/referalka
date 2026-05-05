@@ -655,44 +655,43 @@ export default function TemplatesPage() {
       </div>
 
       <div className="space-y-4">
-        {TYPE_DEFS.map(def => {
-          const tpl = templates.find(t => t.type === def.type && t.type !== 'custom')
-          return (
-            <div key={def.type} className="bg-white rounded-2xl border border-gray-100 p-5">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="min-w-0">
-                  <h4 className="font-semibold text-gray-800">{def.title}</h4>
-                  <p className="text-xs text-gray-400 mt-0.5">{def.hint}</p>
-                </div>
-                <div className="flex flex-wrap gap-2 shrink-0">
-                  {tpl && (
+        {templates
+          .filter(t => t.type !== 'custom')
+          .slice()
+          .sort((a, b) => {
+            const ai = TYPE_DEFS.findIndex(d => d.type === a.type)
+            const bi = TYPE_DEFS.findIndex(d => d.type === b.type)
+            const av = ai === -1 ? 999 : ai
+            const bv = bi === -1 ? 999 : bi
+            return av - bv
+          })
+          .map(tpl => {
+            const def: TypeDef = TYPE_DEFS.find(d => d.type === tpl.type)
+              || { type: tpl.type, title: tpl.name, hint: '', variables: [], showPhoto: false }
+            return (
+              <div key={tpl.id} className="bg-white rounded-2xl border border-gray-100 p-5">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <h4 className="font-semibold text-gray-800">{def.title}</h4>
+                    {def.hint && <p className="text-xs text-gray-400 mt-0.5">{def.hint}</p>}
+                  </div>
+                  <div className="flex flex-wrap gap-2 shrink-0">
                     <button onClick={() => openTest(tpl, def)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-emerald-700 font-medium border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition-colors">
                       <Send size={13} /> Протестировать
                     </button>
-                  )}
-                  {tpl && (
                     <button onClick={() => openPreview(tpl, def)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-gray-600 font-medium border border-gray-200 hover:bg-gray-50 transition-colors">
                       <Eye size={13} /> Просмотреть
                     </button>
-                  )}
-                  {tpl && (
                     <button onClick={() => openEdit(tpl)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-white font-medium"
                       style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
                       <Edit2 size={13} /> Редактировать
                     </button>
-                  )}
+                  </div>
                 </div>
-              </div>
 
-              {!tpl ? (
-                <div className="py-8 text-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                  <Edit2 size={22} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">Шаблон ещё не создан — обновите страницу</p>
-                </div>
-              ) : (
                 <div className="bg-gray-50 rounded-xl p-4">
                   <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3">{(tpl.text || '').replace(/\\n/g, '\n')}</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
@@ -714,10 +713,9 @@ export default function TemplatesPage() {
                     </span>
                   </div>
                 </div>
-              )}
-            </div>
-          )
-        })}
+              </div>
+            )
+          })}
       </div>
 
       {customTemplates.length > 0 && (
