@@ -1140,12 +1140,19 @@ export default function TemplatesPage() {
                   || previewModal.def.type === '2h_before_unreg'
                   || previewModal.def.type === '2h_before_reg'
                   || previewModal.def.type === '30min_before'
+                // Афиша события: тот же приоритет, что и в backend get_default_event_photo —
+                // square > horizontal > vertical.
+                const eventPoster = confPosters.square[0] || confPosters.horizontal[0] || confPosters.vertical[0]
                 const speakerPoster = previewSpeaker?.cse_poster_url || previewSpeaker?.speaker_poster_url || previewSpeaker?.poster_url
+                // Для спикерских шаблонов: спикерская афиша; если спикера нет (мероприятие) или
+                // у него нет афиши — fallback на афишу события, а не пустой плейсхолдер.
                 const photoSrc = previewModal.tpl.photo_url
                   || (isEventLevelTpl
-                    ? confPosters.horizontal[0]
-                    : speakerPoster)
-                const placeholder = isEventLevelTpl ? '📸 Горизонтальная афиша события' : '📸 Афиша спикера'
+                    ? eventPoster
+                    : (speakerPoster || eventPoster))
+                const placeholder = isEventLevelTpl
+                  ? '📸 Афиша события'
+                  : (speakers.length > 0 ? '📸 Афиша спикера' : '📸 Афиша события')
                 return photoSrc ? (
                   <img src={photoSrc} alt=""
                     className="w-full rounded-xl mb-2"
