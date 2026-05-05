@@ -359,6 +359,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - Расширение `events`: `address` (одно поле — URL стрима / ссылка на видео / офлайн-адрес), `start_at`, `end_at`
 - API: `/api/v1/lead-magnets`, `/api/v1/events/{id}/posters`, `/api/v1/events/{id}/referral/{settings|thresholds|materials|share-texts}`
 - **Дашборд** ([ReferralProgramTab.tsx](web/src/app/dashboard/events/[id]/tabs/ReferralProgramTab.tsx)): подвкладки **Подарки** (пороги + переключатель `gift_count_mode`) и **Материалы** (тексты + картинки). Старая подвкладка «Шаблоны» **удалена** миграцией 059. Копирование события и импорт реф-программы переносят `share_texts`.
+- **Mini App — Материалы (Игра)** ([GameTab.tsx](mini-app/src/tabs/GameTab.tsx)): порядок секций — сначала «🖼 Афиши для друзей», потом «✍️ Тексты для друзей». Под каждым текстом две кнопки: **«📨 Нажмите, чтобы отправить себе в бот»** (отправляет готовое сообщение в бот клиента и закрывает Mini App через `Telegram.WebApp.close()` — пользователь возвращается в чат с ботом, где сообщение готово к форварду) и «📋 Скопировать текст». Endpoint: `POST /api/v1/event/share-to-bot { tg_id, event_slug, text }` ([backend/app/api/event.py](backend/app/api/event.py)).
 
 ### Рассылки — единый движок для мероприятий и конференций (миграция 060 от 05.05.2026)
 
