@@ -159,6 +159,27 @@ const emptyForm = {
   custom_day_ref: '', custom_time: '12:00',
 }
 
+// Превью с гарантированным плейсхолдером при битом URL.
+// Без этого `<img onError>` просто скрывается и пользователь видит пустоту.
+function PreviewImage({ src, placeholder }: { src: string; placeholder: string }) {
+  const [errored, setErrored] = useState(false)
+  if (errored) {
+    return (
+      <div className="w-full h-20 rounded-xl mb-2 flex items-center justify-center text-xs text-gray-400"
+        style={{ background: '#e8e8e8' }}>
+        {placeholder} (не загрузилась)
+      </div>
+    )
+  }
+  return (
+    <img src={src} alt=""
+      className="w-full rounded-xl mb-2"
+      style={{ maxHeight: '400px', objectFit: 'contain', background: '#f0f0f0' }}
+      onError={() => setErrored(true)}
+    />
+  )
+}
+
 const CUSTOM_PLACEHOLDERS = [
   '{conf_title}', '{conf_date}', '{conf_description}',
   '{day_number}', '{day_date}', '{day_program}',
@@ -1166,11 +1187,7 @@ export default function TemplatesPage() {
                   ? '📸 Афиша события'
                   : (speakers.length > 0 ? '📸 Афиша спикера' : '📸 Афиша события')
                 return photoSrc ? (
-                  <img src={photoSrc} alt=""
-                    className="w-full rounded-xl mb-2"
-                    style={{ maxHeight: '400px', objectFit: 'contain', background: '#f0f0f0' }}
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                  />
+                  <PreviewImage key={photoSrc} src={photoSrc} placeholder={placeholder} />
                 ) : (
                   <div className="w-full h-20 rounded-xl mb-2 flex items-center justify-center text-xs text-gray-400"
                     style={{ background: '#e8e8e8' }}>
