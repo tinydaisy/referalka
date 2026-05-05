@@ -89,18 +89,11 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   const visited     = participant?.visited_count    ?? participant?.referrals_count ?? 0
   const registered  = participant?.registered_count ?? participant?.points_total    ?? 0
   const myRank      = participant?.my_rank
-  // Партнёрская ссылка → НАПРЯМУЮ в Telegram-бота (t.me/...).
-  // Раньше использовалась pluson.ru/l/{slug}?app=tg, но эта страница в Telegram
-  // открывается в in-app browser → редиректит на t.me/... → Telegram создаёт
-  // НОВОЕ окно Mini App поверх → in-app browser остаётся как фантом.
-  // С t.me-ссылкой Telegram сразу открывает Mini App в чате (без in-app browser
-  // промежутка). Внешний лендинг (events.landing_url) Mini App потом сам
-  // покажет через window.location.replace в том же webview.
-  const botHandle = (event?.client_bot_handle || '').trim()
-  const startapp  = `ref_pg${slug}_pid${refCode}`
-  const refLink = botHandle
-    ? `https://t.me/${botHandle}?startapp=${startapp}`
-    : `https://t.me/pluson_bot/pluson?startapp=${startapp}`
+  // Партнёрская ссылка → веб-лендинг с редиректом.
+  // Если у клиента настроен внешний лендинг (events.landing_url, обычно Tilda/GetCourse) —
+  // друг попадает СНАЧАЛА на него (формы клиента, аналитика, brand) и только потом
+  // в Telegram-бот. redirect_web_app.js парсит ?app=tg&pid=... → startapp=ref_pg{slug}_pid{pid}.
+  const refLink = `${APP_URL}/l/${slug}?app=tg&pid=${refCode}`
 
   // Загружаем подарки → понимаем «следующий» по порогу
   useEffect(() => {
