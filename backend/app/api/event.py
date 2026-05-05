@@ -205,11 +205,12 @@ class ShareToBotRequest(BaseModel):
 
 @router.post("/event/share-to-bot")
 async def share_to_bot(body: ShareToBotRequest):
-    """Mini App → отправить участнику в его бот готовый текст для шеринга друзьям.
+    """Mini App → отправить участнику в его бот афиши и готовый текст для шеринга друзьям.
 
-    После успешной отправки фронт закрывает Mini App (`Telegram.WebApp.close()`),
-    и человек попадает в чат с ботом, где только что упало сообщение, готовое
-    для форварда.
+    Шлёт сначала все афиши события (из `event_referral_materials`) — каждую
+    отдельным sendPhoto, чтобы человек мог форвардить любую по одной. Потом
+    текстом отдельным сообщением. После успешной отправки фронт закрывает
+    Mini App (`Telegram.WebApp.close()`).
     """
     if not body.text or not body.text.strip():
         raise HTTPException(status_code=400, detail="text required")
@@ -221,12 +222,24 @@ async def share_to_bot(body: ShareToBotRequest):
         raise HTTPException(status_code=500, detail="db not available")
 
     async with pool.acquire() as conn:
-        client_id = await conn.fetchval(
-            "SELECT client_id FROM events WHERE slug = $1 LIMIT 1",
+        row = await conn.fetchrow(
+            "SELECT id, client_id FROM events WHERE slug = $1 LIMIT 1",
             body.event_slug,
         )
-    if not client_id:
+    if not row:
         raise HTTPException(status_code=404, detail="event not found")
+    event_id = row["id"]
+    client_id = row["client_id"]
+
+    # Афиши для шеринга (event_referral_materials)
+    async with pool.acquire() as conn:
+        material_rows = await conn.fetch(
+            """SELECT image_url FROM event_referral_materials
+                WHERE event_id = $1 AND image_url IS NOT NULL AND image_url <> ''
+                ORDER BY sort, id""",
+            event_id,
+        )
+    image_urls = [r["image_url"] for r in material_rows]
 
     bot_token = None
     try:
@@ -239,15 +252,34 @@ async def share_to_bot(body: ShareToBotRequest):
     if not bot_token:
         raise HTTPException(status_code=500, detail="no bot token configured")
 
+    base = f"https://api.telegram.org/bot{bot_token}"
+
     try:
-        async with httpx.AsyncClient(timeout=5) as http:
+        async with httpx.AsyncClient(timeout=15) as http:
+            # 1) Афиши — каждая отдельным sendPhoto (по очереди).
+            #    Если одна не отправилась — логируем, но идём дальше к тексту.
+            for url in image_urls:
+                try:
+                    r = await http.post(
+                        f"{base}/sendPhoto",
+                        json={"chat_id": body.tg_id, "photo": url},
+                    )
+                    if r.status_code != 200:
+                        logger.warning(
+                            f"share-to-bot photo failed for tg_id={body.tg_id} event={body.event_slug} "
+                            f"url={url}: {r.status_code} {r.text[:200]}"
+                        )
+                except httpx.HTTPError as e:
+                    logger.warning(f"share-to-bot photo http error url={url}: {e}")
+
+            # 2) Текст — последним сообщением, чтобы человек видел его сразу под афишами.
             r = await http.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                f"{base}/sendMessage",
                 json={"chat_id": body.tg_id, "text": body.text},
             )
             if r.status_code != 200:
                 logger.warning(
-                    f"share-to-bot send failed for tg_id={body.tg_id} event={body.event_slug}: "
+                    f"share-to-bot text failed for tg_id={body.tg_id} event={body.event_slug}: "
                     f"{r.status_code} {r.text[:200]}"
                 )
                 raise HTTPException(status_code=502, detail="telegram send failed")
@@ -255,4 +287,4 @@ async def share_to_bot(body: ShareToBotRequest):
         logger.warning(f"share-to-bot http error for tg_id={body.tg_id}: {e}")
         raise HTTPException(status_code=502, detail="telegram send failed")
 
-    return {"ok": True}
+    return {"ok": True, "posters_sent": len(image_urls)}
