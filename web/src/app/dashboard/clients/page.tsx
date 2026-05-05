@@ -181,6 +181,16 @@ export default function ContactsPage() {
     fetchContacts(search, offset, showUnsubscribed, filters)
   }, [offset])
 
+  // Deep-link: ?contact=ID — автоматически открыть карточку этого контакта.
+  // Используется со страницы коллаборатора («Открыть карточку»).
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    const cid = sp.get('contact')
+    if (cid && /^\d+$/.test(cid)) {
+      selectContact(Number(cid))
+    }
+  }, [])
+
   const selectContact = async (id: number) => {
     setLoadingDetail(true)
     try {
