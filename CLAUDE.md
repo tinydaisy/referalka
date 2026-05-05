@@ -400,7 +400,8 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 **Ручное управление статусом участника:**
 - `event_participants.is_registered` — переключается из UI чекбоксом в строке участника. Двусторонне (можно поставить и снять).
 - `event_participants.is_in_chat` — только автоматически (через Salebot), руками **не** правится.
-- API: `PATCH /api/v1/events/{event_id}/participants/{participant_id}` `{ is_registered: bool }`. Список — `GET /api/v1/events/{id}/participants?registered=all|yes|no` возвращает `participants[]` + `counts {total, registered, not_registered}`.
+- **Удаление участника из события** — иконка-корзина в строке + `confirm()`. Удаляется только `event_participants` (контакт, TG-аккаунт, подписки, участия в других событиях остаются). Каскад: `gift_issuances` этого участника удаляются, `referrer_participant_id` у других обнуляется, `raffle_tickets.pluson_participant_id` → NULL по FK.
+- API: `PATCH /api/v1/events/{event_id}/participants/{participant_id}` `{ is_registered: bool }`, `DELETE /api/v1/events/{event_id}/participants/{participant_id}`. Список — `GET /api/v1/events/{id}/participants?registered=all|yes|no` возвращает `participants[]` + `counts {total, registered, not_registered}`.
 - Общий React-компонент: [`web/src/components/EventParticipants.tsx`](web/src/components/EventParticipants.tsx) — используется и в карточке мероприятия, и в `ParticipantsTab` конференции.
 
 **Лендинг и адрес — у всех мероприятий** (не зависит от типа). Если не нужно — оставляют пустым.
