@@ -33,14 +33,31 @@ export default function OverviewTab({
   async function handleSave() {
     setSaving(true); setErr(null)
     try {
-      const payload: any = {
-        title: title.trim() || null,
-        description: description.trim() || null,
-        landing_url: landingUrl.trim() || null,
-        address: address.trim() || null,
-        chat_url: chatUrl.trim() || null,
-        start_at: startAt ? new Date(startAt).toISOString() : null,
-        end_at:   endAt   ? new Date(endAt).toISOString()   : null,
+      // PATCH-семантика: отправляем ТОЛЬКО реально изменённые поля.
+      // Иначе backend (model_dump(exclude_unset=True)) перетрёт null-ом
+      // в БД любое поле, которое не было заполнено в форме.
+      const payload: any = {}
+      const t = title.trim()
+      if (t !== (event.title || ''))                            payload.title = t || null
+      const d = description.trim()
+      if (d !== (event.description || ''))                      payload.description = d || null
+      const lu = landingUrl.trim()
+      if (lu !== (event.landing_url || ''))                     payload.landing_url = lu || null
+      const a = address.trim()
+      if (a !== (event.address || ''))                          payload.address = a || null
+      const c = chatUrl.trim()
+      if (c !== (event.chat_url || ''))                         payload.chat_url = c || null
+      const startIso = startAt ? new Date(startAt).toISOString() : null
+      const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
+      if (startIso !== eventStartIso)                           payload.start_at = startIso
+      const endIso = endAt ? new Date(endAt).toISOString() : null
+      const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
+      if (endIso !== eventEndIso)                               payload.end_at = endIso
+
+      if (Object.keys(payload).length === 0) {
+        setSavedFlash(true)
+        setTimeout(() => setSavedFlash(false), 1800)
+        return
       }
       await api.events.update(eventId, payload)
       await onReload()
