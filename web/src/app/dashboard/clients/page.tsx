@@ -365,10 +365,6 @@ export default function ContactsPage() {
                 <h2 className="text-xl font-bold text-gray-900 truncate">
                   {getName(selected)}
                 </h2>
-                <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
-                  {selected.email && <span className="truncate">{selected.email}</span>}
-                  {selected.phone && <span className="shrink-0">{selected.phone}</span>}
-                </div>
               </div>
               {selected.is_unsubscribed && (
                 <span className="ml-auto text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full shrink-0">Отписан</span>
@@ -382,12 +378,12 @@ export default function ContactsPage() {
                 <div className="space-y-3">
                   {selected.identities.map(ident => (
                     <div key={ident.id} className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <PlatformIcon slug={ident.platform_slug} color={ident.platform_color_hex} />
                         <span className="text-sm font-semibold text-gray-700">
                           {ident.platform_display_name}
                         </span>
-                        {ident.username ? (
+                        {ident.username && (
                           <a
                             href={ident.platform_slug === 'telegram' ? `https://t.me/${ident.username}` : '#'}
                             target="_blank" rel="noreferrer"
@@ -395,9 +391,8 @@ export default function ContactsPage() {
                           >
                             @{ident.username}<ExternalLink size={11} />
                           </a>
-                        ) : (
-                          <span className="text-xs text-gray-400 font-mono">{ident.platform_user_id}</span>
                         )}
+                        <span className="text-xs text-gray-400 font-mono">id {ident.platform_user_id}</span>
                       </div>
                       {ident.subscriptions.length > 0 ? (
                         <ul className="space-y-1">
@@ -428,6 +423,24 @@ export default function ContactsPage() {
 
             {/* Реф-код и реферер */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-6">
+              {selected.email && (
+                <div className="flex items-start gap-2">
+                  <Mail size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-400">Email</p>
+                    <p className="text-sm text-gray-800 break-all">{selected.email}</p>
+                  </div>
+                </div>
+              )}
+              {selected.phone && (
+                <div className="flex items-start gap-2">
+                  <Phone size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-400">Телефон</p>
+                    <p className="text-sm text-gray-800">{selected.phone}</p>
+                  </div>
+                </div>
+              )}
               {selected.ref_code && (
                 <div className="flex items-start gap-2">
                   <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
