@@ -356,8 +356,29 @@ async def update_conference(
             )
 
     await regenerate_landing_data(event_id, db)
-    conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
-    return {"conference": dict(conf)}
+    # Возвращаем тот же обогащённый объект что и в GET /conference/ —
+    # с подменой chat_url/stream_url/vip_url/event_landing_url из events.
+    # Иначе frontend в SettingsTab перезаливает state из response и теряет
+    # эти поля (они не лежат в conf_conferences).
+    conf = await db.fetchrow(
+        """
+        SELECT cc.*, e.title AS event_title,
+               e.chat_url    AS event_chat_url,
+               e.stream_url  AS event_stream_url,
+               e.vip_url     AS event_vip_url,
+               e.landing_url AS event_landing_url
+        FROM conf_conferences cc
+        JOIN events e ON e.id = cc.event_id
+        WHERE cc.event_id = $1
+        """,
+        event_id,
+    )
+    d = dict(conf)
+    d["chat_url"]          = d.pop("event_chat_url")   or d.get("chat_url") or ""
+    d["stream_url"]        = d.pop("event_stream_url") or ""
+    d["vip_url"]           = d.pop("event_vip_url")    or ""
+    d["event_landing_url"] = d.pop("event_landing_url") or ""
+    return {"conference": d}
 
 
 @router.post("/regenerate-landing", summary="Пересобрать JSON лендинга")
