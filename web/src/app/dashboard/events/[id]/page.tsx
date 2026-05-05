@@ -6,12 +6,11 @@ import { api } from '@/lib/api'
 import OverviewTab from './tabs/OverviewTab'
 import PostersTab from './tabs/PostersTab'
 import ReferralProgramTab from './tabs/ReferralProgramTab'
-import BroadcastsTab from './tabs/BroadcastsTab'
 import VipChatTab from './tabs/VipChatTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'vipchat' | 'participants' | 'broadcasts'
+type TabKey = 'overview' | 'posters' | 'referral' | 'vipchat' | 'participants'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -43,13 +42,14 @@ export default function EventPage() {
   // Конференции — отдельный модуль, в нём своя обширная UI; оставляем кнопку перехода
   const isConference = event.module_slug === 'conference'
 
+  // «Рассылки» — отдельная страница со своими подвкладками (Шаблоны / Очередь),
+  // как в карточке конференции. Здесь это `<Link>`, не таб контента (см. рендер ниже).
   const TABS: { key: TabKey; label: string }[] = [
     { key: 'overview',     label: 'Основное' },
     { key: 'posters',      label: 'Афиши' },
     { key: 'referral',     label: 'Реф-программа' },
-    { key: 'vipchat',      label: 'VIP и Чат' },
+    ...(isConference ? [{ key: 'vipchat' as TabKey, label: 'VIP и Чат' }] : []),
     { key: 'participants', label: 'Участники' },
-    { key: 'broadcasts',   label: 'Рассылки' },
   ]
 
   return (
@@ -97,6 +97,11 @@ export default function EventPage() {
             {tab.label}
           </button>
         ))}
+        {/* «Рассылки» как ссылка на отдельную страницу с подвкладками — как у конференции */}
+        <Link href={`/dashboard/events/${eventId}/broadcasts/queue`}
+          className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap border-transparent text-gray-500 hover:text-gray-700">
+          Рассылки
+        </Link>
       </div>
 
       {/* Tab content */}
@@ -105,7 +110,6 @@ export default function EventPage() {
       {activeTab === 'referral'     && <ReferralProgramTab eventId={eventId} />}
       {activeTab === 'vipchat'      && <VipChatTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'participants' && <EventParticipants eventId={eventId} />}
-      {activeTab === 'broadcasts'   && <BroadcastsTab eventId={eventId} isConference={isConference} />}
     </div>
   )
 }
