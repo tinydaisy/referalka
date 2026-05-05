@@ -25,7 +25,7 @@ export default function BroadcastsTab({ eventId, isConference }: {
                 : 'Тексты + кнопки + плейсхолдеры для каждого типа рассылки (за сутки в 09:12, за 2 часа, за 30/5 минут).'}
             </p>
             <Link
-              href={`/dashboard/conferences/${eventId}/broadcasts/templates`}
+              href={`/dashboard/events/${eventId}/broadcasts/templates`}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium"
               style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
             >
@@ -48,7 +48,7 @@ export default function BroadcastsTab({ eventId, isConference }: {
               на свой Telegram, лог доставки и переотправка.
             </p>
             <Link
-              href={`/dashboard/conferences/${eventId}/broadcasts/queue`}
+              href={`/dashboard/events/${eventId}/broadcasts/queue`}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium"
               style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
             >
