@@ -9,7 +9,7 @@ import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
 import RegistrationFlow from '../components/RegistrationFlow'
 import WelcomePage from '../components/WelcomePage'
-import { getEventLanding, getParticipantInEvent, registerParticipant } from '../api'
+import { getEventLanding, getParticipantInEvent, registerParticipant, markParticipantWelcomed } from '../api'
 
 type State = 'not_registered' | 'registered' | 'ended'
 
@@ -97,10 +97,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
 
   // Обёртка над setTab: при каждом переходе перечитываем данные участника.
   // Reload без условий — счётчики/топ могли поменяться от чужих действий.
+  // Если участник ещё на welcome-экране — тап по любой вкладке снимает welcome
+  // (welcomed_at = now), чтобы дальше показывался контент вкладки, а не welcome.
   function setTab(next: string) {
     setTabState(next)
     setRefreshKey(k => k + 1)
     reloadParticipant()
+    if (participant?.id && participant?.welcomed_at == null) {
+      setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
+      markParticipantWelcomed(participant.id).catch(() => { /* offline ok */ })
+    }
   }
 
   // Загружаем лендинг события (публично) + проверяем участие (если есть tg_id)
@@ -252,20 +258,6 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     )
   }
 
-  if (showWelcome && participant?.id) {
-    return (
-      <WelcomePage
-        event={event}
-        participantId={participant.id}
-        raffleEnabled={raffleOn}
-        onContinue={() => {
-          setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
-          setTab('program')
-        }}
-      />
-    )
-  }
-
   function handleRegistered(p: any) {
     setParticipant({ ...p, is_registered: true })
     setShowReg(false)
@@ -363,16 +355,30 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       )}
 
       <div className="page">
-        {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
-        {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} />}
-        {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
-        {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
-        {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} />}
-        {tab === 'calendar'  && event.client_id && <CalendarTab clientId={event.client_id} onOpenEvent={(s) => {
-          const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
-          window.location.assign(`${base}/event/${s}`)
-        }} />}
-        {tab === 'ecosystem' && event.client_id && <EcosystemTab clientId={event.client_id} />}
+        {showWelcome && participant?.id ? (
+          <WelcomePage
+            event={event}
+            participantId={participant.id}
+            raffleEnabled={raffleOn}
+            onContinue={() => {
+              setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
+              setTab('program')
+            }}
+          />
+        ) : (
+          <>
+            {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
+            {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} />}
+            {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
+            {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
+            {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} />}
+            {tab === 'calendar'  && event.client_id && <CalendarTab clientId={event.client_id} onOpenEvent={(s) => {
+              const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+              window.location.assign(`${base}/event/${s}`)
+            }} />}
+            {tab === 'ecosystem' && event.client_id && <EcosystemTab clientId={event.client_id} />}
+          </>
+        )}
       </div>
 
       <BottomNav items={navItems} active={tab} onTab={setTab} />
