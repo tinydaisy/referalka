@@ -19,6 +19,7 @@ export default function OverviewTab({
   const [chatUrl, setChatUrl] = useState(event.chat_url || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
+  const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -53,6 +54,7 @@ export default function OverviewTab({
       const endIso = endAt ? new Date(endAt).toISOString() : null
       const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
       if (endIso !== eventEndIso)                               payload.end_at = endIso
+      if (requireSubscription !== !!event.require_subscription) payload.require_subscription = requireSubscription
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -114,6 +116,36 @@ export default function OverviewTab({
             value={landingUrl}
             onChange={setLandingUrl}
           />
+        </div>
+      </div>
+
+      {/* Подписка на канал организатора (события вне конференций) */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+        <h2 className="font-semibold text-gray-800 mb-1">Подписка на канал организатора</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Если включено — участник должен быть подписан на главный Telegram-канал
+          организатора, чтобы войти в чат события и получить доступ к Игре/Розыгрышу.
+        </p>
+        <div className="space-y-3">
+          {[
+            { value: false, label: 'Не требовать подписки',                desc: 'Доступ открыт всем зарегистрированным участникам' },
+            { value: true,  label: 'Требовать подписку на канал организатора', desc: 'Участник должен подписаться на ваш главный канал перед входом' },
+          ].map(opt => (
+            <label key={String(opt.value)}
+              className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                requireSubscription === opt.value
+                  ? 'border-[#25455D] bg-[#25455D]/5'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}>
+              <input type="radio" name="event_sub_required" checked={requireSubscription === opt.value}
+                onChange={() => setRequireSubscription(opt.value)}
+                className="mt-0.5 accent-[#25455D]" />
+              <div>
+                <p className="text-sm font-medium text-gray-900">{opt.label}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
+              </div>
+            </label>
+          ))}
         </div>
 
         {err && <div className="mt-4 text-sm text-red-600">{err}</div>}
