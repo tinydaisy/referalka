@@ -194,8 +194,10 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
 
   async function openChatWithCheck() {
     if (!event?.chat_url) return
-    // Не конференция → подписочный гейт неприменим, открываем как раньше.
-    if (!isConference || !event?.id || !tgUser?.id) {
+    // Гейт подписки нужен для конференции (subscription_mode) ИЛИ для
+    // мероприятия с require_subscription=true. Иначе открываем сразу.
+    const needsCheck = isConference || !!event?.require_subscription
+    if (!needsCheck || !event?.id || !tgUser?.id) {
       openExternal(event.chat_url)
       return
     }

@@ -53,36 +53,63 @@ async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, 
 
 async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     event = await db.fetchrow(
-        "SELECT id, client_id FROM events WHERE id = $1", event_id
+        "SELECT id, client_id, require_subscription FROM events WHERE id = $1", event_id
     )
     if not event:
         return {"status": 0, "not_subscribed": []}
 
-    # Режим подписки задаётся в настройках конференции:
-    #   none          — проверка не требуется (status всегда 1)
-    #   organizer     — только канал организатора (role = 'organizer')
-    #   all_speakers  — все спикеры (текущий дефолт)
+    # Режим подписки задаётся в настройках:
+    #   Конференция (есть запись в conf_conferences):
+    #     subscription_mode: none / organizer / all_speakers
+    #   Мероприятие (нет conf_conferences):
+    #     events.require_subscription: false → none, true → organizer
+    #     (спикеров у мероприятия нет, поэтому all_speakers здесь не применим)
     conf = await db.fetchrow(
         "SELECT subscription_mode FROM conf_conferences WHERE event_id = $1", event_id
     )
-    mode = (dict(conf).get("subscription_mode") if conf else None) or "all_speakers"
+    if conf:
+        mode = dict(conf).get("subscription_mode") or "all_speakers"
+    else:
+        mode = "organizer" if event["require_subscription"] else "none"
+
     if mode == "none":
         return {"status": 1, "not_subscribed": []}
 
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
 
-    rows = await db.fetch(
-        f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
-           FROM conf_speaker_events cse
-           JOIN collaborators sp ON sp.id = cse.speaker_id
-           WHERE cse.event_id = $1
-             AND cse.bot_in_channel = TRUE
-             AND cse.exclude_channel_from_subscription = FALSE
-             AND sp.tg_channel_id IS NOT NULL
-             AND sp.tg_channel_id <> ''
-             {role_filter}""",
-        event["id"],
-    )
+    if conf:
+        # Конференция: ищем канал(ы) в conf_speaker_events этого события.
+        rows = await db.fetch(
+            f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
+               FROM conf_speaker_events cse
+               JOIN collaborators sp ON sp.id = cse.speaker_id
+               WHERE cse.event_id = $1
+                 AND cse.bot_in_channel = TRUE
+                 AND cse.exclude_channel_from_subscription = FALSE
+                 AND sp.tg_channel_id IS NOT NULL
+                 AND sp.tg_channel_id <> ''
+                 {role_filter}""",
+            event["id"],
+        )
+    else:
+        # Мероприятие: своих спикеров нет. Ищем «канал организатора» клиента —
+        # через conf_speaker_events ЛЮБОЙ конференции этого клиента, где
+        # role='organizer'. Канал организатора у клиента общий — задаётся
+        # один раз в карточке его конференции.
+        rows = await db.fetch(
+            """SELECT DISTINCT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
+               FROM conf_speaker_events cse
+               JOIN collaborators sp ON sp.id = cse.speaker_id
+               JOIN events e ON e.id = cse.event_id
+               WHERE e.client_id = $1
+                 AND cse.role = 'organizer'
+                 AND cse.bot_in_channel = TRUE
+                 AND cse.exclude_channel_from_subscription = FALSE
+                 AND sp.tg_channel_id IS NOT NULL
+                 AND sp.tg_channel_id <> ''
+               LIMIT 1""",
+            event["client_id"],
+        )
 
     if not rows:
         return {"status": 1, "not_subscribed": []}
