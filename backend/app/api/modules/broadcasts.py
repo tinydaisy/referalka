@@ -102,17 +102,18 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": True,
     },
     {
+        # Универсальный текст без упоминания спикера. Подходит и для конференции,
+        # и для обычного мероприятия. Если конф хочет «выступает {speaker_name}» —
+        # клиент редактирует шаблон вручную.
         "name": "За 5 минут до старта",
         "type": "5min_before",
         "text": (
-            "Через 5 минут выступает {speaker_name}\n\n"
-            "Тема: «{speaker_topic}»\n\n"
-            "Заходи в эфир, получай полезный контент и находи секретный код для розыгрыша!\n"
-            "👇👇👇\n"
-            "{stream_url}"
+            "<b>Через 5 минут стартует «{conf_title}»</b>\n\n"
+            "Подключайтесь к эфиру 👇\n\n"
+            "🔗 {stream_url}"
         ),
         "photo_url": None,
-        "button_text": "Войти в эфир",
+        "button_text": "Подключиться к эфиру",
         "button_url": "{stream_url}",
         "schedule_mode": "fixed_offset",
         "offset_minutes": 5,
