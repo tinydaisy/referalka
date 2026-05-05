@@ -139,6 +139,25 @@ DEFAULT_TEMPLATES = [
         "allow_custom_datetime": False,
     },
     {
+        # Мероприятие — за 5 минут до старта эфира. Аналог `day_live` в конференции,
+        # но без модели «дней»: точка отсчёта — events.start_at.
+        "name": "За 5 минут до старта мероприятия",
+        "type": "event_live",
+        "text": (
+            "<b>Через 5 минут стартует «{conf_title}»</b>\n\n"
+            "Подключайтесь к эфиру 👇\n\n"
+            "🔗 {stream_url}"
+        ),
+        "photo_url": None,
+        "button_text": "Подключиться к эфиру",
+        "button_url": "{stream_url}",
+        "schedule_mode": "fixed_offset",
+        "offset_minutes": 5,
+        "audience_include": "all_event",
+        "audience_exclude": "none",
+        "allow_custom_datetime": False,
+    },
+    {
         "name": "Подарок спикера (за 5 мин до конца)",
         "type": "gift",
         "text": (
@@ -352,17 +371,25 @@ async def list_templates(
     )
 
     if not rows:
-        # Какие типы сидим зависит от типа события: для конференции — все,
-        # для обычного мероприятия — только общие + day_before_09_12_*
-        # (pre_conf/gift/speaker_intro/day_live/day_end/vip_offer — конф-специфика).
+        # Какие типы сидим зависит от типа события:
+        #  • Конференция: все «общие» + конф-специфика (pre_conf, speaker_intro, gift, 5min_before per-session, day_live, day_end, vip_offer).
+        #  • Мероприятие: только общие (2h_before_*, 30min_before, day_before_09_12_*) + event_live (= аналог 5 минут до старта эфира, но event-level).
+        # `5min_before` (за 5 мин до выступления спикера) — только для конференции.
+        # `event_live` (за 5 мин до старта мероприятия) — только для мероприятия.
         ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
         is_conf = ev_row and ev_row["module_slug"] == "conference"
         EVENT_ONLY_TYPES = {
-            "5min_before", "30min_before",
+            "30min_before",
             "2h_before_unreg", "2h_before_reg",
             "day_before_09_12_unreg", "day_before_09_12_reg",
+            "event_live",
         }
         for tpl in DEFAULT_TEMPLATES:
+            # event_live — только мероприятиям; 5min_before — только конференциям.
+            if tpl["type"] == "event_live" and is_conf:
+                continue
+            if tpl["type"] == "5min_before" and not is_conf:
+                continue
             if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
                 continue
             if is_conf and tpl["type"].startswith("day_before_09_12"):
@@ -608,8 +635,8 @@ async def generate_schedules(
     """
     Создаёт записи broadcast_schedules:
     - speaker_intro: одна на всё событие, fire_at = NULL (нужна кастомная дата)
-    - 5min_before:   за offset_minutes до старта сессии (МСК) — для конф per session,
-                     для мероприятия — единственная за 5 мин до events.start_at
+    - 5min_before:   только конференция — per session, за offset_minutes до старта сессии (МСК).
+    - event_live:    только мероприятие — единственная за 5 мин до events.start_at.
     - gift:          за offset_minutes до окончания сессии (только конф)
     - 2h_before_unreg/reg: за 120 мин до первой сессии дня (конф) или events.start_at (меропр)
     - 30min_before:  за 30 мин до первой сессии дня (конф) или events.start_at (меропр)
@@ -897,7 +924,9 @@ async def generate_schedules(
             await add_schedule(tmpl, last_end_utc + timedelta(minutes=offset), None, "day_end")
 
     # ── Расписания для НЕ-конференций (одна точка отсчёта = events.start_at) ──
-    # Все «дневные» рассылки (2h, 30min, 5min, day_before_09_12) — относительно start_at.
+    # Все «дневные» рассылки (2h, 30min, event_live, day_before_09_12) — относительно start_at.
+    # `5min_before` (за 5 мин до выступления спикера) не используется для мероприятий —
+    # для них есть отдельный тип `event_live` (за 5 мин до старта эфира).
     if not is_conf and event_start_at:
         # event_start_at в БД хранится как TIMESTAMPTZ — приводим к UTC
         if event_start_at.tzinfo is None:
@@ -905,12 +934,12 @@ async def generate_schedules(
         else:
             event_start_utc = event_start_at.astimezone(ZoneInfo("UTC"))
 
-        # 2h, 30min, 5min — прямой offset до start_at (минуты)
+        # 2h, 30min, event_live — прямой offset до start_at (минуты)
         for ttype, default_off in (
             ("2h_before_unreg", 120),
             ("2h_before_reg", 120),
             ("30min_before", 30),
-            ("5min_before", 5),
+            ("event_live", 5),
         ):
             if ttype in tmpl_map:
                 tmpl = tmpl_map[ttype]

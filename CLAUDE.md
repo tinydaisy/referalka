@@ -482,11 +482,14 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 | `2h_before_unreg` | за 120 мин до старта дня (конф) или `start_at` (меропр) | нерег | оба |
 | `2h_before_reg`   | за 120 мин до старта | зарег | оба |
 | `30min_before`    | за 30 мин до старта дня/события | все | оба |
-| `5min_before`     | за 5 мин до старта сессии (конф) / события (меропр) | все | оба |
+| `5min_before`     | за 5 мин до старта **выступления спикера** (per-session) | все | **только конф** |
+| `event_live`      | за 5 мин до старта мероприятия (events.start_at − 5 мин) | все | **только меропр** |
 | `pre_conf` | за день в 10:43 МСК (анонс знакомства со спикерами) | все | только конф |
 | `speaker_intro`, `gift`, `day_live`, `day_end`, `vip_offer` | конф-специфика | разное | только конф |
 
 Старые имена `day_start_30min_unreg/reg`, `pre_start` миграцией 060 переименованы (включая поле `type` в `broadcast_schedules`). Не использовать в новом коде.
+
+**Миграция 065 (05.05.2026)** — split `5min_before` на конф (per-session, остаётся `5min_before`) и мероприятие (event-level, новый тип `event_live`). До 065 один тип `5min_before` использовался в обоих контекстах с разной семантикой, что путало клиента в UI. Все существующие записи `5min_before` в `broadcast_templates` / `broadcast_schedules` / `broadcast_log` для **не-конференций** автоматически переведены в `event_live`. Auto-seed в `list_templates` теперь: для конф сидится `5min_before`, для меропр — `event_live`.
 
 **Плейсхолдер `{game_link}`** — личная ссылка получателя на вкладку «Игра» события (партнёрский кабинет). Подставляется в момент отправки в Celery ([`tasks/broadcast.py`](backend/app/tasks/broadcast.py)) per-recipient: `https://t.me/{бот_клиента_или_pluson}?startapp=ref_pg{slug}_tabgame_pid{ref_code}`. В `message_builder.py` остаётся как литерал — подставляется только на самом последнем шаге.
 
@@ -495,8 +498,8 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 **Mini App парсит `_tabXXX`** в startapp ([`App.tsx`](mini-app/src/App.tsx)) → передаёт `initialTab` в [`EventPage.tsx`](mini-app/src/pages/EventPage.tsx) → стартовая вкладка = указанная (game/raffle/program/ecosystem). Доступно только зарегистрированным; для нерег. флаг игнорируется (всегда landing).
 
 **`generate_schedules`**:
-- Для конференции — как раньше (по `conf_days`/`conf_sessions`).
-- Для обычного мероприятия — точка отсчёта = `events.start_at`. Создаются: `5min_before`, `30min_before`, `2h_before_unreg/reg` (relative offset до start_at) + `day_before_09_12_unreg/reg` (за сутки в 09:12 МСК).
+- Для конференции — как раньше (по `conf_days`/`conf_sessions`). `5min_before` создаётся per-session.
+- Для обычного мероприятия — точка отсчёта = `events.start_at`. Создаются: `event_live`, `30min_before`, `2h_before_unreg/reg` (relative offset до start_at) + `day_before_09_12_unreg/reg` (за сутки в 09:12 МСК). `5min_before` для мероприятий не используется — там `event_live`.
 - **400** при попытке генерации если у конф нет программы (`conf_days` пуст) или у меропр не задан `events.start_at` — с понятным русским текстом ошибки.
 
 **Флаг `is_overdue`** в API списка расписаний (`GET /broadcasts/schedules`) — `true` если `fire_at < NOW()` и статус `draft`/`pending`. Дашборд ([`broadcasts/queue/page.tsx`](web/src/app/dashboard/conferences/[id]/broadcasts/queue/page.tsx)) подсвечивает такие красной плашкой «⚠️ Время прошло — рассылка не отправится автоматически». Запись остаётся в `draft`, не уходит сама — клиент решает «перенести / отменить».

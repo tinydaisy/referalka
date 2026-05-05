@@ -32,9 +32,16 @@ const TYPE_DEFS: TypeDef[] = [
   {
     type: '5min_before',
     title: 'За 5 минут до выступления спикера',
-    hint: 'Отправляется за 5 минут до начала выступления спикера (конф) или до старта мероприятия. Фото — афиша спикера/события.',
+    hint: 'Только для конференции. Отправляется за 5 минут до начала выступления каждого спикера (per-session). Фото — афиша спикера.',
     variables: ['{speaker_name}', '{speaker_topic}', '{stream_url}'],
     hasSpeaker: true,
+    showPhoto: true,
+  },
+  {
+    type: 'event_live',
+    title: 'За 5 минут до старта мероприятия',
+    hint: 'Только для мероприятия. Отправляется за 5 минут до старта эфира мероприятия. Фото — афиша события.',
+    variables: ['{conf_title}', '{stream_url}'],
     showPhoto: true,
   },
   {
@@ -1140,6 +1147,7 @@ export default function TemplatesPage() {
                   || previewModal.def.type === '2h_before_unreg'
                   || previewModal.def.type === '2h_before_reg'
                   || previewModal.def.type === '30min_before'
+                  || previewModal.def.type === 'event_live'
                 // Афиша события: тот же приоритет, что и в backend get_default_event_photo —
                 // square > horizontal > vertical.
                 const eventPoster = confPosters.square[0] || confPosters.horizontal[0] || confPosters.vertical[0]

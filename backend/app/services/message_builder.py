@@ -30,7 +30,8 @@ ORDINALS = {1: "первом", 2: "втором", 3: "третьем", 4: "че�
 ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
 
 DAY_TYPES = ("2h_before_unreg", "2h_before_reg", "30min_before", "day_live", "day_end",
-             "day_before_09_12_unreg", "day_before_09_12_reg")
+             "day_before_09_12_unreg", "day_before_09_12_reg",
+             "event_live")
 SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before")
 CONF_TYPES = ("pre_conf",)
 
