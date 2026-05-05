@@ -231,7 +231,7 @@ async def public_event_landing_redirect(
     параметров. Иначе пустой объект. Используется в mini-app/index.html
     inline-скриптом для мгновенного редиректа на сторонний лендинг."""
     row = await db.fetchrow(
-        "SELECT id, landing_url, status FROM events WHERE slug = $1 LIMIT 1",
+        "SELECT id, client_id, landing_url, status FROM events WHERE slug = $1 LIMIT 1",
         slug,
     )
     if not row:
@@ -258,13 +258,38 @@ async def public_event_landing_redirect(
         if is_reg:
             return {}
 
+    # Если pid резолвится в коллаборатора с external_ref_param — приписываем
+    # его партнёрский параметр (например, gcpc=fdd97) к URL клиентского
+    # лендинга. Это связывает партнёра ПЛЮСОН с партнёром во внешней системе
+    # клиента (GetCourse / Bizon360 и т.п.). Если что-то пошло не так —
+    # просто не приписываем, основной редирект не ломаем.
+    external_ref_param = None
+    if pid:
+        try:
+            external_ref_param = await db.fetchval(
+                """SELECT col.external_ref_param
+                     FROM contacts c
+                     JOIN collaborators col ON col.contact_id = c.id
+                    WHERE c.client_id = $1
+                      AND (c.ref_code = $2 OR c.merged_ref_codes ? $2)
+                      AND col.external_ref_param IS NOT NULL
+                      AND col.external_ref_param <> ''
+                    LIMIT 1""",
+                row["client_id"], pid,
+            )
+        except Exception:
+            external_ref_param = None
+
     from urllib.parse import urlencode
     qs = {"event_slug": slug}
     if tg_id is not None: qs["tg_id"] = str(tg_id)
     if pid:               qs["pid"] = pid
     if utm_source:        qs["utm_source"] = utm_source
     sep = "&" if "?" in landing_url else "?"
-    return {"redirect_url": landing_url + sep + urlencode(qs)}
+    redirect_url = landing_url + sep + urlencode(qs)
+    if external_ref_param:
+        redirect_url += "&" + external_ref_param.lstrip("?&")
+    return {"redirect_url": redirect_url}
 
 
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")
