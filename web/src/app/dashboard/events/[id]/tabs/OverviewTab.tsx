@@ -15,7 +15,10 @@ export default function OverviewTab({
   const [title, setTitle] = useState(event.title || '')
   const [description, setDescription] = useState(event.description || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
-  const [address, setAddress] = useState(event.address || '')
+  // «Ссылка на ZOOM/стрим» сохраняется в events.stream_url (как у конференции),
+  // потому что ProgramTab Mini App рендерит блок стрима по stream_url.
+  // Раньше поле сохраняло в events.address — старые данные подтягиваются как fallback.
+  const [streamUrl, setStreamUrl] = useState(event.stream_url || event.address || '')
   const [chatUrl, setChatUrl] = useState(event.chat_url || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
@@ -44,8 +47,9 @@ export default function OverviewTab({
       if (d !== (event.description || ''))                      payload.description = d || null
       const lu = landingUrl.trim()
       if (lu !== (event.landing_url || ''))                     payload.landing_url = lu || null
-      const a = address.trim()
-      if (a !== (event.address || ''))                          payload.address = a || null
+      const su = streamUrl.trim()
+      const initStream = event.stream_url || event.address || ''
+      if (su !== initStream)                                    payload.stream_url = su || null
       const c = chatUrl.trim()
       if (c !== (event.chat_url || ''))                         payload.chat_url = c || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
@@ -101,8 +105,8 @@ export default function OverviewTab({
             </Field>
           </div>
 
-          <Field label="Ссылка на ZOOM или вебинарную комнату (для онлайн-событий)" hint="Можно вставить ссылку трансляции, запись или офлайн-адрес">
-            <input value={address} onChange={e => setAddress(e.target.value)}
+          <Field label="Ссылка на ZOOM или вебинарную комнату" hint="Появится плиткой «Стрим» в Mini App в день эфира">
+            <input value={streamUrl} onChange={e => setStreamUrl(e.target.value)}
                    className="input" placeholder="https://us02web.zoom.us/j/..." />
           </Field>
 
