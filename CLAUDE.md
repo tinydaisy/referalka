@@ -131,6 +131,29 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 **nginx.** На dev добавлен location `^/(m|p)/[a-z0-9]+$` → FastAPI 8000 (см. `memory/dev_server.md`).
 
+### Приветствие при открытии события (миграция 064 от 05.05.2026)
+
+При каждом `event_start` из Mini App ([backend/app/api/event.py](backend/app/api/event.py)) бот клиента (или fallback `@pluson_bot`) шлёт пользователю **контекстное** сообщение с inline-кнопкой. Тип сообщения определяется автоматически:
+
+| `kind` | Когда | Текст | Кнопка → |
+|---|---|---|---|
+| `register_cta` | `is_registered=false`, событие активно | «Добро пожаловать на «{title}» 🎉» + дата | «Зарегистрироваться» → `…?startapp=ref_pg{slug}` |
+| `referral_reminder` | `is_registered=true`, не завершилось | «Вы ещё успеваете пригласить друзей…» | «Получить подарки» → `…?startapp=ref_pg{slug}_tabgame_pid{ref_code}` |
+| `next_event_cta` | завершилось + есть `successor_event_id` (не draft) | «Спасибо за ваш интерес. Следующее: «{succ}» {дата}» | «Записаться на следующее» → `…?startapp=ref_pg{succ_slug}` |
+| `ecosystem_thanks` | завершилось, успешник не задан | «Спасибо за ваш интерес. Заходите в Экосистему — там полезные материалы.» | «Открыть Экосистему» → `…?startapp=ref_pg{slug}_tabecosystem` |
+
+Завершение для конференций — `MAX(conf_days.day_date + close_time)` < сейчас МСК, для остальных — `events.end_at` или `status='ended'`.
+
+**Дедуп — БД, не память.** В `event_participants` две колонки (миграция 064):
+- `last_open_msg_kind TEXT`
+- `last_open_msg_at TIMESTAMPTZ`
+
+Логика: если новый `kind ≠ last_open_msg_kind` — шлём (статус сменился). Если совпадает — проверяем `broadcast_log` per `platform_user_id` контакта: если **после** `last_open_msg_at` были рассылки от бота клиента → наше сообщение «уехало вверх», шлём заново. Если рассылок не было — пропускаем.
+
+Старый 5-минутный in-memory `_was_welcomed` удалён.
+
+URL Mini App: для VIP — `https://t.me/{handle}` (бот клиента, без short-name), для общего — `https://t.me/pluson_bot/pluson` (с short-name `pluson`). Резолв `handle` — из `channels` per `client_id` (как в `tasks/broadcast.py`).
+
 ### Авто-редирект внутри Mini App webview на iOS (рецепт)
 
 Если из Mini App нужно автоматически (без клика) перебросить webview
