@@ -6,7 +6,7 @@ celery = Celery(
     "plusson",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.broadcast"]
+    include=["app.tasks.broadcast", "app.tasks.funnel"]
 )
 
 celery.conf.update(

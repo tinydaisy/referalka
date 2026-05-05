@@ -355,6 +355,33 @@ async def get_contact(
             d["subscriptions"] = []
         identities_list.append(d)
 
+    # Воронки лид-магнитов (история интереса)
+    lead_magnet_runs = await db.fetch("""
+        SELECT
+          fr.id, fr.stage, fr.utm,
+          fr.landed_at, fr.started_at, fr.subscribed_at, fr.delivered_at,
+          fr.text3_sent_at, fr.text3_kind,
+          fr.lead_magnet_id, fr.package_id,
+          COALESCE(lm.name, pkg.name) AS source_name,
+          CASE WHEN fr.lead_magnet_id IS NOT NULL THEN 'magnet' ELSE 'package' END AS source_kind,
+          CASE WHEN fr.lead_magnet_id IS NOT NULL THEN lm.slug ELSE pkg.slug END AS source_slug
+        FROM funnel_runs fr
+        LEFT JOIN lead_magnets lm ON lm.id = fr.lead_magnet_id
+        LEFT JOIN lead_magnet_packages pkg ON pkg.id = fr.package_id
+        WHERE fr.contact_id = $1
+        ORDER BY fr.landed_at DESC
+        LIMIT 100
+    """, contact_id)
+    lead_magnet_runs_list = []
+    for r in lead_magnet_runs:
+        d = dict(r)
+        if isinstance(d.get("utm"), str):
+            try:
+                d["utm"] = json.loads(d["utm"])
+            except Exception:
+                d["utm"] = {}
+        lead_magnet_runs_list.append(d)
+
     # События в которых участвует
     events = await db.fetch("""
         SELECT e.id, e.title, e.slug, ep.is_registered, ep.is_in_chat, ep.registered_at, c.ref_code,
@@ -388,6 +415,7 @@ async def get_contact(
         **row_dict,
         "identities": identities_list,
         "events": [dict(e) for e in events],
+        "lead_magnet_runs": lead_magnet_runs_list,
     }
 
 

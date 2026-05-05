@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 10080  # 7 дней
 
     telegram_bot_token: str = ""
+    plusson_bot_username: str = "pluson_bot"  # @username общего бота PLUSON для не-VIP клиентов
     salebot_secret: str = ""        # секретный токен для вебхуков от Salebot
     redis_url: str = "redis://localhost:6379"
 

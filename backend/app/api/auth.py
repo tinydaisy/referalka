@@ -143,6 +143,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                c.notifications_telegram_chat_id,
                 c.integration_token,
                 t.name AS tariff_name,
                 COALESCE(t.allow_custom_bot, false) AS allow_custom_bot,
@@ -190,6 +191,7 @@ class ProfileUpdate(BaseModel):
     work_tg_username: Optional[str] = None
     work_tg_id: Optional[int] = None
     broadcast_concurrency: Optional[int] = None
+    notifications_telegram_chat_id: Optional[int] = None
 
 
 @router.patch("/me", summary="Обновить профиль клиента")
@@ -208,7 +210,8 @@ async def update_me(
         client = await db.fetchrow(
             """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                 c.trial_ends_at, c.created_at, c.timezone,
-                c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
+                c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                  c.notifications_telegram_chat_id
            FROM clients c WHERE c.id = $1""",
             client_id
         )
@@ -234,7 +237,8 @@ async def update_me(
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
                   c.trial_ends_at, c.created_at, c.timezone,
-                  c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency
+                  c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                  c.notifications_telegram_chat_id
              FROM clients c WHERE c.id = $1""",
         client_id
     )

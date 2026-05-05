@@ -304,6 +304,26 @@ export const api = {
       request(`/api/v1/lead-magnets/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/lead-magnets/${id}`, { method: 'DELETE' }),
+    analytics: (id: number) =>
+      request(`/api/v1/lead-magnets/${id}/analytics`),
+  },
+  leadMagnetPackages: {
+    list: () => request('/api/v1/lead-magnet-packages'),
+    create: (data: any) =>
+      request('/api/v1/lead-magnet-packages', { method: 'POST', body: JSON.stringify(data) }),
+    get: (id: number) => request(`/api/v1/lead-magnet-packages/${id}`),
+    update: (id: number, data: any) =>
+      request(`/api/v1/lead-magnet-packages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/lead-magnet-packages/${id}`, { method: 'DELETE' }),
+    analytics: (id: number) =>
+      request(`/api/v1/lead-magnet-packages/${id}/analytics`),
+  },
+  funnelTemplates: {
+    get: (type: string = 'lead_magnet') =>
+      request(`/api/v1/funnel-templates/${type}`),
+    update: (type: string, data: any) =>
+      request(`/api/v1/funnel-templates/${type}`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
   miniApp: {
     profile: {

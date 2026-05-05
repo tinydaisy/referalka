@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard, Plug, Copy, Check, RefreshCw, ExternalLink } from 'lucide-react'
+import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard, Plug, Copy, Check, RefreshCw, ExternalLink, Bell } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
@@ -33,7 +33,7 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '' })
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -56,6 +56,7 @@ export default function SettingsPage() {
         work_tg_username: c.work_tg_username || '',
         work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
+        notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
       })
       setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
     }).catch(() => {})
@@ -90,6 +91,7 @@ export default function SettingsPage() {
         work_tg_username: form.work_tg_username || null,
         work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
         broadcast_concurrency: concurrency,
+        notifications_telegram_chat_id: form.notifications_telegram_chat_id ? Number(form.notifications_telegram_chat_id) : null,
       })
       setTimezone(form.timezone)
       setSaved(true)
@@ -392,6 +394,39 @@ export default function SettingsPage() {
               <option key={tz.value} value={tz.value}>{tz.label}</option>
             ))}
           </select>
+        </div>
+
+        {/* Notifications channel */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <Bell size={18} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-800">Канал уведомлений</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Куда @pluson_bot будет писать о новых интересантах на ваши лид-магниты и другие
+                важные события. Заведите Telegram-канал и впишите его ID.
+              </p>
+            </div>
+          </div>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={form.notifications_telegram_chat_id}
+            onChange={set('notifications_telegram_chat_id')}
+            placeholder="-1001234567890"
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+          />
+          <details className="mt-3 text-sm text-gray-600">
+            <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>
+            <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
+              <li>Создайте Telegram-канал (или используйте существующий).</li>
+              <li>Добавьте <a href="https://t.me/pluson_bot" target="_blank" rel="noreferrer" className="underline text-[#25455D]">@pluson_bot</a> админом канала — права не нужны.</li>
+              <li>Откройте чат с @pluson_bot и перешлите туда любое сообщение из вашего канала.</li>
+              <li>Бот пришлёт ответ с ID канала — скопируйте число (включая знак минус) и вставьте в поле выше.</li>
+            </ol>
+          </details>
         </div>
 
         {/* Storage usage */}

@@ -524,6 +524,37 @@ export default function ContactsPage() {
               </div>
             )}
 
+            {(selected as any).lead_magnet_runs && (selected as any).lead_magnet_runs.length > 0 && (
+              <div className="mb-6">
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">Лид-магниты</p>
+                <div className="space-y-2">
+                  {(selected as any).lead_magnet_runs.map((r: any) => {
+                    const stages: Record<string, { label: string; color: string }> = {
+                      landed: { label: 'Перешёл', color: 'bg-gray-100 text-gray-700' },
+                      started: { label: 'Запустил', color: 'bg-blue-50 text-blue-700' },
+                      subscribed: { label: 'Подписался', color: 'bg-amber-50 text-amber-700' },
+                      delivered: { label: 'Получил', color: 'bg-green-50 text-green-700' },
+                    }
+                    const st = stages[r.stage] || stages.landed
+                    return (
+                      <div key={r.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {r.source_kind === 'package' ? '📦 ' : '🎁 '}{r.source_name || '—'}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {formatDate(r.landed_at)}
+                            {r.utm?.utm_source && <span className="ml-2">· utm: {r.utm.utm_source}</span>}
+                          </p>
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${st.color}`}>{st.label}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Возможные дубли */}
             {duplicates.length > 0 && (
               <div className="mb-6">
