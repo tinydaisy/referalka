@@ -85,6 +85,52 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Воронки выдачи лид-магнитов (миграции 062, 063 от 05.05.2026)
+
+**Зачем.** Лид-магниты выдаются через бот по фиксированной схеме: «приветствие со списком подарков → проверка подписки на канал → выдача файлов → 30-минутный follow-up». Можно объединять несколько лид-магнитов в один пакет под единой ссылкой.
+
+**Где живёт ссылка на воронку:**
+- Одиночный лид-магнит: `pluson.ru/m/{slug}` (5-символьный код алфавит без визуально похожих)
+- Пакет: `pluson.ru/p/{slug}`
+- С UTM и партнёром: `pluson.ru/m/x7q9k?utm_source=insta&pid=abc123`. UTM любые — всё в `funnel_runs.utm` JSONB. `pid` резолвится в `referrer_contact_id` через `contacts.ref_code`.
+
+**Куда ведёт landing:**
+- VIP-клиент с `tariffs.allow_custom_bot=TRUE` и подключённым TG-ботом → `t.me/<его_бот>?start=fnl_<run_id>`
+- Иначе → `t.me/pluson_bot?start=fnl_<run_id>`
+
+В обоих случаях наш polling-сервис ([backend/bot/main.py](backend/bot/main.py)) держит обработчики. Multi-bot polling: один Python-процесс крутит и @pluson_bot, и все VIP-боты клиентов параллельно через asyncio.gather.
+
+**Бот-флоу:**
+1. `/start fnl_<run_id>` ([backend/bot/handlers/start.py](backend/bot/handlers/start.py)) — создаём `contact` + `platform_users` если новый человек, ставим `stage=started`, шлём уведомление организатору, отправляем **Текст 1** с inline-кнопкой «ГОТОВО».
+2. Callback `fnl_check_<run_id>` ([backend/bot/handlers/funnel.py](backend/bot/handlers/funnel.py)) — `getChatMember` на `clients.social_links.telegram`. Если подписан → `stage=delivered`, шлём **Текст 2** со списком `1. Название — <ссылка>`, шедулим Celery `app.tasks.funnel.send_text_3` на 30 мин. Если нет — алерт «Не вижу подписки на канал».
+3. Через 30 мин Celery шлёт **Текст 3** ([backend/app/services/funnel_service.py](backend/app/services/funnel_service.py) `send_text_3`): версия `delivered` для получивших, `stuck` для зависших.
+
+**Канал подписки.** Бот проверяет подписку на канал, который клиент вписал в `clients.social_links.telegram` (визитка основателя в `/dashboard/mini-app`, вкладка «Основатель»). Бот должен быть админом этого канала. Если поле пустое — проверку пропускаем, выдаём сразу.
+
+**Канал уведомлений организатору** (`clients.notifications_telegram_chat_id`):
+- Уведомления всегда шлёт @pluson_bot (даже для VIP). Формат: «🆕 Новый интерес: <магнит/пакет> · кто пришёл (`@username` · `#contact_id`) · UTM · кто привёл · ссылки на карточки контактов».
+- Шлётся при первом переходе `landed → started`.
+- VIP-клиент добавляет @pluson_bot админом в свой служебный канал, пересылает любое сообщение из канала в @pluson_bot — handler `/getchatid` отвечает с chat_id.
+- Поле настраивается в `/dashboard/settings` → вкладка «Технические» → блок «Канал уведомлений» с инструкцией.
+
+**Шаблон воронки** ([backend/app/api/funnels.py](backend/app/api/funnels.py)) — один на клиента, тип `'lead_magnet'`. Auto-create при первом GET с дефолтными текстами. 5 редактируемых полей: `text_1`, `button_label`, `text_2`, `text_3_delivered`, `text_3_stuck`. Создание новых шаблонов нельзя, только править существующий. Плейсхолдеры подставляются в момент отправки: `{materials_list}` (нумерованный список названий), `{materials_with_links}` (название + ссылка), `{client_brand_name}`, `{client_owner_name}`, `{client_owner_achievements}`, `{subscription_channel}`, `{owner_telegram}`.
+
+**Аналитика лид-магнита/пакета** — 3 счётчика по `funnel_runs.stage`:
+1. **landed** — перешли по ссылке (включая отвал не дошедших до бота)
+2. **started** — открыли бот, нажали /start, получили Текст 1
+3. **delivered** — прошли проверку подписки, получили файлы
+
+GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/analytics`. UI: кнопка-иконка в строке открывает модалку с переключателем счётчиков и таблицей интересантов.
+
+**Карточка контакта** — секция «Лид-магниты» под секцией «События»: список `funnel_runs` контакта с этапами и UTM. Эндпоинт `GET /api/v1/contacts/{id}` дополнен полем `lead_magnet_runs[]`.
+
+**Дашборд `/dashboard/lead-magnets`** — 3 подвкладки:
+- «Лид-магниты» — список + slug (read-only с копированием), иконка аналитики
+- «Пакеты» — мульти-селект из лид-магнитов с сортировкой ↑↓, общая ссылка `pluson.ru/p/{slug}`
+- «Шаблон воронки» — редактор 4 текстов и кнопки
+
+**nginx.** На dev добавлен location `^/(m|p)/[a-z0-9]+$` → FastAPI 8000 (см. `memory/dev_server.md`).
+
 ### Авто-редирект внутри Mini App webview на iOS (рецепт)
 
 Если из Mini App нужно автоматически (без клика) перебросить webview

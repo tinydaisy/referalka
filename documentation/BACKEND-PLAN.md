@@ -229,10 +229,33 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 ### Лид-магниты и реф-программа на уровне события (зафиксировано 2026-04-25)
 
 **`lead_magnets`** — общая база лид-магнитов клиента (per-client)
-- `id`, `client_id` → `clients`, `name`, `description`, `url`, `created_at`, `updated_at`
+- `id`, `client_id` → `clients`, `name`, `description`, `url`, **`slug` UNIQUE** (миграция 062), `created_at`, `updated_at`
 - Один лид-магнит = один материал (чек-лист, гайд, статья, видео — что угодно по ссылке)
-- Не пакет, без вложенных подарков
-- Используется в реф-программе любого события клиента
+- `slug` — 5-символьный код (алфавит без 0/o/1/l/i), используется в публичной ссылке `pluson.ru/m/{slug}`
+- Используется в реф-программе любого события клиента и в воронке выдачи (см. ниже)
+
+**`lead_magnet_packages`** — пакеты лид-магнитов (миграция 062)
+- `id`, `client_id`, `name`, `description`, `slug` UNIQUE, `created_at`, `updated_at`
+- Объединение нескольких лид-магнитов под одним названием и публичной ссылкой `pluson.ru/p/{slug}`
+- Slug-неймспейс общий с `lead_magnets` (один и тот же `slug` не может одновременно быть и магнитом, и пакетом)
+
+**`lead_magnet_package_items`** — состав пакета (M2M)
+- `package_id`, `lead_magnet_id`, `sort_order`, PK(package_id, lead_magnet_id)
+- ON DELETE CASCADE с обеих сторон
+
+**`funnel_templates`** — шаблоны воронок выдачи (миграция 063)
+- `id`, `client_id`, `type` ('lead_magnet'), `text_1`, `button_label`, `text_2`, `text_3_delivered`, `text_3_stuck`, timestamps
+- UNIQUE (client_id, type) — один шаблон на клиента+тип, auto-create при первом GET с дефолтными текстами
+
+**`funnel_runs`** — забеги воронок (миграция 063)
+- `id`, `client_id`, `type` ('lead_magnet'), источник: ровно один из `lead_magnet_id` / `package_id`
+- Кто пришёл: `contact_id`, `platform_slug`, `platform_user_id`
+- Кто привёл: `referrer_contact_id` (резолвится из `?pid=ref_code`)
+- Метки: `utm` JSONB, `stage` ('landed' / 'started' / 'subscribed' / 'delivered'), `landed_at`, `started_at`, `subscribed_at`, `delivered_at`, `text3_sent_at`, `text3_kind`
+- UNIQUE (client_id, platform_slug, platform_user_id, lead_magnet_id) и аналогично для package — один человек, одна воронка по магниту
+
+**`clients.notifications_telegram_chat_id`** (миграция 063)
+- BIGINT NULL — chat_id Telegram-канала клиента, куда @pluson_bot шлёт уведомления о новых интересантах. NULL = не настроено, не шлём.
 
 **`event_posters`** — афиши события (для лендинга, рассылок, шеринга)
 - `id`, `event_id` → `events`, `url`, `orientation` ('horizontal' | 'vertical'), `sort`, `created_at`
@@ -264,6 +287,7 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 - `name`, `title`, `achievements[]`, `photo_url`, `poster_url`, `tg_channel_url`, `tg_channel_id`, `personal_tg_id`, `personal_tg_username`, `assistant_tg_username`, `instagram_url`, `website_url`
 - `created_by_client_id` → клиент, который завёл первым
 - **`platform_user_id`** → `platform_users(id)` (миграция 032) — каждый коллаб связан с Контактом, и через него — с реф-кодом
+- **`external_ref_param`** TEXT (миграция 058) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим/не валидируем. **Применяется в** `GET /api/v1/public/events/{slug}/landing-redirect`: если `pid` резолвится в коллаборатора с непустым `external_ref_param`, его параметр приписывается к `events.landing_url` через `&` в конце URL
 - ⚠️ Таблицы `speakers` нет; PK называется `speakers_pkey` исторически, но таблица одна — `collaborators`
 
 **`conf_speaker_events`** — участие коллаборатора в конкретной конференции (Many-to-Many)
@@ -400,11 +424,61 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 
 | Метод | Путь | Что |
 |---|---|---|
-| GET | `/lead-magnets` | Список лид-магнитов клиента |
-| POST | `/lead-magnets` | Создать (name, description, url) |
+| GET | `/lead-magnets` | Список лид-магнитов клиента (включая `slug`) |
+| POST | `/lead-magnets` | Создать (name, description, url). Slug генерится автоматически. |
 | GET | `/lead-magnets/{id}` | Получить |
 | PATCH | `/lead-magnets/{id}` | Обновить |
 | DELETE | `/lead-magnets/{id}` | Удалить (связанные пороги получат NULL вместо подарка) |
+| GET | `/lead-magnets/{id}/analytics` | Аналитика воронки: 3 счётчика + список интересантов |
+
+### Пакеты лид-магнитов (`/lead-magnet-packages`) — миграция 062
+
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/lead-magnet-packages` | Список пакетов клиента (с `items[]`) |
+| POST | `/lead-magnet-packages` | Создать (name, description, items: [{lead_magnet_id, sort_order}]) |
+| GET | `/lead-magnet-packages/{id}` | Получить с составом |
+| PATCH | `/lead-magnet-packages/{id}` | Обновить (полная замена `items`) |
+| DELETE | `/lead-magnet-packages/{id}` | Удалить |
+| GET | `/lead-magnet-packages/{id}/analytics` | Аналитика воронки пакета |
+
+### Воронки выдачи лид-магнитов (миграция 063)
+
+**Шаблоны воронок (`/funnel-templates/{type}`)** — авторизованные:
+
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/funnel-templates/lead_magnet` | Текущий шаблон клиента (auto-create при первом GET с дефолтными текстами) |
+| PATCH | `/funnel-templates/lead_magnet` | Обновить любой из 5 полей: `text_1`, `button_label`, `text_2`, `text_3_delivered`, `text_3_stuck` |
+
+**Публичный landing (без авторизации):**
+
+| Метод | Путь | Что |
+|---|---|---|
+| GET | `/m/{slug}` | Landing для одиночного лид-магнита: пишет `funnel_runs` со stage=landed (UTM, `pid` → реф-код партнёра) → 302 на `t.me/<bot>?start=fnl_<run_id>` |
+| GET | `/p/{slug}` | То же для пакета |
+
+`<bot>` = бот клиента, если у него VIP-тариф (`tariffs.allow_custom_bot=TRUE`) и подключён собственный telegram-канал. Иначе — общий @pluson_bot.
+
+**Bot-флоу** (`backend/bot/handlers/start.py` + `funnel.py`):
+1. `/start fnl_<run_id>` → `funnel_service.run_started`: создаёт contact/platform_user если новый, ставит `stage=started`, шлёт уведомление организатору в `clients.notifications_telegram_chat_id`, отправляет Текст 1 + кнопку «ГОТОВО».
+2. Callback `fnl_check_<run_id>` → `run_check_subscription`: вызывает `getChatMember` на канал из `clients.social_links.telegram`. Если подписан — ставит `stage=delivered`, шлёт Текст 2 со списком ссылок, шедулит Celery-задачу на 30 минут. Если нет — отвечает «Не вижу подписки».
+3. Через 30 минут (`app.tasks.funnel.send_text_3`) — Текст 3: версия `delivered` для получивших, `stuck` для зависших.
+
+**Канал уведомлений** (`clients.notifications_telegram_chat_id`):
+- Уведомления всегда шлёт @pluson_bot (даже для VIP).
+- Клиент добавляет @pluson_bot админом в свой служебный канал, пересылает любое сообщение из канала в @pluson_bot, бот отвечает chat_id (handler `/getchatid` или ловит `forward_from_chat`).
+
+**Multi-bot polling** (`backend/bot/main.py`): один процесс держит polling для @pluson_bot (settings.telegram_bot_token) + всех VIP-токенов из `channels.bot_token` где `is_active=TRUE` и `tariffs.allow_custom_bot=TRUE`. Все боты разделяют те же handlers — резолв клиента идёт через `funnel_runs.run_id`.
+
+**Плейсхолдеры в шаблоне воронки** (подставляются в момент отправки):
+- `{materials_list}` — нумерованный список названий «1. ...» «2. ...» (text_1)
+- `{materials_with_links}` — «1. Название — <ссылка>» (text_2)
+- `{client_brand_name}` — `clients.brand_name || clients.name`
+- `{client_owner_name}` — `clients.owner_name`
+- `{client_owner_achievements}` — `clients.owner_achievements` JSONB форматирован «• label: value»
+- `{subscription_channel}` — `@username` из `clients.social_links.telegram`
+- `{owner_telegram}` — то же (для упоминания в Тексте 3)
 
 ### Реф-программа события (`/events/{id}/...`)
 
