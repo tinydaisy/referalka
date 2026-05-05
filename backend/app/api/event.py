@@ -283,7 +283,11 @@ async def share_to_bot(body: ShareToBotRequest):
             for t in texts:
                 r = await http.post(
                     f"{base}/sendMessage",
-                    json={"chat_id": body.tg_id, "text": t},
+                    json={
+                        "chat_id": body.tg_id,
+                        "text": t,
+                        "disable_web_page_preview": True,
+                    },
                 )
                 if r.status_code != 200:
                     logger.warning(
