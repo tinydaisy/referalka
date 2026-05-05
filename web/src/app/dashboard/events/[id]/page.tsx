@@ -43,14 +43,11 @@ export default function EventPage() {
   // Конференции — отдельный модуль, в нём своя обширная UI; оставляем кнопку перехода
   const isConference = event.module_slug === 'conference'
 
-  // Состав вкладок зависит от типа события: VIP+Чат показываем только конференциям.
-  // Розыгрыш живёт отдельной вкладкой в /dashboard/conferences/[id] — здесь его нет
-  // (на MVP розыгрыш только в конференциях).
   const TABS: { key: TabKey; label: string }[] = [
     { key: 'overview',     label: 'Основное' },
     { key: 'posters',      label: 'Афиши' },
     { key: 'referral',     label: 'Реф-программа' },
-    ...(isConference ? [{ key: 'vipchat' as TabKey, label: 'VIP и Чат' }] : []),
+    { key: 'vipchat',      label: 'VIP и Чат' },
     { key: 'participants', label: 'Участники' },
     { key: 'broadcasts',   label: 'Рассылки' },
   ]

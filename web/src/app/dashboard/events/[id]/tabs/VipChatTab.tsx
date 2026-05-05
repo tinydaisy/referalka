@@ -54,7 +54,7 @@ export default function VipChatTab({ event, eventId, onReload }: Props) {
       <section>
         <h2 className="text-lg font-bold mb-1" style={{ color: BRAND }}>VIP-тариф</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Если включить — в Mini App над программой появится золотая кнопка «Оплатить VIP-тариф»,
+          Если включить — в Mini App над программой появится персиковая кнопка «Расшириться до VIP-тарифа»,
           а в Итогах конференции — «Купить VIP-тариф с записями».
         </p>
 
@@ -66,10 +66,10 @@ export default function VipChatTab({ event, eventId, onReload }: Props) {
 
         {form.has_vip_tariff && (
           <div className="space-y-3 pl-6 border-l-2" style={{ borderColor: '#FFCFA4' }}>
-            <Field label="Название тарифа" hint="По умолчанию «VIP-доступ»">
+            <Field label="Название кнопки" hint="По умолчанию «Расшириться до VIP-тарифа»">
               <input type="text" className="input" value={form.vip_title}
                      onChange={e => set('vip_title', e.target.value)}
-                     placeholder="VIP-доступ" maxLength={80} />
+                     placeholder="Расшириться до VIP-тарифа" maxLength={80} />
             </Field>
 
             <Field label="Цена в рублях" hint="Только число, например 29000 = 29 000 ₽">

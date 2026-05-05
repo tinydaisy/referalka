@@ -418,17 +418,19 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         </div>
       )}
 
-      {/* VIP */}
-      {isConference && hasVip && (
+      {/* VIP — персиковая кнопка с синим текстом, видна над стримом и чатом.
+          У конференции — сразу под каруселью спикеров; у мероприятия — в самом верху. */}
+      {hasVip && (
         <a href={vipUrl} target="_blank" rel="noreferrer" style={{
           display: 'block', textDecoration: 'none',
-          background: 'linear-gradient(135deg, #FFCFA4, #d4a574)', color: DARK,
-          borderRadius: 14, padding: '14px 16px', marginBottom: 12,
-          textAlign: 'center', fontWeight: 900, fontSize: 14,
-          letterSpacing: 1, textTransform: 'uppercase',
-          boxShadow: '0 4px 12px rgba(255,207,164,0.4)',
+          background: PEACH, color: DARK,
+          borderRadius: 14, padding: '16px 16px', marginBottom: 12,
+          textAlign: 'center', fontWeight: 900, fontSize: 15,
+          letterSpacing: 1.2, textTransform: 'uppercase',
+          boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
+          border: `1px solid rgba(37,69,93,0.08)`,
         }}>
-          {event?.vip_title || 'Оплатить VIP-тариф'}
+          {event?.vip_title || 'Расшириться до VIP-тарифа'}
         </a>
       )}
 
