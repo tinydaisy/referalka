@@ -360,6 +360,42 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - API: `/api/v1/lead-magnets`, `/api/v1/events/{id}/posters`, `/api/v1/events/{id}/referral/{settings|thresholds|materials|share-texts}`
 - **Дашборд** ([ReferralProgramTab.tsx](web/src/app/dashboard/events/[id]/tabs/ReferralProgramTab.tsx)): подвкладки **Подарки** (пороги + переключатель `gift_count_mode`) и **Материалы** (тексты + картинки). Старая подвкладка «Шаблоны» **удалена** миграцией 059. Копирование события и импорт реф-программы переносят `share_texts`.
 
+### Рассылки — единый движок для мероприятий и конференций (миграция 060 от 05.05.2026)
+
+**Один движок, разные шаблоны.** Все события (и `module_slug='conference'`, и обычные мероприятия) используют те же таблицы (`broadcast_templates`, `broadcast_schedules`, `broadcast_log`), тот же [`generate_schedules`](backend/app/api/modules/broadcasts.py), тот же [`message_builder.py`](backend/app/services/message_builder.py), тот же Celery-обработчик [`tasks/broadcast.py`](backend/app/tasks/broadcast.py). Различие — только в **наборе типов** шаблонов (auto-seed по `events.module_slug` при первом открытии вкладки «Рассылки»).
+
+**Контракт `contacts.ref_code`** — теперь `NOT NULL` (миграция 060). У каждого контакта обязательно есть личный реф-код. Бэк может полагаться на это без проверок.
+
+**Унифицированные имена типов** (после переименования миграцией 060):
+
+| Тип | Когда срабатывает | Аудитория | Где |
+|---|---|---|---|
+| `day_before_09_12_unreg` | за сутки до `events.start_at`, в 09:12 МСК | нерег | только мероприятия |
+| `day_before_09_12_reg`   | за сутки до `events.start_at`, в 09:12 МСК | зарег | только мероприятия |
+| `2h_before_unreg` | за 120 мин до старта дня (конф) или `start_at` (меропр) | нерег | оба |
+| `2h_before_reg`   | за 120 мин до старта | зарег | оба |
+| `30min_before`    | за 30 мин до старта дня/события | все | оба |
+| `5min_before`     | за 5 мин до старта сессии (конф) / события (меропр) | все | оба |
+| `pre_conf` | за день в 10:43 МСК (анонс знакомства со спикерами) | все | только конф |
+| `speaker_intro`, `gift`, `day_live`, `day_end`, `vip_offer` | конф-специфика | разное | только конф |
+
+Старые имена `day_start_30min_unreg/reg`, `pre_start` миграцией 060 переименованы (включая поле `type` в `broadcast_schedules`). Не использовать в новом коде.
+
+**Плейсхолдер `{game_link}`** — личная ссылка получателя на вкладку «Игра» события (партнёрский кабинет). Подставляется в момент отправки в Celery ([`tasks/broadcast.py`](backend/app/tasks/broadcast.py)) per-recipient: `https://t.me/{бот_клиента_или_pluson}?startapp=ref_pg{slug}_tabgame_pid{ref_code}`. В `message_builder.py` остаётся как литерал — подставляется только на самом последнем шаге.
+
+Используется в шаблонах **`2h_before_reg`** и **`day_before_09_12_reg`** — для зарег. участников эфира ещё нет (за 2ч/сутки до старта), вместо ссылки на стрим предлагаем «🎯 Вы ещё успеваете позвать друзей и получить подарки» → их персональный кабинет.
+
+**Mini App парсит `_tabXXX`** в startapp ([`App.tsx`](mini-app/src/App.tsx)) → передаёт `initialTab` в [`EventPage.tsx`](mini-app/src/pages/EventPage.tsx) → стартовая вкладка = указанная (game/raffle/program/ecosystem). Доступно только зарегистрированным; для нерег. флаг игнорируется (всегда landing).
+
+**`generate_schedules`**:
+- Для конференции — как раньше (по `conf_days`/`conf_sessions`).
+- Для обычного мероприятия — точка отсчёта = `events.start_at`. Создаются: `5min_before`, `30min_before`, `2h_before_unreg/reg` (relative offset до start_at) + `day_before_09_12_unreg/reg` (за сутки в 09:12 МСК).
+- **400** при попытке генерации если у конф нет программы (`conf_days` пуст) или у меропр не задан `events.start_at` — с понятным русским текстом ошибки.
+
+**Флаг `is_overdue`** в API списка расписаний (`GET /broadcasts/schedules`) — `true` если `fire_at < NOW()` и статус `draft`/`pending`. Дашборд ([`broadcasts/queue/page.tsx`](web/src/app/dashboard/conferences/[id]/broadcasts/queue/page.tsx)) подсвечивает такие красной плашкой «⚠️ Время прошло — рассылка не отправится автоматически». Запись остаётся в `draft`, не уходит сама — клиент решает «перенести / отменить».
+
+**Дашборд BroadcastsTab** — [один компонент](web/src/app/dashboard/events/[id]/tabs/BroadcastsTab.tsx) для мероприятий и конференций (две карточки: «Шаблоны» и «Очередь», ведут на `/dashboard/conferences/{id}/broadcasts/{templates|queue}` — URL-сегмент `conferences` исторический, эти страницы работают с любым событием).
+
 ### ⚠️ Мультиплатформа — каналы доставки (миграции 033+034+036, 26.04.2026)
 - Таблица **`channels`** (id, client_id, `platform_slug` → platforms, display_name, handle, bot_token, is_active) — каналы доставки клиента (бот в TG / группа VK / канал MAX). У клиента может быть несколько каналов.
 - Таблица **`platform_user_channels`** (platform_user_id, channel_id, platform_slug, is_unsubscribed, subscribed_at, unsubscribed_at) — подписка идентичности на конкретный канал, отписка per-канал. Составные FK гарантируют совпадение платформ.
