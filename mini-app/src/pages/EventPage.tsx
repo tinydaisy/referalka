@@ -219,9 +219,29 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refOn, raffleOn, state, event])
 
-  // Авто-редирект на сторонний лендинг клиента теперь делается inline-скриптом
-  // в mini-app/index.html ДО рендера React (см. maybeRedirectToLanding) — чтобы
-  // пользователь не видел заглушку. Здесь ничего не дублируем.
+  // Авто-редирект на сторонний лендинг клиента (миграция 057).
+  // Inline-скрипт в mini-app/index.html делает редирект ДО React при прямом
+  // заходе по ссылке `?startapp=ref_pgSLUG`. Но при ВНУТРЕННЕЙ навигации SPA
+  // (клик по событию в Хабе организатора) index.html заново не загружается,
+  // поэтому здесь дублируем логику. Используется window.location.href
+  // (а не Telegram.WebApp.openLink), чтобы iOS не блокировал как popup.
+  // См. documentation/MINI-APP-WEBVIEW-REDIRECT.md
+  useEffect(() => {
+    if (!event) return
+    if (loading) return
+    if (registered || ended) return
+    const landingUrl: string = (event.landing_url || '').trim()
+    if (!landingUrl) return
+
+    const params = new URLSearchParams()
+    if (tgUser?.id) params.set('tg_id', String(tgUser.id))
+    if (partnerId)  params.set('pid', partnerId)
+    if (utmSource)  params.set('utm_source', utmSource)
+    params.set('event_slug', slug)
+    const sep = landingUrl.includes('?') ? '&' : '?'
+    window.location.href = landingUrl + sep + params.toString()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event, loading, registered, ended])
 
   if (loading || !event) {
     return (
