@@ -328,7 +328,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - Модульные таблицы с префиксом `conf_` принадлежат модулю «Конференция».
 - Коллабораторы — глобальная база: `collaborators` + `conf_speaker_events`. У `collaborators` FK `contact_id → contacts(id)`.
 - `conf_speaker_events.notes` (миграция 041 от 2026-04-27) — произвольный текст под спикера в конкретной конференции (шпаргалка ведущего, частушка, заметки по гонорару). Редактируется на странице спикера в дашборде, в публичные endpoints (`/speakers/public`, `/speakers/{id}/public`) не отдаётся.
-- `collaborators.external_ref_param` (миграция 058 от 2026-05-05) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки коллаборатора с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим, не валидируем — клиент сам знает, к какой системе привязывает партнёра. Когда понадобится приписывать к URL стороннего лендинга — склеиваем через `?` или `&` в зависимости от того, есть ли уже `?` в URL.
+- `collaborators.external_ref_param` (миграция 058 от 2026-05-05) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки коллаборатора с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим, не валидируем — клиент сам знает, к какой системе привязывает партнёра. **Где приписывается:** `GET /api/v1/public/events/{slug}/landing-redirect` (endpoint, который зовёт `mini-app/index.html` для авто-редиректа на `events.landing_url` ДО React-bundle) — если в запросе есть `pid` и он резолвится в коллаборатора с непустым `external_ref_param`, параметр приписывается к URL стороннего лендинга через `&` в самом конце. Без `pid` или без коллаборатора с этим полем — поведение не меняется.
 
 ### Мердж контактов (миграция 036)
 
@@ -349,15 +349,16 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - Резолв реферера: `JOIN contacts WHERE c.ref_code = referrer_ref_code` (с fallback на `merged_ref_codes`)
 - Резолв спикера: `c.ref_code → collaborators.contact_id → conf_speaker_events`
 
-### Лид-магниты + реф-программа как вкладка события (миграция 035, 26.04.2026)
+### Лид-магниты + реф-программа как вкладка события (миграция 035 от 26.04.2026, обновлено миграцией 059 от 05.05.2026)
 - Таблица **`lead_magnets`** (id, client_id, name, description, url) — общая база per-client. Один материал = одна запись (чек-лист, гайд, видео).
 - Таблица **`event_posters`** (id, event_id, url, orientation `horizontal|vertical`, sort) — афиши события для лендинга/шеринга
-- Таблица **`event_referral_settings`** (event_id UNIQUE, welcome_text, share_text) — общие тексты реф-программы события
+- Таблица **`event_referral_settings`** (event_id UNIQUE, gift_count_mode, is_enabled) — настройки реф-программы события. ⚠️ Колонки `welcome_text` и `share_text` **удалены миграцией 059** (welcome_text не использовался, share_text заменён списком ниже).
 - Таблица **`event_referral_thresholds`** (event_id, threshold_count, lead_magnet_id, certificate_url, gift_template_text) — пороги-подарки. UNIQUE (event_id, threshold_count). Один порог = одно количество приведённых.
-- Таблица **`event_referral_materials`** (event_id, image_url, source `event_poster|custom`, source_poster_id) — картинки для шеринга участником
+- Таблица **`event_referral_materials`** (event_id, image_url, source `event_poster|custom`, source_poster_id) — картинки для шеринга участником.
+- Таблица **`event_referral_share_texts`** (event_id, content, sort) — **тексты-примеры для шеринга** (миграция 059). Множественные. Один текст = одна запись. Существовавший `share_text` миграцией перенесён в первую запись.
 - Расширение `events`: `address` (одно поле — URL стрима / ссылка на видео / офлайн-адрес), `start_at`, `end_at`
-- API: `/api/v1/lead-magnets`, `/api/v1/events/{id}/posters`, `/api/v1/events/{id}/referral/{settings|thresholds|materials}`
-- UI (БЛОК 3.Б, ещё не сделан): новый раздел сайдбара «Лид-магниты», новый раздел «Мероприятия», убрать «Рефералки», вкладки в карточке события (Основное / Афиши / Реф-программа / Рассылки)
+- API: `/api/v1/lead-magnets`, `/api/v1/events/{id}/posters`, `/api/v1/events/{id}/referral/{settings|thresholds|materials|share-texts}`
+- **Дашборд** ([ReferralProgramTab.tsx](web/src/app/dashboard/events/[id]/tabs/ReferralProgramTab.tsx)): подвкладки **Подарки** (пороги + переключатель `gift_count_mode`) и **Материалы** (тексты + картинки). Старая подвкладка «Шаблоны» **удалена** миграцией 059. Копирование события и импорт реф-программы переносят `share_texts`.
 
 ### ⚠️ Мультиплатформа — каналы доставки (миграции 033+034+036, 26.04.2026)
 - Таблица **`channels`** (id, client_id, `platform_slug` → platforms, display_name, handle, bot_token, is_active) — каналы доставки клиента (бот в TG / группа VK / канал MAX). У клиента может быть несколько каналов.
