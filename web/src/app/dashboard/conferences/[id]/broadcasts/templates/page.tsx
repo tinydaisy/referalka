@@ -193,6 +193,7 @@ export default function TemplatesPage() {
   const [confDays, setConfDays] = useState<number[]>([1])
   const [confDaysData, setConfDaysData] = useState<any[]>([])
   const [confData, setConfData] = useState<any>(null)
+  const [eventData, setEventData] = useState<any>(null)
   const [confSessions, setConfSessions] = useState<any[]>([])
   const [confPosters, setConfPosters] = useState<{ horizontal: string[]; vertical: string[]; square: string[] }>({
     horizontal: [], vertical: [], square: [],
@@ -209,6 +210,7 @@ export default function TemplatesPage() {
       setConfDaysData(days)
     }).catch(() => {})
     api.conference.get(eventId).then(r => setConfData(r.conference)).catch(() => {})
+    api.events.get(eventId).then(r => setEventData(r.event || r)).catch(() => {})
     api.conference.sessions.list(eventId).then(r => setConfSessions(r.sessions || [])).catch(() => {})
     // Афиши лежат в event_posters (общая таблица для всех событий) — забираем все ориентации
     api.referralProgram.posters.list(eventId).then(r => {
@@ -376,7 +378,7 @@ export default function TemplatesPage() {
   function getStreamUrl(day?: number): string {
     const d = day ?? 1
     const dayObj = confDaysData.find((x: any) => x.day_number === d)
-    return dayObj?.stream_url || '🔗 [ссылка на эфир]'
+    return dayObj?.stream_url || eventData?.stream_url || '🔗 [ссылка на эфир]'
   }
 
   function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number): string {
@@ -477,9 +479,11 @@ export default function TemplatesPage() {
 
     const d = day ?? testDay
     const dayObj = confDaysData.find((x: any) => x.day_number === d)
-    const realStreamUrl = dayObj?.stream_url || ''
-    const realRegUrl = confData?.event_landing_url || ''
-    const realConfTitle = confData?.event_title || confData?.title || '[Название конференции]'
+    // Для конференции — данные из conf_days/conf_conferences. Для мероприятия —
+    // прямые поля events.title / events.stream_url / events.landing_url.
+    const realStreamUrl = dayObj?.stream_url || eventData?.stream_url || ''
+    const realRegUrl = confData?.event_landing_url || eventData?.landing_url || ''
+    const realConfTitle = confData?.event_title || confData?.title || eventData?.title || '[Название события]'
     const realDayDate = dayObj?.day_date
       ? new Date(dayObj.day_date + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
       : `День ${d}`
