@@ -186,6 +186,21 @@ API всех эндпоинтов событий ([`backend/app/api/events.py`](
 
 **Загрузка афиш** — через `POST /api/v1/uploads` с `kind='event_poster'` и `poster_type` ∈ `square|horizontal|vertical`. Запись попадает в `event_posters`. Старая колонка `events.poster_url` миграцией перенесена в `event_posters` как `horizontal`.
 
+### Афиши спикеров — двухуровнево, fallback `cse → collaborators`
+
+Афиша спикера живёт в двух местах:
+- `collaborators.poster_url` — **глобальная** афиша коллаборатора. Дефолт-полуфабрикат, виден везде, где он подключён, если не переопределён в событии.
+- `conf_speaker_events.poster_url` — **per-event** афиша. Заполняется на странице спикера в дашборде конференции, если для этой конференции нужна своя версия (надпись «СПИКЕР», брендирование, надпись «ЖЮРИ» для премии и т.д.).
+
+**Правило отображения везде:** `cse.poster_url || collaborators.poster_url` — per-event приоритетнее, fallback на глобальную. При добавлении коллаборатора в событие `cse.poster_url` остаётся `NULL` — никакого копирования файла или URL не происходит, fallback срабатывает на лету при чтении.
+
+API:
+- `GET /events/{id}/conference/speakers` ([`list_event_speakers`](backend/app/api/modules/conference.py)) возвращает три поля: `cse_poster_url` (per-event), `speaker_poster_url` (глобальная), `poster_url` (готовый fallback `cse_poster_url || speaker_poster_url`). Фронт может читать любое из них.
+- `GET /speakers/{id}/send-to-telegram` и `GET /speakers/{id}/public` тоже алиасят колонки.
+- В рассылках ([`message_builder.py`](backend/app/services/message_builder.py)) для `speaker_intro` и `5min_before` используется `COALESCE(cse.poster_url, c.poster_url) AS speaker_poster`.
+
+**В превью рассылок** ([`broadcasts/templates/page.tsx`](web/src/app/dashboard/conferences/[id]/broadcasts/templates/page.tsx)) спикерская афиша подставляется только для шаблонов со спикером (`speaker_intro`, `5min_before`, `gift`). Дневные/событийные шаблоны (`day_*`, `pre_conf`, `2h_before_*`, `30min_before`) подставляют горизонтальную афишу события из `event_posters`, а не первого попавшегося спикера.
+
 ### Статус событий и даты конференций (миграция 043 от 28.04.2026)
 
 **Статусы `events.status`:**

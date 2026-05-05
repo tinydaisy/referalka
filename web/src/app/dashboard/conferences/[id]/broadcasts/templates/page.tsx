@@ -1133,12 +1133,19 @@ export default function TemplatesPage() {
             <div className="bg-[#effdde] rounded-2xl rounded-tr-sm p-3 shadow-sm">
               {/* Фото */}
               {previewModal.def.showPhoto && (() => {
-                const isConfTpl = previewModal.def.type.startsWith('day_') || previewModal.def.type === 'pre_conf'
+                // Конференционные/событийные шаблоны: афиша события (не спикера).
+                // Спикерская афиша подставляется только для шаблонов со спикером.
+                const isEventLevelTpl = previewModal.def.type.startsWith('day_')
+                  || previewModal.def.type === 'pre_conf'
+                  || previewModal.def.type === '2h_before_unreg'
+                  || previewModal.def.type === '2h_before_reg'
+                  || previewModal.def.type === '30min_before'
+                const speakerPoster = previewSpeaker?.cse_poster_url || previewSpeaker?.speaker_poster_url || previewSpeaker?.poster_url
                 const photoSrc = previewModal.tpl.photo_url
-                  || (isConfTpl
+                  || (isEventLevelTpl
                     ? confPosters.horizontal[0]
-                    : previewSpeaker?.poster_url)
-                const placeholder = isConfTpl ? '📸 Горизонтальная афиша конференции' : '📸 Афиша спикера'
+                    : speakerPoster)
+                const placeholder = isEventLevelTpl ? '📸 Горизонтальная афиша события' : '📸 Афиша спикера'
                 return photoSrc ? (
                   <img src={photoSrc} alt=""
                     className="w-full rounded-xl mb-2"

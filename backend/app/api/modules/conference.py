@@ -498,12 +498,15 @@ async def list_event_speakers(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
-                  cse.poster_url, cse.partner_url, cse.extra_info, cse.notes,
+                  cse.poster_url AS cse_poster_url,
+                  cse.partner_url, cse.extra_info, cse.notes,
                   c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   cse.bot_in_channel, cse.priority,
                   cse.exclude_gift_from_broadcast, cse.exclude_channel_from_subscription,
                   sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
+                  sp.photo_url,
+                  sp.poster_url AS speaker_poster_url,
+                  sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.personal_tg_username
            FROM conf_speaker_events cse
@@ -518,6 +521,7 @@ async def list_event_speakers(
     for r in rows:
         d = dict(r)
         d["topics"] = topics_map.get(d["id"], [])
+        d["poster_url"] = d.get("cse_poster_url") or d.get("speaker_poster_url")
         result.append(d)
     return {"speakers": result}
 
