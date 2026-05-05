@@ -200,7 +200,8 @@ async def handle_tg_event(body: TgEventRequest):
 class ShareToBotRequest(BaseModel):
     tg_id: int
     event_slug: str
-    text: str
+    text: str | None = None         # legacy: один текст
+    texts: list[str] | None = None  # массив текстов (приоритет)
 
 
 @router.post("/event/share-to-bot")
@@ -212,7 +213,12 @@ async def share_to_bot(body: ShareToBotRequest):
     текстом отдельным сообщением. После успешной отправки фронт закрывает
     Mini App (`Telegram.WebApp.close()`).
     """
-    if not body.text or not body.text.strip():
+    # Собираем тексты: приоритет texts[], fallback на text. Игнорим пустые.
+    raw_texts: list[str] = list(body.texts or [])
+    if not raw_texts and body.text:
+        raw_texts = [body.text]
+    texts = [t for t in (s.strip() if isinstance(s, str) else "" for s in raw_texts) if t]
+    if not texts:
         raise HTTPException(status_code=400, detail="text required")
     if not body.event_slug:
         raise HTTPException(status_code=400, detail="event_slug required")
@@ -272,19 +278,23 @@ async def share_to_bot(body: ShareToBotRequest):
                 except httpx.HTTPError as e:
                     logger.warning(f"share-to-bot photo http error url={url}: {e}")
 
-            # 2) Текст — последним сообщением, чтобы человек видел его сразу под афишами.
-            r = await http.post(
-                f"{base}/sendMessage",
-                json={"chat_id": body.tg_id, "text": body.text},
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    f"share-to-bot text failed for tg_id={body.tg_id} event={body.event_slug}: "
-                    f"{r.status_code} {r.text[:200]}"
+            # 2) Тексты — каждый отдельным sendMessage, друг за другом, после афиш.
+            last_status = 200
+            for t in texts:
+                r = await http.post(
+                    f"{base}/sendMessage",
+                    json={"chat_id": body.tg_id, "text": t},
                 )
+                if r.status_code != 200:
+                    logger.warning(
+                        f"share-to-bot text failed for tg_id={body.tg_id} event={body.event_slug}: "
+                        f"{r.status_code} {r.text[:200]}"
+                    )
+                    last_status = r.status_code
+            if last_status != 200:
                 raise HTTPException(status_code=502, detail="telegram send failed")
     except httpx.HTTPError as e:
         logger.warning(f"share-to-bot http error for tg_id={body.tg_id}: {e}")
         raise HTTPException(status_code=502, detail="telegram send failed")
 
-    return {"ok": True, "posters_sent": len(image_urls)}
+    return {"ok": True, "posters_sent": len(image_urls), "texts_sent": len(texts)}

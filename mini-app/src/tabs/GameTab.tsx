@@ -81,7 +81,7 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   const [openCardId, setOpenCardId] = useState<number | null>(null)
   const [shareTexts, setShareTexts] = useState<{ id: number; content: string; sort: number }[]>([])
   const [shareImages, setShareImages] = useState<{ id: number; image_url: string; source: string }[]>([])
-  const [sendingTextId, setSendingTextId] = useState<number | null>(null)
+  const [sendingAll, setSendingAll] = useState(false)
 
   // Данные участника
   const refCode  = participant?.ref_code || 'demo'
@@ -280,19 +280,21 @@ export default function GameTab({ event, participant, tgUser }: Props) {
       else window.open(url, '_blank')
     }
 
-    async function sendToBot(textId: number, rendered: string) {
+    async function sendAllToBot() {
       const tgId = tgUser?.id ?? tgUser?.tg_id
       if (!event?.slug || !tgId) return
-      setSendingTextId(textId)
+      const renderedTexts = shareTexts.map(t => applyPlaceholders(t.content)).filter(Boolean)
+      if (renderedTexts.length === 0 && shareImages.length === 0) return
+      setSendingAll(true)
       try {
-        await sendShareTextToBot(event.slug, Number(tgId), rendered)
+        await sendShareTextToBot(event.slug, Number(tgId), renderedTexts)
         // Закрываем Mini App — Telegram возвращает в чат с ботом, где уже
-        // лежит готовое сообщение. Юзер форвардит его друзьям из чата.
+        // лежат афиши и тексты. Юзер форвардит их друзьям из чата.
         const twa = (window as any).Telegram?.WebApp
         if (twa?.close) twa.close()
       } catch (e: any) {
-        alert(e?.message || 'Не получилось отправить сообщение в бот')
-        setSendingTextId(null)
+        alert(e?.message || 'Не получилось отправить материалы в бот')
+        setSendingAll(false)
       }
     }
 
@@ -309,6 +311,24 @@ export default function GameTab({ event, participant, tgUser }: Props) {
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontSize: 13 }}>
             Материалы для шеринга пока не добавлены
           </div>
+        )}
+
+        {!isEmpty && (
+          <button onClick={sendAllToBot}
+            disabled={sendingAll}
+            style={{
+              width: '100%', border: 'none', borderRadius: 12,
+              padding: '14px 16px', fontSize: 14, fontWeight: 800,
+              cursor: sendingAll ? 'wait' : 'pointer',
+              background: PEACH,
+              color: DARK,
+              marginBottom: 14,
+              boxShadow: '0 2px 8px rgba(255,207,164,0.35)',
+              opacity: sendingAll ? 0.7 : 1,
+              lineHeight: 1.35,
+            }}>
+            {sendingAll ? 'Отправляем…' : '📨 Нажмите, чтобы отправить себе в бот готовые сообщения'}
+          </button>
         )}
 
         {shareImages.length > 0 && (
@@ -353,7 +373,6 @@ export default function GameTab({ event, participant, tgUser }: Props) {
             {shareTexts.map(t => {
               const rendered = applyPlaceholders(t.content)
               const isCopied = copiedTextId === t.id
-              const isSending = sendingTextId === t.id
               return (
                 <div key={t.id} style={{
                   background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
@@ -363,21 +382,6 @@ export default function GameTab({ event, participant, tgUser }: Props) {
                     fontSize: 13, color: '#1a2a3a', whiteSpace: 'pre-wrap',
                     lineHeight: 1.55, marginBottom: 10, wordBreak: 'break-word',
                   }}>{rendered}</div>
-
-                  <button onClick={() => sendToBot(t.id, rendered)}
-                    disabled={isSending}
-                    style={{
-                      width: '100%', border: 'none', borderRadius: 10,
-                      padding: '12px 14px', fontSize: 13, fontWeight: 700,
-                      cursor: isSending ? 'wait' : 'pointer',
-                      background: 'linear-gradient(135deg, #25455D, #0a1520)',
-                      color: PEACH,
-                      marginBottom: 8,
-                      opacity: isSending ? 0.7 : 1,
-                    }}>
-                    {isSending ? 'Отправляем…' : '📨 Нажмите, чтобы отправить себе в бот'}
-                  </button>
-
                   <button onClick={() => copyText(t.id, rendered)}
                     style={{
                       width: '100%', border: 'none', borderRadius: 10,

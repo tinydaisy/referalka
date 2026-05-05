@@ -105,13 +105,15 @@ export const getShareTexts = (eventId: number) =>
 export const getShareMaterials = (eventId: number) =>
   req(`/api/v1/public/events/${eventId}/share-materials`).catch(() => ({ items: [] }))
 
-// Отправить участнику в его бот готовый текст для шеринга. Сразу после ответа
-// фронт делает Telegram.WebApp.close() — Telegram возвращает в чат с ботом,
-// где сообщение уже готово к форварду друзьям.
-export const sendShareTextToBot = (eventSlug: string, tgId: number, text: string) =>
+// Отправить участнику в его бот афиши и тексты для шеринга. Бэкенд достаёт
+// афиши из event_referral_materials по slug сам, шлёт каждую отдельным
+// sendPhoto, потом каждый текст отдельным sendMessage. После ответа фронт
+// делает Telegram.WebApp.close() — Telegram возвращает в чат с ботом, где
+// всё готово к форварду друзьям.
+export const sendShareTextToBot = (eventSlug: string, tgId: number, texts: string[]) =>
   req('/api/v1/event/share-to-bot', {
     method: 'POST',
-    body: JSON.stringify({ event_slug: eventSlug, tg_id: tgId, text }),
+    body: JSON.stringify({ event_slug: eventSlug, tg_id: tgId, texts }),
   })
 
 // ── Розыгрыш (миграция 042) — публичные эндпоинты для Mini App ──
