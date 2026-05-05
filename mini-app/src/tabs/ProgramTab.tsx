@@ -90,6 +90,36 @@ function fmtDate(d?: string) {
   if (!m) return d
   return `${parseInt(m[3], 10)} ${MONTHS[parseInt(m[2], 10) - 1]}`
 }
+
+// Форматирует дату-вилку события для шапки Программы (мероприятия).
+// Один день:    "03.05.2026 10:00–11:30 МСК"
+// Разные дни:   "03.05.2026 10:00 — 04.05.2026 11:30 МСК"
+// Только старт: "03.05.2026 10:00 МСК"
+function formatEventDateRange(startAt?: string | null, endAt?: string | null): string {
+  if (!startAt) return ''
+  const tz = 'Europe/Moscow'
+  const partsOf = (iso: string) => {
+    const dt = new Date(iso)
+    if (isNaN(dt.getTime())) return null
+    const fmt = new Intl.DateTimeFormat('ru-RU', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    })
+    const o: Record<string, string> = {}
+    for (const p of fmt.formatToParts(dt)) o[p.type] = p.value
+    return {
+      date: `${o.day}.${o.month}.${o.year}`,
+      time: `${o.hour}:${o.minute}`,
+    }
+  }
+  const s = partsOf(startAt)
+  if (!s) return ''
+  if (!endAt) return `${s.date} ${s.time} МСК`
+  const e = partsOf(endAt)
+  if (!e) return `${s.date} ${s.time} МСК`
+  if (s.date === e.date) return `${s.date} ${s.time}–${e.time} МСК`
+  return `${s.date} ${s.time} — ${e.date} ${e.time} МСК`
+}
 function todayIso() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -653,10 +683,36 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         </>
       )}
 
-      {!isConference && (
-        <div style={{ textAlign: 'center', paddingTop: 40 }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>📅</div>
-          <p style={{ color: 'var(--muted)', fontSize: 14 }}>Программа пока не опубликована</p>
+      {!isConference && (event?.start_at || event?.description) && (
+        <div className="card" style={{ padding: 16 }}>
+          {event?.start_at && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, marginBottom: event?.description ? 14 : 0,
+            }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10, background: 'rgba(255,207,164,0.15)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFCFA4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+              </div>
+              <div style={{ color: PEACH, fontSize: 14, fontWeight: 700 }}>
+                {formatEventDateRange(event.start_at, event.end_at)}
+              </div>
+            </div>
+          )}
+          {event?.description && (
+            <p style={{
+              color: 'var(--text)', fontSize: 14, lineHeight: 1.55,
+              whiteSpace: 'pre-wrap', margin: 0,
+            }}>
+              {event.description}
+            </p>
+          )}
         </div>
       )}
 
