@@ -16,6 +16,7 @@ export default function NewCollaborationPage() {
     photo_url: '', photo_folder_url: '', video_folder_url: '',
     tg_channel_url: '', instagram_url: '', website_url: '',
     tg_channel_id: '', personal_tg_id: '', personal_tg_username: '', assistant_tg_username: '',
+    external_ref_param: '',
   })
   const [achievementsText, setAchievementsText] = useState('')
   const [loading, setLoading] = useState(false)
@@ -149,6 +150,15 @@ export default function NewCollaborationPage() {
                 placeholder="@assistant"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Партнёрский параметр внешней платформы</label>
+            <input type="text" value={form.external_ref_param} onChange={set('external_ref_param')}
+              placeholder="например, gcpc=fdd97"
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+            <p className="text-xs text-gray-500 mt-1.5">
+              Опаковая строка <code className="bg-gray-100 px-1 rounded">key=value</code> из вашей внешней платформы (GetCourse, Bizon360 и т.п.). Будет приписана к URL стороннего лендинга.
+            </p>
           </div>
         </div>
 
