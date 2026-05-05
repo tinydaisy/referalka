@@ -13,6 +13,7 @@
  */
 
 import Script from 'next/script'
+import { redirect } from 'next/navigation'
 
 type LandingEvent = {
   slug: string
@@ -21,6 +22,7 @@ type LandingEvent = {
   poster_url: string | null
   client_id: number | null
   client_bot_handle: string | null
+  landing_url: string | null
 }
 
 const FALLBACK_TG_URL = 'https://t.me/pluson_bot/pluson'
@@ -35,7 +37,7 @@ async function getEvent(slug: string): Promise<LandingEvent> {
       cache: 'no-store',
     })
     if (!res.ok) {
-      return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null }
+      return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null, landing_url: null }
     }
     const data = await res.json()
     return {
@@ -45,9 +47,10 @@ async function getEvent(slug: string): Promise<LandingEvent> {
       poster_url: data.poster_url ?? null,
       client_id: data.client_id ?? null,
       client_bot_handle: data.client_bot_handle ?? null,
+      landing_url: data.landing_url ?? null,
     }
   } catch {
-    return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null }
+    return { slug, title: slug, description: null, poster_url: null, client_id: null, client_bot_handle: null, landing_url: null }
   }
 }
 
@@ -58,8 +61,28 @@ function buildTgRedirectUrl(botHandle: string | null): string {
   return `https://t.me/${botHandle}`
 }
 
-export default async function EventLandingPage({ params }: { params: { slug: string } }) {
+export default async function EventLandingPage({
+  params,
+  searchParams,
+}: {
+  params: { slug: string }
+  searchParams: { app?: string; pid?: string; new_partner_id?: string; utm_source?: string }
+}) {
   const event = await getEvent(params.slug)
+
+  // Веб-вход без ?app=tg на лендинг клиента: 301-редирект на сторонний лендинг,
+  // если у события заполнено events.landing_url. С ?app=tg — оставляем обычный
+  // flow (redirect_web_app.js откроет Telegram, дальше Mini App сам через
+  // Telegram.WebApp.openLink покажет лендинг клиента).
+  if (event.landing_url && !searchParams?.app) {
+    const url = new URL(event.landing_url)
+    if (searchParams?.pid)            url.searchParams.set('pid', searchParams.pid)
+    if (searchParams?.new_partner_id) url.searchParams.set('pid', searchParams.new_partner_id)
+    if (searchParams?.utm_source)     url.searchParams.set('utm_source', searchParams.utm_source)
+    url.searchParams.set('event_slug', event.slug)
+    redirect(url.toString())
+  }
+
   const tgUrl = buildTgRedirectUrl(event.client_bot_handle)
 
   return (

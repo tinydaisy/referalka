@@ -219,6 +219,36 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refOn, raffleOn, state, event])
 
+  // Авто-открытие стороннего лендинга клиента (миграция 057).
+  // Если у события заполнено events.landing_url, а человек ещё не зарегистрирован —
+  // Mini App сразу открывает лендинг клиента во встроенном браузере Telegram.
+  // Проброс tg_id/pid/utm_source — чтобы клиент мог сматчить регистрацию с tg-аккаунтом.
+  // sessionStorage-флаг — чтобы не зацикливать (человек вернулся в Mini App, не открываем повторно).
+  useEffect(() => {
+    if (!event) return
+    if (loading) return
+    if (registered || ended) return
+    const landingUrl: string = (event.landing_url || '').trim()
+    if (!landingUrl) return
+    const flagKey = `landing_opened_${slug}`
+    if (sessionStorage.getItem(flagKey)) return
+    sessionStorage.setItem(flagKey, '1')
+
+    const params = new URLSearchParams()
+    if (tgUser?.id) params.set('tg_id', String(tgUser.id))
+    if (partnerId)  params.set('pid', partnerId)
+    if (utmSource)  params.set('utm_source', utmSource)
+    params.set('event_slug', slug)
+    const sep = landingUrl.includes('?') ? '&' : '?'
+    const fullUrl = landingUrl + sep + params.toString()
+
+    const tg = (window as any).Telegram?.WebApp
+    if (tg?.openLink) {
+      tg.openLink(fullUrl, { try_instant_view: false })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event, loading, registered, ended])
+
   if (loading || !event) {
     return (
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
@@ -250,6 +280,25 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // Клик по «Хочу участвовать»: если контакты этого человека уже есть
   // в базе клиента (email+phone) — регистрируем без формы, иначе показываем форму.
   async function handleWantParticipate() {
+    // Если у события заполнен сторонний лендинг — открываем его (клик по кнопке
+    // даёт возможность вернуться к лендингу, если человек закрыл встроенный
+    // браузер и вернулся в Mini App).
+    const landingUrl: string = (event?.landing_url || '').trim()
+    if (landingUrl) {
+      const params = new URLSearchParams()
+      if (tgUser?.id) params.set('tg_id', String(tgUser.id))
+      if (partnerId)  params.set('pid', partnerId)
+      if (utmSource)  params.set('utm_source', utmSource)
+      params.set('event_slug', slug)
+      const sep = landingUrl.includes('?') ? '&' : '?'
+      const fullUrl = landingUrl + sep + params.toString()
+      const tg = (window as any).Telegram?.WebApp
+      if (tg?.openLink) {
+        tg.openLink(fullUrl, { try_instant_view: false })
+        return
+      }
+    }
+
     const canAutoRegister = !!(prefill?.email?.trim() && prefill?.phone?.trim())
     if (canAutoRegister && tgUser?.id) {
       try {
