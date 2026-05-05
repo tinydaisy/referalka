@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getGifts } from '../api'
+import { getGifts, getShareTexts, getShareMaterials } from '../api'
 import ContactCardModal from '../components/ContactCardModal'
 
 interface Props { event: any; participant: any; tgUser: any }
@@ -33,13 +33,54 @@ const COLORS = [
   ['#9c27b0', '#6a1b9a'],
 ]
 
+const RU_MONTHS = ['января','февраля','марта','апреля','мая','июня',
+                   'июля','августа','сентября','октября','ноября','декабря']
+
+function fmtMSK(iso?: string | null): { day: number; month: number; year: number } | null {
+  if (!iso) return null
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return null
+    // Парсим компоненты в МСК
+    const opts: Intl.DateTimeFormatOptions = { timeZone: 'Europe/Moscow', day: 'numeric', month: 'numeric', year: 'numeric' }
+    const parts = new Intl.DateTimeFormat('ru-RU', opts).formatToParts(d)
+    const day = Number(parts.find(p => p.type === 'day')?.value || 0)
+    const month = Number(parts.find(p => p.type === 'month')?.value || 0)
+    const year = Number(parts.find(p => p.type === 'year')?.value || 0)
+    if (!day || !month) return null
+    return { day, month: month - 1, year }
+  } catch { return null }
+}
+
+function formatEventDates(startAt?: string | null, endAt?: string | null): string {
+  const a = fmtMSK(startAt)
+  const b = fmtMSK(endAt)
+  if (!a && !b) return ''
+  if (a && !b) return `${a.day} ${RU_MONTHS[a.month]} ${a.year}`
+  if (!a && b) return `${b!.day} ${RU_MONTHS[b!.month]} ${b!.year}`
+  // оба есть
+  if (a!.year === b!.year && a!.month === b!.month && a!.day === b!.day) {
+    return `${a!.day} ${RU_MONTHS[a!.month]} ${a!.year}`
+  }
+  if (a!.year === b!.year && a!.month === b!.month) {
+    return `${a!.day}–${b!.day} ${RU_MONTHS[a!.month]} ${a!.year}`
+  }
+  if (a!.year === b!.year) {
+    return `${a!.day} ${RU_MONTHS[a!.month]} – ${b!.day} ${RU_MONTHS[b!.month]} ${a!.year}`
+  }
+  return `${a!.day} ${RU_MONTHS[a!.month]} ${a!.year} – ${b!.day} ${RU_MONTHS[b!.month]} ${b!.year}`
+}
+
 export default function GameTab({ event, participant, tgUser }: Props) {
   const [gifts, setGifts] = useState<Gift[]>([])
   const [view, setView] = useState<'game' | 'gifts' | 'materials'>('game')
   const [topOpen, setTopOpen] = useState(false)
   const [peopleOpen, setPeopleOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copiedTextId, setCopiedTextId] = useState<number | null>(null)
   const [openCardId, setOpenCardId] = useState<number | null>(null)
+  const [shareTexts, setShareTexts] = useState<{ id: number; content: string; sort: number }[]>([])
+  const [shareImages, setShareImages] = useState<{ id: number; image_url: string; source: string }[]>([])
 
   // Данные участника
   const refCode  = participant?.ref_code || 'demo'
@@ -66,6 +107,14 @@ export default function GameTab({ event, participant, tgUser }: Props) {
         .catch(() => setGifts([]))
     }
   }, [event?.slug])
+
+  // Материалы для шеринга — тексты и картинки
+  useEffect(() => {
+    if (event?.id) {
+      getShareTexts(event.id).then(r => setShareTexts(r.items || [])).catch(() => setShareTexts([]))
+      getShareMaterials(event.id).then(r => setShareImages(r.items || [])).catch(() => setShareImages([]))
+    }
+  }, [event?.id])
 
   const sortedGifts = [...gifts].sort((a, b) => a.points_cost - b.points_cost)
   // Получено подарков считаем локально из загруженных порогов: даёт честное
@@ -95,6 +144,21 @@ export default function GameTab({ event, participant, tgUser }: Props) {
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Подстановка плейсхолдеров в тексты-примеры. Должно совпадать со списком
+  // SHARE_PLACEHOLDERS в дашборде ([ReferralProgramTab.tsx](web/src/app/dashboard/events/[id]/tabs/ReferralProgramTab.tsx)).
+  function applyPlaceholders(tpl: string): string {
+    const eventTitle = (event?.title as string) || ''
+    const userName   = (tgUser?.first_name as string) || ''
+    const brandName  = (event?.client_brand as string) || (event?.client_name as string) || ''
+    const dateStr    = formatEventDates(event?.start_at, event?.end_at)
+    return (tpl || '')
+      .replaceAll('{link}',  refLink)
+      .replaceAll('{event}', eventTitle)
+      .replaceAll('{date}',  dateStr)
+      .replaceAll('{name}',  userName)
+      .replaceAll('{brand}', brandName)
   }
 
   function share() {
@@ -207,15 +271,100 @@ export default function GameTab({ event, participant, tgUser }: Props) {
 
   // ──────────── view: materials ────────────
   if (view === 'materials') {
+    function copyText(id: number, rendered: string) {
+      navigator.clipboard.writeText(rendered)
+      setCopiedTextId(id)
+      setTimeout(() => setCopiedTextId(null), 2000)
+    }
+
+    function downloadImage(url: string) {
+      // Открываем в новой вкладке — Telegram Mini App покажет в браузере, оттуда уже Save
+      const twa = (window as any).Telegram?.WebApp
+      if (twa?.openLink) twa.openLink(url)
+      else window.open(url, '_blank')
+    }
+
+    const isEmpty = shareTexts.length === 0 && shareImages.length === 0
+
     return (
-      <div className="fade-in">
+      <div className="fade-in" style={{ padding: '0 0 24px' }}>
         <button onClick={() => setView('game')} style={{
           background: 'none', border: 'none', color: 'var(--muted)',
           fontSize: 13, padding: '4px 0', cursor: 'pointer', marginBottom: 8,
         }}>← Назад в Игру</button>
-        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)' }}>
-          Материалы для шеринга появятся здесь
-        </div>
+
+        {isEmpty && (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontSize: 13 }}>
+            Материалы для шеринга пока не добавлены
+          </div>
+        )}
+
+        {shareTexts.length > 0 && (
+          <>
+            <h3 style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
+              color: '#6b7c8e', margin: '4px 4px 10px',
+            }}>
+              ✍️ Тексты для друзей · {shareTexts.length}
+            </h3>
+            {shareTexts.map(t => {
+              const rendered = applyPlaceholders(t.content)
+              const isCopied = copiedTextId === t.id
+              return (
+                <div key={t.id} style={{
+                  background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
+                  boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+                }}>
+                  <div style={{
+                    fontSize: 13, color: '#1a2a3a', whiteSpace: 'pre-wrap',
+                    lineHeight: 1.55, marginBottom: 10, wordBreak: 'break-word',
+                  }}>{rendered}</div>
+                  <button onClick={() => copyText(t.id, rendered)}
+                    style={{
+                      width: '100%', border: 'none', borderRadius: 10,
+                      padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                      background: isCopied ? '#6bb572' : PEACH,
+                      color: isCopied ? 'white' : DARK,
+                      transition: 'background 0.2s',
+                    }}>
+                    {isCopied ? '✓ Скопировано' : '📋 Скопировать текст'}
+                  </button>
+                </div>
+              )
+            })}
+          </>
+        )}
+
+        {shareImages.length > 0 && (
+          <>
+            <h3 style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
+              color: '#6b7c8e', margin: '18px 4px 10px',
+            }}>
+              🖼 Картинки для друзей · {shareImages.length}
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {shareImages.map(img => (
+                <div key={img.id} onClick={() => downloadImage(img.image_url)}
+                  style={{
+                    background: 'white', borderRadius: 12, overflow: 'hidden',
+                    boxShadow: '0 2px 8px rgba(37,69,93,0.05)', cursor: 'pointer',
+                  }}>
+                  <div style={{ aspectRatio: '1 / 1', background: '#f0f3f7' }}>
+                    <img src={img.image_url} alt=""
+                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  </div>
+                  <div style={{
+                    padding: '8px 10px', fontSize: 11, color: DARK, fontWeight: 600,
+                    textAlign: 'center', background: PEACH,
+                  }}>
+                    Открыть и сохранить
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     )
   }

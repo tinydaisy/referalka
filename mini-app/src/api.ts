@@ -98,6 +98,13 @@ export const getClientEvents = (
 export const getEventLanding = (slug: string) =>
   req(`/api/v1/public/events/${slug}/landing`)
 
+// ── Реф-программа (миграция 059) — материалы для шеринга в GameTab ──
+export const getShareTexts = (eventId: number) =>
+  req(`/api/v1/public/events/${eventId}/share-texts`).catch(() => ({ items: [] }))
+
+export const getShareMaterials = (eventId: number) =>
+  req(`/api/v1/public/events/${eventId}/share-materials`).catch(() => ({ items: [] }))
+
 // ── Розыгрыш (миграция 042) — публичные эндпоинты для Mini App ──
 export const getRafflePrizes = (eventId: number) =>
   req(`/api/v1/public/events/${eventId}/raffle/prizes`).catch(() => ({ items: [] }))

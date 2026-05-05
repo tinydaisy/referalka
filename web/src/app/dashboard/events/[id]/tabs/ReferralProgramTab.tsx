@@ -585,6 +585,42 @@ function ShareTextsBlock({ eventId }: { eventId: number }) {
 }
 
 
+// Список плейсхолдеров — один источник правды.
+// При изменении — отрази те же коды в подстановке Mini App ([GameTab.tsx](mini-app/src/tabs/GameTab.tsx)).
+const SHARE_PLACEHOLDERS: { code: string; label: string }[] = [
+  { code: '{link}',  label: 'партнёрская ссылка участника' },
+  { code: '{event}', label: 'название события' },
+  { code: '{date}',  label: 'дата события (или диапазон для конференции)' },
+  { code: '{name}',  label: 'имя участника (из Telegram)' },
+  { code: '{brand}', label: 'название бренда клиента' },
+]
+
+
+function PlaceholdersHint({ onInsert }: { onInsert: (code: string) => void }) {
+  return (
+    <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+      <div className="text-xs font-semibold text-blue-900 mb-2">
+        Коды-вставки — подставятся автоматически в Mini App у участника:
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {SHARE_PLACEHOLDERS.map(p => (
+          <button key={p.code} type="button" onClick={() => onInsert(p.code)}
+                  title={`Вставить ${p.code} — ${p.label}`}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-blue-200 rounded text-xs font-mono text-blue-800 hover:bg-blue-100">
+            {p.code}
+          </button>
+        ))}
+      </div>
+      <div className="text-[11px] text-blue-700 mt-2 leading-snug">
+        {SHARE_PLACEHOLDERS.map(p => (
+          <div key={p.code}><code className="font-mono">{p.code}</code> — {p.label}</div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+
 function ShareTextForm({ eventId, initial, onClose, onSaved }: any) {
   const [content, setContent] = useState<string>(initial?.content ?? '')
   const [sort, setSort]       = useState<number>(initial?.sort ?? 0)
@@ -619,9 +655,10 @@ function ShareTextForm({ eventId, initial, onClose, onSaved }: any) {
             <textarea value={content}
                       rows={6}
                       onChange={e => setContent(e.target.value)}
-                      placeholder="Зову на iVision-7 — главное событие года! Регистрируйся по моей ссылке:"
+                      placeholder="Зову на iVision-7 — главное событие года! Регистрируйся по моей ссылке: {link}"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       autoFocus />
+            <PlaceholdersHint onInsert={(code) => setContent(c => c + (c && !c.endsWith(' ') && !c.endsWith('\n') ? ' ' : '') + code)} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Порядок</label>

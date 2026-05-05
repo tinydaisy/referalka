@@ -191,6 +191,36 @@ async def public_client_events(
     }
 
 
+@public.get(
+    "/events/{event_id}/share-texts",
+    summary="Тексты-примеры реф-программы для шеринга (публично, для Mini App)"
+)
+async def public_share_texts(event_id: int, db: asyncpg.Connection = Depends(get_db)):
+    rows = await db.fetch(
+        """SELECT id, content, sort
+             FROM event_referral_share_texts
+            WHERE event_id = $1
+            ORDER BY sort, id""",
+        event_id
+    )
+    return {"items": [dict(r) for r in rows]}
+
+
+@public.get(
+    "/events/{event_id}/share-materials",
+    summary="Картинки реф-программы для шеринга (публично, для Mini App)"
+)
+async def public_share_materials(event_id: int, db: asyncpg.Connection = Depends(get_db)):
+    rows = await db.fetch(
+        """SELECT id, image_url, source, sort
+             FROM event_referral_materials
+            WHERE event_id = $1
+            ORDER BY sort, id""",
+        event_id
+    )
+    return {"items": [dict(r) for r in rows]}
+
+
 @public.get("/events/{event_id}/raffle/prizes", summary="Призы розыгрыша (публично, для Mini App)")
 async def public_raffle_prizes(event_id: int, db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
