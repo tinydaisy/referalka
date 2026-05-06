@@ -295,6 +295,8 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
         return
 
     client_id = run["client_id"]
+    skeleton_contact_id = run["contact_id"]  # создан на landing, может быть None для старых забегов
+
     # Привязка к контакту через platform_users (telegram per-client)
     pu = await db.fetchrow(
         """SELECT pu.id, pu.contact_id
@@ -302,10 +304,11 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
             WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $2""",
         client_id, str(tg_id)
     )
-    contact_id = None
+    contact_id: Optional[int] = None
     if pu:
+        # У человека уже есть запись в этом клиенте — используем её,
+        # скелет от landing становится orphan (если ничем больше не занят — удаляем)
         contact_id = pu["contact_id"]
-        # обновим username/имя если новые
         await db.execute(
             """UPDATE platform_users
                   SET username = COALESCE(NULLIF($1,''), username),
@@ -314,23 +317,41 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
                 WHERE id = $4""",
             username or "", first_name or "", last_name or "", pu["id"]
         )
+        if skeleton_contact_id and skeleton_contact_id != contact_id:
+            used_elsewhere = await db.fetchval(
+                """SELECT EXISTS (
+                       SELECT 1 FROM funnel_runs WHERE contact_id = $1 AND id <> $2
+                       UNION ALL SELECT 1 FROM event_participants WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM platform_users  WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM collaborators    WHERE contact_id = $1
+                   )""",
+                skeleton_contact_id, run_id
+            )
+            if not used_elsewhere:
+                await db.execute("DELETE FROM contacts WHERE id = $1", skeleton_contact_id)
     else:
-        # создаём contact + platform_users
-        from app.services.contact_merge import generate_ref_code
-        ref_code = generate_ref_code()
-        # Уникальность ref_code
-        for _ in range(5):
-            exists = await db.fetchval("SELECT 1 FROM contacts WHERE ref_code = $1", ref_code)
-            if not exists:
-                break
-            ref_code = generate_ref_code()
-        contact_id = await db.fetchval(
-            """INSERT INTO contacts (client_id, name, ref_code)
-               VALUES ($1, $2, $3) RETURNING id""",
-            client_id,
-            ((first_name or "") + " " + (last_name or "")).strip() or (username or ""),
-            ref_code
-        )
+        # Берём skeleton contact, который создали на landing.
+        # Если его нет (легаси-забег без contact_id) — создаём новый.
+        if skeleton_contact_id:
+            contact_id = skeleton_contact_id
+            full_name = ((first_name or "") + " " + (last_name or "")).strip() or (username or "")
+            await db.execute(
+                """UPDATE contacts
+                      SET name = COALESCE(name, NULLIF($1, '')),
+                          last_contact_at = NOW()
+                    WHERE id = $2""",
+                full_name, contact_id
+            )
+        else:
+            from app.services.contact_merge import _generate_unique_ref_code
+            ref_code = await _generate_unique_ref_code(db)
+            contact_id = await db.fetchval(
+                """INSERT INTO contacts (client_id, name, ref_code, last_contact_at)
+                   VALUES ($1, $2, $3, NOW()) RETURNING id""",
+                client_id,
+                ((first_name or "") + " " + (last_name or "")).strip() or (username or ""),
+                ref_code
+            )
         await db.execute(
             """INSERT INTO platform_users
                   (client_id, contact_id, platform_slug, platform_user_id,
