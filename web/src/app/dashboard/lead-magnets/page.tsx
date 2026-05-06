@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3 } from 'lucide-react'
+import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type Tab = 'magnets' | 'packages' | 'template'
@@ -47,6 +47,13 @@ export default function LeadMagnetsPage() {
     const t = new URLSearchParams(window.location.search).get('tab')
     return (t === 'packages' || t === 'template') ? t as Tab : 'magnets'
   })
+  const [tgChannel, setTgChannel] = useState<string | null | undefined>(undefined)
+
+  useEffect(() => {
+    api.miniApp.profile.get()
+      .then((p: any) => setTgChannel((p?.social_links || {}).telegram || null))
+      .catch(() => setTgChannel(null))
+  }, [])
 
   return (
     <div>
@@ -58,6 +65,25 @@ export default function LeadMagnetsPage() {
           Общая база материалов клиента + воронка их выдачи через бот.
         </p>
       </div>
+
+      {tgChannel === null && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
+          <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+          <div className="flex-1 text-sm">
+            <div className="font-semibold text-amber-900 mb-1">Канал подписки не настроен</div>
+            <div className="text-amber-800">
+              Без канала бот не сможет проверить подписку — материалы по воронке выдаваться не будут.
+              Укажите ссылку на ваш Telegram-канал в визитке основателя.
+            </div>
+            <a
+              href="/dashboard/mini-app?tab=owner"
+              className="inline-flex items-center gap-1 mt-2 text-sm font-medium underline text-amber-900 hover:text-amber-700"
+            >
+              Настроить канал →
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">

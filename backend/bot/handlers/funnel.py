@@ -1,5 +1,5 @@
 """
-Callback-handlers воронки лид-магнита для @pluson_bot.
+Callback-handlers воронки лид-магнита.
 
 Кнопка «ГОТОВО» из Текста 1 шлёт callback с data `fnl_check_<run_id>`.
 Обработчик проверяет подписку через funnel_service.run_check_subscription.
@@ -30,13 +30,21 @@ async def handle_check_subscription(callback: CallbackQuery):
             else:
                 await callback.answer("Готово! Проверяйте сообщения 🎁", show_alert=False)
         elif result == "not_subscribed":
-            ctx = await _get_brand_context(
-                (await db.fetchval("SELECT client_id FROM funnel_runs WHERE id=$1", run_id)),
-                db
-            )
+            client_id = await db.fetchval("SELECT client_id FROM funnel_runs WHERE id=$1", run_id)
+            ctx = await _get_brand_context(client_id, db) if client_id else {}
             chan = ctx.get("subscription_channel", "")
             await callback.answer(
                 f"Не вижу подписки на канал {chan}. Подпишитесь и нажмите снова.",
+                show_alert=True,
+            )
+        elif result == "channel_not_configured":
+            await callback.answer(
+                "У организатора не настроен канал подписки. Свяжитесь с ним напрямую.",
+                show_alert=True,
+            )
+        elif result == "no_token":
+            await callback.answer(
+                "Технические неполадки. Попробуйте позже или свяжитесь с организатором.",
                 show_alert=True,
             )
         else:

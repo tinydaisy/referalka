@@ -1,13 +1,14 @@
 """
 Точка входа Telegram-ботов PLUSSON.
 
-Запускает polling параллельно для:
+Polling для:
   - Основного @pluson_bot (settings.telegram_bot_token)
-  - Всех VIP-ботов клиентов с allow_custom_bot=TRUE (channels.bot_token)
+  - Всех VIP-ботов клиентов с allow_custom_bot=TRUE (channels.bot_token, is_active=TRUE)
 
-Все боты используют одни и те же handlers (start, funnel) — они умеют резолвить
-client_id по run_id из funnel_runs, поэтому общий код подходит и общему боту,
-и боту клиента.
+Все боты используют один общий Dispatcher с одним и тем же набором handlers
+(start, funnel) — aiogram 3 умеет polling нескольких Bot-объектов в одном
+dispatcher через `dp.start_polling(*bots, ...)`. Резолв клиента по run_id из
+funnel_runs идёт внутри handlers.
 """
 import asyncio
 import logging
@@ -21,32 +22,19 @@ from app.database import get_pool
 logger = logging.getLogger(__name__)
 
 
-def _build_dispatcher() -> Dispatcher:
-    dp = Dispatcher()
-    # Порядок важен: callback handler funnel сначала, потом message handler start.
-    dp.include_router(funnel.router)
-    dp.include_router(start.router)
-    return dp
-
-
-async def _run_one(token: str, label: str) -> None:
-    if not token:
-        return
+async def _make_bot(token: str, label: str) -> Bot | None:
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = _build_dispatcher()
     try:
         me = await bot.get_me()
-        logger.info("Bot %s (@%s) — polling started", label, me.username)
+        logger.info("Bot %s (@%s) ready", label, me.username)
+        return bot
     except Exception as e:
         logger.warning("Bot %s — getMe failed (%s), пропускаем", label, e)
-        await bot.session.close()
-        return
-    try:
-        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
-    except Exception as e:
-        logger.exception("Bot %s polling crashed: %s", label, e)
-    finally:
-        await bot.session.close()
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
+        return None
 
 
 async def _load_vip_tokens() -> list[tuple[str, str]]:
@@ -72,13 +60,15 @@ async def _load_vip_tokens() -> list[tuple[str, str]]:
 
 
 async def main() -> None:
-    tasks: list[asyncio.Task] = []
+    bots: list[Bot] = []
     seen_tokens: set[str] = set()
 
     # Основной @pluson_bot
     if settings.telegram_bot_token:
         seen_tokens.add(settings.telegram_bot_token)
-        tasks.append(asyncio.create_task(_run_one(settings.telegram_bot_token, "pluson_bot")))
+        b = await _make_bot(settings.telegram_bot_token, "pluson_bot")
+        if b:
+            bots.append(b)
     else:
         logger.warning("TELEGRAM_BOT_TOKEN не задан — основной бот не запустится")
 
@@ -87,15 +77,32 @@ async def main() -> None:
         if token in seen_tokens:
             continue
         seen_tokens.add(token)
-        tasks.append(asyncio.create_task(_run_one(token, label)))
+        b = await _make_bot(token, label)
+        if b:
+            bots.append(b)
 
-    if not tasks:
+    if not bots:
         logger.error("Нет ни одного бота для запуска — выходим")
         return
 
-    logger.info("Запущено %d бот(ов) в polling-режиме", len(tasks))
-    # Ждём все задачи; если один упадёт — остальные продолжают работать
-    await asyncio.gather(*tasks, return_exceptions=True)
+    # Один Dispatcher на все боты — aiogram 3 поддерживает мульти-бот polling
+    dp = Dispatcher()
+    dp.include_router(funnel.router)
+    dp.include_router(start.router)
+
+    logger.info("Запущено %d бот(ов) в polling-режиме", len(bots))
+    try:
+        await dp.start_polling(
+            *bots,
+            skip_updates=True,
+            allowed_updates=["message", "callback_query"],
+        )
+    finally:
+        for b in bots:
+            try:
+                await b.session.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

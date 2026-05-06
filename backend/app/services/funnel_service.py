@@ -297,6 +297,50 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
     client_id = run["client_id"]
     skeleton_contact_id = run["contact_id"]  # создан на landing, может быть None для старых забегов
 
+    # Если у человека уже был забег по этому же магниту/пакету (он повторно кликнул
+    # ссылку) — переключаемся на существующий забег вместо создания дубликата.
+    # Уникальный индекс funnel_runs_unique_per_lm/per_pkg иначе словил бы коллизию.
+    existing_run = await db.fetchrow(
+        """SELECT id, stage, contact_id
+             FROM funnel_runs
+            WHERE client_id = $1
+              AND platform_slug = 'telegram'
+              AND platform_user_id = $2
+              AND COALESCE(lead_magnet_id, 0) = COALESCE($3, 0)
+              AND COALESCE(package_id, 0)     = COALESCE($4, 0)
+              AND id <> $5
+            ORDER BY id ASC LIMIT 1""",
+        client_id, str(tg_id),
+        run["lead_magnet_id"], run["package_id"], run_id
+    )
+    if existing_run:
+        # Подбираем уже известный забег. Удаляем новый skeleton, чтобы не плодить дубли,
+        # и осиротевший skeleton-контакт (если ничем не занят).
+        if skeleton_contact_id:
+            used_elsewhere = await db.fetchval(
+                """SELECT EXISTS (
+                       SELECT 1 FROM funnel_runs WHERE contact_id = $1 AND id <> $2
+                       UNION ALL SELECT 1 FROM event_participants WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM platform_users  WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM collaborators    WHERE contact_id = $1
+                   )""",
+                skeleton_contact_id, run_id
+            )
+            await db.execute("DELETE FROM funnel_runs WHERE id = $1", run_id)
+            if not used_elsewhere:
+                await db.execute("DELETE FROM contacts WHERE id = $1", skeleton_contact_id)
+        else:
+            await db.execute("DELETE FROM funnel_runs WHERE id = $1", run_id)
+        # Перезаписываем run на существующий — все дальнейшие апдейты идут в него
+        run_id = existing_run["id"]
+        run = await db.fetchrow(
+            """SELECT id, client_id, type, lead_magnet_id, package_id, stage,
+                      contact_id, platform_slug, platform_user_id, started_at
+                 FROM funnel_runs WHERE id = $1""",
+            run_id
+        )
+        skeleton_contact_id = None  # уже не skeleton, а реальный контакт
+
     # Привязка к контакту через platform_users (telegram per-client)
     pu = await db.fetchrow(
         """SELECT pu.id, pu.contact_id
@@ -410,7 +454,13 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
 
 
 async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool]:
-    """Проверка подписки. Возвращает ('subscribed' | 'not_subscribed' | 'no_channel', already_delivered)."""
+    """Проверка подписки. Возвращает (status, already_delivered):
+       'subscribed'             — выдали (или повторно говорим что уже выдавали)
+       'not_subscribed'         — не подписан на канал клиента
+       'channel_not_configured' — у клиента не настроен канал подписки в визитке
+       'no_token'               — у клиента нет TG-бота для отправки
+       'not_found'              — забег не найден
+    """
     run = await db.fetchrow(
         """SELECT id, client_id, stage, lead_magnet_id, package_id
              FROM funnel_runs WHERE id = $1""",
@@ -426,13 +476,17 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool
     channel = ctx.get("subscription_channel", "")
     token = await _bot_token_for_client(client_id, db)
     if not token:
-        return "no_channel", False
+        return "no_token", False
 
-    if channel:
-        ok = await _check_subscription(token, channel, str(tg_id))
-        if not ok:
-            return "not_subscribed", False
-    # подписан или канал не настроен → выдаём
+    if not channel:
+        # Канал не настроен — не выдаём, чтобы у клиента был стимул его настроить.
+        # В UI лид-магнитов будет соответствующее предупреждение.
+        return "channel_not_configured", False
+
+    ok = await _check_subscription(token, channel, str(tg_id))
+    if not ok:
+        return "not_subscribed", False
+    # подписан → выдаём
     await db.execute(
         """UPDATE funnel_runs
               SET stage = 'delivered',

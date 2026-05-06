@@ -65,7 +65,11 @@ export default function MiniAppSettingsPage() {
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [editing, setEditing] = useState<Offering | null>(null)
   const [creating, setCreating] = useState(false)
-  const [tab, setTab] = useState<Tab>('brand')
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === 'undefined') return 'brand'
+    const t = new URLSearchParams(window.location.search).get('tab')
+    return (t === 'owner' || t === 'products') ? t as Tab : 'brand'
+  })
 
   useEffect(() => {
     api.miniApp.profile.get().then((p: any) => {
