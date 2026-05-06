@@ -399,7 +399,16 @@ export default function TemplatesPage() {
   function getStreamUrl(day?: number): string {
     const d = day ?? 1
     const dayObj = confDaysData.find((x: any) => x.day_number === d)
-    return dayObj?.stream_url || eventData?.stream_url || '🔗 [ссылка на эфир]'
+    // Без префикса 🔗 — он уже есть в самом тексте шаблона перед {stream_url},
+    // иначе в превью получаем «🔗 🔗 [ссылка на эфир]».
+    return dayObj?.stream_url || eventData?.stream_url || '[ссылка на эфир]'
+  }
+
+  function getGameLink(): string {
+    // Превью {game_link}: формат тот же, что в Celery — t.me/{бот}?startapp=ref_pg{slug}_tabgame_pid{ref_code}.
+    // На превью реального ref_code получателя нет — показываем шаблонное «{ваш_код}».
+    const slug = eventData?.slug || '{slug}'
+    return `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_tabgame_pid{ваш_код}`
   }
 
   function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number): string {
@@ -598,8 +607,9 @@ export default function TemplatesPage() {
       .replace(/\{next_day_mention\}/g, nextDayMention)
       .replace(/\{raffle_url\}/g, realRaffleUrl || '🔗 [ссылка на розыгрыш]')
       .replace(/\{day_speakers_gifts\}/g, daySpeakersGifts)
-      .replace(/\{stream_url\}/g, realStreamUrl || '🔗 [ссылка на эфир]')
-      .replace(/\{landing_url\}/g, realRegUrl || '🔗 [ссылка на регистрацию]')
+      .replace(/\{stream_url\}/g, realStreamUrl || '[ссылка на эфир]')
+      .replace(/\{landing_url\}/g, realRegUrl || '[ссылка на регистрацию]')
+      .replace(/\{game_link\}/g, getGameLink())
       .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
       .replace(/\{gift_title\}/g, '[название подарка]')
       .replace(/\{gift_after_speech_title\}/g, '[подарок на эфире]')
@@ -1209,7 +1219,12 @@ export default function TemplatesPage() {
                   </div>
                   {previewModal.tpl.button_url && (
                     <p className="text-xs text-gray-400 mt-1 text-center break-all">
-                      {previewModal.tpl.button_url}
+                      {renderPreviewText(
+                        previewModal.tpl.button_url,
+                        previewModal.def.hasSpeaker ? previewSpeaker : null,
+                        previewModal.def.type,
+                        testDay
+                      )}
                     </p>
                   )}
                 </div>
