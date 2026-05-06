@@ -503,26 +503,27 @@ function VipBotWizard({ clientId, onClose, onDone }: {
                 </div>
               </div>
 
-              <h3 className="font-semibold text-gray-900">Шаг 3. Привяжите Mini App в @BotFather</h3>
+              <h3 className="font-semibold text-gray-900">Шаг 3. Настройте Main Mini App в @BotFather</h3>
               <p className="text-sm text-gray-600">
-                Один последний шаг — нужно сделать вручную через BotFather (Telegram не даёт
-                сделать это автоматически).
+                Это <b>главное приложение бота</b> — открывается одной кнопкой в чате,
+                ссылки получаются короткие <code className="bg-gray-100 px-1 rounded text-xs">t.me/{result.bot_username}?startapp=…</code>.
+                Telegram не даёт настроить это через API — придётся пройти через @BotFather.
               </p>
 
               <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
                 <li>Откройте <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="font-medium" style={{ color: '#25455D' }}>@BotFather</a></li>
-                <li>Отправьте команду <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/newapp</code></li>
-                <li>Выберите вашего бота <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">@{result.bot_username}</code></li>
-                <li><b>Title</b> (название) — любое, например «ПЛЮСОН» или ваш бренд</li>
-                <li><b>Short description</b> (описание) — короткая фраза, например «Личный кабинет участника»</li>
-                <li><b>Photo</b> — загрузите квадратную картинку 640×640 (можно ваш логотип)</li>
-                <li><b>GIF</b> — нажмите <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/empty</code> чтобы пропустить</li>
-                <li><b>Web App URL</b> — вставьте URL из блока ниже</li>
-                <li><b>Short name</b> — введите ровно <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs font-bold" style={{ color: '#25455D' }}>pluson</code> (одна «с»). Это <b>обязательно</b> — иначе ссылки на ваши события не откроют Mini App.</li>
+                <li>Команда <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/mybots</code> → выберите <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">@{result.bot_username}</code></li>
+                <li>Нажмите <b>«Bot Settings»</b> → <b>«Configure Mini App»</b></li>
+                <li>Если Mini App ещё не включён — <b>«Enable Mini App»</b></li>
+                <li><b>«Edit Mini App URL»</b> → вставьте URL из блока ниже</li>
+                <li><b>«Edit Title»</b> → <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">ПЛЮСОН</code> или ваш бренд</li>
+                <li><b>«Edit Description»</b> → 1–2 предложения о приложении</li>
+                <li><b>«Upload Photo»</b> → картинка 640×360 (логотип)</li>
+                <li><b>«Upload Demo»</b> → GIF/видео или пропустите</li>
               </ol>
 
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
-                <div className="text-xs text-gray-500 mb-1.5">Web App URL для копирования:</div>
+                <div className="text-xs text-gray-500 mb-1.5">Mini App URL для копирования:</div>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs font-mono break-all text-gray-900">
                     {result.mini_app_url}
@@ -533,18 +534,22 @@ function VipBotWizard({ clientId, onClose, onDone }: {
                     title="Скопировать"
                   ><Copy size={14} /></button>
                 </div>
+                <div className="text-xs text-gray-400 mt-1.5">
+                  ⚠️ Слэш в конце обязателен — без него Telegram не загрузит ассеты.
+                </div>
               </div>
 
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
-                <div className="text-xs text-gray-500 mb-1.5">Short name для копирования:</div>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs font-mono text-gray-900 font-bold">pluson</code>
-                  <button
-                    onClick={() => copy('pluson')}
-                    className="p-2 rounded-lg hover:bg-gray-200 text-gray-600"
-                    title="Скопировать"
-                  ><Copy size={14} /></button>
-                </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
+                🧹 <b>Если раньше создавали Mini App через старую команду <code className="bg-amber-100 px-1 rounded">/newapp</code></b> —
+                его обязательно нужно удалить, иначе он будет открываться параллельно
+                с правильным и показывать старую версию приложения. В @BotFather:
+                <code className="bg-amber-100 px-1 rounded">/myapps</code> → выберите старый Mini App →
+                <b> «Delete App»</b> → подтвердите именем приложения.
+              </div>
+
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
+                💡 Полная пошаговая инструкция со всеми деталями (включая Menu Button и <code className="bg-blue-100 px-1 rounded">/setdomain</code>) — в разделе{' '}
+                <a href="/dashboard/help/connect-bot" target="_blank" rel="noopener" className="font-medium underline">Инструкции → Подключение Mini App</a>.
               </div>
 
               <a
