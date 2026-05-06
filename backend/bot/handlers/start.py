@@ -18,10 +18,39 @@ router = Router()
 log = logging.getLogger(__name__)
 
 
+async def _record_subscription(message: Message) -> None:
+    """Регистрируем подписку пользователя на этот конкретный TG-канал клиента.
+    Зовётся при ЛЮБОМ /start, чтобы счётчик подписчиков и база контактов росли.
+    Молча не падает — это вторичная операция, не должна ломать handler."""
+    user = message.from_user
+    bot_id = message.bot.id if message.bot else None
+    if not user or not bot_id:
+        return
+    try:
+        from app.services.channels import find_channel_by_bot_id, register_telegram_subscription
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if not ch:
+                return
+            await register_telegram_subscription(
+                ch["client_id"], ch["id"], str(user.id),
+                username=user.username or "",
+                first_name=user.first_name or "",
+                last_name=user.last_name or "",
+                db=db,
+            )
+    except Exception as e:
+        log.warning("record_subscription failed: %s", e)
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message, command: CommandObject):
     args = (command.args or "").strip()
     user = message.from_user
+
+    # Регистрируем подписку — для счётчика подписчиков канала и базы контактов
+    await _record_subscription(message)
 
     # Воронка лид-магнита
     if args.startswith("fnl_"):

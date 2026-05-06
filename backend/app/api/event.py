@@ -107,6 +107,28 @@ async def share_to_bot(body: ShareToBotRequest):
     event_id = row["id"]
     client_id = row["client_id"]
 
+    # Регистрируем пользователя как подписчика главного TG-канала клиента.
+    # Mini App может быть открыт минуя /start (через Menu Button) — без этого
+    # шага человек никогда не попадёт в platform_user_channels и не будет
+    # учтён в счётчике подписчиков канала.
+    try:
+        from app.services.channels import (
+            get_client_telegram_channel_id,
+            register_telegram_subscription,
+        )
+        async with pool.acquire() as conn:
+            ch_id = await get_client_telegram_channel_id(client_id, conn)
+            if ch_id:
+                await register_telegram_subscription(
+                    client_id, ch_id, str(tg_id),
+                    username=body.username or "",
+                    first_name=body.first_name or "",
+                    last_name=body.last_name or "",
+                    db=conn,
+                )
+    except Exception as e:
+        logger.warning(f"register_telegram_subscription failed: {e}")
+
     # Афиши для шеринга (event_referral_materials)
     async with pool.acquire() as conn:
         material_rows = await conn.fetch(

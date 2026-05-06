@@ -72,6 +72,101 @@ async def upsert_client_telegram_token(client_id: int, bot_token: str, db) -> No
         )
 
 
+async def find_channel_by_bot_id(bot_id: int, db) -> Optional[dict]:
+    """По telegram bot id (число до двоеточия в токене) ищет соответствующий
+    activный telegram-канал. Используется в bot-handlers где известен только
+    `message.bot.id`, чтобы понять кому принадлежит этот бот.
+
+    Возвращает {id, client_id} или None.
+    """
+    row = await db.fetchrow(
+        """SELECT id, client_id FROM channels
+            WHERE platform_slug = 'telegram'
+              AND bot_token LIKE $1
+            ORDER BY is_active DESC, id ASC
+            LIMIT 1""",
+        f"{bot_id}:%"
+    )
+    return dict(row) if row else None
+
+
+async def register_telegram_subscription(
+    client_id: int,
+    channel_id: int,
+    tg_id: str,
+    *,
+    username: str = "",
+    first_name: str = "",
+    last_name: str = "",
+    db = None,
+) -> Optional[int]:
+    """Регистрирует пользователя как подписчика конкретного TG-канала клиента.
+
+    Шаги (всё в транзакции):
+      1. UPSERT contacts (если контакт нашёлся по другому платформ-каналу — мердж)
+      2. UPSERT platform_users (по client_id + platform_slug + platform_user_id)
+      3. UPSERT platform_user_channels с is_unsubscribed=FALSE (снимает галку
+         если был отписан раньше — re-subscribe).
+
+    Возвращает platform_users.id или None при ошибке.
+
+    Зовётся из:
+      - bot/handlers/start.py при /start (первое касание с ботом)
+      - bot/handlers/chat_member.py при возврате (member status)
+      - app/api/event.py при event_start из Mini App (на случай если /start
+        был пропущен — Mini App открыт сразу через Menu Button)
+    """
+    if not tg_id or not channel_id or not client_id:
+        return None
+    async with db.transaction():
+        # 1. platform_users — UPSERT по (client_id, platform_slug, platform_user_id)
+        pu_row = await db.fetchrow(
+            """SELECT id, contact_id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'telegram'
+                  AND platform_user_id = $2""",
+            client_id, tg_id
+        )
+        if pu_row:
+            pu_id = pu_row["id"]
+            contact_id = pu_row["contact_id"]
+            # Дозаполняем пустые поля username/first_name/last_name
+            await db.execute(
+                """UPDATE platform_users
+                      SET username   = COALESCE(NULLIF(username,''),   $2),
+                          first_name = COALESCE(NULLIF(first_name,''), $3),
+                          last_name  = COALESCE(NULLIF(last_name,''),  $4),
+                          updated_at = NOW()
+                    WHERE id = $1""",
+                pu_id, username or "", first_name or "", last_name or ""
+            )
+        else:
+            # Создаём contacts (без email/phone — у нас только tg_id)
+            display_name = (first_name + " " + last_name).strip() or username or f"TG {tg_id}"
+            contact_id = await db.fetchval(
+                """INSERT INTO contacts (client_id, name) VALUES ($1, $2) RETURNING id""",
+                client_id, display_name
+            )
+            pu_id = await db.fetchval(
+                """INSERT INTO platform_users
+                   (client_id, contact_id, platform_slug, platform_user_id, username, first_name, last_name)
+                   VALUES ($1, $2, 'telegram', $3, $4, $5, $6) RETURNING id""",
+                client_id, contact_id, tg_id, username or "", first_name or "", last_name or ""
+            )
+
+        # 2. platform_user_channels — UPSERT с is_unsubscribed=FALSE
+        await db.execute(
+            """INSERT INTO platform_user_channels
+                 (platform_user_id, channel_id, platform_slug, is_unsubscribed, subscribed_at)
+               VALUES ($1, $2, 'telegram', FALSE, NOW())
+               ON CONFLICT (platform_user_id, channel_id) DO UPDATE
+                 SET is_unsubscribed  = FALSE,
+                     subscribed_at    = COALESCE(platform_user_channels.subscribed_at, NOW()),
+                     unsubscribed_at  = NULL""",
+            pu_id, channel_id
+        )
+    return pu_id
+
+
 async def mark_unsubscribed_by_tg_id(client_id: int, tg_id: str, db, channel_id: Optional[int] = None) -> None:
     """Помечает контакт отписавшимся на telegram-канале клиента.
 

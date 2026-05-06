@@ -15,7 +15,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from bot.handlers import start, funnel
+from bot.handlers import start, funnel, chat_member
 from app.config import settings
 from app.database import get_pool
 
@@ -88,6 +88,7 @@ async def main() -> None:
     # Один Dispatcher на все боты — aiogram 3 поддерживает мульти-бот polling
     dp = Dispatcher()
     dp.include_router(funnel.router)
+    dp.include_router(chat_member.router)
     dp.include_router(start.router)
 
     logger.info("Запущено %d бот(ов) в polling-режиме", len(bots))
@@ -95,7 +96,9 @@ async def main() -> None:
         await dp.start_polling(
             *bots,
             skip_updates=True,
-            allowed_updates=["message", "callback_query"],
+            # my_chat_member нужен чтобы ловить блок/разблок бота юзером
+            # (для отметки is_unsubscribed в platform_user_channels)
+            allowed_updates=["message", "callback_query", "my_chat_member"],
         )
     finally:
         for b in bots:
