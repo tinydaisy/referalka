@@ -515,11 +515,7 @@ function VipBotWizard({ clientId, onClose, onDone }: {
                 <li>Команда <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/mybots</code> → выберите <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">@{result.bot_username}</code></li>
                 <li>Нажмите <b>«Bot Settings»</b> → <b>«Configure Mini App»</b></li>
                 <li>Если Mini App ещё не включён — <b>«Enable Mini App»</b></li>
-                <li><b>«Edit Mini App URL»</b> → вставьте URL из блока ниже</li>
-                <li><b>«Edit Title»</b> → <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">ПЛЮСОН</code> или ваш бренд</li>
-                <li><b>«Edit Description»</b> → 1–2 предложения о приложении</li>
-                <li><b>«Upload Photo»</b> → картинка 640×360 (логотип)</li>
-                <li><b>«Upload Demo»</b> → GIF/видео или пропустите</li>
+                <li><b>«Edit Mini App URL»</b> → вставьте URL из блока ниже. Должно прийти «Success! URL updated» — это всё, других полей в Configure Mini App нет.</li>
               </ol>
 
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">

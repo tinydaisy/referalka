@@ -108,40 +108,27 @@ export default function ConnectBotInstructionPage() {
           <li>Если Mini App ещё не включён — нажать <strong>«Enable Mini App»</strong></li>
         </ol>
 
-        <p className="text-sm font-semibold text-gray-800 mb-2">Заполнить все поля:</p>
+        <p className="text-sm font-semibold text-gray-800 mb-2">Вставьте URL приложения:</p>
         <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5 mb-3">
           <li>
             <strong>«Edit Mini App URL»</strong> → вставить ссылку:
             <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
-            <span className="text-xs text-gray-500">Придёт <em>«Success! URL updated»</em>.</span>
-          </li>
-          <li>
-            <strong>«Edit Title»</strong> → <code>ПЛЮСОН</code>
-          </li>
-          <li>
-            <strong>«Edit Description»</strong> → ваше описание (1–2 предложения, что это за приложение)
-          </li>
-          <li>
-            <strong>«Edit Short Description»</strong> → короткая фраза-подзаголовок (необязательно)
-          </li>
-          <li>
-            <strong>«Upload Photo»</strong> → картинка <code>640×360</code> (логотип / превью)
-          </li>
-          <li>
-            <strong>«Upload Demo»</strong> → GIF или видео-демонстрация. Если нет — пропустите (это не блокирует)
+            <span className="text-xs text-gray-500">Придёт <em>«Success! URL updated»</em>. Это всё что нужно — title/description/photo
+              у Main Mini App не настраиваются (их нет в этом меню).</span>
           </li>
         </ol>
 
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900 mb-3">
           💡 Не путать с <code>/newapp</code> — это старый путь, он создаёт <strong>short-named</strong> Mini App
-          (URL типа <code>t.me/bot/myapp</code>). Для ПЛЮСОНа используем <strong>Main Mini App</strong>
-          через Bot Settings — она «главное приложение бота» и не требует короткого имени.
+          (URL типа <code>t.me/bot/myapp</code>) и там как раз есть title/description/photo.
+          Для ПЛЮСОНа short-name не нужен — используем <strong>Main Mini App</strong> через Bot Settings.
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
-          🧹 <strong>Если раньше создавали через <code>/newapp</code></strong> — удалите тот старый Mini App,
-          чтобы он не всплывал параллельно с Main Mini App: в @BotFather <code>/myapps</code> → выбрать
-          старый Mini App → <strong>«Delete App»</strong> → подтвердить именем приложения.
+          🧹 <strong>Если</strong> в @BotFather <code>/myapps</code> у вас есть старые Mini App —
+          удалите их (они были созданы через <code>/newapp</code> и могут конфликтовать с Main Mini App):
+          выбрать старый Mini App → <strong>«Delete App»</strong> → подтвердить именем приложения.
+          Если в <code>/myapps</code> пусто — ничего делать не нужно.
         </div>
       </Section>
 
