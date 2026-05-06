@@ -405,10 +405,10 @@ export default function TemplatesPage() {
   }
 
   function getGameLink(): string {
-    // Превью {game_link}: формат тот же, что в Celery — t.me/{бот}?startapp=ref_pg{slug}_tabgame_pid{ref_code}.
-    // На превью реального ref_code получателя нет — показываем шаблонное «{ваш_код}».
+    // Превью {game_link}: уходит к уже зарегистрированным — pid не нужен, их реферер
+    // уже учтён при регистрации. Просто открываем их вкладку «Игра».
     const slug = eventData?.slug || '{slug}'
-    return `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_tabgame_pid{ваш_код}`
+    return `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_tabgame`
   }
 
   function renderPreviewText(text: string, speaker: any | null, tplType?: string, day?: number): string {
