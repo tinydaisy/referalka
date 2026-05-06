@@ -16,6 +16,7 @@ from typing import Optional
 from app.auth import get_current_client
 from app.config import settings
 from app.database import get_db
+from app.services.bot_reload import reload_bot_polling
 from app.services.channel_import import import_csv_to_channel
 
 router = APIRouter(prefix="/channels", tags=["Каналы"])
@@ -148,6 +149,11 @@ async def create_channel(
                RETURNING id""",
             client_id, data.platform_slug, data.display_name, data.handle, data.bot_token, data.is_active
         )
+
+    # Создан новый telegram-канал-воронка с токеном — поллинг должен подхватить
+    if data.platform_slug == "telegram" and data.is_active and data.bot_token:
+        await reload_bot_polling()
+
     return {"id": channel_id, "ok": True}
 
 
@@ -159,10 +165,12 @@ async def update_channel(
     db=Depends(get_db)
 ):
     client_id = int(client["sub"])
-    existing = await db.fetchval(
-        "SELECT id FROM channels WHERE id = $1 AND client_id = $2", channel_id, client_id
+    current = await db.fetchrow(
+        """SELECT id, platform_slug, is_active, bot_token
+             FROM channels WHERE id = $1 AND client_id = $2""",
+        channel_id, client_id
     )
-    if not existing:
+    if not current:
         raise HTTPException(status_code=404, detail="Канал не найден")
 
     updates = []
@@ -212,6 +220,22 @@ async def update_channel(
             f"UPDATE channels SET {', '.join(updates)}, updated_at = NOW() WHERE id = ${len(params)}",
             *params
         )
+
+    # Перезапускаем polling если изменилось то, что влияет на состав активных TG-ботов:
+    #   1) переключили активный канал (был неактивен → стал активен, или наоборот)
+    #   2) сменили bot_token у активного telegram-канала
+    if current["platform_slug"] == "telegram":
+        activeness_changed = (
+            data.is_active is not None and data.is_active != current["is_active"]
+        )
+        token_changed_on_active = (
+            data.bot_token is not None
+            and data.bot_token != (current["bot_token"] or "")
+            and (current["is_active"] or data.is_active is True)
+        )
+        if activeness_changed or token_changed_on_active:
+            await reload_bot_polling()
+
     return {"ok": True}
 
 
@@ -280,6 +304,9 @@ async def connect_telegram_bot(
             client_id, f"Бот {bot_name}", f"@{bot_username}", token,
         )
 
+    # Подняли/обновили активный telegram-канал — поллинг должен подхватить новый токен
+    await reload_bot_polling()
+
     return {
         "ok": True,
         "channel_id": channel_id,
@@ -293,12 +320,24 @@ async def connect_telegram_bot(
 async def delete_channel(channel_id: int, client=Depends(get_current_client), db=Depends(get_db)):
     """Удаляет канал. Все подписки (platform_user_channels) каскадно удалятся."""
     client_id = int(client["sub"])
+    # Запоминаем платформу/активность ДО удаления, чтобы знать — нужен ли рестарт
+    info = await db.fetchrow(
+        "SELECT platform_slug, is_active, bot_token FROM channels WHERE id = $1 AND client_id = $2",
+        channel_id, client_id
+    )
+    if not info:
+        raise HTTPException(status_code=404, detail="Канал не найден")
     deleted = await db.execute(
         "DELETE FROM channels WHERE id = $1 AND client_id = $2",
         channel_id, client_id
     )
     if deleted == "DELETE 0":
         raise HTTPException(status_code=404, detail="Канал не найден")
+
+    # Удалили активный telegram-канал-воронку с токеном — пересобираем поллинг
+    if info["platform_slug"] == "telegram" and info["is_active"] and info["bot_token"]:
+        await reload_bot_polling()
+
     return {"ok": True}
 
 
