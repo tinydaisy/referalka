@@ -59,6 +59,29 @@ async def _tg_call(token: str, method: str, payload: dict | None = None) -> dict
     return data.get("result") or {}
 
 
+async def _ensure_polling_ready(token: str) -> None:
+    """Сносит webhook у бота, если он есть — иначе наш polling упадёт с
+    `Conflict: can't use getUpdates method while webhook is active`.
+
+    Зовётся при активации Telegram-канала (POST/PATCH is_active=true,
+    connect-telegram-bot). Не падает при ошибках Telegram — просто логирует,
+    чтобы переключение в дашборде не блокировалось из-за временной сетевой проблемы.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(url, json={"drop_pending_updates": True})
+        d = r.json()
+        if d.get("ok"):
+            log.info("deleteWebhook OK для бота: %s", d.get("description") or "ok")
+        else:
+            log.warning("deleteWebhook вернул not-ok: %s", d.get("description"))
+    except Exception as e:
+        log.warning("deleteWebhook не удался (игнорируем, polling сам поретраит): %s", e)
+
+
 class ChannelCreate(BaseModel):
     platform_slug: str          # 'telegram' | 'vk' | 'max'
     display_name: str
@@ -150,8 +173,11 @@ async def create_channel(
             client_id, data.platform_slug, data.display_name, data.handle, data.bot_token, data.is_active
         )
 
-    # Создан новый telegram-канал-воронка с токеном — поллинг должен подхватить
+    # Создан новый telegram-канал-воронка с токеном — снести webhook у бота
+    # (если кто-то уже подвязал его к Salebot/другому сервису), затем
+    # перезапустить polling чтобы подхватить новый токен.
     if data.platform_slug == "telegram" and data.is_active and data.bot_token:
+        await _ensure_polling_ready(data.bot_token)
         await reload_bot_polling()
 
     return {"id": channel_id, "ok": True}
@@ -234,6 +260,13 @@ async def update_channel(
             and (current["is_active"] or data.is_active is True)
         )
         if activeness_changed or token_changed_on_active:
+            # Перед polling-reload нужно снести webhook у бота, который СТАНЕТ активным
+            # (иначе getUpdates вернёт Conflict). Берём токен из текущего апдейта или из БД.
+            now_active = data.is_active if data.is_active is not None else current["is_active"]
+            if now_active:
+                token_for_polling = data.bot_token if data.bot_token is not None else (current["bot_token"] or "")
+                if token_for_polling:
+                    await _ensure_polling_ready(token_for_polling)
             await reload_bot_polling()
 
     return {"ok": True}
@@ -304,7 +337,10 @@ async def connect_telegram_bot(
             client_id, f"Бот {bot_name}", f"@{bot_username}", token,
         )
 
-    # Подняли/обновили активный telegram-канал — поллинг должен подхватить новый токен
+    # Подняли/обновили активный telegram-канал — снести webhook (если бот был
+    # подключен к Salebot и т.п.), чтобы наш polling мог делать getUpdates,
+    # затем перезапустить bot-сервис для подхвата нового токена.
+    await _ensure_polling_ready(token)
     await reload_bot_polling()
 
     return {
