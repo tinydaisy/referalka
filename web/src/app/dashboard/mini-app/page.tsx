@@ -435,58 +435,74 @@ export default function MiniAppSettingsPage() {
             hint="Ряд иконок на странице «Об основателе». Заполняйте только то что хотите показать."
           >
             <div className="space-y-3 max-w-2xl">
-              {SOCIAL_FIELDS.map(f => (
-                <div key={f.key}>
-                  <label className="label">{f.label}</label>
-                  <input type="url"
-                         value={profile.social_links[f.key] || ''}
-                         onChange={e => updateSocial(f.key, e.target.value)}
-                         placeholder={f.placeholder}
-                         className="input" />
-                  {f.hint && <p className="text-xs text-gray-500 mt-1">{f.hint}</p>}
-                  {f.key === 'telegram' && (() => {
-                    const cid = profile.social_links.telegram_chat_id || ''
-                    const valid = chatIdLooksValid(cid)
-                    return (
-                    <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
-                      <label className="block text-xs font-semibold text-gray-700">
-                        ID канала <span className="font-normal text-gray-500">(нужен для проверки подписки)</span>
-                      </label>
-                      <div className="flex gap-2 items-stretch flex-wrap">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={cid}
-                          onChange={e => updateChatId(e.target.value)}
-                          onBlur={e => updateChatId(e.target.value)}
-                          placeholder="-1001234567890"
-                          className={`flex-1 min-w-0 px-3 py-1.5 text-sm font-mono border rounded focus:outline-none focus:border-[#25455D] ${
-                            valid ? 'border-gray-200' : 'border-red-300'
-                          }`}
-                        />
-                        <button type="button"
-                                onClick={resolveTelegramChatId}
-                                className="px-3 py-1.5 text-xs rounded bg-[#25455D] text-white whitespace-nowrap">
-                          Получить автоматически
-                        </button>
+              {SOCIAL_FIELDS.map(f => {
+                if (f.key === 'telegram') {
+                  const cid = profile.social_links.telegram_chat_id || ''
+                  const valid = chatIdLooksValid(cid)
+                  return (
+                    <div key={f.key} className="p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
+                      <label className="block text-sm font-semibold text-gray-800">Telegram канал</label>
+
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Ссылка на канал</label>
+                        <input type="url"
+                               value={profile.social_links[f.key] || ''}
+                               onChange={e => updateSocial(f.key, e.target.value)}
+                               placeholder={f.placeholder}
+                               className="input bg-white" />
+                        {f.hint && <p className="text-xs text-gray-500 mt-1">{f.hint}</p>}
                       </div>
-                      {!valid && (
-                        <p className="text-xs text-red-600">
-                          ID канала должен начинаться с «-100» и содержать только цифры. Например: -1001234567890
+
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">
+                          ID канала <span className="text-gray-400">(нужен для проверки подписки)</span>
+                        </label>
+                        <div className="flex gap-2 items-stretch flex-wrap">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={cid}
+                            onChange={e => updateChatId(e.target.value)}
+                            onBlur={e => updateChatId(e.target.value)}
+                            placeholder="-1001234567890"
+                            className={`flex-1 min-w-0 px-3 py-1.5 text-sm font-mono bg-white border rounded focus:outline-none focus:border-[#25455D] ${
+                              valid ? 'border-gray-200' : 'border-red-300'
+                            }`}
+                          />
+                          <button type="button"
+                                  onClick={resolveTelegramChatId}
+                                  className="px-3 py-1.5 text-xs rounded bg-[#25455D] text-white whitespace-nowrap">
+                            Получить автоматически
+                          </button>
+                        </div>
+                        {!valid && (
+                          <p className="text-xs text-red-600 mt-1">
+                            ID канала должен начинаться с «-100» и содержать только цифры. Например: -1001234567890
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          Открытый канал — кнопка «Получить автоматически» сделает всё за вас.
+                          Закрытый — впишите ID руками.{' '}
+                          <a href="/dashboard/settings#tg-chat-id" className="text-[#25455D] underline">
+                            Как узнать ID канала
+                          </a>.
                         </p>
-                      )}
-                      <p className="text-xs text-gray-500">
-                        Открытый канал — кнопка «Получить автоматически» сделает всё за вас.
-                        Закрытый — впишите ID руками.{' '}
-                        <a href="/dashboard/settings#tg-chat-id" className="text-[#25455D] underline">
-                          Как узнать ID канала
-                        </a>.
-                      </p>
+                      </div>
                     </div>
-                    )
-                  })()}
-                </div>
-              ))}
+                  )
+                }
+                return (
+                  <div key={f.key}>
+                    <label className="label">{f.label}</label>
+                    <input type="url"
+                           value={profile.social_links[f.key] || ''}
+                           onChange={e => updateSocial(f.key, e.target.value)}
+                           placeholder={f.placeholder}
+                           className="input" />
+                    {f.hint && <p className="text-xs text-gray-500 mt-1">{f.hint}</p>}
+                  </div>
+                )
+              })}
             </div>
           </Section>
         </>
