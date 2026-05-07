@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { Plus, X, Search } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -91,21 +92,27 @@ export default function CoOrganizersTab({ eventId }: { eventId: number }) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {items.map(c => (
-              <div key={c.id} className="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-gray-200">
-                {c.photo_url ? (
-                  <img src={c.photo_url} alt="" className="w-14 h-14 rounded-full object-cover shrink-0" />
-                ) : (
-                  <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs shrink-0">
-                    {c.name.slice(0, 2).toUpperCase()}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-800 text-sm truncate">{c.name}</div>
-                  {c.title && <div className="text-xs text-gray-500 truncate">{c.title}</div>}
-                  {c.personal_tg_username && (
-                    <div className="text-xs text-gray-400 truncate">@{c.personal_tg_username.replace(/^@/, '')}</div>
+              <div key={c.id} className="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-gray-300 transition-colors">
+                <Link
+                  href={`/dashboard/collaborations/${c.collaborator_id}`}
+                  className="flex items-start gap-3 flex-1 min-w-0 group"
+                  title="Открыть карточку коллаборатора"
+                >
+                  {c.photo_url ? (
+                    <img src={c.photo_url} alt="" className="w-14 h-14 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs shrink-0">
+                      {c.name.slice(0, 2).toUpperCase()}
+                    </div>
                   )}
-                </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-800 text-sm truncate group-hover:text-[#25455D]">{c.name}</div>
+                    {c.title && <div className="text-xs text-gray-500 truncate">{c.title}</div>}
+                    {c.personal_tg_username && (
+                      <div className="text-xs text-gray-400 truncate">@{c.personal_tg_username.replace(/^@/, '')}</div>
+                    )}
+                  </div>
+                </Link>
                 <button
                   onClick={() => handleRemove(c.id)}
                   disabled={removing === c.id}
