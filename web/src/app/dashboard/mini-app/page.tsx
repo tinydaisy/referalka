@@ -323,10 +323,10 @@ export default function MiniAppSettingsPage() {
             hint="Имя, позиционирование, фото — это и попадёт в карточку-тизер на главной Экосистемы."
           >
             <div className="space-y-4 max-w-2xl">
-              <Field label="Имя основателя" hint="Будет показано на карточке-тизере и на странице «Об основателе».">
-                <input type="text" value={profile.owner_name || ''}
-                       onChange={e => update('owner_name', e.target.value)}
-                       className="input" maxLength={80} />
+              <Field label="Имя в Mini App"
+                     hint="Это имя из регистрации. Для смены — напишите в Тех.поддержку.">
+                <input type="text" value={profile.owner_name || profile.name || ''} disabled
+                       className="input opacity-60 cursor-not-allowed" />
               </Field>
 
               <Field label="Фото основателя">
