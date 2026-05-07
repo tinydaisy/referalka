@@ -503,19 +503,24 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool
     ctx = await _get_brand_context(client_id, db)
     # Для Telegram Bot API нужен `@channelname` или числовой chat_id —
     # ни https-ссылка, ни инвайт-код `+abc...` тут не работают.
+    channel = ctx.get("subscription_channel", "")
     channel_api = ctx.get("subscription_channel_api", "")
     token = await _bot_token_for_client(client_id, db)
     if not token:
         return "no_token", False
 
-    if not channel_api:
-        # Канал не настроен или это закрытый канал с инвайт-ссылкой —
-        # getChatMember проверить такой не сможет. В UI будет предупреждение.
-        return "channel_not_configured", False
-
-    ok = await _check_subscription(token, channel_api, str(tg_id))
-    if not ok:
-        return "not_subscribed", False
+    if not channel:
+        # Канал у клиента вообще не задан — пропускаем проверку, выдаём.
+        pass
+    elif not channel_api:
+        # Канал задан, но это закрытый канал с инвайт-ссылкой —
+        # Bot API проверить подписку через getChatMember с инвайт-кодом не умеет.
+        # Доверяем юзеру: он увидел инвайт в Тексте 1, перешёл, подписался — выдаём.
+        pass
+    else:
+        ok = await _check_subscription(token, channel_api, str(tg_id))
+        if not ok:
+            return "not_subscribed", False
     # подписан → выдаём
     await db.execute(
         """UPDATE funnel_runs
