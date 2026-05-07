@@ -52,13 +52,11 @@ async def _get_brand_context(client_id: int, db) -> dict:
             social = json.loads(social)
         except Exception:
             social = {}
+    # В тексте — https-ссылка (работает и для открытых, и для закрытых каналов с инвайт-кодом).
+    # @-префикс не годится: для `+abc...` даёт мусор `@+abc...`.
     tg_link = (social or {}).get("telegram") or ""
-    # Достаём @username из URL канала, если задан
-    sub_channel = ""
-    if tg_link:
-        s = tg_link.replace("https://t.me/", "").replace("http://t.me/", "").strip("/ @")
-        if s:
-            sub_channel = "@" + s
+    sub_channel = normalize_telegram_link(tg_link)
+    sub_channel_api = telegram_api_id(tg_link)  # для getChatMember
     achievements = row["owner_achievements"] or []
     if isinstance(achievements, str):
         try:
@@ -80,8 +78,9 @@ async def _get_brand_context(client_id: int, db) -> dict:
         "brand_name": row["brand_name"] or "",
         "owner_name": row["owner_name"] or "",
         "owner_achievements": achievements_text,
-        "subscription_channel": sub_channel,
-        "owner_telegram": sub_channel,  # на случай если text_3 хочет «напишите мне»
+        "subscription_channel": sub_channel,           # https-ссылка для текста
+        "subscription_channel_api": sub_channel_api,   # @username для Telegram Bot API
+        "owner_telegram": sub_channel,
     }
 
 
