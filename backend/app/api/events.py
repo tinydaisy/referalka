@@ -424,14 +424,14 @@ async def copy_event(
                     new_id, *[old_conf[c] for c in cols]
                 )
 
-            # Маппинг conf_speaker_events для дальнейших таблиц
+            # Маппинг event_collaborators для дальнейших таблиц
             cse_map: dict = {}
-            old_cses = await db.fetch("SELECT * FROM conf_speaker_events WHERE event_id = $1", event_id)
+            old_cses = await db.fetch("SELECT * FROM event_collaborators WHERE event_id = $1", event_id)
             for cse in old_cses:
                 cols = [k for k in dict(cse).keys() if k not in ('id', 'event_id')]
                 placeholders = ",".join(f"${i+2}" for i in range(len(cols)))
                 new_cse_id = await db.fetchval(
-                    f"INSERT INTO conf_speaker_events (event_id, {','.join(cols)}) VALUES ($1, {placeholders}) RETURNING id",
+                    f"INSERT INTO event_collaborators (event_id, {','.join(cols)}) VALUES ($1, {placeholders}) RETURNING id",
                     new_id, *[cse[c] for c in cols]
                 )
                 cse_map[cse['id']] = new_cse_id
@@ -459,7 +459,7 @@ async def copy_event(
                     new_id, *[d[c] for c in cols]
                 )
 
-            # conf_sessions (speaker_id → conf_speaker_events.id, mapping)
+            # conf_sessions (speaker_id → event_collaborators.id, mapping)
             sessions = await db.fetch("SELECT * FROM conf_sessions WHERE event_id = $1", event_id)
             for s in sessions:
                 cols_dict = dict(s)
@@ -761,3 +761,150 @@ async def delete_event_participant(
             participant_id
         )
     return {"deleted": True, "id": participant_id}
+
+
+# ─── Соорганизаторы / Спикеры события (event_collaborators) ────────────────────
+# Общая таблица: для мероприятий (module_slug != 'conference') используется как
+# «Соорганизаторы» с role='organizer'. Для конференций есть отдельный конф-UI
+# со своей логикой добавления спикеров с темами/подарками — он не трогается.
+
+class CollaboratorAddRequest(BaseModel):
+    collaborator_id: int
+    role: str = "organizer"  # 'organizer' | 'speaker' | 'headliner' | 'partner'
+    sort_order: Optional[int] = None
+
+
+class CollaboratorReorderRequest(BaseModel):
+    sort_order: int
+
+
+@router.get("/{event_id}/collaborators", summary="Список коллабораторов события (с фильтром по роли)")
+async def list_event_collaborators(
+    event_id: int,
+    role: Optional[str] = None,  # None = все роли; 'organizer'/'speaker'/etc.
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    # Проверяем что event принадлежит клиенту
+    own = await db.fetchval(
+        "SELECT 1 FROM events WHERE id = $1 AND client_id = $2",
+        event_id, client_id
+    )
+    if not own:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    sql = """
+        SELECT ec.id, ec.role, ec.sort_order, ec.is_visible,
+               co.id AS collaborator_id, co.name, co.title, co.photo_url,
+               co.achievements, co.tg_channel_url, co.instagram_url, co.website_url,
+               co.personal_tg_username
+          FROM event_collaborators ec
+          JOIN collaborators co ON co.id = ec.speaker_id
+         WHERE ec.event_id = $1
+    """
+    args = [event_id]
+    if role:
+        args.append(role)
+        sql += f" AND ec.role = ${len(args)}"
+    sql += " ORDER BY ec.sort_order, ec.id"
+    rows = await db.fetch(sql, *args)
+    return {"items": [dict(r) for r in rows]}
+
+
+@router.post("/{event_id}/collaborators", summary="Добавить коллаборатора в событие")
+async def add_event_collaborator(
+    event_id: int,
+    data: CollaboratorAddRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    own = await db.fetchval(
+        "SELECT 1 FROM events WHERE id = $1 AND client_id = $2",
+        event_id, client_id
+    )
+    if not own:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    # Проверяем что коллаборатор существует
+    co = await db.fetchval(
+        "SELECT id FROM collaborators WHERE id = $1",
+        data.collaborator_id
+    )
+    if not co:
+        raise HTTPException(status_code=404, detail="Коллаборатор не найден")
+
+    # Если уже привязан — просто меняем роль/возвращаем существующую запись
+    existing = await db.fetchrow(
+        "SELECT id, role FROM event_collaborators WHERE event_id = $1 AND speaker_id = $2",
+        event_id, data.collaborator_id
+    )
+    if existing:
+        if existing["role"] != data.role:
+            await db.execute(
+                "UPDATE event_collaborators SET role = $1 WHERE id = $2",
+                data.role, existing["id"]
+            )
+        return {"id": existing["id"], "role": data.role, "already_existed": True}
+
+    # Сорт-индекс: либо переданный, либо в конец списка с этой ролью
+    if data.sort_order is None:
+        max_sort = await db.fetchval(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM event_collaborators WHERE event_id = $1 AND role = $2",
+            event_id, data.role
+        )
+        sort_order = max_sort
+    else:
+        sort_order = data.sort_order
+
+    new_id = await db.fetchval(
+        """INSERT INTO event_collaborators (speaker_id, event_id, role, sort_order)
+           VALUES ($1, $2, $3, $4) RETURNING id""",
+        data.collaborator_id, event_id, data.role, sort_order
+    )
+    return {"id": new_id, "role": data.role, "already_existed": False}
+
+
+@router.delete("/{event_id}/collaborators/{ec_id}", summary="Убрать коллаборатора из события")
+async def remove_event_collaborator(
+    event_id: int,
+    ec_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        """SELECT ec.id FROM event_collaborators ec
+             JOIN events e ON e.id = ec.event_id
+            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+        ec_id, event_id, client_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    await db.execute("DELETE FROM event_collaborators WHERE id = $1", ec_id)
+    return {"deleted": True}
+
+
+@router.patch("/{event_id}/collaborators/{ec_id}/sort", summary="Изменить порядок")
+async def reorder_event_collaborator(
+    event_id: int,
+    ec_id: int,
+    data: CollaboratorReorderRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        """SELECT ec.id FROM event_collaborators ec
+             JOIN events e ON e.id = ec.event_id
+            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+        ec_id, event_id, client_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    await db.execute(
+        "UPDATE event_collaborators SET sort_order = $1 WHERE id = $2",
+        data.sort_order, ec_id
+    )
+    return {"sort_order": data.sort_order}

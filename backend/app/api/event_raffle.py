@@ -392,7 +392,7 @@ async def list_winners(
               ORDER BY pu.id LIMIT 1) AS winner_username
           FROM event_raffle_winners w
           JOIN event_raffle_tickets t ON t.id = w.ticket_id
-          JOIN conf_speaker_events cse ON cse.id = w.speaker_event_id
+          JOIN event_collaborators cse ON cse.id = w.speaker_event_id
           JOIN collaborators col ON col.id = cse.speaker_id
           JOIN contacts c ON c.id = t.contact_id
          WHERE t.event_id = $1
@@ -429,7 +429,7 @@ async def draw_winner(
 
     # Проверяем что приз принадлежит этому событию.
     cse = await db.fetchrow(
-        """SELECT id, event_id, gift_raffle_title FROM conf_speaker_events
+        """SELECT id, event_id, gift_raffle_title FROM event_collaborators
             WHERE id = $1 AND event_id = $2""",
         data.speaker_event_id, event_id,
     )
@@ -486,7 +486,7 @@ async def draw_winner(
           FROM event_raffle_winners w
           JOIN event_raffle_tickets t ON t.id = w.ticket_id
           JOIN contacts c ON c.id = t.contact_id
-          JOIN conf_speaker_events cse ON cse.id = w.speaker_event_id
+          JOIN event_collaborators cse ON cse.id = w.speaker_event_id
           JOIN collaborators col ON col.id = cse.speaker_id
           JOIN events e ON e.id = t.event_id
          WHERE w.id = $1

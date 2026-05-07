@@ -27,6 +27,7 @@ import json
 from app.database import get_db, get_pool
 from app.auth import get_current_client
 from app.services.event_welcome import send_event_open_message
+from app.services.social_links import normalize_social_links
 
 
 # ═══════════════════════════════════════════
@@ -219,6 +220,30 @@ async def public_share_materials(event_id: int, db: asyncpg.Connection = Depends
             ORDER BY sort, id""",
         event_id
     )
+    return {"items": [dict(r) for r in rows]}
+
+
+@public.get("/events/{event_id}/collaborators", summary="Коллабораторы события (публично, для Mini App)")
+async def public_event_collaborators(
+    event_id: int,
+    role: Optional[str] = None,  # 'organizer' / 'speaker' / 'partner' / None=все
+    db: asyncpg.Connection = Depends(get_db),
+):
+    sql = """
+        SELECT ec.id, ec.role, ec.sort_order,
+               co.id AS collaborator_id, co.name, co.title, co.photo_url,
+               co.achievements, co.tg_channel_url, co.instagram_url,
+               co.website_url, co.personal_tg_username
+          FROM event_collaborators ec
+          JOIN collaborators co ON co.id = ec.speaker_id
+         WHERE ec.event_id = $1 AND ec.is_visible = TRUE
+    """
+    args: list[Any] = [event_id]
+    if role:
+        args.append(role)
+        sql += f" AND ec.role = ${len(args)}"
+    sql += " ORDER BY ec.sort_order, ec.id"
+    rows = await db.fetch(sql, *args)
     return {"items": [dict(r) for r in rows]}
 
 
@@ -539,7 +564,9 @@ async def update_my_profile(
     if data.owner_achievements is not None: add("owner_achievements", data.owner_achievements, jsonb=True)
 
     if data.bio          is not None: add("bio",          data.bio or None)
-    if data.social_links is not None: add("social_links", data.social_links, jsonb=True)
+    if data.social_links is not None:
+        # Приводим TG-ссылку к https-формату — для воронки лид-магнитов и для согласованности.
+        add("social_links", normalize_social_links(data.social_links), jsonb=True)
 
     if not sets:
         raise HTTPException(status_code=400, detail="Нечего обновлять")

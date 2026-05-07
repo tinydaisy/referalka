@@ -282,7 +282,8 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
     - отправляет Текст 1 + кнопку «ГОТОВО»."""
     run = await db.fetchrow(
         """SELECT id, client_id, type, lead_magnet_id, package_id, stage,
-                  contact_id, platform_slug, platform_user_id, started_at
+                  contact_id, platform_slug, platform_user_id, started_at,
+                  utm, referrer_contact_id
              FROM funnel_runs WHERE id = $1""",
         run_id
     )
@@ -291,7 +292,7 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
         return
 
     client_id = run["client_id"]
-    skeleton_contact_id = run["contact_id"]  # создан на landing, может быть None для старых забегов
+    skeleton_contact_id = run["contact_id"]  # legacy: создан на landing у старых забегов; для новых = NULL
 
     # Если у человека уже был забег по этому же магниту/пакету (он повторно кликнул
     # ссылку) — переключаемся на существующий забег вместо создания дубликата.
@@ -331,7 +332,8 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
         run_id = existing_run["id"]
         run = await db.fetchrow(
             """SELECT id, client_id, type, lead_magnet_id, package_id, stage,
-                      contact_id, platform_slug, platform_user_id, started_at
+                      contact_id, platform_slug, platform_user_id, started_at,
+                      utm, referrer_contact_id
                  FROM funnel_runs WHERE id = $1""",
             run_id
         )
@@ -370,8 +372,8 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
             if not used_elsewhere:
                 await db.execute("DELETE FROM contacts WHERE id = $1", skeleton_contact_id)
     else:
-        # Берём skeleton contact, который создали на landing.
-        # Если его нет (легаси-забег без contact_id) — создаём новый.
+        # Берём skeleton contact, если он есть (легаси: до отказа от скелетов в _landing).
+        # Иначе создаём контакт сейчас, копируя UTM/реферера прямо из funnel_runs.
         if skeleton_contact_id:
             contact_id = skeleton_contact_id
             full_name = ((first_name or "") + " " + (last_name or "")).strip() or (username or "")
@@ -385,12 +387,24 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
         else:
             from app.services.contact_merge import _generate_unique_ref_code
             ref_code = await _generate_unique_ref_code(db)
+            # Извлекаем utm_source из JSONB-блока utm на забеге
+            run_utm = run["utm"]
+            if isinstance(run_utm, str):
+                try:
+                    run_utm = json.loads(run_utm)
+                except Exception:
+                    run_utm = {}
+            utm_source = (run_utm or {}).get("utm_source")
             contact_id = await db.fetchval(
-                """INSERT INTO contacts (client_id, name, ref_code, last_contact_at)
-                   VALUES ($1, $2, $3, NOW()) RETURNING id""",
+                """INSERT INTO contacts
+                      (client_id, name, ref_code, utm_source,
+                       first_referrer_contact_id, last_contact_at)
+                   VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id""",
                 client_id,
                 ((first_name or "") + " " + (last_name or "")).strip() or (username or ""),
-                ref_code
+                ref_code,
+                utm_source,
+                run["referrer_contact_id"],
             )
         await db.execute(
             """INSERT INTO platform_users
@@ -487,17 +501,19 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool
 
     client_id = run["client_id"]
     ctx = await _get_brand_context(client_id, db)
-    channel = ctx.get("subscription_channel", "")
+    # Для Telegram Bot API нужен `@channelname` или числовой chat_id —
+    # ни https-ссылка, ни инвайт-код `+abc...` тут не работают.
+    channel_api = ctx.get("subscription_channel_api", "")
     token = await _bot_token_for_client(client_id, db)
     if not token:
         return "no_token", False
 
-    if not channel:
-        # Канал не настроен — не выдаём, чтобы у клиента был стимул его настроить.
-        # В UI лид-магнитов будет соответствующее предупреждение.
+    if not channel_api:
+        # Канал не настроен или это закрытый канал с инвайт-ссылкой —
+        # getChatMember проверить такой не сможет. В UI будет предупреждение.
         return "channel_not_configured", False
 
-    ok = await _check_subscription(token, channel, str(tg_id))
+    ok = await _check_subscription(token, channel_api, str(tg_id))
     if not ok:
         return "not_subscribed", False
     # подписан → выдаём

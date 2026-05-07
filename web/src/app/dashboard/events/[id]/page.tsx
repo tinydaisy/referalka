@@ -6,10 +6,11 @@ import { api } from '@/lib/api'
 import OverviewTab from './tabs/OverviewTab'
 import PostersTab from './tabs/PostersTab'
 import ReferralProgramTab from './tabs/ReferralProgramTab'
+import CoOrganizersTab from './tabs/CoOrganizersTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'participants'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -44,10 +45,12 @@ export default function EventPage() {
   // «Рассылки» — отдельная страница со своими подвкладками (Шаблоны / Очередь),
   // как в карточке конференции. Здесь это `<Link>`, не таб контента (см. рендер ниже).
   const TABS: { key: TabKey; label: string }[] = [
-    { key: 'overview',     label: 'Основное' },
-    { key: 'posters',      label: 'Афиши' },
-    { key: 'referral',     label: 'Реф-программа' },
-    { key: 'participants', label: 'Участники' },
+    { key: 'overview',      label: 'Основное' },
+    { key: 'posters',       label: 'Афиши' },
+    { key: 'referral',      label: 'Реф-программа' },
+    // «Соорганизаторы» — только для не-конф мероприятий. У конференций есть свой UI спикеров.
+    ...(isConference ? [] : [{ key: 'co_organizers' as TabKey, label: 'Соорганизаторы' }]),
+    { key: 'participants',  label: 'Участники' },
   ]
 
   return (
@@ -103,10 +106,11 @@ export default function EventPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'overview'     && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
-      {activeTab === 'posters'      && <PostersTab eventId={eventId} />}
-      {activeTab === 'referral'     && <ReferralProgramTab eventId={eventId} />}
-      {activeTab === 'participants' && <EventParticipants eventId={eventId} />}
+      {activeTab === 'overview'      && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
+      {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
+      {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} />}
+      {activeTab === 'co_organizers' && <CoOrganizersTab eventId={eventId} />}
+      {activeTab === 'participants'  && <EventParticipants eventId={eventId} />}
     </div>
   )
 }

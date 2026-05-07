@@ -1,7 +1,7 @@
 """
 Глобальная база спикеров — CRUD без привязки к конкретному событию.
 Персональные данные (фото, регалии, контакты) хранятся здесь один раз
-и переиспользуются в любом количестве событий через conf_speaker_events.
+и переиспользуются в любом количестве событий через event_collaborators.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -141,7 +141,7 @@ async def delete_speaker(
         raise HTTPException(status_code=404, detail="Спикер не найден")
     # Проверяем что спикер не участвует ни в каких событиях
     count = await db.fetchval(
-        "SELECT COUNT(*) FROM conf_speaker_events WHERE speaker_id = $1", speaker_id
+        "SELECT COUNT(*) FROM event_collaborators WHERE speaker_id = $1", speaker_id
     )
     if count > 0:
         raise HTTPException(

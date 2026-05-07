@@ -213,7 +213,6 @@ async def landing_package(slug: str, request: Request):
 
 
 async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
-    from app.services.contact_merge import _generate_unique_ref_code
     pool = await get_pool()
     async with pool.acquire() as db:
         resolved = await _resolve_slug(slug, kind, db)
@@ -227,28 +226,17 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
         pid = qp.get('pid') or qp.get('new_partner_id')
         referrer_id = await _resolve_referrer(client_id, pid, db)
 
-        # Сразу создаём «скелет» контакта на этого клиента — без идентификатора
-        # платформы (его узнаем когда человек дойдёт до бота). UTM и реферер
-        # пишем в contact, чтобы они были видны в карточке контакта сразу.
-        # Если человек дойдёт до бота и его tg_id уже есть в platform_users —
-        # funnel_runs.contact_id переключится на существующий контакт, а скелет
-        # станет «orphan» (без идентификаций).
-        ref_code = await _generate_unique_ref_code(db)
-        skeleton_contact_id = await db.fetchval(
-            """INSERT INTO contacts
-                  (client_id, name, ref_code, utm_source, first_referrer_contact_id)
-               VALUES ($1, NULL, $2, $3, $4)
-               RETURNING id""",
-            client_id, ref_code, utm.get("utm_source"), referrer_id
-        )
-
+        # Контакт НЕ создаём — UTM и реферер хранятся прямо в funnel_runs.
+        # Контакт материализуется только когда человек дойдёт до бота
+        # (в funnel_service.run_started), копируя utm/referrer из этого забега.
+        # Превью-боты Telegram/Open Graph и ушедшие посетители скелетов больше не плодят.
         run_id = await db.fetchval(
             """INSERT INTO funnel_runs
                   (client_id, type, lead_magnet_id, package_id,
                    contact_id, referrer_contact_id, utm, stage, landed_at)
-               VALUES ($1, 'lead_magnet', $2, $3, $4, $5, $6::jsonb, 'landed', NOW())
+               VALUES ($1, 'lead_magnet', $2, $3, NULL, $4, $5::jsonb, 'landed', NOW())
                RETURNING id""",
-            client_id, lm_id, pkg_id, skeleton_contact_id, referrer_id, json.dumps(utm)
+            client_id, lm_id, pkg_id, referrer_id, json.dumps(utm)
         )
 
         bot_username = await _client_bot_username(client_id, db)

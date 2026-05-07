@@ -271,7 +271,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             SELECT cs.start_time, cs.end_time, cs.title as session_title,
                    c.name as speaker_name, cse.role
             FROM conf_sessions cs
-            LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+            LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
             LEFT JOIN collaborators c ON c.id = cse.speaker_id
             WHERE cs.event_id=$1 AND cs.day=$2
             ORDER BY cs.sort_order, cs.start_time
@@ -304,7 +304,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 SELECT c.name as speaker_name, c.personal_tg_username,
                        cse.gift_after_speech_title, cse.gift_after_speech_url, cse.role, cse.is_commercial
                 FROM conf_sessions cs
-                JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+                JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cs.event_id=$1 AND cs.day=$2
                   AND cse.exclude_gift_from_broadcast = FALSE
@@ -371,7 +371,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
                        cse.gift_raffle_title,
                        e.landing_url AS registration_url
-                FROM conf_speaker_events cse
+                FROM event_collaborators cse
                 JOIN collaborators c ON c.id = cse.speaker_id
                 JOIN events e ON e.id = cse.event_id
                 WHERE cse.id=$1
@@ -415,7 +415,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        e.stream_url
                 FROM conf_sessions cs
                 LEFT JOIN events e ON e.id = cs.event_id
-                LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+                LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
                 LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
                 WHERE cs.id=$1
@@ -547,7 +547,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 SELECT cs.start_time, cs.end_time, cs.title as session_title,
                        c.name as speaker_name, cse.role
                 FROM conf_sessions cs
-                LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+                LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cs.event_id=$1 AND cs.day=$2
                 ORDER BY cs.sort_order, cs.start_time

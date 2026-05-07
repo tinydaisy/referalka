@@ -103,6 +103,21 @@ export const api = {
       request(`/api/v1/events/${id}/participants/${participantId}`, {
         method: 'DELETE',
       }),
+    // Коллабораторы события (соорганизаторы / спикеры — общая таблица event_collaborators)
+    listCollaborators: (id: number, role?: string) =>
+      request(`/api/v1/events/${id}/collaborators${role ? `?role=${role}` : ''}`),
+    addCollaborator: (id: number, collaboratorId: number, role: string = 'organizer') =>
+      request(`/api/v1/events/${id}/collaborators`, {
+        method: 'POST',
+        body: JSON.stringify({ collaborator_id: collaboratorId, role }),
+      }),
+    removeCollaborator: (id: number, ecId: number) =>
+      request(`/api/v1/events/${id}/collaborators/${ecId}`, { method: 'DELETE' }),
+    sortCollaborator: (id: number, ecId: number, sortOrder: number) =>
+      request(`/api/v1/events/${id}/collaborators/${ecId}/sort`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sort_order: sortOrder }),
+      }),
   },
   collaborators: {
     list: (q?: string) => request(`/api/v1/collaborators/${q ? `?q=${encodeURIComponent(q)}` : ''}`),

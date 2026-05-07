@@ -127,7 +127,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     speakers = await db.fetch(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.tg_channel_url, sp.instagram_url, sp.website_url
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
            ORDER BY cse.sort_order, cse.id""",
@@ -140,7 +140,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         """SELECT s.*, sp.name AS speaker_name, cse.role AS speaker_role,
                   sp.title AS speaker_title, sp.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
-           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_time""",
         event_id
@@ -383,7 +383,7 @@ async def regenerate_landing(
     return {"landing_data": data, "message": "JSON лендинга обновлён"}
 
 
-# ─── Спикеры события (conf_speaker_events) ────────────────────────────────────
+# ─── Спикеры события (event_collaborators) ────────────────────────────────────
 # Личные данные (фото, регалии, контакты) хранятся в таблице speakers (глобально).
 # Здесь — только то, что специфично для конкретного события: роль, тема, подарок.
 
@@ -457,13 +457,13 @@ class SpeakerEventUpdate(BaseModel):
 
 
 def _speaker_row_to_dict(row) -> dict:
-    """Объединяет данные из speakers + conf_speaker_events в один объект."""
+    """Объединяет данные из speakers + event_collaborators в один объект."""
     d = dict(row)
     return d
 
 
 async def _load_topics(cse_ids: list, db) -> dict:
-    """Загружает темы для списка conf_speaker_events.id. Возвращает {cse_id: [{id, topic}, ...]}."""
+    """Загружает темы для списка event_collaborators.id. Возвращает {cse_id: [{id, topic}, ...]}."""
     if not cse_ids:
         return {}
     rows = await db.fetch(
@@ -509,7 +509,7 @@ async def list_event_speakers(
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.personal_tg_username
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
            WHERE cse.event_id = $1
@@ -534,7 +534,7 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
                   sp.name, sp.title, sp.photo_url, sp.tg_channel_url, sp.instagram_url,
                   sp.achievements, sp.personal_tg_username
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
            ORDER BY cse.priority NULLS LAST, cse.sort_order""",
@@ -567,7 +567,7 @@ async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: a
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1 AND cse.event_id = $2""",
         speaker_event_id, event_id
@@ -595,7 +595,7 @@ async def add_speaker_from_base(
         raise HTTPException(status_code=404, detail="Спикер не найден в базе")
     # Проверяем что уже не добавлен
     existing = await db.fetchrow(
-        "SELECT id FROM conf_speaker_events WHERE speaker_id = $1 AND event_id = $2",
+        "SELECT id FROM event_collaborators WHERE speaker_id = $1 AND event_id = $2",
         data.speaker_id, event_id
     )
     if existing:
@@ -611,7 +611,7 @@ async def add_speaker_from_base(
     first_topic = topics_list[0] if topics_list else None
 
     cse = await db.fetchrow(
-        """INSERT INTO conf_speaker_events
+        """INSERT INTO event_collaborators
            (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
             gift_raffle_title, gift_raffle_url,
             poster_url, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
@@ -628,7 +628,7 @@ async def add_speaker_from_base(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url
-           FROM conf_speaker_events cse JOIN collaborators sp ON sp.id = cse.speaker_id
+           FROM event_collaborators cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
         cse["id"]
     )
@@ -670,7 +670,7 @@ async def create_and_add_speaker(
     first_topic = topics_list[0] if topics_list else None
 
     cse = await db.fetchrow(
-        """INSERT INTO conf_speaker_events
+        """INSERT INTO event_collaborators
            (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
             gift_raffle_title, gift_raffle_url,
             poster_url, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
@@ -705,21 +705,21 @@ async def update_speaker_event(
     if updates:
         set_parts = [f"{k} = ${i+3}" for i, k in enumerate(updates.keys())]
         await db.execute(
-            f"UPDATE conf_speaker_events SET {', '.join(set_parts)} WHERE id=$1 AND event_id=$2",
+            f"UPDATE event_collaborators SET {', '.join(set_parts)} WHERE id=$1 AND event_id=$2",
             speaker_event_id, event_id, *updates.values()
         )
     if topics_list is not None:
         await _save_topics(speaker_event_id, topics_list, db)
         first_topic = topics_list[0] if topics_list else None
         await db.execute(
-            "UPDATE conf_speaker_events SET speaker_topic=$1 WHERE id=$2",
+            "UPDATE event_collaborators SET speaker_topic=$1 WHERE id=$2",
             first_topic, speaker_event_id
         )
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
                   sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url
-           FROM conf_speaker_events cse JOIN collaborators sp ON sp.id = cse.speaker_id
+           FROM event_collaborators cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
         speaker_event_id
     )
@@ -765,7 +765,7 @@ async def verify_speaker_channel(
 
     row = await db.fetchrow(
         """SELECT c.tg_channel_id, c.personal_tg_id, c.personal_tg_username, c.name
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators c ON c.id = cse.speaker_id
            WHERE cse.id = $1 AND cse.event_id = $2""",
         speaker_event_id, event_id
@@ -822,7 +822,7 @@ async def verify_speaker_channel(
         )
 
     await db.execute(
-        "UPDATE conf_speaker_events SET bot_in_channel = TRUE WHERE id = $1",
+        "UPDATE event_collaborators SET bot_in_channel = TRUE WHERE id = $1",
         speaker_event_id
     )
     speaker_name = row["name"] or "спикер"
@@ -838,7 +838,7 @@ async def remove_speaker_from_event(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     await db.execute(
-        "DELETE FROM conf_speaker_events WHERE id = $1 AND event_id = $2",
+        "DELETE FROM event_collaborators WHERE id = $1 AND event_id = $2",
         speaker_event_id, event_id
     )
     await regenerate_landing_data(event_id, db)
@@ -959,7 +959,7 @@ async def list_sessions(
                   cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.exclude_gift_from_broadcast
            FROM conf_sessions s
-           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            WHERE s.event_id = $1
            ORDER BY s.day, s.sort_order, s.start_time""",
@@ -979,7 +979,7 @@ async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = 
                   col.photo_url, cse.role as speaker_role,
                   cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
-           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            WHERE s.event_id = $1 AND s.day = $2
            ORDER BY s.sort_order, s.start_time""",
@@ -1094,9 +1094,9 @@ async def generate_schedule(
 
     created = []
     for idx, speaker_event_id in enumerate(data.speaker_ids):
-        # speaker_ids теперь — это conf_speaker_events.id
+        # speaker_ids теперь — это event_collaborators.id
         cse = await db.fetchrow(
-            """SELECT cse.id, sp.name FROM conf_speaker_events cse
+            """SELECT cse.id, sp.name FROM event_collaborators cse
                JOIN collaborators sp ON sp.id = cse.speaker_id
                WHERE cse.id=$1 AND cse.event_id=$2""",
             speaker_event_id, event_id
@@ -1146,7 +1146,7 @@ async def list_broadcasts(
         """SELECT b.*, col.name as speaker_name, s.title as session_title,
                   s.start_time as session_time
            FROM conf_broadcast_messages b
-           LEFT JOIN conf_speaker_events cse ON cse.id = b.speaker_id
+           LEFT JOIN event_collaborators cse ON cse.id = b.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            LEFT JOIN conf_sessions s ON s.id = b.session_id
            WHERE b.event_id = $1
@@ -1291,7 +1291,7 @@ async def generate_broadcasts_from_schedule(
                   spg.name AS speaker_name, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN conf_days d ON d.event_id = s.event_id AND d.day_number = s.day
-           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators spg ON spg.id = cse.speaker_id
            WHERE s.event_id = $1 AND s.start_time IS NOT NULL
            ORDER BY s.day, s.start_time""",
@@ -1414,7 +1414,7 @@ async def list_secret_codes(
     await check_conference_access(event_id, int(client["sub"]), db)
     codes = await db.fetch(
         """SELECT sc.*, col.name as speaker_name FROM conf_secret_codes sc
-           LEFT JOIN conf_speaker_events cse ON cse.id = sc.speaker_id
+           LEFT JOIN event_collaborators cse ON cse.id = sc.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
            WHERE sc.event_id = $1""",
         event_id
@@ -1504,7 +1504,7 @@ class SpeakerSelfUpdate(BaseModel):
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
-    # Данные выступления (таблица conf_speaker_events)
+    # Данные выступления (таблица event_collaborators)
     topics: Optional[List[str]] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
@@ -1520,7 +1520,7 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
     Возвращает полные данные спикера по его персональному ref_code.
     Используется для страницы самопроверки/редактирования спикером.
     """
-    # Резолв: ref_code → contacts → collaborators → conf_speaker_events
+    # Резолв: ref_code → contacts → collaborators → event_collaborators
     row = await db.fetchrow(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
@@ -1533,7 +1533,7 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
            FROM contacts c
            JOIN collaborators sp ON sp.contact_id = c.id
-           JOIN conf_speaker_events cse ON cse.speaker_id = sp.id
+           JOIN event_collaborators cse ON cse.speaker_id = sp.id
            WHERE c.ref_code = $1 AND cse.event_id = $2""",
         ref_code, event_id
     )
@@ -1555,13 +1555,13 @@ async def update_speaker_by_ref_code(
     """
     Публичный endpoint без авторизации.
     Позволяет спикеру самостоятельно обновить свои данные по персональной ссылке.
-    Обновляет и профиль (collaborators), и данные выступления (conf_speaker_events).
+    Обновляет и профиль (collaborators), и данные выступления (event_collaborators).
     """
     cse = await db.fetchrow(
         """SELECT cse.id, cse.speaker_id
            FROM contacts ct
            JOIN collaborators c ON c.contact_id = ct.id
-           JOIN conf_speaker_events cse ON cse.speaker_id = c.id
+           JOIN event_collaborators cse ON cse.speaker_id = c.id
            WHERE ct.ref_code = $1 AND cse.event_id = $2""",
         ref_code, event_id
     )
@@ -1590,7 +1590,7 @@ async def update_speaker_by_ref_code(
             speaker_id, *profile_updates.values()
         )
 
-    # Обновляем данные выступления (conf_speaker_events)
+    # Обновляем данные выступления (event_collaborators)
     event_updates: dict = {}
     if data.gift_after_speech_title is not None:
         event_updates["gift_after_speech_title"] = data.gift_after_speech_title
@@ -1604,7 +1604,7 @@ async def update_speaker_by_ref_code(
     if event_updates:
         set_parts2 = [f"{k} = ${i+2}" for i, k in enumerate(event_updates.keys())]
         await db.execute(
-            f"UPDATE conf_speaker_events SET {', '.join(set_parts2)} WHERE id = $1",
+            f"UPDATE event_collaborators SET {', '.join(set_parts2)} WHERE id = $1",
             speaker_event_id, *event_updates.values()
         )
 
@@ -1615,7 +1615,7 @@ async def update_speaker_by_ref_code(
         if topics:
             first_topic = topics[0]
             await db.execute(
-                "UPDATE conf_speaker_events SET speaker_topic = $1 WHERE id = $2",
+                "UPDATE event_collaborators SET speaker_topic = $1 WHERE id = $2",
                 first_topic, speaker_event_id
             )
             for i, topic in enumerate(topics):
@@ -1650,7 +1650,7 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
            WHERE cse.event_id = $1
@@ -1685,7 +1685,7 @@ async def update_speaker_as_editor(
         raise HTTPException(status_code=403, detail="Неверный код доступа")
 
     cse = await db.fetchrow(
-        "SELECT id, speaker_id FROM conf_speaker_events WHERE id = $1 AND event_id = $2",
+        "SELECT id, speaker_id FROM event_collaborators WHERE id = $1 AND event_id = $2",
         speaker_event_id, event_id
     )
     if not cse:
@@ -1716,7 +1716,7 @@ async def update_speaker_as_editor(
     if event_updates:
         set_parts2 = [f"{k} = ${i+2}" for i, k in enumerate(event_updates.keys())]
         await db.execute(
-            f"UPDATE conf_speaker_events SET {', '.join(set_parts2)} WHERE id = $1",
+            f"UPDATE event_collaborators SET {', '.join(set_parts2)} WHERE id = $1",
             speaker_event_id, *event_updates.values()
         )
 
@@ -1726,7 +1726,7 @@ async def update_speaker_as_editor(
         clean_topics = [t.strip() for t in data.topics if t.strip()]
         if clean_topics:
             await db.execute(
-                "UPDATE conf_speaker_events SET speaker_topic = $1 WHERE id = $2",
+                "UPDATE event_collaborators SET speaker_topic = $1 WHERE id = $2",
                 clean_topics[0], speaker_event_id
             )
             for i, topic in enumerate(clean_topics):
@@ -1745,7 +1745,7 @@ async def update_speaker_as_editor(
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
            WHERE cse.id = $1""",
@@ -1795,7 +1795,7 @@ async def export_salebot(
                   cse.sort_order, cse.is_visible,
                   sp.name, sp.title, sp.achievements,
                   sp.tg_channel_url, sp.tg_channel_id, sp.instagram_url
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
            ORDER BY cse.sort_order, cse.id""",
@@ -1813,7 +1813,7 @@ async def export_salebot(
                   s.end_time   AS end_local,
                   sp.name AS speaker_name, cse.role AS speaker_role
            FROM conf_sessions s
-           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE s.event_id = $1
            ORDER BY s.day, s.sort_order, s.start_time""",
@@ -2108,7 +2108,7 @@ async def send_speaker_to_telegram(
                   sp.name, sp.achievements,
                   sp.photo_url, sp.poster_url,
                   sp.tg_channel_url, sp.instagram_url
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1 AND cse.event_id = $2""",
         speaker_event_id, event_id
@@ -2302,7 +2302,7 @@ async def send_schedule_to_telegram(
         """SELECT s.day, s.start_time, s.end_time, s.title, s.sort_order,
                   sp.name AS speaker_name, cse.role
            FROM conf_sessions s
-           LEFT JOIN conf_speaker_events cse ON cse.id = s.speaker_id
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE s.event_id = $1
            ORDER BY s.day, s.sort_order, s.start_time""",
@@ -2431,7 +2431,7 @@ async def send_raffle_gifts_to_telegram(
     # Подарки для розыгрыша — только те у кого заполнен gift_raffle_title
     gifts = await db.fetch(
         """SELECT cse.gift_raffle_title, cse.role, sp.name
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
              AND cse.gift_raffle_title IS NOT NULL
@@ -2601,7 +2601,7 @@ async def create_report(
                   col.name, col.personal_tg_username AS username,
                   COUNT(ep.id) FILTER (WHERE ep.id IS NOT NULL) AS entered,
                   COUNT(ep.id) FILTER (WHERE ep.is_registered = TRUE) AS registered
-           FROM conf_speaker_events cse
+           FROM event_collaborators cse
            JOIN collaborators col ON col.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = col.contact_id
            LEFT JOIN event_participants ep ON ep.event_id = $1
@@ -2648,7 +2648,7 @@ async def create_report(
         })
 
     # Рефоводы = те кто привёл других И сами являются участниками события
-    # Исключаем спикеров через JOIN: спикер — это коллаб со связкой на contact, и есть запись в conf_speaker_events
+    # Исключаем спикеров через JOIN: спикер — это коллаб со связкой на contact, и есть запись в event_collaborators
     referrals_rows = await db.fetch(
         """SELECT ep2.referrer_ref_code,
                   COUNT(ep2.id) AS entered,
@@ -2664,7 +2664,7 @@ async def create_report(
              AND ep2.referrer_ref_code <> ''
              AND NOT EXISTS (
                  SELECT 1 FROM collaborators c
-                 JOIN conf_speaker_events cse ON cse.speaker_id = c.id
+                 JOIN event_collaborators cse ON cse.speaker_id = c.id
                  WHERE c.contact_id = ct.id AND cse.event_id = $1
              )
              AND EXISTS (
@@ -2719,7 +2719,7 @@ async def create_report(
              AND ep2.referrer_ref_code <> ''
              AND NOT EXISTS (
                  SELECT 1 FROM collaborators c
-                 JOIN conf_speaker_events cse ON cse.speaker_id = c.id
+                 JOIN event_collaborators cse ON cse.speaker_id = c.id
                  WHERE c.contact_id = ct.id AND cse.event_id = $1
              )
              AND NOT EXISTS (

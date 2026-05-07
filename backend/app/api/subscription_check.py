@@ -78,10 +78,10 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
 
     if conf:
-        # Конференция: ищем канал(ы) в conf_speaker_events этого события.
+        # Конференция: ищем канал(ы) в event_collaborators этого события.
         rows = await db.fetch(
             f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
-               FROM conf_speaker_events cse
+               FROM event_collaborators cse
                JOIN collaborators sp ON sp.id = cse.speaker_id
                WHERE cse.event_id = $1
                  AND cse.bot_in_channel = TRUE
@@ -93,12 +93,12 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
         )
     else:
         # Мероприятие: своих спикеров нет. Ищем «канал организатора» клиента —
-        # через conf_speaker_events ЛЮБОЙ конференции этого клиента, где
+        # через event_collaborators ЛЮБОЙ конференции этого клиента, где
         # role='organizer'. Канал организатора у клиента общий — задаётся
         # один раз в карточке его конференции.
         rows = await db.fetch(
             """SELECT DISTINCT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
-               FROM conf_speaker_events cse
+               FROM event_collaborators cse
                JOIN collaborators sp ON sp.id = cse.speaker_id
                JOIN events e ON e.id = cse.event_id
                WHERE e.client_id = $1

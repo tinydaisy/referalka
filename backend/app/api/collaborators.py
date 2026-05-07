@@ -235,7 +235,7 @@ async def delete_collaborator(
     if not row:
         raise HTTPException(status_code=404, detail="Коллаборация не найдена")
     count = await db.fetchval(
-        "SELECT COUNT(*) FROM conf_speaker_events WHERE speaker_id = $1", collaborator_id
+        "SELECT COUNT(*) FROM event_collaborators WHERE speaker_id = $1", collaborator_id
     )
     if count > 0:
         raise HTTPException(

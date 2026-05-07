@@ -70,6 +70,10 @@ export const getSessions = (eventId: number, day: number) =>
 export const getCommercial = (eventId: number) =>
   req(`/api/v1/events/${eventId}/conference/commercial`)
 
+// Коллабораторы события (для не-конференций — соорганизаторы с role='organizer')
+export const getEventCollaborators = (eventId: number, role?: string) =>
+  req(`/api/v1/public/events/${eventId}/collaborators${role ? `?role=${role}` : ''}`)
+
 export const verifyCode = (eventId: number, code: string, participantId: number) =>
   req(`/api/v1/events/${eventId}/conference/codes/verify`, {
     method: 'POST',

@@ -284,7 +284,7 @@ async def get_my_raffle(slug: str, tg_id: int):
                 t.id                        AS ticket_id
               FROM event_raffle_winners w
               JOIN event_raffle_tickets t ON t.id = w.ticket_id
-              JOIN conf_speaker_events cse ON cse.id = w.speaker_event_id
+              JOIN event_collaborators cse ON cse.id = w.speaker_event_id
               JOIN collaborators col ON col.id = cse.speaker_id
              WHERE t.event_id = $1 AND t.contact_id = $2
              ORDER BY w.won_at

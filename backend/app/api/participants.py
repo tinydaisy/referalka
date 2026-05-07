@@ -552,11 +552,11 @@ async def get_participant_in_event(
     # Топ-рейтинг события: кто сколько привёл зарегавшихся.
     # Считаем по всем участникам, у которых referrer_participant_id указывает
     # на ДРУГОГО участника (не спикера) этого события. Спикеры исключаются:
-    # их contact_id есть в collaborators ⇄ conf_speaker_events.
+    # их contact_id есть в collaborators ⇄ event_collaborators.
     leaderboard = await db.fetch(
         """WITH speaker_contacts AS (
               SELECT col.contact_id
-                FROM conf_speaker_events cse
+                FROM event_collaborators cse
                 JOIN collaborators col ON col.id = cse.speaker_id
                WHERE cse.event_id = $1 AND col.contact_id IS NOT NULL
            ),

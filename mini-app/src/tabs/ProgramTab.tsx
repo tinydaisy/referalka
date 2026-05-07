@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { getSessions, getSpeakers, getDays, checkConferenceSubscription } from '../api'
+import { getSessions, getSpeakers, getDays, checkConferenceSubscription, getEventCollaborators } from '../api'
 
 interface Session {
   id: number
@@ -174,6 +174,8 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
   const [days, setDays] = useState<Day[]>([])
   const [sessionsByDay, setSessionsByDay] = useState<Record<number, Session[]>>({})
   const [speakers, setSpeakers] = useState<Speaker[]>([])
+  // Соорганизаторы — только для не-конф мероприятий (role='organizer' в event_collaborators)
+  const [coOrganizers, setCoOrganizers] = useState<Speaker[]>([])
   const [openDay, setOpenDay] = useState<number | null>(null)
   const [loadingDay, setLoadingDay] = useState<number | null>(null)
   const [highlightSpeakerId, setHighlightSpeakerId] = useState<number | null>(null)
@@ -260,6 +262,27 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
       setChatGate({ loading: false, notSubscribed: chatGate.notSubscribed, error: e?.message || 'Не удалось проверить' })
     }
   }
+
+  // Соорганизаторы для не-конф мероприятий
+  useEffect(() => {
+    if (!event?.id || isConference) { setCoOrganizers([]); return }
+    getEventCollaborators(event.id, 'organizer')
+      .then((r: any) => {
+        const items = (r.items || []).map((c: any) => ({
+          id: c.id,
+          speaker_id: c.collaborator_id,
+          name: c.name,
+          title: c.title,
+          photo_url: c.photo_url,
+          achievements: c.achievements,
+          tg_channel_url: c.tg_channel_url,
+          instagram_url: c.instagram_url,
+          personal_tg_username: c.personal_tg_username,
+        }))
+        setCoOrganizers(items)
+      })
+      .catch(() => setCoOrganizers([]))
+  }, [event?.id, isConference, refreshKey])
 
   // Загрузка дней + спикеров. refreshKey в зависимостях — чтобы при возврате
   // на вкладку программы данные подтягивались заново (клиент мог поправить
@@ -713,6 +736,66 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
             </p>
           )}
         </div>
+      )}
+
+      {/* Соорганизаторы — для не-конф мероприятий, внизу программы */}
+      {!isConference && coOrganizers.length > 0 && (
+        <>
+          <div style={{
+            background: 'linear-gradient(45deg, #25455D, #0a1520)',
+            color: PEACH,
+            padding: '14px 16px',
+            borderRadius: 12,
+            fontSize: 14,
+            fontWeight: 900,
+            textTransform: 'uppercase',
+            letterSpacing: 2,
+            textAlign: 'center',
+            margin: '24px 0 12px',
+            borderTop: `2px solid ${PEACH}`,
+            borderBottom: `2px solid ${PEACH}`,
+            boxShadow: '0 4px 12px rgba(37,69,93,0.15)',
+          }}>
+            Ведут мероприятие
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+            {coOrganizers.map(c => (
+              <div key={c.id} className="card" style={{
+                padding: 14,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+              }}>
+                {c.photo_url ? (
+                  <img src={c.photo_url} alt=""
+                    style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                ) : (
+                  <div style={{
+                    width: 56, height: 56, borderRadius: '50%',
+                    background: 'rgba(37,69,93,0.08)', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: DARK, fontWeight: 700, fontSize: 14,
+                  }}>{c.name.slice(0, 2).toUpperCase()}</div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: DARK, lineHeight: 1.2 }}>
+                    {c.name}
+                  </div>
+                  {c.title && (
+                    <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3 }}>
+                      {c.title}
+                    </div>
+                  )}
+                  {c.achievements && c.achievements.length > 0 && (
+                    <div style={{ fontSize: 11, color: '#8a99a8', marginTop: 4, lineHeight: 1.3 }}>
+                      {c.achievements.slice(0, 2).join(' · ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Карточки спикеров — расширенная информация (как в шаблоне рассылки speaker_intro) */}

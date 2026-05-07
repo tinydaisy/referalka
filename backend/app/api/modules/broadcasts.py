@@ -578,9 +578,9 @@ async def list_schedules(
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type != 'speaker_intro'
-        LEFT JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+        LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
         LEFT JOIN collaborators c ON c.id = cse.speaker_id
-        LEFT JOIN conf_speaker_events cse_intro ON cse_intro.id = bs.session_id AND bs.type = 'speaker_intro'
+        LEFT JOIN event_collaborators cse_intro ON cse_intro.id = bs.session_id AND bs.type = 'speaker_intro'
         LEFT JOIN collaborators ci ON ci.id = cse_intro.speaker_id
         WHERE bs.event_id = $1
         ORDER BY bs.fire_at NULLS LAST
@@ -813,7 +813,7 @@ async def generate_schedules(
         days_before = tmpl["intro_days_before"] or 1
 
         speakers_list = await db.fetch(
-            """SELECT id FROM conf_speaker_events
+            """SELECT id FROM event_collaborators
                WHERE event_id=$1 AND is_visible=true
                ORDER BY priority, sort_order, id""",
             event_id
@@ -1660,7 +1660,7 @@ async def test_template(
             """
             SELECT cs.id as session_id, c.name as speaker_name
             FROM conf_sessions cs
-            JOIN conf_speaker_events cse ON cse.id = cs.speaker_id
+            JOIN event_collaborators cse ON cse.id = cs.speaker_id
             JOIN collaborators c ON c.id = cse.speaker_id
             WHERE cs.event_id=$1 AND cs.day=$2 AND cs.speaker_id IS NOT NULL
             ORDER BY cs.sort_order
