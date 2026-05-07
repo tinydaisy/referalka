@@ -50,7 +50,7 @@ async def _check_event_belongs(event_id: int, client_id: int, db: asyncpg.Connec
 
 async def _check_collaborator_belongs(collaborator_id: int, client_id: int, db: asyncpg.Connection):
     row = await db.fetchrow(
-        "SELECT id FROM collaborators WHERE id = $1 AND client_id = $2",
+        "SELECT id FROM collaborators WHERE id = $1 AND created_by_client_id = $2",
         collaborator_id, client_id
     )
     if not row:
