@@ -82,6 +82,7 @@ export default function RegisteredReturnPage() {
       // /c/{client_id}/tg/event/{slug} (бот клиента), иначе /tg/event/{slug}
       // (общий @pluson_bot).
       let redirectPath = `/tg/event/${encodeURIComponent(slug)}?_reg=1`
+      let botHandle = ''
       try {
         const ctrl = new AbortController()
         const tmo = setTimeout(() => ctrl.abort(), 5000)
@@ -106,24 +107,30 @@ export default function RegisteredReturnPage() {
           try {
             const j = await resp.json()
             if (j?.redirect_path) {
-              // Дописываем _reg=1 чтобы Mini App показала welcome-экран.
               const sep = j.redirect_path.includes('?') ? '&' : '?'
               redirectPath = `${j.redirect_path}${sep}_reg=1`
             }
+            if (j?.bot_handle) botHandle = String(j.bot_handle)
           } catch (_) { /* ignore parse error */ }
         } else {
-          // 4xx/5xx — не блокируем пользователя, просто редиректим в Mini App,
-          // она сама дозарегистрирует через event_start (как было до этой страницы).
           console.warn('register non-2xx, navigating anyway:', resp.status)
         }
       } catch (e: any) {
-        // Сеть/таймаут — всё равно редиректим, Mini App дозарегистрирует.
         console.warn('register failed, navigating anyway:', e)
       }
 
       setStatus('ok')
-      // Навигация в том же webview → Mini App увидит slug и откроет «Интро»
-      // (welcomed_at IS NULL после свежей регистрации).
+      // Перебрасываем пользователя в приватный чат с ботом события (бот
+      // VIP-клиента или общий @pluson_bot). Бот отслеживает свежую
+      // регистрацию и шлёт приветствие — пользователь видит его в чате.
+      // Mini App при следующем открытии (через menu button бота) попадёт
+      // на welcome-экран — welcomed_at IS NULL после свежей регистрации.
+      if (botHandle && tg.openTelegramLink) {
+        try { tg.openTelegramLink(`https://t.me/${botHandle}`); return } catch (_) { /* fallthrough */ }
+      }
+      if (tg.close) {
+        try { tg.close(); return } catch (_) { /* fallthrough */ }
+      }
       window.location.replace(redirectPath)
     }, 100)
     return () => clearInterval(timer)

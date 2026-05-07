@@ -271,10 +271,14 @@ async def send_event_open_message(
 
             bot_token = await get_client_telegram_token(client_id, conn)
             bot_handle = await conn.fetchval(
-                """SELECT REGEXP_REPLACE(handle, '^@', '')
-                     FROM channels
-                    WHERE client_id=$1 AND platform_slug='telegram'
-                      AND is_active=true AND bot_token IS NOT NULL
+                """SELECT REGEXP_REPLACE(ch.handle, '^@', '')
+                     FROM channels ch
+                     JOIN client_channels cc ON cc.channel_id = ch.id
+                    WHERE cc.client_id = $1
+                      AND ch.platform_slug = 'telegram'
+                      AND cc.is_active = TRUE
+                      AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+                    ORDER BY ch.is_system ASC, ch.id ASC
                     LIMIT 1""",
                 client_id,
             )

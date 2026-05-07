@@ -8,12 +8,13 @@ interface Props {
   event: any                  // данные события (для названия и chat_url)
   participantId: number       // event_participant.id для отметки welcomed_at
   raffleEnabled: boolean      // показывать ли плитку «Розыгрыш»
+  referralEnabled: boolean    // показывать ли плитку «Игра» (партнёрская программа)
   onContinue: () => void      // переход на «Программу»
 }
 
 const TILE_BG = 'linear-gradient(45deg, rgba(37,69,93,0.04), rgba(255,207,164,0.10))'
 
-export default function WelcomePage({ event, participantId, raffleEnabled, onContinue }: Props) {
+export default function WelcomePage({ event, participantId, raffleEnabled, referralEnabled, onContinue }: Props) {
   const chatUrl: string | null = event?.chat_url || null
   const eventTitle = event?.title || 'события'
 
@@ -88,11 +89,13 @@ export default function WelcomePage({ event, participantId, raffleEnabled, onCon
             title="Программа"
             text="Расписание по дням и кнопка входа в эфир, когда событие идёт."
           />
-          <Tile
-            icon="🎯"
-            title="Игра"
-            text="Приглашайте друзей по своей партнёрской ссылке и забирайте подарки за приведённых."
-          />
+          {referralEnabled && (
+            <Tile
+              icon="🎯"
+              title="Игра"
+              text="Приглашайте друзей по своей партнёрской ссылке и забирайте подарки за приведённых."
+            />
+          )}
           {raffleEnabled && (
             <Tile
               icon="🎟"
