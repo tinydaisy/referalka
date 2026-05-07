@@ -633,14 +633,14 @@ function FilterPanel({ initial, onApply, onClose }: {
 
   useEffect(() => {
     api.contacts.filterOptions()
-      .then(loaded => {
+      .then((loaded: FilterOptions) => {
         setOpts(loaded)
         // По умолчанию (если фильтр каналов ещё не трогали) — отметить ВСЕ каналы.
         // Так пользователь сразу видит «активный полный фильтр» и понимает что снимая галки —
         // он сужает выборку, а сняв все — получит ноль (или только orphan'ов если выбран чекбокс).
         setDraft(d => {
           if (d.channelsTouched) return d
-          return { ...d, channelIds: loaded.channels.map(c => c.id) }
+          return { ...d, channelIds: loaded.channels.map((c: FilterOptions['channels'][number]) => c.id) }
         })
       })
       .catch(() => setOpts({ platforms: [], channels: [], utm_sources: [], tags: [] }))
