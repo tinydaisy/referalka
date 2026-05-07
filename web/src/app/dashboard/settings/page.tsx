@@ -786,10 +786,20 @@ function SubscriptionTab() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <h3 className="font-semibold text-gray-800 mb-4">Что входит в тариф</h3>
         <div className="space-y-2 text-sm">
+          <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1">База — всегда включено</div>
           <div className="flex items-center gap-2 text-gray-700">
             <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-            Контакты, мероприятия, рассылки (база)
+            Контакты
           </div>
+          <div className="flex items-center gap-2 text-gray-700">
+            <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+            Мероприятия
+          </div>
+          <div className="flex items-center gap-2 text-gray-700">
+            <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+            Рассылки
+          </div>
+          <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1 mt-3">Опции тарифа</div>
           {Object.entries(FEATURE_LABELS).map(([slug, label]) => {
             const enabled = features.includes(slug)
             return (
