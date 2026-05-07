@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Copy, Check, Globe, Save } from 'lucide-react'
 import { api } from '@/lib/api'
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://plusson.app'
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
 
 interface LinkRow {
   key: string

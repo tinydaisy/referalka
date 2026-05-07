@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Copy, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://plusson.app'
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
 
 export default function AdminPartnersPage() {
   const [partners, setPartners] = useState<any[]>([])

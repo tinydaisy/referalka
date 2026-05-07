@@ -15,8 +15,8 @@
  *   <Script src="/redirect_web_app/redirect_web_app.js" />
  *
  * Формат ссылки для открытия в Telegram:
- *   https://plusson.app/l/ivision-7?app=tg
- *   https://plusson.app/l/ivision-7?app=tg&pid=abc123&utm_source=insta
+ *   https://pluson.ru/l/ivision-7?app=tg
+ *   https://pluson.ru/l/ivision-7?app=tg&pid=abc123&utm_source=insta
  *   (старое имя `new_partner_id` тоже понимаем — для обратной совместимости)
  *
  * Формат startapp (передаётся в Telegram):

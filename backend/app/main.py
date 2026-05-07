@@ -58,7 +58,7 @@ app.include_router(broadcasts.router,   prefix="/api/v1")
 app.include_router(broadcasts_general.router, prefix="/api/v1")
 app.include_router(collaborators.router)
 app.include_router(event.router,        prefix="/api/v1")  # POST /api/v1/event
-app.include_router(referral.router)     # /r/{ref_code} и /api/v1/referral/conversion
+app.include_router(referral.router)     # /api/v1/referral/conversion
 app.include_router(integrations.router, prefix="/api/v1")
 app.include_router(subscription_check.router)  # /api/v1/public/...
 app.include_router(contacts.router,     prefix="/api/v1")
