@@ -48,7 +48,9 @@ DEFAULT_TEXT_1 = (
     "{materials_list}\n\n"
     "{client_brand_name}\n"
     "{client_owner_achievements}\n\n"
-    "Чтобы получить материалы — подпишись на канал {subscription_channel} и жми «ГОТОВО»."
+    "Чтобы получить материалы — подпишись на канал\n"
+    "{subscription_channel}\n"
+    "и жми «ГОТОВО»."
 )
 
 DEFAULT_BUTTON_LABEL = "ГОТОВО"
@@ -65,7 +67,9 @@ DEFAULT_TEXT_3_DELIVERED = (
 
 DEFAULT_TEXT_3_STUCK = (
     "Заметил, что вы остановились на шаге подписки на канал.\n\n"
-    "Подпишитесь на {subscription_channel} и нажмите «ГОТОВО» — я отправлю материалы."
+    "Подпишитесь на\n"
+    "{subscription_channel}\n"
+    "и нажмите «ГОТОВО» — я отправлю материалы."
 )
 
 
