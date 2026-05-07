@@ -396,9 +396,11 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    c.brand_logo_url AS client_brand_logo,
                    (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                       FROM channels ch
-                     WHERE ch.client_id = e.client_id
+                      JOIN client_channels cc ON cc.channel_id = ch.id
+                     WHERE cc.client_id = e.client_id
                        AND ch.platform_slug = 'telegram'
-                       AND ch.is_active = TRUE
+                       AND cc.is_active = TRUE
+                       AND ch.is_system = FALSE
                        AND ch.bot_token IS NOT NULL
                      LIMIT 1) AS client_bot_handle,
                    COALESCE((SELECT is_enabled FROM event_referral_settings

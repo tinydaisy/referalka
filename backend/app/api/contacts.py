@@ -119,8 +119,9 @@ async def get_contacts(
             EXISTS (
               SELECT 1 FROM platform_users pu
               JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+              JOIN client_channels cc ON cc.id = puc.client_channel_id
                WHERE pu.contact_id = c.id
-                 AND puc.channel_id = ANY(${idx}::int[])
+                 AND cc.channel_id = ANY(${idx}::int[])
                  AND puc.is_unsubscribed = FALSE
             )
             OR {no_subs_clause}
@@ -133,8 +134,9 @@ async def get_contacts(
           AND EXISTS (
             SELECT 1 FROM platform_users pu
             JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+            JOIN client_channels cc ON cc.id = puc.client_channel_id
              WHERE pu.contact_id = c.id
-               AND puc.channel_id = ANY(${idx}::int[])
+               AND cc.channel_id = ANY(${idx}::int[])
                AND puc.is_unsubscribed = FALSE
           )
         """
@@ -174,17 +176,18 @@ async def get_contacts(
     # Считаем что контакт «отписался», если у него все подписки отписаны
     # (есть хотя бы одна с unsub=TRUE и нет ни одной с unsub=FALSE).
     # Если подписок нет вообще — считаем подписанным (по умолчанию).
+    # Архитектура G: ходим через client_channels вместо channels.client_id.
     UNSUB_EXISTS = """(EXISTS (
         SELECT 1 FROM platform_users pu
         JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
-        JOIN channels ch ON ch.id = puc.channel_id
-        WHERE pu.contact_id = c.id AND ch.client_id = c.client_id
+        JOIN client_channels cc ON cc.id = puc.client_channel_id
+        WHERE pu.contact_id = c.id AND cc.client_id = c.client_id
           AND puc.is_unsubscribed = TRUE
     ) AND NOT EXISTS (
         SELECT 1 FROM platform_users pu
         JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
-        JOIN channels ch ON ch.id = puc.channel_id
-        WHERE pu.contact_id = c.id AND ch.client_id = c.client_id
+        JOIN client_channels cc ON cc.id = puc.client_channel_id
+        WHERE pu.contact_id = c.id AND cc.client_id = c.client_id
           AND puc.is_unsubscribed = FALSE
     ))"""
 
@@ -290,11 +293,13 @@ async def get_filter_options(
          ORDER BY p.sort_order, p.slug
     """, client_id)
 
+    # Архитектура G: каналы клиента через client_channels (его свои + системные).
     channels = await db.fetch("""
-        SELECT ch.id, ch.platform_slug, ch.display_name, ch.handle, ch.is_active
+        SELECT ch.id, ch.platform_slug, ch.display_name, ch.handle, cc.is_active, ch.is_system
           FROM channels ch
-         WHERE ch.client_id = $1
-         ORDER BY ch.platform_slug, ch.is_active DESC, ch.id
+          JOIN client_channels cc ON cc.channel_id = ch.id
+         WHERE cc.client_id = $1
+         ORDER BY ch.platform_slug, cc.is_active DESC, ch.id
     """, client_id)
 
     utm_rows = await db.fetch("""
@@ -375,7 +380,8 @@ async def get_contact(
               'unsubscribed_at', puc.unsubscribed_at
             ) ORDER BY ch.id)
             FROM platform_user_channels puc
-            JOIN channels ch ON ch.id = puc.channel_id
+            JOIN client_channels cc ON cc.id = puc.client_channel_id
+            JOIN channels ch ON ch.id = cc.channel_id
            WHERE puc.platform_user_id = pu.id) AS subscriptions
         FROM platform_users pu
         JOIN platforms p ON p.slug = pu.platform_slug
