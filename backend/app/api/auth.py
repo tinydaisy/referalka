@@ -49,13 +49,34 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
 
     pw_hash = hash_password(data.password)
 
+    # Получаем тариф 'trial' и его длительность по умолчанию
+    trial_tariff = await db.fetchrow(
+        "SELECT id, default_duration_days FROM tariffs WHERE slug = 'trial'"
+    )
+    if not trial_tariff:
+        raise HTTPException(status_code=500, detail="Тариф 'trial' не настроен в системе")
+    trial_days = trial_tariff["default_duration_days"] or 60
+
     client = await db.fetchrow(
         """
         INSERT INTO clients (name, email, phone, telegram_username, password_hash, tariff_slug, trial_ends_at, partner_code, integration_token)
-        VALUES ($1, $2, $3, $4, $5, 'beta', NOW() + INTERVAL '12 months', $6, $7)
+        VALUES ($1, $2, $3, $4, $5, 'trial', NOW() + ($6 || ' days')::interval, $7, $8)
         RETURNING id, name, email, tariff_slug, trial_ends_at
         """,
-        data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token()
+        data.name, data.email, data.phone, data.telegram_username, pw_hash, str(trial_days), data.partner_code, _new_integration_token()
+    )
+
+    # Создаём активную подписку (миграция 069). Без неё middleware будет блокировать все write.
+    sub_id = await db.fetchval(
+        """INSERT INTO client_subscriptions
+             (client_id, tariff_id, started_at, expires_at, status, source)
+           VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval, 'active', 'trial')
+           RETURNING id""",
+        client["id"], trial_tariff["id"], str(trial_days)
+    )
+    await db.execute(
+        "UPDATE clients SET current_subscription_id = $1 WHERE id = $2",
+        sub_id, client["id"]
     )
 
     # Подключаем базовый модуль
