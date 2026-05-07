@@ -1,17 +1,37 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Search, Filter } from 'lucide-react'
+import { Search, Users, BellOff, Calendar, Crown, UserCheck } from 'lucide-react'
 import { api } from '@/lib/api'
 
+interface Client {
+  id: number
+  name: string
+  email: string
+  phone: string | null
+  telegram_username: string | null
+  tariff_slug: string
+  tariff_name: string | null
+  allow_custom_bot: boolean
+  trial_ends_at: string | null
+  is_active: boolean
+  created_at: string
+  events_count: number
+  contacts_count: number
+  own_channels_count: number
+  subscribers_count: number
+  unsubscribed_count: number
+  collaborators_count: number
+}
+
 export default function AdminClientsPage() {
-  const [clients, setClients] = useState<any[]>([])
+  const [clients, setClients] = useState<Client[]>([])
   const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
 
   useEffect(() => {
     const q = search ? `search=${encodeURIComponent(search)}` : ''
-    api.admin.clients(q).then(r => { setClients(r.clients || []); setTotal(r.total || 0) }).catch(() => {})
+    api.admin.clients(q).then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) }).catch(() => {})
   }, [search])
 
   return (
@@ -39,36 +59,74 @@ export default function AdminClientsPage() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                {['Клиент', 'Email', 'Телефон', 'Telegram', 'Тариф', 'Событий', 'Дата'].map(h => (
-                  <th key={h} className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                {['Клиент', 'Тариф', 'Событий', 'Контактов', 'Подписчиков', 'Своих ботов', 'Коллаб.', 'Зарег.'].map(h => (
+                  <th key={h} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {clients.length > 0 ? clients.map(c => (
                 <tr key={c.id} className="hover:bg-gray-50">
-                  <td className="px-5 py-4">
+                  <td className="px-3 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-full gradient-bg flex items-center justify-center text-white text-sm font-bold shrink-0">
                         {c.name[0]}
                       </div>
-                      <span className="font-medium text-gray-900 text-sm">{c.name}</span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900 text-sm truncate">{c.name}</span>
+                          {!c.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">не активен</span>}
+                        </div>
+                        <div className="text-xs text-gray-400 truncate">{c.email}</div>
+                        {(c.phone || c.telegram_username) && (
+                          <div className="text-xs text-gray-400 truncate">
+                            {c.phone && <span>{c.phone}</span>}
+                            {c.phone && c.telegram_username && <span> · </span>}
+                            {c.telegram_username && <span>@{c.telegram_username}</span>}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{c.email}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{c.phone || '—'}</td>
-                  <td className="px-5 py-4 text-sm text-gray-600">{c.telegram_username ? `@${c.telegram_username}` : '—'}</td>
-                  <td className="px-5 py-4">
-                    <span className="px-2.5 py-1 bg-green-50 text-green-700 text-xs rounded-full font-medium">{c.tariff_slug}</span>
+                  <td className="px-3 py-4">
+                    <div className="flex items-center gap-1.5">
+                      {c.allow_custom_bot && <Crown size={12} className="text-amber-500" />}
+                      <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
+                        c.allow_custom_bot ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {c.tariff_name || c.tariff_slug}
+                      </span>
+                    </div>
+                    {c.trial_ends_at && (
+                      <div className="text-[10px] text-gray-400 mt-1">
+                        пробный до {new Date(c.trial_ends_at).toLocaleDateString('ru')}
+                      </div>
+                    )}
                   </td>
-                  <td className="px-5 py-4 text-sm text-gray-600 text-center">{c.events_count || 0}</td>
-                  <td className="px-5 py-4 text-sm text-gray-400">
+                  <td className="px-3 py-4 text-sm text-gray-700 text-center">{c.events_count}</td>
+                  <td className="px-3 py-4 text-sm text-gray-700 text-center">{c.contacts_count}</td>
+                  <td className="px-3 py-4 text-sm">
+                    <div className="flex items-center gap-1 text-green-600 justify-center" title="Подписаны">
+                      <Users size={12} /><span>{c.subscribers_count}</span>
+                    </div>
+                    {c.unsubscribed_count > 0 && (
+                      <div className="flex items-center gap-1 text-red-400 text-xs justify-center mt-0.5" title="Отписались">
+                        <BellOff size={10} /><span>{c.unsubscribed_count}</span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-4 text-sm text-gray-700 text-center" title="Свои не-системные каналы">
+                    {c.own_channels_count}
+                  </td>
+                  <td className="px-3 py-4 text-sm text-gray-700 text-center">{c.collaborators_count}</td>
+                  <td className="px-3 py-4 text-xs text-gray-400 whitespace-nowrap">
+                    <Calendar size={11} className="inline mr-1" />
                     {new Date(c.created_at).toLocaleDateString('ru')}
                   </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center text-sm text-gray-400">
+                  <td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-400">
                     {search ? 'Ничего не найдено' : 'Клиентов пока нет'}
                   </td>
                 </tr>
@@ -77,6 +135,10 @@ export default function AdminClientsPage() {
           </table>
         </div>
       </div>
+
+      <p className="text-xs text-gray-400 mt-4">
+        💡 Колонки «дата продления», «выручка» и история тарифов появятся когда подключим тарифную архитектуру (отдельная задача).
+      </p>
     </div>
   )
 }

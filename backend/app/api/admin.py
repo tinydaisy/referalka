@@ -53,15 +53,33 @@ async def list_clients(
     where = " AND ".join(conditions)
     params.extend([limit, offset])
 
+    # Расширенные колонки: тариф, флаг allow_custom_bot, число событий,
+    # число своих не-системных каналов, число подписчиков (через client_channels),
+    # число отписавшихся, число коллабораторов.
     clients = await db.fetch(
         f"""
-        SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
-               c.tariff_slug, c.trial_ends_at, c.is_active, c.created_at,
-               COUNT(DISTINCT e.id) as events_count
+        SELECT
+          c.id, c.name, c.email, c.phone, c.telegram_username,
+          c.tariff_slug, c.trial_ends_at, c.is_active, c.created_at,
+          t.name AS tariff_name,
+          COALESCE(t.allow_custom_bot, FALSE) AS allow_custom_bot,
+          (SELECT COUNT(*) FROM events e WHERE e.client_id = c.id) AS events_count,
+          (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id AND ct.is_active = TRUE) AS contacts_count,
+          (SELECT COUNT(*) FROM client_channels cc
+            JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = c.id AND ch.is_system = FALSE) AS own_channels_count,
+          (SELECT COUNT(*) FROM platform_user_channels puc
+             JOIN client_channels cc ON cc.id = puc.client_channel_id
+            WHERE cc.client_id = c.id AND puc.is_unsubscribed = FALSE) AS subscribers_count,
+          (SELECT COUNT(*) FROM platform_user_channels puc
+             JOIN client_channels cc ON cc.id = puc.client_channel_id
+            WHERE cc.client_id = c.id AND puc.is_unsubscribed = TRUE) AS unsubscribed_count,
+          (SELECT COUNT(*) FROM collaborators co
+            JOIN contacts ct ON ct.id = co.contact_id
+            WHERE ct.client_id = c.id) AS collaborators_count
         FROM clients c
-        LEFT JOIN events e ON e.client_id = c.id
+        LEFT JOIN tariffs t ON t.slug = c.tariff_slug
         WHERE {where}
-        GROUP BY c.id
         ORDER BY c.created_at DESC
         LIMIT ${len(params)-1} OFFSET ${len(params)}
         """,

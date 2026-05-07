@@ -641,7 +641,34 @@ async def event_participants(
                   (SELECT rpu.username FROM platform_users rpu
                      JOIN contacts rc ON rc.id = rpu.contact_id
                     WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1) AS referrer_username,
-                  COUNT(re.id) FILTER (WHERE re.type IN ('free','paid')) as referral_count
+                  COUNT(re.id) FILTER (WHERE re.type IN ('free','paid')) as referral_count,
+                  -- Архитектура G: подписан хотя бы на один TG-канал клиента (через client_channels)
+                  EXISTS (
+                    SELECT 1 FROM platform_user_channels puc
+                      JOIN platform_users pu ON pu.id = puc.platform_user_id
+                      JOIN client_channels cc ON cc.id = puc.client_channel_id
+                      JOIN channels ch ON ch.id = cc.channel_id
+                     WHERE pu.contact_id = c.id
+                       AND cc.client_id = c.client_id
+                       AND ch.platform_slug = 'telegram'
+                       AND puc.is_unsubscribed = FALSE
+                  ) AS is_subscribed,
+                  -- Отписался: есть записи на каналы клиента, но все unsubscribed=TRUE
+                  (
+                    EXISTS (
+                      SELECT 1 FROM platform_user_channels puc
+                        JOIN platform_users pu ON pu.id = puc.platform_user_id
+                        JOIN client_channels cc ON cc.id = puc.client_channel_id
+                       WHERE pu.contact_id = c.id AND cc.client_id = c.client_id
+                         AND puc.is_unsubscribed = TRUE
+                    ) AND NOT EXISTS (
+                      SELECT 1 FROM platform_user_channels puc
+                        JOIN platform_users pu ON pu.id = puc.platform_user_id
+                        JOIN client_channels cc ON cc.id = puc.client_channel_id
+                       WHERE pu.contact_id = c.id AND cc.client_id = c.client_id
+                         AND puc.is_unsubscribed = FALSE
+                    )
+                  ) AS is_unsubscribed
            FROM event_participants ep
            JOIN contacts c ON c.id = ep.contact_id
            LEFT JOIN referral_events re ON re.ref_code = c.ref_code AND re.event_id = ep.event_id

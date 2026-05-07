@@ -14,6 +14,8 @@ interface Participant {
   referrer_username: string | null
   is_registered: boolean
   is_in_chat: boolean
+  is_subscribed?: boolean
+  is_unsubscribed?: boolean
   registered_at: string | null
   contact_name: string | null
   first_name: string | null
@@ -142,6 +144,32 @@ function ContactCard({
           </button>
         </div>
 
+        {/* Колонка «Подписан / Отписан» — read-only */}
+        <div className="w-24 flex justify-center shrink-0">
+          {p.is_unsubscribed ? (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-red-50 text-red-600 border border-red-200"
+              title="Отписался от всех TG-каналов клиента"
+            >
+              ✕ Отписан
+            </span>
+          ) : p.is_subscribed ? (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-green-50 text-green-700 border border-green-200"
+              title="Подписан хотя бы на один TG-канал клиента"
+            >
+              ✓ Подписан
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-gray-50 text-gray-400 border border-gray-200"
+              title="Нет записи о подписке (либо контакт не из TG)"
+            >
+              —
+            </span>
+          )}
+        </div>
+
         {/* Кнопка удаления */}
         <div className="w-8 flex justify-center shrink-0">
           <button
@@ -197,6 +225,7 @@ function ListHeader() {
       <div className="flex-1 max-w-xs">Кто привёл</div>
       <div className="w-24 text-center">Регистрация</div>
       <div className="w-24 text-center">Зарегистр.</div>
+      <div className="w-24 text-center">Подписка</div>
       <div className="w-8" />
       <div className="w-4" />
     </div>
