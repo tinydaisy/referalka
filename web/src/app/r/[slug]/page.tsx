@@ -81,11 +81,14 @@ export default function RegisteredReturnPage() {
       // В ответе бэк присылает redirect_path: для VIP-клиента —
       // /c/{client_id}/tg/event/{slug} (бот клиента), иначе /tg/event/{slug}
       // (общий @pluson_bot).
-      let redirectPath = `/tg/event/${encodeURIComponent(slug)}`
+      let redirectPath = `/tg/event/${encodeURIComponent(slug)}?_reg=1`
       try {
+        const ctrl = new AbortController()
+        const tmo = setTimeout(() => ctrl.abort(), 5000)
         const resp = await fetch(`${API_URL}/api/v1/participants/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: ctrl.signal,
           body: JSON.stringify({
             event_slug: slug,
             tg_id: user.id,
@@ -98,20 +101,23 @@ export default function RegisteredReturnPage() {
             utm_source: qUtmSource || undefined,
           }),
         })
+        clearTimeout(tmo)
         if (resp.ok || resp.status === 409 /* already registered */) {
           try {
             const j = await resp.json()
-            if (j?.redirect_path) redirectPath = String(j.redirect_path)
+            if (j?.redirect_path) {
+              // Дописываем _reg=1 чтобы Mini App показала welcome-экран.
+              const sep = j.redirect_path.includes('?') ? '&' : '?'
+              redirectPath = `${j.redirect_path}${sep}_reg=1`
+            }
           } catch (_) { /* ignore parse error */ }
         } else {
-          const txt = await resp.text().catch(() => '')
-          setErrorMsg(`Ошибка регистрации (${resp.status}): ${txt.slice(0, 200)}`)
-          setStatus('error')
-          return
+          // 4xx/5xx — не блокируем пользователя, просто редиректим в Mini App,
+          // она сама дозарегистрирует через event_start (как было до этой страницы).
+          console.warn('register non-2xx, navigating anyway:', resp.status)
         }
       } catch (e: any) {
-        // Сеть недоступна — всё равно редиректим в Mini App, оно само попробует
-        // зарегистрировать (как было до этой страницы).
+        // Сеть/таймаут — всё равно редиректим, Mini App дозарегистрирует.
         console.warn('register failed, navigating anyway:', e)
       }
 
@@ -124,25 +130,34 @@ export default function RegisteredReturnPage() {
   }, [slug])
 
   async function fallbackRedirect() {
-    // Объект Telegram.WebApp недоступен — открываем t.me-ссылку.
-    // Узнаём у бэка handle бота клиента (для VIP) или общего pluson_bot.
+    // Telegram.WebApp недоступен или нет user.id (типично после возврата
+    // с внешнего лендинга — Telegram теряет initData при навигации между
+    // доменами). Идём напрямую в Mini App клиента в ТОМ ЖЕ webview.
+    // Не используем t.me-ссылку — Telegram перехватывает её как universal
+    // link, сворачивает webview и открывает чат с ботом без Mini App.
+    //
+    // Узнаём client_id события (нужен в URL для VIP-клиентов).
     setStatus('fallback')
-    let handle = 'pluson_bot'
+    let clientId = 0
     let isVip = false
     try {
-      const r = await fetch(`${API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/bot-handle`)
+      const ctrl = new AbortController()
+      const t = setTimeout(() => ctrl.abort(), 4000)
+      const r = await fetch(
+        `${API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/bot-handle`,
+        { signal: ctrl.signal },
+      )
+      clearTimeout(t)
       if (r.ok) {
         const j = await r.json()
-        if (j?.bot_handle) handle = String(j.bot_handle)
+        clientId = Number(j?.client_id || 0)
         isVip = !!j?.is_vip_bot
       }
-    } catch (_) { /* ignore */ }
-    // VIP-бот без short-name (Mini App открывается главной кнопкой меню),
-    // общий @pluson_bot имеет short-name `pluson`.
-    const url = isVip
-      ? `https://t.me/${handle}`
-      : `https://t.me/${handle}/pluson?startapp=ref_pg${slug}_reg`
-    window.location.replace(url)
+    } catch (_) { /* ignore — не критично, без префикса /c/{id}/ */ }
+    const cidPrefix = (isVip && clientId) ? `/c/${clientId}` : ''
+    // ?_reg=1 — флаг для Mini App, что человек только что зарегистрировался
+    // на стороннем лендинге (Mini App покажет welcome-экран).
+    window.location.replace(`${cidPrefix}/tg/event/${encodeURIComponent(slug)}?_reg=1`)
   }
 
   return (

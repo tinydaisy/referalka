@@ -127,6 +127,12 @@ export default function App() {
       if (parsed.initialTab) setInitialTab(parsed.initialTab)
     }
 
+    // Флаг ?_reg=1 — пришли с /r/{slug} в fallback-режиме (Telegram.WebApp
+    // не было на странице /r/, поэтому регистрация перенесена сюда — Mini App
+    // зарегистрирует пользователя при первом event_start).
+    const qsReg = new URLSearchParams(window.location.search).get('_reg')
+    if (qsReg === '1') setRegFromLanding(true)
+
     // Live-метка: пользователь пришёл по публичной live-ссылке организатора —
     // сразу ставим event_participants.live_at = now() (окно «в эфире» 120 минут).
     if (parsed.live && parsed.eventSlug && user?.id) {

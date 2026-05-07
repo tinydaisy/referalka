@@ -377,14 +377,13 @@ async def public_event_external_ref(
     summary="Handle telegram-бота для события (VIP-клиент или общий @pluson_bot)",
 )
 async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(get_db)):
-    """Используется страницей /r/{slug} в fallback'е (когда нет Telegram.WebApp —
-    открыли в обычном браузере). Возвращает handle бота, в который нужно
-    отправить пользователя через t.me-ссылку."""
+    """Используется страницей /r/{slug} в fallback'е — отдаёт client_id события
+    и handle бота (для информации о VIP-статусе)."""
     row = await db.fetchrow(
         "SELECT client_id FROM events WHERE slug = $1 LIMIT 1", slug,
     )
     if not row:
-        return {"bot_handle": "pluson_bot", "is_vip_bot": False}
+        return {"bot_handle": "pluson_bot", "is_vip_bot": False, "client_id": None}
     vip_handle = await db.fetchval(
         """SELECT ch.handle
              FROM channels ch
@@ -398,8 +397,8 @@ async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(ge
         row["client_id"],
     )
     if vip_handle:
-        return {"bot_handle": vip_handle.lstrip('@'), "is_vip_bot": True}
-    return {"bot_handle": "pluson_bot", "is_vip_bot": False}
+        return {"bot_handle": vip_handle.lstrip('@'), "is_vip_bot": True, "client_id": row["client_id"]}
+    return {"bot_handle": "pluson_bot", "is_vip_bot": False, "client_id": row["client_id"]}
 
 
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")
