@@ -407,28 +407,32 @@ export default function MiniAppSettingsPage() {
                          className="input" />
                   {f.hint && <p className="text-xs text-gray-500 mt-1">{f.hint}</p>}
                   {f.key === 'telegram' && (
-                    <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="text-xs text-gray-600">
-                          <strong>ID канала</strong> (нужен для проверки подписки):{' '}
-                          {profile.social_links.telegram_chat_id ? (
-                            <span className="font-mono text-[#25455D]">{profile.social_links.telegram_chat_id}</span>
-                          ) : (
-                            <span className="text-gray-400">не задан</span>
-                          )}
-                        </div>
+                    <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+                      <label className="block text-xs font-semibold text-gray-700">
+                        ID канала <span className="font-normal text-gray-500">(нужен для проверки подписки)</span>
+                      </label>
+                      <div className="flex gap-2 items-stretch flex-wrap">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={profile.social_links.telegram_chat_id || ''}
+                          onChange={e => updateSocial('telegram_chat_id', e.target.value)}
+                          placeholder="-1001234567890"
+                          className="flex-1 min-w-0 px-3 py-1.5 text-sm font-mono border border-gray-200 rounded focus:outline-none focus:border-[#25455D]"
+                        />
                         <button type="button"
                                 onClick={resolveTelegramChatId}
                                 disabled={!profile.social_links.telegram}
-                                className="px-3 py-1.5 text-xs rounded bg-[#25455D] text-white disabled:opacity-50">
-                          Получить ID автоматически
+                                title="Только для открытых каналов с @username"
+                                className="px-3 py-1.5 text-xs rounded bg-[#25455D] text-white disabled:opacity-50 whitespace-nowrap">
+                          Получить автоматически
                         </button>
                       </div>
-                      <p className="text-xs text-gray-500 mt-2">
-                        Кнопка работает только для открытых каналов с @username.
-                        Для закрытых каналов с инвайт-ссылкой —{' '}
+                      <p className="text-xs text-gray-500">
+                        Открытый канал — нажмите «Получить автоматически».
+                        Закрытый канал (инвайт-ссылка) — впишите ID руками.{' '}
                         <a href="/dashboard/settings#tg-chat-id" className="text-[#25455D] underline">
-                          инструкция в Тех.поддержке
+                          Как узнать ID
                         </a>.
                       </p>
                     </div>
