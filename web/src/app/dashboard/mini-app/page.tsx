@@ -65,6 +65,8 @@ export default function MiniAppSettingsPage() {
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [editing, setEditing] = useState<Offering | null>(null)
   const [creating, setCreating] = useState(false)
+  const [usernamePromptOpen, setUsernamePromptOpen] = useState(false)
+  const [usernameDraft, setUsernameDraft] = useState('')
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'brand'
     const t = new URLSearchParams(window.location.search).get('tab')
@@ -126,21 +128,11 @@ export default function MiniAppSettingsPage() {
     const link = profile.social_links.telegram || ''
     const isInvite = /\/\+/.test(link) || !link
     if (!isInvite) {
-      // По ссылке видим открытый канал — пробуем сразу
       await tryResolve()
       return
     }
-    // Закрытый канал (или поле пустое) — спрашиваем @username
-    const u = window.prompt(
-      'У канала из ссылки нет публичного @username (он закрытый по инвайт-ссылке).\n\n' +
-      'Если у канала есть публичный @username — впишите его сюда (без @).\n' +
-      'Если @username нет — нажмите «Отмена» и получите ID через бот по инструкции.',
-      ''
-    )
-    if (u === null) return  // отмена — пользователь идёт в инструкцию
-    const cleaned = u.trim().replace(/^@/, '').split('/').pop() || ''
-    if (!cleaned) return
-    await tryResolve(cleaned)
+    // Закрытый канал — открываем кастомный модал (нативный prompt не умеет ссылки)
+    setUsernamePromptOpen(true)
   }
   function normalizeChatIdInput(raw: string): string {
     // Убираем пробелы и любые символы кроме цифр и минуса; минус только в начале и один.
@@ -568,6 +560,54 @@ export default function MiniAppSettingsPage() {
           onClose={() => { setCreating(false); setEditing(null) }}
           onSaved={async () => { setCreating(false); setEditing(null); await loadOfferings() }}
         />
+      )}
+
+      {usernamePromptOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+             onClick={() => { setUsernamePromptOpen(false); setUsernameDraft('') }}>
+          <div className="bg-white rounded-xl max-w-md w-full p-5 space-y-3"
+               onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-gray-900">Получить ID канала</h3>
+            <p className="text-sm text-gray-700">
+              У канала из ссылки нет публичного <code className="font-mono">@username</code> — это закрытый канал по инвайт-ссылке.
+            </p>
+            <p className="text-sm text-gray-700">
+              <strong>Если у канала есть публичный @username</strong> — впишите его сюда (с @ или без, не важно):
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={usernameDraft}
+              onChange={e => setUsernameDraft(e.target.value.replace(/^@+/, '').trim())}
+              placeholder="my_channel"
+              className="w-full px-3 py-2 text-sm font-mono border border-gray-200 rounded focus:outline-none focus:border-[#25455D]"
+            />
+            <p className="text-sm text-gray-700">
+              <strong>Если @username нет</strong> — закройте окно и получите ID через бот:{' '}
+              <a href="/dashboard/settings#tg-chat-id" className="text-[#25455D] underline font-medium">
+                инструкция в Тех.поддержке
+              </a>.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button"
+                      onClick={() => { setUsernamePromptOpen(false); setUsernameDraft('') }}
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">
+                Отмена
+              </button>
+              <button type="button"
+                      disabled={!usernameDraft}
+                      onClick={async () => {
+                        const u = usernameDraft.trim().replace(/^@+/, '').split('/').pop() || ''
+                        setUsernamePromptOpen(false); setUsernameDraft('')
+                        if (u) await tryResolve(u)
+                      }}
+                      className="px-4 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-50"
+                      style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                Получить ID
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
