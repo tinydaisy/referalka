@@ -110,6 +110,7 @@ async def list_counts(
         """SELECT
               pkg.id,
               COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('landed','started','subscribed','delivered')), 0) AS landed,
+              COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.contact_id IS NOT NULL), 0) AS known,
               COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('started','subscribed','delivered')), 0) AS started,
               COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage = 'delivered'), 0) AS delivered
              FROM lead_magnet_packages pkg
@@ -119,7 +120,13 @@ async def list_counts(
         int(client["sub"])
     )
     return {"items": [
-        {"id": r["id"], "landed": int(r["landed"]), "started": int(r["started"]), "delivered": int(r["delivered"])}
+        {
+            "id": r["id"],
+            "landed": int(r["landed"]),
+            "known": int(r["known"]),
+            "started": int(r["started"]),
+            "delivered": int(r["delivered"]),
+        }
         for r in rows
     ]}
 

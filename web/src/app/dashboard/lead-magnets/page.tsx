@@ -117,7 +117,7 @@ export default function LeadMagnetsPage() {
 
 // ============== Лид-магниты ==============
 
-interface CountRow { id: number; landed: number; started: number; delivered: number }
+interface CountRow { id: number; landed: number; known: number; started: number; delivered: number }
 
 function LandedCounter({ count, href }: { count: number; href: string }) {
   return (
@@ -209,7 +209,7 @@ function MagnetsList() {
               </div>
               <div className="flex gap-1 items-center">
                 <LandedCounter
-                  count={counts[lm.id]?.landed || 0}
+                  count={counts[lm.id]?.known || 0}
                   href={`/dashboard/clients?lead_magnet_ids=${lm.id}`}
                 />
                 <button onClick={() => setAnalyticsOpen(lm)} title="Аналитика"
@@ -366,7 +366,7 @@ function PackagesList() {
               </div>
               <div className="flex gap-1 items-center">
                 <LandedCounter
-                  count={counts[pkg.id]?.landed || 0}
+                  count={counts[pkg.id]?.known || 0}
                   href={`/dashboard/clients?package_ids=${pkg.id}`}
                 />
                 <button onClick={() => setAnalyticsOpen(pkg)} title="Аналитика"

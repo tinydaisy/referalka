@@ -80,12 +80,18 @@ async def list_counts(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    """Возвращает [{id, landed, started, delivered}] — для отображения цифр
-    рядом со строкой в дашборде. Один запрос на всех."""
+    """Возвращает [{id, landed, known, started, delivered}] для строки в дашборде.
+
+    `landed` — все хиты по ссылке (включая анонимные до создания контакта).
+    `known`  — число уникальных идентифицированных контактов (этот же счётчик
+    используется в строке + кликабелен → /dashboard/clients?lead_magnet_ids=N
+    отдаст ровно столько же контактов).
+    """
     rows = await db.fetch(
         """SELECT
               lm.id,
               COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('landed','started','subscribed','delivered')), 0) AS landed,
+              COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.contact_id IS NOT NULL), 0) AS known,
               COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('started','subscribed','delivered')), 0) AS started,
               COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage = 'delivered'), 0) AS delivered
              FROM lead_magnets lm
@@ -95,7 +101,13 @@ async def list_counts(
         int(client["sub"])
     )
     return {"items": [
-        {"id": r["id"], "landed": int(r["landed"]), "started": int(r["started"]), "delivered": int(r["delivered"])}
+        {
+            "id": r["id"],
+            "landed": int(r["landed"]),
+            "known": int(r["known"]),
+            "started": int(r["started"]),
+            "delivered": int(r["delivered"]),
+        }
         for r in rows
     ]}
 
