@@ -492,11 +492,10 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
         )
 
 
-async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool]:
-    """Проверка подписки. Возвращает (status, already_delivered):
-       'subscribed'             — выдали (или повторно говорим что уже выдавали)
+async def run_check_subscription(run_id: int, tg_id: str, db) -> str:
+    """Проверка подписки. Возвращает status:
+       'subscribed'             — материалы отправлены (повторный клик = повторная отправка)
        'not_subscribed'         — не подписан на канал клиента
-       'channel_not_configured' — у клиента не настроен канал подписки в визитке
        'no_token'               — у клиента нет TG-бота для отправки
        'not_found'              — забег не найден
     """
@@ -506,9 +505,7 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool
         run_id
     )
     if not run:
-        return "not_found", False
-    if run["stage"] == "delivered":
-        return "subscribed", True
+        return "not_found"
 
     client_id = run["client_id"]
     ctx = await _get_brand_context(client_id, db)
@@ -517,7 +514,7 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool
     channel_chat_id = ctx.get("subscription_channel_chat_id", "")
     token = await _bot_token_for_client(client_id, db)
     if not token:
-        return "no_token", False
+        return "no_token"
 
     # Приоритет: числовой chat_id (надёжнее, работает и для закрытых каналов
     # если бот добавлен админом) → @username (только открытый канал) → выдаём
@@ -526,16 +523,18 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool
     if channel_chat_id:
         ok = await _check_subscription(token, channel_chat_id, str(tg_id))
         if not ok:
-            return "not_subscribed", False
+            return "not_subscribed"
     elif channel_api:
         ok = await _check_subscription(token, channel_api, str(tg_id))
         if not ok:
-            return "not_subscribed", False
+            return "not_subscribed"
     elif channel:
         # закрытый канал, chat_id не задан — пропускаем проверку
         pass
     # else: канал не настроен — тоже пропускаем (выдаём)
-    # подписан → выдаём
+
+    # подписан → выдаём (или выдаём повторно при повторном нажатии «ГОТОВО»)
+    is_first_delivery = run["stage"] != "delivered"
     await db.execute(
         """UPDATE funnel_runs
               SET stage = 'delivered',
@@ -555,14 +554,16 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool
     text_2 = _format_text(template["text_2"], ctx, materials)
     await _send_message(token, tg_id, text_2)
 
-    # Запускаем Celery-таймер на 30 минут
-    try:
-        from app.tasks.funnel import send_text_3
-        send_text_3.apply_async(args=[run_id], countdown=30 * 60)
-    except Exception as e:
-        log.warning("Failed to schedule text_3 for run %s: %s", run_id, e)
+    # Таймер «как там, всё открылось?» — только при первой выдаче, чтобы
+    # повторные клики не плодили follow-up'ы.
+    if is_first_delivery:
+        try:
+            from app.tasks.funnel import send_text_3
+            send_text_3.apply_async(args=[run_id], countdown=30 * 60)
+        except Exception as e:
+            log.warning("Failed to schedule text_3 for run %s: %s", run_id, e)
 
-    return "subscribed", False
+    return "subscribed"
 
 
 async def send_text_3(run_id: int, db) -> None:

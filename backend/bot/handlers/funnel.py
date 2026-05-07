@@ -23,23 +23,15 @@ async def handle_check_subscription(callback: CallbackQuery):
     pool = await get_pool()
     from app.services.funnel_service import run_check_subscription, _get_brand_context
     async with pool.acquire() as db:
-        result, already = await run_check_subscription(run_id, str(callback.from_user.id), db)
+        result = await run_check_subscription(run_id, str(callback.from_user.id), db)
         if result == "subscribed":
-            if already:
-                await callback.answer("Материалы уже отправлены ранее", show_alert=False)
-            else:
-                await callback.answer("Готово! Проверяйте сообщения 🎁", show_alert=False)
+            await callback.answer("Готово! Проверяйте сообщения 🎁", show_alert=False)
         elif result == "not_subscribed":
             client_id = await db.fetchval("SELECT client_id FROM funnel_runs WHERE id=$1", run_id)
             ctx = await _get_brand_context(client_id, db) if client_id else {}
             chan = ctx.get("subscription_channel", "")
             await callback.answer(
                 f"Не вижу подписки на канал {chan}. Подпишитесь и нажмите снова.",
-                show_alert=True,
-            )
-        elif result == "channel_not_configured":
-            await callback.answer(
-                "У организатора не настроен канал подписки. Свяжитесь с ним напрямую.",
                 show_alert=True,
             )
         elif result == "no_token":
