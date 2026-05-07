@@ -33,7 +33,11 @@ export default function CoOrganizersTab({ eventId }: { eventId: number }) {
     setLoading(true)
     try {
       const res = await api.events.listCollaborators(eventId, 'organizer')
-      setItems(res.items || [])
+      const arr = Array.isArray(res) ? res : (res?.items ?? res?.collaborators ?? [])
+      setItems(Array.isArray(arr) ? arr : [])
+    } catch (e) {
+      console.error('listCollaborators failed:', e)
+      setItems([])
     } finally {
       setLoading(false)
     }
@@ -143,7 +147,11 @@ function CollaboratorPicker({
   useEffect(() => {
     setLoading(true)
     api.collaborators.list(q || undefined)
-      .then((d: any) => setList(d.items || d || []))
+      .then((d: any) => {
+        const arr = Array.isArray(d) ? d : (d?.items ?? d?.collaborators ?? [])
+        setList(Array.isArray(arr) ? arr : [])
+      })
+      .catch((e) => { console.error('collaborators.list failed:', e); setList([]) })
       .finally(() => setLoading(false))
   }, [q])
 
