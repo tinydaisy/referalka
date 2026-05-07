@@ -10,12 +10,19 @@ export default function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
-  const [me, setMe] = useState<{ name?: string; email?: string } | null>(null)
+  const [me, setMe] = useState<{ name?: string; email?: string; features?: string[] } | null>(null)
   const { t } = useLang()
 
   useEffect(() => {
-    api.auth.me().then((data: any) => setMe({ name: data?.name, email: data?.email })).catch(() => {})
+    api.auth.me().then((data: any) => setMe({
+      name: data?.name,
+      email: data?.email,
+      features: data?.features || [],
+    })).catch(() => {})
   }, [])
+
+  const features = me?.features || []
+  const hasConference = features.includes('conference')
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
@@ -34,7 +41,8 @@ export default function Sidebar() {
       label: t.nav.eventsSection,
       items: [
         { href: '/dashboard/events', label: t.nav.events, icon: Calendar },
-        { href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic },
+        // Конференции — только для тарифов с фичей 'conference' (ПРОФИ, VIP, Пробный)
+        ...(hasConference ? [{ href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic }] : []),
       ],
     },
     {

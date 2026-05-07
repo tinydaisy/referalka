@@ -6,7 +6,7 @@ celery = Celery(
     "plusson",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.broadcast", "app.tasks.funnel"]
+    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions"]
 )
 
 celery.conf.update(
@@ -20,6 +20,16 @@ celery.conf.update(
         "check-broadcasts": {
             "task": "app.tasks.broadcast.check_and_send_broadcasts",
             "schedule": 60.0,
+        },
+        # Раз в час — помечаем истёкшие подписки + паузим их будущие рассылки
+        "expire-overdue-subscriptions": {
+            "task": "app.tasks.subscriptions.expire_overdue",
+            "schedule": 3600.0,
+        },
+        # Раз в час — уведомления за 7/3/1 день до истечения подписки
+        "notify-expiring-subscriptions": {
+            "task": "app.tasks.subscriptions.notify_expiring",
+            "schedule": 3600.0,
         },
     }
 )

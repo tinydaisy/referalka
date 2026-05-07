@@ -192,7 +192,7 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
 async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get_db)):
     # Селектор @pluson_bot показывает группы организаторов:
     #   1. Клиенты, у которых пользователь был участником ИЛИ владельцем (по telegram_username).
-    #   2. VIP-клиенты (tariffs.allow_custom_bot = true) ИСКЛЮЧАЮТСЯ — у них свой бот со своим хабом.
+    #   2. Клиенты с активной фичей 'channels' (свой бот) ИСКЛЮЧАЮТСЯ — у них свой Mini App.
     # В каждой группе:
     #   • будущие/идущие опубликованные события клиента — ВСЕ (промо для участника);
     #   • прошедшие события — только те, где пользователь был участником (личная история);
@@ -229,10 +229,19 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
               SELECT id FROM owned_clients
            ),
            allowed_clients AS (
+              -- Исключаем клиентов с активной фичей 'channels' (свой бот) — у них собственный
+              -- Mini App, в общий @pluson_bot их события не показываются.
               SELECT cl.id FROM clients cl
-               LEFT JOIN tariffs t ON t.slug = cl.tariff_slug
                WHERE cl.id IN (SELECT id FROM relevant_clients)
-                 AND COALESCE(t.allow_custom_bot, false) = false
+                 AND NOT EXISTS (
+                   SELECT 1 FROM client_subscriptions cs
+                     JOIN tariff_features tf ON tf.tariff_id = cs.tariff_id
+                     JOIN features f         ON f.id = tf.feature_id
+                    WHERE cs.client_id = cl.id
+                      AND f.slug = 'channels'
+                      AND cs.status = 'active'
+                      AND cs.expires_at > NOW()
+                 )
            ),
            conf_dates AS (
               -- start = первый день: open_time дня 1, иначе MIN(start_time) сессий дня 1

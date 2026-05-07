@@ -148,36 +148,7 @@ export default function SettingsPage() {
       {tab === 'integration' && <IntegrationTab />}
 
       {/* Подписка — отдельный блок */}
-      {tab === 'subscription' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Подписка</h3>
-          <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl mb-4">
-            <div>
-              <p className="font-medium text-green-800">
-                {tariff?.slug === 'vip' ? 'VIP' : 'Бесплатный (Beta)'}
-              </p>
-              <p className="text-sm text-green-700 mt-0.5">Действует до: {trialDate}</p>
-            </div>
-            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">Активен</span>
-          </div>
-          <div className="space-y-2 text-sm text-gray-600">
-            <div className="flex items-center gap-2">
-              <span className="text-green-500">✓</span> Неограниченное количество событий
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-green-500">✓</span> Все модули открыты
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-green-500">✓</span> Безлимитные участники
-            </div>
-            {tariff?.slug === 'vip' && (
-              <div className="flex items-center gap-2">
-                <span className="text-green-500">✓</span> Свой брендовый бот в Telegram
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {tab === 'subscription' && <SubscriptionTab />}
 
       {/* Профиль и Техническое — общая форма с одной кнопкой Сохранить */}
       {(tab === 'profile' || tab === 'tech') && (
@@ -743,6 +714,110 @@ function IntegrationTab() {
         </div>
 
         {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
+// ─── Подписка ─────────────────────────────────────────────────────────────────
+
+function SubscriptionTab() {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.auth.me().then((d: any) => {
+      setData(d)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="text-gray-500">Загрузка…</div>
+  if (!data) return <div className="text-gray-500">Нет данных о подписке</div>
+
+  const sub = data.subscription
+  const features: string[] = data.features || []
+  const FEATURE_LABELS: Record<string, string> = {
+    lead_magnets:     'Лид-магниты',
+    conference:       'Модуль Конференции',
+    awards:           'Премии',
+    channels:         'Свой брендированный бот',
+    export_contacts:  'Экспорт контактов',
+  }
+  const isExpired = !sub || !sub.is_active || sub.days_left < 0
+  const expiresStr = sub?.expires_at
+    ? new Date(sub.expires_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '—'
+
+  return (
+    <div className="space-y-6">
+      {/* Текущий тариф */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="font-semibold text-gray-800 mb-1">{sub?.tariff_name || 'Тариф не определён'}</h3>
+            <p className="text-sm text-gray-500">
+              {sub?.tariff_price ? `${sub.tariff_price.toLocaleString('ru-RU')} ₽ / мес` : 'Бесплатно'}
+            </p>
+          </div>
+          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+            isExpired ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+          }`}>
+            {isExpired ? 'Истекла' : 'Активна'}
+          </span>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <div className="text-gray-500">Действует до</div>
+            <div className="font-medium text-gray-800">{expiresStr}</div>
+          </div>
+          {!isExpired && sub?.days_left >= 0 && (
+            <div>
+              <div className="text-gray-500">Осталось</div>
+              <div className={`font-medium ${sub.days_left <= 7 ? 'text-amber-700' : 'text-gray-800'}`}>
+                {sub.days_left === 0 ? 'Сегодня истекает' : `${sub.days_left} дн.`}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Состав фич */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h3 className="font-semibold text-gray-800 mb-4">Что входит в тариф</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center gap-2 text-gray-700">
+            <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+            Контакты, мероприятия, рассылки (база)
+          </div>
+          {Object.entries(FEATURE_LABELS).map(([slug, label]) => {
+            const enabled = features.includes(slug)
+            return (
+              <div key={slug} className={`flex items-center gap-2 ${enabled ? 'text-gray-700' : 'text-gray-400'}`}>
+                {enabled
+                  ? <CheckCircle2 size={16} className="text-green-500 shrink-0" />
+                  : <X size={16} className="text-gray-300 shrink-0" />}
+                {label}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Заглушка «Продлить» — пока без оплаты */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h3 className="font-semibold text-gray-800 mb-2">Продлить подписку</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Чтобы продлить тариф или сменить — напишите Марго в Telegram. Онлайн-оплата появится позже.
+        </p>
+        <a
+          href="https://t.me/margo_forbs?text=Хочу_продлить_подписку_ПЛЮСОН"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#25455D] text-white text-sm font-medium hover:bg-[#1a3247] transition-colors"
+        >
+          Написать в Telegram
+        </a>
       </div>
     </div>
   )

@@ -1,5 +1,7 @@
 import Sidebar from './Sidebar'
 import NavigationProgress from './NavigationProgress'
+import SubscriptionBadge from './SubscriptionBadge'
+import SubscriptionBanner from './SubscriptionBanner'
 import { LangProvider } from '@/contexts/LangContext'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -10,6 +12,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Sidebar />
         <main className="flex-1 lg:ml-60 min-w-0">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-16 lg:pt-8">
+            <div className="flex justify-end mb-4">
+              <SubscriptionBadge />
+            </div>
+            <SubscriptionBanner />
             {children}
           </div>
         </main>

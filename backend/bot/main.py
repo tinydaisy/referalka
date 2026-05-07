@@ -3,7 +3,9 @@
 
 Polling для:
   - Основного @pluson_bot (settings.telegram_bot_token)
-  - Всех VIP-ботов клиентов с allow_custom_bot=TRUE (channels.bot_token, is_active=TRUE)
+  - Ботов клиентов с активной фичей 'channels' (channels.bot_token, client_channels.is_active=TRUE).
+    Если подписка истекла или клиент понизил тариф — бот выпадает из polling, входящие /start
+    перестают обрабатываться.
 
 Все боты используют один общий Dispatcher с одним и тем же набором handlers
 (start, funnel) — aiogram 3 умеет polling нескольких Bot-объектов в одном
@@ -52,13 +54,22 @@ async def _load_vip_tokens() -> list[tuple[str, str]]:
                      FROM channels ch
                      JOIN client_channels cc ON cc.channel_id = ch.id
                      JOIN clients c ON c.id = cc.client_id
-                     JOIN tariffs t ON t.slug = c.tariff_slug
                     WHERE ch.platform_slug = 'telegram'
                       AND ch.is_system = FALSE
                       AND cc.is_active = TRUE
                       AND ch.bot_token IS NOT NULL
                       AND ch.bot_token <> ''
-                      AND COALESCE(t.allow_custom_bot, FALSE) = TRUE"""
+                      -- Polling крутим только для клиентов с активной фичей 'channels'.
+                      -- При истечении подписки или понижении тарифа бот перестаёт слушать.
+                      AND EXISTS (
+                        SELECT 1 FROM client_subscriptions cs
+                          JOIN tariff_features tf ON tf.tariff_id = cs.tariff_id
+                          JOIN features f         ON f.id = tf.feature_id
+                         WHERE cs.client_id = c.id
+                           AND f.slug = 'channels'
+                           AND cs.status = 'active'
+                           AND cs.expires_at > NOW()
+                      )"""
             )
         return [(r["handle"] or "vip", r["bot_token"]) for r in rows]
     except Exception as e:

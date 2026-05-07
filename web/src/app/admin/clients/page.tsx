@@ -12,7 +12,9 @@ interface Client {
   telegram_username: string | null
   tariff_slug: string
   tariff_name: string | null
-  allow_custom_bot: boolean
+  features: string[] | null
+  subscription_expires_at: string | null
+  subscription_status: string | null
   trial_ends_at: string | null
   is_active: boolean
   created_at: string
@@ -90,14 +92,22 @@ export default function AdminClientsPage() {
                   </td>
                   <td className="px-3 py-4">
                     <div className="flex items-center gap-1.5">
-                      {c.allow_custom_bot && <Crown size={12} className="text-amber-500" />}
+                      {(c.features || []).includes('channels') && <Crown size={12} className="text-amber-500" />}
                       <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
-                        c.allow_custom_bot ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'
+                        c.tariff_slug === 'vip' ? 'bg-amber-50 text-amber-700'
+                        : c.tariff_slug === 'pro' ? 'bg-blue-50 text-blue-700'
+                        : c.tariff_slug === 'start' ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-gray-100 text-gray-600'
                       }`}>
                         {c.tariff_name || c.tariff_slug}
                       </span>
                     </div>
-                    {c.trial_ends_at && (
+                    {c.subscription_expires_at ? (
+                      <div className={`text-[10px] mt-1 ${c.subscription_status === 'expired' ? 'text-red-500' : 'text-gray-400'}`}>
+                        {c.subscription_status === 'expired' ? 'истекла ' : 'до '}
+                        {new Date(c.subscription_expires_at).toLocaleDateString('ru')}
+                      </div>
+                    ) : c.trial_ends_at && (
                       <div className="text-[10px] text-gray-400 mt-1">
                         пробный до {new Date(c.trial_ends_at).toLocaleDateString('ru')}
                       </div>

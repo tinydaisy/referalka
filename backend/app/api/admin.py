@@ -53,7 +53,7 @@ async def list_clients(
     where = " AND ".join(conditions)
     params.extend([limit, offset])
 
-    # Расширенные колонки: тариф, флаг allow_custom_bot, число событий,
+    # Расширенные колонки: тариф, фичи активной подписки, статус подписки, число событий,
     # число своих не-системных каналов, число подписчиков (через client_channels),
     # число отписавшихся, число коллабораторов.
     clients = await db.fetch(
@@ -62,7 +62,17 @@ async def list_clients(
           c.id, c.name, c.email, c.phone, c.telegram_username,
           c.tariff_slug, c.trial_ends_at, c.is_active, c.created_at,
           t.name AS tariff_name,
-          COALESCE(t.allow_custom_bot, FALSE) AS allow_custom_bot,
+          (SELECT cs.expires_at FROM client_subscriptions cs
+            WHERE cs.client_id = c.id ORDER BY cs.expires_at DESC LIMIT 1) AS subscription_expires_at,
+          (SELECT cs.status FROM client_subscriptions cs
+            WHERE cs.client_id = c.id ORDER BY cs.expires_at DESC LIMIT 1) AS subscription_status,
+          (SELECT ARRAY_AGG(f.slug ORDER BY f.sort)
+             FROM client_subscriptions cs
+             JOIN tariff_features tf ON tf.tariff_id = cs.tariff_id
+             JOIN features f         ON f.id = tf.feature_id
+            WHERE cs.client_id = c.id
+              AND cs.status = 'active'
+              AND cs.expires_at > NOW()) AS features,
           (SELECT COUNT(*) FROM events e WHERE e.client_id = c.id) AS events_count,
           (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id AND ct.is_active = TRUE) AS contacts_count,
           (SELECT COUNT(*) FROM client_channels cc
@@ -178,9 +188,10 @@ class TariffCreate(BaseModel):
     slug: str
     name: str
     price: float = 0
-    trial_months: int = 0
-    max_events: int = -1
-    max_participants: int = -1
+    contact_limit: int = 1000
+    broadcasts_daily_limit: Optional[int] = None  # NULL = безлимит
+    default_duration_days: int = 30
+    feature_slugs: list[str] = []
 
 
 @router.get("/tariffs", summary="Список тарифов")
@@ -188,7 +199,15 @@ async def list_tariffs(
     admin=Depends(get_current_admin),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    tariffs = await db.fetch("SELECT * FROM tariffs ORDER BY price")
+    tariffs = await db.fetch(
+        """SELECT t.*,
+                  ARRAY(SELECT f.slug FROM tariff_features tf
+                          JOIN features f ON f.id = tf.feature_id
+                         WHERE tf.tariff_id = t.id
+                         ORDER BY f.sort) AS feature_slugs
+             FROM tariffs t
+            ORDER BY t.price"""
+    )
     return {"tariffs": [dict(t) for t in tariffs]}
 
 
@@ -200,12 +219,28 @@ async def create_tariff(
 ):
     tariff = await db.fetchrow(
         """
-        INSERT INTO tariffs (slug, name, price, trial_months, max_events, max_participants)
+        INSERT INTO tariffs (slug, name, price, contact_limit, broadcasts_daily_limit, default_duration_days)
         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
         """,
-        data.slug, data.name, data.price, data.trial_months, data.max_events, data.max_participants
+        data.slug, data.name, data.price,
+        data.contact_limit, data.broadcasts_daily_limit, data.default_duration_days,
     )
+    if data.feature_slugs:
+        await db.execute(
+            """INSERT INTO tariff_features (tariff_id, feature_id)
+               SELECT $1, f.id FROM features f WHERE f.slug = ANY($2::text[])""",
+            tariff["id"], data.feature_slugs,
+        )
     return {"tariff": dict(tariff)}
+
+
+@router.get("/features", summary="Список фич (для админки)")
+async def list_features(
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    rows = await db.fetch("SELECT id, slug, name, description, sort FROM features ORDER BY sort, slug")
+    return {"features": [dict(r) for r in rows]}
 
 
 # ─── Создание администратора (только суперадмин) ──────────────────────────────

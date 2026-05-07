@@ -157,7 +157,8 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                 c.notifications_telegram_chat_id,
                 c.integration_token,
                 t.name AS tariff_name,
-                COALESCE(t.allow_custom_bot, false) AS allow_custom_bot,
+                t.price AS tariff_price,
+                t.contact_limit, t.broadcasts_daily_limit,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                    FROM channels ch
                    JOIN client_channels cc ON cc.channel_id = ch.id
@@ -174,7 +175,29 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     )
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
-    return dict(client)
+
+    from app.services.features import get_client_features
+    from app.services.subscriptions import get_subscription, days_until_expires
+
+    features = await get_client_features(db, client_id)
+    sub = await get_subscription(db, client_id)
+    subscription = None
+    if sub:
+        subscription = {
+            "tariff_slug":  sub["tariff_slug"],
+            "tariff_name":  sub["tariff_name"],
+            "tariff_price": float(sub["tariff_price"]) if sub["tariff_price"] is not None else 0,
+            "started_at":   sub["started_at"].isoformat() if sub["started_at"] else None,
+            "expires_at":   sub["expires_at"].isoformat() if sub["expires_at"] else None,
+            "status":       sub["status"],
+            "source":       sub["source"],
+            "days_left":    days_until_expires(sub["expires_at"]),
+            "is_active":    sub["status"] == "active" and days_until_expires(sub["expires_at"]) >= 0,
+        }
+    out = dict(client)
+    out["features"] = features
+    out["subscription"] = subscription
+    return out
 
 
 @router.post("/me/regenerate-integration-token", summary="Перевыпустить токен интеграции")

@@ -128,15 +128,10 @@ def _format_text(template: str, ctx: dict, materials: list[dict]) -> str:
 
 async def _bot_token_for_client(client_id: int, db) -> Optional[str]:
     """Какой бот шлёт сообщения участнику воронки.
-    VIP с собственным ботом → его токен.
+    Если у клиента активна фича 'channels' и есть свой бот → его токен.
     Иначе → общий @pluson_bot (settings.telegram_bot_token)."""
-    custom = await db.fetchval(
-        """SELECT t.allow_custom_bot
-             FROM clients c JOIN tariffs t ON t.slug = c.tariff_slug
-            WHERE c.id = $1""",
-        client_id
-    )
-    if custom:
+    from app.services.features import client_has_feature
+    if await client_has_feature(db, client_id, "channels"):
         token = await get_client_telegram_token(client_id, db)
         if token:
             return token

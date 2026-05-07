@@ -104,6 +104,22 @@ async def _send_broadcast(schedule_id: int):
         if not schedule:
             return
 
+        # Защита от race-condition: подписка могла истечь между планированием и отправкой.
+        # Если истекла — паузим запись и выходим (cron expire_overdue делает то же оптом).
+        client_id_for_check = schedule["client_id"]
+        sub_active = await conn.fetchval(
+            """SELECT 1 FROM client_subscriptions
+                WHERE client_id = $1 AND status = 'active' AND expires_at > NOW()
+                LIMIT 1""",
+            client_id_for_check,
+        )
+        if not sub_active:
+            await conn.execute(
+                "UPDATE broadcast_schedules SET status = 'paused_subscription_expired' WHERE id = $1",
+                schedule_id,
+            )
+            return
+
         event_id = schedule["event_id"]
         tpl_type = schedule.get("type", "")
 

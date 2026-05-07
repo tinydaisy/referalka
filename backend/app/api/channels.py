@@ -30,15 +30,9 @@ router = APIRouter(prefix="/channels", tags=["Каналы"])
 
 
 async def _assert_can_use_custom_bot(db, client_id: int):
-    """403 если тариф не разрешает свой бот."""
-    allow = await db.fetchval(
-        """SELECT COALESCE(t.allow_custom_bot, false)
-             FROM clients c
-             LEFT JOIN tariffs t ON t.slug = c.tariff_slug
-            WHERE c.id = $1""",
-        client_id,
-    )
-    if not allow:
+    """403 если фича 'channels' выключена в активной подписке клиента."""
+    from app.services.features import client_has_feature
+    if not await client_has_feature(db, client_id, "channels"):
         raise HTTPException(
             status_code=403,
             detail="Подключение своего бота доступно на тарифе VIP. Перейдите на VIP в настройках профиля.",

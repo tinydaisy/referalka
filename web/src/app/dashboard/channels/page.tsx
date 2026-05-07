@@ -35,7 +35,7 @@ interface Me {
   id: number
   tariff_slug: string
   tariff_name?: string
-  allow_custom_bot: boolean
+  features?: string[]
 }
 
 function PlatformBadge({ slug, color }: { slug: string; color?: string | null }) {
@@ -85,7 +85,7 @@ export default function ChannelsPage() {
     return <div className="p-6 text-gray-400 text-sm">Загрузка...</div>
   }
 
-  const isVip = me?.allow_custom_bot === true
+  const isVip = (me?.features || []).includes('channels')
 
   return (
     <div className="p-6 max-w-5xl">

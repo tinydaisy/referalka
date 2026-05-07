@@ -178,25 +178,27 @@ async def _resolve_referrer(client_id: int, pid: Optional[str], db: asyncpg.Conn
 
 async def _client_bot_username(client_id: int, db: asyncpg.Connection) -> str:
     """Возвращает @username бота, в который надо переадресовывать landing.
-    VIP-клиент → его собственный бот. Иначе → @pluson_bot (PLUSON_BOT_USERNAME из настроек)."""
-    row = await db.fetchrow(
-        """SELECT t.allow_custom_bot, ch.handle, ch.bot_token
-             FROM clients c
-        LEFT JOIN tariffs t ON t.slug = c.tariff_slug
-        LEFT JOIN client_channels cc ON cc.client_id = c.id AND cc.is_active = TRUE
-        LEFT JOIN channels ch ON ch.id = cc.channel_id
-                              AND ch.platform_slug = 'telegram'
-                              AND ch.is_system = FALSE
-            WHERE c.id = $1
-            ORDER BY ch.id ASC
-            LIMIT 1""",
-        client_id
-    )
-    if row and row["allow_custom_bot"] and row["handle"]:
-        # handle хранится как '@username' — убираем @
-        h = row["handle"].lstrip('@')
-        if h:
-            return h
+    Если у клиента активна фича 'channels' и есть подключённый бот → его. Иначе → @pluson_bot."""
+    from app.services.features import client_has_feature
+    has_channels = await client_has_feature(db, client_id, "channels")
+    if has_channels:
+        row = await db.fetchrow(
+            """SELECT ch.handle
+                 FROM client_channels cc
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1
+                  AND cc.is_active = TRUE
+                  AND ch.platform_slug = 'telegram'
+                  AND ch.is_system = FALSE
+                  AND ch.bot_token IS NOT NULL
+                ORDER BY ch.id ASC
+                LIMIT 1""",
+            client_id,
+        )
+        if row and row["handle"]:
+            h = row["handle"].lstrip('@')
+            if h:
+                return h
     return getattr(settings, 'plusson_bot_username', None) or 'pluson_bot'
 
 
