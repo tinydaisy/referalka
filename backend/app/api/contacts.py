@@ -41,7 +41,8 @@ async def get_contacts(
     show_unsubscribed: bool = Query(default=False),
     subscription: str = Query(default="any", description="any | subscribed | unsubscribed"),
     platforms: str | None = Query(default=None, description="CSV slug-ов платформ: telegram,vk"),
-    channel_ids: str | None = Query(default=None, description="CSV id каналов клиента"),
+    channel_ids: str | None = Query(default=None, description="CSV id каналов клиента. Пустая строка '' = ни одного канала (0 результатов, если не выбрано include_unattached)"),
+    include_unattached: bool = Query(default=False, description="Включить контакты без подписки ни на один канал (orphan'ы)"),
     utm_sources: str | None = Query(default=None, description="CSV utm_source значений"),
     tags: str | None = Query(default=None, description="CSV тегов (любой из них)"),
     date_from: str | None = Query(default=None, description="ISO дата >= last_contact_at"),
@@ -88,8 +89,13 @@ async def get_contacts(
           )
         """
 
-    # Фильтр по каналам: контакт подписан хотя бы на один из выбранных каналов
-    # (запись в platform_user_channels с is_unsubscribed = FALSE).
+    # Фильтр по каналам:
+    #   - параметр НЕ передан (channel_ids=None) → не фильтруем (показать всех)
+    #   - переданы id каналов → контакт должен быть подписан хотя бы на один из них (is_unsubscribed=FALSE)
+    #   - передана ПУСТАЯ строка channel_ids='' → каналы явно сняты в UI:
+    #       * если include_unattached=False → 0 контактов
+    #       * если include_unattached=True → только orphan'ы (без подписки нигде)
+    # Опция include_unattached работает в комбинации с любым channel_ids — "выбранные каналы ИЛИ orphan'ы".
     channel_ids_raw = _split_csv(channel_ids)
     channel_ids_int: list[int] = []
     for x in channel_ids_raw:
@@ -97,7 +103,30 @@ async def get_contacts(
             channel_ids_int.append(int(x))
         except ValueError:
             pass
-    if channel_ids_int:
+    explicit_empty = channel_ids is not None and not channel_ids_int
+
+    no_subs_clause = """NOT EXISTS (
+        SELECT 1 FROM platform_users pu
+        JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+         WHERE pu.contact_id = c.id
+    )"""
+
+    if channel_ids_int and include_unattached:
+        params.append(channel_ids_int)
+        idx = len(params)
+        where_base += f"""
+          AND (
+            EXISTS (
+              SELECT 1 FROM platform_users pu
+              JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+               WHERE pu.contact_id = c.id
+                 AND puc.channel_id = ANY(${idx}::int[])
+                 AND puc.is_unsubscribed = FALSE
+            )
+            OR {no_subs_clause}
+          )
+        """
+    elif channel_ids_int:
         params.append(channel_ids_int)
         idx = len(params)
         where_base += f"""
@@ -109,6 +138,14 @@ async def get_contacts(
                AND puc.is_unsubscribed = FALSE
           )
         """
+    elif explicit_empty and include_unattached:
+        where_base += f" AND {no_subs_clause}"
+    elif explicit_empty:
+        # Явно сняли все каналы и не выбрали unattached — пустой результат
+        where_base += " AND FALSE"
+    elif include_unattached:
+        # Параметр channel_ids не передан вовсе, но включён unattached → только orphan'ы
+        where_base += f" AND {no_subs_clause}"
 
     # UTM source — точное совпадение из выбранных значений
     utm_list = _split_csv(utm_sources)

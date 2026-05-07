@@ -126,7 +126,10 @@ function countActiveFilters(f: ContactFilters): number {
   let n = 0
   if (f.subscription && f.subscription !== 'any') n++
   if (f.platforms?.length) n++
-  if (f.channelIds?.length) n++
+  // Фильтр каналов считается активным когда пользователь его трогал
+  // (channelsTouched=true) — даже если внутри ноль галок (= намеренно «не выбрано ни одного»)
+  if (f.channelsTouched) n++
+  if (f.includeUnattached) n++
   if (f.utmSources?.length) n++
   if (f.tags?.length) n++
   if (f.dateFrom) n++
@@ -630,10 +633,35 @@ function FilterPanel({ initial, onApply, onClose }: {
 
   useEffect(() => {
     api.contacts.filterOptions()
-      .then(setOpts)
+      .then(loaded => {
+        setOpts(loaded)
+        // По умолчанию (если фильтр каналов ещё не трогали) — отметить ВСЕ каналы.
+        // Так пользователь сразу видит «активный полный фильтр» и понимает что снимая галки —
+        // он сужает выборку, а сняв все — получит ноль (или только orphan'ов если выбран чекбокс).
+        setDraft(d => {
+          if (d.channelsTouched) return d
+          return { ...d, channelIds: loaded.channels.map(c => c.id) }
+        })
+      })
       .catch(() => setOpts({ platforms: [], channels: [], utm_sources: [], tags: [] }))
       .finally(() => setLoading(false))
   }, [])
+
+  // Помечаем фильтр как «потроганный» при любом изменении галок каналов
+  function toggleChannelId(id: number) {
+    setDraft(d => ({
+      ...d,
+      channelsTouched: true,
+      channelIds: toggleArrayItem(d.channelIds, id),
+    }))
+  }
+  function setAllChannels(all: boolean) {
+    setDraft(d => ({
+      ...d,
+      channelsTouched: true,
+      channelIds: all ? (opts?.channels.map(c => c.id) || []) : [],
+    }))
+  }
 
   function toggleArrayItem<T>(arr: T[] | undefined, item: T): T[] {
     const cur = arr || []
@@ -685,14 +713,21 @@ function FilterPanel({ initial, onApply, onClose }: {
               {/* Канал */}
               {opts.channels.length > 0 && (
                 <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Канал подписки</h3>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Канал подписки</h3>
+                    <div className="flex gap-2 text-xs">
+                      <button onClick={() => setAllChannels(true)} className="text-blue-600 hover:underline">Все</button>
+                      <span className="text-gray-300">·</span>
+                      <button onClick={() => setAllChannels(false)} className="text-blue-600 hover:underline">Никого</button>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {opts.channels.map(ch => {
                       const active = (draft.channelIds || []).includes(ch.id)
                       return (
                         <button
                           key={ch.id}
-                          onClick={() => setDraft(d => ({ ...d, channelIds: toggleArrayItem(d.channelIds, ch.id) }))}
+                          onClick={() => toggleChannelId(ch.id)}
                           className={`text-xs px-2.5 py-1 rounded-full border flex items-center gap-1 ${
                             active
                               ? 'bg-[#25455D] text-white border-[#25455D]'
@@ -706,6 +741,15 @@ function FilterPanel({ initial, onApply, onClose }: {
                       )
                     })}
                   </div>
+                  <label className="flex items-center gap-2 mt-3 text-sm text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!draft.includeUnattached}
+                      onChange={e => setDraft(d => ({ ...d, includeUnattached: e.target.checked }))}
+                      className="w-4 h-4 rounded border-gray-300 text-[#25455D] focus:ring-[#25455D]"
+                    />
+                    <span>Включая контакты без привязки к каналу</span>
+                  </label>
                 </div>
               )}
 
