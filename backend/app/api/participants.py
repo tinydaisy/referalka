@@ -27,6 +27,42 @@ class RegisterParticipantRequest(BaseModel):
     partner_tg_id: Optional[str] = None
 
 
+async def _resolve_post_register_redirect(db, client_id: int, event_slug: str) -> dict:
+    """Куда вернуть пользователя после регистрации через /r/{slug}.
+
+    У VIP-клиента (есть свой telegram-бот в channels с is_system=FALSE) —
+    в Mini App его бота `/c/{client_id}/tg/event/{slug}`. Иначе — общий
+    @pluson_bot `/tg/event/{slug}`.
+
+    Возвращаем ещё `bot_handle` — для fallback'а в обычном браузере
+    (когда нет Telegram.WebApp): `https://t.me/{handle}` для VIP,
+    `https://t.me/pluson_bot/pluson?startapp=…` для общего.
+    """
+    vip_handle = await db.fetchval(
+        """SELECT ch.handle
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = 'telegram'
+              AND ch.is_system = FALSE
+              AND cc.is_active = TRUE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY ch.id LIMIT 1""",
+        client_id
+    )
+    if vip_handle:
+        return {
+            "redirect_path": f"/c/{client_id}/tg/event/{event_slug}",
+            "bot_handle":    vip_handle,
+            "is_vip_bot":    True,
+        }
+    return {
+        "redirect_path": f"/tg/event/{event_slug}",
+        "bot_handle":    "pluson_bot",
+        "is_vip_bot":    False,
+    }
+
+
 @router.post("/register", summary="Зарегистрировать участника в событии")
 async def register_participant(
     data: RegisterParticipantRequest,
@@ -38,6 +74,7 @@ async def register_participant(
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено или не опубликовано")
+    redirect = await _resolve_post_register_redirect(db, event["client_id"], data.event_slug)
 
     # Создаём/находим контакт + идентичность (автомердж по email/phone)
     contact_id, _platform_user_id, _is_new_contact = await upsert_contact_with_identity(
@@ -88,7 +125,7 @@ async def register_participant(
                     WHERE id = $1""",
                 existing["id"], upd_ref_code, upd_referrer_pid
             )
-        return {"participant": dict(existing), "is_new": False}
+        return {"participant": dict(existing), "is_new": False, **redirect}
 
     # Резолв реферера: если передан ref_code (может быть legacy длинный из
     # старой ссылки в Salebot) — нормализуем в актуальный короткий через
@@ -136,7 +173,8 @@ async def register_participant(
 
     return {
         "participant": {"id": participant["id"], "ref_code": user_ref_code},
-        "is_new": True
+        "is_new": True,
+        **redirect,
     }
 
 

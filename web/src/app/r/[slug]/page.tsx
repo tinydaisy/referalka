@@ -33,7 +33,6 @@ import { useParams, useSearchParams } from 'next/navigation'
 import Script from 'next/script'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
-const FALLBACK_TG_URL = 'https://t.me/pluson_bot/pluson'
 
 export default function RegisteredReturnPage() {
   const { slug: rawSlug } = useParams()
@@ -61,7 +60,7 @@ export default function RegisteredReturnPage() {
         if (attempts > 30) {
           // 3 сек — SDK не подгрузился. Скорее всего открыли в обычном браузере.
           clearInterval(timer)
-          fallbackRedirect()
+          await fallbackRedirect()
         }
         return
       }
@@ -72,13 +71,17 @@ export default function RegisteredReturnPage() {
       const user = tg.initDataUnsafe?.user
       if (!user?.id) {
         // SDK подгрузился, но пользователя нет (открыли страницу не из Telegram).
-        fallbackRedirect()
+        await fallbackRedirect()
         return
       }
 
       // Регистрация. Email/phone/имя — из query-параметров конструктора (если
       // клиент их передал) либо из Telegram-профиля. Если ни там ни там
       // нет — регаем по tg_id, контакт без email/phone.
+      // В ответе бэк присылает redirect_path: для VIP-клиента —
+      // /c/{client_id}/tg/event/{slug} (бот клиента), иначе /tg/event/{slug}
+      // (общий @pluson_bot).
+      let redirectPath = `/tg/event/${encodeURIComponent(slug)}`
       try {
         const resp = await fetch(`${API_URL}/api/v1/participants/register`, {
           method: 'POST',
@@ -95,7 +98,12 @@ export default function RegisteredReturnPage() {
             utm_source: qUtmSource || undefined,
           }),
         })
-        if (!resp.ok && resp.status !== 409 /* already registered */) {
+        if (resp.ok || resp.status === 409 /* already registered */) {
+          try {
+            const j = await resp.json()
+            if (j?.redirect_path) redirectPath = String(j.redirect_path)
+          } catch (_) { /* ignore parse error */ }
+        } else {
           const txt = await resp.text().catch(() => '')
           setErrorMsg(`Ошибка регистрации (${resp.status}): ${txt.slice(0, 200)}`)
           setStatus('error')
@@ -110,15 +118,31 @@ export default function RegisteredReturnPage() {
       setStatus('ok')
       // Навигация в том же webview → Mini App увидит slug и откроет «Интро»
       // (welcomed_at IS NULL после свежей регистрации).
-      window.location.replace(`/tg/event/${encodeURIComponent(slug)}`)
+      window.location.replace(redirectPath)
     }, 100)
     return () => clearInterval(timer)
   }, [slug])
 
-  function fallbackRedirect() {
-    // Объект Telegram.WebApp недоступен — открываем t.me-ссылку, как было раньше.
+  async function fallbackRedirect() {
+    // Объект Telegram.WebApp недоступен — открываем t.me-ссылку.
+    // Узнаём у бэка handle бота клиента (для VIP) или общего pluson_bot.
     setStatus('fallback')
-    window.location.replace(`${FALLBACK_TG_URL}?startapp=ref_pg${slug}_reg`)
+    let handle = 'pluson_bot'
+    let isVip = false
+    try {
+      const r = await fetch(`${API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/bot-handle`)
+      if (r.ok) {
+        const j = await r.json()
+        if (j?.bot_handle) handle = String(j.bot_handle)
+        isVip = !!j?.is_vip_bot
+      }
+    } catch (_) { /* ignore */ }
+    // VIP-бот без short-name (Mini App открывается главной кнопкой меню),
+    // общий @pluson_bot имеет short-name `pluson`.
+    const url = isVip
+      ? `https://t.me/${handle}`
+      : `https://t.me/${handle}/pluson?startapp=ref_pg${slug}_reg`
+    window.location.replace(url)
   }
 
   return (
