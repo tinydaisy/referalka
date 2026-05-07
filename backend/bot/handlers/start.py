@@ -82,6 +82,7 @@ async def handle_start(message: Message, command: CommandObject):
             pool = await get_pool()
             from app.services.funnel_service import run_started
             try:
+                bot_id = message.bot.id if message.bot else None
                 async with pool.acquire() as db:
                     await run_started(
                         run_id,
@@ -90,6 +91,7 @@ async def handle_start(message: Message, command: CommandObject):
                         user.first_name or "",
                         user.last_name or "",
                         db,
+                        bot_id=bot_id,
                     )
                 return
             except Exception as e:

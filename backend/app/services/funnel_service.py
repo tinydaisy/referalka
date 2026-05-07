@@ -273,9 +273,10 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
 
 async def run_started(run_id: int, tg_id: str, username: Optional[str],
                       first_name: Optional[str], last_name: Optional[str],
-                      db) -> None:
+                      db, bot_id: Optional[int] = None) -> None:
     """Бот получил /start fnl_<run_id>. Идемпотентно:
     - привязывает забег к platform_user (создаёт contact если нужно),
+    - регистрирует подписку на канал воронки в контексте клиента воронки,
     - проставляет stage=started,
     - шлёт уведомление организатору (один раз),
     - отправляет Текст 1 + кнопку «ГОТОВО»."""
@@ -400,6 +401,24 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
             client_id, contact_id, str(tg_id),
             username, first_name, last_name
         )
+
+    # Регистрируем подписку в контексте клиента воронки на тот бот, через который
+    # пришёл /start. Без этого подписчик не появится у клиента — он будет только
+    # у системного клиента (через _record_subscription в bot/handlers/start.py).
+    if bot_id:
+        try:
+            from app.services.channels import find_channel_by_bot_id, register_telegram_subscription
+            ch = await find_channel_by_bot_id(int(bot_id), db)
+            if ch:
+                await register_telegram_subscription(
+                    client_id, ch["id"], str(tg_id),
+                    username=username or "",
+                    first_name=first_name or "",
+                    last_name=last_name or "",
+                    db=db,
+                )
+        except Exception as e:
+            log.warning("run_started: register subscription failed: %s", e)
 
     is_new_started = run["stage"] == "landed"
     await db.execute(
