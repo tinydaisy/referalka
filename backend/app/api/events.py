@@ -95,6 +95,7 @@ class UpdateEventRequest(BaseModel):
     chat_url: Optional[str] = None
     chat_subscriptions_required: Optional[bool] = None
     chat_member_count_label: Optional[str] = None
+    telegram_chat_ids: Optional[str] = None  # ID чатов/каналов через запятую — общее для меропр и конференций
 
 
 @router.get("/", summary="Список событий клиента")

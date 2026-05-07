@@ -379,6 +379,16 @@ export const api = {
     update: (type: string, data: any) =>
       request(`/api/v1/funnel-templates/${type}`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
+  utils: {
+    /** Резолвит @username канала в числовой chat_id (через Bot API getChat).
+     *  Принимает username (с @ или без) или полный URL. Сохранение делает вызывающая
+     *  сторона через PATCH соответствующего ресурса. */
+    resolveTgChatId: (input: { username?: string; url?: string }) =>
+      request('/api/v1/utils/resolve-tg-chat-id', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+  },
   miniApp: {
     profile: {
       get:    () => request('/api/v1/clients/me/profile'),

@@ -275,7 +275,8 @@ async def get_conference(
                e.chat_url    AS event_chat_url,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
-               e.landing_url AS event_landing_url
+               e.landing_url AS event_landing_url,
+               e.telegram_chat_ids AS event_telegram_chat_ids
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
@@ -285,10 +286,12 @@ async def get_conference(
     if not conf:
         return {"conference": None}
     d = dict(conf)
-    # chat_url / stream_url / vip_url / landing_url — единый источник истины events.
+    # chat_url / stream_url / vip_url / landing_url / telegram_chat_ids — единый
+    # источник истины events (миграция 076 для telegram_chat_ids).
     d["chat_url"]   = d.pop("event_chat_url")   or d.get("chat_url") or ""
     d["stream_url"] = d.pop("event_stream_url") or ""
     d["vip_url"]    = d.pop("event_vip_url")    or ""
+    d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
     # event_landing_url — для шаблонов рассылок и превью; conf_conferences.landing_url
     # (если осталось) — это устаревший шаблон встроенного лендинга, не путать.
     d["event_landing_url"] = d.pop("event_landing_url") or ""
@@ -327,10 +330,12 @@ async def update_conference(
         await db.execute("INSERT INTO conf_conferences (event_id) VALUES ($1)", event_id)
 
     raw = data.model_dump(exclude_unset=True)
-    # chat_url, stream_url, vip_url — единый источник в events, не в conf_conferences.
-    event_chat_url   = raw.pop("chat_url", None)   if "chat_url"   in raw else None
-    event_stream_url = raw.pop("stream_url", None) if "stream_url" in raw else None
-    event_vip_url    = raw.pop("vip_url", None)    if "vip_url"    in raw else None
+    # chat_url, stream_url, vip_url, telegram_chat_ids — единый источник в events,
+    # не в conf_conferences (миграция 076 — telegram_chat_ids перенесён из conf_conferences).
+    event_chat_url      = raw.pop("chat_url", None)          if "chat_url"          in raw else None
+    event_stream_url    = raw.pop("stream_url", None)        if "stream_url"        in raw else None
+    event_vip_url       = raw.pop("vip_url", None)           if "vip_url"           in raw else None
+    event_tg_chat_ids   = raw.pop("telegram_chat_ids", None) if "telegram_chat_ids" in raw else None
 
     if raw:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(raw.keys())]
@@ -347,6 +352,8 @@ async def update_conference(
     if "vip_url" in sent:
         vip = (event_vip_url or "").strip() or None
         await db.execute("UPDATE events SET vip_url = $1 WHERE id = $2", vip, event_id)
+    if "telegram_chat_ids" in sent:
+        await db.execute("UPDATE events SET telegram_chat_ids = $1 WHERE id = $2", event_tg_chat_ids, event_id)
 
     await regenerate_landing_data(event_id, db)
     # Возвращаем тот же обогащённый объект что и в GET /conference/ —
@@ -359,7 +366,8 @@ async def update_conference(
                e.chat_url    AS event_chat_url,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
-               e.landing_url AS event_landing_url
+               e.landing_url AS event_landing_url,
+               e.telegram_chat_ids AS event_telegram_chat_ids
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
@@ -371,6 +379,7 @@ async def update_conference(
     d["stream_url"]        = d.pop("event_stream_url") or ""
     d["vip_url"]           = d.pop("event_vip_url")    or ""
     d["event_landing_url"] = d.pop("event_landing_url") or ""
+    d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
     return {"conference": d}
 
 

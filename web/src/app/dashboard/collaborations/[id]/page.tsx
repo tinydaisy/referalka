@@ -8,6 +8,7 @@ import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
+import { TelegramChannelField } from '@/components/TelegramChannelField'
 
 const IMPORTANT_FIELDS: { key: string; label: string }[] = [
   { key: 'name', label: 'Имя и фамилия' },
@@ -283,25 +284,17 @@ export default function CollaborationPage({ params }: { params: { id: string } }
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.accounts}</h2>
+          <TelegramChannelField
+            title="Telegram канал коллаборатора"
+            mode="single"
+            value={{ url: form.tg_channel_url || '', chatId: form.tg_channel_id || '' }}
+            onChange={(next) => setForm(f => ({ ...f, tg_channel_url: next.url, tg_channel_id: next.chatId }))}
+          />
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.telegram}</label>
-            <input type="url" value={form.tg_channel_url || ''} onChange={set('tg_channel_url')}
-              placeholder="https://t.me/username"
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.personalAccountId}</label>
+            <input type="text" value={form.personal_tg_id || ''} onChange={set('personal_tg_id')}
+              placeholder="123456789"
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.channelId}</label>
-              <input type="text" value={form.tg_channel_id || ''} onChange={set('tg_channel_id')}
-                placeholder="-100123456789"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.personalAccountId}</label>
-              <input type="text" value={form.personal_tg_id || ''} onChange={set('personal_tg_id')}
-                placeholder="123456789"
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

@@ -6,6 +6,7 @@ import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import PublicLinks from '@/components/PublicLinks'
 import ExternalLandingBlock from '@/components/ExternalLandingBlock'
+import { TelegramChannelField } from '@/components/TelegramChannelField'
 
 function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; onSave: () => void }) {
   const { t } = useLang()
@@ -35,7 +36,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   onEventUpdated?: (patch: any) => void
 }) {
   const { t } = useLang()
-  const [chatIdsError, setChatIdsError] = useState('')
   const [form, setForm] = useState({
     title: event?.title || '',
     description: conf?.description || '',
@@ -70,20 +70,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     setForm(f => ({ ...f, [k]: e.target.value }))
 
   async function handleSave() {
-    // Валидация telegram_chat_ids
-    setChatIdsError('')
-    if (form.telegram_chat_ids.trim()) {
-      const parts = form.telegram_chat_ids.split(',').map((s: string) => s.trim()).filter(Boolean)
-      if (parts.length === 0 || form.telegram_chat_ids.trim().indexOf(',') === -1 && parts.length > 1) {
-        setChatIdsError('Вводите ID через запятую')
-        return
-      }
-      const invalid = parts.filter((p: string) => !/^-?\d+$/.test(p))
-      if (invalid.length > 0) {
-        setChatIdsError(`Не удалось распознать: ${invalid.join(', ')} — ID должны быть числами`)
-        return
-      }
-    }
     setSaving(true); setSaved(false)
     try {
       // PATCH-семантика: отправляем ТОЛЬКО реально изменённые поля.
@@ -147,16 +133,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           <p className="text-xs text-gray-400 mt-1">Если у каждого дня свой стрим — задаётся в редакторе программы по дням.</p>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Ссылка на общий чат участников
-            <span className="text-gray-400 font-normal ml-1">— Telegram-чат конференции</span>
-          </label>
-          <input type="url" value={form.chat_url} onChange={set('chat_url')}
-            placeholder="https://t.me/+..."
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-          <p className="text-xs text-gray-400 mt-1">Появится плиткой «Чат» в Mini App в программе.</p>
-        </div>
+        <TelegramChannelField
+          title="Чат участников события"
+          mode="multi"
+          value={{ url: form.chat_url, chatId: form.telegram_chat_ids }}
+          onChange={(next) => setForm(f => ({ ...f, chat_url: next.url, telegram_chat_ids: next.chatId }))}
+        />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Ссылка на оплату VIP-тарифа
@@ -180,17 +162,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           <input type="url" value={form.raffle_url} onChange={set('raffle_url')}
             placeholder="https://..."
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            ID Telegram-чатов/каналов события
-            <span className="text-gray-400 font-normal ml-1">— через запятую, будут добавлены в рассылки</span>
-          </label>
-          <input type="text" value={form.telegram_chat_ids} onChange={set('telegram_chat_ids')}
-            placeholder="-1001234567890, -1009876543210"
-            className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none font-mono ${chatIdsError ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-brand'}`} />
-          {chatIdsError && <p className="text-xs text-red-500 mt-1">{chatIdsError}</p>}
-          <p className="text-xs text-gray-400 mt-1">Узнать ID канала: перешли любое сообщение из него боту @userinfobot</p>
         </div>
       </div>
 

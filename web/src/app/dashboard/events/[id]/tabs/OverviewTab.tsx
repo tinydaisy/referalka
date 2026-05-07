@@ -4,6 +4,7 @@ import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
 import ExternalLandingBlock from '@/components/ExternalLandingBlock'
+import { TelegramChannelField } from '@/components/TelegramChannelField'
 
 export default function OverviewTab({
   event, eventId, onReload,
@@ -20,6 +21,7 @@ export default function OverviewTab({
   // Раньше поле сохраняло в events.address — старые данные подтягиваются как fallback.
   const [streamUrl, setStreamUrl] = useState(event.stream_url || event.address || '')
   const [chatUrl, setChatUrl] = useState(event.chat_url || '')
+  const [chatIds, setChatIds] = useState<string>(event.telegram_chat_ids || '')
   const [vipUrl, setVipUrl] = useState(event.vip_url || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
@@ -53,6 +55,8 @@ export default function OverviewTab({
       if (su !== initStream)                                    payload.stream_url = su || null
       const c = chatUrl.trim()
       if (c !== (event.chat_url || ''))                         payload.chat_url = c || null
+      const ids = chatIds.trim()
+      if (ids !== (event.telegram_chat_ids || ''))              payload.telegram_chat_ids = ids || null
       const v = vipUrl.trim()
       if (v !== (event.vip_url || ''))                          payload.vip_url = v || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
@@ -113,10 +117,12 @@ export default function OverviewTab({
                    className="input" placeholder="https://us02web.zoom.us/j/..." />
           </Field>
 
-          <Field label="Ссылка на чат события" hint="Telegram-чат участников. Появится плиткой в Mini App">
-            <input value={chatUrl} onChange={e => setChatUrl(e.target.value)}
-                   className="input" placeholder="https://t.me/+abc123..." />
-          </Field>
+          <TelegramChannelField
+            title="Чат участников события"
+            mode="multi"
+            value={{ url: chatUrl, chatId: chatIds }}
+            onChange={(next) => { setChatUrl(next.url); setChatIds(next.chatId) }}
+          />
 
           <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App над программой появится персиковая кнопка «Расшириться до VIP-тарифа»">
             <input value={vipUrl} onChange={e => setVipUrl(e.target.value)}

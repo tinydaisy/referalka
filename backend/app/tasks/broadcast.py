@@ -328,11 +328,12 @@ async def _send_broadcast(schedule_id: int):
             if success:
                 sent += 1
 
-        # Отправка копии в дополнительные чаты (telegram_chat_ids из настроек конференции)
+        # Отправка копии в дополнительные чаты (events.telegram_chat_ids — общая колонка
+        # для мероприятий и конференций, миграция 076).
         # Эти чаты — служебные группы клиента, шлём через главного бота.
         if not schedule["is_test"]:
             chat_ids_row = await conn.fetchrow(
-                "SELECT telegram_chat_ids FROM conf_conferences WHERE event_id=$1",
+                "SELECT telegram_chat_ids FROM events WHERE id = $1",
                 event_id
             )
             if chat_ids_row and chat_ids_row["telegram_chat_ids"]:
