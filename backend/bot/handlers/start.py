@@ -99,6 +99,61 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
+    # /start reg_<event_slug> — пользователь только что оплатил на стороннем
+    # лендинге и был отправлен в бота через t.me-ссылку (страница /r/{slug}
+    # в браузере без Telegram.WebApp → universal link → этот бот).
+    # Дозарегистрируем участника по tg_id и пришлём приветствие + Mini App.
+    if args.startswith("reg_"):
+        event_slug = args.removeprefix("reg_").strip()
+        if event_slug:
+            try:
+                pool = await get_pool()
+                async with pool.acquire() as db:
+                    from app.services.contact_merge import upsert_contact_with_identity
+                    event = await db.fetchrow(
+                        "SELECT id, client_id, title, slug FROM events WHERE slug=$1 AND status='published'",
+                        event_slug,
+                    )
+                    if event:
+                        contact_id, _pu_id, _is_new = await upsert_contact_with_identity(
+                            db,
+                            client_id=event["client_id"],
+                            platform_slug='telegram',
+                            platform_user_id=str(user.id),
+                            username=user.username or "",
+                            first_name=user.first_name or "",
+                            last_name=user.last_name or "",
+                        )
+                        existing = await db.fetchval(
+                            "SELECT id FROM event_participants WHERE event_id=$1 AND contact_id=$2",
+                            event["id"], contact_id,
+                        )
+                        if existing:
+                            await db.execute(
+                                "UPDATE event_participants SET is_registered=TRUE WHERE id=$1",
+                                existing,
+                            )
+                        else:
+                            await db.execute(
+                                """INSERT INTO event_participants (event_id, contact_id, is_registered)
+                                   VALUES ($1, $2, TRUE)""",
+                                event["id"], contact_id,
+                            )
+                        # Кнопка с Mini App клиента (если VIP-бот) или общего pluson_bot
+                        mini_app_url = f"{settings.mini_app_url}?startapp=ref_pg{event_slug}"
+                        kb = InlineKeyboardMarkup(inline_keyboard=[[
+                            InlineKeyboardButton(text="🎉 Открыть кабинет события",
+                                                 web_app=WebAppInfo(url=mini_app_url))
+                        ]])
+                        await message.answer(
+                            f"Поздравляем с регистрацией на «{event['title']}»! 🎉\n\n"
+                            f"Откройте кабинет события, чтобы попасть в чат участников и забрать партнёрскую ссылку.",
+                            reply_markup=kb,
+                        )
+                        return
+            except Exception as e:
+                log.exception("reg_ handler failed: %s", e)
+
     # Старый сценарий: реф-ссылка события → Mini App
     if args.startswith("ref_") or args.startswith("ref"):
         mini_app_url = f"{settings.mini_app_url}?ref={args}"

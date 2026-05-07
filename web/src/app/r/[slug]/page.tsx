@@ -137,15 +137,13 @@ export default function RegisteredReturnPage() {
   }, [slug])
 
   async function fallbackRedirect() {
-    // Telegram.WebApp недоступен или нет user.id (типично после возврата
-    // с внешнего лендинга — Telegram теряет initData при навигации между
-    // доменами). Идём напрямую в Mini App клиента в ТОМ ЖЕ webview.
-    // Не используем t.me-ссылку — Telegram перехватывает её как universal
-    // link, сворачивает webview и открывает чат с ботом без Mini App.
-    //
-    // Узнаём client_id события (нужен в URL для VIP-клиентов).
+    // Нет Telegram.WebApp или нет user.id — обычно потому что Tilda/GetCourse
+    // после оплаты редиректит в Safari (не в Telegram webview).
+    // Универсальное решение — t.me-ссылка: iOS/Android откроют Telegram через
+    // universal link, пользователь окажется в чате бота. Бот при /start или
+    // через event_start (когда юзер откроет Mini App) дозарегистрирует.
     setStatus('fallback')
-    let clientId = 0
+    let handle = 'pluson_bot'
     let isVip = false
     try {
       const ctrl = new AbortController()
@@ -157,14 +155,19 @@ export default function RegisteredReturnPage() {
       clearTimeout(t)
       if (r.ok) {
         const j = await r.json()
-        clientId = Number(j?.client_id || 0)
+        if (j?.bot_handle) handle = String(j.bot_handle)
         isVip = !!j?.is_vip_bot
       }
-    } catch (_) { /* ignore — не критично, без префикса /c/{id}/ */ }
-    const cidPrefix = (isVip && clientId) ? `/c/${clientId}` : ''
-    // ?_reg=1 — флаг для Mini App, что человек только что зарегистрировался
-    // на стороннем лендинге (Mini App покажет welcome-экран).
-    window.location.replace(`${cidPrefix}/tg/event/${encodeURIComponent(slug)}?_reg=1`)
+    } catch (_) { /* ignore — пойдём с pluson_bot */ }
+    // VIP-бот без публичного short-name — открываем чат с ботом по handle.
+    // Общий @pluson_bot имеет short-name `pluson` + поддерживает startapp,
+    // через который Mini App заранее знает slug события и флаг _reg.
+    const url = isVip
+      ? `https://t.me/${handle}?start=reg_${encodeURIComponent(slug)}`
+      : `https://t.me/${handle}/pluson?startapp=ref_pg${encodeURIComponent(slug)}_reg`
+    // window.location.href — в обычном браузере iOS/Android отрабатывает
+    // как universal link → Telegram открывается, webview закрывается.
+    window.location.href = url
   }
 
   return (
