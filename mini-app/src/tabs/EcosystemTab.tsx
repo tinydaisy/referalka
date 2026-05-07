@@ -14,8 +14,7 @@ interface Profile {
   profile_photo_url?: string | null   // фото бренда
   positioning?: string | null         // позиционирование бренда
   achievements?: Achievement[]
-  // Основатель
-  owner_name?: string | null
+  // Основатель (имя берётся из clients.name — отдельной колонки нет)
   owner_photo_url?: string | null
   owner_positioning?: string | null
   owner_achievements?: Achievement[]
@@ -122,7 +121,7 @@ export default function EcosystemTab({ clientId }: Props) {
   const items = tab === 'free' ? free : paid
 
   // Карточка-тизер основателя — показываем только если хоть что-то заполнено
-  const ownerName = profile.owner_name || ''
+  const ownerName = profile.name || ''
   const hasOwner = !!(ownerName || profile.owner_photo_url || profile.owner_positioning || profile.bio)
 
   return (
@@ -204,7 +203,7 @@ export default function EcosystemTab({ clientId }: Props) {
               Об основателе
             </div>
             <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginTop: 2, lineHeight: 1.2 }}>
-              {ownerName || profile.name}
+              {ownerName}
             </div>
             {profile.owner_positioning && (
               <div style={{ fontSize: 12, color: '#6b7c8e', marginTop: 3, lineHeight: 1.3,

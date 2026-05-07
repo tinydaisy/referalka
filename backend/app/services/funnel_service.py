@@ -37,7 +37,7 @@ async def _get_brand_context(client_id: int, db) -> dict:
     row = await db.fetchrow(
         """SELECT
               COALESCE(NULLIF(brand_name, ''), name) AS brand_name,
-              owner_name,
+              name AS owner_name,
               owner_achievements,
               social_links
              FROM clients WHERE id = $1""",

@@ -6,7 +6,6 @@ interface Achievement { label: string; value: string }
 interface Profile {
   id: number
   name: string
-  owner_name?: string | null
   owner_photo_url?: string | null
   owner_positioning?: string | null
   owner_achievements?: Achievement[]
@@ -78,7 +77,7 @@ function initials(name: string): string {
 }
 
 export default function OwnerPage({ profile, onBack }: Props) {
-  const name = profile.owner_name || profile.name
+  const name = profile.name
   const role = profile.owner_positioning || ''
   const ach = (profile.owner_achievements || []).filter(a => a.label?.trim() && a.value?.trim())
   const socials = SOCIAL_META.filter(s => profile.social_links?.[s.key])

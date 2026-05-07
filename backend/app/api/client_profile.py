@@ -51,7 +51,7 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
     row = await db.fetchrow(
         """SELECT id, name, telegram_username,
                   brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
-                  owner_name, owner_photo_url, owner_positioning, owner_achievements,
+                  owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links
              FROM clients
             WHERE id = $1 AND is_active = TRUE""",
@@ -485,8 +485,7 @@ class ProfileUpdate(BaseModel):
     profile_photo_url:  Optional[str]  = None       # фото бренда
     positioning:        Optional[str]  = None       # позиционирование бренда
     achievements:       Optional[list] = None       # [{label, value}] факты бренда
-    # Основатель
-    owner_name:         Optional[str]  = None
+    # Основатель (имя берётся из clients.name — не редактируется в UI)
     owner_photo_url:    Optional[str]  = None
     owner_positioning:  Optional[str]  = None
     owner_achievements: Optional[list] = None       # [{label, value}] факты основателя
@@ -502,7 +501,7 @@ async def get_my_profile(
     row = await db.fetchrow(
         """SELECT id, name, telegram_username, email,
                   brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
-                  owner_name, owner_photo_url, owner_positioning, owner_achievements,
+                  owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links
              FROM clients WHERE id = $1""",
         int(client["sub"])
@@ -535,7 +534,6 @@ async def update_my_profile(
     if data.positioning       is not None: add("positioning",       data.positioning or None)
     if data.achievements      is not None: add("achievements",      data.achievements, jsonb=True)
 
-    if data.owner_name         is not None: add("owner_name",         data.owner_name or None)
     if data.owner_photo_url    is not None: add("owner_photo_url",    data.owner_photo_url or None)
     if data.owner_positioning  is not None: add("owner_positioning",  data.owner_positioning or None)
     if data.owner_achievements is not None: add("owner_achievements", data.owner_achievements, jsonb=True)
@@ -552,7 +550,7 @@ async def update_my_profile(
             WHERE id = ${len(args)}
             RETURNING id,
                       brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
-                      owner_name, owner_photo_url, owner_positioning, owner_achievements,
+                      owner_photo_url, owner_positioning, owner_achievements,
                       bio, social_links""",
         *args
     )

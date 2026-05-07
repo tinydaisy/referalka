@@ -29,8 +29,7 @@ interface Profile {
   profile_photo_url?: string | null         // фото бренда
   positioning?: string | null               // позиционирование бренда
   achievements: Achievement[]               // факты в цифрах бренда
-  // Основатель
-  owner_name?: string | null
+  // Основатель (имя берётся из clients.name — отдельной колонки больше нет)
   owner_photo_url?: string | null
   owner_positioning?: string | null
   owner_achievements: Achievement[]         // факты в цифрах основателя
@@ -130,7 +129,6 @@ export default function MiniAppSettingsPage() {
         positioning:    profile.positioning    || null,
         achievements:   cleanAch(profile.achievements),
         // основатель
-        owner_name:         profile.owner_name        || null,
         owner_photo_url:    profile.owner_photo_url   || null,
         owner_positioning:  profile.owner_positioning || null,
         owner_achievements: cleanAch(profile.owner_achievements),
@@ -325,7 +323,7 @@ export default function MiniAppSettingsPage() {
             <div className="space-y-4 max-w-2xl">
               <Field label="Имя в Mini App"
                      hint="Это имя из регистрации. Для смены — напишите в Тех.поддержку.">
-                <input type="text" value={profile.owner_name || profile.name || ''} disabled
+                <input type="text" value={profile.name || ''} disabled
                        className="input opacity-60 cursor-not-allowed" />
               </Field>
 
