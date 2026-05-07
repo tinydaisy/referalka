@@ -106,6 +106,20 @@
 
 WHERE-логика контактов вынесена в хелпер [`_build_contacts_filter`](backend/app/api/contacts.py) — переиспользуется и в `GET /contacts`, и в `GET /contacts/export`.
 
+### Канал подписки в воронке — https-ссылка, не @-префикс (07.05.2026)
+
+В тексте «Чтобы получить материалы — подпишись на канал X и жми «ГОТОВО»» X — теперь всегда **https-ссылка** (`https://t.me/foo` или `https://t.me/+abc…`). Раньше код добавлял `@` к чему угодно, и для инвайт-кода закрытого канала получался мусор `@+w1sFWX...`.
+
+**Где:** новый модуль [`backend/app/services/social_links.py`](backend/app/services/social_links.py):
+- `normalize_telegram_link(s)` — любой ввод (`@name`, `t.me/foo`, `+abc`, `name`, `https://...`) → `https://t.me/...`. Если строка не похожа на Telegram (например `https://vk.com/...`) — возвращает её как есть.
+- `telegram_api_id(s)` — из того же ввода → `@channelname` для `getChatMember`. Для инвайт-кода `+abc…` возвращает `''` (через Bot API проверить подписку на закрытый канал по инвайт-коду нельзя — нужен числовой `chat_id`).
+- `normalize_social_links(social)` — нормализует `social_links.telegram` целиком.
+
+**Как используется:**
+- [`funnel_service._get_brand_context`](backend/app/services/funnel_service.py) кладёт в ctx два значения: `subscription_channel` (https — для текста) и `subscription_channel_api` (@-формат — для проверки подписки в `run_check_subscription`).
+- [`client_profile.PATCH /me/profile`](backend/app/api/client_profile.py) применяет `normalize_social_links` перед записью — поле в БД сразу хранится в каноничном https-формате.
+- Поле «Telegram» в `/dashboard/mini-app` → вкладка «Основатель» → раздел «Соцсети» снабжено подсказкой «Полная ссылка через https. Для закрытого канала — инвайт-ссылка `https://t.me/+abcDEF…`».
+
 ### Воронки выдачи лид-магнитов (миграции 062, 063 от 05.05.2026)
 
 **Зачем.** Лид-магниты выдаются через бот по фиксированной схеме: «приветствие со списком подарков → проверка подписки на канал → выдача файлов → 30-минутный follow-up». Можно объединять несколько лид-магнитов в один пакет под единой ссылкой.
