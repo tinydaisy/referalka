@@ -66,10 +66,24 @@ export function MultiSelectDropdown<T extends string | number>({
     if (values.includes(v)) onChange(values.filter(x => x !== v))
     else onChange([...values, v])
   }
-  function selectAll() { onChange(options.map(o => o.value)) }
+  function selectAll() {
+    onChange(options.map(o => o.value))
+    extraToggle?.onToggle(true)
+  }
   function clearAll() {
     onChange([])
     extraToggle?.onToggle(false)
+  }
+  // mousedown-handler нужен потому что closer на dropdown тоже слушает mousedown.
+  // Если повесить только onClick — на iOS WebKit dropdown успевает закрыться раньше
+  // (mousedown → close → клик «промахивается»). Делаем preventDefault на mousedown,
+  // чтобы input не терял фокус, и обрабатываем действие там же.
+  function handle<E>(fn: () => void) {
+    return (e: React.MouseEvent<E>) => {
+      e.preventDefault()
+      e.stopPropagation()
+      fn()
+    }
   }
 
   return (
@@ -116,8 +130,8 @@ export function MultiSelectDropdown<T extends string | number>({
 
             {options.length > 1 && (
               <div className="flex justify-between items-center px-3 py-1.5 border-b border-gray-100 text-xs">
-                <button type="button" onClick={selectAll} className="text-blue-600 hover:underline">Выбрать все</button>
-                <button type="button" onClick={() => onChange([])} className="text-gray-500 hover:text-red-500">Снять</button>
+                <button type="button" onMouseDown={handle(selectAll)} className="text-blue-600 hover:underline">Выбрать все</button>
+                <button type="button" onMouseDown={handle(clearAll)} className="text-gray-500 hover:text-red-500">Снять</button>
               </div>
             )}
 
@@ -125,7 +139,7 @@ export function MultiSelectDropdown<T extends string | number>({
               {extraToggle && (
                 <button
                   type="button"
-                  onClick={() => extraToggle.onToggle(!extraToggle.checked)}
+                  onMouseDown={handle(() => extraToggle.onToggle(!extraToggle.checked))}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 border-b border-gray-50"
                 >
                   <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
@@ -146,7 +160,7 @@ export function MultiSelectDropdown<T extends string | number>({
                   <button
                     key={String(o.value)}
                     type="button"
-                    onClick={() => toggle(o.value)}
+                    onMouseDown={handle(() => toggle(o.value))}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50"
                   >
                     <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
