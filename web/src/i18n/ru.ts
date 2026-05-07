@@ -56,7 +56,7 @@ export const ru = {
     posterUrl: 'Индивидуальная афиша',
     photoFolder: 'Папка с фото',
     videoFolder: 'Папка с видео',
-    telegram: 'Telegram',
+    telegram: 'Ссылка на Telegram-канал',
     instagram: 'Instagram',
     website: 'Сайт',
     contacts: 'Контакты',

@@ -56,7 +56,7 @@ export const en = {
     posterUrl: 'Individual poster',
     photoFolder: 'Photo folder',
     videoFolder: 'Video folder',
-    telegram: 'Telegram',
+    telegram: 'Telegram channel link',
     instagram: 'Instagram',
     website: 'Website',
     contacts: 'Contacts',
