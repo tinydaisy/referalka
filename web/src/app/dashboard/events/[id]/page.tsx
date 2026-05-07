@@ -110,7 +110,7 @@ export default function EventPage() {
       {activeTab === 'overview'      && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} />}
-      {activeTab === 'co_organizers' && <CoOrganizersTab eventId={eventId} eventSlug={event.slug} />}
+      {activeTab === 'co_organizers' && <CoOrganizersTab eventId={eventId} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} />}
     </div>
   )
