@@ -241,7 +241,7 @@ fallback.
 <body>
   <div id="plusson-splash">
     <div class="brand">ПЛЮСОН</div>
-    <div class="sub">реферальный сервис</div>
+    <div class="sub">платформа событийного и реферального маркетинга</div>
     <div class="spinner"></div>
   </div>
   <div id="root"></div>

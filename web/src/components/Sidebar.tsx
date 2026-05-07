@@ -75,7 +75,7 @@ export default function Sidebar() {
           />
           <span className="text-[#FFCFA4] font-bold text-xl tracking-wide">ПЛЮСОН</span>
         </div>
-        <p className="text-white/50 text-xs mt-1">реферальный сервис</p>
+        <p className="text-white/50 text-xs mt-1">платформа событийного и реферального маркетинга</p>
       </div>
 
       {/* Navigation */}

@@ -13,7 +13,7 @@ export default function LoadingScreen() {
           ПЛЮСОН
         </div>
         <div style={{ fontSize: 13, color: 'rgba(255,207,164,0.5)', marginTop: 6, fontFamily: 'Roboto' }}>
-          реферальный сервис
+          платформа событийного и реферального маркетинга
         </div>
       </div>
       <div style={{ width: 200 }}>

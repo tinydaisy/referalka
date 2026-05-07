@@ -117,7 +117,7 @@ async def handle_start(message: Message, command: CommandObject):
     # Прямой /start
     await message.answer(
         f"Привет, {user.first_name or ''}! 👋\n\n"
-        f"Я бот сервиса <b>ПЛЮСОН</b> — реферальной платформы.\n\n"
+        f"Я бот <b>ПЛЮСОН</b> — платформы событийного и реферального маркетинга.\n\n"
         f"Откройте Mini App или перейдите по ссылке организатора.",
         parse_mode="HTML",
     )
