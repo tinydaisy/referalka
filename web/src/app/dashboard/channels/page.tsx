@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
   Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
-  Upload, Download, FileText,
+  Upload, Download, FileText, HelpCircle, Sparkles,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -23,6 +23,8 @@ interface Channel {
   display_name: string
   handle: string | null
   is_active: boolean
+  is_system?: boolean   // системный канал ПЛЮСОНа (общий @pluson_bot и т.п.)
+  is_test?: boolean     // в тестовом режиме админа (не выдан клиентам)
   subscribers: number
   unsubscribed: number
   created_at: string
@@ -296,12 +298,24 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
   onImport: () => void
 }) {
   const isTelegram = ch.platform_slug === 'telegram'
+  const isSystem = !!ch.is_system
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
+    <div className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-4 ${
+      isSystem ? 'border-amber-100 bg-gradient-to-r from-amber-50/40 to-white' : 'border-gray-100'
+    }`}>
       <PlatformBadge slug={ch.platform_slug} color={ch.platform_color_hex} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <h3 className="font-semibold text-gray-900 truncate">{ch.display_name}</h3>
+          {isSystem && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold"
+              style={{ background: '#FFCFA4', color: '#25455D' }}
+              title="Общий бот сервиса ПЛЮСОН — управляется администратором, доступен всем клиентам"
+            >
+              <Sparkles size={10} /> Системный
+            </span>
+          )}
           {ch.is_active ? (
             <span
               className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold"
@@ -325,33 +339,52 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
         </p>
       </div>
       <div className="flex items-center gap-4 text-sm shrink-0">
-        <div className="flex items-center gap-1.5 text-green-600" title="Подписчики">
+        <div className="flex items-center gap-1.5 text-green-600" title="Подписчики (ваши)">
           <Users size={14} />
           <span>{ch.subscribers.toLocaleString('ru')}</span>
         </div>
-        <div className="flex items-center gap-1.5 text-red-400" title="Отписавшиеся">
+        <div className="flex items-center gap-1.5 text-red-400" title="Отписавшиеся (ваши)">
           <BellOff size={14} />
           <span>{ch.unsubscribed.toLocaleString('ru')}</span>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {isTelegram && (
+        {isSystem ? (
+          // Для системного канала — только информационная иконка с пояснением.
+          // Управление (токен, удаление, импорт) — у администратора ПЛЮСОНа.
           <button
-            onClick={onImport}
-            className="p-2 hover:bg-amber-50 rounded-lg text-gray-500 hover:text-[#c98852]"
-            title="Импорт пользователей из CSV"
-          ><Upload size={14} /></button>
+            type="button"
+            onClick={() => alert(
+              'Это общий бот сервиса ПЛЮСОН.\n\n' +
+              '• Токен и параметры бота управляются администратором ПЛЮСОНа.\n' +
+              '• Удалить нельзя — он подключён ко всем клиентам сервиса.\n' +
+              '• Импорт CSV не нужен — подписчики приходят сами через /start или Mini App.\n' +
+              '• Подписки ваших клиентов отделены от других клиентов: вы видите только своих подписчиков.'
+            )}
+            className="p-2 hover:bg-amber-50 rounded-lg text-amber-500 hover:text-amber-600"
+            title="Системный канал — почему нельзя редактировать"
+          ><HelpCircle size={16} /></button>
+        ) : (
+          <>
+            {isTelegram && (
+              <button
+                onClick={onImport}
+                className="p-2 hover:bg-amber-50 rounded-lg text-gray-500 hover:text-[#c98852]"
+                title="Импорт пользователей из CSV"
+              ><Upload size={14} /></button>
+            )}
+            <button
+              onClick={onEdit}
+              className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-[#25455D]"
+              title="Редактировать"
+            ><Edit2 size={14} /></button>
+            <button
+              onClick={onDelete}
+              className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500"
+              title="Удалить навсегда"
+            ><Trash2 size={14} /></button>
+          </>
         )}
-        <button
-          onClick={onEdit}
-          className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-[#25455D]"
-          title="Редактировать"
-        ><Edit2 size={14} /></button>
-        <button
-          onClick={onDelete}
-          className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500"
-          title="Удалить навсегда"
-        ><Trash2 size={14} /></button>
       </div>
     </div>
   )
