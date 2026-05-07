@@ -53,9 +53,20 @@
 
 ### Ядро платформы
 
-**`tariffs`** — тарифные планы
-- `slug` (beta / basic / pro), `name`, `price`, `trial_days`, `max_events`, `max_participants` — лимиты
-- В MVP все клиенты на `beta`: trial_days=365, все лимиты = ∞
+**`tariffs`** — тарифные планы (миграции 067-072 от 07.05.2026)
+- `slug`, `name`, `price`, `contact_limit`, `broadcasts_daily_limit` (NULL=безлимит), `default_duration_days`
+- Текущие тарифы: `trial` (60 дн, 0 ₽, всё), `start` (30 дн, 990 ₽, lead_magnets), `pro` (30 дн, 2490 ₽, +conference/awards), `vip` (30 дн, 3900 ₽, всё+channels+export)
+- ⚠️ **Удалены** колонки `allow_custom_bot`, `trial_months`, `max_events`, `max_participants` — заменены фичами и подписками
+
+**`features`** — справочник опций тарифа (миграция 067)
+- `slug` (`channels`, `conference`, `awards`, `lead_magnets`, `export_contacts`), `name`, `description`, `sort`
+
+**`tariff_features (tariff_id, feature_id)`** — junction many-to-many (миграция 068). Какие фичи входят в какой тариф.
+
+**`client_subscriptions`** — подписки клиентов (миграция 069)
+- `client_id`, `tariff_id`, `started_at`, `expires_at`, `status` (active/expired/paused), `source` (paid/trial/admin/promo)
+- `notified_7d/3d/1d` BOOL — идемпотентность уведомлений за 7/3/1 день
+- Активная подписка: `status='active' AND expires_at > NOW()`. Истечение → `expired`, future broadcasts → `paused_subscription_expired`
 
 **`modules`** — подключаемые модули
 - `slug` (base / conference / webinar / training / promo), `name`, `is_active`
@@ -458,7 +469,7 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 | GET | `/m/{slug}` | Landing для одиночного лид-магнита: пишет `funnel_runs` со stage=landed (UTM, `pid` → реф-код партнёра) → 302 на `t.me/<bot>?start=fnl_<run_id>` |
 | GET | `/p/{slug}` | То же для пакета |
 
-`<bot>` = бот клиента, если у него VIP-тариф (`tariffs.allow_custom_bot=TRUE`) и подключён собственный telegram-канал. Иначе — общий @pluson_bot.
+`<bot>` = бот клиента, если у него активная подписка с фичей `channels` (миграция 067-072) и подключён собственный telegram-канал. Иначе — общий @pluson_bot.
 
 **Bot-флоу** (`backend/bot/handlers/start.py` + `funnel.py`):
 1. `/start fnl_<run_id>` → `funnel_service.run_started`: создаёт contact/platform_user если новый, ставит `stage=started`, шлёт уведомление организатору в `clients.notifications_telegram_chat_id`, отправляет Текст 1 + кнопку «ГОТОВО».
@@ -469,7 +480,7 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 - Уведомления всегда шлёт @pluson_bot (даже для VIP).
 - Клиент добавляет @pluson_bot админом в свой служебный канал, пересылает любое сообщение из канала в @pluson_bot, бот отвечает chat_id (handler `/getchatid` или ловит `forward_from_chat`).
 
-**Multi-bot polling** (`backend/bot/main.py`): один процесс держит polling для @pluson_bot (settings.telegram_bot_token) + всех VIP-токенов из `channels.bot_token` где `is_active=TRUE` и `tariffs.allow_custom_bot=TRUE`. Все боты разделяют те же handlers — резолв клиента идёт через `funnel_runs.run_id`.
+**Multi-bot polling** (`backend/bot/main.py`): один процесс держит polling для @pluson_bot (settings.telegram_bot_token) + всех ботов клиентов из `channels.bot_token` где `client_channels.is_active=TRUE`, `channels.is_system=FALSE`, и у клиента активна подписка с фичей `channels` (EXISTS на `client_subscriptions` + `tariff_features` + `features`). Все боты разделяют те же handlers — резолв клиента идёт через `funnel_runs.run_id`.
 
 **Плейсхолдеры в шаблоне воронки** (подставляются в момент отправки):
 - `{materials_list}` — нумерованный список названий «1. ...» «2. ...» (text_1)
@@ -685,11 +696,22 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 - При открытии Mini App → проверяется `getChatMember(channel_id, tg_user_id)` через Bot API
 - Если не подписан → показывается экран «Подпишись, чтобы продолжить»
 
-### Тарифный middleware
+### Subscription middleware (миграции 067-072)
 
-- Все запросы клиента проверяются через `TariffMiddleware`
-- Клиенты на `beta`: middleware возвращает разрешение на всё
-- Будущие тарифы: проверяются лимиты `max_events`, `max_participants`
+- [`app/middleware/subscription_guard.py`](backend/app/middleware/subscription_guard.py) — глобальный middleware
+- На POST/PATCH/PUT/DELETE проверяет наличие активной подписки клиента (по JWT.sub)
+- Если подписки нет / истекла → 403 «Подписка истекла, продлите тариф для возобновления работы.»
+- GET всегда пропускается (просмотр интерфейса разрешён даже при истёкшей подписке)
+- Пропускает по префиксам: `/api/v1/auth/`, `/admin/`, `/public/`, `/integrations/`, `/participants/`, `/event/`, `/r/`, `/m/`, `/p/`, `/health`
+- Админ (JWT.role='admin') пропускается всегда
+
+**Гард фич** (для конкретных эндпоинтов):
+- `app/services/features.py:client_has_feature(db, client_id, slug)` — bool
+- `_assert_can_use_custom_bot` в `api/channels.py` использует это для гарда фичи `channels`
+
+**Cron-таски подписок** (`app/tasks/subscriptions.py`, beat schedule):
+- `expire_overdue` (раз в час) — `UPDATE client_subscriptions SET status='expired'` где `expires_at <= NOW()` + ставит `paused_subscription_expired` всем `broadcast_schedules` этих клиентов с `fire_at > NOW()`.
+- `notify_expiring` (раз в час) — за 7/3/1 день до истечения шлёт сообщение в `clients.notifications_telegram_chat_id` через @pluson_bot. Идемпотентность через флаги `notified_7d/3d/1d` на подписке.
 
 ### Прогресс участника (эндпоинт для Mini App)
 

@@ -358,6 +358,67 @@ SELECT $new_client_id, ch.id, TRUE
 - `get_telegram_send_targets` в services/channels.py — JOIN на `client_channels`
 - Импорт CSV — пишет `platform_user_channels` с `client_channel_id` найденным через `client_channels(client_id, channel_id)`.
 
+### Тарифы и подписки клиентов (миграции 067-072 от 07.05.2026)
+
+**Концепция.** Тарифы хранят только параметры (цена, лимиты, длительность). Опциональные модули («свой бот», «модуль Конференции», «экспорт контактов» и т.п.) — отдельные сущности (`features`), привязываются к тарифам через junction. Активность тарифа у клиента — отдельная запись (`client_subscriptions`).
+
+**Таблицы:**
+- `features (id, slug, name, description, sort)` — справочник опций. Сейчас 5 фич: `lead_magnets`, `conference`, `awards`, `channels`, `export_contacts`.
+- `tariff_features (tariff_id, feature_id)` — many-to-many. Настройка состава тарифа = INSERT/DELETE строки, без миграций.
+- `client_subscriptions (id, client_id, tariff_id, started_at, expires_at, status, source, notified_7d/3d/1d)` — подписки клиента. Status: `active|expired|paused`. Source: `paid|trial|admin|promo`.
+- `clients.current_subscription_id` — денормализованный указатель на текущую подписку (для быстрого доступа в шапке UI).
+- В `tariffs` колонки `contact_limit`, `broadcasts_daily_limit` (NULL=безлимит), `default_duration_days`. **Удалены:** `allow_custom_bot`, `trial_months`, `max_events`, `max_participants`.
+
+**База** (всегда включено, не фичи): контакты, мероприятия, рассылки.
+
+**Тарифы:**
+
+| slug | Цена | Длит. | Контакты | Рассылки/сутки | Фичи поверх базы |
+|---|---:|---:|---:|---:|---|
+| `trial` | 0 ₽ | 60 дн | 10 000 | безлимит | все 5 |
+| `start` | 990 ₽ | 30 дн | 1 000 | 10 000 | lead_magnets |
+| `pro`   | 2 490 ₽ | 30 дн | 5 000 | 30 000 | lead_magnets, conference, awards |
+| `vip`   | 3 900 ₽ | 30 дн | 10 000 | безлимит | все 5 |
+
+**Три режима клиента:**
+1. **Активна** — `cs.status='active' AND cs.expires_at > NOW()` — всё работает.
+2. **Понижена** — клиент сам понизил тариф. Подписка active, но фич меньше. Утраченные фичи: read-only UI. Бот клиента: polling off (если фичи `channels` нет). Воронки → @pluson_bot. Рассылки по существующей базе **разрешены** (URL-кнопки работают без polling).
+3. **Истекла** — `expires_at < NOW()` или `status='expired'`. Глобальный freeze. Просмотр интерфейса ОК. Любая запись/правка/экспорт — 403. Polling off. Будущие рассылки → `paused_subscription_expired`. **Grace-периода нет**, хард-катит ровно в `expires_at`.
+
+**Backend компоненты:**
+- [`app/services/features.py`](backend/app/services/features.py) — `client_has_feature(db, client_id, slug)`, `get_client_features(db, client_id)`.
+- [`app/services/subscriptions.py`](backend/app/services/subscriptions.py) — `get_subscription`, `is_active`, `assert_active`, `expire_overdue`, `days_until_expires`.
+- [`app/middleware/subscription_guard.py`](backend/app/middleware/subscription_guard.py) — глобальный middleware: 403 на write-запросы клиента при истёкшей подписке. Пропускает `/api/v1/auth/*`, `/admin/*`, `/public/*`, `/integrations/*`, `/participants/*`, `/event/*`, `/r/*`, `/m/*`, `/p/*`. GET всегда ОК.
+- [`app/tasks/subscriptions.py`](backend/app/tasks/subscriptions.py) — Celery cron: `expire_overdue` (раз в час: помечает истёкшие, паузит будущие рассылки) и `notify_expiring` (раз в час: за 7/3/1 день шлёт через @pluson_bot, идемпотентность через `notified_7d/3d/1d`).
+- [`app/tasks/broadcast.py`](backend/app/tasks/broadcast.py) — race-protection: перед `sendMessage` проверяет подписку, если истекла → `paused_subscription_expired`.
+
+**Замена `allow_custom_bot` (5 мест):**
+
+| Файл | Сейчас |
+|---|---|
+| `api/channels.py:_assert_can_use_custom_bot` | `client_has_feature('channels')` |
+| `api/auth.py:get_me` | `me.features[]` + `me.subscription{status,expires_at,days_left,...}` |
+| `api/participants.py` (селектор @pluson_bot) | NOT EXISTS подписки с фичей `channels` |
+| `api/funnels.py` + `services/funnel_service.py` | `if 'channels' in features` |
+| `bot/main.py:_load_vip_bots` | EXISTS подписки с фичей `channels` |
+
+**Frontend компоненты:**
+- [`SubscriptionBadge.tsx`](web/src/components/SubscriptionBadge.tsx) — бейдж в шапке дашборда: зелёный/жёлтый/красный по дням до истечения. Клик → `/dashboard/settings?tab=subscription`.
+- [`SubscriptionBanner.tsx`](web/src/components/SubscriptionBanner.tsx) — крупный red banner при истёкшей подписке.
+- `Sidebar.tsx` — пункт «Конференции» скрыт если нет фичи `conference`.
+- `dashboard/settings/page.tsx` — вкладка «Подписка»: тариф, дата, состав фич, кнопка продления (через Telegram).
+- `dashboard/channels/page.tsx` — `me.features.includes('channels')` вместо `me.allow_custom_bot`.
+- `admin/clients/page.tsx` — статус подписки + бейджи фич.
+- `admin/tariffs/page.tsx` — форма с `contact_limit/broadcasts_daily_limit/feature_slugs`.
+
+**Уведомления.** За 7/3/1 день до истечения — сообщение в `clients.notifications_telegram_chat_id` через @pluson_bot. Триггер — Celery beat (`notify-expiring-subscriptions`, раз в час). Идемпотентность — флаги `notified_7d/3d/1d` на подписке.
+
+**Существующие клиенты на проде и dev** (на момент миграции — 2 шт):
+- ID 1, Маргарита Форбс (`vip`, trial_ends_at=2027-03-18) → подписка VIP до 2027-03-18, source=paid.
+- ID 3, ПЛЮСОН Сервис (системный, был `beta`, переключён на `vip`) → подписка VIP до 2099-12-31, source=admin (вечная). Идентифицируется по `email='system@pluson.ru'`.
+
+**Гранты при прогоне миграций.** Если роль БД ≠ postgres — после миграций обязательно: `GRANT SELECT, INSERT, UPDATE, DELETE ON features, tariff_features, client_subscriptions TO <role>; GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO <role>;`
+
 ### PLUSSON — одна платформа, не два продукта
 - **ivision-conf — не отдельный продукт.** Это аккаунт Марго в PLUSSON с модулем «Конференция»
 - **Репо `ivision-conf`** хранит только статичный лендинг текущей конференции. Весь TMA, бэкенд, бот и redirect_web_app — здесь, в `referalka`
