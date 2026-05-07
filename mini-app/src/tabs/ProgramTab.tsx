@@ -1009,29 +1009,29 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
               после этого нажмите «Я подписался».
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-              {chatGate.notSubscribed.map(ch => (
-                <a key={ch.speaker_id} href={ch.tg_channel_url || '#'}
-                   target="_blank" rel="noreferrer" style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  background: '#f6f8fb', borderRadius: 12, padding: '10px 12px',
-                  textDecoration: 'none', color: DARK, border: '1px solid #e5e9f0',
-                }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: 8, background: PEACH,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            <ol style={{ listStyle: 'none', counterReset: 'sub-list', padding: 0, margin: '0 0 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {chatGate.notSubscribed.map((ch, idx) => (
+                <li key={ch.speaker_id} style={{ counterIncrement: 'sub-list' }}>
+                  <a href={ch.tg_channel_url || '#'} target="_blank" rel="noreferrer" style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    background: '#f6f8fb', borderRadius: 12, padding: '10px 12px',
+                    textDecoration: 'none', color: DARK, border: '1px solid #e5e9f0',
                   }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={DARK} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9 22 2z"/>
-                    </svg>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {ch.name}
-                  </div>
-                  <span style={{ fontSize: 12, color: DARK, fontWeight: 700 }}>Подписаться →</span>
-                </a>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: '50%', background: PEACH,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0, color: DARK, fontSize: 14, fontWeight: 800,
+                    }}>
+                      {idx + 1}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {ch.name}
+                    </div>
+                    <span style={{ fontSize: 12, color: DARK, fontWeight: 700 }}>Подписаться →</span>
+                  </a>
+                </li>
               ))}
-            </div>
+            </ol>
 
             {chatGate.error && (
               <div style={{ color: '#c0392b', fontSize: 12, marginBottom: 10 }}>{chatGate.error}</div>

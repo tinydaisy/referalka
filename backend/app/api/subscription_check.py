@@ -77,39 +77,23 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
 
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
 
-    if conf:
-        # Конференция: ищем канал(ы) в event_collaborators этого события.
-        rows = await db.fetch(
-            f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
-               FROM event_collaborators cse
-               JOIN collaborators sp ON sp.id = cse.speaker_id
-               WHERE cse.event_id = $1
-                 AND cse.bot_in_channel = TRUE
-                 AND cse.exclude_channel_from_subscription = FALSE
-                 AND sp.tg_channel_id IS NOT NULL
-                 AND sp.tg_channel_id <> ''
-                 {role_filter}""",
-            event["id"],
-        )
-    else:
-        # Мероприятие: своих спикеров нет. Ищем «канал организатора» клиента —
-        # через event_collaborators ЛЮБОЙ конференции этого клиента, где
-        # role='organizer'. Канал организатора у клиента общий — задаётся
-        # один раз в карточке его конференции.
-        rows = await db.fetch(
-            """SELECT DISTINCT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url
-               FROM event_collaborators cse
-               JOIN collaborators sp ON sp.id = cse.speaker_id
-               JOIN events e ON e.id = cse.event_id
-               WHERE e.client_id = $1
-                 AND cse.role = 'organizer'
-                 AND cse.bot_in_channel = TRUE
-                 AND cse.exclude_channel_from_subscription = FALSE
-                 AND sp.tg_channel_id IS NOT NULL
-                 AND sp.tg_channel_id <> ''
-               LIMIT 1""",
-            event["client_id"],
-        )
+    # И конференция, и мероприятие: берём всех коллабораторов, привязанных
+    # к этому событию (event_collaborators) с подходящей ролью. У мероприятия
+    # это «соорганизаторы», у конференции — спикеры/организаторы конференции.
+    rows = await db.fetch(
+        f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url,
+                   cse.sort_order
+           FROM event_collaborators cse
+           JOIN collaborators sp ON sp.id = cse.speaker_id
+           WHERE cse.event_id = $1
+             AND cse.bot_in_channel = TRUE
+             AND cse.exclude_channel_from_subscription = FALSE
+             AND sp.tg_channel_id IS NOT NULL
+             AND sp.tg_channel_id <> ''
+             {role_filter}
+           ORDER BY cse.sort_order, cse.id""",
+        event["id"],
+    )
 
     if not rows:
         return {"status": 1, "not_subscribed": []}
