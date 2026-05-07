@@ -618,7 +618,7 @@ export default function ConferenceSpeakerPage() {
                     Подключение канала к проверке подписки отключено.{' '}
                     {subscriptionMode === 'none'
                       ? <>В <a href={`/dashboard/conferences/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Не требовать подписку».</>
-                      : <>В <a href={`/dashboard/conferences/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Только канал организатора», поэтому канал этого спикера не участвует в проверке.</>
+                      : <>В <a href={`/dashboard/conferences/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Только каналы организаторов», поэтому канал этого спикера не участвует в проверке.</>
                     }
                   </div>
                 </div>
