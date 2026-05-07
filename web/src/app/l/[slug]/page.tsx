@@ -148,15 +148,9 @@ export default async function EventLandingPage({
           />
         )}
 
-        <h1 style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 8 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 32 }}>
           {event.title}
         </h1>
-
-        {event.description && (
-          <p style={{ fontSize: 16, textAlign: 'center', color: '#FFCFA4', marginBottom: 32 }}>
-            {event.description}
-          </p>
-        )}
 
         <a
           href={`?app=tg`}
