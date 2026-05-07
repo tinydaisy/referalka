@@ -347,6 +347,30 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     setShowReg(true)
   }
 
+  // Если у события подключён сторонний лендинг и человек ещё не зарегистрирован —
+  // useEffect выше делает window.location.replace на этот лендинг. Между моментом
+  // снятия loading и заменой URL React успевает отрендерить LandingTab, и
+  // пользователь на долю секунды видит «Хочу участвовать» (иногда платное
+  // событие — кнопка опасна). Поэтому ДО рендера прячем всё под loader, пока
+  // редирект ещё не сработал.
+  const willRedirectToLanding =
+    !!event && !!(event.landing_url || '').trim() && !registered && !ended && !regFromLanding
+  if (willRedirectToLanding) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'linear-gradient(45deg, #25455D, #0a1520)',
+      }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: '50%',
+          border: '4px solid rgba(255,207,164,0.25)', borderTopColor: '#FFCFA4',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <div className="grad-header" style={{ padding: '14px 18px' }}>
