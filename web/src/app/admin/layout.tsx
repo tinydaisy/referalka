@@ -1,11 +1,12 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut } from 'lucide-react'
+import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio } from 'lucide-react'
 
 const adminNav = [
   { href: '/admin', label: 'Обзор', icon: BarChart2 },
   { href: '/admin/clients', label: 'Клиенты', icon: Users },
+  { href: '/admin/system-channels', label: 'Системные каналы', icon: Radio },
   { href: '/admin/partners', label: 'Партнёры', icon: Handshake },
   { href: '/admin/tariffs', label: 'Тарифы', icon: CreditCard },
 ]
