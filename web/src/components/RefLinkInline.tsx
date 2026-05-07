@@ -9,6 +9,8 @@ interface Props {
   refCode: string | null | undefined
   /** compact = без заголовка, занимает одну строку (для карточек в списке) */
   compact?: boolean
+  /** Если 'draft' — ссылка затуманена, копирование заблокировано (партнёру отдавать нельзя). */
+  eventStatus?: 'draft' | 'published' | 'ended' | null
 }
 
 /**
@@ -16,8 +18,9 @@ interface Props {
  * Формат — тот же, что в Mini App у участников: web-лендинг с pid и app=tg,
  * лендинг сам перебрасывает в Mini App при открытии в Telegram.
  */
-export default function RefLinkInline({ slug, refCode, compact = false }: Props) {
+export default function RefLinkInline({ slug, refCode, compact = false, eventStatus }: Props) {
   const [copied, setCopied] = useState(false)
+  const isDraft = eventStatus === 'draft'
 
   if (!slug || !refCode) {
     return (
@@ -31,6 +34,10 @@ export default function RefLinkInline({ slug, refCode, compact = false }: Props)
 
   async function handleCopy(e: React.MouseEvent) {
     e.preventDefault(); e.stopPropagation()
+    if (isDraft) {
+      alert('Событие в черновике — ссылка не сработает у партнёра. Сначала опубликуйте событие (статус справа сверху).')
+      return
+    }
     try {
       await navigator.clipboard.writeText(link)
       setCopied(true)
@@ -41,12 +48,16 @@ export default function RefLinkInline({ slug, refCode, compact = false }: Props)
   if (compact) {
     return (
       <div className="flex items-center gap-1.5 mt-1">
-        <code className="text-[10px] text-gray-600 font-mono bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 truncate flex-1 min-w-0">
+        <code
+          className="text-[10px] text-gray-600 font-mono bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 truncate flex-1 min-w-0"
+          style={isDraft ? { filter: 'blur(3px)', userSelect: 'none' } : undefined}
+          title={isDraft ? 'Опубликуйте событие, чтобы открыть ссылку' : undefined}
+        >
           {link}
         </code>
         <button type="button" onClick={handleCopy}
-          className="p-1 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100 shrink-0"
-          title="Скопировать">
+          className={`p-1 rounded shrink-0 ${isDraft ? 'text-gray-300 cursor-not-allowed' : 'text-gray-400 hover:text-[#25455D] hover:bg-gray-100'}`}
+          title={isDraft ? 'Сначала опубликуйте событие' : 'Скопировать'}>
           {copied ? <Check size={12} className="text-green-600" /> : <Copy size={12} />}
         </button>
       </div>
@@ -60,15 +71,21 @@ export default function RefLinkInline({ slug, refCode, compact = false }: Props)
         <span className="text-xs font-semibold text-amber-900">Партнёрская ссылка</span>
       </div>
       <p className="text-[11px] text-amber-800 mb-2 leading-relaxed">
-        Если человек придёт по этой ссылке и зарегистрируется на событие — он
-        будет привязан к этому контакту как привёдшему.
+        {isDraft
+          ? <><b>Событие в черновике</b> — ссылка не сработает у партнёра. Опубликуйте событие, чтобы запустить.</>
+          : 'Если человек придёт по этой ссылке и зарегистрируется на событие — он будет привязан к этому контакту как привёдшему.'}
       </p>
       <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 border border-amber-200">
-        <code className="text-[11px] text-gray-700 font-mono flex-1 break-all">
+        <code
+          className="text-[11px] text-gray-700 font-mono flex-1 break-all"
+          style={isDraft ? { filter: 'blur(4px)', userSelect: 'none' } : undefined}
+          title={isDraft ? 'Опубликуйте событие, чтобы открыть ссылку' : undefined}
+        >
           {link}
         </code>
         <button type="button" onClick={handleCopy}
-          className="flex items-center gap-1 text-xs font-medium text-amber-900 hover:text-amber-700 px-2 py-1 rounded shrink-0">
+          className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded shrink-0 ${isDraft ? 'text-gray-300 cursor-not-allowed' : 'text-amber-900 hover:text-amber-700'}`}
+          title={isDraft ? 'Сначала опубликуйте событие' : 'Скопировать'}>
           {copied ? <><Check size={13} /> Скопировано</> : <><Copy size={13} /> Копировать</>}
         </button>
       </div>

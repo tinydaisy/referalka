@@ -115,6 +115,14 @@ export default function ConferencePage() {
         </button>
       </div>
 
+      {(event?.status || 'draft') === 'draft' && (
+        <div className="mb-6 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 leading-relaxed">
+          ⚠️ <b>Это черновик.</b> Партнёрские ссылки и сторонний лендинг не работают —
+          участник, открыв ссылку, ничего не получит. Чтобы запустить, переключите
+          статус «Опубликовано» в правом верхнем углу.
+        </div>
+      )}
+
       {/* Tabs — горизонтальный скролл на мобильном */}
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-6">
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">

@@ -137,7 +137,7 @@ WHERE-логика контактов вынесена в хелпер [`_build_
 
 **Бот-флоу:**
 1. `/start fnl_<run_id>` ([backend/bot/handlers/start.py](backend/bot/handlers/start.py)) — создаём `contact` + `platform_users` если новый человек, ставим `stage=started`, шлём уведомление организатору, отправляем **Текст 1** с inline-кнопкой «ГОТОВО».
-2. Callback `fnl_check_<run_id>` ([backend/bot/handlers/funnel.py](backend/bot/handlers/funnel.py)) — `getChatMember` на `clients.social_links.telegram`. Если подписан → `stage=delivered`, шлём **Текст 2** со списком `1. Название — <ссылка>`, шедулим Celery `app.tasks.funnel.send_text_3` на 30 мин. Если нет — алерт «Не вижу подписки на канал».
+2. Callback `fnl_check_<run_id>` ([backend/bot/handlers/funnel.py](backend/bot/handlers/funnel.py)) — `getChatMember` на `clients.social_links.telegram`. Если подписан → `stage=delivered`, шлём **Текст 2** со списком `1. Название — <ссылка>`, шедулим Celery `app.tasks.funnel.send_text_3` на 30 мин. Если нет — алерт «Не вижу подписки на канал». **Повторное нажатие «ГОТОВО»** (run уже delivered) — шлём Текст 2 заново, без сообщения «уже отправлены»; таймер Текст 3 при повторе не плодится.
 3. Через 30 мин Celery шлёт **Текст 3** ([backend/app/services/funnel_service.py](backend/app/services/funnel_service.py) `send_text_3`): версия `delivered` для получивших, `stuck` для зависших.
 
 **Канал подписки.** Бот проверяет подписку на канал, который клиент вписал в `clients.social_links.telegram` (визитка основателя в `/dashboard/mini-app`, вкладка «Основатель»). Бот должен быть админом этого канала. Если поле пустое — проверку пропускаем, выдаём сразу.
@@ -599,7 +599,17 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - Модульные таблицы с префиксом `conf_` принадлежат модулю «Конференция».
 - Коллабораторы — глобальная база: `collaborators` + `conf_speaker_events`. У `collaborators` FK `contact_id → contacts(id)`.
 - `conf_speaker_events.notes` (миграция 041 от 2026-04-27) — произвольный текст под спикера в конкретной конференции (шпаргалка ведущего, частушка, заметки по гонорару). Редактируется на странице спикера в дашборде, в публичные endpoints (`/speakers/public`, `/speakers/{id}/public`) не отдаётся.
-- `collaborators.external_ref_param` (миграция 058 от 2026-05-05) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки коллаборатора с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим, не валидируем — клиент сам знает, к какой системе привязывает партнёра. **Где приписывается:** `GET /api/v1/public/events/{slug}/landing-redirect` (endpoint, который зовёт `mini-app/index.html` для авто-редиректа на `events.landing_url` ДО React-bundle) — если в запросе есть `pid` и он резолвится в коллаборатора с непустым `external_ref_param`, параметр приписывается к URL стороннего лендинга через `&` в самом конце. Без `pid` или без коллаборатора с этим полем — поведение не меняется.
+- `collaborators.external_ref_param` (миграция 058 от 2026-05-05, расширено 2026-05-07) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки коллаборатора с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим, не валидируем — клиент сам знает, к какой системе привязывает партнёра. **Общая логика** — [`backend/app/services/external_landing.py`](backend/app/services/external_landing.py): `resolve_external_ref_param(client_id, pid)` + `build_external_landing_url(...)`. **Где приписывается** — все 4 точки, в которых открывается `events.landing_url`:
+  1. `GET /api/v1/public/events/{slug}/landing-redirect` ([client_profile.py](backend/app/api/client_profile.py)) — для inline-скрипта `mini-app/index.html` ДО React. Только при `status='published'` и не-зарегистрированном пользователе.
+  2. `GET /api/v1/public/events/{slug}/external-ref?pid=…` (новый, [client_profile.py](backend/app/api/client_profile.py)) — справочник pid→`external_ref_param`. Работает независимо от status. Используется фронтами там, где `landing-redirect` не срабатывает.
+  3. SSR `/l/[slug]/page.tsx` ([web](web/src/app/l/%5Bslug%5D/page.tsx)) — 301-редирект веб-входа без `?app=tg`. Перед `redirect()` фетчит `external-ref`.
+  4. Mini App `EventPage.tsx` ([mini-app](mini-app/src/pages/EventPage.tsx)), функция `redirectToExternalLanding(landingUrl)` — useEffect (SPA-навигация на event с `landing_url`) и `handleWantParticipate` (клик «Хочу участвовать»). Перед `window.location.href` фетчит `external-ref`.
+
+  Без `pid` или без коллаборатора с непустым параметром — поведение не меняется. Любая ошибка резолва — тихо игнорируется (основной редирект работает).
+
+  **UI-защита от draft.** При `events.status='draft'` партнёрские ссылки и сторонний лендинг не открываются у участников (`/landing-redirect` отдаёт `{}`). Чтобы клиент случайно не разослал партнёрам мёртвые ссылки:
+  - Жёлтый баннер «⚠️ Это черновик…» в шапке `/dashboard/events/[id]` и `/dashboard/conferences/[id]`.
+  - В `<PublicLinks>` (вкладка «Основное» события) и `<RefLinkInline>` (карточка соорганизатора/спикера) при `eventStatus='draft'` URL **затуманен** через CSS `filter: blur(...)` + `userSelect: none`, кнопка «Копировать» дисейблена + tooltip «Сначала опубликуйте событие». При попытке клика — `alert()` с пояснением.
 
 ### Мердж контактов (миграция 036)
 

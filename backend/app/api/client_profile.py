@@ -30,6 +30,7 @@ from app.database import get_db, get_pool
 from app.auth import get_current_client
 from app.services.event_welcome import send_event_open_message
 from app.services.social_links import normalize_social_links, normalize_telegram_link, telegram_api_id
+from app.services.external_landing import resolve_external_ref_param, build_external_landing_url
 from app.config import settings
 
 
@@ -318,37 +319,15 @@ async def public_event_landing_redirect(
         if is_reg:
             return {}
 
-    # Если pid резолвится в коллаборатора с external_ref_param — приписываем
-    # его партнёрский параметр (например, gcpc=fdd97) к URL клиентского
-    # лендинга. Это связывает партнёра ПЛЮСОН с партнёром во внешней системе
-    # клиента (GetCourse / Bizon360 и т.п.). Если что-то пошло не так —
-    # просто не приписываем, основной редирект не ломаем.
-    external_ref_param = None
-    if pid:
-        try:
-            external_ref_param = await db.fetchval(
-                """SELECT col.external_ref_param
-                     FROM contacts c
-                     JOIN collaborators col ON col.contact_id = c.id
-                    WHERE c.client_id = $1
-                      AND (c.ref_code = $2 OR c.merged_ref_codes ? $2)
-                      AND col.external_ref_param IS NOT NULL
-                      AND col.external_ref_param <> ''
-                    LIMIT 1""",
-                row["client_id"], pid,
-            )
-        except Exception:
-            external_ref_param = None
-
-    from urllib.parse import urlencode
-    qs = {"event_slug": slug}
-    if tg_id is not None: qs["tg_id"] = str(tg_id)
-    if pid:               qs["pid"] = pid
-    if utm_source:        qs["utm_source"] = utm_source
-    sep = "&" if "?" in landing_url else "?"
-    redirect_url = landing_url + sep + urlencode(qs)
-    if external_ref_param:
-        redirect_url += "&" + external_ref_param.lstrip("?&")
+    external_ref_param = await resolve_external_ref_param(db, row["client_id"], pid)
+    redirect_url = build_external_landing_url(
+        landing_url,
+        event_slug=slug,
+        tg_id=tg_id,
+        pid=pid,
+        utm_source=utm_source,
+        external_ref_param=external_ref_param,
+    )
 
     # При редиректе на сторонний лендинг React-bundle Mini App не запустится →
     # POST /event не придёт. Шлём контекстное приветствие в бот сами,
@@ -366,6 +345,31 @@ async def public_event_landing_redirect(
             )
 
     return {"redirect_url": redirect_url}
+
+
+@public.get(
+    "/events/{slug}/external-ref",
+    summary="Партнёрский параметр внешней платформы клиента по pid (gcpc=fdd97 и т.п.)",
+)
+async def public_event_external_ref(
+    slug: str,
+    pid: Optional[str] = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Резолвит pid → collaborators.external_ref_param. Используется в SSR /l/[slug]
+    и в Mini App SPA-навигации (когда landing-redirect ДО React не сработал —
+    например, для draft-событий или при внутренней навигации внутри Mini App).
+    Работает независимо от status события. Если pid не привязан к коллаборатору
+    с external_ref_param — возвращает {external_ref_param: null}."""
+    if not pid:
+        return {"external_ref_param": None}
+    row = await db.fetchrow(
+        "SELECT client_id FROM events WHERE slug = $1 LIMIT 1", slug,
+    )
+    if not row:
+        return {"external_ref_param": None}
+    value = await resolve_external_ref_param(db, row["client_id"], pid)
+    return {"external_ref_param": value}
 
 
 @public.get("/events/{slug}/landing", summary="Данные лендинга события (для Mini App до регистрации)")

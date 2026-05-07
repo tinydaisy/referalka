@@ -76,11 +76,34 @@ export default async function EventLandingPage({
   // Telegram.WebApp.openLink покажет лендинг клиента).
   if (event.landing_url && !searchParams?.app) {
     const url = new URL(event.landing_url)
-    if (searchParams?.pid)            url.searchParams.set('pid', searchParams.pid)
-    if (searchParams?.new_partner_id) url.searchParams.set('pid', searchParams.new_partner_id)
+    const pid = searchParams?.pid || searchParams?.new_partner_id
+    if (pid)                          url.searchParams.set('pid', pid)
     if (searchParams?.utm_source)     url.searchParams.set('utm_source', searchParams.utm_source)
     url.searchParams.set('event_slug', event.slug)
-    redirect(url.toString())
+    // Партнёрский параметр внешней платформы клиента (например, gcpc=fdd97).
+    // Берётся из карточки коллаборатора, привязанного к pid.
+    const apiBase =
+      process.env.NEXT_PUBLIC_API_URL ||
+      process.env.API_URL ||
+      'http://localhost:8000'
+    let externalRef: string | null = null
+    if (pid) {
+      try {
+        const res = await fetch(
+          `${apiBase}/api/v1/public/events/${encodeURIComponent(event.slug)}/external-ref?pid=${encodeURIComponent(pid)}`,
+          { cache: 'no-store' },
+        )
+        if (res.ok) {
+          const data = await res.json()
+          externalRef = (data?.external_ref_param as string) || null
+        }
+      } catch { /* тихо игнорим, основной редирект не ломаем */ }
+    }
+    let redirectUrl = url.toString()
+    if (externalRef) {
+      redirectUrl += '&' + externalRef.replace(/^[?&]+/, '')
+    }
+    redirect(redirectUrl)
   }
 
   const tgUrl = buildTgRedirectUrl(event.client_bot_handle)

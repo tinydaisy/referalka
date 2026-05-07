@@ -261,16 +261,38 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     if (registered || ended) return
     const landingUrl: string = (event.landing_url || '').trim()
     if (!landingUrl) return
+    redirectToExternalLanding(landingUrl)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event, loading, registered, ended])
 
+  // Резолвит партнёрский параметр внешней платформы клиента (например, gcpc=fdd97)
+  // по pid, склеивает финальный URL и делает webview-навигацию.
+  // Дублирует логику бэка из app/services/external_landing.py для случаев,
+  // когда /landing-redirect ДО React не сработал (status='draft' / SPA-навигация).
+  async function redirectToExternalLanding(landingUrl: string) {
     const params = new URLSearchParams()
     if (tgUser?.id) params.set('tg_id', String(tgUser.id))
     if (partnerId)  params.set('pid', partnerId)
     if (utmSource)  params.set('utm_source', utmSource)
     params.set('event_slug', slug)
     const sep = landingUrl.includes('?') ? '&' : '?'
-    window.location.href = landingUrl + sep + params.toString()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event, loading, registered, ended])
+    let fullUrl = landingUrl + sep + params.toString()
+
+    if (partnerId) {
+      try {
+        const apiBase = import.meta.env.VITE_API_URL || ''
+        const r = await fetch(
+          `${apiBase}/api/v1/public/events/${encodeURIComponent(slug)}/external-ref?pid=${encodeURIComponent(partnerId)}`,
+        )
+        if (r.ok) {
+          const data = await r.json()
+          const extra = (data?.external_ref_param as string) || ''
+          if (extra) fullUrl += '&' + extra.replace(/^[?&]+/, '')
+        }
+      } catch { /* тихо игнорим, основной редирект не ломаем */ }
+    }
+    window.location.href = fullUrl
+  }
 
   if (loading || !event) {
     return (
@@ -294,14 +316,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     // ограничений и согласуется с авто-открытием.
     const landingUrl: string = (event?.landing_url || '').trim()
     if (landingUrl) {
-      const params = new URLSearchParams()
-      if (tgUser?.id) params.set('tg_id', String(tgUser.id))
-      if (partnerId)  params.set('pid', partnerId)
-      if (utmSource)  params.set('utm_source', utmSource)
-      params.set('event_slug', slug)
-      const sep = landingUrl.includes('?') ? '&' : '?'
-      const fullUrl = landingUrl + sep + params.toString()
-      window.location.href = fullUrl
+      await redirectToExternalLanding(landingUrl)
       return
     }
 

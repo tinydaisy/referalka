@@ -90,7 +90,7 @@ export default function EventOrganizerPage() {
 
       {/* Партнёрская ссылка для ЭТОГО мероприятия */}
       <div className="mb-6">
-        <RefLinkInline slug={event.slug} refCode={item.ref_code} />
+        <RefLinkInline slug={event.slug} refCode={item.ref_code} eventStatus={event.status} />
       </div>
 
       {/* Регалии (read-only превью; правится в карточке коллаборатора) */}

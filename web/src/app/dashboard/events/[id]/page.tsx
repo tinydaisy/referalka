@@ -83,6 +83,14 @@ export default function EventPage() {
         </div>
       </div>
 
+      {(event.status || 'draft') === 'draft' && (
+        <div className="mb-6 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 leading-relaxed">
+          ⚠️ <b>Это черновик.</b> Партнёрские ссылки и сторонний лендинг не работают —
+          участник, открыв ссылку, ничего не получит. Чтобы запустить, переключите
+          статус «Опубликовано» в правом верхнем углу.
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
         {TABS.map(tab => (

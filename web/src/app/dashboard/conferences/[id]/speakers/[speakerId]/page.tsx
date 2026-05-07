@@ -141,6 +141,7 @@ export default function ConferenceSpeakerPage() {
   const [mainBotHandle, setMainBotHandle] = useState<string>('')
   const [subscriptionMode, setSubscriptionMode] = useState<'none' | 'organizer' | 'all_speakers'>('none')
   const [eventSlug, setEventSlug] = useState<string | null>(null)
+  const [eventStatus, setEventStatus] = useState<'draft' | 'published' | 'ended' | null>(null)
   const [refCode, setRefCode] = useState<string | null>(null)
 
   const [loading, setLoading] = useState(true)
@@ -163,6 +164,7 @@ export default function ConferenceSpeakerPage() {
       if (m === 'organizer' || m === 'all_speakers') setSubscriptionMode(m)
       else setSubscriptionMode('none')
       setEventSlug(r?.conference?.event_slug || null)
+      setEventStatus((r?.conference?.event_status as any) || null)
     }).catch(() => {})
   }, [confId])
 
@@ -357,7 +359,7 @@ export default function ConferenceSpeakerPage() {
 
       {/* Партнёрская ссылка спикера на это событие */}
       <div className="mb-6">
-        <RefLinkInline slug={eventSlug} refCode={refCode} />
+        <RefLinkInline slug={eventSlug} refCode={refCode} eventStatus={eventStatus} />
       </div>
 
       {/* ── БЛОК 1: Данные выступления ── */}

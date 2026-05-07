@@ -221,7 +221,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       <SaveBar saving={saving} saved={saved} onSave={handleSave} />
 
       {/* Публичные ссылки — внизу */}
-      <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={(s) => onEventUpdated?.({ slug: s })} />
+      <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={(s) => onEventUpdated?.({ slug: s })} eventStatus={event?.status} />
     </div>
   )
 }

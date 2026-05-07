@@ -271,6 +271,7 @@ async def get_conference(
         """
         SELECT cc.*, e.title as event_title,
                e.slug        AS event_slug,
+               e.status      AS event_status,
                e.chat_url    AS event_chat_url,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
