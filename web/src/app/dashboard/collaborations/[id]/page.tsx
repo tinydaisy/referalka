@@ -288,7 +288,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             title="Telegram канал коллаборатора"
             mode="single"
             value={{ url: form.tg_channel_url || '', chatId: form.tg_channel_id || '' }}
-            onChange={(next) => setForm(f => ({ ...f, tg_channel_url: next.url, tg_channel_id: next.chatId }))}
+            onChange={(next) => setForm((f: any) => ({ ...f, tg_channel_url: next.url, tg_channel_id: next.chatId }))}
           />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.personalAccountId}</label>
