@@ -46,10 +46,11 @@ export default function EventPage() {
   // как в карточке конференции. Здесь это `<Link>`, не таб контента (см. рендер ниже).
   const TABS: { key: TabKey; label: string }[] = [
     { key: 'overview',      label: 'Основное' },
+    // «Соорганизаторы» — только для не-конф мероприятий, второй вкладкой после «Основного».
+    // У конференций есть свой UI спикеров — туда не дублируем.
+    ...(isConference ? [] : [{ key: 'co_organizers' as TabKey, label: 'Соорганизаторы' }]),
     { key: 'posters',       label: 'Афиши' },
     { key: 'referral',      label: 'Реф-программа' },
-    // «Соорганизаторы» — только для не-конф мероприятий. У конференций есть свой UI спикеров.
-    ...(isConference ? [] : [{ key: 'co_organizers' as TabKey, label: 'Соорганизаторы' }]),
     { key: 'participants',  label: 'Участники' },
   ]
 
