@@ -273,15 +273,13 @@ export default function MiniAppSettingsPage() {
                      hint="Крупно в шапке. Если оставить пустым — будет показано имя из регистрации.">
                 <input type="text" value={profile.brand_name || ''}
                        onChange={e => update('brand_name', e.target.value)}
-                       placeholder="iVISION"
                        className="input" maxLength={60} />
               </Field>
 
               <Field label="Позиционирование бренда"
-                     hint="Одна короткая строка под названием — что вы делаете. Пример: «Сообщество предпринимателей».">
+                     hint="Одна короткая строка под названием — что вы делаете.">
                 <input type="text" value={profile.positioning || ''}
                        onChange={e => update('positioning', e.target.value)}
-                       placeholder="Сообщество предпринимателей"
                        className="input" maxLength={120} />
               </Field>
             </div>
@@ -328,14 +326,7 @@ export default function MiniAppSettingsPage() {
               <Field label="Имя основателя" hint="Будет показано на карточке-тизере и на странице «Об основателе».">
                 <input type="text" value={profile.owner_name || ''}
                        onChange={e => update('owner_name', e.target.value)}
-                       placeholder="Маргарита Владимировна"
                        className="input" maxLength={80} />
-              </Field>
-
-              <Field label="Имя из регистрации (нередактируемо)"
-                     hint="Это техническое имя для входа в кабинет. Если хотите изменить — напишите в Тех.поддержку.">
-                <input type="text" value={profile.name} disabled
-                       className="input opacity-60 cursor-not-allowed" />
               </Field>
 
               <Field label="Фото основателя">
@@ -351,10 +342,9 @@ export default function MiniAppSettingsPage() {
               </Field>
 
               <Field label="Позиционирование основателя"
-                     hint="Одна строка о роли. Пример: «Эксперт по личному бренду и реферальному маркетингу».">
+                     hint="Одна строка о роли.">
                 <input type="text" value={profile.owner_positioning || ''}
                        onChange={e => update('owner_positioning', e.target.value)}
-                       placeholder="Эксперт по личному бренду…"
                        className="input" maxLength={140} />
               </Field>
             </div>
@@ -696,7 +686,7 @@ function OfferingModal({
           <div>
             <label className="label">Название</label>
             <input value={title} onChange={e => setTitle(e.target.value)}
-                   className="input" placeholder="Программа «Делай имя»" autoFocus />
+                   className="input" autoFocus />
           </div>
           <div>
             <label className="label">Описание</label>

@@ -48,7 +48,7 @@ export const ru = {
 
   fields: {
     name: 'Имя, фамилия или название',
-    namePlaceholder: 'Маргарита Форбс или Компания ООО',
+    namePlaceholder: '',
     nameRequired: 'Имя, фамилия или название *',
     position: 'Должность',
     achievements: 'Регалии (по одной на строку)',
@@ -192,7 +192,7 @@ export const ru = {
       },
       newModal: {
         title: 'Новый спикер',
-        namePlaceholder: 'Иван Иванов',
+        namePlaceholder: '',
         nameLabel: 'Имя и фамилия *',
         role: 'Роль',
         topic: 'Тема выступления',

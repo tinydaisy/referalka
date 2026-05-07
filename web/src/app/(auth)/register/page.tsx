@@ -94,7 +94,6 @@ export default function RegisterPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Имя *</label>
               <input
                 type="text" value={form.name} onChange={set('name')} required
-                placeholder="Маргарита Владимировна"
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
               />
             </div>

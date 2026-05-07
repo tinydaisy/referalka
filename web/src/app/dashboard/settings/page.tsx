@@ -262,7 +262,7 @@ export default function SettingsPage() {
             type="text"
             value={form.test_telegram_ids_raw}
             onChange={set('test_telegram_ids_raw')}
-            placeholder="8018913774, 7879070738, 5725111966"
+            placeholder=""
             className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
           />
           {form.test_telegram_ids_raw && (

@@ -48,7 +48,7 @@ export const en = {
 
   fields: {
     name: 'First name, last name or company',
-    namePlaceholder: 'Margaret Forbes or Company LLC',
+    namePlaceholder: '',
     nameRequired: 'First name, last name or company *',
     position: 'Position',
     achievements: 'Credentials (one per line)',
@@ -192,7 +192,7 @@ export const en = {
       },
       newModal: {
         title: 'New speaker',
-        namePlaceholder: 'John Smith',
+        namePlaceholder: '',
         nameLabel: 'First and last name *',
         role: 'Role',
         topic: 'Talk topic',
