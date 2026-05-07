@@ -291,6 +291,73 @@ API:
 
 При копировании события (`POST /events/{id}/copy`) `start_at`/`end_at` копии = `NULL`, статус = `draft`.
 
+### Подписочная архитектура G (миграция 066 от 2026-05-07)
+
+**Ключевое:** канал и привязка к клиенту — **разные сущности**. Один канал может обслуживать несколько клиентов (системные общие боты).
+
+**`channels`** (БЕЗ `client_id`):
+```
+id | platform_slug | display_name | handle | bot_token | is_system | is_test
+```
+- `is_system=TRUE` — общий сервисный канал (`@pluson_bot`, в будущем MAX/VK).
+- `is_test=TRUE` — системный канал в тестовом режиме (создан админом, но клиентам ещё не выдан). CHECK: `is_test=TRUE` только если `is_system=TRUE`.
+
+**`client_channels`** — junction «канал доступен клиенту»:
+```
+id | client_id (FK) | channel_id (FK) | is_active
+```
+- UNIQUE (client_id, channel_id).
+- `is_active=TRUE` — главный канал клиента на этой платформе. **Триггер** `enforce_one_active_per_platform` гарантирует один активный на (client × platform).
+
+**`platform_user_channels`** — подписки в КОНКРЕТНОМ контексте:
+```
+id | platform_user_id (FK platform_users) | client_channel_id (FK) | is_unsubscribed | subscribed_at | unsubscribed_at
+```
+- Раньше ссылалось на `channel_id` напрямую — теперь через `client_channel_id`. Это даёт **явное разделение** подписчиков по клиентам без риска утечки между ними.
+- ON DELETE CASCADE от `client_channels` — если клиента отвязывают от канала, его подписки автоматически уходят.
+
+**Системный клиент в `clients`** (`name='ПЛЮСОН Сервис'`, `email='system@pluson.ru'`, `tariff_slug='beta'`) — для контактов которые пришли через `@pluson_bot` без контекста (`/start` без аргументов, реклама самого ПЛЮСОНа). Их `platform_users.client_id` указывает на этого системного клиента.
+
+**Регистрация нового клиента** ([backend/app/api/auth.py](backend/app/api/auth.py)) — auto-INSERT в `client_channels` для всех боевых системных каналов:
+```sql
+INSERT INTO client_channels (client_id, channel_id, is_active)
+SELECT $new_client_id, ch.id, TRUE
+  FROM channels ch WHERE ch.is_system AND NOT ch.is_test;
+```
+Никаких ручных шагов.
+
+**Активация системного канала из тестового в боевой** (admin-API `PATCH /admin/system-channels/{id} {is_test: false}`) — backfill `client_channels` всем существующим клиентам. Обратное — только если 0 подписок (иначе 409).
+
+**Запреты в API клиента** ([backend/app/api/channels.py](backend/app/api/channels.py)):
+- 403 на DELETE/PATCH `bot_token` для `is_system=TRUE` каналов.
+- 403 на смену `display_name`/`handle` системных каналов.
+- 403 на импорт CSV в системный канал (юзеры приходят сами через `/start`).
+- 409 при DELETE канала с подписчиками (предупреждение, чтобы не потерять базу).
+
+**UI клиента** ([web/src/app/dashboard/channels/page.tsx](web/src/app/dashboard/channels/page.tsx)):
+- Системные каналы в списке — серая плашка «Системный» вместо кнопок Edit/Delete/Upload, с иконкой «?» и пояснением «управляется администратором ПЛЮСОНа, токен общий, удалить нельзя».
+
+**UI админа** ([web/src/app/admin/system-channels/page.tsx](web/src/app/admin/system-channels/page.tsx)):
+- CRUD системных каналов. Создание → всегда в тестовом режиме (`is_test=TRUE`). Перевод в бой (`is_test=FALSE`) автоматически делает backfill `client_channels` всем клиентам.
+
+**Глобальная отписка при `my_chat_member kicked`** ([backend/bot/handlers/chat_member.py](backend/bot/handlers/chat_member.py)):
+- Юзер заблокировал @pluson_bot → пометить `is_unsubscribed=TRUE` во ВСЕХ контекстах (по всем `client_channels` для этого канала). Бот реально заблокирован — никаким клиентом сообщения дойти не могут.
+- `mark_unsubscribed_globally` / `resubscribe_globally` в [backend/app/services/channels.py](backend/app/services/channels.py).
+
+**Один tg_id в нескольких контекстах** — норма. Один человек может попасть в БД как:
+- `platform_users(client_id=Маргарита, tg=X)` — пришёл по реф-ссылке Маргариты
+- `platform_users(client_id=Роман, tg=X)` — пришёл по реф-ссылке Романа
+- `platform_users(client_id=системный, tg=X)` — пришёл через `/start` без контекста
+
+И иметь по одной подписке в каждом контексте через `platform_user_channels(client_channel_id)` указывающие на разные `client_channels` записи.
+
+**Смена ключевых SQL-запросов:**
+- «Каналы клиента» → `JOIN channels ch ON ch.id=cc.channel_id WHERE cc.client_id=$1`
+- «Подписчики клиента на канал N» → `JOIN client_channels cc ON cc.id=puc.client_channel_id WHERE cc.client_id=$1 AND cc.channel_id=$N AND puc.is_unsubscribed=FALSE`
+- `_load_vip_tokens` в bot/main.py — JOIN на `client_channels` + `is_system=FALSE`
+- `get_telegram_send_targets` в services/channels.py — JOIN на `client_channels`
+- Импорт CSV — пишет `platform_user_channels` с `client_channel_id` найденным через `client_channels(client_id, channel_id)`.
+
 ### PLUSSON — одна платформа, не два продукта
 - **ivision-conf — не отдельный продукт.** Это аккаунт Марго в PLUSSON с модулем «Конференция»
 - **Репо `ivision-conf`** хранит только статичный лендинг текущей конференции. Весь TMA, бэкенд, бот и redirect_web_app — здесь, в `referalka`
