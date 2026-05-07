@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download } from 'lucide-react'
+import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 
@@ -449,9 +449,14 @@ export default function ContactsPage() {
                 {getInitials(selected)}
               </div>
               <div className="min-w-0 flex-1">
-                <h2 className="text-xl font-bold text-gray-900 truncate">
-                  {getName(selected)}
-                </h2>
+                <ContactNameEditor
+                  contactId={selected.id}
+                  initialName={getName(selected)}
+                  onSaved={(newName) => {
+                    setSelected((s: any) => s ? { ...s, name: newName } : s)
+                    setContacts((cs: any[]) => cs.map(c => c.id === selected.id ? { ...c, name: newName } : c))
+                  }}
+                />
               </div>
               {selected.is_unsubscribed && (
                 <span className="ml-auto text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full shrink-0">Отписан</span>
@@ -932,3 +937,91 @@ function FilterPanel({ initial, onApply, onClose }: {
     </div>
   )
 }
+
+
+// ─── Inline-редактор имени контакта ──────────────────────────────────────────
+function ContactNameEditor({
+  contactId,
+  initialName,
+  onSaved,
+}: {
+  contactId: number
+  initialName: string
+  onSaved: (newName: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(initialName)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  // Если поменялся выбранный контакт — обновляем локальный value
+  useEffect(() => { setValue(initialName); setEditing(false); setError('') }, [contactId, initialName])
+
+  async function save() {
+    const v = value.trim()
+    if (!v) { setError('Имя не может быть пустым'); return }
+    if (v === initialName) { setEditing(false); return }
+    setSaving(true); setError('')
+    try {
+      const r: any = await api.contacts.update(contactId, { name: v })
+      onSaved(r.contact?.name || v)
+      setEditing(false)
+    } catch (e: any) {
+      setError(e?.message || 'Ошибка')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <input
+            autoFocus
+            type="text"
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') save()
+              if (e.key === 'Escape') { setEditing(false); setValue(initialName); setError('') }
+            }}
+            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-base focus:outline-none focus:ring-1 focus:ring-brand/30 font-bold"
+            disabled={saving}
+            maxLength={200}
+          />
+          <button
+            onClick={save}
+            disabled={saving}
+            className="p-2 rounded-lg text-white"
+            style={{ background: '#25455D' }}
+            title="Сохранить"
+          >
+            <Check size={16} />
+          </button>
+          <button
+            onClick={() => { setEditing(false); setValue(initialName); setError('') }}
+            disabled={saving}
+            className="p-2 rounded-lg border border-gray-200 text-gray-500"
+            title="Отмена"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="group flex items-center gap-2 max-w-full text-left"
+      title="Кликните чтобы изменить имя"
+    >
+      <h2 className="text-xl font-bold text-gray-900 truncate group-hover:text-[#25455D]">{initialName}</h2>
+      <Pencil size={14} className="text-gray-300 group-hover:text-gray-600 shrink-0 transition-colors" />
+    </button>
+  )
+}
+

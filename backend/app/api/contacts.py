@@ -7,6 +7,7 @@ JOIN'ятся для отображения username и подписок на к
 import csv
 import io
 import json
+from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -766,3 +767,60 @@ async def merge_endpoint(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, **result}
+
+
+# ─── Редактирование контакта (имя, email, phone, tags) ───────────────────────
+
+class ContactUpdateRequest(BaseModel):
+    name:  Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
+@router.patch("/contacts/{contact_id}")
+async def update_contact(
+    contact_id: int,
+    data: ContactUpdateRequest,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Обновить имя/email/phone контакта. Только своих контактов."""
+    client_id = int(client["sub"])
+    own = await db.fetchval(
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+        contact_id, client_id
+    )
+    if not own:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+    sets = []
+    args: list = []
+    if data.name is not None:
+        name = (data.name or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Имя не может быть пустым")
+        if len(name) > 200:
+            raise HTTPException(status_code=400, detail="Имя слишком длинное (>200 симв.)")
+        args.append(name)
+        sets.append(f"name = ${len(args)}")
+    if data.email is not None:
+        from app.services.contact_merge import normalize_email as _normalize_email
+        em = (data.email or "").strip() or None
+        args.append(em); sets.append(f"email = ${len(args)}")
+        args.append(_normalize_email(em) if em else None); sets.append(f"email_normalized = ${len(args)}")
+    if data.phone is not None:
+        from app.services.contact_merge import normalize_phone as _normalize_phone
+        ph = (data.phone or "").strip() or None
+        args.append(ph); sets.append(f"phone = ${len(args)}")
+        args.append(_normalize_phone(ph) if ph else None); sets.append(f"phone_normalized = ${len(args)}")
+
+    if not sets:
+        raise HTTPException(status_code=400, detail="Нечего обновлять")
+
+    args.append(contact_id)
+    row = await db.fetchrow(
+        f"UPDATE contacts SET {', '.join(sets)}, updated_at = NOW() "
+        f"WHERE id = ${len(args)} RETURNING id, name, email, phone",
+        *args
+    )
+    return {"ok": True, "contact": dict(row)}
