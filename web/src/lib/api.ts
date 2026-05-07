@@ -383,7 +383,11 @@ export const api = {
     profile: {
       get:    () => request('/api/v1/clients/me/profile'),
       update: (data: any) => request('/api/v1/clients/me/profile', { method: 'PATCH', body: JSON.stringify(data) }),
-      resolveTelegramChatId: () => request('/api/v1/clients/me/profile/resolve-telegram-chat-id', { method: 'POST' }),
+      resolveTelegramChatId: (username?: string) =>
+        request('/api/v1/clients/me/profile/resolve-telegram-chat-id', {
+          method: 'POST',
+          body: JSON.stringify(username ? { username } : {}),
+        }),
     },
     offerings: {
       list:   () => request('/api/v1/client-offerings'),

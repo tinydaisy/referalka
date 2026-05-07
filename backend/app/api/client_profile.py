@@ -591,17 +591,26 @@ async def update_my_profile(
     return d
 
 
+class ResolveTgChatIdIn(BaseModel):
+    username: Optional[str] = None  # @xxx или xxx — если не задан, берём из social_links.telegram
+
+
 @profile_router.post("/profile/resolve-telegram-chat-id",
                      summary="Получить chat_id канала по @username и сохранить в social_links.telegram_chat_id")
 async def resolve_telegram_chat_id(
+    payload: ResolveTgChatIdIn = ResolveTgChatIdIn(),
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Берёт текущий `social_links.telegram`, если это **открытый** канал
-    (`https://t.me/username`) — вызывает Bot API `getChat` через @pluson_bot
-    и сохраняет числовой chat_id (например, `-1001234567890`) в
-    `social_links.telegram_chat_id`. Для закрытого канала с инвайт-ссылкой
-    Bot API не умеет резолвить — возвращаем 400.
+    """Получить chat_id публичного TG-канала через `getChat` и сохранить в
+    `social_links.telegram_chat_id`.
+
+    Источник @username:
+    - Если в body передан `username` (`@foo` или `foo`) — берём его. Это путь
+      «у меня в поле сохранена инвайт-ссылка, но реально канал имеет @username».
+    - Иначе — берём из `social_links.telegram` (если там открытый канал).
+
+    Для канала, у которого нет публичного @username — отдаём 400.
     """
     client_id = int(client["sub"])
     row = await db.fetchrow("SELECT social_links FROM clients WHERE id = $1", client_id)
@@ -610,16 +619,24 @@ async def resolve_telegram_chat_id(
     social = row["social_links"] or {}
     if isinstance(social, str):
         social = json.loads(social)
-    tg_link = (social or {}).get("telegram") or ""
-    if not tg_link:
-        raise HTTPException(status_code=400, detail="Сначала укажите ссылку на ваш Telegram-канал")
-    api_id = telegram_api_id(tg_link)
+
+    # 1) пытаемся взять username из payload
+    api_id = ""
+    if payload.username and payload.username.strip():
+        u = payload.username.strip().lstrip("@")
+        u = u.split("/")[-1]  # на случай, если вставили https://t.me/foo
+        if u:
+            api_id = f"@{u}"
+    # 2) если не передан — берём из social_links.telegram
+    if not api_id:
+        tg_link = (social or {}).get("telegram") or ""
+        if not tg_link:
+            raise HTTPException(status_code=400, detail="Введите @username канала или укажите ссылку на канал в поле выше")
+        api_id = telegram_api_id(tg_link)
     if not api_id:
         raise HTTPException(
             status_code=400,
-            detail=("У канала нет публичного @username (это закрытый канал по инвайт-ссылке). "
-                    "Bot API не может получить его ID автоматически. "
-                    "Откройте /dashboard/settings → вкладка «Тех.поддержка» — там инструкция как получить ID вручную."),
+            detail="invite_only",  # фронт превратит в попап «введите @username или см. инструкцию»
         )
     token = settings.telegram_bot_token
     if not token:

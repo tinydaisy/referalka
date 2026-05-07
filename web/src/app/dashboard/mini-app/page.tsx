@@ -103,18 +103,64 @@ export default function MiniAppSettingsPage() {
     if (value.trim()) next[key] = value.trim(); else delete next[key]
     update('social_links', next)
   }
-  async function resolveTelegramChatId() {
+  async function tryResolve(username?: string): Promise<boolean> {
     try {
-      const res: any = await api.miniApp.profile.resolveTelegramChatId()
-      // Подмерживаем chat_id в локальном профиле, чтобы не делать GET повторно
+      const res: any = await api.miniApp.profile.resolveTelegramChatId(username)
       if (profile && res?.chat_id) {
         const next = { ...profile.social_links, telegram_chat_id: String(res.chat_id) }
         update('social_links', next)
         alert(`ID канала получен: ${res.chat_id}`)
+        return true
       }
+      return false
     } catch (e: any) {
-      alert(e.message || 'Не получилось получить ID')
+      const msg = e.message || ''
+      // Спец-сигнал бэка: «канал закрытый, у него нет @username, но юзер может ввести вручную»
+      if (msg === 'invite_only') return false
+      alert(msg || 'Не получилось получить ID')
+      return false
     }
+  }
+  async function resolveTelegramChatId() {
+    if (!profile) return
+    const link = profile.social_links.telegram || ''
+    const isInvite = /\/\+/.test(link) || !link
+    if (!isInvite) {
+      // По ссылке видим открытый канал — пробуем сразу
+      await tryResolve()
+      return
+    }
+    // Закрытый канал (или поле пустое) — спрашиваем @username
+    const u = window.prompt(
+      'У канала из ссылки нет публичного @username (он закрытый по инвайт-ссылке).\n\n' +
+      'Если у канала есть публичный @username — впишите его сюда (без @).\n' +
+      'Если @username нет — нажмите «Отмена» и получите ID через бот по инструкции.',
+      ''
+    )
+    if (u === null) return  // отмена — пользователь идёт в инструкцию
+    const cleaned = u.trim().replace(/^@/, '').split('/').pop() || ''
+    if (!cleaned) return
+    await tryResolve(cleaned)
+  }
+  function normalizeChatIdInput(raw: string): string {
+    // Убираем пробелы и любые символы кроме цифр и минуса; минус только в начале и один.
+    const s = raw.trim().replace(/[^\d-]/g, '')
+    // Удаляем все минусы кроме первого
+    const sign = s.startsWith('-') ? '-' : ''
+    const digits = s.replace(/-/g, '')
+    return digits ? sign + digits : ''
+  }
+  function chatIdLooksValid(s: string): boolean {
+    if (!s) return true                  // пусто — ОК (поле опциональное)
+    return /^-100\d{6,}$/.test(s)        // канал/супергруппа: -100 + минимум 6 цифр
+  }
+  function updateChatId(raw: string) {
+    if (!profile) return
+    const cleaned = normalizeChatIdInput(raw)
+    const next = { ...profile.social_links }
+    if (cleaned) next.telegram_chat_id = cleaned
+    else delete next.telegram_chat_id
+    update('social_links', next)
   }
   function updateAch(field: 'achievements' | 'owner_achievements', idx: number, key: 'label' | 'value', value: string) {
     if (!profile) return
@@ -406,7 +452,10 @@ export default function MiniAppSettingsPage() {
                          placeholder={f.placeholder}
                          className="input" />
                   {f.hint && <p className="text-xs text-gray-500 mt-1">{f.hint}</p>}
-                  {f.key === 'telegram' && (
+                  {f.key === 'telegram' && (() => {
+                    const cid = profile.social_links.telegram_chat_id || ''
+                    const valid = chatIdLooksValid(cid)
+                    return (
                     <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
                       <label className="block text-xs font-semibold text-gray-700">
                         ID канала <span className="font-normal text-gray-500">(нужен для проверки подписки)</span>
@@ -415,28 +464,35 @@ export default function MiniAppSettingsPage() {
                         <input
                           type="text"
                           inputMode="numeric"
-                          value={profile.social_links.telegram_chat_id || ''}
-                          onChange={e => updateSocial('telegram_chat_id', e.target.value)}
+                          value={cid}
+                          onChange={e => updateChatId(e.target.value)}
+                          onBlur={e => updateChatId(e.target.value)}
                           placeholder="-1001234567890"
-                          className="flex-1 min-w-0 px-3 py-1.5 text-sm font-mono border border-gray-200 rounded focus:outline-none focus:border-[#25455D]"
+                          className={`flex-1 min-w-0 px-3 py-1.5 text-sm font-mono border rounded focus:outline-none focus:border-[#25455D] ${
+                            valid ? 'border-gray-200' : 'border-red-300'
+                          }`}
                         />
                         <button type="button"
                                 onClick={resolveTelegramChatId}
-                                disabled={!profile.social_links.telegram}
-                                title="Только для открытых каналов с @username"
-                                className="px-3 py-1.5 text-xs rounded bg-[#25455D] text-white disabled:opacity-50 whitespace-nowrap">
+                                className="px-3 py-1.5 text-xs rounded bg-[#25455D] text-white whitespace-nowrap">
                           Получить автоматически
                         </button>
                       </div>
+                      {!valid && (
+                        <p className="text-xs text-red-600">
+                          ID канала должен начинаться с «-100» и содержать только цифры. Например: -1001234567890
+                        </p>
+                      )}
                       <p className="text-xs text-gray-500">
-                        Открытый канал — нажмите «Получить автоматически».
-                        Закрытый канал (инвайт-ссылка) — впишите ID руками.{' '}
+                        Открытый канал — кнопка «Получить автоматически» сделает всё за вас.
+                        Закрытый — впишите ID руками.{' '}
                         <a href="/dashboard/settings#tg-chat-id" className="text-[#25455D] underline">
-                          Как узнать ID
+                          Как узнать ID канала
                         </a>.
                       </p>
                     </div>
-                  )}
+                    )
+                  })()}
                 </div>
               ))}
             </div>
