@@ -53,7 +53,7 @@ async def _resolve_post_register_redirect(db, client_id: int, event_slug: str) -
     if vip_handle:
         return {
             "redirect_path": f"/c/{client_id}/tg/event/{event_slug}",
-            "bot_handle":    vip_handle,
+            "bot_handle":    vip_handle.lstrip('@'),
             "is_vip_bot":    True,
         }
     return {

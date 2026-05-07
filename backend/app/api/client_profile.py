@@ -398,7 +398,7 @@ async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(ge
         row["client_id"],
     )
     if vip_handle:
-        return {"bot_handle": vip_handle, "is_vip_bot": True}
+        return {"bot_handle": vip_handle.lstrip('@'), "is_vip_bot": True}
     return {"bot_handle": "pluson_bot", "is_vip_bot": False}
 
 
