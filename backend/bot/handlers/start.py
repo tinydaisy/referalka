@@ -139,8 +139,24 @@ async def handle_start(message: Message, command: CommandObject):
                                    VALUES ($1, $2, TRUE)""",
                                 event["id"], contact_id,
                             )
-                        # Кнопка с Mini App клиента (если VIP-бот) или общего pluson_bot
-                        mini_app_url = f"{settings.mini_app_url}?startapp=ref_pg{event_slug}"
+                        # Mini App открывается прямо в контексте этого события.
+                        # Для VIP-бота клиента — /c/{client_id}/tg/event/{slug},
+                        # для общего @pluson_bot — /tg/event/{slug}.
+                        # Бот VIP — это бот, у которого `is_system=FALSE` среди
+                        # активных каналов клиента.
+                        is_vip_bot = await db.fetchval(
+                            """SELECT COALESCE(BOOL_OR(NOT ch.is_system), FALSE)
+                                 FROM channels ch
+                                 JOIN client_channels cc ON cc.channel_id = ch.id
+                                WHERE cc.client_id = $1
+                                  AND ch.platform_slug = 'telegram'
+                                  AND cc.is_active = TRUE
+                                  AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''""",
+                            event["client_id"],
+                        )
+                        base = "https://pluson.ru"
+                        path = f"/c/{event['client_id']}/tg/event/{event_slug}" if is_vip_bot else f"/tg/event/{event_slug}"
+                        mini_app_url = f"{base}{path}?_reg=1"
                         kb = InlineKeyboardMarkup(inline_keyboard=[[
                             InlineKeyboardButton(text="🎉 Открыть кабинет события",
                                                  web_app=WebAppInfo(url=mini_app_url))
