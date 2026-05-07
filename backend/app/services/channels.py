@@ -185,9 +185,23 @@ async def register_telegram_subscription(
             )
         else:
             display_name = (first_name + " " + last_name).strip() or username or f"TG {tg_id}"
+            # contacts.ref_code NOT NULL + UNIQUE (глобально) с миграции 060 — генерируем уникальный
+            from app.services.contact_merge import generate_ref_code
+            ref_code = None
+            for _ in range(8):
+                candidate = generate_ref_code()
+                exists = await db.fetchval(
+                    "SELECT 1 FROM contacts WHERE ref_code = $1", candidate,
+                )
+                if not exists:
+                    ref_code = candidate
+                    break
+            if not ref_code:
+                ref_code = generate_ref_code(length=12)
             contact_id = await db.fetchval(
-                """INSERT INTO contacts (client_id, name) VALUES ($1, $2) RETURNING id""",
-                client_id, display_name
+                """INSERT INTO contacts (client_id, name, ref_code)
+                   VALUES ($1, $2, $3) RETURNING id""",
+                client_id, display_name, ref_code,
             )
             pu_id = await db.fetchval(
                 """INSERT INTO platform_users
