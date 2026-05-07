@@ -10,12 +10,11 @@ interface Client {
   email: string
   phone: string | null
   telegram_username: string | null
-  tariff_slug: string
+  tariff_slug: string | null
   tariff_name: string | null
   features: string[] | null
   subscription_expires_at: string | null
   subscription_status: string | null
-  trial_ends_at: string | null
   is_active: boolean
   created_at: string
   events_count: number
@@ -102,14 +101,10 @@ export default function AdminClientsPage() {
                         {c.tariff_name || c.tariff_slug}
                       </span>
                     </div>
-                    {c.subscription_expires_at ? (
+                    {c.subscription_expires_at && (
                       <div className={`text-[10px] mt-1 ${c.subscription_status === 'expired' ? 'text-red-500' : 'text-gray-400'}`}>
                         {c.subscription_status === 'expired' ? 'истекла ' : 'до '}
                         {new Date(c.subscription_expires_at).toLocaleDateString('ru')}
-                      </div>
-                    ) : c.trial_ends_at && (
-                      <div className="text-[10px] text-gray-400 mt-1">
-                        пробный до {new Date(c.trial_ends_at).toLocaleDateString('ru')}
                       </div>
                     )}
                   </td>

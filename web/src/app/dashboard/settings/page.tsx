@@ -58,7 +58,7 @@ export default function SettingsPage() {
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
       })
-      setTariff({ slug: c.tariff_slug, trial_ends_at: c.trial_ends_at })
+      setTariff(c.subscription || null)
     }).catch(() => {})
     // fetch storage usage
     const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
@@ -102,10 +102,6 @@ export default function SettingsPage() {
       setSaving(false)
     }
   }
-
-  const trialDate = tariff?.trial_ends_at
-    ? new Date(tariff.trial_ends_at).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })
-    : '—'
 
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: 'profile',      label: 'Профиль',      icon: UserIcon  },

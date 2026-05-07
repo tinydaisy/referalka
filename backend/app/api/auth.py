@@ -59,11 +59,11 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
 
     client = await db.fetchrow(
         """
-        INSERT INTO clients (name, email, phone, telegram_username, password_hash, tariff_slug, trial_ends_at, partner_code, integration_token)
-        VALUES ($1, $2, $3, $4, $5, 'trial', NOW() + ($6 || ' days')::interval, $7, $8)
-        RETURNING id, name, email, tariff_slug, trial_ends_at
+        INSERT INTO clients (name, email, phone, telegram_username, password_hash, partner_code, integration_token)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, name, email
         """,
-        data.name, data.email, data.phone, data.telegram_username, pw_hash, str(trial_days), data.partner_code, _new_integration_token()
+        data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token()
     )
 
     # Создаём активную подписку (миграция 069). Без неё middleware будет блокировать все write.
@@ -110,7 +110,7 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
 async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
     # Пробуем залогинить как клиента
     client = await db.fetchrow(
-        "SELECT id, name, email, password_hash, tariff_slug, is_active FROM clients WHERE email = $1",
+        "SELECT id, name, email, password_hash, is_active FROM clients WHERE email = $1",
         data.email
     )
     if client and verify_password(data.password, client["password_hash"]):
@@ -125,7 +125,6 @@ async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
                 "id": client["id"],
                 "name": client["name"],
                 "email": client["email"],
-                "tariff_slug": client["tariff_slug"]
             }
         }
 
@@ -172,14 +171,11 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     payload = decode_token(credentials.credentials)
     client_id = int(payload["sub"])
     client = await db.fetchrow(
-        """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
-                c.trial_ends_at, c.created_at, c.timezone,
+        """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
+                c.created_at, c.timezone,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id,
                 c.integration_token,
-                t.name AS tariff_name,
-                t.price AS tariff_price,
-                t.contact_limit, t.broadcasts_daily_limit,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                    FROM channels ch
                    JOIN client_channels cc ON cc.channel_id = ch.id
@@ -190,7 +186,6 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                     AND ch.bot_token IS NOT NULL
                   LIMIT 1) AS main_bot_handle
            FROM clients c
-           LEFT JOIN tariffs t ON t.slug = c.tariff_slug
           WHERE c.id = $1""",
         client_id
     )
@@ -265,8 +260,8 @@ async def update_me(
     updates = {k: v for k, v in data.model_dump(exclude_unset=True).items()}
     if not updates:
         client = await db.fetchrow(
-            """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
-                c.trial_ends_at, c.created_at, c.timezone,
+            """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
+                c.created_at, c.timezone,
                 c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id
            FROM clients c WHERE c.id = $1""",
@@ -292,8 +287,8 @@ async def update_me(
         )
 
     client = await db.fetchrow(
-        """SELECT c.id, c.name, c.email, c.phone, c.telegram_username, c.tariff_slug,
-                  c.trial_ends_at, c.created_at, c.timezone,
+        """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
+                  c.created_at, c.timezone,
                   c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id
              FROM clients c WHERE c.id = $1""",

@@ -48,7 +48,11 @@ async def list_clients(
 
     if tariff:
         params.append(tariff)
-        conditions.append(f"c.tariff_slug = ${len(params)}")
+        # Фильтр по тарифу через активную подписку (clients.tariff_slug удалён, миграция 074)
+        conditions.append(
+            f"EXISTS (SELECT 1 FROM client_subscriptions cs JOIN tariffs t ON t.id=cs.tariff_id "
+            f"WHERE cs.client_id=c.id AND cs.id=c.current_subscription_id AND t.slug = ${len(params)})"
+        )
 
     where = " AND ".join(conditions)
     params.extend([limit, offset])
@@ -60,17 +64,14 @@ async def list_clients(
         f"""
         SELECT
           c.id, c.name, c.email, c.phone, c.telegram_username,
-          c.tariff_slug, c.trial_ends_at, c.is_active, c.created_at,
-          t.name AS tariff_name,
-          (SELECT cs.expires_at FROM client_subscriptions cs
-            WHERE cs.client_id = c.id ORDER BY cs.expires_at DESC LIMIT 1) AS subscription_expires_at,
-          (SELECT cs.status FROM client_subscriptions cs
-            WHERE cs.client_id = c.id ORDER BY cs.expires_at DESC LIMIT 1) AS subscription_status,
+          c.is_active, c.created_at,
+          t.slug AS tariff_slug, t.name AS tariff_name,
+          cs.expires_at AS subscription_expires_at,
+          cs.status     AS subscription_status,
           (SELECT ARRAY_AGG(f.slug ORDER BY f.sort)
-             FROM client_subscriptions cs
-             JOIN tariff_features tf ON tf.tariff_id = cs.tariff_id
+             FROM tariff_features tf
              JOIN features f         ON f.id = tf.feature_id
-            WHERE cs.client_id = c.id
+            WHERE tf.tariff_id = cs.tariff_id
               AND cs.status = 'active'
               AND cs.expires_at > NOW()) AS features,
           (SELECT COUNT(*) FROM events e WHERE e.client_id = c.id) AS events_count,
@@ -88,7 +89,8 @@ async def list_clients(
             JOIN contacts ct ON ct.id = co.contact_id
             WHERE ct.client_id = c.id) AS collaborators_count
         FROM clients c
-        LEFT JOIN tariffs t ON t.slug = c.tariff_slug
+        LEFT JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+        LEFT JOIN tariffs t ON t.id = cs.tariff_id
         WHERE {where}
         ORDER BY c.created_at DESC
         LIMIT ${len(params)-1} OFFSET ${len(params)}
@@ -131,7 +133,31 @@ async def update_client(
     if is_active is not None:
         await db.execute("UPDATE clients SET is_active = $1 WHERE id = $2", is_active, client_id)
     if tariff_slug:
-        await db.execute("UPDATE clients SET tariff_slug = $1 WHERE id = $2", tariff_slug, client_id)
+        # Перевод на другой тариф: помечаем активную подписку expired,
+        # создаём новую подписку с этим тарифом на default_duration_days, source='admin'.
+        tariff = await db.fetchrow(
+            "SELECT id, default_duration_days FROM tariffs WHERE slug = $1", tariff_slug
+        )
+        if not tariff:
+            raise HTTPException(status_code=400, detail=f"Тариф '{tariff_slug}' не найден")
+        days = tariff["default_duration_days"] or 30
+        async with db.transaction():
+            await db.execute(
+                """UPDATE client_subscriptions SET status='expired', updated_at=NOW()
+                    WHERE client_id=$1 AND status='active'""",
+                client_id,
+            )
+            new_sub_id = await db.fetchval(
+                """INSERT INTO client_subscriptions
+                     (client_id, tariff_id, started_at, expires_at, status, source)
+                   VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval, 'active', 'admin')
+                   RETURNING id""",
+                client_id, tariff["id"], str(days),
+            )
+            await db.execute(
+                "UPDATE clients SET current_subscription_id = $1 WHERE id = $2",
+                new_sub_id, client_id,
+            )
     return {"message": "Обновлено"}
 
 

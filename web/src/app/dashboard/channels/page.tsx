@@ -33,8 +33,6 @@ interface Channel {
 
 interface Me {
   id: number
-  tariff_slug: string
-  tariff_name?: string
   features?: string[]
 }
 
