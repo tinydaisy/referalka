@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X } from 'lucide-react'
+import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
+import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 
 interface Identity {
   platform_slug: string
@@ -115,10 +116,11 @@ function Avatar({ contact }: { contact: Contact }) {
 const EMPTY_FILTERS: ContactFilters = {
   subscription: 'any',
   platforms: [],
-  // channelIds: undefined - не активен, показать всех. Когда юзер открывает фильтр,
-  // FilterPanel preselect'ит все каналы клиента и переводит channelIds в массив.
   utmSources: [],
   tags: [],
+  eventIds: [],
+  leadMagnetIds: [],
+  packageIds: [],
   dateFrom: '',
   dateTo: '',
 }
@@ -127,21 +129,74 @@ function countActiveFilters(f: ContactFilters): number {
   let n = 0
   if (f.subscription && f.subscription !== 'any') n++
   if (f.platforms?.length) n++
-  // Фильтр каналов активен если массив задан (даже пустой = «явно ни одного»)
-  if (Array.isArray(f.channelIds)) n++
-  if (f.includeUnattached) n++
+  if (f.channelIds?.length || f.includeUnattached) n++
   if (f.utmSources?.length) n++
   if (f.tags?.length) n++
+  if (f.eventIds?.length) n++
+  if (f.leadMagnetIds?.length) n++
+  if (f.packageIds?.length) n++
   if (f.dateFrom) n++
   if (f.dateTo) n++
   return n
 }
 
+function parseFiltersFromUrl(): { filters: ContactFilters; search: string; showUnsubscribed: boolean } {
+  if (typeof window === 'undefined') return { filters: EMPTY_FILTERS, search: '', showUnsubscribed: false }
+  const sp = new URLSearchParams(window.location.search)
+  const ints = (k: string) => (sp.get(k) || '').split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n))
+  const strs = (k: string) => (sp.get(k) || '').split(',').map(s => s.trim()).filter(Boolean)
+  const f: ContactFilters = { ...EMPTY_FILTERS }
+  const sub = sp.get('subscription')
+  if (sub === 'subscribed' || sub === 'unsubscribed' || sub === 'any') f.subscription = sub
+  if (sp.has('platforms'))    f.platforms = strs('platforms')
+  if (sp.has('channel_ids'))  f.channelIds = ints('channel_ids')
+  if (sp.get('include_unattached') === '1') f.includeUnattached = true
+  if (sp.has('utm_sources'))  f.utmSources = strs('utm_sources')
+  if (sp.has('tags'))         f.tags = strs('tags')
+  if (sp.has('event_ids'))    f.eventIds = ints('event_ids')
+  if (sp.has('lead_magnet_ids')) f.leadMagnetIds = ints('lead_magnet_ids')
+  if (sp.has('package_ids'))  f.packageIds = ints('package_ids')
+  f.dateFrom = sp.get('date_from') || ''
+  f.dateTo = sp.get('date_to') || ''
+  return {
+    filters: f,
+    search: sp.get('q') || '',
+    showUnsubscribed: sp.get('show_unsubscribed') === '1',
+  }
+}
+
+function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscribed: boolean) {
+  if (typeof window === 'undefined') return
+  const sp = new URLSearchParams(window.location.search)
+  ;['q','subscription','platforms','channel_ids','include_unattached','utm_sources','tags',
+    'event_ids','lead_magnet_ids','package_ids','date_from','date_to','show_unsubscribed']
+    .forEach(k => sp.delete(k))
+  if (search) sp.set('q', search)
+  if (showUnsubscribed) sp.set('show_unsubscribed', '1')
+  if (filters.subscription && filters.subscription !== 'any') sp.set('subscription', filters.subscription)
+  if (filters.platforms?.length) sp.set('platforms', filters.platforms.join(','))
+  if (filters.channelIds?.length) sp.set('channel_ids', filters.channelIds.join(','))
+  if (filters.includeUnattached) sp.set('include_unattached', '1')
+  if (filters.utmSources?.length) sp.set('utm_sources', filters.utmSources.join(','))
+  if (filters.tags?.length) sp.set('tags', filters.tags.join(','))
+  if (filters.eventIds?.length) sp.set('event_ids', filters.eventIds.join(','))
+  if (filters.leadMagnetIds?.length) sp.set('lead_magnet_ids', filters.leadMagnetIds.join(','))
+  if (filters.packageIds?.length) sp.set('package_ids', filters.packageIds.join(','))
+  if (filters.dateFrom) sp.set('date_from', filters.dateFrom)
+  if (filters.dateTo) sp.set('date_to', filters.dateTo)
+  const qs = sp.toString()
+  const next = window.location.pathname + (qs ? `?${qs}` : '')
+  window.history.replaceState(null, '', next)
+}
+
 export default function ContactsPage() {
-  const [search, setSearch] = useState('')
-  const [showUnsubscribed, setShowUnsubscribed] = useState(false)
-  const [filters, setFilters] = useState<ContactFilters>(EMPTY_FILTERS)
+  // Инициализируем из URL — для deep-link с лид-магнитов и для возврата к фильтру.
+  const initial = typeof window !== 'undefined' ? parseFiltersFromUrl() : { filters: EMPTY_FILTERS, search: '', showUnsubscribed: false }
+  const [search, setSearch] = useState(initial.search)
+  const [showUnsubscribed, setShowUnsubscribed] = useState(initial.showUnsubscribed)
+  const [filters, setFilters] = useState<ContactFilters>(initial.filters)
   const [filterPanelOpen, setFilterPanelOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [total, setTotal] = useState(0)
   const [totalAll, setTotalAll] = useState(0)
@@ -173,12 +228,33 @@ export default function ContactsPage() {
   }, [])
 
   useEffect(() => {
+    syncFiltersToUrl(filters, search, showUnsubscribed)
     const t = setTimeout(() => {
       setOffset(0)
       fetchContacts(search, 0, showUnsubscribed, filters)
     }, 300)
     return () => clearTimeout(t)
   }, [search, showUnsubscribed, filters, fetchContacts])
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const blob = await api.contacts.exportCsv(search, showUnsubscribed, filters)
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const stamp = new Date().toISOString().slice(0, 10)
+      a.download = `contacts-${stamp}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      alert('Ошибка экспорта: ' + (e as Error).message)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     fetchContacts(search, offset, showUnsubscribed, filters)
@@ -256,6 +332,14 @@ export default function ContactsPage() {
                   {activeFilterCount}
                 </span>
               )}
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={exporting || total === 0}
+              className="px-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50 shrink-0"
+              title={total === 0 ? 'Нет контактов для экспорта' : 'Скачать CSV отображённых контактов'}
+            >
+              <Download size={14} />
             </button>
           </div>
           <div className="mt-2 px-1 flex items-center justify-between">
@@ -620,6 +704,9 @@ interface FilterOptions {
   channels:  { id: number; platform_slug: string; display_name: string; handle: string | null; is_active: boolean }[]
   utm_sources: string[]
   tags: string[]
+  events: { id: number; title: string; slug: string }[]
+  lead_magnets: { id: number; name: string }[]
+  packages: { id: number; name: string }[]
 }
 
 function FilterPanel({ initial, onApply, onClose }: {
@@ -633,37 +720,29 @@ function FilterPanel({ initial, onApply, onClose }: {
 
   useEffect(() => {
     api.contacts.filterOptions()
-      .then((loaded: FilterOptions) => {
-        setOpts(loaded)
-        // Если фильтр каналов ещё не задан в текущем filters (channelIds === undefined) —
-        // ставим preselect ВСЕХ каналов. Это значит «при открытии все галки уже стоят».
-        // Пользователь снимает галки → массив сокращается. Снимет все → останется [] (явно никого).
-        setDraft(d => {
-          if (Array.isArray(d.channelIds)) return d
-          return { ...d, channelIds: loaded.channels.map((c: FilterOptions['channels'][number]) => c.id) }
-        })
-      })
-      .catch(() => setOpts({ platforms: [], channels: [], utm_sources: [], tags: [] }))
+      .then((loaded: FilterOptions) => setOpts(loaded))
+      .catch(() => setOpts({
+        platforms: [], channels: [], utm_sources: [], tags: [],
+        events: [], lead_magnets: [], packages: [],
+      }))
       .finally(() => setLoading(false))
   }, [])
-
-  function toggleChannelId(id: number) {
-    setDraft(d => ({
-      ...d,
-      channelIds: toggleArrayItem(d.channelIds || [], id),
-    }))
-  }
-  function setAllChannels(all: boolean) {
-    setDraft(d => ({
-      ...d,
-      channelIds: all ? (opts?.channels.map(c => c.id) || []) : [],
-    }))
-  }
 
   function toggleArrayItem<T>(arr: T[] | undefined, item: T): T[] {
     const cur = arr || []
     return cur.includes(item) ? cur.filter(x => x !== item) : [...cur, item]
   }
+
+  const channelOptions: MultiSelectOption<number>[] = (opts?.channels || []).map(c => ({
+    value: c.id,
+    label: c.display_name,
+    hint: c.is_active ? undefined : '(рассылка)',
+  }))
+  const utmOptions: MultiSelectOption<string>[] = (opts?.utm_sources || []).map(u => ({ value: u, label: u }))
+  const tagOptions: MultiSelectOption<string>[] = (opts?.tags || []).map(t => ({ value: t, label: t }))
+  const eventOptions: MultiSelectOption<number>[] = (opts?.events || []).map(e => ({ value: e.id, label: e.title }))
+  const lmOptions: MultiSelectOption<number>[] = (opts?.lead_magnets || []).map(m => ({ value: m.id, label: m.name }))
+  const pkgOptions: MultiSelectOption<number>[] = (opts?.packages || []).map(p => ({ value: p.id, label: p.name }))
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -677,14 +756,14 @@ function FilterPanel({ initial, onApply, onClose }: {
           </button>
         </div>
 
-        <div className="p-5 space-y-5">
+        <div className="p-5 space-y-4">
           {loading && (
             <div className="text-center text-gray-400 text-sm py-4">Загрузка опций…</div>
           )}
 
           {!loading && opts && (
             <>
-              {/* Платформа */}
+              {/* Платформа — оставлены пилюлями, их обычно мало (2-3) */}
               {opts.platforms.length > 0 && (
                 <div>
                   <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Платформа</h3>
@@ -707,93 +786,81 @@ function FilterPanel({ initial, onApply, onClose }: {
                 </div>
               )}
 
-              {/* Канал */}
+              {/* Каналы — выпадающий мульти-селект, «Без привязки» как пункт списка */}
               {opts.channels.length > 0 && (
-                <div>
-                  <div className="flex items-baseline justify-between mb-2">
-                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Канал подписки</h3>
-                    <div className="flex gap-2 text-xs">
-                      <button onClick={() => setAllChannels(true)} className="text-blue-600 hover:underline">Все</button>
-                      <span className="text-gray-300">·</span>
-                      <button onClick={() => setAllChannels(false)} className="text-blue-600 hover:underline">Никого</button>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {opts.channels.map(ch => {
-                      const active = (draft.channelIds || []).includes(ch.id)
-                      return (
-                        <button
-                          key={ch.id}
-                          onClick={() => toggleChannelId(ch.id)}
-                          className={`text-xs px-2.5 py-1 rounded-full border flex items-center gap-1 ${
-                            active
-                              ? 'bg-[#25455D] text-white border-[#25455D]'
-                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                          }`}
-                          title={ch.is_active ? 'Главный канал' : 'Только рассылки'}
-                        >
-                          {ch.display_name}
-                          {!ch.is_active && <span className="opacity-60 text-[10px]">(рассылка)</span>}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <label className="flex items-center gap-2 mt-3 text-sm text-gray-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!!draft.includeUnattached}
-                      onChange={e => setDraft(d => ({ ...d, includeUnattached: e.target.checked }))}
-                      className="w-4 h-4 rounded border-gray-300 text-[#25455D] focus:ring-[#25455D]"
-                    />
-                    <span>Включая контакты без привязки к каналу</span>
-                  </label>
-                </div>
+                <MultiSelectDropdown
+                  label="Каналы подписки"
+                  options={channelOptions}
+                  values={draft.channelIds || []}
+                  onChange={(next) => setDraft(d => ({ ...d, channelIds: next }))}
+                  placeholder="Любой канал"
+                  searchPlaceholder="Поиск канала…"
+                  extraToggle={{
+                    label: 'Без привязки к каналу',
+                    checked: !!draft.includeUnattached,
+                    onToggle: (next) => setDraft(d => ({ ...d, includeUnattached: next })),
+                  }}
+                />
+              )}
+
+              {/* События */}
+              {opts.events.length > 0 && (
+                <MultiSelectDropdown
+                  label="События"
+                  options={eventOptions}
+                  values={draft.eventIds || []}
+                  onChange={(next) => setDraft(d => ({ ...d, eventIds: next }))}
+                  placeholder="Любое событие"
+                  searchPlaceholder="Поиск по названию события…"
+                />
+              )}
+
+              {/* Лид-магниты */}
+              {opts.lead_magnets.length > 0 && (
+                <MultiSelectDropdown
+                  label="Лид-магниты"
+                  options={lmOptions}
+                  values={draft.leadMagnetIds || []}
+                  onChange={(next) => setDraft(d => ({ ...d, leadMagnetIds: next }))}
+                  placeholder="Любой лид-магнит"
+                  searchPlaceholder="Поиск лид-магнита…"
+                />
+              )}
+
+              {/* Пакеты лид-магнитов */}
+              {opts.packages.length > 0 && (
+                <MultiSelectDropdown
+                  label="Пакеты лид-магнитов"
+                  options={pkgOptions}
+                  values={draft.packageIds || []}
+                  onChange={(next) => setDraft(d => ({ ...d, packageIds: next }))}
+                  placeholder="Любой пакет"
+                  searchPlaceholder="Поиск пакета…"
+                />
               )}
 
               {/* UTM-источник */}
               {opts.utm_sources.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">UTM-источник</h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {opts.utm_sources.map(u => {
-                      const active = (draft.utmSources || []).includes(u)
-                      return (
-                        <button
-                          key={u}
-                          onClick={() => setDraft(d => ({ ...d, utmSources: toggleArrayItem(d.utmSources, u) }))}
-                          className={`text-xs px-2.5 py-1 rounded-full border font-mono ${
-                            active
-                              ? 'bg-[#25455D] text-white border-[#25455D]'
-                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                          }`}
-                        >{u}</button>
-                      )
-                    })}
-                  </div>
-                </div>
+                <MultiSelectDropdown
+                  label="UTM-источник"
+                  options={utmOptions}
+                  values={draft.utmSources || []}
+                  onChange={(next) => setDraft(d => ({ ...d, utmSources: next }))}
+                  placeholder="Любой источник"
+                  searchPlaceholder="Поиск источника…"
+                />
               )}
 
               {/* Теги */}
               {opts.tags.length > 0 && (
-                <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Теги</h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {opts.tags.map(t => {
-                      const active = (draft.tags || []).includes(t)
-                      return (
-                        <button
-                          key={t}
-                          onClick={() => setDraft(d => ({ ...d, tags: toggleArrayItem(d.tags, t) }))}
-                          className={`text-xs px-2.5 py-1 rounded-full border ${
-                            active
-                              ? 'bg-[#25455D] text-white border-[#25455D]'
-                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                          }`}
-                        >{t}</button>
-                      )
-                    })}
-                  </div>
-                </div>
+                <MultiSelectDropdown
+                  label="Теги"
+                  options={tagOptions}
+                  values={draft.tags || []}
+                  onChange={(next) => setDraft(d => ({ ...d, tags: next }))}
+                  placeholder="Любой тег"
+                  searchPlaceholder="Поиск тега…"
+                />
               )}
 
               {/* Состояние подписки */}

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle } from 'lucide-react'
+import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type Tab = 'magnets' | 'packages' | 'template'
@@ -117,8 +117,27 @@ export default function LeadMagnetsPage() {
 
 // ============== Лид-магниты ==============
 
+interface CountRow { id: number; landed: number; started: number; delivered: number }
+
+function LandedCounter({ count, href }: { count: number; href: string }) {
+  return (
+    <a href={href}
+       title={count > 0 ? 'Перейти к контактам, зашедшим по ссылке' : 'Никто ещё не переходил'}
+       className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+         count > 0
+           ? 'bg-[#FFCFA4] text-[#25455D] hover:opacity-80'
+           : 'bg-gray-100 text-gray-400 pointer-events-none'
+       }`}
+       onClick={(e) => { if (count === 0) e.preventDefault() }}
+    >
+      <Users size={12} /> {count}
+    </a>
+  )
+}
+
 function MagnetsList() {
   const [items, setItems] = useState<LeadMagnet[]>([])
+  const [counts, setCounts] = useState<Record<number, CountRow>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<LeadMagnet | null>(null)
@@ -128,8 +147,14 @@ function MagnetsList() {
   async function load() {
     setLoading(true)
     try {
-      const res = await api.leadMagnets.list()
+      const [res, cnt] = await Promise.all([
+        api.leadMagnets.list(),
+        api.leadMagnets.counts().catch(() => ({ items: [] })),
+      ])
       setItems(res.items || [])
+      const map: Record<number, CountRow> = {}
+      for (const c of (cnt.items || []) as CountRow[]) map[c.id] = c
+      setCounts(map)
       setError(null)
     } catch (e: any) {
       setError(e.message || 'Не получилось загрузить')
@@ -182,7 +207,11 @@ function MagnetsList() {
                   <ShareLink kind="m" slug={lm.slug} />
                 </div>
               </div>
-              <div className="flex gap-1">
+              <div className="flex gap-1 items-center">
+                <LandedCounter
+                  count={counts[lm.id]?.landed || 0}
+                  href={`/dashboard/clients?lead_magnet_ids=${lm.id}`}
+                />
                 <button onClick={() => setAnalyticsOpen(lm)} title="Аналитика"
                         className="p-2 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
                   <BarChart3 size={16} />
@@ -265,6 +294,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
 function PackagesList() {
   const [items, setItems] = useState<Package[]>([])
   const [magnets, setMagnets] = useState<LeadMagnet[]>([])
+  const [counts, setCounts] = useState<Record<number, CountRow>>({})
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Package | null>(null)
   const [creating, setCreating] = useState(false)
@@ -273,12 +303,16 @@ function PackagesList() {
   async function load() {
     setLoading(true)
     try {
-      const [pkgs, lms] = await Promise.all([
+      const [pkgs, lms, cnt] = await Promise.all([
         api.leadMagnetPackages.list(),
         api.leadMagnets.list(),
+        api.leadMagnetPackages.counts().catch(() => ({ items: [] })),
       ])
       setItems(pkgs.items || [])
       setMagnets(lms.items || [])
+      const map: Record<number, CountRow> = {}
+      for (const c of (cnt.items || []) as CountRow[]) map[c.id] = c
+      setCounts(map)
     } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
@@ -330,7 +364,11 @@ function PackagesList() {
                   <ShareLink kind="p" slug={pkg.slug} />
                 </div>
               </div>
-              <div className="flex gap-1">
+              <div className="flex gap-1 items-center">
+                <LandedCounter
+                  count={counts[pkg.id]?.landed || 0}
+                  href={`/dashboard/clients?package_ids=${pkg.id}`}
+                />
                 <button onClick={() => setAnalyticsOpen(pkg)} title="Аналитика"
                         className="p-2 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
                   <BarChart3 size={16} />

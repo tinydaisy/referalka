@@ -75,6 +75,31 @@ async def create_lead_magnet(
     return dict(row)
 
 
+@router.get("/counts", summary="Батч-счётчики воронки по всем лид-магнитам клиента")
+async def list_counts(
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Возвращает [{id, landed, started, delivered}] — для отображения цифр
+    рядом со строкой в дашборде. Один запрос на всех."""
+    rows = await db.fetch(
+        """SELECT
+              lm.id,
+              COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('landed','started','subscribed','delivered')), 0) AS landed,
+              COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('started','subscribed','delivered')), 0) AS started,
+              COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage = 'delivered'), 0) AS delivered
+             FROM lead_magnets lm
+        LEFT JOIN funnel_runs fr ON fr.lead_magnet_id = lm.id
+            WHERE lm.client_id = $1
+         GROUP BY lm.id""",
+        int(client["sub"])
+    )
+    return {"items": [
+        {"id": r["id"], "landed": int(r["landed"]), "started": int(r["started"]), "delivered": int(r["delivered"])}
+        for r in rows
+    ]}
+
+
 @router.get("/{lead_magnet_id}", summary="Получить лид-магнит")
 async def get_lead_magnet(
     lead_magnet_id: int,

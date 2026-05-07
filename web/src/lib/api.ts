@@ -28,12 +28,41 @@ export interface ContactFilters {
    *  Любой массив (даже пустой) = фильтр активен. Пустой = «ни один канал не выбран» = 0 контактов
    *  (если includeUnattached не выбран). */
   channelIds?: number[]
-  /** Включать orphan-контакты (без подписки ни на один канал) — отдельный чекбокс в фильтре. */
+  /** Включать orphan-контакты (без подписки ни на один канал). */
   includeUnattached?: boolean
   utmSources?: string[]
   tags?: string[]
+  eventIds?: number[]
+  leadMagnetIds?: number[]
+  packageIds?: number[]
   dateFrom?: string
   dateTo?: string
+}
+
+function buildContactsParams(
+  search: string, limit: number, offset: number,
+  showUnsubscribed: boolean, filters?: ContactFilters,
+) {
+  const params = new URLSearchParams({
+    search,
+    limit: String(limit),
+    offset: String(offset),
+    show_unsubscribed: String(showUnsubscribed),
+  })
+  if (filters?.subscription) params.set('subscription', filters.subscription)
+  if (filters?.platforms?.length) params.set('platforms', filters.platforms.join(','))
+  if (Array.isArray(filters?.channelIds)) {
+    params.set('channel_ids', filters!.channelIds!.join(','))
+  }
+  if (filters?.includeUnattached) params.set('include_unattached', 'true')
+  if (filters?.utmSources?.length) params.set('utm_sources', filters.utmSources.join(','))
+  if (filters?.tags?.length) params.set('tags', filters.tags.join(','))
+  if (filters?.eventIds?.length) params.set('event_ids', filters.eventIds.join(','))
+  if (filters?.leadMagnetIds?.length) params.set('lead_magnet_ids', filters.leadMagnetIds.join(','))
+  if (filters?.packageIds?.length) params.set('package_ids', filters.packageIds.join(','))
+  if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
+  if (filters?.dateTo) params.set('date_to', filters.dateTo)
+  return params
 }
 
 export const api = {
@@ -227,25 +256,21 @@ export const api = {
   },
   contacts: {
     list: (search: string, limit: number, offset: number, showUnsubscribed = false, filters?: ContactFilters) => {
-      const params = new URLSearchParams({
-        search,
-        limit: String(limit),
-        offset: String(offset),
-        show_unsubscribed: String(showUnsubscribed),
-      })
-      if (filters?.subscription)  params.set('subscription', filters.subscription)
-      if (filters?.platforms?.length)  params.set('platforms', filters.platforms.join(','))
-      // channel_ids передаём если массив явно задан (даже пустой массив = «явно никого»).
-      // undefined = фильтр не активен (показать всех без фильтрации по каналам).
-      if (Array.isArray(filters?.channelIds)) {
-        params.set('channel_ids', filters!.channelIds!.join(','))
-      }
-      if (filters?.includeUnattached) params.set('include_unattached', 'true')
-      if (filters?.utmSources?.length) params.set('utm_sources', filters.utmSources.join(','))
-      if (filters?.tags?.length)       params.set('tags', filters.tags.join(','))
-      if (filters?.dateFrom)           params.set('date_from', filters.dateFrom)
-      if (filters?.dateTo)             params.set('date_to', filters.dateTo)
+      const params = buildContactsParams(search, limit, offset, showUnsubscribed, filters)
       return request(`/api/v1/contacts?${params.toString()}`)
+    },
+    exportCsv: async (search: string, showUnsubscribed: boolean, filters?: ContactFilters) => {
+      const params = buildContactsParams(search, 0, 0, showUnsubscribed, filters)
+      params.delete('limit'); params.delete('offset')
+      const token = getToken()
+      const res = await fetch(`${API_URL}/api/v1/contacts/export?${params.toString()}`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || 'Ошибка экспорта')
+      }
+      return res.blob()
     },
     get: (id: number) => request(`/api/v1/contacts/${id}`),
     filterOptions: () => request('/api/v1/contacts/filter-options'),
@@ -307,6 +332,7 @@ export const api = {
   },
   leadMagnets: {
     list: () => request('/api/v1/lead-magnets'),
+    counts: () => request('/api/v1/lead-magnets/counts'),
     create: (data: any) =>
       request('/api/v1/lead-magnets', { method: 'POST', body: JSON.stringify(data) }),
     get: (id: number) => request(`/api/v1/lead-magnets/${id}`),
@@ -319,6 +345,7 @@ export const api = {
   },
   leadMagnetPackages: {
     list: () => request('/api/v1/lead-magnet-packages'),
+    counts: () => request('/api/v1/lead-magnet-packages/counts'),
     create: (data: any) =>
       request('/api/v1/lead-magnet-packages', { method: 'POST', body: JSON.stringify(data) }),
     get: (id: number) => request(`/api/v1/lead-magnet-packages/${id}`),

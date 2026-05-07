@@ -4,8 +4,11 @@ API контактов (миграция 036+ — иерархия Контак�
 Источник истины — таблица `contacts`. Идентичности (`platform_users`)
 JOIN'ятся для отображения username и подписок на каналы.
 """
+import csv
+import io
 import json
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.auth import get_current_client
 from app.database import get_db
@@ -33,39 +36,50 @@ def _split_csv(val: str | None) -> list[str]:
     return [x.strip() for x in val.split(",") if x.strip()]
 
 
-@router.get("/contacts")
-async def get_contacts(
-    search: str = Query(default="", alias="search"),
-    limit: int = Query(default=50),
-    offset: int = Query(default=0),
-    show_unsubscribed: bool = Query(default=False),
-    subscription: str = Query(default="any", description="any | subscribed | unsubscribed"),
-    platforms: str | None = Query(default=None, description="CSV slug-ов платформ: telegram,vk"),
-    channel_ids: str | None = Query(default=None, description="CSV id каналов клиента. Пустая строка '' = ни одного канала (0 результатов, если не выбрано include_unattached)"),
-    include_unattached: bool = Query(default=False, description="Включить контакты без подписки ни на один канал (orphan'ы)"),
-    utm_sources: str | None = Query(default=None, description="CSV utm_source значений"),
-    tags: str | None = Query(default=None, description="CSV тегов (любой из них)"),
-    date_from: str | None = Query(default=None, description="ISO дата >= last_contact_at"),
-    date_to: str | None = Query(default=None, description="ISO дата <= last_contact_at"),
-    client=Depends(get_current_client),
-    db=Depends(get_db)
-):
-    """
-    Список контактов клиента. Поиск идёт по contacts.name/email/phone +
-    по username/first_name/last_name любой идентичности контакта.
+# SQL-фрагмент: контакт «отписан» — у него есть отписка и нет ни одной активной подписки
+# в рамках клиента. Если подписок нет вообще — считаем подписанным.
+UNSUB_EXISTS_SQL = """(EXISTS (
+    SELECT 1 FROM platform_users pu
+    JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+    JOIN client_channels cc ON cc.id = puc.client_channel_id
+    WHERE pu.contact_id = c.id AND cc.client_id = c.client_id
+      AND puc.is_unsubscribed = TRUE
+) AND NOT EXISTS (
+    SELECT 1 FROM platform_users pu
+    JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+    JOIN client_channels cc ON cc.id = puc.client_channel_id
+    WHERE pu.contact_id = c.id AND cc.client_id = c.client_id
+      AND puc.is_unsubscribed = FALSE
+))"""
 
-    Дополнительные фильтры (см. query-параметры): платформы, конкретные каналы
-    подписки, utm_source, теги, диапазон по last_contact_at, состояние подписки.
-    """
-    client_id = int(client["sub"])
 
-    where_base = "WHERE c.client_id = $1 AND c.is_active = TRUE"
-    params = [client_id]
+def _build_contacts_filter(
+    client_id: int,
+    *,
+    search: str = "",
+    platforms: str | None = None,
+    channel_ids: str | None = None,
+    include_unattached: bool = False,
+    utm_sources: str | None = None,
+    tags: str | None = None,
+    event_ids: str | None = None,
+    lead_magnet_ids: str | None = None,
+    package_ids: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> tuple[str, list]:
+    """Собирает WHERE-клозу и список параметров (без фильтра по subscription state).
+
+    Возвращает (where_sql, params). where_sql начинается с 'WHERE'. Алиас
+    основной таблицы — `c` (contacts c).
+    """
+    where = "WHERE c.client_id = $1 AND c.is_active = TRUE"
+    params: list = [client_id]
 
     if search:
         params.append(f"%{search}%")
         idx = len(params)
-        where_base += f"""
+        where += f"""
           AND (
             c.name ILIKE ${idx} OR c.email ILIKE ${idx} OR c.phone ILIKE ${idx}
             OR EXISTS (
@@ -76,26 +90,17 @@ async def get_contacts(
           )
         """
 
-    # Фильтр по платформам идентичностей: контакт должен иметь хоть одну
-    # идентичность на одной из выбранных платформ.
     platforms_list = _split_csv(platforms)
     if platforms_list:
         params.append(platforms_list)
         idx = len(params)
-        where_base += f"""
+        where += f"""
           AND EXISTS (
             SELECT 1 FROM platform_users pu
              WHERE pu.contact_id = c.id AND pu.platform_slug = ANY(${idx}::text[])
           )
         """
 
-    # Фильтр по каналам:
-    #   - параметр НЕ передан (channel_ids=None) → не фильтруем (показать всех)
-    #   - переданы id каналов → контакт должен быть подписан хотя бы на один из них (is_unsubscribed=FALSE)
-    #   - передана ПУСТАЯ строка channel_ids='' → каналы явно сняты в UI:
-    #       * если include_unattached=False → 0 контактов
-    #       * если include_unattached=True → только orphan'ы (без подписки нигде)
-    # Опция include_unattached работает в комбинации с любым channel_ids — "выбранные каналы ИЛИ orphan'ы".
     channel_ids_raw = _split_csv(channel_ids)
     channel_ids_int: list[int] = []
     for x in channel_ids_raw:
@@ -114,7 +119,7 @@ async def get_contacts(
     if channel_ids_int and include_unattached:
         params.append(channel_ids_int)
         idx = len(params)
-        where_base += f"""
+        where += f"""
           AND (
             EXISTS (
               SELECT 1 FROM platform_users pu
@@ -130,7 +135,7 @@ async def get_contacts(
     elif channel_ids_int:
         params.append(channel_ids_int)
         idx = len(params)
-        where_base += f"""
+        where += f"""
           AND EXISTS (
             SELECT 1 FROM platform_users pu
             JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -141,67 +146,135 @@ async def get_contacts(
           )
         """
     elif explicit_empty and include_unattached:
-        where_base += f" AND {no_subs_clause}"
+        where += f" AND {no_subs_clause}"
     elif explicit_empty:
-        # Явно сняли все каналы и не выбрали unattached — пустой результат
-        where_base += " AND FALSE"
+        where += " AND FALSE"
     elif include_unattached:
-        # Параметр channel_ids не передан вовсе, но включён unattached → только orphan'ы
-        where_base += f" AND {no_subs_clause}"
+        where += f" AND {no_subs_clause}"
 
-    # UTM source — точное совпадение из выбранных значений
     utm_list = _split_csv(utm_sources)
     if utm_list:
         params.append(utm_list)
         idx = len(params)
-        where_base += f" AND c.utm_source = ANY(${idx}::text[])"
+        where += f" AND c.utm_source = ANY(${idx}::text[])"
 
-    # Теги — JSONB, проверка «есть хотя бы один из выбранных»
     tags_list = _split_csv(tags)
     if tags_list:
         params.append(tags_list)
         idx = len(params)
-        where_base += f" AND c.tags ?| ${idx}::text[]"
+        where += f" AND c.tags ?| ${idx}::text[]"
 
-    # Диапазон по last_contact_at
+    def _ints(val):
+        out = []
+        for x in _split_csv(val):
+            try:
+                out.append(int(x))
+            except ValueError:
+                pass
+        return out
+
+    event_ids_int = _ints(event_ids)
+    if event_ids_int:
+        params.append(event_ids_int)
+        idx = len(params)
+        where += f"""
+          AND EXISTS (
+            SELECT 1 FROM event_participants ep
+             WHERE ep.contact_id = c.id AND ep.event_id = ANY(${idx}::int[])
+          )
+        """
+
+    lead_magnet_ids_int = _ints(lead_magnet_ids)
+    if lead_magnet_ids_int:
+        params.append(lead_magnet_ids_int)
+        idx = len(params)
+        where += f"""
+          AND EXISTS (
+            SELECT 1 FROM funnel_runs fr
+             WHERE fr.contact_id = c.id AND fr.lead_magnet_id = ANY(${idx}::int[])
+          )
+        """
+
+    package_ids_int = _ints(package_ids)
+    if package_ids_int:
+        params.append(package_ids_int)
+        idx = len(params)
+        where += f"""
+          AND EXISTS (
+            SELECT 1 FROM funnel_runs fr
+             WHERE fr.contact_id = c.id AND fr.package_id = ANY(${idx}::int[])
+          )
+        """
+
     if date_from:
         params.append(date_from)
         idx = len(params)
-        where_base += f" AND c.last_contact_at >= ${idx}::timestamptz"
+        where += f" AND c.last_contact_at >= ${idx}::timestamptz"
     if date_to:
         params.append(date_to)
         idx = len(params)
-        where_base += f" AND c.last_contact_at <= ${idx}::timestamptz"
+        where += f" AND c.last_contact_at <= ${idx}::timestamptz"
 
-    # Считаем что контакт «отписался», если у него все подписки отписаны
-    # (есть хотя бы одна с unsub=TRUE и нет ни одной с unsub=FALSE).
-    # Если подписок нет вообще — считаем подписанным (по умолчанию).
-    # Архитектура G: ходим через client_channels вместо channels.client_id.
-    UNSUB_EXISTS = """(EXISTS (
-        SELECT 1 FROM platform_users pu
-        JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
-        JOIN client_channels cc ON cc.id = puc.client_channel_id
-        WHERE pu.contact_id = c.id AND cc.client_id = c.client_id
-          AND puc.is_unsubscribed = TRUE
-    ) AND NOT EXISTS (
-        SELECT 1 FROM platform_users pu
-        JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
-        JOIN client_channels cc ON cc.id = puc.client_channel_id
-        WHERE pu.contact_id = c.id AND cc.client_id = c.client_id
-          AND puc.is_unsubscribed = FALSE
-    ))"""
+    return where, params
 
-    where = where_base
-    # Параметр subscription приоритетнее show_unsubscribed (последний оставлен
-    # для обратной совместимости со старым фронтом).
+
+def _apply_subscription_filter(where_base: str, subscription: str, show_unsubscribed: bool) -> str:
+    """Дополняет WHERE-клозу фильтром по состоянию подписки."""
     sub_state = (subscription or "any").lower()
     if sub_state == "subscribed":
-        where += f" AND NOT {UNSUB_EXISTS}"
-    elif sub_state == "unsubscribed":
-        where += f" AND {UNSUB_EXISTS}"
-    elif sub_state == "any":
-        if not show_unsubscribed:
-            where += f" AND NOT {UNSUB_EXISTS}"
+        return where_base + f" AND NOT {UNSUB_EXISTS_SQL}"
+    if sub_state == "unsubscribed":
+        return where_base + f" AND {UNSUB_EXISTS_SQL}"
+    if not show_unsubscribed:
+        return where_base + f" AND NOT {UNSUB_EXISTS_SQL}"
+    return where_base
+
+
+@router.get("/contacts")
+async def get_contacts(
+    search: str = Query(default="", alias="search"),
+    limit: int = Query(default=50),
+    offset: int = Query(default=0),
+    show_unsubscribed: bool = Query(default=False),
+    subscription: str = Query(default="any", description="any | subscribed | unsubscribed"),
+    platforms: str | None = Query(default=None, description="CSV slug-ов платформ: telegram,vk"),
+    channel_ids: str | None = Query(default=None, description="CSV id каналов клиента. Пустая строка '' = ни одного канала (0 результатов, если не выбрано include_unattached)"),
+    include_unattached: bool = Query(default=False, description="Включить контакты без подписки ни на один канал (orphan'ы)"),
+    utm_sources: str | None = Query(default=None, description="CSV utm_source значений"),
+    tags: str | None = Query(default=None, description="CSV тегов (любой из них)"),
+    event_ids: str | None = Query(default=None, description="CSV id событий — контакт был участником хотя бы одного из них"),
+    lead_magnet_ids: str | None = Query(default=None, description="CSV id лид-магнитов — контакт зашёл по ссылке хотя бы одного из них"),
+    package_ids: str | None = Query(default=None, description="CSV id пакетов — контакт зашёл по ссылке хотя бы одного из них"),
+    date_from: str | None = Query(default=None, description="ISO дата >= last_contact_at"),
+    date_to: str | None = Query(default=None, description="ISO дата <= last_contact_at"),
+    client=Depends(get_current_client),
+    db=Depends(get_db)
+):
+    """
+    Список контактов клиента. Поиск идёт по contacts.name/email/phone +
+    по username/first_name/last_name любой идентичности контакта.
+
+    Дополнительные фильтры (см. query-параметры): платформы, конкретные каналы
+    подписки, utm_source, теги, диапазон по last_contact_at, состояние подписки.
+    """
+    client_id = int(client["sub"])
+
+    where_base, params = _build_contacts_filter(
+        client_id,
+        search=search,
+        platforms=platforms,
+        channel_ids=channel_ids,
+        include_unattached=include_unattached,
+        utm_sources=utm_sources,
+        tags=tags,
+        event_ids=event_ids,
+        lead_magnet_ids=lead_magnet_ids,
+        package_ids=package_ids,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    UNSUB_EXISTS = UNSUB_EXISTS_SQL
+    where = _apply_subscription_filter(where_base, subscription, show_unsubscribed)
 
     total = await db.fetchval(f"SELECT COUNT(*) FROM contacts c {where}", *params)
     total_all = await db.fetchval(f"SELECT COUNT(*) FROM contacts c {where_base}", *params)
@@ -273,6 +346,152 @@ async def get_contacts(
     }
 
 
+@router.get("/contacts/export")
+async def export_contacts_csv(
+    search: str = Query(default=""),
+    show_unsubscribed: bool = Query(default=False),
+    subscription: str = Query(default="any"),
+    platforms: str | None = Query(default=None),
+    channel_ids: str | None = Query(default=None),
+    include_unattached: bool = Query(default=False),
+    utm_sources: str | None = Query(default=None),
+    tags: str | None = Query(default=None),
+    event_ids: str | None = Query(default=None),
+    lead_magnet_ids: str | None = Query(default=None),
+    package_ids: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """CSV-экспорт контактов с теми же фильтрами, что у GET /contacts.
+
+    Отдаёт UTF-8 файл с BOM (для корректного открытия в Excel) и нужным
+    Content-Disposition. В каждой строке — основные поля контакта, его
+    идентичности на платформах и активные/отписанные каналы подписки.
+    """
+    client_id = int(client["sub"])
+
+    where_base, params = _build_contacts_filter(
+        client_id,
+        search=search,
+        platforms=platforms,
+        channel_ids=channel_ids,
+        include_unattached=include_unattached,
+        utm_sources=utm_sources,
+        tags=tags,
+        event_ids=event_ids,
+        lead_magnet_ids=lead_magnet_ids,
+        package_ids=package_ids,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    where = _apply_subscription_filter(where_base, subscription, show_unsubscribed)
+
+    rows = await db.fetch(f"""
+        SELECT
+          c.id,
+          c.name,
+          c.email,
+          c.phone,
+          c.utm_source,
+          c.tags,
+          c.ref_code,
+          c.salebot_id,
+          c.last_contact_at,
+          c.created_at,
+          (SELECT name FROM contacts ref
+            WHERE ref.id = c.first_referrer_contact_id LIMIT 1) AS referrer_name,
+          (SELECT json_agg(json_build_object(
+              'platform_slug', pu.platform_slug,
+              'platform_user_id', pu.platform_user_id,
+              'username', pu.username,
+              'first_name', pu.first_name,
+              'last_name', pu.last_name
+            ) ORDER BY pu.platform_slug)
+            FROM platform_users pu WHERE pu.contact_id = c.id) AS identities,
+          (SELECT json_agg(json_build_object(
+              'name', ch.display_name,
+              'is_unsubscribed', puc.is_unsubscribed
+            ))
+            FROM platform_users pu
+            JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+            JOIN client_channels cc ON cc.id = puc.client_channel_id
+            JOIN channels ch ON ch.id = cc.channel_id
+           WHERE pu.contact_id = c.id AND cc.client_id = c.client_id) AS subs
+        FROM contacts c
+        {where}
+        ORDER BY c.name NULLS LAST, c.id
+    """, *params)
+
+    buf = io.StringIO()
+    buf.write('﻿')  # BOM для Excel
+    writer = csv.writer(buf, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+    writer.writerow([
+        'ID', 'Имя', 'Email', 'Телефон', 'Реф-код', 'UTM-источник', 'Теги',
+        'Telegram', 'VK', 'MAX',
+        'Каналы (подписан)', 'Каналы (отписан)',
+        'Откуда пришёл', 'Создан', 'Последний контакт',
+    ])
+
+    def _fmt_dt(v):
+        if not v:
+            return ''
+        return v.strftime('%Y-%m-%d %H:%M') if hasattr(v, 'strftime') else str(v)[:16]
+
+    for r in rows:
+        identities = r['identities']
+        if isinstance(identities, str):
+            identities = json.loads(identities)
+        identities = identities or []
+        subs = r['subs']
+        if isinstance(subs, str):
+            subs = json.loads(subs)
+        subs = subs or []
+        tags_val = parse_tags(r['tags']) or []
+
+        plat = {'telegram': [], 'vk': [], 'max': []}
+        for ident in identities:
+            slug = ident.get('platform_slug')
+            if slug not in plat:
+                continue
+            uname = ident.get('username')
+            puid = ident.get('platform_user_id')
+            label = (f"@{uname} " if uname else '') + f"#{puid}" if puid else (uname or '')
+            plat[slug].append(label)
+
+        active_channels = '; '.join(s['name'] for s in subs if not s.get('is_unsubscribed'))
+        unsub_channels = '; '.join(s['name'] for s in subs if s.get('is_unsubscribed'))
+
+        writer.writerow([
+            r['id'],
+            r['name'] or '',
+            r['email'] or '',
+            r['phone'] or '',
+            r['ref_code'] or '',
+            r['utm_source'] or '',
+            '; '.join(tags_val),
+            '; '.join(plat['telegram']),
+            '; '.join(plat['vk']),
+            '; '.join(plat['max']),
+            active_channels,
+            unsub_channels,
+            r['referrer_name'] or '',
+            _fmt_dt(r['created_at']),
+            _fmt_dt(r['last_contact_at']),
+        ])
+
+    csv_bytes = buf.getvalue().encode('utf-8')
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type='text/csv; charset=utf-8',
+        headers={
+            'Content-Disposition': 'attachment; filename="contacts.csv"',
+            'Content-Length': str(len(csv_bytes)),
+        },
+    )
+
+
 @router.get("/contacts/filter-options")
 async def get_filter_options(
     client=Depends(get_current_client),
@@ -318,11 +537,35 @@ async def get_filter_options(
          ORDER BY tag
     """, client_id)
 
+    events = await db.fetch("""
+        SELECT id, title, slug
+          FROM events
+         WHERE client_id = $1
+         ORDER BY COALESCE(start_at, created_at) DESC NULLS LAST, id DESC
+    """, client_id)
+
+    lead_magnets = await db.fetch("""
+        SELECT id, name
+          FROM lead_magnets
+         WHERE client_id = $1
+         ORDER BY name
+    """, client_id)
+
+    packages = await db.fetch("""
+        SELECT id, name
+          FROM lead_magnet_packages
+         WHERE client_id = $1
+         ORDER BY name
+    """, client_id)
+
     return {
         "platforms": [dict(r) for r in platforms],
         "channels": [dict(r) for r in channels],
         "utm_sources": [r["utm_source"] for r in utm_rows],
         "tags": [r["tag"] for r in tag_rows if r["tag"]],
+        "events": [dict(r) for r in events],
+        "lead_magnets": [dict(r) for r in lead_magnets],
+        "packages": [dict(r) for r in packages],
     }
 
 

@@ -101,6 +101,29 @@ async def create_package(
     return await _serialize_package(row, db)
 
 
+@router.get("/counts", summary="Батч-счётчики воронки по всем пакетам клиента")
+async def list_counts(
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    rows = await db.fetch(
+        """SELECT
+              pkg.id,
+              COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('landed','started','subscribed','delivered')), 0) AS landed,
+              COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('started','subscribed','delivered')), 0) AS started,
+              COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage = 'delivered'), 0) AS delivered
+             FROM lead_magnet_packages pkg
+        LEFT JOIN funnel_runs fr ON fr.package_id = pkg.id
+            WHERE pkg.client_id = $1
+         GROUP BY pkg.id""",
+        int(client["sub"])
+    )
+    return {"items": [
+        {"id": r["id"], "landed": int(r["landed"]), "started": int(r["started"]), "delivered": int(r["delivered"])}
+        for r in rows
+    ]}
+
+
 @router.get("/{package_id}", summary="Получить пакет")
 async def get_package(
     package_id: int,
