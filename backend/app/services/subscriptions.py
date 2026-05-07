@@ -19,7 +19,29 @@ from fastapi import HTTPException
 
 
 async def get_subscription(db, client_id: int) -> Optional[dict]:
-    """Текущая подписка клиента (последняя по expires_at). None если нет ни одной."""
+    """Текущая подписка клиента.
+
+    Источник истины — `clients.current_subscription_id` (денормализация).
+    Fallback (на случай рассинхронизации): активная запись с самым поздним expires_at.
+    Если активных нет — последняя по expires_at (для отображения «истекла»).
+    """
+    row = await db.fetchrow(
+        """SELECT cs.id, cs.client_id, cs.tariff_id, cs.started_at, cs.expires_at,
+                  cs.status, cs.source,
+                  cs.notified_7d, cs.notified_3d, cs.notified_1d,
+                  t.slug AS tariff_slug, t.name AS tariff_name, t.price AS tariff_price,
+                  t.contact_limit, t.broadcasts_daily_limit, t.default_duration_days
+             FROM clients c
+             JOIN client_subscriptions cs ON cs.id = c.current_subscription_id
+             JOIN tariffs t ON t.id = cs.tariff_id
+            WHERE c.id = $1""",
+        client_id,
+    )
+    if row:
+        return dict(row)
+
+    # Fallback: current_subscription_id NULL — берём активную (status='active'),
+    # либо последнюю по expires_at если активных нет.
     row = await db.fetchrow(
         """SELECT cs.id, cs.client_id, cs.tariff_id, cs.started_at, cs.expires_at,
                   cs.status, cs.source,
@@ -29,7 +51,7 @@ async def get_subscription(db, client_id: int) -> Optional[dict]:
              FROM client_subscriptions cs
              JOIN tariffs t ON t.id = cs.tariff_id
             WHERE cs.client_id = $1
-            ORDER BY cs.expires_at DESC, cs.id DESC
+            ORDER BY (cs.status = 'active') DESC, cs.expires_at DESC, cs.id DESC
             LIMIT 1""",
         client_id,
     )
