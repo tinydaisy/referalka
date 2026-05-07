@@ -1,51 +1,52 @@
 #!/bin/bash
-
 # ПЛЮСОН Deploy Script
-# Автоматический деплой при push на main ветку
+# Автоматический деплой при push на main ветку.
+# Все сервисы крутятся под systemd — рестартим их через `systemctl restart`,
+# не через pkill+nohup (иначе systemd рестартанёт второй раз → конфликты).
 
 set -e
 
 PROJECT_DIR="/var/www/plusson"
-LOG_FILE="/var/log/plusson-deploy.log"
+LOG="/var/log/plusson-deploy.log"
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting deployment..." >> $LOG_FILE
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"; echo "$1"; }
 
-# Переходим в директорию проекта
-cd $PROJECT_DIR
+cd "$PROJECT_DIR"
 
-# Обновляем код с GitHub
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Pulling from main..." >> $LOG_FILE
+log "===== Deploy started ====="
+
+# 1. Pull из main
+log "Pulling from main..."
 git fetch origin main
 git reset --hard origin/main
 
-# Деплой backend
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploying backend..." >> $LOG_FILE
-cd $PROJECT_DIR/backend
+# 2. Backend (Python) — обновляем зависимости
+log "Updating backend deps..."
+cd "$PROJECT_DIR/backend"
 source venv/bin/activate
 pip install -q -r requirements.txt
-pkill -f "uvicorn app.main" || true
-sleep 1
-nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 > /var/log/fastapi.log 2>&1 &
 
-# Деплой бота
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploying bot..." >> $LOG_FILE
-pkill -f "bot.main" || true
-sleep 1
-nohup python -m bot.main > /var/log/bot.log 2>&1 &
-
-# Деплой frontend
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploying frontend..." >> $LOG_FILE
-cd $PROJECT_DIR/web
-pkill -f "next dev\|next start" || true
-sleep 2
-npm install -q
-nohup npm run dev > /var/log/nextjs.log 2>&1 &
-
-# Деплой mini app
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Building mini app..." >> $LOG_FILE
-cd $PROJECT_DIR/mini-app
+# 3. Web (Next.js) — собираем (рестарт сервиса ниже)
+log "Building web..."
+cd "$PROJECT_DIR/web"
 npm install -q
 npm run build
-cp -r dist/* /var/www/plusson/mini-app/dist/
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deployment completed successfully!" >> $LOG_FILE
+# 4. Mini App (Vite) — собираем dist/. Раздаётся через nginx, рестарт не нужен.
+log "Building mini-app..."
+cd "$PROJECT_DIR/mini-app"
+npm install -q
+npm run build
+
+# 5. Рестарт всех сервисов через systemd
+log "Restarting services..."
+systemctl restart plusson-api || true
+systemctl restart plusson-bot || true
+systemctl restart plusson-web || true
+# Celery: на dev сервис называется plusson-celery-worker, на prod — plusson-celery.
+# Пробуем оба имени — сработает то, что существует.
+systemctl restart plusson-celery 2>/dev/null || true
+systemctl restart plusson-celery-worker 2>/dev/null || true
+systemctl restart plusson-celery-beat 2>/dev/null || true
+
+log "===== Deploy completed successfully ====="
