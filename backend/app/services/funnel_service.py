@@ -17,6 +17,7 @@ import httpx
 import json
 import logging
 from app.services.channels import get_client_telegram_token
+from app.services.social_links import normalize_telegram_link, telegram_api_id
 from app.config import settings
 
 log = logging.getLogger(__name__)

@@ -9,12 +9,13 @@
 (`https://t.me/+abc...`), для которых @-префикс не годится.
 """
 import re
+from typing import Optional
 
 _TG_RE_INVITE = re.compile(r"^\+[A-Za-z0-9_-]+$")
 _TG_RE_USERNAME = re.compile(r"^[A-Za-z0-9_]{4,32}$")
 
 
-def normalize_telegram_link(s: str | None) -> str:
+def normalize_telegram_link(s: Optional[str]) -> str:
     """Любой ввод → корректный https-URL Telegram, либо исходная строка.
 
     Поддерживает:
@@ -49,7 +50,7 @@ def normalize_telegram_link(s: str | None) -> str:
     return raw
 
 
-def telegram_api_id(s: str | None) -> str:
+def telegram_api_id(s: Optional[str]) -> str:
     """Возвращает идентификатор канала для Telegram Bot API (`getChatMember`).
 
     Bot API принимает `@channelname` или числовой chat_id. Из любого ввода
@@ -68,7 +69,7 @@ def telegram_api_id(s: str | None) -> str:
     return f"@{path}"
 
 
-def normalize_social_links(social: dict | None) -> dict:
+def normalize_social_links(social: Optional[dict]) -> dict:
     """Нормализует все известные TG-поля внутри social_links."""
     if not isinstance(social, dict):
         return {}

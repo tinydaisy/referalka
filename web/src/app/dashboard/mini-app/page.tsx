@@ -46,8 +46,9 @@ interface Offering {
   sort_order: number
 }
 
-const SOCIAL_FIELDS: { key: string; label: string; placeholder: string }[] = [
-  { key: 'telegram',  label: 'Telegram',  placeholder: 'https://t.me/your_channel' },
+const SOCIAL_FIELDS: { key: string; label: string; placeholder: string; hint?: string }[] = [
+  { key: 'telegram',  label: 'Telegram',  placeholder: 'https://t.me/your_channel',
+    hint: 'Полная ссылка через https. Для закрытого канала — инвайт-ссылка вида https://t.me/+abcDEF…' },
   { key: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/your_profile' },
   { key: 'youtube',   label: 'YouTube',   placeholder: 'https://youtube.com/@yourchannel' },
   { key: 'vk',        label: 'VK',        placeholder: 'https://vk.com/your_page' },
@@ -391,6 +392,7 @@ export default function MiniAppSettingsPage() {
                          onChange={e => updateSocial(f.key, e.target.value)}
                          placeholder={f.placeholder}
                          className="input" />
+                  {f.hint && <p className="text-xs text-gray-500 mt-1">{f.hint}</p>}
                 </div>
               ))}
             </div>
