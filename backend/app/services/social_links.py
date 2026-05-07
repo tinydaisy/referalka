@@ -40,6 +40,10 @@ def normalize_telegram_link(s: Optional[str]) -> str:
         return f"https://t.me/{path}" if path else raw
     if raw.startswith("@"):
         u = raw[1:]
+        # `@+abcDEF...` — артефакт старого кода (он лепил @ ко всему, включая
+        # инвайт-коды закрытых каналов). Чиним и такие записи.
+        if u.startswith("+") and _TG_RE_INVITE.match(u):
+            return f"https://t.me/{u}"
         if _TG_RE_USERNAME.match(u):
             return f"https://t.me/{u}"
         return raw
