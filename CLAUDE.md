@@ -834,6 +834,22 @@ CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Кон
 
 ⚠️ **Подписки на каналы при регистрации НЕ проверяются.** Чек-листа подписок и `getChatMember` в потоке регистрации нет. Подписка нужна только для доступа в чат события (отдельная плитка/кнопка в Программе, поле `events.chat_subscriptions_required`).
 
+#### Проверка подписки на каналы организаторов (унифицировано 07.05.2026)
+
+При тапе на плитку чата в Mini App ([ProgramTab.tsx](mini-app/src/tabs/ProgramTab.tsx) `openChatWithCheck`) проверка подписки идёт через `GET /api/v1/public/conference/{event_id}/check-subscription` ([subscription_check.py](backend/app/api/subscription_check.py)). Логика:
+
+- **Конференция** (`conf_conferences.subscription_mode`):
+  - `none` → пропускаем, чат открывается без проверки
+  - `organizer` → проверяем подписку на каналы коллабораторов с `role='organizer'`
+  - `all_speakers` → проверяем подписку на каналы ВСЕХ коллабораторов конференции
+- **Мероприятие** (без `conf_conferences`):
+  - `events.require_subscription = false` → пропускаем
+  - `events.require_subscription = true` → проверяем подписку на каналы соорганизаторов мероприятия (`event_collaborators` с `role='organizer'`)
+
+В обоих случаях источник один и тот же — `event_collaborators` ЭТОГО события + `bot_in_channel=TRUE` + `exclude_channel_from_subscription=FALSE` + непустой `tg_channel_id`. Никаких LIMIT — берутся ВСЕ подходящие. Раньше для мероприятий ошибочно искался один канал в любой конференции клиента.
+
+Список не подписавшихся каналов выводится в Mini App нумерованным списком (`<ol>` с круглым PEACH-бейджем 1/2/3 слева).
+
 #### Связь между событиями (наследование)
 
 «А дальше» — автоматически: после завершения текущего события блок предлагает ближайшее предстоящее опубликованное событие того же клиента (по `start_at` ASC). Поле `events.successor_event_id` удалено миграцией 065 — клиент ничего не настраивает, всё решается логикой.
