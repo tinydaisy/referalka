@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, X, Search } from 'lucide-react'
 import { api } from '@/lib/api'
+import RefLinkInline from '@/components/RefLinkInline'
 
 interface Collaborator {
   id: number  // event_collaborators.id (запись связи)
@@ -14,6 +15,7 @@ interface Collaborator {
   photo_url?: string | null
   achievements?: string[] | null
   personal_tg_username?: string | null
+  ref_code?: string | null
 }
 
 interface GlobalCollaborator {
@@ -24,7 +26,7 @@ interface GlobalCollaborator {
   achievements?: string[] | null
 }
 
-export default function CoOrganizersTab({ eventId }: { eventId: number }) {
+export default function CoOrganizersTab({ eventId, eventSlug }: { eventId: number; eventSlug?: string | null }) {
   const [items, setItems] = useState<Collaborator[]>([])
   const [loading, setLoading] = useState(true)
   const [showPicker, setShowPicker] = useState(false)
@@ -92,35 +94,40 @@ export default function CoOrganizersTab({ eventId }: { eventId: number }) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {items.map(c => (
-              <div key={c.id} className="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-gray-300 transition-colors">
-                <Link
-                  href={`/dashboard/collaborations/${c.collaborator_id}`}
-                  className="flex items-start gap-3 flex-1 min-w-0 group"
-                  title="Открыть карточку коллаборатора"
-                >
-                  {c.photo_url ? (
-                    <img src={c.photo_url} alt="" className="w-14 h-14 rounded-full object-cover shrink-0" />
-                  ) : (
-                    <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs shrink-0">
-                      {c.name.slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-800 text-sm truncate group-hover:text-[#25455D]">{c.name}</div>
-                    {c.title && <div className="text-xs text-gray-500 truncate">{c.title}</div>}
-                    {c.personal_tg_username && (
-                      <div className="text-xs text-gray-400 truncate">@{c.personal_tg_username.replace(/^@/, '')}</div>
+              <div key={c.id} className="p-3 rounded-xl border border-gray-100 hover:border-gray-300 transition-colors">
+                <div className="flex items-start gap-3">
+                  <Link
+                    href={`/dashboard/collaborations/${c.collaborator_id}`}
+                    className="flex items-start gap-3 flex-1 min-w-0 group"
+                    title="Открыть карточку коллаборатора"
+                  >
+                    {c.photo_url ? (
+                      <img src={c.photo_url} alt="" className="w-14 h-14 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs shrink-0">
+                        {c.name.slice(0, 2).toUpperCase()}
+                      </div>
                     )}
-                  </div>
-                </Link>
-                <button
-                  onClick={() => handleRemove(c.id)}
-                  disabled={removing === c.id}
-                  className="p-1.5 text-gray-300 hover:text-red-500 transition-colors shrink-0 disabled:opacity-50"
-                  title="Убрать"
-                >
-                  <X size={16} />
-                </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-800 text-sm truncate group-hover:text-[#25455D]">{c.name}</div>
+                      {c.title && <div className="text-xs text-gray-500 truncate">{c.title}</div>}
+                      {c.personal_tg_username && (
+                        <div className="text-xs text-gray-400 truncate">@{c.personal_tg_username.replace(/^@/, '')}</div>
+                      )}
+                    </div>
+                  </Link>
+                  <button
+                    onClick={() => handleRemove(c.id)}
+                    disabled={removing === c.id}
+                    className="p-1.5 text-gray-300 hover:text-red-500 transition-colors shrink-0 disabled:opacity-50"
+                    title="Убрать"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="mt-2.5 pt-2.5 border-t border-gray-100">
+                  <RefLinkInline slug={eventSlug} refCode={c.ref_code} compact />
+                </div>
               </div>
             ))}
           </div>

@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
+import RefLinkInline from '@/components/RefLinkInline'
 
 // Поля профиля, которые обязательно нужны
 const PROFILE_FIELDS: { key: string; label: string }[] = [
@@ -139,6 +140,8 @@ export default function ConferenceSpeakerPage() {
   const [clientWorkAccount, setClientWorkAccount] = useState<{ username: string; id: string } | null>(null)
   const [mainBotHandle, setMainBotHandle] = useState<string>('')
   const [subscriptionMode, setSubscriptionMode] = useState<'none' | 'organizer' | 'all_speakers'>('none')
+  const [eventSlug, setEventSlug] = useState<string | null>(null)
+  const [refCode, setRefCode] = useState<string | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -159,6 +162,7 @@ export default function ConferenceSpeakerPage() {
       const m = r?.conference?.subscription_mode
       if (m === 'organizer' || m === 'all_speakers') setSubscriptionMode(m)
       else setSubscriptionMode('none')
+      setEventSlug(r?.conference?.event_slug || null)
     }).catch(() => {})
   }, [confId])
 
@@ -168,6 +172,7 @@ export default function ConferenceSpeakerPage() {
         const speakers = r.speakers || []
         const sp = speakers.find((s: any) => s.id === speakerEventId)
         if (!sp) { router.push(`/dashboard/conferences/${confId}?tab=speakers`); return }
+        setRefCode(sp.ref_code || null)
 
         const rawTopics = sp.topics && sp.topics.length > 0
           ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
@@ -349,6 +354,11 @@ export default function ConferenceSpeakerPage() {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">{error}</div>
       )}
+
+      {/* Партнёрская ссылка спикера на это событие */}
+      <div className="mb-6">
+        <RefLinkInline slug={eventSlug} refCode={refCode} />
+      </div>
 
       {/* ── БЛОК 1: Данные выступления ── */}
       <form onSubmit={saveEvent} className="space-y-4 mb-8">

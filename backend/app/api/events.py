@@ -798,9 +798,10 @@ async def list_event_collaborators(
         SELECT ec.id, ec.role, ec.sort_order, ec.is_visible,
                co.id AS collaborator_id, co.name, co.title, co.photo_url,
                co.achievements, co.tg_channel_url, co.instagram_url, co.website_url,
-               co.personal_tg_username
+               co.personal_tg_username, ct.ref_code
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
+          LEFT JOIN contacts ct ON ct.id = co.contact_id
          WHERE ec.event_id = $1
     """
     args = [event_id]
@@ -809,7 +810,21 @@ async def list_event_collaborators(
         sql += f" AND ec.role = ${len(args)}"
     sql += " ORDER BY ec.sort_order, ec.id"
     rows = await db.fetch(sql, *args)
-    return {"items": [dict(r) for r in rows]}
+
+    # Бэкфилл реф-кодов для коллаба, у которого ещё нет contact_id (легаси).
+    # ensure_collaborator_contact идемпотентен — создаст contact + ref_code и
+    # привяжет к коллаборатору только если их ещё нет.
+    from app.api.modules.conference import ensure_collaborator_contact
+    items = []
+    for r in rows:
+        d = dict(r)
+        if not d.get("ref_code"):
+            try:
+                d["ref_code"] = await ensure_collaborator_contact(d["collaborator_id"], db)
+            except HTTPException:
+                d["ref_code"] = None
+        items.append(d)
+    return {"items": items}
 
 
 @router.post("/{event_id}/collaborators", summary="Добавить коллаборатора в событие")
@@ -863,6 +878,13 @@ async def add_event_collaborator(
            VALUES ($1, $2, $3, $4) RETURNING id""",
         data.collaborator_id, event_id, data.role, sort_order
     )
+    # Гарантируем контакт + ref_code у коллаборатора — нужно для отображения
+    # его персональной партнёрской ссылки в карточке (frontend читает ref_code).
+    from app.api.modules.conference import ensure_collaborator_contact
+    try:
+        await ensure_collaborator_contact(data.collaborator_id, db)
+    except HTTPException:
+        pass
     return {"id": new_id, "role": data.role, "already_existed": False}
 
 

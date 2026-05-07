@@ -270,6 +270,7 @@ async def get_conference(
     conf = await db.fetchrow(
         """
         SELECT cc.*, e.title as event_title,
+               e.slug        AS event_slug,
                e.chat_url    AS event_chat_url,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
