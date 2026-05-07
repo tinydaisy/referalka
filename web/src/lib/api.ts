@@ -24,11 +24,10 @@ async function request(path: string, options?: RequestInit) {
 export interface ContactFilters {
   subscription?: 'any' | 'subscribed' | 'unsubscribed'
   platforms?: string[]
+  /** undefined = фильтр по каналам не активен (показать всех).
+   *  Любой массив (даже пустой) = фильтр активен. Пустой = «ни один канал не выбран» = 0 контактов
+   *  (если includeUnattached не выбран). */
   channelIds?: number[]
-  /** true = фильтр по каналам активен (использовался). Если false — channel_ids не передаётся в API,
-   *  показываются все контакты без фильтрации по каналам. Если true — даже пустой массив отправится
-   *  как «явно ни одного канала» = 0 контактов (если includeUnattached не выбран). */
-  channelsTouched?: boolean
   /** Включать orphan-контакты (без подписки ни на один канал) — отдельный чекбокс в фильтре. */
   includeUnattached?: boolean
   utmSources?: string[]
@@ -236,10 +235,10 @@ export const api = {
       })
       if (filters?.subscription)  params.set('subscription', filters.subscription)
       if (filters?.platforms?.length)  params.set('platforms', filters.platforms.join(','))
-      // channel_ids передаём ТОЛЬКО если пользователь был в фильтре каналов (channelsTouched=true).
-      // Тогда даже пустая строка означает «явно ни одного» (бэк это поймёт и вернёт 0 либо только orphan'ов).
-      if (filters?.channelsTouched) {
-        params.set('channel_ids', (filters.channelIds || []).join(','))
+      // channel_ids передаём если массив явно задан (даже пустой массив = «явно никого»).
+      // undefined = фильтр не активен (показать всех без фильтрации по каналам).
+      if (Array.isArray(filters?.channelIds)) {
+        params.set('channel_ids', filters!.channelIds!.join(','))
       }
       if (filters?.includeUnattached) params.set('include_unattached', 'true')
       if (filters?.utmSources?.length) params.set('utm_sources', filters.utmSources.join(','))

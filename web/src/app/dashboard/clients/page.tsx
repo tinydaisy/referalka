@@ -115,7 +115,8 @@ function Avatar({ contact }: { contact: Contact }) {
 const EMPTY_FILTERS: ContactFilters = {
   subscription: 'any',
   platforms: [],
-  channelIds: [],
+  // channelIds: undefined - не активен, показать всех. Когда юзер открывает фильтр,
+  // FilterPanel preselect'ит все каналы клиента и переводит channelIds в массив.
   utmSources: [],
   tags: [],
   dateFrom: '',
@@ -126,9 +127,8 @@ function countActiveFilters(f: ContactFilters): number {
   let n = 0
   if (f.subscription && f.subscription !== 'any') n++
   if (f.platforms?.length) n++
-  // Фильтр каналов считается активным когда пользователь его трогал
-  // (channelsTouched=true) — даже если внутри ноль галок (= намеренно «не выбрано ни одного»)
-  if (f.channelsTouched) n++
+  // Фильтр каналов активен если массив задан (даже пустой = «явно ни одного»)
+  if (Array.isArray(f.channelIds)) n++
   if (f.includeUnattached) n++
   if (f.utmSources?.length) n++
   if (f.tags?.length) n++
@@ -635,11 +635,11 @@ function FilterPanel({ initial, onApply, onClose }: {
     api.contacts.filterOptions()
       .then((loaded: FilterOptions) => {
         setOpts(loaded)
-        // По умолчанию (если фильтр каналов ещё не трогали) — отметить ВСЕ каналы.
-        // Так пользователь сразу видит «активный полный фильтр» и понимает что снимая галки —
-        // он сужает выборку, а сняв все — получит ноль (или только orphan'ов если выбран чекбокс).
+        // Если фильтр каналов ещё не задан в текущем filters (channelIds === undefined) —
+        // ставим preselect ВСЕХ каналов. Это значит «при открытии все галки уже стоят».
+        // Пользователь снимает галки → массив сокращается. Снимет все → останется [] (явно никого).
         setDraft(d => {
-          if (d.channelsTouched) return d
+          if (Array.isArray(d.channelIds)) return d
           return { ...d, channelIds: loaded.channels.map((c: FilterOptions['channels'][number]) => c.id) }
         })
       })
@@ -647,18 +647,15 @@ function FilterPanel({ initial, onApply, onClose }: {
       .finally(() => setLoading(false))
   }, [])
 
-  // Помечаем фильтр как «потроганный» при любом изменении галок каналов
   function toggleChannelId(id: number) {
     setDraft(d => ({
       ...d,
-      channelsTouched: true,
-      channelIds: toggleArrayItem(d.channelIds, id),
+      channelIds: toggleArrayItem(d.channelIds || [], id),
     }))
   }
   function setAllChannels(all: boolean) {
     setDraft(d => ({
       ...d,
-      channelsTouched: true,
       channelIds: all ? (opts?.channels.map(c => c.id) || []) : [],
     }))
   }
