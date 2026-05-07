@@ -56,7 +56,17 @@ async def _get_brand_context(client_id: int, db) -> dict:
     # @-префикс не годится: для `+abc...` даёт мусор `@+abc...`.
     tg_link = (social or {}).get("telegram") or ""
     sub_channel = normalize_telegram_link(tg_link)
-    sub_channel_api = telegram_api_id(tg_link)  # для getChatMember
+    sub_channel_api = telegram_api_id(tg_link)  # @username для getChatMember (открытый канал)
+    # Числовой chat_id канала — самое надёжное для getChatMember, работает и для
+    # закрытых каналов (если бот в канале админ). Сохраняется кнопкой «Получить ID»
+    # в /dashboard/mini-app или вручную через инструкцию в /dashboard/settings.
+    sub_channel_chat_id = ""
+    raw_chat_id = (social or {}).get("telegram_chat_id")
+    if raw_chat_id is not None and str(raw_chat_id).strip():
+        try:
+            sub_channel_chat_id = str(int(raw_chat_id))
+        except (TypeError, ValueError):
+            sub_channel_chat_id = ""
     achievements = row["owner_achievements"] or []
     if isinstance(achievements, str):
         try:
@@ -78,8 +88,9 @@ async def _get_brand_context(client_id: int, db) -> dict:
         "brand_name": row["brand_name"] or "",
         "owner_name": row["owner_name"] or "",
         "owner_achievements": achievements_text,
-        "subscription_channel": sub_channel,           # https-ссылка для текста
-        "subscription_channel_api": sub_channel_api,   # @username для Telegram Bot API
+        "subscription_channel": sub_channel,                   # https-ссылка для текста
+        "subscription_channel_api": sub_channel_api,           # @username для Bot API
+        "subscription_channel_chat_id": sub_channel_chat_id,   # числовой id (приоритет)
         "owner_telegram": sub_channel,
     }
 
@@ -501,26 +512,29 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> Tuple[str, bool
 
     client_id = run["client_id"]
     ctx = await _get_brand_context(client_id, db)
-    # Для Telegram Bot API нужен `@channelname` или числовой chat_id —
-    # ни https-ссылка, ни инвайт-код `+abc...` тут не работают.
     channel = ctx.get("subscription_channel", "")
     channel_api = ctx.get("subscription_channel_api", "")
+    channel_chat_id = ctx.get("subscription_channel_chat_id", "")
     token = await _bot_token_for_client(client_id, db)
     if not token:
         return "no_token", False
 
-    if not channel:
-        # Канал у клиента вообще не задан — пропускаем проверку, выдаём.
-        pass
-    elif not channel_api:
-        # Канал задан, но это закрытый канал с инвайт-ссылкой —
-        # Bot API проверить подписку через getChatMember с инвайт-кодом не умеет.
-        # Доверяем юзеру: он увидел инвайт в Тексте 1, перешёл, подписался — выдаём.
-        pass
-    else:
+    # Приоритет: числовой chat_id (надёжнее, работает и для закрытых каналов
+    # если бот добавлен админом) → @username (только открытый канал) → выдаём
+    # без проверки (закрытый канал без сохранённого chat_id — Bot API не умеет
+    # резолвить инвайт-код, доверяем юзеру).
+    if channel_chat_id:
+        ok = await _check_subscription(token, channel_chat_id, str(tg_id))
+        if not ok:
+            return "not_subscribed", False
+    elif channel_api:
         ok = await _check_subscription(token, channel_api, str(tg_id))
         if not ok:
             return "not_subscribed", False
+    elif channel:
+        # закрытый канал, chat_id не задан — пропускаем проверку
+        pass
+    # else: канал не настроен — тоже пропускаем (выдаём)
     # подписан → выдаём
     await db.execute(
         """UPDATE funnel_runs

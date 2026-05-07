@@ -24,10 +24,13 @@ from typing import Optional, Any
 import asyncpg
 import json
 
+import httpx
+
 from app.database import get_db, get_pool
 from app.auth import get_current_client
 from app.services.event_welcome import send_event_open_message
-from app.services.social_links import normalize_social_links
+from app.services.social_links import normalize_social_links, normalize_telegram_link, telegram_api_id
+from app.config import settings
 
 
 # ═══════════════════════════════════════════
@@ -586,6 +589,63 @@ async def update_my_profile(
     d["owner_achievements"] = _parse_jsonb(d.get("owner_achievements"), [])
     d["social_links"]       = _parse_jsonb(d.get("social_links"), {})
     return d
+
+
+@profile_router.post("/profile/resolve-telegram-chat-id",
+                     summary="Получить chat_id канала по @username и сохранить в social_links.telegram_chat_id")
+async def resolve_telegram_chat_id(
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Берёт текущий `social_links.telegram`, если это **открытый** канал
+    (`https://t.me/username`) — вызывает Bot API `getChat` через @pluson_bot
+    и сохраняет числовой chat_id (например, `-1001234567890`) в
+    `social_links.telegram_chat_id`. Для закрытого канала с инвайт-ссылкой
+    Bot API не умеет резолвить — возвращаем 400.
+    """
+    client_id = int(client["sub"])
+    row = await db.fetchrow("SELECT social_links FROM clients WHERE id = $1", client_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    social = row["social_links"] or {}
+    if isinstance(social, str):
+        social = json.loads(social)
+    tg_link = (social or {}).get("telegram") or ""
+    if not tg_link:
+        raise HTTPException(status_code=400, detail="Сначала укажите ссылку на ваш Telegram-канал")
+    api_id = telegram_api_id(tg_link)
+    if not api_id:
+        raise HTTPException(
+            status_code=400,
+            detail=("У канала нет публичного @username (это закрытый канал по инвайт-ссылке). "
+                    "Bot API не может получить его ID автоматически. "
+                    "Откройте /dashboard/settings → вкладка «Тех.поддержка» — там инструкция как получить ID вручную."),
+        )
+    token = settings.telegram_bot_token
+    if not token:
+        raise HTTPException(status_code=500, detail="Bot token не настроен")
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(
+                f"https://api.telegram.org/bot{token}/getChat",
+                params={"chat_id": api_id},
+            )
+            data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Не дозвонились до Telegram: {e}")
+    if not data.get("ok"):
+        desc = data.get("description", "unknown")
+        raise HTTPException(status_code=400, detail=f"Telegram отказал: {desc}")
+    chat_id = data["result"].get("id")
+    if not chat_id:
+        raise HTTPException(status_code=502, detail="getChat не вернул id")
+    new_social = dict(social) if isinstance(social, dict) else {}
+    new_social["telegram_chat_id"] = chat_id
+    await db.execute(
+        "UPDATE clients SET social_links = $1::jsonb WHERE id = $2",
+        json.dumps(new_social), client_id,
+    )
+    return {"chat_id": chat_id, "username": api_id}
 
 
 # ═══════════════════════════════════════════

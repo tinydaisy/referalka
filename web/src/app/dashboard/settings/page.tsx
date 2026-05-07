@@ -370,10 +370,15 @@ export default function SettingsPage() {
               <Bell size={18} className="text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-800">Канал уведомлений</h3>
+              <h3 id="tg-chat-id" className="font-semibold text-gray-800">Канал уведомлений</h3>
               <p className="text-sm text-gray-500 mt-0.5">
                 Куда @pluson_bot будет писать о новых интересантах на ваши лид-магниты и другие
-                важные события. Заведите Telegram-канал и впишите его ID.
+                важные события. Заведите Telegram-канал и впишите его ID.{' '}
+                <span className="text-gray-700">
+                  Тем же способом получают <strong>ID подписочного канала основателя</strong>
+                  {' '}(если он закрытый и инвайт-ссылка не резолвится автоматически) — вставлять
+                  в Mini App → «Основатель» → «ID канала».
+                </span>
               </p>
             </div>
           </div>
