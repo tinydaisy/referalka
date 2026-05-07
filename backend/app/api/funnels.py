@@ -183,9 +183,10 @@ async def _client_bot_username(client_id: int, db: asyncpg.Connection) -> str:
         """SELECT t.allow_custom_bot, ch.handle, ch.bot_token
              FROM clients c
         LEFT JOIN tariffs t ON t.slug = c.tariff_slug
-        LEFT JOIN channels ch ON ch.client_id = c.id
+        LEFT JOIN client_channels cc ON cc.client_id = c.id AND cc.is_active = TRUE
+        LEFT JOIN channels ch ON ch.id = cc.channel_id
                               AND ch.platform_slug = 'telegram'
-                              AND ch.is_active = TRUE
+                              AND ch.is_system = FALSE
             WHERE c.id = $1
             ORDER BY ch.id ASC
             LIMIT 1""",

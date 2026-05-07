@@ -38,17 +38,24 @@ async def _make_bot(token: str, label: str) -> Bot | None:
 
 
 async def _load_vip_tokens() -> list[tuple[str, str]]:
-    """Все активные TG-боты VIP-клиентов из channels."""
+    """Все активные TG-боты VIP-клиентов из channels.
+
+    Архитектура G: канал привязан к клиенту через client_channels.
+    Берём только не-системные каналы (is_system=FALSE) — системные (@pluson_bot) уже
+    обслуживаются основным settings.telegram_bot_token.
+    """
     try:
         pool = await get_pool()
         async with pool.acquire() as db:
             rows = await db.fetch(
-                """SELECT ch.handle, ch.bot_token
+                """SELECT DISTINCT ch.handle, ch.bot_token
                      FROM channels ch
-                     JOIN clients c ON c.id = ch.client_id
+                     JOIN client_channels cc ON cc.channel_id = ch.id
+                     JOIN clients c ON c.id = cc.client_id
                      JOIN tariffs t ON t.slug = c.tariff_slug
                     WHERE ch.platform_slug = 'telegram'
-                      AND ch.is_active = TRUE
+                      AND ch.is_system = FALSE
+                      AND cc.is_active = TRUE
                       AND ch.bot_token IS NOT NULL
                       AND ch.bot_token <> ''
                       AND COALESCE(t.allow_custom_bot, FALSE) = TRUE"""

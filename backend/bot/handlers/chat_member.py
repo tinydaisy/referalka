@@ -1,11 +1,14 @@
 """my_chat_member handler — ловит блокировку/разблокировку бота пользователем.
 
 Telegram шлёт `my_chat_member` каждый раз когда статус бота в чате меняется:
-- член → kicked  (юзер заблокировал бот) → помечаем is_unsubscribed=TRUE
-- kicked → member (юзер разблокировал) → возвращаем is_unsubscribed=FALSE
+- *→kicked / left  → юзер заблокировал/удалил бота → пометить отписку
+- kicked→member    → юзер разблокировал → re-subscribe
 
-Это критично для аналитики каналов и для рассылок — иначе мы будем слать сообщения
-заблокированным юзерам и получать 403 Forbidden от Telegram.
+Архитектура G:
+  Один tg_id может быть подписан на канал в РАЗНЫХ контекстах клиентов
+  (особенно для общего @pluson_bot — Маргариты + Романа + системного).
+  При блокировке бота отписка должна сработать ВО ВСЕХ контекстах: бот реально
+  заблокирован, никаким клиентом сообщения дойти не могут.
 """
 import logging
 from aiogram import Router
@@ -13,8 +16,8 @@ from aiogram.types import ChatMemberUpdated
 from app.database import get_pool
 from app.services.channels import (
     find_channel_by_bot_id,
-    mark_unsubscribed_by_tg_id,
-    register_telegram_subscription,
+    mark_unsubscribed_globally,
+    resubscribe_globally,
 )
 
 router = Router()
@@ -45,20 +48,18 @@ async def handle_my_chat_member(update: ChatMemberUpdated):
                 return
 
             if new_status in ("kicked", "left"):
-                # Юзер заблокировал/удалил бота
-                await mark_unsubscribed_by_tg_id(
-                    ch["client_id"], tg_id, db, channel_id=ch["id"]
+                # Глобальная отписка: во всех контекстах подписки на этот канал
+                count = await mark_unsubscribed_globally(ch["id"], tg_id, db)
+                log.info(
+                    "subscription: %s заблокировал bot=%s ch=%s (отписано записей: %d)",
+                    tg_id, bot_id, ch["id"], count
                 )
-                log.info("subscription: %s заблокировал bot=%s ch=%s", tg_id, bot_id, ch["id"])
             elif new_status == "member":
-                # Юзер разблокировал — возвращаем подписку
-                await register_telegram_subscription(
-                    ch["client_id"], ch["id"], tg_id,
-                    username=user.username or "",
-                    first_name=user.first_name or "",
-                    last_name=user.last_name or "",
-                    db=db,
+                # Глобальная re-подписка: возвращаем подписку во всех контекстах
+                count = await resubscribe_globally(ch["id"], tg_id, db)
+                log.info(
+                    "subscription: %s разблокировал bot=%s ch=%s (восстановлено записей: %d)",
+                    tg_id, bot_id, ch["id"], count
                 )
-                log.info("subscription: %s разблокировал bot=%s ch=%s", tg_id, bot_id, ch["id"])
     except Exception as e:
         log.exception("my_chat_member handler failed: %s", e)

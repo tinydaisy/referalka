@@ -1,12 +1,19 @@
 """
-API каналов доставки клиента (миграция 036, дополнение 045).
+API каналов доставки клиента (миграция 036, дополнение 045, архитектура G миграция 066).
 
-Клиент может иметь несколько каналов: TG-боты, VK-группы, MAX-каналы.
-В UI — раздел сайдбара «Каналы» в группе БАЗА.
+Архитектура G:
+  - channels — самостоятельная сущность БЕЗ client_id. Включает VIP-боты клиентов
+    и общие системные каналы (@pluson_bot, MAX, VK).
+  - channels.is_system=TRUE — это общий сервисный канал (один на сервис).
+  - channels.is_test=TRUE — системный канал в тестовом режиме (не выдан клиентам).
+  - client_channels(client_id, channel_id, is_active) — junction. Один клиент может
+    быть привязан к нескольким каналам (свои VIP + системные общие). is_active=TRUE
+    помечает «главный канал клиента на этой платформе».
+  - platform_user_channels.client_channel_id — подписка в КОНКРЕТНОМ контексте.
 
-Право подключать свой Telegram-бот контролируется фича-флагом тарифа
-`tariffs.allow_custom_bot` (миграция 045). Дешёвые тарифы (например `beta`)
-не могут сохранять `bot_token` — выдаётся 403. На фронте — read-only с апсейл-блоком.
+Из дашборда клиент видит SELECT channels JOIN client_channels WHERE client_id=me.
+Системные каналы (@pluson_bot и т.п.) — read-only: bot_token не показывается, не редактируется,
+удалить нельзя, импорт CSV запрещён (см. is_system проверки в эндпоинтах).
 """
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -23,7 +30,7 @@ router = APIRouter(prefix="/channels", tags=["Каналы"])
 
 
 async def _assert_can_use_custom_bot(db, client_id: int):
-    """Проверка фича-флага тарифа. 403 если тариф не разрешает свой бот."""
+    """403 если тариф не разрешает свой бот."""
     allow = await db.fetchval(
         """SELECT COALESCE(t.allow_custom_bot, false)
              FROM clients c
@@ -39,13 +46,11 @@ async def _assert_can_use_custom_bot(db, client_id: int):
 
 
 def _mini_app_url_for_client(client_id: int) -> str:
-    """URL Mini App клиента для зашивания в BotFather (`/newapp`) и `setChatMenuButton`."""
     base = settings.frontend_url.rstrip("/")
     return f"{base}/c/{client_id}/tg/"
 
 
 async def _tg_call(token: str, method: str, payload: dict | None = None) -> dict:
-    """Вызов Telegram Bot API. Возвращает поле result. Бросает HTTPException при ошибке."""
     url = f"https://api.telegram.org/bot{token}/{method}"
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
@@ -60,13 +65,7 @@ async def _tg_call(token: str, method: str, payload: dict | None = None) -> dict
 
 
 async def _ensure_polling_ready(token: str) -> None:
-    """Сносит webhook у бота, если он есть — иначе наш polling упадёт с
-    `Conflict: can't use getUpdates method while webhook is active`.
-
-    Зовётся при активации Telegram-канала (POST/PATCH is_active=true,
-    connect-telegram-bot). Не падает при ошибках Telegram — просто логирует,
-    чтобы переключение в дашборде не блокировалось из-за временной сетевой проблемы.
-    """
+    """deleteWebhook у бота — иначе getUpdates падает с Conflict."""
     import logging
     log = logging.getLogger(__name__)
     url = f"https://api.telegram.org/bot{token}/deleteWebhook"
@@ -79,14 +78,16 @@ async def _ensure_polling_ready(token: str) -> None:
         else:
             log.warning("deleteWebhook вернул not-ok: %s", d.get("description"))
     except Exception as e:
-        log.warning("deleteWebhook не удался (игнорируем, polling сам поретраит): %s", e)
+        log.warning("deleteWebhook не удался: %s", e)
 
+
+# ─── Pydantic ─────────────────────────────────────────────────────────
 
 class ChannelCreate(BaseModel):
-    platform_slug: str          # 'telegram' | 'vk' | 'max'
+    platform_slug: str
     display_name: str
-    handle: Optional[str] = None     # @bot_username / vk_group_id / max_channel_id
-    bot_token: Optional[str] = None  # секрет канала
+    handle: Optional[str] = None
+    bot_token: Optional[str] = None
     is_active: bool = True
 
 
@@ -97,25 +98,35 @@ class ChannelUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+# ─── GET список каналов клиента ───────────────────────────────────────
+
 @router.get("")
 async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
-    """Список каналов клиента. bot_token наружу не отдаём — только при редактировании одного канала."""
+    """Список каналов клиента. Включает свои VIP-боты + общие системные.
+
+    Счётчики подписчиков считаются в КОНТЕКСТЕ клиента (только его подписчики),
+    через JOIN на client_channels.id (не глобально по channel_id).
+    bot_token наружу не отдаём.
+    """
     client_id = int(client["sub"])
     rows = await db.fetch(
         """SELECT
-              ch.id, ch.platform_slug, ch.display_name, ch.handle, ch.is_active,
+              ch.id, ch.platform_slug, ch.display_name, ch.handle,
+              ch.is_system, ch.is_test,
+              cc.is_active, cc.id AS client_channel_id,
               ch.created_at, ch.updated_at,
               p.display_name AS platform_display_name,
               p.icon_url AS platform_icon_url,
               p.color_hex AS platform_color_hex,
               (SELECT COUNT(*) FROM platform_user_channels puc
-                WHERE puc.channel_id = ch.id AND puc.is_unsubscribed = FALSE) AS subscribers,
+                WHERE puc.client_channel_id = cc.id AND puc.is_unsubscribed = FALSE) AS subscribers,
               (SELECT COUNT(*) FROM platform_user_channels puc
-                WHERE puc.channel_id = ch.id AND puc.is_unsubscribed = TRUE) AS unsubscribed
+                WHERE puc.client_channel_id = cc.id AND puc.is_unsubscribed = TRUE) AS unsubscribed
              FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
              JOIN platforms p ON p.slug = ch.platform_slug
-            WHERE ch.client_id = $1
-            ORDER BY p.sort_order, ch.id""",
+            WHERE cc.client_id = $1
+            ORDER BY p.sort_order, ch.is_system, ch.id""",
         client_id
     )
     return {"items": [dict(r) for r in rows]}
@@ -123,12 +134,18 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
 
 @router.get("/{channel_id}")
 async def get_channel(channel_id: int, client=Depends(get_current_client), db=Depends(get_db)):
+    """Детали одного канала. bot_token отдаём только для своих VIP-каналов
+    (не is_system) — для системных канальный токен не показываем."""
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        """SELECT ch.id, ch.platform_slug, ch.display_name, ch.handle, ch.bot_token,
-                  ch.is_active, ch.created_at, ch.updated_at
+        """SELECT ch.id, ch.platform_slug, ch.display_name, ch.handle,
+                  ch.is_system, ch.is_test,
+                  CASE WHEN ch.is_system THEN NULL ELSE ch.bot_token END AS bot_token,
+                  cc.is_active, cc.id AS client_channel_id,
+                  ch.created_at, ch.updated_at
              FROM channels ch
-            WHERE ch.id = $1 AND ch.client_id = $2""",
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2""",
         channel_id, client_id
     )
     if not row:
@@ -136,52 +153,57 @@ async def get_channel(channel_id: int, client=Depends(get_current_client), db=De
     return dict(row)
 
 
+# ─── POST создание канала клиентом ────────────────────────────────────
+
 @router.post("")
 async def create_channel(
     data: ChannelCreate,
     client=Depends(get_current_client),
     db=Depends(get_db)
 ):
+    """Создаёт ПОЛЬЗОВАТЕЛЬСКИЙ (не системный) канал клиента и связку в client_channels.
+    Системные каналы создаются только админом отдельным эндпоинтом."""
     client_id = int(client["sub"])
-    # Проверяем что платформа существует
     platform_exists = await db.fetchval(
         "SELECT 1 FROM platforms WHERE slug = $1 AND is_active = TRUE", data.platform_slug
     )
     if not platform_exists:
         raise HTTPException(status_code=400, detail="Неизвестная платформа")
 
-    # Сохранение Telegram-бота со своим токеном — только на тарифе с allow_custom_bot
     if data.platform_slug == "telegram" and data.bot_token:
         await _assert_can_use_custom_bot(db, client_id)
 
-    # Если новый канал создаём главным — снимаем флаг у текущего главного
-    # на той же платформе (иначе INSERT упадёт на UNIQUE-индексе).
     async with db.transaction():
+        # Если новый канал делаем главным — снимаем флаг у текущего главного у этого клиента на платформе
         if data.is_active:
             await db.execute(
-                """UPDATE channels
-                      SET is_active = FALSE, updated_at = NOW()
-                    WHERE client_id = $1
-                      AND platform_slug = $2
-                      AND is_active = TRUE""",
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id
+                      AND cc.client_id = $1
+                      AND ch.platform_slug = $2
+                      AND cc.is_active = TRUE""",
                 client_id, data.platform_slug
             )
-        channel_id = await db.fetchval(
-            """INSERT INTO channels (client_id, platform_slug, display_name, handle, bot_token, is_active)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id""",
-            client_id, data.platform_slug, data.display_name, data.handle, data.bot_token, data.is_active
+        new_channel_id = await db.fetchval(
+            """INSERT INTO channels (platform_slug, display_name, handle, bot_token, is_system, is_test)
+               VALUES ($1, $2, $3, $4, FALSE, FALSE) RETURNING id""",
+            data.platform_slug, data.display_name, data.handle, data.bot_token
+        )
+        await db.execute(
+            "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, $3)",
+            client_id, new_channel_id, data.is_active
         )
 
-    # Создан новый telegram-канал-воронка с токеном — снести webhook у бота
-    # (если кто-то уже подвязал его к Salebot/другому сервису), затем
-    # перезапустить polling чтобы подхватить новый токен.
     if data.platform_slug == "telegram" and data.is_active and data.bot_token:
         await _ensure_polling_ready(data.bot_token)
         await reload_bot_polling()
 
-    return {"id": channel_id, "ok": True}
+    return {"id": new_channel_id, "ok": True}
 
+
+# ─── PATCH обновление канала ──────────────────────────────────────────
 
 @router.patch("/{channel_id}")
 async def update_channel(
@@ -190,78 +212,88 @@ async def update_channel(
     client=Depends(get_current_client),
     db=Depends(get_db)
 ):
+    """Обновление полей канала.
+
+    Запреты:
+      - bot_token нельзя менять для is_system (системный токен в .env)
+      - is_active живёт в client_channels (для пары клиент×канал), а не в channels
+    """
     client_id = int(client["sub"])
     current = await db.fetchrow(
-        """SELECT id, platform_slug, is_active, bot_token
-             FROM channels WHERE id = $1 AND client_id = $2""",
+        """SELECT ch.id, ch.platform_slug, ch.is_system, ch.bot_token,
+                  cc.id AS cc_id, cc.is_active
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2""",
         channel_id, client_id
     )
     if not current:
         raise HTTPException(status_code=404, detail="Канал не найден")
 
-    updates = []
-    params = []
+    # Запреты для системных
+    if current["is_system"]:
+        if data.bot_token is not None:
+            raise HTTPException(
+                status_code=403,
+                detail="Системный канал — токен менять нельзя (он общий для всех клиентов)."
+            )
+        if data.display_name is not None or data.handle is not None:
+            raise HTTPException(
+                status_code=403,
+                detail="Системный канал — название и handle менять нельзя."
+            )
+
+    # Поля channels (display_name, handle, bot_token)
+    ch_updates: list[str] = []
+    ch_params: list = []
     if data.display_name is not None:
-        params.append(data.display_name); updates.append(f"display_name = ${len(params)}")
+        ch_params.append(data.display_name); ch_updates.append(f"display_name = ${len(ch_params)}")
     if data.handle is not None:
-        params.append(data.handle); updates.append(f"handle = ${len(params)}")
+        ch_params.append(data.handle); ch_updates.append(f"handle = ${len(ch_params)}")
     if data.bot_token is not None:
-        # Передача нового токена для telegram → проверяем тариф
-        if data.bot_token:
-            ch_platform = await db.fetchval(
-                "SELECT platform_slug FROM channels WHERE id = $1 AND client_id = $2",
-                channel_id, client_id
-            )
-            if ch_platform == "telegram":
-                await _assert_can_use_custom_bot(db, client_id)
-        params.append(data.bot_token); updates.append(f"bot_token = ${len(params)}")
-    if data.is_active is not None:
-        params.append(data.is_active); updates.append(f"is_active = ${len(params)}")
+        if data.bot_token and current["platform_slug"] == "telegram":
+            await _assert_can_use_custom_bot(db, client_id)
+        ch_params.append(data.bot_token); ch_updates.append(f"bot_token = ${len(ch_params)}")
 
-    if not updates:
-        return {"ok": True}
-
-    # Если включаем канал главным (is_active=true) — сначала снимаем флаг
-    # у текущего главного на этой платформе (UNIQUE-индекс не даёт двух активных).
-    # Делаем в транзакции: сперва UPDATE старого главного → потом UPDATE нашего.
     async with db.transaction():
-        if data.is_active is True:
-            ch_platform = await db.fetchval(
-                "SELECT platform_slug FROM channels WHERE id = $1 AND client_id = $2",
-                channel_id, client_id
+        if ch_updates:
+            ch_params.append(channel_id)
+            await db.execute(
+                f"UPDATE channels SET {', '.join(ch_updates)}, updated_at = NOW() WHERE id = ${len(ch_params)}",
+                *ch_params
             )
-            if ch_platform:
-                await db.execute(
-                    """UPDATE channels
-                          SET is_active = FALSE, updated_at = NOW()
-                        WHERE client_id = $1
-                          AND platform_slug = $2
-                          AND is_active = TRUE
-                          AND id <> $3""",
-                    client_id, ch_platform, channel_id
-                )
 
-        params.append(channel_id)
-        await db.execute(
-            f"UPDATE channels SET {', '.join(updates)}, updated_at = NOW() WHERE id = ${len(params)}",
-            *params
-        )
+        # is_active — на client_channels
+        if data.is_active is True:
+            # Снять флаг у других главных клиента на этой платформе
+            await db.execute(
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id
+                      AND cc.client_id = $1
+                      AND ch.platform_slug = $2
+                      AND cc.is_active = TRUE
+                      AND cc.id <> $3""",
+                client_id, current["platform_slug"], current["cc_id"]
+            )
+            await db.execute(
+                "UPDATE client_channels SET is_active = TRUE WHERE id = $1", current["cc_id"]
+            )
+        elif data.is_active is False:
+            await db.execute(
+                "UPDATE client_channels SET is_active = FALSE WHERE id = $1", current["cc_id"]
+            )
 
-    # Перезапускаем polling если изменилось то, что влияет на состав активных TG-ботов:
-    #   1) переключили активный канал (был неактивен → стал активен, или наоборот)
-    #   2) сменили bot_token у активного telegram-канала
+    # Перезапуск polling если меняется состав активных TG-ботов или их токенов
     if current["platform_slug"] == "telegram":
-        activeness_changed = (
-            data.is_active is not None and data.is_active != current["is_active"]
-        )
+        activeness_changed = data.is_active is not None and data.is_active != current["is_active"]
         token_changed_on_active = (
             data.bot_token is not None
             and data.bot_token != (current["bot_token"] or "")
             and (current["is_active"] or data.is_active is True)
         )
         if activeness_changed or token_changed_on_active:
-            # Перед polling-reload нужно снести webhook у бота, который СТАНЕТ активным
-            # (иначе getUpdates вернёт Conflict). Берём токен из текущего апдейта или из БД.
             now_active = data.is_active if data.is_active is not None else current["is_active"]
             if now_active:
                 token_for_polling = data.bot_token if data.bot_token is not None else (current["bot_token"] or "")
@@ -271,6 +303,8 @@ async def update_channel(
 
     return {"ok": True}
 
+
+# ─── POST /connect-telegram-bot ──────────────────────────────────────
 
 class ConnectTelegramBotRequest(BaseModel):
     bot_token: str
@@ -282,32 +316,21 @@ async def connect_telegram_bot(
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
-    """
-    Wizard для VIP-клиента: вставил токен → бэк делает всё остальное.
-      1. Проверяет тариф (allow_custom_bot)
-      2. Валидирует токен через `getMe` (узнаёт username, имя бота)
-      3. Сохраняет / обновляет запись в `channels` (UNIQUE по client_id+platform=telegram)
-      4. Вешает Mini App кнопку через `setChatMenuButton` с URL `/c/{N}/tg/`
-
-    Клиенту останется только зайти в @BotFather → /newapp и привязать тот же URL
-    к своему боту (одноразовый шаг, через API нельзя).
-    """
+    """VIP-онбординг: вставил токен → бэк делает getMe → INSERT channels + client_channels →
+    setChatMenuButton → deleteWebhook → reload polling."""
     client_id = int(client["sub"])
-
     await _assert_can_use_custom_bot(db, client_id)
 
     token = data.bot_token.strip()
     if not token or ":" not in token:
         raise HTTPException(status_code=400, detail="Неверный формат токена")
 
-    # 1. getMe → проверка валидности + имя бота
     me = await _tg_call(token, "getMe")
     bot_username = me.get("username") or ""
     bot_name = me.get("first_name") or bot_username
     if not bot_username:
         raise HTTPException(status_code=400, detail="Telegram вернул пустой username бота")
 
-    # 2. setChatMenuButton — кнопка «Открыть кабинет» в боте клиента
     mini_app_url = _mini_app_url_for_client(client_id)
     await _tg_call(token, "setChatMenuButton", {
         "menu_button": {
@@ -317,29 +340,60 @@ async def connect_telegram_bot(
         }
     })
 
-    # 3. Upsert в channels — один активный telegram-канал per клиент
-    existing = await db.fetchval(
-        "SELECT id FROM channels WHERE client_id = $1 AND platform_slug = 'telegram' AND is_active = TRUE LIMIT 1",
+    # Upsert: если у клиента уже есть НЕ-системный telegram-канал — обновить, иначе создать
+    existing = await db.fetchrow(
+        """SELECT ch.id, cc.id AS cc_id
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = 'telegram'
+              AND ch.is_system = FALSE
+            ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
         client_id,
     )
-    if existing:
-        await db.execute(
-            """UPDATE channels
-                  SET bot_token = $1, display_name = $2, handle = $3, updated_at = NOW()
-                WHERE id = $4""",
-            token, f"Бот {bot_name}", f"@{bot_username}", existing,
-        )
-        channel_id = existing
-    else:
-        channel_id = await db.fetchval(
-            """INSERT INTO channels (client_id, platform_slug, display_name, handle, bot_token, is_active)
-               VALUES ($1, 'telegram', $2, $3, $4, TRUE) RETURNING id""",
-            client_id, f"Бот {bot_name}", f"@{bot_username}", token,
-        )
+    async with db.transaction():
+        if existing:
+            await db.execute(
+                """UPDATE channels
+                      SET bot_token = $1, display_name = $2, handle = $3, updated_at = NOW()
+                    WHERE id = $4""",
+                token, f"Бот {bot_name}", f"@{bot_username}", existing["id"],
+            )
+            channel_id = existing["id"]
+            # Сделаем активным (если не был) — снимем флаг у других
+            await db.execute(
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id
+                      AND cc.client_id = $1 AND ch.platform_slug = 'telegram'
+                      AND cc.is_active = TRUE AND cc.id <> $2""",
+                client_id, existing["cc_id"]
+            )
+            await db.execute(
+                "UPDATE client_channels SET is_active = TRUE WHERE id = $1", existing["cc_id"]
+            )
+        else:
+            channel_id = await db.fetchval(
+                """INSERT INTO channels (platform_slug, display_name, handle, bot_token, is_system, is_test)
+                   VALUES ('telegram', $1, $2, $3, FALSE, FALSE) RETURNING id""",
+                f"Бот {bot_name}", f"@{bot_username}", token,
+            )
+            # Снять флаг главного у других telegram-каналов клиента (системный @pluson_bot и т.п.)
+            await db.execute(
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id
+                      AND cc.client_id = $1 AND ch.platform_slug = 'telegram'
+                      AND cc.is_active = TRUE""",
+                client_id
+            )
+            await db.execute(
+                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, TRUE)",
+                client_id, channel_id,
+            )
 
-    # Подняли/обновили активный telegram-канал — снести webhook (если бот был
-    # подключен к Salebot и т.п.), чтобы наш polling мог делать getUpdates,
-    # затем перезапустить bot-сервис для подхвата нового токена.
     await _ensure_polling_ready(token)
     await reload_bot_polling()
 
@@ -352,30 +406,67 @@ async def connect_telegram_bot(
     }
 
 
+# ─── DELETE удаление канала ───────────────────────────────────────────
+
 @router.delete("/{channel_id}")
 async def delete_channel(channel_id: int, client=Depends(get_current_client), db=Depends(get_db)):
-    """Удаляет канал. Все подписки (platform_user_channels) каскадно удалятся."""
+    """Удаляет канал клиента.
+
+    Запреты:
+      - is_system — нельзя удалить (общий сервисный канал, управляется админом).
+      - канал с подписчиками — 409 (предупреждение, чтобы не потерять базу).
+
+    Логика:
+      - Удаляем запись из client_channels (привязка клиент-канал).
+      - Если на channel больше нет ссылок из client_channels — это orphan, чистим channels тоже.
+    """
     client_id = int(client["sub"])
-    # Запоминаем платформу/активность ДО удаления, чтобы знать — нужен ли рестарт
     info = await db.fetchrow(
-        "SELECT platform_slug, is_active, bot_token FROM channels WHERE id = $1 AND client_id = $2",
+        """SELECT ch.id, ch.platform_slug, ch.is_system, ch.bot_token,
+                  cc.id AS cc_id, cc.is_active
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2""",
         channel_id, client_id
     )
     if not info:
         raise HTTPException(status_code=404, detail="Канал не найден")
-    deleted = await db.execute(
-        "DELETE FROM channels WHERE id = $1 AND client_id = $2",
-        channel_id, client_id
-    )
-    if deleted == "DELETE 0":
-        raise HTTPException(status_code=404, detail="Канал не найден")
 
-    # Удалили активный telegram-канал-воронку с токеном — пересобираем поллинг
+    if info["is_system"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Системный канал нельзя удалить из дашборда — это общий канал сервиса."
+        )
+
+    # Проверка: у канала клиента есть подписчики? Предупреждаем (нельзя удалить молча).
+    subs = await db.fetchval(
+        """SELECT COUNT(*) FROM platform_user_channels puc
+            WHERE puc.client_channel_id = $1""",
+        info["cc_id"]
+    )
+    if subs and subs > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"У канала {subs} подписчиков. Удаление запрещено — иначе потеряется база. "
+                   "Деактивируйте канал (выключите воронку) вместо удаления."
+        )
+
+    async with db.transaction():
+        await db.execute("DELETE FROM client_channels WHERE id = $1", info["cc_id"])
+        # Если на channel больше нет ссылок — удаляем сам канал (он был только у этого клиента)
+        other_refs = await db.fetchval(
+            "SELECT COUNT(*) FROM client_channels WHERE channel_id = $1", channel_id
+        )
+        if other_refs == 0:
+            await db.execute("DELETE FROM channels WHERE id = $1", channel_id)
+
     if info["platform_slug"] == "telegram" and info["is_active"] and info["bot_token"]:
         await reload_bot_polling()
 
     return {"ok": True}
 
+
+# ─── POST /import-csv ─────────────────────────────────────────────────
 
 @router.post("/{channel_id}/import-csv", summary="Импорт пользователей в канал из CSV")
 async def import_channel_csv(
@@ -384,12 +475,26 @@ async def import_channel_csv(
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
-    """Загружает CSV с пользователями (telegram_id, name, telegram_username, email, phone, subscribed)
-    и подписывает их на канал. Существующие контакты — мерджит по tg_id или email/phone.
-    Поля БД не перетираются — нестыковки идут в текстовый отчёт."""
+    """CSV-импорт. Запрещён для системных каналов (там через @pluson_bot не импортируется
+    извне — люди приходят сами через /start или Mini App)."""
     client_id = int(client["sub"])
 
-    # Лимит 10 МБ
+    # Проверка: канал доступен клиенту?
+    info = await db.fetchrow(
+        """SELECT ch.is_system, cc.id AS cc_id
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2""",
+        channel_id, client_id
+    )
+    if not info:
+        raise HTTPException(status_code=404, detail="Канал не найден")
+    if info["is_system"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Импорт CSV в системный канал запрещён — подписчики приходят сами через /start или Mini App."
+        )
+
     MAX_SIZE = 10 * 1024 * 1024
     file_bytes = await file.read()
     if len(file_bytes) > MAX_SIZE:

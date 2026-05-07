@@ -19,9 +19,16 @@ log = logging.getLogger(__name__)
 
 
 async def _record_subscription(message: Message) -> None:
-    """Регистрируем подписку пользователя на этот конкретный TG-канал клиента.
-    Зовётся при ЛЮБОМ /start, чтобы счётчик подписчиков и база контактов росли.
-    Молча не падает — это вторичная операция, не должна ломать handler."""
+    """Регистрирует подписку пользователя на этот конкретный TG-канал.
+
+    Архитектура G — определяем client_id:
+      - Системный канал (@pluson_bot, is_system=TRUE) → системный клиент «ПЛЮСОН Сервис».
+      - VIP-канал клиента → client_id из client_channels.
+
+    Если потом пользователь сделает /start с реф/событием — запись в контексте того
+    клиента создастся отдельно (через ref-handler / event_start). Это не баг, а фича:
+    один tg_id может быть в нескольких контекстах одновременно.
+    """
     user = message.from_user
     bot_id = message.bot.id if message.bot else None
     if not user or not bot_id:
@@ -33,8 +40,21 @@ async def _record_subscription(message: Message) -> None:
             ch = await find_channel_by_bot_id(bot_id, db)
             if not ch:
                 return
+            # Определяем client_id для записи подписки
+            if ch["is_system"]:
+                client_id = await db.fetchval(
+                    "SELECT id FROM clients WHERE email='system@pluson.ru' AND is_active=TRUE LIMIT 1"
+                )
+            else:
+                client_id = await db.fetchval(
+                    """SELECT client_id FROM client_channels
+                        WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                    ch["id"]
+                )
+            if not client_id:
+                return
             await register_telegram_subscription(
-                ch["client_id"], ch["id"], str(user.id),
+                client_id, ch["id"], str(user.id),
                 username=user.username or "",
                 first_name=user.first_name or "",
                 last_name=user.last_name or "",

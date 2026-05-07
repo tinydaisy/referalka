@@ -129,15 +129,21 @@ async def import_csv_to_channel(
       "report_text": "...многостроковый отчёт об ошибках/нестыковках..."
     }
     """
-    # Проверяем что канал принадлежит клиенту и это telegram
+    # Проверяем что канал доступен клиенту через client_channels (архитектура G)
     channel = await db.fetchrow(
-        "SELECT id, platform_slug, display_name FROM channels WHERE id = $1 AND client_id = $2",
+        """SELECT ch.id, ch.platform_slug, ch.display_name, ch.is_system, cc.id AS cc_id
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2""",
         channel_id, client_id
     )
     if not channel:
         raise ValueError("Канал не найден")
     if channel['platform_slug'] != 'telegram':
         raise ValueError(f"Импорт пока работает только для Telegram-каналов. Канал «{channel['display_name']}» — на платформе {channel['platform_slug']}.")
+    if channel['is_system']:
+        raise ValueError("Импорт CSV в системный канал запрещён — подписчики приходят сами через /start или Mini App.")
+    client_channel_id: int = channel['cc_id']
 
     # Декодируем (UTF-8 / UTF-8-BOM / cp1251 — пробуем по очереди)
     text = None
@@ -374,11 +380,12 @@ async def import_csv_to_channel(
                     contact_id, client_id, tg_id, csv_username
                 )
 
-            # 4. Подписка на канал — перетираем по CSV (целевое действие импорта)
+            # 4. Подписка на канал — перетираем по CSV (целевое действие импорта).
+            # Архитектура G: подписка через client_channel_id (контекст клиент×канал).
             existing_sub = await db.fetchrow(
                 """SELECT is_unsubscribed FROM platform_user_channels
-                    WHERE platform_user_id = $1 AND channel_id = $2""",
-                platform_user_id, channel_id
+                    WHERE platform_user_id = $1 AND client_channel_id = $2""",
+                platform_user_id, client_channel_id
             )
             target_unsubscribed = not is_subscribed
 
@@ -389,17 +396,17 @@ async def import_csv_to_channel(
                               SET is_unsubscribed = $1,
                                   unsubscribed_at = CASE WHEN $1 THEN NOW() ELSE unsubscribed_at END,
                                   subscribed_at   = CASE WHEN $1 THEN subscribed_at ELSE NOW() END
-                            WHERE platform_user_id = $2 AND channel_id = $3""",
-                        target_unsubscribed, platform_user_id, channel_id
+                            WHERE platform_user_id = $2 AND client_channel_id = $3""",
+                        target_unsubscribed, platform_user_id, client_channel_id
                     )
             else:
                 await db.execute(
-                    """INSERT INTO platform_user_channels (platform_user_id, channel_id, platform_slug,
+                    """INSERT INTO platform_user_channels (platform_user_id, client_channel_id,
                                                             is_unsubscribed, subscribed_at, unsubscribed_at)
-                       VALUES ($1, $2, 'telegram', $3,
+                       VALUES ($1, $2, $3,
                                CASE WHEN $3 THEN NULL ELSE NOW() END,
                                CASE WHEN $3 THEN NOW() ELSE NULL END)""",
-                    platform_user_id, channel_id, target_unsubscribed
+                    platform_user_id, client_channel_id, target_unsubscribed
                 )
 
             if is_subscribed:

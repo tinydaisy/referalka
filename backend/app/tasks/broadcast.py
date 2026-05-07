@@ -353,21 +353,24 @@ async def _build_audience(conn, schedule) -> set:
     # Подписан = есть хотя бы один не-отписанный telegram-канал клиента,
     # либо записей в platform_user_channels нет вовсе (легаси-контакты).
     # Если человек отписался от ВСЕХ каналов клиента — исключаем.
+    # Архитектура G: ходим через client_channels (puc.client_channel_id → cc → ch).
     SUBSCRIBED_CLAUSE = """
         (
           EXISTS (
             SELECT 1 FROM platform_user_channels puc
-            JOIN channels ch ON ch.id = puc.channel_id
+            JOIN client_channels cc ON cc.id = puc.client_channel_id
+            JOIN channels ch ON ch.id = cc.channel_id
             WHERE puc.platform_user_id = pu.id
-              AND ch.client_id = pu.client_id
+              AND cc.client_id = pu.client_id
               AND ch.platform_slug = 'telegram'
               AND puc.is_unsubscribed = FALSE
           )
           OR NOT EXISTS (
             SELECT 1 FROM platform_user_channels puc
-            JOIN channels ch ON ch.id = puc.channel_id
+            JOIN client_channels cc ON cc.id = puc.client_channel_id
+            JOIN channels ch ON ch.id = cc.channel_id
             WHERE puc.platform_user_id = pu.id
-              AND ch.client_id = pu.client_id
+              AND cc.client_id = pu.client_id
               AND ch.platform_slug = 'telegram'
           )
         )

@@ -64,6 +64,17 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         client["id"]
     )
 
+    # Архитектура G: создаём записи в client_channels для всех боевых системных каналов
+    # (is_system=TRUE AND is_test=FALSE). Они автоматом доступны клиенту с момента
+    # регистрации. Для не-VIP активный канал — этот системный (раз других нет).
+    await db.execute(
+        """INSERT INTO client_channels (client_id, channel_id, is_active)
+           SELECT $1, ch.id, TRUE
+             FROM channels ch
+            WHERE ch.is_system = TRUE AND ch.is_test = FALSE""",
+        client["id"]
+    )
+
     token = create_token({"sub": str(client["id"]), "email": client["email"], "role": "client"})
 
     return {
