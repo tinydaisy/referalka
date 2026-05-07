@@ -120,17 +120,10 @@ export default function RegisteredReturnPage() {
       }
 
       setStatus('ok')
-      // Перебрасываем пользователя в приватный чат с ботом события (бот
-      // VIP-клиента или общий @pluson_bot). Бот отслеживает свежую
-      // регистрацию и шлёт приветствие — пользователь видит его в чате.
-      // Mini App при следующем открытии (через menu button бота) попадёт
-      // на welcome-экран — welcomed_at IS NULL после свежей регистрации.
-      if (botHandle && tg.openTelegramLink) {
-        try { tg.openTelegramLink(`https://t.me/${botHandle}`); return } catch (_) { /* fallthrough */ }
-      }
-      if (tg.close) {
-        try { tg.close(); return } catch (_) { /* fallthrough */ }
-      }
+      // Навигация в ТОМ ЖЕ webview → Mini App открывается в одном окне,
+      // welcomed_at IS NULL → автоматически вкладка «Интро» (welcome-экран).
+      // Бот клиента отдельно шлёт приветствие через event_welcome при event_start
+      // в Mini App — пользователь увидит сообщение когда свернёт webview.
       window.location.replace(redirectPath)
     }, 100)
     return () => clearInterval(timer)
@@ -159,14 +152,12 @@ export default function RegisteredReturnPage() {
         isVip = !!j?.is_vip_bot
       }
     } catch (_) { /* ignore — пойдём с pluson_bot */ }
-    // VIP-бот без публичного short-name — открываем чат с ботом по handle.
-    // Общий @pluson_bot имеет short-name `pluson` + поддерживает startapp,
-    // через который Mini App заранее знает slug события и флаг _reg.
-    const url = isVip
-      ? `https://t.me/${handle}?start=reg_${encodeURIComponent(slug)}`
-      : `https://t.me/${handle}/pluson?startapp=ref_pg${encodeURIComponent(slug)}_reg`
-    // window.location.href — в обычном браузере iOS/Android отрабатывает
-    // как universal link → Telegram открывается, webview закрывается.
+    // Short-name `pluson` уникален per-бот (не глобально) — работает у общего
+    // @pluson_bot и у всех VIP-ботов. URL t.me/{handle}/pluson?startapp=...
+    // открывает Mini App НАПРЯМУЮ, без захода в чат бота. Mini App видит
+    // startapp `ref_pg{slug}_reg` → флаг regFromLanding=true → авто-регистрация
+    // + welcome-экран.
+    const url = `https://t.me/${handle}/pluson?startapp=ref_pg${encodeURIComponent(slug)}_reg`
     window.location.href = url
   }
 
