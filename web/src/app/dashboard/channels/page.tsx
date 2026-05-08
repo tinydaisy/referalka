@@ -23,7 +23,7 @@ interface Channel {
   display_name: string
   handle: string | null
   is_active: boolean
-  is_system?: boolean   // системный канал ПЛЮСОНа (общий @pluson_bot и т.п.)
+  is_system?: boolean   // системный канал iViSiON: ПЛЮСОНа (общий @pluson_bot и т.п.)
   is_test?: boolean     // в тестовом режиме админа (не выдан клиентам)
   subscribers: number
   unsubscribed: number
@@ -161,7 +161,7 @@ function NonVipView({ onUpgrade }: { onUpgrade: () => void }) {
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-1">
-            Общий бот ПЛЮСОНа — отправляет рассылки и приветствия от вашего имени
+            Общий бот iViSiON: ПЛЮСОНа — отправляет рассылки и приветствия от вашего имени
           </p>
         </div>
       </div>
@@ -182,7 +182,7 @@ function NonVipView({ onUpgrade }: { onUpgrade: () => void }) {
           <h2 className="text-xl font-bold mb-2">Хотите свой брендовый бот?</h2>
           <p className="text-white/75 text-sm mb-5 max-w-lg">
             Подключите собственный Telegram-бот — рассылки приходят от вашего имени, в Mini App
-            открывается ваш персональный кабинет вместо общего ПЛЮСОН-бота.
+            открывается ваш персональный кабинет вместо общего iViSiON: ПЛЮСОН-бота.
           </p>
 
           <ul className="text-sm text-white/85 space-y-2 mb-5">
@@ -309,7 +309,7 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
             <span
               className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold"
               style={{ background: '#FFCFA4', color: '#25455D' }}
-              title="Общий бот сервиса ПЛЮСОН — управляется администратором, доступен всем клиентам"
+              title="Общий бот сервиса iViSiON: ПЛЮСОН — управляется администратором, доступен всем клиентам"
             >
               <Sparkles size={10} /> Системный
             </span>
@@ -349,12 +349,12 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
       <div className="flex items-center gap-2 shrink-0">
         {isSystem ? (
           // Для системного канала — только информационная иконка с пояснением.
-          // Управление (токен, удаление, импорт) — у администратора ПЛЮСОНа.
+          // Управление (токен, удаление, импорт) — у администратора iViSiON: ПЛЮСОНа.
           <button
             type="button"
             onClick={() => alert(
-              'Это общий бот сервиса ПЛЮСОН.\n\n' +
-              '• Токен и параметры бота управляются администратором ПЛЮСОНа.\n' +
+              'Это общий бот сервиса iViSiON: ПЛЮСОН.\n\n' +
+              '• Токен и параметры бота управляются администратором iViSiON: ПЛЮСОНа.\n' +
               '• Удалить нельзя — он подключён ко всем клиентам сервиса.\n' +
               '• Импорт CSV не нужен — подписчики приходят сами через /start или Mini App.\n' +
               '• Подписки ваших клиентов отделены от других клиентов: вы видите только своих подписчиков.'

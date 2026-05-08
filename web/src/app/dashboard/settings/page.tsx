@@ -192,7 +192,7 @@ export default function SettingsPage() {
             <div className="flex-1">
               <h3 className="font-semibold text-gray-800">Безопасность</h3>
               <p className="text-sm text-gray-500 mt-0.5">
-                Пароль для входа в кабинет ПЛЮСОН.
+                Пароль для входа в кабинет iViSiON: ПЛЮСОН.
               </p>
             </div>
           </div>
@@ -602,7 +602,7 @@ function IntegrationTab() {
             <h3 className="font-semibold text-gray-800">API для конструкторов чат-ботов</h3>
             <p className="text-sm text-gray-500 mt-0.5 leading-snug">
               Эти данные нужны, чтобы Salebot, BotHelp, SendPulse, n8n или Make могли регистрировать
-              участников в ПЛЮСОН, проверять подписки и доставать программу конференции.
+              участников в iViSiON: ПЛЮСОН, проверять подписки и доставать программу конференции.
               Полная инструкция со всеми эндпоинтами — на{' '}
               <Link href="/docs/api" target="_blank" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">
                 публичной странице API <ExternalLink size={12}/>
@@ -822,7 +822,7 @@ function SubscriptionTab() {
           Чтобы продлить тариф или сменить — напишите Марго в Telegram. Онлайн-оплата появится позже.
         </p>
         <a
-          href="https://t.me/margo_forbs?text=Хочу_продлить_подписку_ПЛЮСОН"
+          href="https://t.me/margo_forbs?text=Хочу_продлить_подписку_iViSiON: ПЛЮСОН"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#25455D] text-white text-sm font-medium hover:bg-[#1a3247] transition-colors"

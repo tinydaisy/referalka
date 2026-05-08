@@ -19,8 +19,8 @@ export default function ApiDocsPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/images/logo_no_ivision_blue.png" alt="ПЛЮСОН" className="h-7 w-auto" />
-            <span className="text-base font-bold" style={{ color: BRAND }}>ПЛЮСОН</span>
+            <img src="/images/logo_no_ivision_blue.png" alt="iViSiON: ПЛЮСОН" className="h-7 w-auto" />
+            <span className="text-base font-bold" style={{ color: BRAND }}>iViSiON: ПЛЮСОН</span>
           </div>
           <a
             href="https://pluson.ru"
@@ -37,7 +37,7 @@ export default function ApiDocsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold" style={{ color: BRAND }}>
-              API ПЛЮСОНа для интеграции с конструкторами чат-ботов
+              API iViSiON: ПЛЮСОНа для интеграции с конструкторами чат-ботов
             </h1>
             <p className="text-sm text-gray-500 mt-1">
               Salebot, BotHelp, SendPulse, Make, n8n, любой webhook — здесь все эндпоинты:
@@ -59,7 +59,7 @@ export default function ApiDocsPage() {
               <ul className="text-sm text-red-800 space-y-1 list-disc pl-4">
                 <li>
                   <code className="bg-red-100 px-1 rounded">{'<ВАШ_CLIENT_ID>'}</code>
-                  {' '}— ваш ID клиента в кабинете ПЛЮСОН (НЕ&nbsp;1, НЕ&nbsp;7).
+                  {' '}— ваш ID клиента в кабинете iViSiON: ПЛЮСОН (НЕ&nbsp;1, НЕ&nbsp;7).
                   Где взять — указано в следующей секции.
                 </li>
                 <li>
@@ -68,7 +68,7 @@ export default function ApiDocsPage() {
                 </li>
                 <li>
                   <code className="bg-red-100 px-1 rounded">{'<ВАШ_ТОКЕН>'}</code>
-                  {' '}— секретный токен из <em>Настройки → Интеграция</em> в кабинете ПЛЮСОН
+                  {' '}— секретный токен из <em>Настройки → Интеграция</em> в кабинете iViSiON: ПЛЮСОН
                   (у каждого клиента свой).
                 </li>
               </ul>
@@ -90,7 +90,7 @@ export default function ApiDocsPage() {
             <strong className="text-gray-900">Где владельцу кабинета взять свои <code>client_id</code>, <code>event_id</code> и токен:</strong>
             <ul className="mt-2 space-y-1.5 list-disc pl-5">
               <li>
-                <strong>client_id</strong> и <strong>токен</strong> — в кабинете ПЛЮСОН открыть{' '}
+                <strong>client_id</strong> и <strong>токен</strong> — в кабинете iViSiON: ПЛЮСОН открыть{' '}
                 <em>Настройки → Интеграция</em>. Там одна страница с <code>client_id</code>
                 {' '}и секретным токеном для чат-ботов, обе кнопки «Копировать».
                 Токен <strong>вечный</strong>, создаётся автоматически при регистрации.
@@ -157,10 +157,10 @@ export default function ApiDocsPage() {
 
           <p className="text-xs uppercase tracking-wide text-gray-400 mt-5 mb-2">Чтение ответа в Salebot</p>
           <p className="text-sm text-gray-700 mb-3">
-            После запроса ПЛЮСОН возвращает JSON. Чтобы достать поле — используйте <strong>точечную нотацию</strong>
+            После запроса iViSiON: ПЛЮСОН возвращает JSON. Чтобы достать поле — используйте <strong>точечную нотацию</strong>
             прямо в тексте сообщения или в условии:
           </p>
-          <CodeBlock value={`Ответ ПЛЮСОНа:
+          <CodeBlock value={`Ответ iViSiON: ПЛЮСОНа:
 {
   "ok": 1,
   "pluson_id": "1234",
@@ -179,7 +179,7 @@ export default function ApiDocsPage() {
 
           <p className="text-xs uppercase tracking-wide text-gray-400 mt-5 mb-2">Условие «всё ок» в Salebot</p>
           <p className="text-sm text-gray-700 mb-3">
-            ПЛЮСОН в JSON возвращает <strong>числа</strong> <code>0</code> и <code>1</code> (а не <code>true/false</code>) —
+            iViSiON: ПЛЮСОН в JSON возвращает <strong>числа</strong> <code>0</code> и <code>1</code> (а не <code>true/false</code>) —
             именно потому, что Salebot не умеет нормально сравнивать булевые. В условии пишите так:
           </p>
           <CodeBlock value={`Условие «человек подписан на все каналы»:
@@ -431,7 +431,7 @@ export default function ApiDocsPage() {
         {/* 6 — проверка подписки */}
         <Section step="6" title="Проверить подписку участника на каналы спикеров">
           <p className="text-sm text-gray-700 mb-3">
-            Бот ПЛЮСОНа сам сходит в каждый канал спикера через Telegram <code>getChatMember</code>
+            Бот iViSiON: ПЛЮСОНа сам сходит в каждый канал спикера через Telegram <code>getChatMember</code>
             и вернёт список тех, на которые человек <strong>не подписан</strong>.
             Удобно использовать перед выдачей подарка.
           </p>
@@ -466,7 +466,7 @@ export default function ApiDocsPage() {
    → отправить в чат:    Подпишитесь:\\n#subs.not_subscribed_text#`} />
 
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 mt-3">
-            ⚠️ Чтобы проверка работала — бот ПЛЮСОНа (или бот клиента) должен быть <strong>добавлен админом</strong>
+            ⚠️ Чтобы проверка работала — бот iViSiON: ПЛЮСОНа (или бот клиента) должен быть <strong>добавлен админом</strong>
             в канал спикера. Иначе Telegram отвечает «chat not found» и человек считается неподписанным.
           </div>
         </Section>
@@ -516,7 +516,7 @@ export default function ApiDocsPage() {
           <div className="text-sm font-semibold text-gray-800 mb-1">Вопросы по интеграции</div>
           <p className="text-sm text-gray-600">
             Напишите —{' '}
-            <a href="https://t.me/margo_forbs?text=Вопрос_по_API_ПЛЮСОН"
+            <a href="https://t.me/margo_forbs?text=Вопрос_по_API_iViSiON: ПЛЮСОН"
                target="_blank" rel="noopener noreferrer"
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
               открыть чат в Telegram <ExternalLink size={12}/>

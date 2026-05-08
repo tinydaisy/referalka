@@ -60,7 +60,7 @@ export default function ConnectBotInstructionPage() {
       {/* Главная ссылка для копирования */}
       <Section step="●" title="Ваш персональный URL Mini App">
         <p className="text-sm text-gray-600 mb-3">
-          Это <strong>ваш</strong> адрес — у каждого клиента ПЛЮСОН он свой (отличается номером после <code>/c/</code>).
+          Это <strong>ваш</strong> адрес — у каждого клиента iViSiON: ПЛЮСОН он свой (отличается номером после <code>/c/</code>).
           Используется на шагах 3 и 4 ниже.
         </p>
         <CopyBlock value={miniAppUrl} />
@@ -96,7 +96,7 @@ export default function ConnectBotInstructionPage() {
 
       <Section step="3" title="Configure Mini App в Bot Settings">
         <p className="text-sm text-gray-700 mb-3">
-          Привязываем ПЛЮСОН как <strong>главный Mini App</strong> бота. Ссылки получаются короткие
+          Привязываем iViSiON: ПЛЮСОН как <strong>главный Mini App</strong> бота. Ссылки получаются короткие
           (<code>t.me/ваш_бот?startapp=…</code>), без коротких имён, работают везде одинаково.
         </p>
 
@@ -121,7 +121,7 @@ export default function ConnectBotInstructionPage() {
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900 mb-3">
           💡 Не путать с <code>/newapp</code> — это старый путь, он создаёт <strong>short-named</strong> Mini App
           (URL типа <code>t.me/bot/myapp</code>) и там как раз есть title/description/photo.
-          Для ПЛЮСОНа short-name не нужен — используем <strong>Main Mini App</strong> через Bot Settings.
+          Для iViSiON: ПЛЮСОНа short-name не нужен — используем <strong>Main Mini App</strong> через Bot Settings.
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
@@ -139,7 +139,7 @@ export default function ConnectBotInstructionPage() {
         <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5">
           <li>В @BotFather: <code>/mybots</code> → выбрать бота → <strong>«Bot Settings»</strong></li>
           <li>Нажать <strong>«Menu Button»</strong> → <strong>«Configure menu button»</strong></li>
-          <li><strong>Текст кнопки:</strong> <code>Открыть ПЛЮСОН</code></li>
+          <li><strong>Текст кнопки:</strong> <code>Открыть iViSiON: ПЛЮСОН</code></li>
           <li>
             <strong>URL:</strong> вставьте эту ссылку →
             <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
@@ -160,7 +160,7 @@ export default function ConnectBotInstructionPage() {
 
       <Section step="●" title="Где взять готовую ссылку для шеринга">
         <p className="text-sm text-gray-700 mb-3">
-          Никаких ссылок руками собирать не нужно — ПЛЮСОН делает их сам. Откройте карточку события и скопируйте готовую:
+          Никаких ссылок руками собирать не нужно — iViSiON: ПЛЮСОН делает их сам. Откройте карточку события и скопируйте готовую:
         </p>
         <ul className="text-sm text-gray-700 space-y-2 list-disc pl-5 mb-3">
           <li>

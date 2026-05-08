@@ -24,7 +24,7 @@ const ARTICLES: Article[] = [
   },
   {
     href: '/docs/api',
-    title: 'API ПЛЮСОНа для интеграции с конструкторами чат-ботов',
+    title: 'API iViSiON: ПЛЮСОНа для интеграции с конструкторами чат-ботов',
     description: 'Salebot, BotHelp, SendPulse, n8n, Make, любой webhook. Регистрация участника, программа конференции, спикеры и регалии, каналы, проверка подписки, билет розыгрыша. Есть отдельная секция как настроить блок HTTP-запрос в Salebot и как читать ответ.',
     emoji: '🔌',
     isPublic: true,
@@ -48,7 +48,7 @@ export default function HelpIndexPage() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: BRAND }}>Инструкции</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Содержание всех инструкций по работе с ПЛЮСОН. Кликните по теме, чтобы открыть полный гайд.
+            Содержание всех инструкций по работе с iViSiON: ПЛЮСОН. Кликните по теме, чтобы открыть полный гайд.
           </p>
         </div>
       </div>

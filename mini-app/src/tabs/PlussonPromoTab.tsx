@@ -93,12 +93,12 @@ export default function PlussonPromoTab() {
       >
         <img
           src="/images/logo_no_ivision_wwhite.png"
-          alt="ПЛЮСОН"
+          alt="iViSiON: ПЛЮСОН"
           style={{ height: 32, marginBottom: 12, opacity: 0.95 }}
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
         />
         <div style={{ color: '#FFCFA4', fontSize: 11, letterSpacing: 2, fontWeight: 700, opacity: 0.85 }}>
-          ПЛЮСОН
+          iViSiON: ПЛЮСОН
         </div>
         <h1 style={{ color: 'white', fontSize: 22, fontWeight: 800, marginTop: 12, lineHeight: 1.25 }}>
           Сделайте так же<br />со своим событием

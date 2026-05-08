@@ -8,7 +8,7 @@ import { detectPlatform, type PlatformName } from './platform'
 
 /*
  * Маршрутизация без startapp:
- * - Mini App в общем @pluson_bot   → HubSelector (список событий + промо ПЛЮСОН)
+ * - Mini App в общем @pluson_bot   → HubSelector (список событий + промо iViSiON: ПЛЮСОН)
  * - Mini App в боте клиента (VIP)  → Hub этого клиента
  *
  * Идентификатор клиента берётся из URL пути `/c/{N}/tg/`:

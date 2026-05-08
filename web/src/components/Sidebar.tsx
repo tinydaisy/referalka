@@ -73,9 +73,9 @@ export default function Sidebar() {
             alt=""
             className="h-8 w-auto"
           />
-          <span className="text-[#FFCFA4] font-bold text-xl tracking-wide">ПЛЮСОН</span>
+          <span className="text-[#FFCFA4] font-bold text-xl tracking-wide">iViSiON: ПЛЮСОН</span>
         </div>
-        <p className="text-white/50 text-xs mt-1">платформа событийного и реферального маркетинга</p>
+        <p className="text-white/50 text-xs mt-1">Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте</p>
       </div>
 
       {/* Navigation */}

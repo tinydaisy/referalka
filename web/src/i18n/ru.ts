@@ -84,7 +84,7 @@ export const ru = {
   },
 
   dashboard: {
-    welcome: 'Добро пожаловать в ПЛЮСОН',
+    welcome: 'Добро пожаловать в iViSiON: ПЛЮСОН',
     subtitle: 'Выберите модуль, с которым хотите работать',
     referrals: {
       title: 'Рефералки',

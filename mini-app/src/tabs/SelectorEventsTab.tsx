@@ -192,7 +192,7 @@ export default function SelectorEventsTab({ tgUser, onOpenEvent, onSwitchToPromo
             cursor: 'pointer',
           }}
         >
-          А что такое ПЛЮСОН? →
+          А что такое iViSiON: ПЛЮСОН? →
         </button>
       </div>
     )

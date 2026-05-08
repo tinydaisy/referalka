@@ -41,15 +41,15 @@ export default function LoginPage() {
     <div className="min-h-screen flex">
       {/* Left */}
       <div className="hidden lg:flex lg:w-1/2 gradient-bg flex-col justify-center px-16 py-12">
-        <img src="/images/logo_no_ivision_wwhite.png" alt="ПЛЮСОН"
+        <img src="/images/logo_no_ivision_wwhite.png" alt="iViSiON: ПЛЮСОН"
           className="auth-logo mb-8"
           width={147} height={120}
           onError={e => { (e.target as any).style.display = 'none' }} />
         <h1 className="text-white text-3xl font-bold leading-tight">
-          Добро пожаловать<br />в ПЛЮСОН
+          Добро пожаловать<br />в iViSiON: ПЛЮСОН
         </h1>
         <p className="text-white/70 mt-4 text-lg">
-          Платформа управляемого вирального роста для вашего бизнеса
+          Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте
         </p>
         <div className="mt-10 p-5 rounded-2xl bg-white/10 border border-white/20">
           <p className="text-white/80 text-sm italic">
@@ -62,7 +62,7 @@ export default function LoginPage() {
       <div className="w-full lg:w-1/2 flex items-center justify-center px-6 py-12 bg-white">
         <div className="w-full max-w-md">
           <div className="lg:hidden mb-8 text-center">
-            <span className="text-2xl font-bold" style={{ color: '#25455D' }}>ПЛЮСОН</span>
+            <span className="text-2xl font-bold" style={{ color: '#25455D' }}>iViSiON: ПЛЮСОН</span>
           </div>
 
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Войдите в кабинет</h2>

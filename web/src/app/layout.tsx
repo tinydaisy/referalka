@@ -4,8 +4,8 @@ import './globals.css'
 const isDev = process.env.NEXT_PUBLIC_APP_ENV === 'dev'
 
 export const metadata: Metadata = {
-  title: isDev ? 'DEV-ПЛЮСОН' : 'ПЛЮСОН',
-  description: 'Платформа управляемого вирального роста',
+  title: isDev ? 'DEV-iViSiON: ПЛЮСОН' : 'iViSiON: ПЛЮСОН',
+  description: 'Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

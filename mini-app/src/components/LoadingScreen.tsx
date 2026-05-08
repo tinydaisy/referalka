@@ -10,10 +10,10 @@ export default function LoadingScreen() {
     <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
       <div style={{ marginBottom: 40, textAlign: 'center' }}>
         <div style={{ fontSize: 36, fontWeight: 700, letterSpacing: 4, color: '#FFCFA4', fontFamily: 'Roboto, sans-serif', textTransform: 'uppercase' }}>
-          ПЛЮСОН
+          iViSiON: ПЛЮСОН
         </div>
         <div style={{ fontSize: 13, color: 'rgba(255,207,164,0.5)', marginTop: 6, fontFamily: 'Roboto' }}>
-          платформа событийного и реферального маркетинга
+          Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте
         </div>
       </div>
       <div style={{ width: 200 }}>

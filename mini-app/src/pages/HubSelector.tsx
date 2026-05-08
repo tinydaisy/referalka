@@ -10,7 +10,7 @@ interface Props {
 
 const NAV: NavItem[] = [
   { id: 'events', label: 'События',  icon: 'calendar' },
-  { id: 'plusson', label: 'ПЛЮСОН',  icon: 'plus'     },
+  { id: 'plusson', label: 'iViSiON: ПЛЮСОН',  icon: 'plus'     },
 ]
 
 export default function HubSelector({ tgUser, onOpenEvent }: Props) {
@@ -23,7 +23,7 @@ export default function HubSelector({ tgUser, onOpenEvent }: Props) {
       {tab === 'events' && (
         <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18 }}>
           <p style={{ color: '#FFCFA4', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, opacity: 0.7 }}>
-            ПЛЮСОН
+            iViSiON: ПЛЮСОН
           </p>
           <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, marginTop: 6 }}>
             {greeting}

@@ -17,7 +17,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex min-h-screen bg-gray-50">
       <aside className="sidebar hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-40 w-60">
         <div className="px-5 py-6 border-b border-white/10">
-          <p className="text-white font-bold text-lg tracking-wide">ПЛЮСОН</p>
+          <p className="text-white font-bold text-lg tracking-wide">iViSiON: ПЛЮСОН</p>
           <p className="text-white/50 text-xs mt-1">Панель администратора</p>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
