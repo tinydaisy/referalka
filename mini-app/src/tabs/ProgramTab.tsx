@@ -226,22 +226,22 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
+  // [DEBUG TEMP] последний результат запроса для отладки
+  const [debugInfo, setDebugInfo] = useState<string>('')
+
   async function openChatWithCheck() {
     if (!event?.chat_url) return
-    // Гейт подписки нужен для конференции (subscription_mode) ИЛИ для
-    // мероприятия с require_subscription=true. Иначе открываем сразу.
     const needsCheck = isConference || !!event?.require_subscription
-    // [DEBUG TEMP] показать почему пропускаем проверку — если пропускаем
     if (!needsCheck || !event?.id || !tgUser?.id) {
-      const tg = (window as any).Telegram?.WebApp
-      const dbg = `DEBUG чат-проверка пропущена:\n• event.id = ${event?.id}\n• module_slug = ${event?.module_slug}\n• require_subscription = ${event?.require_subscription}\n• isConference = ${isConference}\n• needsCheck = ${needsCheck}\n• tgUser.id = ${tgUser?.id || '(пусто)'}\n• tgUser.username = ${tgUser?.username || '(пусто)'}\n→ открываем чат БЕЗ проверки`
-      try { (tg && tg.showAlert) ? tg.showAlert(dbg) : alert(dbg) } catch { alert(dbg) }
+      setDebugInfo(`ПРОПУЩЕНО: needsCheck=${needsCheck} eventId=${event?.id} tgId=${tgUser?.id || '(пусто)'} module=${event?.module_slug} require_sub=${event?.require_subscription} isConf=${isConference}`)
       openExternal(event.chat_url)
       return
     }
+    setDebugInfo(`ИДЁТ: tgId=${tgUser.id} eventId=${event.id}`)
     setChatGate({ loading: true, notSubscribed: null, subscribed: [], error: null })
     try {
       const r: any = await checkConferenceSubscription(event.id, tgUser.id)
+      setDebugInfo(`ОТВЕТ: status=${r?.status} not_sub=${(r?.not_subscribed || []).length} sub=${(r?.subscribed || []).length}`)
       if (r?.status === 1) {
         setChatGate({ loading: false, notSubscribed: null, subscribed: [] })
         openExternal(event.chat_url)
@@ -253,6 +253,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         })
       }
     } catch (e: any) {
+      setDebugInfo(`ОШИБКА: ${e?.message || 'неизвестная'}`)
       setChatGate({ loading: false, notSubscribed: null, subscribed: [], error: e?.message || 'Не удалось проверить подписку' })
     }
   }
@@ -553,6 +554,16 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
             </div>
             <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
           </button>
+          {/* [DEBUG TEMP] баннер с результатом последней проверки */}
+          {debugInfo && (
+            <div style={{
+              fontSize: 11, padding: '8px 10px', marginBottom: 12, borderRadius: 8,
+              background: '#fff8e1', border: '1px solid #ffe0a3', color: '#5a4a00',
+              wordBreak: 'break-all', fontFamily: 'monospace',
+            }}>
+              {debugInfo}
+            </div>
+          )}
         </>
       )}
 
