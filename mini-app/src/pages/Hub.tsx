@@ -45,10 +45,7 @@ export default function Hub({ clientId, tgUser, onOpenEvent }: Props) {
                    cursor: 'pointer',
                  }} />
           )}
-          <p style={{ color: PEACH, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, opacity: 0.7 }}>
-            iViSiON: ПЛЮСОН
-          </p>
-          <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, marginTop: 6, paddingRight: brandLogo ? 50 : 0 }}>
+          <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, paddingRight: brandLogo ? 50 : 0 }}>
             {brand}
           </h1>
           {tagline && (
