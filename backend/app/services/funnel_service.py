@@ -237,44 +237,38 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
     when_str = when.strftime("%d.%m.%Y %H:%M") if when else ""
 
     parts = [
-        f"🆕 <b>Новый интерес: {run['source_name']}</b>",
-        when_str,
+        "🆕 <b>Новый интерес</b>",
         "",
-        "<b>Кто пришёл:</b>",
+        f"<b>Лид-магнит:</b> {run['source_name'] or '—'}",
+        f"<b>Когда:</b> {when_str or '—'}",
+        "",
+        "<b>Кто пришёл</b>",
+        f"<b>Никнейм:</b> {('@' + run['contact_username']) if run['contact_username'] else '—'}",
+        f"<b>Имя:</b> {run['contact_name'] or '—'}",
+        f"<b>ID контакта:</b> {('#' + str(run['contact_id'])) if run['contact_id'] else '—'}",
+        f"<b>Платформа:</b> {(run['platform_slug'] or '—').title()}",
     ]
-    user_line_bits = []
-    if run["contact_username"]:
-        user_line_bits.append(f"@{run['contact_username']}")
-    if run["contact_id"]:
-        user_line_bits.append(f"#{run['contact_id']}")
-    if user_line_bits:
-        parts.append(" · ".join(user_line_bits))
-    if run["contact_name"]:
-        parts.append(run["contact_name"])
-    if run["platform_slug"]:
-        parts.append(run["platform_slug"].title())
-    src = utm.get("utm_source") if isinstance(utm, dict) else None
-    if src:
-        parts.append(f"utm_source: {src}")
-    # все остальные UTM
-    if isinstance(utm, dict):
-        extras = [f"{k}: {v}" for k, v in utm.items() if k != "utm_source"]
-        if extras:
-            parts.append(" · ".join(extras))
-    if run["contact_id"]:
-        parts.append(f"👉 {settings.frontend_url}/dashboard/clients?contact={run['contact_id']}")
 
+    src = utm.get("utm_source") if isinstance(utm, dict) else None
+    parts.append(f"<b>Источник (utm_source):</b> {src or '—'}")
+    if isinstance(utm, dict):
+        for k, v in utm.items():
+            if k == "utm_source":
+                continue
+            parts.append(f"<b>{k}:</b> {v}")
+
+    if run["contact_id"]:
+        parts.append(f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={run['contact_id']}")
+
+    parts.append("")
     if run["referrer_contact_id"]:
-        parts.append("")
-        parts.append("<b>Кто привёл:</b>")
-        ref_bits = []
-        if run["referrer_username"]:
-            ref_bits.append(f"@{run['referrer_username']}")
-        ref_bits.append(f"#{run['referrer_contact_id']}")
-        parts.append(" · ".join(ref_bits))
-        if run["referrer_name"]:
-            parts.append(run["referrer_name"])
-        parts.append(f"👉 {settings.frontend_url}/dashboard/clients?contact={run['referrer_contact_id']}")
+        parts.append("<b>Кто привёл</b>")
+        parts.append(f"<b>Никнейм:</b> {('@' + run['referrer_username']) if run['referrer_username'] else '—'}")
+        parts.append(f"<b>Имя:</b> {run['referrer_name'] or '—'}")
+        parts.append(f"<b>ID контакта:</b> #{run['referrer_contact_id']}")
+        parts.append(f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={run['referrer_contact_id']}")
+    else:
+        parts.append("<b>Кто привёл:</b> —")
 
     text = "\n".join(parts)
     token = settings.telegram_bot_token  # уведомления всегда от @pluson_bot
