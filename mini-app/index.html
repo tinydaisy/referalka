@@ -19,15 +19,26 @@
       position: fixed; inset: 0; z-index: 1;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      gap: 24px;
+      gap: 20px;
+      padding: 24px 28px;
+      box-sizing: border-box;
       background: linear-gradient(45deg, #25455D, #0a1520);
+      text-align: center;
+    }
+    #plusson-splash .logo {
+      width: 72px; height: auto; margin-bottom: 4px;
+      opacity: 0.95;
     }
     #plusson-splash .brand {
-      font-size: 36px; font-weight: 700; letter-spacing: 4px;
+      font-size: 24px; font-weight: 700; letter-spacing: 1px;
       color: #FFCFA4; text-transform: uppercase;
+      max-width: 100%;
     }
     #plusson-splash .sub {
-      font-size: 13px; color: rgba(255,207,164,0.5); margin-top: -16px;
+      font-size: 13px; line-height: 1.45;
+      color: rgba(255,255,255,0.85);
+      margin-top: -8px;
+      max-width: 320px;
     }
     #plusson-splash .spinner {
       width: 40px; height: 40px;
@@ -139,6 +150,7 @@
        но #plusson-splash перекрывает экран пока стоит флаг __redirectPending
        или пока React не сделает document.getElementById('plusson-splash').remove(). -->
   <div id="plusson-splash">
+    <img class="logo" src="/logo.png" alt="" onerror="this.style.display='none'" />
     <div class="brand">iViSiON: ПЛЮСОН</div>
     <div class="sub">Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте</div>
     <div class="spinner"></div>

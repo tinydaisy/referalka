@@ -7,12 +7,13 @@ export default function LoadingScreen() {
     return () => clearInterval(t)
   }, [])
   return (
-    <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
-      <div style={{ marginBottom: 40, textAlign: 'center' }}>
-        <div style={{ fontSize: 36, fontWeight: 700, letterSpacing: 4, color: '#FFCFA4', fontFamily: 'Roboto, sans-serif', textTransform: 'uppercase' }}>
+    <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', boxSizing: 'border-box', textAlign: 'center' }}>
+      <img src="/logo.png" alt="" style={{ width: 72, height: 'auto', marginBottom: 16, opacity: 0.95 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: 1, color: '#FFCFA4', fontFamily: 'Roboto, sans-serif', textTransform: 'uppercase' }}>
           iViSiON: ПЛЮСОН
         </div>
-        <div style={{ fontSize: 13, color: 'rgba(255,207,164,0.5)', marginTop: 6, fontFamily: 'Roboto' }}>
+        <div style={{ fontSize: 13, lineHeight: 1.45, color: 'rgba(255,255,255,0.85)', marginTop: 8, fontFamily: 'Roboto', maxWidth: 320, marginLeft: 'auto', marginRight: 'auto' }}>
           Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте
         </div>
       </div>
