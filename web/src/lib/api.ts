@@ -118,7 +118,7 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ sort_order: sortOrder }),
       }),
-    updateCollaborator: (id: number, ecId: number, data: { exclude_channel_from_subscription?: boolean; is_visible?: boolean }) =>
+    updateCollaborator: (id: number, ecId: number, data: { exclude_channel_from_subscription?: boolean; is_visible?: boolean; priority?: number }) =>
       request(`/api/v1/events/${id}/collaborators/${ecId}`, {
         method: 'PATCH',
         body: JSON.stringify(data),

@@ -127,8 +127,9 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
                       }
                       if (!c.bot_in_channel) {
                         return (
-                          <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                            <AlertTriangle size={11} /> Проверка ложная — бот не в канале
+                          <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded"
+                               title="Бот не подтверждён в канале — проверка автоматически выдаёт ложное «подписан» и пропускает людей">
+                            <AlertTriangle size={11} /> Бот не в канале — пропускаем ложно
                           </div>
                         )
                       }

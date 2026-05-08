@@ -202,11 +202,13 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
   // спикеров (зависит от subscription_mode конференции). Если подписан — открываем
   // чат сразу, если нет — показываем модалку со списком каналов и кнопкой
   // «Я подписался — проверить ещё раз».
+  type SubChannel = { speaker_id: number; name: string; tg_channel_id: string; tg_channel_url: string | null }
   const [chatGate, setChatGate] = useState<{
     loading: boolean
-    notSubscribed: { speaker_id: number; name: string; tg_channel_id: string; tg_channel_url: string | null }[] | null
+    notSubscribed: SubChannel[] | null
+    subscribed: SubChannel[]
     error?: string | null
-  }>({ loading: false, notSubscribed: null })
+  }>({ loading: false, notSubscribed: null, subscribed: [] })
 
   // Открываем ссылку через Telegram WebApp SDK — window.open в Mini App
   // не работает (silently fails). Для t.me-ссылок — openTelegramLink, для
@@ -233,17 +235,21 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
       openExternal(event.chat_url)
       return
     }
-    setChatGate({ loading: true, notSubscribed: null, error: null })
+    setChatGate({ loading: true, notSubscribed: null, subscribed: [], error: null })
     try {
       const r: any = await checkConferenceSubscription(event.id, tgUser.id)
       if (r?.status === 1) {
-        setChatGate({ loading: false, notSubscribed: null })
+        setChatGate({ loading: false, notSubscribed: null, subscribed: [] })
         openExternal(event.chat_url)
       } else {
-        setChatGate({ loading: false, notSubscribed: r?.not_subscribed || [] })
+        setChatGate({
+          loading: false,
+          notSubscribed: r?.not_subscribed || [],
+          subscribed: r?.subscribed || [],
+        })
       }
     } catch (e: any) {
-      setChatGate({ loading: false, notSubscribed: null, error: e?.message || 'Не удалось проверить подписку' })
+      setChatGate({ loading: false, notSubscribed: null, subscribed: [], error: e?.message || 'Не удалось проверить подписку' })
     }
   }
 
@@ -253,13 +259,17 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
     try {
       const r: any = await checkConferenceSubscription(event.id, tgUser.id)
       if (r?.status === 1) {
-        setChatGate({ loading: false, notSubscribed: null })
+        setChatGate({ loading: false, notSubscribed: null, subscribed: [] })
         openExternal(event.chat_url)
       } else {
-        setChatGate({ loading: false, notSubscribed: r?.not_subscribed || [] })
+        setChatGate({
+          loading: false,
+          notSubscribed: r?.not_subscribed || [],
+          subscribed: r?.subscribed || [],
+        })
       }
     } catch (e: any) {
-      setChatGate({ loading: false, notSubscribed: chatGate.notSubscribed, error: e?.message || 'Не удалось проверить' })
+      setChatGate(g => ({ ...g, loading: false, error: e?.message || 'Не удалось проверить' }))
     }
   }
 
@@ -987,9 +997,11 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         </>
       )}
 
-      {/* Модалка с проверкой подписки для входа в чат */}
+      {/* Модалка с проверкой подписки для входа в чат.
+          Сверху — каналы, на которые НЕ подписан (с кнопкой «Подписаться»).
+          Снизу — каналы, на которые УЖЕ подписан (с галочкой). */}
       {chatGate.notSubscribed && chatGate.notSubscribed.length > 0 && (
-        <div onClick={() => setChatGate({ loading: false, notSubscribed: null })} style={{
+        <div onClick={() => setChatGate({ loading: false, notSubscribed: null, subscribed: [] })} style={{
           position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.7)',
           display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
           zIndex: 1000, animation: 'fadeIn 0.2s',
@@ -1011,7 +1023,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
 
             <ol style={{ listStyle: 'none', counterReset: 'sub-list', padding: 0, margin: '0 0 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {chatGate.notSubscribed.map((ch, idx) => (
-                <li key={ch.speaker_id} style={{ counterIncrement: 'sub-list' }}>
+                <li key={`ns-${ch.speaker_id}`} style={{ counterIncrement: 'sub-list' }}>
                   <a href={ch.tg_channel_url || '#'} target="_blank" rel="noreferrer" style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     background: '#f6f8fb', borderRadius: 12, padding: '10px 12px',
@@ -1033,6 +1045,39 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
               ))}
             </ol>
 
+            {chatGate.subscribed && chatGate.subscribed.length > 0 && (
+              <>
+                <div style={{
+                  fontSize: 11, color: '#888', textTransform: 'uppercase',
+                  letterSpacing: 0.5, fontWeight: 700, margin: '6px 2px 6px',
+                }}>
+                  Уже подписаны
+                </div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {chatGate.subscribed.map(ch => (
+                    <li key={`s-${ch.speaker_id}`}>
+                      <a href={ch.tg_channel_url || '#'} target="_blank" rel="noreferrer" style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        background: '#f3faf4', borderRadius: 12, padding: '8px 12px',
+                        textDecoration: 'none', color: DARK, border: '1px solid #d8ecdb',
+                      }}>
+                        <div style={{
+                          width: 28, height: 28, borderRadius: '50%', background: '#3aa758',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0, color: 'white', fontSize: 14, fontWeight: 800,
+                        }}>
+                          ✓
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: '#3a4a3a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {ch.name}
+                        </div>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
             {chatGate.error && (
               <div style={{ color: '#c0392b', fontSize: 12, marginBottom: 10 }}>{chatGate.error}</div>
             )}
@@ -1046,7 +1091,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
               {chatGate.loading ? 'Проверяем…' : 'Я подписался — проверить'}
             </button>
 
-            <button onClick={() => setChatGate({ loading: false, notSubscribed: null })} style={{
+            <button onClick={() => setChatGate({ loading: false, notSubscribed: null, subscribed: [] })} style={{
               width: '100%', padding: '11px', marginTop: 8, border: 0,
               background: 'transparent', color: '#888', fontSize: 13, fontWeight: 600,
               cursor: 'pointer', fontFamily: 'inherit',

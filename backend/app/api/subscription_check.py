@@ -1,20 +1,30 @@
 """
-Публичный API для проверки подписки участника на каналы спикеров конференции.
+Публичный API для проверки подписки участника на каналы спикеров/организаторов
+события (конференция и мероприятие) при попытке войти в чат события.
 
-POST /api/v1/public/conference/{event_id}/check-subscription
-Body: {"tg_id": 5725111966}
+GET/POST /api/v1/public/conference/{event_id}/check-subscription?tg_id=...
 
-Ответ JSON:
+Логика per канал:
+1) Шаг А — VIABILITY: getChatMember(channel, speaker.personal_tg_id).
+   Спикер/организатор гарантированно подписан на свой канал. Если ответ ok и
+   статус ∈ {creator, administrator, member, restricted} — бот реально админ
+   и видит подписки. Иначе (бот не админ / канал недоступен / personal_tg_id
+   пустой) — «ложный пропуск», канал кладём в subscribed снизу с галочкой,
+   участника не блокируем.
+2) Шаг Б — USER CHECK: getChatMember(channel, user_tg_id). Подписан → в
+   subscribed, не подписан → в not_subscribed.
+
+`bot_in_channel` в БД — диагностический флаг для дашборда клиента, к рантайм-
+логике не относится: проверяем «вживую» каждый раз. Если спикер случайно убрал
+бота из админов — мы автоматически перестанем требовать его канал у участников,
+а вернёт админа — снова подключим. Никаких ручных пере-нажиманий.
+
+Ответ:
 {
-  "status": 1,          // 1 — подписан на всё, 0 — не подписан на что-то
-  "not_subscribed": [   // список каналов, на которые НЕ подписан (пустой если status=1)
-    {
-      "speaker_id": 4,
-      "name": "Рамиля Шиманская",
-      "tg_channel_id": "-1002161199761",
-      "tg_channel_url": "https://t.me/..."
-    }
-  ]
+  "status": 1 | 0,                       // 1 если not_subscribed пустой
+  "not_subscribed": [{...}],             // показывать наверху (требует подписки)
+  "subscribed":     [{...}],             // показывать внизу с галочкой (включая ложные пропуски)
+  "not_subscribed_text": "имя: url\n..." // legacy-поле для текстового вывода
 }
 """
 import asyncio
@@ -35,7 +45,13 @@ class SubscriptionCheckBody(BaseModel):
         return int(self.tg_id)
 
 
-async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, user_id: int) -> bool:
+_SUBSCRIBED_STATUSES = ("member", "administrator", "creator", "restricted")
+
+
+async def _get_chat_member(client: httpx.AsyncClient, token: str, channel_id: str, user_id: int) -> tuple[bool, str]:
+    """Возвращает (ok, status). ok=False означает что Telegram не дал данных
+    (бот не админ / канал недоступен / сетевой сбой). status — пустая строка
+    при ok=False, иначе строка от Telegram."""
     try:
         r = await client.get(
             f"https://api.telegram.org/bot{token}/getChatMember",
@@ -44,11 +60,39 @@ async def _check_member(client: httpx.AsyncClient, token: str, channel_id: str, 
         )
         data = r.json()
         if not data.get("ok"):
-            return False
-        status = (data.get("result") or {}).get("status")
-        return status in ("member", "administrator", "creator", "restricted")
+            return False, ""
+        status = (data.get("result") or {}).get("status") or ""
+        return True, status
     except Exception:
-        return False
+        return False, ""
+
+
+async def _check_one_channel(
+    http: httpx.AsyncClient,
+    token: str,
+    channel_id: str,
+    speaker_personal_tg_id: int | None,
+    user_tg_id: int,
+) -> str:
+    """Возвращает одну из меток: 'subscribed' | 'not_subscribed' | 'fake_pass'.
+
+    fake_pass — бот не видит канал, пропускаем участника без проверки.
+    """
+    if not speaker_personal_tg_id:
+        # Без personal_tg_id не можем подтвердить, что бот реально админ →
+        # проверять участника бесполезно (любой ответ Telegram неоднозначен).
+        return "fake_pass"
+
+    viability_ok, speaker_status = await _get_chat_member(http, token, channel_id, int(speaker_personal_tg_id))
+    if not viability_ok or speaker_status not in _SUBSCRIBED_STATUSES:
+        # Бот не админ / удалён / канал недоступен / спикер сам отписался от канала.
+        # Пропускаем участника, не блокируем из-за чужой ошибки.
+        return "fake_pass"
+
+    user_ok, user_status = await _get_chat_member(http, token, channel_id, user_tg_id)
+    if user_ok and user_status in _SUBSCRIBED_STATUSES:
+        return "subscribed"
+    return "not_subscribed"
 
 
 async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
@@ -56,14 +100,13 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
         "SELECT id, client_id, require_subscription FROM events WHERE id = $1", event_id
     )
     if not event:
-        return {"status": 0, "not_subscribed": []}
+        return {"status": 0, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
 
     # Режим подписки задаётся в настройках:
     #   Конференция (есть запись в conf_conferences):
     #     subscription_mode: none / organizer / all_speakers
     #   Мероприятие (нет conf_conferences):
     #     events.require_subscription: false → none, true → organizer
-    #     (спикеров у мероприятия нет, поэтому all_speakers здесь не применим)
     conf = await db.fetchrow(
         "SELECT subscription_mode FROM conf_conferences WHERE event_id = $1", event_id
     )
@@ -73,16 +116,15 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
         mode = "organizer" if event["require_subscription"] else "none"
 
     if mode == "none":
-        return {"status": 1, "not_subscribed": []}
+        return {"status": 1, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
 
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
 
-    # И конференция, и мероприятие: берём всех коллабораторов, привязанных
-    # к этому событию (event_collaborators) с подходящей ролью. У мероприятия
-    # это «соорганизаторы», у конференции — спикеры/организаторы конференции.
+    # Сортировка как у конференций — сначала priority (меньше = выше),
+    # потом sort_order, потом id для устойчивости.
     rows = await db.fetch(
         f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url,
-                   cse.sort_order, cse.bot_in_channel
+                   sp.personal_tg_id, cse.priority, cse.sort_order
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
@@ -90,37 +132,44 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
              AND sp.tg_channel_id IS NOT NULL
              AND sp.tg_channel_id <> ''
              {role_filter}
-           ORDER BY cse.sort_order, cse.id""",
+           ORDER BY COALESCE(cse.priority, 60), cse.sort_order, cse.id""",
         event["id"],
     )
 
     if not rows:
-        return {"status": 1, "not_subscribed": []}
+        return {"status": 1, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
 
     from app.services.channels import get_client_telegram_token
     token = await get_client_telegram_token(event["client_id"], db)
     if not token:
         token = settings.telegram_bot_token
     if not token:
-        return {"status": 0, "not_subscribed": []}
+        return {"status": 0, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
 
     speakers = [dict(r) for r in rows]
 
     async with httpx.AsyncClient() as http:
-        results = await asyncio.gather(
-            *(_check_member(http, token, sp["tg_channel_id"], tg_id) for sp in speakers)
+        verdicts = await asyncio.gather(
+            *(
+                _check_one_channel(http, token, sp["tg_channel_id"], sp.get("personal_tg_id"), tg_id)
+                for sp in speakers
+            )
         )
 
-    not_subscribed = [
-        {
+    not_subscribed: list[dict] = []
+    subscribed: list[dict] = []
+    for sp, verdict in zip(speakers, verdicts):
+        item = {
             "speaker_id": sp["speaker_id"],
             "name": sp["name"],
             "tg_channel_id": sp["tg_channel_id"],
             "tg_channel_url": sp["tg_channel_url"],
         }
-        for sp, subscribed in zip(speakers, results)
-        if not subscribed
-    ]
+        if verdict == "not_subscribed":
+            not_subscribed.append(item)
+        else:
+            # subscribed | fake_pass — оба идут вниз с галочкой
+            subscribed.append(item)
 
     not_subscribed_text = "\n".join(
         f"{sp['name']}: {sp['tg_channel_url'] or sp['tg_channel_id']}"
@@ -129,8 +178,8 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
 
     return {
         "status": 0 if not_subscribed else 1,
-        "status_zaglushka": 1,
         "not_subscribed": not_subscribed,
+        "subscribed": subscribed,
         "not_subscribed_text": not_subscribed_text,
     }
 

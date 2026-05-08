@@ -28,6 +28,9 @@ export default function EventOrganizerPage() {
   const [verifying, setVerifying] = useState(false)
   const [verifyMsg, setVerifyMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [savingExclude, setSavingExclude] = useState(false)
+  const [priority, setPriority] = useState<number>(60)
+  const [savingPriority, setSavingPriority] = useState(false)
+  const [prioritySaved, setPrioritySaved] = useState(false)
 
   function reloadCollab() {
     return api.events.listCollaborators(eventId, 'organizer').then((colRes: any) => {
@@ -54,6 +57,7 @@ export default function EventOrganizerPage() {
         const found = arr.find((c: any) => c.id === ecIdNum)
         if (!found) { router.push(`/dashboard/events/${eventId}?tab=co_organizers`); return }
         setItem(found)
+        setPriority(typeof found.priority === 'number' ? found.priority : 60)
         if (me?.main_bot_handle) setMainBotHandle(String(me.main_bot_handle))
       })
       .catch(() => router.push(`/dashboard/events/${eventId}?tab=co_organizers`))
@@ -85,6 +89,22 @@ export default function EventOrganizerPage() {
       alert(err.message || 'Не удалось сохранить')
     } finally {
       setSavingExclude(false)
+    }
+  }
+
+  async function handleSavePriority() {
+    if (priority < 1 || priority > 999) return
+    setSavingPriority(true)
+    setPrioritySaved(false)
+    try {
+      await api.events.updateCollaborator(eventId, ecIdNum, { priority })
+      await reloadCollab()
+      setPrioritySaved(true)
+      setTimeout(() => setPrioritySaved(false), 2500)
+    } catch (err: any) {
+      alert(err.message || 'Не удалось сохранить приоритет')
+    } finally {
+      setSavingPriority(false)
     }
   }
 
@@ -144,6 +164,39 @@ export default function EventOrganizerPage() {
       {/* Партнёрская ссылка для ЭТОГО мероприятия */}
       <div className="mb-6">
         <RefLinkInline slug={event.slug} refCode={item.ref_code} eventStatus={event.status} />
+      </div>
+
+      {/* Приоритет — управляет порядком отображения в Mini App
+          (попап подписки, лендинг, программа). Меньше число = выше в списке. */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <h2 className="text-sm font-semibold text-gray-800">Приоритет в этом мероприятии</h2>
+          <span className="text-xs text-gray-400">меньше число = выше в списке</span>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          Управляет порядком этого соорганизатора в попапе подписки на чат и в карточках события.
+          Дефолт — 60. Основателю обычно ставят 10, со-основателю 20.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            min={1}
+            max={999}
+            value={priority}
+            onChange={e => setPriority(Number(e.target.value))}
+            className="w-24 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand text-center"
+          />
+          <button
+            type="button"
+            onClick={handleSavePriority}
+            disabled={savingPriority || priority === (item.priority ?? 60)}
+            className="btn-gold py-2 px-4 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+            {savingPriority ? 'Сохраняю...' : 'Сохранить'}
+          </button>
+          {prioritySaved && (
+            <span className="text-xs text-green-600">Сохранено</span>
+          )}
+        </div>
       </div>
 
       {/* Регалии (read-only превью; правится в карточке коллаборатора) */}
@@ -230,9 +283,9 @@ export default function EventOrganizerPage() {
                   </>
                 ) : (
                   <>
-                    <div className="font-semibold text-amber-800">Бот не подтверждён в канале — проверка будет ложной.</div>
+                    <div className="font-semibold text-amber-800">Бот не подтверждён в канале — проверка будет автоматически выдавать ложное «подписан» и пропускать людей.</div>
                     <div className="text-xs text-amber-700 mt-0.5">
-                      Канал участникам показывается, но <b>{`getChatMember`}</b> не сможет видеть подписчиков, пока бот не добавлен админом. Все будут получать «вы не подписаны», даже если подписаны.
+                      Пока бот не админ канала — рантайм видит, что не может проверить подписку, и пропускает участника без блокировки. Канал в попапе показывается с галочкой «уже подписан». Чтобы проверка была настоящей — добавьте бота админом и нажмите кнопку ниже.
                     </div>
                   </>
                 )}

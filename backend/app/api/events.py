@@ -796,7 +796,7 @@ async def list_event_collaborators(
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     sql = """
-        SELECT ec.id, ec.role, ec.sort_order, ec.is_visible,
+        SELECT ec.id, ec.role, ec.sort_order, ec.is_visible, ec.priority,
                ec.bot_in_channel, ec.exclude_channel_from_subscription,
                co.id AS collaborator_id, co.name, co.title, co.photo_url,
                co.achievements, co.tg_channel_url, co.tg_channel_id,
@@ -811,7 +811,7 @@ async def list_event_collaborators(
     if role:
         args.append(role)
         sql += f" AND ec.role = ${len(args)}"
-    sql += " ORDER BY ec.sort_order, ec.id"
+    sql += " ORDER BY COALESCE(ec.priority, 60), ec.sort_order, ec.id"
     rows = await db.fetch(sql, *args)
 
     # Бэкфилл реф-кодов для коллаба, у которого ещё нет contact_id (легаси).
@@ -938,6 +938,7 @@ async def reorder_event_collaborator(
 class CollaboratorPatchRequest(BaseModel):
     exclude_channel_from_subscription: Optional[bool] = None
     is_visible: Optional[bool] = None
+    priority: Optional[int] = None
 
 
 @router.patch("/{event_id}/collaborators/{ec_id}", summary="Обновить per-event настройки коллаборатора")
@@ -966,6 +967,11 @@ async def update_event_collaborator(
     if data.is_visible is not None:
         args.append(data.is_visible)
         set_parts.append(f"is_visible = ${len(args)}")
+    if data.priority is not None:
+        if data.priority < 1 or data.priority > 999:
+            raise HTTPException(status_code=400, detail="Приоритет должен быть от 1 до 999")
+        args.append(data.priority)
+        set_parts.append(f"priority = ${len(args)}")
     if not set_parts:
         return {"updated": False}
 
