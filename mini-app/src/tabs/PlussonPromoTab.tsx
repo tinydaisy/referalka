@@ -100,11 +100,11 @@ export default function PlussonPromoTab() {
         <div style={{ color: '#FFCFA4', fontSize: 11, letterSpacing: 2, fontWeight: 700, opacity: 0.85 }}>
           iViSiON: ПЛЮСОН
         </div>
-        <h1 style={{ color: 'white', fontSize: 22, fontWeight: 800, marginTop: 12, lineHeight: 1.25 }}>
-          Сделайте так же<br />со своим событием
+        <h1 style={{ color: 'white', fontSize: 18, fontWeight: 800, marginTop: 12, lineHeight: 1.35 }}>
+          Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте
         </h1>
-        <p style={{ color: 'rgba(255,255,255,0.78)', fontSize: 13, marginTop: 8 }}>
-          Бесплатно — пока сервис в бета-режиме
+        <p style={{ color: 'rgba(255,255,255,0.78)', fontSize: 13, marginTop: 10 }}>
+          Регистрируйся бесплатно
         </p>
       </div>
 
