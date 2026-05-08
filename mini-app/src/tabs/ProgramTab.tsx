@@ -231,7 +231,11 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
     // Гейт подписки нужен для конференции (subscription_mode) ИЛИ для
     // мероприятия с require_subscription=true. Иначе открываем сразу.
     const needsCheck = isConference || !!event?.require_subscription
+    // [DEBUG TEMP] показать почему пропускаем проверку — если пропускаем
     if (!needsCheck || !event?.id || !tgUser?.id) {
+      const tg = (window as any).Telegram?.WebApp
+      const dbg = `DEBUG чат-проверка пропущена:\n• event.id = ${event?.id}\n• module_slug = ${event?.module_slug}\n• require_subscription = ${event?.require_subscription}\n• isConference = ${isConference}\n• needsCheck = ${needsCheck}\n• tgUser.id = ${tgUser?.id || '(пусто)'}\n• tgUser.username = ${tgUser?.username || '(пусто)'}\n→ открываем чат БЕЗ проверки`
+      try { (tg && tg.showAlert) ? tg.showAlert(dbg) : alert(dbg) } catch { alert(dbg) }
       openExternal(event.chat_url)
       return
     }
