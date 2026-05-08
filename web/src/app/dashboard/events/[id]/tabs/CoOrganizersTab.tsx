@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, X, Search } from 'lucide-react'
+import { Plus, X, Search, AlertTriangle, CheckCircle2, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Collaborator {
@@ -15,6 +15,9 @@ interface Collaborator {
   achievements?: string[] | null
   personal_tg_username?: string | null
   ref_code?: string | null
+  bot_in_channel?: boolean
+  exclude_channel_from_subscription?: boolean
+  tg_channel_id?: string | null
 }
 
 interface GlobalCollaborator {
@@ -25,7 +28,7 @@ interface GlobalCollaborator {
   achievements?: string[] | null
 }
 
-export default function CoOrganizersTab({ eventId }: { eventId: number; eventSlug?: string | null }) {
+export default function CoOrganizersTab({ eventId, requireSubscription = false }: { eventId: number; eventSlug?: string | null; requireSubscription?: boolean }) {
   const [items, setItems] = useState<Collaborator[]>([])
   const [loading, setLoading] = useState(true)
   const [showPicker, setShowPicker] = useState(false)
@@ -112,6 +115,29 @@ export default function CoOrganizersTab({ eventId }: { eventId: number; eventSlu
                     {c.personal_tg_username && (
                       <div className="text-xs text-gray-400 truncate">@{c.personal_tg_username.replace(/^@/, '')}</div>
                     )}
+                    {requireSubscription && (() => {
+                      const hasChannel = !!(c.tg_channel_id && String(c.tg_channel_id).trim())
+                      if (!hasChannel) return null
+                      if (c.exclude_channel_from_subscription) {
+                        return (
+                          <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
+                            <EyeOff size={11} /> Канал исключён из проверки
+                          </div>
+                        )
+                      }
+                      if (!c.bot_in_channel) {
+                        return (
+                          <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                            <AlertTriangle size={11} /> Проверка ложная — бот не в канале
+                          </div>
+                        )
+                      }
+                      return (
+                        <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">
+                          <CheckCircle2 size={11} /> Бот в канале
+                        </div>
+                      )
+                    })()}
                   </div>
                 </Link>
                 <button

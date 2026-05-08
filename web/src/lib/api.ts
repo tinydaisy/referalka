@@ -118,6 +118,13 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ sort_order: sortOrder }),
       }),
+    updateCollaborator: (id: number, ecId: number, data: { exclude_channel_from_subscription?: boolean; is_visible?: boolean }) =>
+      request(`/api/v1/events/${id}/collaborators/${ecId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    verifyCollaboratorChannel: (id: number, ecId: number) =>
+      request(`/api/v1/events/${id}/collaborators/${ecId}/verify-channel`, { method: 'POST' }),
   },
   collaborators: {
     list: (q?: string) => request(`/api/v1/collaborators/${q ? `?q=${encodeURIComponent(q)}` : ''}`),

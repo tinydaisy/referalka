@@ -82,11 +82,10 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     # это «соорганизаторы», у конференции — спикеры/организаторы конференции.
     rows = await db.fetch(
         f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url,
-                   cse.sort_order
+                   cse.sort_order, cse.bot_in_channel
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1
-             AND cse.bot_in_channel = TRUE
              AND cse.exclude_channel_from_subscription = FALSE
              AND sp.tg_channel_id IS NOT NULL
              AND sp.tg_channel_id <> ''

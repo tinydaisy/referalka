@@ -797,9 +797,11 @@ async def list_event_collaborators(
 
     sql = """
         SELECT ec.id, ec.role, ec.sort_order, ec.is_visible,
+               ec.bot_in_channel, ec.exclude_channel_from_subscription,
                co.id AS collaborator_id, co.name, co.title, co.photo_url,
-               co.achievements, co.tg_channel_url, co.instagram_url, co.website_url,
-               co.personal_tg_username, ct.ref_code
+               co.achievements, co.tg_channel_url, co.tg_channel_id,
+               co.personal_tg_id, co.personal_tg_username,
+               co.instagram_url, co.website_url, ct.ref_code
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
           LEFT JOIN contacts ct ON ct.id = co.contact_id
@@ -931,3 +933,139 @@ async def reorder_event_collaborator(
         data.sort_order, ec_id
     )
     return {"sort_order": data.sort_order}
+
+
+class CollaboratorPatchRequest(BaseModel):
+    exclude_channel_from_subscription: Optional[bool] = None
+    is_visible: Optional[bool] = None
+
+
+@router.patch("/{event_id}/collaborators/{ec_id}", summary="Обновить per-event настройки коллаборатора")
+async def update_event_collaborator(
+    event_id: int,
+    ec_id: int,
+    data: CollaboratorPatchRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        """SELECT ec.id FROM event_collaborators ec
+             JOIN events e ON e.id = ec.event_id
+            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+        ec_id, event_id, client_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Не найдено")
+
+    set_parts = []
+    args: list = []
+    if data.exclude_channel_from_subscription is not None:
+        args.append(data.exclude_channel_from_subscription)
+        set_parts.append(f"exclude_channel_from_subscription = ${len(args)}")
+    if data.is_visible is not None:
+        args.append(data.is_visible)
+        set_parts.append(f"is_visible = ${len(args)}")
+    if not set_parts:
+        return {"updated": False}
+
+    args.append(ec_id)
+    await db.execute(
+        f"UPDATE event_collaborators SET {', '.join(set_parts)} WHERE id = ${len(args)}",
+        *args,
+    )
+    return {"updated": True}
+
+
+@router.post("/{event_id}/collaborators/{ec_id}/verify-channel", summary="Проверить, что бот видит подписку коллаборатора на свой канал")
+async def verify_event_collaborator_channel(
+    event_id: int,
+    ec_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Аналог verify-channel у спикеров конференции — для соорганизаторов
+    обычного мероприятия. Делает getChatMember(channel, personal_tg_id).
+    Если бот видит подписку — ставит bot_in_channel = TRUE."""
+    import httpx
+    from app.config import settings
+    from app.services.channels import get_client_telegram_token
+
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        """SELECT co.tg_channel_id, co.personal_tg_id, co.name
+             FROM event_collaborators ec
+             JOIN events e ON e.id = ec.event_id
+             JOIN collaborators co ON co.id = ec.speaker_id
+            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+        ec_id, event_id, client_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Не найдено")
+
+    token = (await get_client_telegram_token(client_id, db)) or settings.telegram_bot_token
+    if not token:
+        raise HTTPException(status_code=400, detail="Не настроен главный бот клиента — подключите его в разделе «Каналы»")
+
+    bot_handle = ""
+    try:
+        async with httpx.AsyncClient(timeout=5) as http:
+            br = await http.get(f"https://api.telegram.org/bot{token}/getMe")
+        bot_handle = ((br.json() or {}).get("result") or {}).get("username", "") or ""
+    except Exception:
+        pass
+    bot_ref = f"@{bot_handle}" if bot_handle else "главный бот"
+
+    channel_id = (row["tg_channel_id"] or "").strip()
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="Сначала укажите ID канала и сохраните профиль коллаборатора")
+
+    personal_tg_id = row["personal_tg_id"]
+    if not personal_tg_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Заполните «ID личного аккаунта» в профиле коллаборатора — без него не получится проверить канал автоматически"
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as http:
+            r = await http.get(
+                f"https://api.telegram.org/bot{token}/getChatMember",
+                params={"chat_id": channel_id, "user_id": personal_tg_id}
+            )
+        data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ошибка Telegram API: {e}")
+
+    if not data.get("ok"):
+        desc = (data.get("description") or "").lower()
+        if "member list is inaccessible" in desc:
+            detail = f"Бот не админ канала. Добавьте {bot_ref} в администраторы канала (без прав публикации — достаточно нулевых прав)."
+        elif "chat not found" in desc:
+            detail = "Канал не найден. Проверьте ID канала — он должен начинаться с -100."
+        elif "user not found" in desc:
+            detail = "Личный аккаунт не найден в Telegram. Проверьте «ID личного аккаунта»."
+        elif "bot was kicked" in desc or "kicked" in desc:
+            detail = f"Бот удалён из канала. Добавьте {bot_ref} обратно в администраторы."
+        elif "not enough rights" in desc or "no rights" in desc:
+            detail = f"У бота нет прав видеть подписчиков. Добавьте {bot_ref} как администратора."
+        elif "forbidden" in desc:
+            detail = f"Нет доступа к каналу. Убедитесь, что {bot_ref} добавлен в администраторы канала."
+        else:
+            detail = f"Не удалось проверить канал. Telegram ответил: {data.get('description') or 'неизвестная ошибка'}"
+        raise HTTPException(status_code=400, detail=detail)
+
+    status = (data.get("result") or {}).get("status", "")
+    if status not in ("member", "administrator", "creator", "restricted"):
+        name = row["name"] or "Коллаборатор"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Бот видит канал, но {name} НЕ подписан(а) на свой канал (статус: {status or 'нет данных'}). Подпишитесь и попробуйте снова."
+        )
+
+    await db.execute(
+        "UPDATE event_collaborators SET bot_in_channel = TRUE WHERE id = $1",
+        ec_id
+    )
+    name = row["name"] or "коллаборатор"
+    return {"ok": True, "message": f"Бот видит подписку — {name} в канале (статус: {status}). Канал учитывается в проверке."}
