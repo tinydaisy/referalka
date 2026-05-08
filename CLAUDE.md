@@ -844,7 +844,7 @@ CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Кон
 
 ⚠️ **Подписки на каналы при регистрации НЕ проверяются.** Чек-листа подписок и `getChatMember` в потоке регистрации нет. Подписка нужна только для доступа в чат события (отдельная плитка/кнопка в Программе, поле `events.chat_subscriptions_required`).
 
-#### Проверка подписки на каналы организаторов (унифицировано 07.05.2026)
+#### Проверка подписки на каналы организаторов (унифицировано 07.05.2026, расширено 08.05.2026)
 
 При тапе на плитку чата в Mini App ([ProgramTab.tsx](mini-app/src/tabs/ProgramTab.tsx) `openChatWithCheck`) проверка подписки идёт через `GET /api/v1/public/conference/{event_id}/check-subscription` ([subscription_check.py](backend/app/api/subscription_check.py)). Логика:
 
@@ -856,7 +856,14 @@ CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Кон
   - `events.require_subscription = false` → пропускаем
   - `events.require_subscription = true` → проверяем подписку на каналы соорганизаторов мероприятия (`event_collaborators` с `role='organizer'`)
 
-В обоих случаях источник один и тот же — `event_collaborators` ЭТОГО события + `bot_in_channel=TRUE` + `exclude_channel_from_subscription=FALSE` + непустой `tg_channel_id`. Никаких LIMIT — берутся ВСЕ подходящие. Раньше для мероприятий ошибочно искался один канал в любой конференции клиента.
+В обоих случаях источник один и тот же — `event_collaborators` ЭТОГО события + `exclude_channel_from_subscription=FALSE` + непустой `tg_channel_id`. Никаких LIMIT — берутся ВСЕ подходящие. Раньше для мероприятий ошибочно искался один канал в любой конференции клиента.
+
+**`bot_in_channel` НЕ фильтрует SQL** (изменено 08.05.2026). Канал всегда возвращается участнику — он должен увидеть его и подписаться. Если бот не админ канала — `getChatMember` вернёт «не член» независимо от того, подписан ли реально человек, и проверка станет «ложно-отрицательной». Это сознательный компромисс: лучше дать клиенту запустить событие без обязательной настройки бота в каждом канале, чем тихо пропускать всех участников. Дашборд предупреждает о ложной проверке (см. ниже). Полностью исключить канал из проверки и из показа — тумблер «Исключить канал из проверки подписки» (`exclude_channel_from_subscription=TRUE`).
+
+**UI у соорганизаторов мероприятия** (с 08.05.2026):
+- Страница [/dashboard/events/[id]/organizers/[ec_id]](web/src/app/dashboard/events/%5Bid%5D/organizers/%5BecId%5D/page.tsx) — блок «Канал для проверки подписки» с инструкцией, кнопкой «Проверить, что бот в канале» (`POST /events/{event_id}/collaborators/{ec_id}/verify-channel`) и тумблером «Исключить канал из проверки подписки» (`PATCH /events/{event_id}/collaborators/{ec_id} { exclude_channel_from_subscription }`).
+- Вкладка «Соорганизаторы» ([CoOrganizersTab.tsx](web/src/app/dashboard/events/%5Bid%5D/tabs/CoOrganizersTab.tsx)) — бейдж под именем: «⚠️ Проверка ложная — бот не в канале» (если `require_subscription=TRUE`, есть канал, но `bot_in_channel=FALSE`), «Канал исключён из проверки» или «Бот в канале».
+- Логика верификации идентична спикерам конференции — `getChatMember(channel, personal_tg_id)` через бот клиента; при успехе ставит `bot_in_channel=TRUE`.
 
 Список не подписавшихся каналов выводится в Mini App нумерованным списком (`<ol>` с круглым PEACH-бейджем 1/2/3 слева).
 
