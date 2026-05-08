@@ -422,6 +422,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
             participantId={participant.id}
             raffleEnabled={raffleOn}
             referralEnabled={refOn}
+            tgUser={tgUser}
             onContinue={() => {
               setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
               setTab('program')

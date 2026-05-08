@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { getSessions, getSpeakers, getDays, checkConferenceSubscription, getEventCollaborators } from '../api'
+import { getSessions, getSpeakers, getDays, getEventCollaborators } from '../api'
+import { useChatGate } from '../components/ChatGate'
 
 interface Session {
   id: number
@@ -198,85 +199,9 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
   const speakersScrollRef = useRef<HTMLDivElement | null>(null)
   const speakerCardRefs   = useRef<Record<number, HTMLDivElement | null>>({})
 
-  // Гейт чата: при тапе на плитку проверяем подписку на каналы организатора /
-  // спикеров (зависит от subscription_mode конференции). Если подписан — открываем
-  // чат сразу, если нет — показываем модалку со списком каналов и кнопкой
-  // «Я подписался — проверить ещё раз».
-  type SubChannel = { speaker_id: number; name: string; tg_channel_id: string; tg_channel_url: string | null }
-  const [chatGate, setChatGate] = useState<{
-    loading: boolean
-    notSubscribed: SubChannel[] | null
-    subscribed: SubChannel[]
-    error?: string | null
-  }>({ loading: false, notSubscribed: null, subscribed: [] })
-
-  // Открываем ссылку через Telegram WebApp SDK — window.open в Mini App
-  // не работает (silently fails). Для t.me-ссылок — openTelegramLink, для
-  // остальных — openLink. Браузер-фолбэк только если SDK недоступен.
-  function openExternal(url: string) {
-    const tg = (window as any).Telegram?.WebApp
-    if (tg?.openTelegramLink && /^https?:\/\/t\.me\//i.test(url)) {
-      tg.openTelegramLink(url)
-      return
-    }
-    if (tg?.openLink) {
-      tg.openLink(url)
-      return
-    }
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
-
-  // [DEBUG TEMP] последний результат запроса для отладки
-  const [debugInfo, setDebugInfo] = useState<string>('')
-
-  async function openChatWithCheck() {
-    if (!event?.chat_url) return
-    const needsCheck = isConference || !!event?.require_subscription
-    if (!needsCheck || !event?.id || !tgUser?.id) {
-      setDebugInfo(`ПРОПУЩЕНО: needsCheck=${needsCheck} eventId=${event?.id} tgId=${tgUser?.id || '(пусто)'} module=${event?.module_slug} require_sub=${event?.require_subscription} isConf=${isConference}`)
-      openExternal(event.chat_url)
-      return
-    }
-    setDebugInfo(`ИДЁТ: tgId=${tgUser.id} eventId=${event.id}`)
-    setChatGate({ loading: true, notSubscribed: null, subscribed: [], error: null })
-    try {
-      const r: any = await checkConferenceSubscription(event.id, tgUser.id)
-      setDebugInfo(`ОТВЕТ: status=${r?.status} not_sub=${(r?.not_subscribed || []).length} sub=${(r?.subscribed || []).length}`)
-      if (r?.status === 1) {
-        setChatGate({ loading: false, notSubscribed: null, subscribed: [] })
-        openExternal(event.chat_url)
-      } else {
-        setChatGate({
-          loading: false,
-          notSubscribed: r?.not_subscribed || [],
-          subscribed: r?.subscribed || [],
-        })
-      }
-    } catch (e: any) {
-      setDebugInfo(`ОШИБКА: ${e?.message || 'неизвестная'}`)
-      setChatGate({ loading: false, notSubscribed: null, subscribed: [], error: e?.message || 'Не удалось проверить подписку' })
-    }
-  }
-
-  async function recheckChat() {
-    if (!event?.id || !tgUser?.id) return
-    setChatGate(g => ({ ...g, loading: true, error: null }))
-    try {
-      const r: any = await checkConferenceSubscription(event.id, tgUser.id)
-      if (r?.status === 1) {
-        setChatGate({ loading: false, notSubscribed: null, subscribed: [] })
-        openExternal(event.chat_url)
-      } else {
-        setChatGate({
-          loading: false,
-          notSubscribed: r?.not_subscribed || [],
-          subscribed: r?.subscribed || [],
-        })
-      }
-    } catch (e: any) {
-      setChatGate(g => ({ ...g, loading: false, error: e?.message || 'Не удалось проверить' }))
-    }
-  }
+  // Гейт чата — единый хук, общий с WelcomePage.
+  // Логика: viability check + user check на каждый клик. См. ChatGate.tsx.
+  const { openChat: openChatWithCheck, modal: chatModal, loading: chatLoading } = useChatGate(event, tgUser)
 
   // Соорганизаторы для не-конф мероприятий
   useEffect(() => {
@@ -524,47 +449,35 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
 
       {/* Чат события — отдельная плашка во всю ширину */}
       {hasChat && (
-        <>
-          <button onClick={openChatWithCheck} disabled={chatGate.loading} style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
-            borderRadius: 14, padding: 14, marginBottom: 12,
-            border: 0, cursor: 'pointer', width: '100%', textAlign: 'left',
-            fontFamily: 'inherit',
-            opacity: chatGate.loading ? 0.7 : 1,
+        <button onClick={openChatWithCheck} disabled={chatLoading} style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+          borderRadius: 14, padding: 14, marginBottom: 12,
+          border: 0, cursor: 'pointer', width: '100%', textAlign: 'left',
+          fontFamily: 'inherit',
+          opacity: chatLoading ? 0.7 : 1,
+        }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 10,
+            background: 'rgba(255,207,164,0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: 10,
-              background: 'rgba(255,207,164,0.15)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 12 20 22 4 22 4 12"/>
-                <rect x="2" y="7" width="20" height="5"/>
-                <line x1="12" y1="22" x2="12" y2="7"/>
-                <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/>
-                <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
-              </svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 12 20 22 4 22 4 12"/>
+              <rect x="2" y="7" width="20" height="5"/>
+              <line x1="12" y1="22" x2="12" y2="7"/>
+              <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/>
+              <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
+            </svg>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>Чат события</div>
+            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+              {chatLoading ? 'Проверяем подписку…' : (event.chat_member_count_label || 'Нетворкинг и подарки за регистрацию')}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 800 }}>Чат события</div>
-              <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
-                {chatGate.loading ? 'Проверяем подписку…' : (event.chat_member_count_label || 'Нетворкинг и подарки за регистрацию')}
-              </div>
-            </div>
-            <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
-          </button>
-          {/* [DEBUG TEMP] баннер с результатом последней проверки */}
-          {debugInfo && (
-            <div style={{
-              fontSize: 11, padding: '8px 10px', marginBottom: 12, borderRadius: 8,
-              background: '#fff8e1', border: '1px solid #ffe0a3', color: '#5a4a00',
-              wordBreak: 'break-all', fontFamily: 'monospace',
-            }}>
-              {debugInfo}
-            </div>
-          )}
-        </>
+          </div>
+          <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
+        </button>
       )}
 
       {/* Программа по дням — аккордеон */}
@@ -1012,110 +925,8 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         </>
       )}
 
-      {/* Модалка с проверкой подписки для входа в чат.
-          Сверху — каналы, на которые НЕ подписан (с кнопкой «Подписаться»).
-          Снизу — каналы, на которые УЖЕ подписан (с галочкой). */}
-      {chatGate.notSubscribed && chatGate.notSubscribed.length > 0 && (
-        <div onClick={() => setChatGate({ loading: false, notSubscribed: null, subscribed: [] })} style={{
-          position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.7)',
-          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-          zIndex: 1000, animation: 'fadeIn 0.2s',
-        }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: 'white', borderRadius: '16px 16px 0 0',
-            width: '100%', maxWidth: 520,
-            padding: '20px 18px 24px', maxHeight: '85vh', overflowY: 'auto',
-          }}>
-            <div style={{ width: 40, height: 4, background: '#ddd', borderRadius: 2, margin: '0 auto 16px' }} />
-
-            <h3 style={{ color: DARK, fontSize: 17, fontWeight: 800, margin: '0 0 6px' }}>
-              Чтобы войти в чат
-            </h3>
-            <p style={{ color: '#666', fontSize: 13, lineHeight: 1.5, margin: '0 0 16px' }}>
-              Подпишитесь на {chatGate.notSubscribed.length === 1 ? 'канал' : 'каналы'} ниже —
-              после этого нажмите «Я подписался».
-            </p>
-
-            <ol style={{ listStyle: 'none', counterReset: 'sub-list', padding: 0, margin: '0 0 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {chatGate.notSubscribed.map((ch, idx) => (
-                <li key={`ns-${ch.speaker_id}`} style={{ counterIncrement: 'sub-list' }}>
-                  <a href={ch.tg_channel_url || '#'} target="_blank" rel="noreferrer" style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    background: '#f6f8fb', borderRadius: 12, padding: '10px 12px',
-                    textDecoration: 'none', color: DARK, border: '1px solid #e5e9f0',
-                  }}>
-                    <div style={{
-                      width: 32, height: 32, borderRadius: '50%', background: PEACH,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexShrink: 0, color: DARK, fontSize: 14, fontWeight: 800,
-                    }}>
-                      {idx + 1}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {ch.name}
-                    </div>
-                    <span style={{ fontSize: 12, color: DARK, fontWeight: 700 }}>Подписаться →</span>
-                  </a>
-                </li>
-              ))}
-            </ol>
-
-            {chatGate.subscribed && chatGate.subscribed.length > 0 && (
-              <>
-                <div style={{
-                  fontSize: 11, color: '#888', textTransform: 'uppercase',
-                  letterSpacing: 0.5, fontWeight: 700, margin: '6px 2px 6px',
-                }}>
-                  Уже подписаны
-                </div>
-                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {chatGate.subscribed.map(ch => (
-                    <li key={`s-${ch.speaker_id}`}>
-                      <a href={ch.tg_channel_url || '#'} target="_blank" rel="noreferrer" style={{
-                        display: 'flex', alignItems: 'center', gap: 10,
-                        background: '#f3faf4', borderRadius: 12, padding: '8px 12px',
-                        textDecoration: 'none', color: DARK, border: '1px solid #d8ecdb',
-                      }}>
-                        <div style={{
-                          width: 28, height: 28, borderRadius: '50%', background: '#3aa758',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          flexShrink: 0, color: 'white', fontSize: 14, fontWeight: 800,
-                        }}>
-                          ✓
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: '#3a4a3a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {ch.name}
-                        </div>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {chatGate.error && (
-              <div style={{ color: '#c0392b', fontSize: 12, marginBottom: 10 }}>{chatGate.error}</div>
-            )}
-
-            <button onClick={recheckChat} disabled={chatGate.loading} style={{
-              width: '100%', padding: '13px 16px', border: 0, borderRadius: 12,
-              background: PEACH, color: DARK, fontSize: 14, fontWeight: 800,
-              cursor: 'pointer', fontFamily: 'inherit',
-              opacity: chatGate.loading ? 0.7 : 1,
-            }}>
-              {chatGate.loading ? 'Проверяем…' : 'Я подписался — проверить'}
-            </button>
-
-            <button onClick={() => setChatGate({ loading: false, notSubscribed: null, subscribed: [] })} style={{
-              width: '100%', padding: '11px', marginTop: 8, border: 0,
-              background: 'transparent', color: '#888', fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'inherit',
-            }}>
-              Закрыть
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Модалка проверки подписки для входа в чат — общий компонент, см. ChatGate.tsx */}
+      {chatModal}
     </div>
   )
 }

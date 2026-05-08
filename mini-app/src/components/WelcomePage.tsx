@@ -3,36 +3,27 @@
 // После клика «Перейти к программе» — POST /participants/{id}/welcomed
 // и больше не показывается.
 import { markParticipantWelcomed } from '../api'
+import { useChatGate } from './ChatGate'
 
 interface Props {
   event: any                  // данные события (для названия и chat_url)
   participantId: number       // event_participant.id для отметки welcomed_at
   raffleEnabled: boolean      // показывать ли плитку «Розыгрыш»
   referralEnabled: boolean    // показывать ли плитку «Игра» (партнёрская программа)
+  tgUser: any                 // нужен для проверки подписки на каналы соорганизаторов
   onContinue: () => void      // переход на «Программу»
 }
 
 const TILE_BG = 'linear-gradient(45deg, rgba(37,69,93,0.04), rgba(255,207,164,0.10))'
 
-export default function WelcomePage({ event, participantId, raffleEnabled, referralEnabled, onContinue }: Props) {
+export default function WelcomePage({ event, participantId, raffleEnabled, referralEnabled, tgUser, onContinue }: Props) {
   const chatUrl: string | null = event?.chat_url || null
   const eventTitle = event?.title || 'события'
+  const { openChat, modal, loading } = useChatGate(event, tgUser)
 
   async function handleContinue() {
     try { await markParticipantWelcomed(participantId) } catch (_) { /* offline ok */ }
     onContinue()
-  }
-
-  function openChat() {
-    if (!chatUrl) return
-    const tg = (window as any).Telegram?.WebApp
-    if (tg?.openTelegramLink && /https?:\/\/t\.me\//i.test(chatUrl)) {
-      tg.openTelegramLink(chatUrl)
-    } else if (tg?.openLink) {
-      tg.openLink(chatUrl)
-    } else {
-      window.open(chatUrl, '_blank')
-    }
   }
 
   return (
@@ -69,15 +60,17 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
               Там вас ждут подарки за регистрацию, нетворкинг с другими участниками
               и оперативные ответы организатора.
             </div>
-            <button onClick={openChat} style={{
+            <button onClick={openChat} disabled={loading} style={{
               marginTop: 12, width: '100%', padding: '10px 14px',
               background: '#25455D', color: 'white', border: 'none',
               borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              opacity: loading ? 0.7 : 1,
             }}>
-              Перейти в чат
+              {loading ? 'Проверяем подписку…' : 'Перейти в чат'}
             </button>
           </div>
         )}
+        {modal}
 
         <p style={{ color: '#25455D', fontSize: 13, fontWeight: 600, margin: '4px 0 10px' }}>
           А ещё в Mini App вас ждёт:
