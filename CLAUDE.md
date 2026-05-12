@@ -193,6 +193,8 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 URL Mini App: для VIP — `https://t.me/{handle}` (бот клиента, без short-name), для общего — `https://t.me/pluson_bot/pluson` (с short-name `pluson`). Резолв `handle` — из `channels` per `client_id` (как в `tasks/broadcast.py`).
 
+**Уведомление организатору о новом интересе на событие (12.05.2026).** В дополнение к сообщению самому пользователю, при **первом** создании `event_participants` (то есть человек впервые открыл событие через Mini App / реф-ссылку / landing-redirect) от `@pluson_bot` улетает сообщение в `clients.notifications_telegram_chat_id` — точно так же, как для лид-магнитов, только первая строка «Событие: <title>» вместо «Лид-магнит». Дедуп по факту вставки в `event_participants` (ON CONFLICT DO NOTHING + RETURNING id): повторные открытия того же события — молчат. Реализация — `_send_event_organizer_notification` в [event_welcome.py](backend/app/services/event_welcome.py).
+
 ### Авто-редирект внутри Mini App webview на iOS (рецепт)
 
 Если из Mini App нужно автоматически (без клика) перебросить webview

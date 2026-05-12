@@ -42,6 +42,95 @@ def _fmt_date(dt) -> str:
     return f"{dt.day} {RU_MONTHS[dt.month - 1]}"
 
 
+async def _send_event_organizer_notification(
+    conn,
+    *,
+    client_id: int,
+    event_id: int,
+    event_title: str,
+    contact_id: int,
+    platform_slug: str,
+    referrer_contact_id: int | None,
+) -> None:
+    """Уведомление в notifications_telegram_chat_id организатора о новом интересе на событие.
+    Зеркало `funnel_service._send_organizer_notification` для лид-магнитов, формат тот же,
+    но первая строка — «Событие: <title>». Всегда шлёт от @pluson_bot."""
+    chat_id = await conn.fetchval(
+        "SELECT notifications_telegram_chat_id FROM clients WHERE id = $1",
+        client_id,
+    )
+    if not chat_id:
+        return
+
+    contact = await conn.fetchrow(
+        """SELECT c.name, c.utm_source,
+                  pu.username, pu.platform_user_id
+             FROM contacts c
+        LEFT JOIN platform_users pu
+               ON pu.contact_id = c.id AND pu.platform_slug = $2
+            WHERE c.id = $1""",
+        contact_id, platform_slug,
+    )
+    referrer = None
+    if referrer_contact_id:
+        referrer = await conn.fetchrow(
+            """SELECT c.name, pu.username
+                 FROM contacts c
+            LEFT JOIN platform_users pu
+                   ON pu.contact_id = c.id AND pu.platform_slug = $2
+                WHERE c.id = $1""",
+            referrer_contact_id, platform_slug,
+        )
+
+    when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+    parts = [
+        "🆕 <b>Новый интерес</b>",
+        "",
+        f"<b>Событие:</b> {event_title or '—'}",
+        f"<b>Когда:</b> {when_str}",
+        "",
+        "<b>Кто пришёл</b>",
+        f"<b>Никнейм:</b> {('@' + contact['username']) if (contact and contact['username']) else '—'}",
+        f"<b>Имя:</b> {(contact['name'] if contact else None) or '—'}",
+        f"<b>ID контакта:</b> #{contact_id}",
+        f"<b>Платформа:</b> {platform_slug.title()}",
+        f"<b>Источник (utm_source):</b> {(contact['utm_source'] if contact else None) or '—'}",
+        f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={contact_id}",
+        "",
+    ]
+    if referrer_contact_id and referrer:
+        parts.append("<b>Кто привёл</b>")
+        parts.append(f"<b>Никнейм:</b> {('@' + referrer['username']) if referrer['username'] else '—'}")
+        parts.append(f"<b>Имя:</b> {referrer['name'] or '—'}")
+        parts.append(f"<b>ID контакта:</b> #{referrer_contact_id}")
+        parts.append(f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={referrer_contact_id}")
+    else:
+        parts.append("<b>Кто привёл:</b> —")
+
+    text = "\n".join(parts)
+    token = settings.telegram_bot_token  # уведомления всегда от @pluson_bot
+    if not token:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+            )
+            if r.status_code != 200:
+                logger.warning(
+                    f"event organizer notify failed client={client_id} event={event_id}: "
+                    f"{r.status_code} {r.text[:200]}"
+                )
+    except Exception as e:
+        logger.warning(f"event organizer notify error client={client_id} event={event_id}: {e}")
+
+
 def _fmt_event_period(start_at, end_at, is_conference: bool) -> str:
     """Человеческий период события для бот-сообщений.
 
@@ -175,6 +264,19 @@ async def send_event_open_message(
                               AND referrer_ref_code IS NULL""",
                         event_id, contact_id, resolved_ref_code, referrer_participant_id,
                     )
+
+            # Уведомление организатору — один раз, при первом «интересе» (новой записи).
+            # Вне транзакции upsert, чтобы внешний HTTP в Telegram не блокировал коммит.
+            if inserted is not None:
+                await _send_event_organizer_notification(
+                    conn,
+                    client_id=client_id,
+                    event_id=event_id,
+                    event_title=ev["title"] or "",
+                    contact_id=contact_id,
+                    platform_slug='telegram',
+                    referrer_contact_id=referrer_contact_id,
+                )
 
             part = await conn.fetchrow(
                 """SELECT id, is_registered, last_open_msg_kind, last_open_msg_at
