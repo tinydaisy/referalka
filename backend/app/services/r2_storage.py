@@ -79,6 +79,9 @@ def build_key(
     if kind in ("brand_photo", "brand_logo", "owner_photo"):
         return f"{base}/profile/{kind}/{fname}"
 
+    if kind == "funnel_media":
+        return f"{base}/funnel_media/{fname}"
+
     raise ValueError(f"Неизвестный kind: {kind}")
 
 

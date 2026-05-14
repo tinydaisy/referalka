@@ -80,23 +80,32 @@ class TemplateUpdate(BaseModel):
     text_2: Optional[str] = None
     text_3_delivered: Optional[str] = None
     text_3_stuck: Optional[str] = None
+    # Медиа (фото или видео). Передавать обе колонки парой. NULL = убрать медиа.
+    text_1_media_url:  Optional[str] = None
+    text_1_media_type: Optional[Literal['photo', 'video']] = None
+    text_2_media_url:  Optional[str] = None
+    text_2_media_type: Optional[Literal['photo', 'video']] = None
+
+
+_TEMPLATE_COLUMNS = """id, type, text_1, button_label, text_2, text_3_delivered, text_3_stuck,
+                      text_1_media_url, text_1_media_type,
+                      text_2_media_url, text_2_media_type,
+                      created_at, updated_at"""
 
 
 async def _get_or_create_template(client_id: int, type_: str, db: asyncpg.Connection) -> dict:
     row = await db.fetchrow(
-        """SELECT id, type, text_1, button_label, text_2, text_3_delivered, text_3_stuck,
-                  created_at, updated_at
-             FROM funnel_templates WHERE client_id = $1 AND type = $2""",
+        f"""SELECT {_TEMPLATE_COLUMNS}
+              FROM funnel_templates WHERE client_id = $1 AND type = $2""",
         client_id, type_
     )
     if row:
         return dict(row)
     row = await db.fetchrow(
-        """INSERT INTO funnel_templates
+        f"""INSERT INTO funnel_templates
               (client_id, type, text_1, button_label, text_2, text_3_delivered, text_3_stuck)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING id, type, text_1, button_label, text_2, text_3_delivered, text_3_stuck,
-                     created_at, updated_at""",
+           RETURNING {_TEMPLATE_COLUMNS}""",
         client_id, type_,
         DEFAULT_TEXT_1, DEFAULT_BUTTON_LABEL, DEFAULT_TEXT_2,
         DEFAULT_TEXT_3_DELIVERED, DEFAULT_TEXT_3_STUCK
@@ -124,23 +133,36 @@ async def update_template(
     # Гарантируем что шаблон существует
     await _get_or_create_template(cid, type, db)
 
+    # Поля с обычной семантикой "обновлять только если передано".
+    # Для media-полей принимаем явный None как "убрать медиа", поэтому используем
+    # model_fields_set для определения "поле было передано в запросе".
+    sent = data.model_fields_set if hasattr(data, "model_fields_set") else set(data.__fields_set__)
+
     fields = []
     args = []
     idx = 1
+
     for k in ('text_1', 'button_label', 'text_2', 'text_3_delivered', 'text_3_stuck'):
         v = getattr(data, k)
         if v is not None:
             fields.append(f"{k} = ${idx}")
             args.append(v)
             idx += 1
+
+    for k in ('text_1_media_url', 'text_1_media_type', 'text_2_media_url', 'text_2_media_type'):
+        if k in sent:
+            v = getattr(data, k)
+            fields.append(f"{k} = ${idx}")
+            args.append(v if v else None)
+            idx += 1
+
     if not fields:
         return await _get_or_create_template(cid, type, db)
     args.extend([cid, type])
     row = await db.fetchrow(
         f"""UPDATE funnel_templates SET {', '.join(fields)}, updated_at = NOW()
             WHERE client_id = ${idx} AND type = ${idx + 1}
-            RETURNING id, type, text_1, button_label, text_2, text_3_delivered, text_3_stuck,
-                      created_at, updated_at""",
+            RETURNING {_TEMPLATE_COLUMNS}""",
         *args
     )
     return dict(row)

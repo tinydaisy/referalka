@@ -2,6 +2,13 @@
 import { useState, useEffect } from 'react'
 import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users } from 'lucide-react'
 import { api } from '@/lib/api'
+import FileUploader from '@/components/FileUploader'
+
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i
+function inferMediaType(url: string | null | undefined): 'photo' | 'video' | null {
+  if (!url) return null
+  return VIDEO_EXT_RE.test(url) ? 'video' : 'photo'
+}
 
 type Tab = 'magnets' | 'packages' | 'template'
 
@@ -541,11 +548,19 @@ function TemplateEditor() {
         text_2: data.text_2,
         text_3_delivered: data.text_3_delivered,
         text_3_stuck: data.text_3_stuck,
+        text_1_media_url:  data.text_1_media_url  || null,
+        text_1_media_type: data.text_1_media_url ? inferMediaType(data.text_1_media_url) : null,
+        text_2_media_url:  data.text_2_media_url  || null,
+        text_2_media_type: data.text_2_media_url ? inferMediaType(data.text_2_media_url) : null,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (e: any) { setErr(e.message) }
     finally { setSaving(false) }
+  }
+
+  function setMedia(field: 'text_1_media_url' | 'text_2_media_url') {
+    return (url: string | null) => setData((d: any) => ({ ...d, [field]: url }))
   }
 
   if (loading) return <div className="text-gray-400 text-sm">Загрузка…</div>
@@ -571,6 +586,23 @@ function TemplateEditor() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
       </Field>
 
+      <Field label="Фото или видео к Тексту 1 (опционально)">
+        <FileUploader
+          mode="single"
+          kind="funnel_media"
+          accept="image/*,video/mp4,video/webm,video/quicktime"
+          aspectClass="aspect-video"
+          emptyText="Перетащите фото или видео — пойдёт вместе с Текстом 1"
+          buttonLabel="Загрузить медиа"
+          value={data.text_1_media_url || null}
+          onChange={setMedia('text_1_media_url')}
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Если медиа добавлено и итоговый текст ≤ 1024 символов — отправим одно сообщение
+          с подписью и кнопкой. Если длиннее — сначала медиа, потом текст отдельным сообщением.
+        </p>
+      </Field>
+
       <Field label="Подпись на кнопке">
         <input type="text" value={data.button_label || ''} onChange={set('button_label')}
                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -579,6 +611,19 @@ function TemplateEditor() {
       <Field label="Текст 2 — после успешной проверки подписки (выдача материалов)">
         <textarea value={data.text_2 || ''} onChange={set('text_2')} rows={5}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+      </Field>
+
+      <Field label="Фото или видео к Тексту 2 (опционально)">
+        <FileUploader
+          mode="single"
+          kind="funnel_media"
+          accept="image/*,video/mp4,video/webm,video/quicktime"
+          aspectClass="aspect-video"
+          emptyText="Перетащите фото или видео — пойдёт вместе с Текстом 2"
+          buttonLabel="Загрузить медиа"
+          value={data.text_2_media_url || null}
+          onChange={setMedia('text_2_media_url')}
+        />
       </Field>
 
       <Field label="Текст 3 — через 30 минут (получившим материалы)">

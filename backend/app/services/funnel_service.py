@@ -27,7 +27,9 @@ PLUSSON_TOKEN = lambda: settings.telegram_bot_token  # noqa: E731
 
 async def _get_template(client_id: int, db) -> Optional[dict]:
     return await db.fetchrow(
-        """SELECT text_1, button_label, text_2, text_3_delivered, text_3_stuck
+        """SELECT text_1, button_label, text_2, text_3_delivered, text_3_stuck,
+                  text_1_media_url, text_1_media_type,
+                  text_2_media_url, text_2_media_type
              FROM funnel_templates WHERE client_id = $1 AND type = 'lead_magnet'""",
         client_id
     )
@@ -175,6 +177,63 @@ async def _send_message(token: str, chat_id, text: str, reply_markup: Optional[d
     except Exception as e:
         log.warning("sendMessage error: %s", e)
     return None
+
+
+# Лимит Telegram на caption под фото/видео = 1024 символа. На обычное
+# сообщение = 4096. Если итоговый текст влезает в caption — шлём одним
+# сообщением (sendPhoto/sendVideo с подписью и inline-кнопкой). Если нет —
+# сначала медиа отдельно (без caption), потом текст с кнопкой.
+TG_CAPTION_LIMIT = 1024
+
+
+async def _send_media(token: str, chat_id, media_url: str, media_type: str,
+                      caption: Optional[str] = None,
+                      reply_markup: Optional[dict] = None) -> Optional[int]:
+    """sendPhoto или sendVideo. Возвращает message_id или None при ошибке."""
+    method = "sendVideo" if media_type == "video" else "sendPhoto"
+    field = "video" if media_type == "video" else "photo"
+    payload = {"chat_id": chat_id, field: media_url}
+    if caption:
+        payload["caption"] = caption
+        payload["parse_mode"] = "HTML"
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    try:
+        async with httpx.AsyncClient(timeout=60) as http:
+            r = await http.post(
+                f"https://api.telegram.org/bot{token}/{method}",
+                json=payload
+            )
+            data = r.json()
+            if data.get("ok"):
+                return data["result"].get("message_id")
+            log.warning("%s failed: %s", method, data)
+    except Exception as e:
+        log.warning("%s error: %s", method, e)
+    return None
+
+
+async def _send_text_with_media(token: str, chat_id, text: str,
+                                media_url: Optional[str],
+                                media_type: Optional[str],
+                                reply_markup: Optional[dict] = None) -> Optional[int]:
+    """Универсальная отправка текста с опциональным медиа.
+
+    Если медиа нет → sendMessage.
+    Если медиа есть и len(text) ≤ 1024 → одно сообщение sendPhoto/sendVideo c caption + кнопкой.
+    Если медиа есть и len(text) > 1024 → sendPhoto/sendVideo без caption + sendMessage с кнопкой.
+
+    Возвращает message_id основного (последнего, с кнопкой) сообщения.
+    """
+    if not media_url or media_type not in ("photo", "video"):
+        return await _send_message(token, chat_id, text, reply_markup)
+
+    if len(text) <= TG_CAPTION_LIMIT:
+        return await _send_media(token, chat_id, media_url, media_type, caption=text, reply_markup=reply_markup)
+
+    # Текст не влезает в caption — шлём медиа отдельно, потом текст.
+    await _send_media(token, chat_id, media_url, media_type, caption=None, reply_markup=None)
+    return await _send_message(token, chat_id, text, reply_markup)
 
 
 async def _check_subscription(token: str, channel: str, user_id: str) -> bool:
@@ -481,7 +540,12 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
     if not token:
         log.warning("run_started: no bot token for client %s", client_id)
         return
-    msg_id = await _send_message(token, tg_id, text_1, reply_markup)
+    msg_id = await _send_text_with_media(
+        token, tg_id, text_1,
+        template.get("text_1_media_url"),
+        template.get("text_1_media_type"),
+        reply_markup,
+    )
     if msg_id:
         await db.execute(
             "UPDATE funnel_runs SET last_message_id = $1 WHERE id = $2",
@@ -549,7 +613,12 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> str:
 
     materials = await _materials_for_run(dict(run), db)
     text_2 = _format_text(template["text_2"], ctx, materials)
-    await _send_message(token, tg_id, text_2)
+    await _send_text_with_media(
+        token, tg_id, text_2,
+        template.get("text_2_media_url"),
+        template.get("text_2_media_type"),
+        reply_markup=None,
+    )
 
     # Таймер «как там, всё открылось?» — только при первой выдаче, чтобы
     # повторные клики не плодили follow-up'ы.

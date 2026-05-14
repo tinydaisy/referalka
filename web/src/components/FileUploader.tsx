@@ -17,7 +17,12 @@ import { Upload, Trash2, Loader2, Copy, Check, ImageIcon, FileText, AlertCircle 
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type UploadKind = 'event_poster' | 'certificate' | 'referral_material' | 'lead_magnet' | 'speaker_photo' | 'brand_photo' | 'brand_logo' | 'owner_photo'
+type UploadKind = 'event_poster' | 'certificate' | 'referral_material' | 'lead_magnet' | 'speaker_photo' | 'brand_photo' | 'brand_logo' | 'owner_photo' | 'funnel_media'
+
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i
+function isVideoUrl(url: string): boolean {
+  return VIDEO_EXT_RE.test(url)
+}
 type PosterType = 'horizontal' | 'vertical' | 'square'
 
 type SingleProps = {
@@ -192,7 +197,9 @@ export default function FileUploader(props: Props) {
           {urls.map((url, i) => (
             <div key={i} className="flex flex-col gap-2">
               <div className={`relative ${aspectClass} rounded-xl overflow-hidden bg-gray-100 border border-gray-100`}>
-                {isImage ? (
+                {isVideoUrl(url) ? (
+                  <video src={url} controls className="w-full h-full object-cover bg-black" />
+                ) : isImage ? (
                   <img src={url} alt={`file ${i+1}`} className="w-full h-full object-cover" />
                 ) : (
                   <a href={url} target="_blank" rel="noreferrer"
