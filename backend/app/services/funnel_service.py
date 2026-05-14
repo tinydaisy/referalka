@@ -116,10 +116,10 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
 
 
 def _format_text(template: str, ctx: dict, materials: list[dict]) -> str:
-    materials_list = "\n".join(
+    materials_list = "\n\n".join(
         f"{i + 1}. {m['name']}" for i, m in enumerate(materials)
     )
-    materials_with_links = "\n".join(
+    materials_with_links = "\n\n".join(
         f"{i + 1}. {m['name']} — {m['url']}" for i, m in enumerate(materials)
     )
     placeholders = {

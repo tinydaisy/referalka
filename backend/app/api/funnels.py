@@ -48,9 +48,9 @@ DEFAULT_TEXT_1 = (
     "{materials_list}\n\n"
     "{client_brand_name}\n"
     "{client_owner_achievements}\n\n"
-    "Чтобы получить материалы — подпишись на канал\n"
-    "{subscription_channel}\n"
-    "и жми «ГОТОВО»."
+    "<b>Чтобы получить материалы — подпишись на канал\n"
+    "👇👇👇\n"
+    "И жми «ГОТОВО»</b>"
 )
 
 DEFAULT_BUTTON_LABEL = "ГОТОВО"

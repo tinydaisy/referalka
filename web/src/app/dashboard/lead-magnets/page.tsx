@@ -452,10 +452,14 @@ function PackageForm({ initial, magnets, onClose, onSaved }: {
                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                  placeholder="Стартовый набор для предпринимателя" autoFocus />
         </Field>
-        <Field label="Описание (необязательно)">
+        <Field label="Заметка">
           <textarea value={description} onChange={e => setDescription(e.target.value)}
                     rows={2}
+                    placeholder="Видна только вам в дашборде"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <p className="text-xs text-gray-500 mt-1">
+            Только для вас — в сообщениях бота не используется.
+          </p>
         </Field>
 
         <div>
