@@ -51,6 +51,7 @@ DEFAULT_TEXT_1 = (
     "{client_owner_bio}\n\n"
     "<b>Чтобы получить материалы — подпишись на канал\n"
     "👇👇👇\n"
+    "{subscription_channel}\n"
     "И жми «ГОТОВО»</b>"
 )
 
