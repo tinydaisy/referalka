@@ -73,6 +73,14 @@ export default function FileUploader(props: Props) {
   }
 
   async function uploadOne(file: File): Promise<string> {
+    // Клиентская проверка размера — до отправки на сервер.
+    // Лимит совпадает с nginx client_max_body_size = 50 МБ и Telegram bot API video = 50 МБ.
+    const MAX_BYTES = 50 * 1024 * 1024
+    if (file.size > MAX_BYTES) {
+      const sizeMb = (file.size / 1024 / 1024).toFixed(1)
+      throw new Error(`Файл ${sizeMb} МБ — больше лимита 50 МБ. Telegram-бот не принимает файлы крупнее 50 МБ. Сожмите видео (например, через QuickTime / Handbrake) и попробуйте снова.`)
+    }
+
     const fd = new FormData()
     fd.append('file', file)
     fd.append('kind', kind)
@@ -87,6 +95,9 @@ export default function FileUploader(props: Props) {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (!r.ok) {
+      if (r.status === 413) {
+        throw new Error('Файл больше 50 МБ — лимит превышен. Сожмите видео или загрузите файл поменьше.')
+      }
       const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }))
       throw new Error(err.detail || `HTTP ${r.status}`)
     }
