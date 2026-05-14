@@ -39,6 +39,7 @@ async def _get_brand_context(client_id: int, db) -> dict:
         """SELECT
               COALESCE(NULLIF(brand_name, ''), name) AS brand_name,
               name AS owner_name,
+              bio,
               owner_achievements,
               social_links
              FROM clients WHERE id = $1""",
@@ -87,6 +88,7 @@ async def _get_brand_context(client_id: int, db) -> dict:
     return {
         "brand_name": row["brand_name"] or "",
         "owner_name": row["owner_name"] or "",
+        "owner_bio": row["bio"] or "",
         "owner_achievements": achievements_text,
         "subscription_channel": sub_channel,                   # https-ссылка для текста
         "subscription_channel_api": sub_channel_api,           # @username для Bot API
@@ -127,6 +129,7 @@ def _format_text(template: str, ctx: dict, materials: list[dict]) -> str:
         "materials_with_links": materials_with_links,
         "client_brand_name": ctx.get("brand_name", ""),
         "client_owner_name": ctx.get("owner_name", ""),
+        "client_owner_bio": ctx.get("owner_bio", ""),
         "client_owner_achievements": ctx.get("owner_achievements", ""),
         "subscription_channel": ctx.get("subscription_channel", ""),
         "owner_telegram": ctx.get("owner_telegram", ""),

@@ -561,8 +561,8 @@ function TemplateEditor() {
         шаблоны пока нельзя. Доступные плейсхолдеры:
         <code className="block mt-1 font-mono text-xs">
           {'{materials_list}'} · {'{materials_with_links}'} · {'{client_brand_name}'} ·{' '}
-          {'{client_owner_name}'} · {'{client_owner_achievements}'} · {'{subscription_channel}'} ·{' '}
-          {'{owner_telegram}'}
+          {'{client_owner_name}'} · {'{client_owner_bio}'} · {'{client_owner_achievements}'} ·{' '}
+          {'{subscription_channel}'} · {'{owner_telegram}'}
         </code>
       </div>
 

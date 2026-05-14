@@ -38,7 +38,8 @@ template_router = APIRouter(prefix="/funnel-templates", tags=["Воронки"])
 #   {materials_with_links} — список «1. Название — <ссылка>» (text_2)
 #   {client_brand_name}  — название бренда (или имя клиента)
 #   {client_owner_name}  — имя основателя
-#   {client_owner_achievements} — регалии основателя
+#   {client_owner_bio}   — биография основателя
+#   {client_owner_achievements} — регалии основателя (факты в цифрах)
 #   {subscription_channel} — @username TG-канала клиента
 #   {owner_telegram}     — @username основателя для связи (text_3)
 DEFAULT_TEXT_1 = (
@@ -46,8 +47,8 @@ DEFAULT_TEXT_1 = (
     "🎁 Вот мои подарки для тебя\n\n"
     "👇👇👇\n"
     "{materials_list}\n\n"
-    "{client_brand_name}\n"
-    "{client_owner_achievements}\n\n"
+    "{client_owner_name}\n"
+    "{client_owner_bio}\n\n"
     "<b>Чтобы получить материалы — подпишись на канал\n"
     "👇👇👇\n"
     "И жми «ГОТОВО»</b>"
