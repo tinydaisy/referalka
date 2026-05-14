@@ -570,7 +570,7 @@ function TemplateEditor() {
     setData((d: any) => ({ ...d, [k]: e.target.value }))
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5 max-w-2xl">
+    <div className="space-y-5 max-w-2xl">
       <div className="text-sm text-gray-600 bg-amber-50 border border-amber-100 rounded-lg p-3">
         Один шаблон на все лид-магниты и пакеты. Тексты можно править — создавать новые
         шаблоны пока нельзя. Доступные плейсхолдеры:
@@ -581,60 +581,84 @@ function TemplateEditor() {
         </code>
       </div>
 
-      <Field label="Текст 1 — приветствие со списком подарков">
-        <textarea value={data.text_1 || ''} onChange={set('text_1')} rows={8}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
-      </Field>
+      {/* === Текст 1 === */}
+      <section className="bg-white rounded-xl border-2 border-gray-300 p-5 space-y-4">
+        <header className="border-b border-gray-200 pb-3">
+          <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 1 — приветствие со списком подарков</h3>
+          <p className="text-xs text-gray-500 mt-1">Уходит сразу когда человек открыл бота по ссылке лид-магнита.</p>
+        </header>
 
-      <Field label="Фото или видео к Тексту 1 (опционально)">
-        <FileUploader
-          mode="single"
-          kind="funnel_media"
-          accept="image/*,video/mp4,video/webm,video/quicktime"
-          aspectClass="aspect-video"
-          emptyText="Перетащите фото или видео — пойдёт вместе с Текстом 1"
-          buttonLabel="Загрузить медиа"
-          value={data.text_1_media_url || null}
-          onChange={setMedia('text_1_media_url')}
-        />
-        <p className="text-xs text-gray-500 mt-1">
-          Если медиа добавлено и итоговый текст ≤ 1024 символов — отправим одно сообщение
-          с подписью и кнопкой. Если длиннее — сначала медиа, потом текст отдельным сообщением.
-        </p>
-      </Field>
+        <Field label="Текст сообщения">
+          <textarea value={data.text_1 || ''} onChange={set('text_1')} rows={8}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+        </Field>
 
-      <Field label="Подпись на кнопке">
-        <input type="text" value={data.button_label || ''} onChange={set('button_label')}
-               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      </Field>
+        <Field label="Фото или видео (опционально)">
+          <FileUploader
+            mode="single"
+            kind="funnel_media"
+            accept="image/*,video/mp4,video/webm,video/quicktime"
+            aspectClass="aspect-video"
+            emptyText="Перетащите фото или видео — пойдёт вместе с Текстом 1"
+            buttonLabel="Загрузить медиа"
+            value={data.text_1_media_url || null}
+            onChange={setMedia('text_1_media_url')}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Если медиа добавлено и итоговый текст ≤ 1024 символов — отправим одно сообщение
+            с подписью и кнопкой. Если длиннее — сначала медиа, потом текст отдельным сообщением.
+          </p>
+        </Field>
 
-      <Field label="Текст 2 — после успешной проверки подписки (выдача материалов)">
-        <textarea value={data.text_2 || ''} onChange={set('text_2')} rows={5}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
-      </Field>
+        <Field label="Подпись на кнопке">
+          <input type="text" value={data.button_label || ''} onChange={set('button_label')}
+                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </Field>
+      </section>
 
-      <Field label="Фото или видео к Тексту 2 (опционально)">
-        <FileUploader
-          mode="single"
-          kind="funnel_media"
-          accept="image/*,video/mp4,video/webm,video/quicktime"
-          aspectClass="aspect-video"
-          emptyText="Перетащите фото или видео — пойдёт вместе с Текстом 2"
-          buttonLabel="Загрузить медиа"
-          value={data.text_2_media_url || null}
-          onChange={setMedia('text_2_media_url')}
-        />
-      </Field>
+      {/* === Текст 2 === */}
+      <section className="bg-white rounded-xl border-2 border-gray-300 p-5 space-y-4">
+        <header className="border-b border-gray-200 pb-3">
+          <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 2 — выдача материалов</h3>
+          <p className="text-xs text-gray-500 mt-1">Уходит после того как человек нажал «ГОТОВО» и подписка на канал подтверждена.</p>
+        </header>
 
-      <Field label="Текст 3 — через 30 минут (получившим материалы)">
-        <textarea value={data.text_3_delivered || ''} onChange={set('text_3_delivered')} rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
-      </Field>
+        <Field label="Текст сообщения">
+          <textarea value={data.text_2 || ''} onChange={set('text_2')} rows={5}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+        </Field>
 
-      <Field label="Текст 3 — через 30 минут (зависшим на проверке подписки)">
-        <textarea value={data.text_3_stuck || ''} onChange={set('text_3_stuck')} rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
-      </Field>
+        <Field label="Фото или видео (опционально)">
+          <FileUploader
+            mode="single"
+            kind="funnel_media"
+            accept="image/*,video/mp4,video/webm,video/quicktime"
+            aspectClass="aspect-video"
+            emptyText="Перетащите фото или видео — пойдёт вместе с Текстом 2"
+            buttonLabel="Загрузить медиа"
+            value={data.text_2_media_url || null}
+            onChange={setMedia('text_2_media_url')}
+          />
+        </Field>
+      </section>
+
+      {/* === Текст 3 === */}
+      <section className="bg-white rounded-xl border-2 border-gray-300 p-5 space-y-4">
+        <header className="border-b border-gray-200 pb-3">
+          <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 3 — follow-up через 30 минут</h3>
+          <p className="text-xs text-gray-500 mt-1">Автоматически уходит спустя 30 минут после Текста 1. Два варианта в зависимости от того, дошёл ли человек до выдачи.</p>
+        </header>
+
+        <Field label="Получившим материалы">
+          <textarea value={data.text_3_delivered || ''} onChange={set('text_3_delivered')} rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+        </Field>
+
+        <Field label="Зависшим на проверке подписки">
+          <textarea value={data.text_3_stuck || ''} onChange={set('text_3_stuck')} rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
+        </Field>
+      </section>
 
       {err && <div className="text-sm text-red-600">{err}</div>}
 
