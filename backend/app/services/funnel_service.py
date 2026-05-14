@@ -27,9 +27,9 @@ PLUSSON_TOKEN = lambda: settings.telegram_bot_token  # noqa: E731
 
 async def _get_template(client_id: int, db) -> Optional[dict]:
     return await db.fetchrow(
-        """SELECT text_1, button_label, text_2, text_3_delivered, text_3_stuck,
-                  text_1_media_url, text_1_media_type,
-                  text_2_media_url, text_2_media_type
+        """SELECT id, text_1, button_label, text_2, text_3_delivered, text_3_stuck,
+                  text_1_media_url, text_1_media_type, text_1_media_file_id,
+                  text_2_media_url, text_2_media_type, text_2_media_file_id
              FROM funnel_templates WHERE client_id = $1 AND type = 'lead_magnet'""",
         client_id
     )
@@ -186,54 +186,102 @@ async def _send_message(token: str, chat_id, text: str, reply_markup: Optional[d
 TG_CAPTION_LIMIT = 1024
 
 
-async def _send_media(token: str, chat_id, media_url: str, media_type: str,
+def _extract_file_id(result: dict, media_type: str) -> Optional[str]:
+    """Из ответа sendPhoto/sendVideo извлекаем file_id для кеша."""
+    if media_type == "video":
+        return (result.get("video") or {}).get("file_id")
+    photos = result.get("photo") or []
+    return photos[-1]["file_id"] if photos else None
+
+
+async def _send_media(token: str, chat_id, media_payload: str, media_type: str,
                       caption: Optional[str] = None,
-                      reply_markup: Optional[dict] = None) -> Optional[int]:
-    """sendPhoto или sendVideo. Возвращает message_id или None при ошибке."""
+                      reply_markup: Optional[dict] = None) -> tuple[Optional[int], Optional[str]]:
+    """sendPhoto или sendVideo. media_payload — file_id (кеш TG) или https-URL.
+    Возвращает (message_id, file_id_из_ответа) или (None, None) при ошибке."""
     method = "sendVideo" if media_type == "video" else "sendPhoto"
     field = "video" if media_type == "video" else "photo"
-    payload = {"chat_id": chat_id, field: media_url}
+    payload = {"chat_id": chat_id, field: media_payload}
     if caption:
         payload["caption"] = caption
         payload["parse_mode"] = "HTML"
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
     try:
-        async with httpx.AsyncClient(timeout=60) as http:
+        async with httpx.AsyncClient(timeout=120) as http:
             r = await http.post(
                 f"https://api.telegram.org/bot{token}/{method}",
                 json=payload
             )
             data = r.json()
             if data.get("ok"):
-                return data["result"].get("message_id")
+                result = data["result"]
+                return result.get("message_id"), _extract_file_id(result, media_type)
             log.warning("%s failed: %s", method, data)
     except Exception as e:
         log.warning("%s error: %s", method, e)
-    return None
+    return None, None
 
 
 async def _send_text_with_media(token: str, chat_id, text: str,
                                 media_url: Optional[str],
                                 media_type: Optional[str],
-                                reply_markup: Optional[dict] = None) -> Optional[int]:
+                                file_id: Optional[str] = None,
+                                reply_markup: Optional[dict] = None
+                                ) -> tuple[Optional[int], Optional[str]]:
     """Универсальная отправка текста с опциональным медиа.
 
-    Если медиа нет → sendMessage.
-    Если медиа есть и len(text) ≤ 1024 → одно сообщение sendPhoto/sendVideo c caption + кнопкой.
-    Если медиа есть и len(text) > 1024 → sendPhoto/sendVideo без caption + sendMessage с кнопкой.
+    Возвращает (message_id, fresh_file_id). fresh_file_id — то что TG прислал
+    в ответе при отправке URL'а первый раз; нужно сохранить в БД, чтобы
+    следующие отправки шли через file_id моментально (без скачивания с R2).
 
-    Возвращает message_id основного (последнего, с кнопкой) сообщения.
+    Если file_id передан — сначала пробуем его (мгновенно). При ошибке (например
+    file_id протух при смене бота) — повторяем с URL и обновляем кеш.
+
+    Логика caption:
+      - нет медиа → sendMessage.
+      - есть медиа и len(text) ≤ 1024 → одно sendPhoto/sendVideo с caption + кнопкой.
+      - есть медиа и len(text) > 1024 → sendPhoto/sendVideo без caption + sendMessage с кнопкой.
     """
     if not media_url or media_type not in ("photo", "video"):
-        return await _send_message(token, chat_id, text, reply_markup)
+        return await _send_message(token, chat_id, text, reply_markup), None
+
+    primary  = file_id or media_url
+    fallback = media_url if file_id else None
 
     if len(text) <= TG_CAPTION_LIMIT:
-        return await _send_media(token, chat_id, media_url, media_type, caption=text, reply_markup=reply_markup)
+        msg_id, new_fid = await _send_media(token, chat_id, primary, media_type, caption=text, reply_markup=reply_markup)
+        if msg_id is None and fallback:
+            # file_id протух — fallback на URL
+            msg_id, new_fid = await _send_media(token, chat_id, fallback, media_type, caption=text, reply_markup=reply_markup)
+        return msg_id, new_fid
 
-    # Текст не влезает в caption — шлём медиа отдельно, потом текст.
-    await _send_media(token, chat_id, media_url, media_type, caption=None, reply_markup=None)
-    return await _send_message(token, chat_id, text, reply_markup)
+    # Текст не влезает в caption — медиа отдельно, потом текст с кнопкой.
+    _, new_fid = await _send_media(token, chat_id, primary, media_type, caption=None, reply_markup=None)
+    if new_fid is None and fallback:
+        _, new_fid = await _send_media(token, chat_id, fallback, media_type, caption=None, reply_markup=None)
+    msg_id = await _send_message(token, chat_id, text, reply_markup)
+    return msg_id, new_fid
+
+
+async def _maybe_cache_file_id(template: dict, slot: str, new_fid: Optional[str], db) -> None:
+    """Если шаблон ещё не имел file_id и TG только что отдал свежий — сохраняем.
+    slot = 'text_1' | 'text_2'."""
+    if not new_fid:
+        return
+    field = f"{slot}_media_file_id"
+    if template.get(field):
+        return  # уже закеширован
+    template_id = template.get("id")
+    if not template_id:
+        return
+    try:
+        await db.execute(
+            f"UPDATE funnel_templates SET {field} = $1 WHERE id = $2",
+            new_fid, template_id
+        )
+    except Exception as e:
+        log.warning("cache file_id failed: %s", e)
 
 
 async def _check_subscription(token: str, channel: str, user_id: str) -> bool:
@@ -540,12 +588,14 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
     if not token:
         log.warning("run_started: no bot token for client %s", client_id)
         return
-    msg_id = await _send_text_with_media(
+    msg_id, fresh_fid = await _send_text_with_media(
         token, tg_id, text_1,
         template.get("text_1_media_url"),
         template.get("text_1_media_type"),
-        reply_markup,
+        file_id=template.get("text_1_media_file_id"),
+        reply_markup=reply_markup,
     )
+    await _maybe_cache_file_id(template, "text_1", fresh_fid, db)
     if msg_id:
         await db.execute(
             "UPDATE funnel_runs SET last_message_id = $1 WHERE id = $2",
@@ -613,12 +663,14 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> str:
 
     materials = await _materials_for_run(dict(run), db)
     text_2 = _format_text(template["text_2"], ctx, materials)
-    await _send_text_with_media(
+    _, fresh_fid = await _send_text_with_media(
         token, tg_id, text_2,
         template.get("text_2_media_url"),
         template.get("text_2_media_type"),
+        file_id=template.get("text_2_media_file_id"),
         reply_markup=None,
     )
+    await _maybe_cache_file_id(template, "text_2", fresh_fid, db)
 
     # Таймер «как там, всё открылось?» — только при первой выдаче, чтобы
     # повторные клики не плодили follow-up'ы.

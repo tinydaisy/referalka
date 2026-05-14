@@ -156,6 +156,11 @@ async def update_template(
             fields.append(f"{k} = ${idx}")
             args.append(v if v else None)
             idx += 1
+            # Смена URL → сбрасываем кеш file_id, чтобы при следующей отправке
+            # Telegram перекачал новый файл и отдал свежий file_id.
+            if k.endswith('_media_url'):
+                cache_field = k.replace('_url', '_file_id')
+                fields.append(f"{cache_field} = NULL")
 
     if not fields:
         return await _get_or_create_template(cid, type, db)
