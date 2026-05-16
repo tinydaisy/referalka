@@ -121,9 +121,12 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   // число и для случая «подарок за 0 регистраций» (порог 0 ≤ registered).
   // Если бэк уже вернул gifts_received_count и пороги ещё не догрузились —
   // используем серверное число, чтобы не моргать нулём.
+  // Полученные подарки (по убыванию порога — последний в массиве самый «сильный»).
+  const receivedGifts = sortedGifts.filter(g => giftCountValue >= g.points_cost)
   const giftsCount = sortedGifts.length > 0
-    ? sortedGifts.filter(g => giftCountValue >= g.points_cost).length
+    ? receivedGifts.length
     : (participant?.gifts_received_count ?? 0)
+  const lastReceived = receivedGifts.length > 0 ? receivedGifts[receivedGifts.length - 1] : null
   const nextGift = sortedGifts.find(g => g.points_cost > giftCountValue)
   const toNext = nextGift ? nextGift.points_cost - giftCountValue : 0
   const progressPct = nextGift ? Math.min(100, Math.round((giftCountValue / nextGift.points_cost) * 100)) : 100
@@ -321,6 +324,29 @@ export default function GameTab({ event, participant, tgUser }: Props) {
           fontSize: 13, padding: '4px 0', cursor: 'pointer', marginBottom: 8,
         }}>← Назад в Игру</button>
 
+        {/* Партнёрская ссылка — дубль с главного экрана, чтобы можно было
+            скопировать прямо здесь, не возвращаясь назад. */}
+        <div style={{
+          background: 'white', borderRadius: 14, padding: 14, marginBottom: 14,
+          boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+        }}>
+          <div style={{ fontSize: 11, color: '#6b7c8e', marginBottom: 6, fontWeight: 500 }}>
+            Ваша партнёрская ссылка на событие
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{
+              flex: 1, background: '#f7f8fa', padding: 10, borderRadius: 10,
+              fontSize: 12, color: DARK, fontWeight: 600,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{refLink}</div>
+            <button onClick={() => copy(refLink)} style={{
+              background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)', color: DARK,
+              padding: '10px 14px', borderRadius: 10, fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', border: 'none',
+            }}>{copied ? '✓' : 'Копировать'}</button>
+          </div>
+        </div>
+
         {isEmpty && (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontSize: 13 }}>
             Материалы для шеринга пока не добавлены
@@ -445,19 +471,40 @@ export default function GameTab({ event, participant, tgUser }: Props) {
              cursor: 'pointer', boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
            }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ fontSize: 30, fontWeight: 900, color: DARK, lineHeight: 1 }}>{giftsCount}</div>
-          <div style={{ flex: 1 }}>
+          {/* Большая цифра «получено/всего». Если порогов нет — просто число. */}
+          <div style={{ fontSize: 30, fontWeight: 900, color: DARK, lineHeight: 1, whiteSpace: 'nowrap' }}>
+            {giftsCount}
+            {sortedGifts.length > 0 && (
+              <span style={{ fontSize: 18, fontWeight: 700, color: '#8a96a3' }}>/{sortedGifts.length}</span>
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12, color: '#6b7c8e' }}>Получено подарков</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#b86b00', marginTop: 2 }}>
-              {nextGift
-                ? `🎁 Ещё ${toNext} ${toNext === 1 ? 'человек' : 'человека'} до подарка «${nextGift.title}»`
-                : '🎉 Все подарки получены!'}
-            </div>
+            {lastReceived && (
+              <div style={{
+                fontSize: 13, fontWeight: 700, color: DARK, marginTop: 2,
+                overflow: 'hidden', textOverflow: 'ellipsis',
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+              }}>
+                «{lastReceived.title}»
+              </div>
+            )}
           </div>
           <div style={{ color: '#c5cdd6', fontSize: 22, fontWeight: 300 }}>›</div>
         </div>
+
+        {/* Следующий подарок — отдельной строкой ниже, другим цветом. */}
+        <div style={{
+          fontSize: 12, fontWeight: 700, marginTop: 10,
+          color: nextGift ? '#b86b00' : '#2e7d32',
+        }}>
+          {nextGift
+            ? `🎁 Ещё ${toNext} ${toNext === 1 ? 'человек' : 'человека'} до подарка «${nextGift.title}»`
+            : '🎉 Все подарки получены!'}
+        </div>
+
         {nextGift && (
-          <div style={{ height: 6, background: '#eef2f7', borderRadius: 3, overflow: 'hidden', marginTop: 12 }}>
+          <div style={{ height: 6, background: '#eef2f7', borderRadius: 3, overflow: 'hidden', marginTop: 8 }}>
             <div style={{
               height: '100%', width: `${progressPct}%`,
               background: 'linear-gradient(90deg, #FFCFA4, #f5b97e)', borderRadius: 3,
