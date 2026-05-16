@@ -8,8 +8,9 @@ import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 import ContestOverviewTab from './tabs/ContestOverviewTab'
+import ContestReportTab from './tabs/ContestReportTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'voters'
+type TabKey = 'overview' | 'posters' | 'referral' | 'voters' | 'report'
 
 export default function ContestPage() {
   const { id } = useParams()
@@ -51,6 +52,7 @@ export default function ContestPage() {
     { key: 'posters',   label: 'Афиши' },
     { key: 'referral',  label: 'Реф-программа' },
     { key: 'voters',    label: 'Голосующие' },
+    { key: 'report',    label: 'Отчёт' },
   ]
 
   return (
@@ -112,6 +114,7 @@ export default function ContestPage() {
       {activeTab === 'posters'  && <PostersTab eventId={eventId} />}
       {activeTab === 'referral' && <ReferralProgramTab eventId={eventId} moduleSlug="contest" />}
       {activeTab === 'voters'   && <EventParticipants eventId={eventId} moduleSlug="contest" />}
+      {activeTab === 'report'   && <ContestReportTab eventId={eventId} />}
     </div>
   )
 }

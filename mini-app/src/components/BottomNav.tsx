@@ -35,14 +35,23 @@ const Program = () => (
   </svg>
 )
 const Game = () => (
+  // Иконка подарка (коробка с бантом) — id 'game' исторический, label «Подарки».
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>
+    <polyline points="20 12 20 22 4 22 4 12"/>
+    <rect x="2" y="7" width="20" height="5"/>
+    <line x1="12" y1="22" x2="12" y2="7"/>
+    <path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/>
+    <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
   </svg>
 )
 const Raffle = () => (
+  // Билет с перфорацией — для вкладки «Розыгрыш». До этого тут была иконка
+  // подарка, но она «уехала» во вкладку «Подарки».
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/>
-    <path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
+    <path d="M2 9a2 2 0 012-2h16a2 2 0 012 2v1a2 2 0 000 4v1a2 2 0 01-2 2H4a2 2 0 01-2-2v-1a2 2 0 000-4z"/>
+    <line x1="13" y1="5" x2="13" y2="7"/>
+    <line x1="13" y1="11" x2="13" y2="13"/>
+    <line x1="13" y1="17" x2="13" y2="19"/>
   </svg>
 )
 const Services = () => (
