@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Send, XCircle, Eye, Clock, CheckCircle, AlertCircle, Loader2, X,
-  Edit2, Trash2, Copy, Users, ChevronDown, ChevronRight, FileText, Upload
+  Edit2, Trash2, Copy, Users, ChevronDown, ChevronRight, FileText, Upload, Play
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
@@ -185,6 +185,26 @@ export default function GeneralBroadcastsPage() {
       showMsg('Создана копия')
     } catch (e: any) { showMsg(e.message, 'err') }
   }
+  async function publishOne(s: any) {
+    try {
+      await api.broadcasts.publish(s.id)
+      setSchedules(prev => prev.map(x => x.id === s.id ? { ...x, status: 'pending' } : x))
+      showMsg('Рассылка поставлена в очередь')
+    } catch (e: any) { showMsg(e.message, 'err') }
+  }
+  async function publishSelected() {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    const drafts = schedules.filter(s => ids.includes(s.id) && s.status === 'draft')
+    if (drafts.length === 0) return
+    let ok = 0, fail = 0
+    for (const s of drafts) {
+      try { await api.broadcasts.publish(s.id); ok++ }
+      catch (e: any) { fail++; showMsg(`Ошибка #${s.id}: ${e.message}`, 'err') }
+    }
+    await load()
+    if (ok > 0) showMsg(`Запущено: ${ok}${fail ? ` · с ошибкой: ${fail}` : ''}`)
+  }
   const pendingCount = schedules.filter(s => s.status === 'pending' || s.status === 'draft').length
   const doneCount = schedules.filter(s => s.status === 'done').length
   const nextPending = schedules
@@ -239,6 +259,15 @@ export default function GeneralBroadcastsPage() {
 
       {/* Панель действий */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
+        {(() => {
+          const draftSelected = schedules.filter(s => selectedIds.has(s.id) && s.status === 'draft').length
+          return draftSelected > 0 ? (
+            <button onClick={publishSelected}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-white bg-emerald-500 hover:bg-emerald-600">
+              <Play size={14} /> {`Поставить в очередь (${draftSelected})`}
+            </button>
+          ) : null
+        })()}
         {selectedIds.size > 0 && (
           <button onClick={deleteSelected} disabled={deleting}
             className="flex items-center gap-2 px-3 py-2 border border-red-300 rounded-xl text-sm text-white bg-red-500 hover:bg-red-600 disabled:opacity-50">
@@ -389,6 +418,13 @@ export default function GeneralBroadcastsPage() {
                           title="Превью">
                           <Eye size={13} />
                         </button>
+                        {s.status === 'draft' && (
+                          <button onClick={() => publishOne(s)}
+                            className="p-1.5 border border-emerald-300 rounded-lg text-emerald-600 hover:text-white hover:bg-emerald-500"
+                            title="Запустить (в очередь)">
+                            <Play size={13} />
+                          </button>
+                        )}
                         {(s.status === 'draft' || s.status === 'pending') && (
                           <button onClick={() => {
                             const d = s.fire_at_iso ? new Date(s.fire_at_iso) : new Date()

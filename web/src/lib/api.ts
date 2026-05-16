@@ -355,6 +355,8 @@ export const api = {
       request(`/api/v1/broadcasts/schedules/${id}/fire-at`, { method: 'PUT', body: JSON.stringify(data) }),
     update: (id: number, data: any) =>
       request(`/api/v1/broadcasts/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    publish: (id: number) =>
+      request(`/api/v1/broadcasts/schedules/${id}/publish`, { method: 'POST' }),
   },
   leadMagnets: {
     list: () => request('/api/v1/lead-magnets'),

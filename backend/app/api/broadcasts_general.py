@@ -406,6 +406,32 @@ async def copy(
     return {"ok": True, "id": new["id"]}
 
 
+@router.post("/schedules/{schedule_id}/publish", summary="Поставить черновик в очередь")
+async def publish_schedule(
+    schedule_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Промоут draft → pending. Без правок содержимого. Если рассылка
+    запланирована в прошлом — отдаём 400, чтобы клиент выбрал новую дату."""
+    client_id = int(client["sub"])
+    row = await _check_owner(db, schedule_id, client_id)
+    if row["status"] != "draft":
+        raise HTTPException(400, "Запустить можно только черновик")
+    fire_at = row.get("fire_at")
+    if fire_at is None:
+        raise HTTPException(400, "У рассылки не задана дата отправки — отредактируйте её")
+    if fire_at.tzinfo is None:
+        fire_at = fire_at.replace(tzinfo=ZoneInfo("UTC"))
+    if fire_at <= datetime.utcnow().replace(tzinfo=ZoneInfo("UTC")):
+        raise HTTPException(400, "Время уже прошло — отредактируйте дату перед запуском")
+    await db.execute(
+        "UPDATE broadcast_schedules SET status='pending' WHERE id=$1 AND status='draft'",
+        schedule_id
+    )
+    return {"ok": True}
+
+
 class FireAtUpdate(BaseModel):
     fire_at: str
     is_test: Optional[bool] = None
