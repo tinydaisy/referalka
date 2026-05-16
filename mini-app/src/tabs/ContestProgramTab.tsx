@@ -106,16 +106,17 @@ export default function ContestProgramTab({
         </button>
       )}
 
-      {/* Описание после регистрации — инструкции под кнопками */}
+      {/* Описание после регистрации — инструкции под кнопками.
+          Рендерим как один <div white-space: pre-wrap>, чтобы двойные переносы
+          сохранялись. linkify() возвращает массив React-нод вперемешку со
+          строками — текст остаётся обычным текстом и подчиняется pre-wrap. */}
       {descriptionPost && (
         <div style={{
           background: 'white', borderRadius: 14, padding: 16,
           marginTop: 4, color: DARK, fontSize: 14, lineHeight: 1.55,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
         }}>
-          {descriptionPost.split('\n').map((line, i) => (
-            <div key={i}>{linkify(line)}</div>
-          ))}
+          {linkify(descriptionPost)}
         </div>
       )}
 

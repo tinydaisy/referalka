@@ -659,13 +659,23 @@ async def get_participant_in_event(
     if not row:
         # Участника ещё нет — но prefill может быть (контакт уже в базе клиента
         # из другого события или из импорта). Возвращаем 200, не 404.
+        # gift_count_mode достаём по slug → event_id, чтобы Mini App всегда
+        # показывал правильную жёлтую подсказку про правило подсчёта,
+        # даже до регистрации.
+        no_row_mode = await db.fetchval(
+            """SELECT ers.gift_count_mode
+                 FROM event_referral_settings ers
+                 JOIN events e ON e.id = ers.event_id
+                WHERE e.slug = $1""",
+            event_slug
+        ) or "registered"
         return {
             "participant": None,
             "referrals_count": 0,
             "visited_count": 0,
             "registered_count": 0,
             "clicked_count": 0,
-            "gift_count_mode": "registered",
+            "gift_count_mode": no_row_mode,
             "gift_count_value": 0,
             "gifts_received_count": 0,
             "my_people": [],
