@@ -14,6 +14,7 @@ export default function ContestOverviewTab({
 }) {
   const [title, setTitle] = useState(event.title || '')
   const [description, setDescription] = useState(event.description || '')
+  const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
   // «Ссылка на голосование» сохраняется в events.stream_url
   // (то же поле, что у мероприятий — там оно для ZOOM/стрима). Mini App
   // в режиме контестa показывает её плиткой «Перейти к голосованию».
@@ -41,6 +42,8 @@ export default function ContestOverviewTab({
       if (t !== (event.title || ''))                            payload.title = t || null
       const d = description.trim()
       if (d !== (event.description || ''))                      payload.description = d || null
+      const dpr = descriptionPostRegister.trim()
+      if (dpr !== (event.description_post_register || ''))      payload.description_post_register = dpr || null
       const v = votingUrl.trim()
       if (v !== (event.stream_url || ''))                       payload.stream_url = v || null
       const c = chatUrl.trim()
@@ -83,12 +86,21 @@ export default function ContestOverviewTab({
           </Field>
 
           <Field
-            label="Описание"
-            hint="Покажется голосующему в Mini App на вкладке «Программа». Ссылки начинающиеся с http:// или https:// автоматически станут кликабельными."
+            label="Описание для лендинга"
+            hint="Продающий текст. Показывается на лендинге конкурса (веб-странице и в Mini App до регистрации)."
           >
             <textarea value={description} onChange={e => setDescription(e.target.value)}
+                      rows={4} className="input"
+                      placeholder="Расскажите голосующему о конкурсе — пара предложений, почему важно проголосовать." />
+          </Field>
+
+          <Field
+            label="Описание после регистрации"
+            hint="Инструкция: как именно проголосовать. Показывается в Mini App на вкладке «Программа» под кнопками голосования и чата. Ссылки http(s) автоматически кликабельны."
+          >
+            <textarea value={descriptionPostRegister} onChange={e => setDescriptionPostRegister(e.target.value)}
                       rows={5} className="input"
-                      placeholder="Расскажите голосующим: за что голосовать, почему это важно, что от них требуется." />
+                      placeholder="1) Перейдите на сайт премии 2) Найдите номинацию … 3) Нажмите ПРОГОЛОСОВАТЬ …" />
           </Field>
 
           <div className="grid sm:grid-cols-2 gap-4">

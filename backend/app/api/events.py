@@ -81,6 +81,8 @@ class UpdateEventRequest(BaseModel):
     title: Optional[str] = None
     slug: Optional[str] = None          # пользовательский код ссылки (или короткий по умолчанию)
     description: Optional[str] = None
+    # Текст на вкладке «Программа» в Mini App (под плитками). См. миграцию 084.
+    description_post_register: Optional[str] = None
     landing_url: Optional[str] = None
     address: Optional[str] = None
     start_at: Optional[str] = None
@@ -329,22 +331,25 @@ async def copy_event(
         # всегда задаются заново у копии.
         new_event = await db.fetchrow(
             """INSERT INTO events
-                 (client_id, slug, title, description, landing_url, address,
+                 (client_id, slug, title, description, description_post_register,
+                  landing_url, address,
                   start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
                   require_subscription, status,
                   chat_url, stream_url, vip_url,
                   chat_subscriptions_required, chat_member_count_label,
                   skip_contact_form)
-               VALUES ($1,$2,$3,$4,$5,$6,
+               VALUES ($1,$2,$3,$4,$5,$6,$7,
                        NULL,NULL,
-                       $7,$8,$9,$10,$11,
-                       $12,'draft',
-                       $13,$14,$15,
-                       $16,$17,
-                       $18)
+                       $8,$9,$10,$11,$12,
+                       $13,'draft',
+                       $14,$15,$16,
+                       $17,$18,
+                       $19)
                RETURNING *""",
-            client_id, new_slug, new_title, src['description'], src['landing_url'],
+            client_id, new_slug, new_title, src['description'],
+            src.get('description_post_register'),
+            src['landing_url'],
             src.get('address'),
             src['webhook_url'], src['module_slug'],
             src['points_free'], src['points_paid'], src['points_scope'],

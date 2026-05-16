@@ -15,6 +15,7 @@ export default function OverviewTab({
 }) {
   const [title, setTitle] = useState(event.title || '')
   const [description, setDescription] = useState(event.description || '')
+  const [descriptionPostRegister, setDescriptionPostRegister] = useState(event.description_post_register || '')
   const [landingUrl, setLandingUrl] = useState(event.landing_url || '')
   // «Ссылка на ZOOM/стрим» сохраняется в events.stream_url (как у конференции),
   // потому что ProgramTab Mini App рендерит блок стрима по stream_url.
@@ -49,6 +50,8 @@ export default function OverviewTab({
       if (t !== (event.title || ''))                            payload.title = t || null
       const d = description.trim()
       if (d !== (event.description || ''))                      payload.description = d || null
+      const dpr = descriptionPostRegister.trim()
+      if (dpr !== (event.description_post_register || ''))      payload.description_post_register = dpr || null
       const lu = landingUrl.trim()
       if (lu !== (event.landing_url || ''))                     payload.landing_url = lu || null
       const su = streamUrl.trim()
@@ -97,10 +100,22 @@ export default function OverviewTab({
                    className="input" placeholder="iVision-7" />
           </Field>
 
-          <Field label="Описание">
+          <Field
+            label="Описание для лендинга"
+            hint="Продающий текст. Показывается на лендинге события (веб-странице и в Mini App до регистрации)."
+          >
             <textarea value={description} onChange={e => setDescription(e.target.value)}
                       rows={3} className="input"
                       placeholder="О чём это мероприятие — пара предложений" />
+          </Field>
+
+          <Field
+            label="Описание после регистрации"
+            hint="Инструкции для зарегистрировавшихся (что делать дальше). Показывается в Mini App на вкладке «Программа» под кнопками стрима и чата. Ссылки http(s) автоматически кликабельны."
+          >
+            <textarea value={descriptionPostRegister} onChange={e => setDescriptionPostRegister(e.target.value)}
+                      rows={4} className="input"
+                      placeholder="Например: «Подключайтесь к стриму за 5 минут до начала. После эфира — заглядывайте в чат»" />
           </Field>
 
           <div className="grid sm:grid-cols-2 gap-4">

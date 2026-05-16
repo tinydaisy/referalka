@@ -39,6 +39,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   const [form, setForm] = useState({
     title: event?.title || '',
     description: conf?.description || '',
+    description_post_register: event?.description_post_register || '',
     stream_url: conf?.stream_url || '',
     chat_url: conf?.chat_url || '',
     // landing_url — единое поле для всех событий (events.landing_url),
@@ -57,6 +58,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     setForm(f => ({
       ...f,
       description: conf?.description || '',
+      description_post_register: event?.description_post_register || '',
       stream_url: conf?.stream_url || '',
       chat_url: conf?.chat_url || '',
       landing_url: event?.landing_url || '',
@@ -66,7 +68,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       telegram_chat_ids: conf?.telegram_chat_ids || '',
       skip_contact_form: !!event?.skip_contact_form,
     }))
-  }, [conf, event?.landing_url, event?.skip_contact_form])
+  }, [conf, event?.landing_url, event?.skip_contact_form, event?.description_post_register])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -82,6 +84,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.title !== (event?.title || ''))                  eventPatch.title = form.title
       if (form.landing_url !== (event?.landing_url || ''))      eventPatch.landing_url = form.landing_url || null
       if (form.skip_contact_form !== !!event?.skip_contact_form) eventPatch.skip_contact_form = form.skip_contact_form
+      if (form.description_post_register !== (event?.description_post_register || ''))
+        eventPatch.description_post_register = form.description_post_register || null
       if (Object.keys(eventPatch).length > 0) {
         await api.events.update(eventId, eventPatch)
         onEventUpdated?.(eventPatch)
@@ -122,10 +126,24 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">{ts.description}</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Описание для лендинга
+          </label>
           <textarea value={form.description} onChange={set('description') as any} rows={3}
-            placeholder={ts.descPlaceholder}
+            placeholder="Продающий текст для лендинга и Mini App до регистрации"
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
+          <p className="text-xs text-gray-400 mt-1">Показывается на лендинге события и в Mini App до регистрации.</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Описание после регистрации
+          </label>
+          <textarea value={form.description_post_register}
+            onChange={e => setForm(f => ({ ...f, description_post_register: e.target.value }))}
+            rows={4}
+            placeholder="Инструкции для зарегистрировавшихся (что делать дальше). Ссылки http(s) автоматически кликабельны."
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
+          <p className="text-xs text-gray-400 mt-1">Показывается в Mini App на вкладке «Программа» под кнопками стрима и чата.</p>
         </div>
       </div>
 

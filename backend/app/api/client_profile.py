@@ -436,7 +436,8 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                 FROM conf_days d
                GROUP BY d.event_id
             )
-            SELECT e.id, e.client_id, e.slug, e.title, e.description, e.module_slug,
+            SELECT e.id, e.client_id, e.slug, e.title, e.description,
+                   e.description_post_register, e.module_slug,
                    (SELECT url FROM event_posters
                      WHERE event_id = e.id
                      ORDER BY CASE orientation

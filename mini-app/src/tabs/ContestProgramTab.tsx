@@ -36,7 +36,10 @@ export default function ContestProgramTab({
   tgUser: any
   refreshKey?: number
 }) {
-  const description: string = event?.description || ''
+  // Описание после регистрации (`events.description_post_register`) — миграция 084.
+  // Текст с лендинга (`event.description`) в Mini App после регистрации больше не
+  // показываем: на странице регистрации он уже был.
+  const descriptionPost: string = event?.description_post_register || ''
   const hasVotingUrl  = !!event?.stream_url
   const hasChat       = !!event?.chat_url
 
@@ -44,27 +47,6 @@ export default function ContestProgramTab({
 
   return (
     <div style={{ padding: '14px 16px 100px' }}>
-      {/* Описание конкурса с авто-линкификацией http(s) */}
-      {description ? (
-        <div style={{
-          background: 'white', borderRadius: 14, padding: 16,
-          marginBottom: 12, color: DARK, fontSize: 14, lineHeight: 1.55,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        }}>
-          {description.split('\n').map((line, i) => (
-            <div key={i}>{linkify(line)}</div>
-          ))}
-        </div>
-      ) : (
-        <div style={{
-          background: 'white', borderRadius: 14, padding: 16,
-          marginBottom: 12, color: '#9aa3ad', fontSize: 13, lineHeight: 1.55,
-          textAlign: 'center',
-        }}>
-          Описание конкурса появится здесь, когда организатор его добавит.
-        </div>
-      )}
-
       {/* Кнопка «Перейти к голосованию» */}
       {hasVotingUrl && (
         <a href={event.stream_url} target="_blank" rel="noreferrer"
@@ -122,6 +104,19 @@ export default function ContestProgramTab({
           </div>
           <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
         </button>
+      )}
+
+      {/* Описание после регистрации — инструкции под кнопками */}
+      {descriptionPost && (
+        <div style={{
+          background: 'white', borderRadius: 14, padding: 16,
+          marginTop: 4, color: DARK, fontSize: 14, lineHeight: 1.55,
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        }}>
+          {descriptionPost.split('\n').map((line, i) => (
+            <div key={i}>{linkify(line)}</div>
+          ))}
+        </div>
       )}
 
       {chatModal}

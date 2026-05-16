@@ -482,6 +482,19 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         </button>
       )}
 
+      {/* Описание после регистрации — миграция 084. Помещаем под плитками
+          стрима и чата. Текст с лендинга (event.description) после
+          регистрации больше не дублируем. */}
+      {event?.description_post_register && (
+        <div className="card" style={{
+          padding: 16, marginBottom: 12,
+          color: 'var(--text)', fontSize: 14, lineHeight: 1.55,
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        }}>
+          {event.description_post_register}
+        </div>
+      )}
+
       {/* Программа по дням — аккордеон */}
       {isConference && days.length > 0 && (
         <>
@@ -648,33 +661,23 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         </>
       )}
 
-      {!isConference && (event?.start_at || event?.description) && (
+      {/* Дата мероприятия — отдельной плашкой (описание перенесено под плитки выше). */}
+      {!isConference && event?.start_at && (
         <div className="card" style={{ padding: 16 }}>
-          {event?.start_at && (
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              background: PEACH, color: DARK,
-              borderRadius: 10, padding: '8px 14px',
-              marginBottom: event?.description ? 14 : 0,
-              fontSize: 14, fontWeight: 800,
-            }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={DARK} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="18" rx="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-              </svg>
-              {formatEventDateRange(event.start_at, event.end_at)}
-            </div>
-          )}
-          {event?.description && (
-            <p style={{
-              color: 'var(--text)', fontSize: 14, lineHeight: 1.55,
-              whiteSpace: 'pre-wrap', margin: 0,
-            }}>
-              {event.description}
-            </p>
-          )}
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            background: PEACH, color: DARK,
+            borderRadius: 10, padding: '8px 14px',
+            fontSize: 14, fontWeight: 800,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={DARK} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            {formatEventDateRange(event.start_at, event.end_at)}
+          </div>
         </div>
       )}
 
