@@ -26,7 +26,11 @@ export default function LandingTab({ event, onRegister }: Props) {
   const ctaLabel = isContest ? 'КАК ГОЛОСОВАТЬ?' : 'Хочу участвовать'
 
   const cta = (
-    <button className="btn btn-primary" onClick={onRegister}>
+    <button
+      className="btn btn-primary"
+      style={isContest ? { fontWeight: 900, letterSpacing: 0.5 } : undefined}
+      onClick={onRegister}
+    >
       {ctaLabel}
     </button>
   )

@@ -21,6 +21,7 @@ interface RefPerson {
   name: string
   username?: string
   is_registered: boolean
+  link_clicked?: boolean
   initials: string
   color: string
 }
@@ -618,7 +619,26 @@ export default function GameTab({ event, participant, tgUser }: Props) {
         ))}
       </div>
 
-      {/* Ваши люди — expander */}
+      {/* Ваши люди — expander.
+          Заголовок и галочки динамические: для контестов «проголосовали»,
+          для обычных событий — «пришли в эфир». «Зарегистрировались» —
+          вторая колонка-галочка. */}
+      {(() => {
+        const isContestPeople = event?.module_slug === 'contest'
+        const clicked = participant?.clicked_count ?? myPeople.filter(p => p.link_clicked).length
+        const clickedWord = isContestPeople ? 'проголосовали' : 'пришли в эфир'
+        const clickedWordSingular = isContestPeople ? 'проголосовал' : 'пришёл в эфир'
+        // Какое из чисел показывать в заголовке: соответствует gift_count_mode.
+        const giftMode: string = participant?.gift_count_mode || 'registered'
+        const headerCount: number =
+          giftMode === 'clicked_link' ? clicked :
+          giftMode === 'visited'      ? visited :
+          registered
+        const headerWord: string =
+          giftMode === 'clicked_link' ? clickedWordSingular :
+          giftMode === 'visited'      ? 'перешли по ссылке' :
+          'зарегистрировался'
+        return (
       <div style={{
         background: 'white', borderRadius: 14, padding: 14,
         boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
@@ -626,11 +646,17 @@ export default function GameTab({ event, participant, tgUser }: Props) {
         <div onClick={() => setPeopleOpen(!peopleOpen)}
              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a' }}>
-            👥 Ваши люди {registered ? `· ${registered} зарегистрировались` : ''}
+            👥 Ваши люди {headerCount ? `· ${headerCount} ${headerWord}` : ''}
           </div>
           <div style={{ fontSize: 20, color: peopleOpen ? PEACH : '#c5cdd6',
                         transform: peopleOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>›</div>
         </div>
+
+        {/* Полная статистика — три счётчика через точку. */}
+        <div style={{ fontSize: 11, color: '#8a96a3', marginTop: 4, fontWeight: 500 }}>
+          {visited} переходов · {registered} регистраций · {clicked} {clickedWord}
+        </div>
+
         {peopleOpen && (
           <div style={{ marginTop: 10 }}>
             {myPeople.length === 0 ? (
@@ -667,31 +693,44 @@ export default function GameTab({ event, participant, tgUser }: Props) {
                       </span>
                     )}
                   </div>
-                  {p.is_registered && <div style={{ fontSize: 14, color: '#2e7d32', fontWeight: 700 }}>✓</div>}
+
+                  {/* 2 галочки: «зарегистрировался» и «проголосовал/в эфире». */}
+                  <div style={{ display: 'flex', gap: 6, marginRight: 4 }}>
+                    <div
+                      title={p.is_registered ? 'Зарегистрировался' : 'Не зарегистрирован'}
+                      style={{
+                        width: 22, height: 22, borderRadius: 6,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: p.is_registered ? '#e8f5e9' : '#f0f3f7',
+                        color: p.is_registered ? '#2e7d32' : '#c5cdd6',
+                        fontSize: 13, fontWeight: 800,
+                      }}>{p.is_registered ? '✓' : '·'}</div>
+                    <div
+                      title={p.link_clicked
+                        ? (isContestPeople ? 'Проголосовал' : 'Был в эфире')
+                        : (isContestPeople ? 'Не голосовал' : 'Не был в эфире')}
+                      style={{
+                        width: 22, height: 22, borderRadius: 6,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: p.link_clicked ? '#fff3e0' : '#f0f3f7',
+                        color: p.link_clicked ? '#b86b00' : '#c5cdd6',
+                        fontSize: 13, fontWeight: 800,
+                      }}>
+                      {p.link_clicked ? (isContestPeople ? '🗳' : '🎬') : '·'}
+                    </div>
+                  </div>
+
                   {canOpen && (
-                    <div style={{ color: PEACH, fontSize: 18, fontWeight: 700, marginLeft: 4 }}>›</div>
+                    <div style={{ color: PEACH, fontSize: 18, fontWeight: 700 }}>›</div>
                   )}
                 </button>
               )
             })}
-            {visited > registered && (
-              <div style={{
-                padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10,
-                borderTop: '1px solid #f0f2f5', color: '#8a96a3',
-              }}>
-                <div style={{
-                  width: 32, height: 32, borderRadius: '50%', background: '#eef2f7',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 700, fontSize: 12,
-                }}>?</div>
-                <div style={{ flex: 1, fontSize: 11 }}>
-                  {visited - registered} переходов без регистрации
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
+        )
+      })()}
 
       {openCardId !== null && tgUser?.id && event?.slug && (
         <ContactCardModal

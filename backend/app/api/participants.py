@@ -737,11 +737,12 @@ async def get_participant_in_event(
                   ) AS name,
                   (SELECT pu.username FROM platform_users pu
                     WHERE pu.contact_id = ep.contact_id LIMIT 1) AS username,
-                  ep.is_registered
+                  ep.is_registered,
+                  ep.link_clicked_at
              FROM event_participants ep
              JOIN contacts c ON c.id = ep.contact_id
             WHERE ep.referrer_participant_id = $1
-            ORDER BY ep.is_registered DESC, ep.registered_at DESC""",
+            ORDER BY (ep.link_clicked_at IS NOT NULL) DESC, ep.is_registered DESC, ep.registered_at DESC""",
         row["id"]
     )
     my_people = [
@@ -750,6 +751,7 @@ async def get_participant_in_event(
             "name": p["name"] or "Без имени",
             "username": p["username"],
             "is_registered": p["is_registered"],
+            "link_clicked": p["link_clicked_at"] is not None,
         }
         for p in people_rows
     ]
