@@ -411,6 +411,74 @@ class FireAtUpdate(BaseModel):
     is_test: Optional[bool] = None
 
 
+class UpdateScheduleRequest(BaseModel):
+    fire_at: Optional[str] = None
+    is_test: Optional[bool] = None
+    text: Optional[str] = None
+    photo_url: Optional[str] = None
+    buttons: Optional[List[ButtonItem]] = None
+
+
+@router.patch("/schedules/{schedule_id}", summary="Обновить содержимое рассылки (draft/pending)")
+async def update_schedule(
+    schedule_id: int,
+    data: UpdateScheduleRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    src = await _check_owner(db, schedule_id, client_id)
+    if src["status"] not in ("draft", "pending"):
+        raise HTTPException(400, "Редактировать можно только черновики и запланированные рассылки")
+
+    sets: list[str] = []
+    args: list = []
+    idx = 1
+
+    if data.fire_at is not None:
+        tz = await _client_tz(db, client_id)
+        try:
+            dt_utc = _parse_fire_at(data.fire_at, tz)
+        except Exception:
+            raise HTTPException(400, "Неверный формат даты")
+        sets.append(f"fire_at=${idx}"); args.append(dt_utc); idx += 1
+
+    if data.is_test is not None:
+        sets.append(f"is_test=${idx}"); args.append(data.is_test); idx += 1
+
+    if data.text is not None:
+        if not data.text.strip():
+            raise HTTPException(400, "Текст не может быть пустым")
+        html_errs = validate_telegram_html(data.text)
+        if html_errs:
+            raise HTTPException(400, "Ошибки в HTML: " + "; ".join(html_errs))
+        sets.append(f"snapshot_text=${idx}"); args.append(data.text); idx += 1
+
+    if data.photo_url is not None:
+        sets.append(f"snapshot_photo=${idx}")
+        args.append(data.photo_url or None); idx += 1
+
+    if data.buttons is not None:
+        if len(data.buttons) > 3:
+            raise HTTPException(400, "Максимум 3 кнопки")
+        clean = [{"text": b.text.strip(), "url": b.url.strip()}
+                 for b in data.buttons if b.text.strip() and b.url.strip()]
+        sets.append(f"snapshot_buttons=${idx}::jsonb"); args.append(_json.dumps(clean)); idx += 1
+
+    if not sets:
+        return {"ok": True, "no_change": True}
+
+    # Если редактируется черновик — переводим в pending (как и в set_fire_at).
+    sets.append("status='pending'")
+
+    args.append(schedule_id)
+    await db.execute(
+        f"UPDATE broadcast_schedules SET {', '.join(sets)} WHERE id=${idx} AND status IN ('draft','pending')",
+        *args
+    )
+    return {"ok": True}
+
+
 @router.put("/schedules/{schedule_id}/fire-at")
 async def set_fire_at(
     schedule_id: int,

@@ -61,7 +61,16 @@ export default function GeneralBroadcastsPage() {
   const [customModal, setCustomModal] = useState(false)
   const [bulkModal, setBulkModal] = useState(false)
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set())
-  const [editFireAt, setEditFireAt] = useState<{ id: number; fire_at: string; is_test: boolean } | null>(null)
+  // editModal — содержит initial значения и id рассылки. Если задан —
+  // открывается тот же CustomBroadcastModal в режиме «редактирование».
+  const [editModal, setEditModal] = useState<null | {
+    id: number
+    fire_at: string
+    is_test: boolean
+    text: string
+    photo_url: string
+    buttons: { text: string; url: string }[]
+  }>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
 
@@ -176,22 +185,6 @@ export default function GeneralBroadcastsPage() {
       showMsg('Создана копия')
     } catch (e: any) { showMsg(e.message, 'err') }
   }
-  async function saveFireAt() {
-    if (!editFireAt || !editFireAt.fire_at) return
-    if (new Date(editFireAt.fire_at) <= new Date()) {
-      showMsg('Время уже прошло — выберите будущее время', 'err'); return
-    }
-    try {
-      await api.broadcasts.setFireAt(editFireAt.id, {
-        fire_at: editFireAt.fire_at,
-        is_test: editFireAt.is_test,
-      })
-      setEditFireAt(null)
-      await load()
-      showMsg('Сохранено')
-    } catch (e: any) { showMsg(e.message, 'err') }
-  }
-
   const pendingCount = schedules.filter(s => s.status === 'pending' || s.status === 'draft').length
   const doneCount = schedules.filter(s => s.status === 'done').length
   const nextPending = schedules
@@ -401,10 +394,25 @@ export default function GeneralBroadcastsPage() {
                             const d = s.fire_at_iso ? new Date(s.fire_at_iso) : new Date()
                             const pad = (n: number) => String(n).padStart(2, '0')
                             const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-                            setEditFireAt({ id: s.id, fire_at: local, is_test: !!s.is_test })
+                            // snapshot_buttons приходит из бэка как JSONB-массив объектов
+                            let btns: { text: string; url: string }[] = []
+                            try {
+                              const raw = s.snapshot_buttons
+                              btns = Array.isArray(raw) ? raw
+                                : typeof raw === 'string' ? JSON.parse(raw)
+                                : []
+                            } catch { btns = [] }
+                            setEditModal({
+                              id: s.id,
+                              fire_at: local,
+                              is_test: !!s.is_test,
+                              text: s.snapshot_text || '',
+                              photo_url: s.snapshot_photo || '',
+                              buttons: btns.map(b => ({ text: b.text || '', url: b.url || '' })),
+                            })
                           }}
                             className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
-                            title="Изменить время">
+                            title="Редактировать">
                             <Edit2 size={13} />
                           </button>
                         )}
@@ -449,41 +457,22 @@ export default function GeneralBroadcastsPage() {
         />
       )}
 
-      {/* Edit fire_at */}
-      {editFireAt && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-gray-800">Редактирование</h3>
-              <button onClick={() => setEditFireAt(null)}><X size={18} /></button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Дата и время ({tzLabel})</label>
-                <input type="datetime-local" value={editFireAt.fire_at}
-                  onChange={e => setEditFireAt({ ...editFireAt, fire_at: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={editFireAt.is_test}
-                  onChange={e => setEditFireAt({ ...editFireAt, is_test: e.target.checked })}
-                  className="rounded" />
-                <span className="text-sm text-gray-600">Тестовая рассылка</span>
-              </label>
-            </div>
-            <div className="flex gap-2 mt-5">
-              <button onClick={saveFireAt}
-                className="flex-1 py-2 rounded-xl text-sm font-medium text-white"
-                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-                Сохранить
-              </button>
-              <button onClick={() => setEditFireAt(null)}
-                className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
-                Отмена
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Полноценное редактирование draft/pending рассылки. */}
+      {editModal && (
+        <CustomBroadcastModal
+          tzLabel={tzLabel}
+          editId={editModal.id}
+          initial={{
+            fire_at: editModal.fire_at,
+            text: editModal.text,
+            photo_url: editModal.photo_url,
+            buttons: editModal.buttons,
+            is_test: editModal.is_test,
+          }}
+          onClose={() => setEditModal(null)}
+          onSaved={async () => { setEditModal(null); await load(); showMsg('Сохранено') }}
+          onError={(m) => showMsg(m, 'err')}
+        />
       )}
 
       {/* Лог */}
@@ -595,13 +584,24 @@ function CustomBroadcastModal(props: {
   onClose: () => void
   onSaved: () => void
   onError: (m: string) => void
+  // Если задан editId — режим редактирования: PATCH /schedules/{id} вместо
+  // POST add-custom. Initial значения подставляются в форму при открытии.
+  editId?: number
+  initial?: {
+    fire_at?: string
+    text?: string
+    photo_url?: string
+    buttons?: { text: string; url: string }[]
+    is_test?: boolean
+  }
 }) {
-  const [fireAt, setFireAt] = useState('')
-  const [text, setText] = useState('')
-  const [photoUrl, setPhotoUrl] = useState('')
-  const [buttons, setButtons] = useState<{text: string; url: string}[]>([])
-  const [isTest, setIsTest] = useState(false)
+  const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
+  const [text, setText] = useState(props.initial?.text || '')
+  const [photoUrl, setPhotoUrl] = useState(props.initial?.photo_url || '')
+  const [buttons, setButtons] = useState<{text: string; url: string}[]>(props.initial?.buttons || [])
+  const [isTest, setIsTest] = useState(!!props.initial?.is_test)
   const [saving, setSaving] = useState(false)
+  const isEdit = typeof props.editId === 'number'
 
   const htmlErrors = validateTelegramHtml(text)
   const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
@@ -618,13 +618,18 @@ function CustomBroadcastModal(props: {
     if (hasButtonErrors) { props.onError('Исправьте ошибки в кнопках'); return }
     setSaving(true)
     try {
-      await api.broadcasts.addCustom({
+      const payload = {
         fire_at: fireAt,
         text,
         photo_url: photoUrl || null,
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
-      })
+      }
+      if (isEdit) {
+        await api.broadcasts.update(props.editId!, payload)
+      } else {
+        await api.broadcasts.addCustom(payload)
+      }
       props.onSaved()
     } catch (e: any) {
       props.onError(e.message || 'Ошибка')
@@ -637,7 +642,7 @@ function CustomBroadcastModal(props: {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="font-semibold text-gray-800">Произвольная рассылка</h3>
+          <h3 className="font-semibold text-gray-800">{isEdit ? 'Редактирование рассылки' : 'Произвольная рассылка'}</h3>
           <button onClick={props.onClose}><X size={18} /></button>
         </div>
         <div className="space-y-3">
@@ -719,7 +724,7 @@ function CustomBroadcastModal(props: {
           <button onClick={save} disabled={saving || htmlErrors.length > 0 || hasButtonErrors}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
             style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-            {saving ? 'Сохраняю...' : htmlErrors.length > 0 ? 'Исправьте HTML' : hasButtonErrors ? 'Исправьте кнопки' : 'Поставить в очередь'}
+            {saving ? 'Сохраняю...' : htmlErrors.length > 0 ? 'Исправьте HTML' : hasButtonErrors ? 'Исправьте кнопки' : (isEdit ? 'Сохранить изменения' : 'Поставить в очередь')}
           </button>
           <button onClick={props.onClose}
             className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">Отмена</button>
