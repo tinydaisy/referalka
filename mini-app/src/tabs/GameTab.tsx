@@ -646,7 +646,7 @@ export default function GameTab({ event, participant, tgUser }: Props) {
         <div onClick={() => setPeopleOpen(!peopleOpen)}
              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#1a2a3a' }}>
-            👥 Ваши люди {headerCount ? `· ${headerCount} ${headerWord}` : ''}
+            👥 Ваши люди
           </div>
           <div style={{ fontSize: 20, color: peopleOpen ? PEACH : '#c5cdd6',
                         transform: peopleOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>›</div>
