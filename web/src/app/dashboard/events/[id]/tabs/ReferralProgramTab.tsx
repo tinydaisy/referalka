@@ -117,8 +117,8 @@ function ReferralEnabledToggle({ eventId }: { eventId: number }) {
           </div>
           <div className="text-xs text-gray-600 mt-0.5">
             {enabled
-              ? 'Участники видят вкладку «🎯 Игра» в Mini App — партнёрская ссылка, прогресс, подарки.'
-              : 'Включите чтобы вкладка «🎯 Игра» появилась в Mini App у участников события.'}
+              ? 'Участники видят вкладку «🎯 Подарки» в Mini App — партнёрская ссылка, прогресс, подарки.'
+              : 'Включите чтобы вкладка «🎯 Подарки» появилась в Mini App у участников события.'}
           </div>
           {err && <div className="text-xs text-red-600 mt-1">{err}</div>}
         </div>
