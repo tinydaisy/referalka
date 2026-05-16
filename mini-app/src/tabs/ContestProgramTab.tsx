@@ -97,7 +97,7 @@ export default function ContestProgramTab({
             </svg>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800 }}>Чат голосующих и партнёров</div>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>Общий чат</div>
             <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
               {chatLoading ? 'Проверяем подписку…' : 'Нетворкинг и обсуждение конкурса'}
             </div>
