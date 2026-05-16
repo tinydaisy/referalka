@@ -652,9 +652,46 @@ export default function GameTab({ event, participant, tgUser }: Props) {
                         transform: peopleOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>›</div>
         </div>
 
-        {/* Полная статистика — три счётчика через точку. */}
-        <div style={{ fontSize: 11, color: '#8a96a3', marginTop: 4, fontWeight: 500 }}>
-          {visited} переходов · {registered} регистраций · {clicked} {clickedWord}
+        {/* Полная статистика — три строки. Каждая со своей иконкой-легендой,
+            которая совпадает с галочкой возле имени каждого человека ниже:
+            «·» — просто переход, ✓ — регистрация, 🗳/🎬 — голос/эфир. */}
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* Строка 1: переходы (нейтральная иконка, как у не-проголосовавшего/не-зареганного) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 22, height: 22, borderRadius: 6,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#f0f3f7', color: '#8a96a3',
+              fontSize: 14, fontWeight: 800,
+            }}>👤</div>
+            <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+              {visited} <span style={{ color: '#8a96a3', fontWeight: 500 }}>переходов по ссылке</span>
+            </div>
+          </div>
+          {/* Строка 2: зарегистрировались (зелёная галочка) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 22, height: 22, borderRadius: 6,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#e8f5e9', color: '#2e7d32',
+              fontSize: 13, fontWeight: 800,
+            }}>✓</div>
+            <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+              {registered} <span style={{ color: '#8a96a3', fontWeight: 500 }}>регистраций</span>
+            </div>
+          </div>
+          {/* Строка 3: проголосовали / в эфире (персиковая иконка) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 22, height: 22, borderRadius: 6,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#fff3e0', color: '#b86b00',
+              fontSize: 13, fontWeight: 800,
+            }}>{isContestPeople ? '🗳' : '🎬'}</div>
+            <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600 }}>
+              {clicked} <span style={{ color: '#8a96a3', fontWeight: 500 }}>{clickedWord}</span>
+            </div>
+          </div>
         </div>
 
         {peopleOpen && (
