@@ -335,17 +335,14 @@ async def add_threshold(
         raise HTTPException(status_code=400, detail="threshold_count должен быть >= 0")
     if data.lead_magnet_id:
         await _check_lead_magnet_owned(data.lead_magnet_id, client_id, db)
-    try:
-        row = await db.fetchrow(
-            """INSERT INTO event_referral_thresholds
-                 (event_id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort)
-               VALUES ($1,$2,$3,$4,$5,$6)
-               RETURNING id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort""",
-            event_id, data.threshold_count, data.lead_magnet_id,
-            data.certificate_url, data.gift_template_text, data.sort
-        )
-    except asyncpg.UniqueViolationError:
-        raise HTTPException(status_code=400, detail="Порог с таким количеством уже существует")
+    row = await db.fetchrow(
+        """INSERT INTO event_referral_thresholds
+             (event_id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           RETURNING id, threshold_count, lead_magnet_id, certificate_url, gift_template_text, sort""",
+        event_id, data.threshold_count, data.lead_magnet_id,
+        data.certificate_url, data.gift_template_text, data.sort
+    )
     return dict(row)
 
 
@@ -358,6 +355,8 @@ async def update_threshold(
 ):
     client_id = int(client["sub"])
     await _check_event_owned(event_id, client_id, db)
+    if data.threshold_count < 0:
+        raise HTTPException(status_code=400, detail="Количество приведённых должно быть 0 или больше")
     if data.lead_magnet_id:
         await _check_lead_magnet_owned(data.lead_magnet_id, client_id, db)
     row = await db.fetchrow(
