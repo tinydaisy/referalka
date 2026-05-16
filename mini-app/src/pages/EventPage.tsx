@@ -179,8 +179,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
           })
           const reg = r?.participant || r
           if (!cancelled) setParticipant({ ...reg, is_registered: true })
-          // Только что зарегистрировался → стартовая вкладка = «Интро»
-          if (!cancelled) setTabState('welcome')
+          // Только что зарегистрировался → стартовая вкладка = «Интро»,
+          // для контестов «Интро» пропускаем и идём сразу в «Программу».
+          if (!cancelled) setTabState(landing?.module_slug === 'contest' ? 'program' : 'welcome')
         } catch (_) { /* fallback на обычный flow — лендинг */ }
       } else if (ended) {
         setTabState('results')
@@ -190,9 +191,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
         const allowed = ['welcome', 'program', 'game', 'raffle', 'ecosystem']
         if (initialTab && allowed.includes(initialTab)) {
           setTabState(initialTab)
-        } else if (part?.participant?.welcomed_at == null) {
+        } else if (part?.participant?.welcomed_at == null && landing?.module_slug !== 'contest') {
           // Только что зарегистрировался (welcomed_at пуст) → «Интро» по умолчанию.
           // После первого открытия welcomed_at проставится и дефолт станет «Программа».
+          // Для конкурсов «Интро» пропускаем — сразу в «Программу».
           setTabState('welcome')
         } else {
           setTabState('program')
@@ -223,7 +225,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // Welcome-вкладка («Интро») видна только до того момента, как человек
   // ушёл с неё на любую другую вкладку. После этого welcomed_at != NULL и
   // вкладка пропадает — обратно вернуться нельзя.
-  const showWelcomeTab = registered && participant?.welcomed_at == null
+  // Для конкурсов «Интро» не показываем — сразу в «Программу».
+  const isContestEvent = event?.module_slug === 'contest'
+  const showWelcomeTab = registered && participant?.welcomed_at == null && !isContestEvent
 
   // Если событие завершено и участника нет — Игру тоже не показываем.
   const filterByEnabled = (items: NavItem[]) => items.filter(n =>
