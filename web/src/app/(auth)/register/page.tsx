@@ -65,12 +65,6 @@ export default function RegisterPage() {
           ))}
         </div>
 
-        <div className="mt-12 p-5 rounded-2xl bg-white/10 border border-white/20">
-          <p className="text-white/90 text-sm">
-            <span className="font-semibold text-gold" style={{ color: '#FFCFA4' }}>Бесплатно на 12 месяцев.</span>
-            {' '}Карта не нужна. Начните прямо сейчас.
-          </p>
-        </div>
       </div>
 
       {/* Right — form */}
@@ -80,8 +74,7 @@ export default function RegisterPage() {
             <span className="text-2xl font-bold" style={{ color: '#25455D' }}>iViSiON: ПЛЮСОН</span>
           </div>
 
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Создайте аккаунт</h2>
-          <p className="text-gray-500 mb-8">Бесплатно на 12 месяцев. Карта не нужна.</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-8">Создайте аккаунт</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (

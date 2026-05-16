@@ -380,7 +380,21 @@ function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSl
       <p className="text-xs text-gray-500 mb-3">
         Mini App покажет это правило с жёлтым треугольником наверху окна подарков.
       </p>
+      {/* Порядок — по убыванию «сложности» зачётного действия:
+            1) clicked_link — самое строгое (реально нажал/проголосовал)
+            2) registered  — средне (заполнил форму)
+            3) visited     — самое мягкое (просто перешёл по ссылке) */}
       <div className="space-y-2">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input type="radio" className="mt-1" name={`gcm-${eventId}`}
+                 disabled={saving}
+                 checked={mode === 'clicked_link'}
+                 onChange={() => save('clicked_link')} />
+          <div>
+            <div className="text-sm font-medium">{clickedLabel}</div>
+            <div className="text-xs text-gray-500">{clickedHint}</div>
+          </div>
+        </label>
         <label className="flex items-start gap-2 cursor-pointer">
           <input type="radio" className="mt-1" name={`gcm-${eventId}`}
                  disabled={saving}
@@ -399,16 +413,6 @@ function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSl
           <div>
             <div className="text-sm font-medium">За переходы по ссылке</div>
             <div className="text-xs text-gray-500">Любой переход по партнёрской ссылке считается. Будут «накручивать», но проще запустить.</div>
-          </div>
-        </label>
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input type="radio" className="mt-1" name={`gcm-${eventId}`}
-                 disabled={saving}
-                 checked={mode === 'clicked_link'}
-                 onChange={() => save('clicked_link')} />
-          <div>
-            <div className="text-sm font-medium">{clickedLabel}</div>
-            <div className="text-xs text-gray-500">{clickedHint}</div>
           </div>
         </label>
       </div>
