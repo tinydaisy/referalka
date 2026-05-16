@@ -85,7 +85,7 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
           {referralEnabled && (
             <Tile
               icon="🎯"
-              title="Игра"
+              title="Подарки"
               text="Приглашайте друзей по своей партнёрской ссылке и забирайте подарки за приведённых."
             />
           )}

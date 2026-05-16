@@ -28,20 +28,20 @@ interface Props {
 const NAV_NOT_REG: NavItem[] = [
   { id: 'landing',   label: 'Лендинг',    icon: 'landing'   },
   { id: 'program',   label: 'Программа',  icon: 'program',   locked: true },
-  { id: 'game',      label: 'Игра',       icon: 'game',      locked: true },
+  { id: 'game',      label: 'Подарки',       icon: 'game',      locked: true },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
   { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem', locked: true },
 ]
 const NAV_REGISTERED: NavItem[] = [
   { id: 'welcome',   label: 'Интро',      icon: 'welcome'   },
   { id: 'program',   label: 'Программа',  icon: 'program'   },
-  { id: 'game',      label: 'Игра',       icon: 'game'      },
+  { id: 'game',      label: 'Подарки',       icon: 'game'      },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle'    },
   { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
 ]
 const NAV_ENDED: NavItem[] = [
   { id: 'results',   label: 'Итоги',      icon: 'results'   },
-  { id: 'game',      label: 'Игра',       icon: 'game'      },
+  { id: 'game',      label: 'Подарки',       icon: 'game'      },
   { id: 'calendar',  label: 'Календарь',  icon: 'calendar'  },
   { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
 ]
