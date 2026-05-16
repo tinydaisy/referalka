@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Calendar, Plus, Copy, Trash2, ChevronRight, Users } from 'lucide-react'
+import { Vote, Plus, Copy, Trash2, ChevronRight, Users, Calendar } from 'lucide-react'
 import { api } from '@/lib/api'
 import ViewToggle, { ViewMode } from '@/components/ViewToggle'
 
@@ -32,7 +32,7 @@ function formatDate(iso: string | null | undefined): string {
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-export default function EventsPage() {
+export default function ContestsPage() {
   const router = useRouter()
   const [items, setItems] = useState<EventItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -42,21 +42,18 @@ export default function EventsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
   useEffect(() => {
-    const saved = localStorage.getItem('plusson_events_view') as ViewMode | null
+    const saved = localStorage.getItem('plusson_contests_view') as ViewMode | null
     if (saved === 'grid' || saved === 'list') setView(saved)
   }, [])
   function setViewPersist(v: ViewMode) {
-    setView(v); localStorage.setItem('plusson_events_view', v)
+    setView(v); localStorage.setItem('plusson_contests_view', v)
   }
 
   async function load() {
     setLoading(true)
     try {
-      const res = await api.events.list()
-      const filtered = (res.events || []).filter((e: EventItem) => e.module_slug !== 'conference' && e.module_slug !== 'contest')
-      // Догружаем start_at для каждого через GET (list не возвращает) — батчем по необходимости
-      // Но для производительности — пока без догрузки, используем created_at если start_at нет
-      setItems(filtered)
+      const res = await api.events.list('contest')
+      setItems(res.events || [])
       setError(null)
     } catch (e: any) {
       setError(e.message || 'Не получилось загрузить')
@@ -70,7 +67,7 @@ export default function EventsPage() {
     setCopyingId(id)
     try {
       const res = await api.events.copy(id)
-      router.push(`/dashboard/events/${res.event.id}`)
+      router.push(`/dashboard/contests/${res.event.id}`)
     } catch (e: any) {
       alert(e.message || 'Ошибка копирования')
       setCopyingId(null)
@@ -95,15 +92,15 @@ export default function EventsPage() {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: '#25455D' }}>
-            <Calendar size={24} /> Мероприятия
+            <Vote size={24} /> Участие в конкурсах
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Вебинары, уроки в записи, нетворкинги, эфиры, мастер-классы. Конференции — в отдельном разделе.
+            Вы участвуете в стороннем конкурсе или премии — собирайте голоса аудитории через свою реф-программу.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle view={view} onChange={setViewPersist} />
-          <Link href="/dashboard/events/new"
+          <Link href="/dashboard/contests/new"
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
                 style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
             <Plus size={18} /> Создать
@@ -117,9 +114,9 @@ export default function EventsPage() {
         <div className="text-gray-400 text-sm">Загрузка…</div>
       ) : items.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-          <Calendar className="mx-auto mb-3 text-gray-300" size={40} />
-          <p className="text-gray-500 text-sm mb-4">У вас пока нет мероприятий</p>
-          <Link href="/dashboard/events/new" className="text-sm underline" style={{ color: '#25455D' }}>
+          <Vote className="mx-auto mb-3 text-gray-300" size={40} />
+          <p className="text-gray-500 text-sm mb-4">Пока ни одного участия — добавьте первое.</p>
+          <Link href="/dashboard/contests/new" className="text-sm underline" style={{ color: '#25455D' }}>
             Создать первое
           </Link>
         </div>
@@ -130,7 +127,7 @@ export default function EventsPage() {
             const dateLabel = formatDate((e as any).effective_start_at || e.start_at)
             return (
               <div key={e.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
-                <Link href={`/dashboard/events/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
+                <Link href={`/dashboard/contests/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-gray-900 truncate">{e.title}</span>
@@ -143,7 +140,7 @@ export default function EventsPage() {
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
                       {dateLabel && <><span>{dateLabel}</span><span>·</span></>}
-                      <span>{e.participants_count} {e.participants_count === 1 ? 'участник' : 'участников'}</span>
+                      <span>{e.participants_count} {e.participants_count === 1 ? 'голосующий' : 'голосующих'}</span>
                     </div>
                   </div>
                 </Link>
@@ -162,14 +159,13 @@ export default function EventsPage() {
           })}
         </div>
       ) : (
-        // ─── Плитки в стиле конференций (градиентная шапка)
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {items.map(e => {
             const st = STATUS_LABEL[e.status]
             const dateLabel = formatDate((e as any).effective_start_at || e.start_at)
             return (
               <div key={e.id} className="relative group">
-                <Link href={`/dashboard/events/${e.id}`}
+                <Link href={`/dashboard/contests/${e.id}`}
                       className="block bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden">
                   <div className="h-3" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }} />
                   <div className="p-5">
@@ -188,7 +184,7 @@ export default function EventsPage() {
                     <div className="flex items-center gap-4 text-sm text-gray-600">
                       <span className="flex items-center gap-1.5">
                         <Users size={14} className="text-gray-400" />
-                        {e.participants_count || 0} участников
+                        {e.participants_count || 0} голосующих
                       </span>
                       {dateLabel && (
                         <span className="flex items-center gap-1.5">

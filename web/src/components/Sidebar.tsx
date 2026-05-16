@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -23,6 +23,7 @@ export default function Sidebar() {
 
   const features = me?.features || []
   const hasConference = features.includes('conference')
+  const hasContests = features.includes('contests')
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
@@ -43,6 +44,8 @@ export default function Sidebar() {
         { href: '/dashboard/events', label: t.nav.events, icon: Calendar },
         // Конференции — только для тарифов с фичей 'conference' (ПРОФИ, VIP, Пробный)
         ...(hasConference ? [{ href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic }] : []),
+        // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
+        ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
       ],
     },
     {

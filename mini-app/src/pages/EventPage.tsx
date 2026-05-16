@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import BottomNav, { NavItem } from '../components/BottomNav'
 import LandingTab from '../tabs/LandingTab'
 import ProgramTab from '../tabs/ProgramTab'
+import ContestProgramTab from '../tabs/ContestProgramTab'
 import GameTab from '../tabs/GameTab'
 import RaffleTab from '../tabs/RaffleTab'
 import ResultsTab from '../tabs/ResultsTab'
@@ -452,7 +453,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
           />
         )}
         {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
-        {tab === 'program'   && <ProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} />}
+        {tab === 'program'   && (event?.module_slug === 'contest'
+          ? <ContestProgramTab event={event} tgUser={tgUser} refreshKey={refreshKey} />
+          : <ProgramTab        event={event} tgUser={tgUser} refreshKey={refreshKey} />
+        )}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} />}

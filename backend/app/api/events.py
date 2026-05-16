@@ -187,17 +187,23 @@ async def create_event(
     def _parse_dt(s):
         return _dt.fromisoformat(s.replace('Z', '+00:00')) if s else None
 
+    # Тип «Участие в конкурсах» по умолчанию идёт без сбора контактов
+    # (клиент сам участник внешнего конкурса, ему нужны только голоса).
+    default_skip_contact_form = (data.module_slug == "contest")
+
     event = await db.fetchrow(
         """
         INSERT INTO events (client_id, slug, title, description, landing_url, address,
                             start_at, end_at, webhook_url,
-                            module_slug, points_free, points_paid, require_subscription, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft')
+                            module_slug, points_free, points_paid, require_subscription,
+                            skip_contact_form, status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'draft')
         RETURNING *
         """,
         client_id, slug, data.title, data.description, data.landing_url, data.address,
         _parse_dt(data.start_at), _parse_dt(data.end_at), data.webhook_url,
-        data.module_slug, data.points_free, data.points_paid, data.require_subscription
+        data.module_slug, data.points_free, data.points_paid, data.require_subscription,
+        default_skip_contact_form,
     )
 
     # Если модуль — конференция, создаём запись в conf_conferences
