@@ -415,10 +415,13 @@ async def publish_schedule(
     """Промоут draft → pending. Без правок содержимого. Если рассылка
     запланирована в прошлом — отдаём 400, чтобы клиент выбрал новую дату."""
     client_id = int(client["sub"])
-    row = await _check_owner(db, schedule_id, client_id)
-    if row["status"] != "draft":
+    await _check_owner(db, schedule_id, client_id)
+    full = await db.fetchrow(
+        "SELECT status, fire_at FROM broadcast_schedules WHERE id=$1", schedule_id
+    )
+    if full["status"] != "draft":
         raise HTTPException(400, "Запустить можно только черновик")
-    fire_at = row.get("fire_at")
+    fire_at = full["fire_at"]
     if fire_at is None:
         raise HTTPException(400, "У рассылки не задана дата отправки — отредактируйте её")
     if fire_at.tzinfo is None:
@@ -453,8 +456,11 @@ async def update_schedule(
     db: asyncpg.Connection = Depends(get_db)
 ):
     client_id = int(client["sub"])
-    src = await _check_owner(db, schedule_id, client_id)
-    if src["status"] not in ("draft", "pending"):
+    await _check_owner(db, schedule_id, client_id)
+    current_status = await db.fetchval(
+        "SELECT status FROM broadcast_schedules WHERE id=$1", schedule_id
+    )
+    if current_status not in ("draft", "pending"):
         raise HTTPException(400, "Редактировать можно только черновики и запланированные рассылки")
 
     sets: list[str] = []
