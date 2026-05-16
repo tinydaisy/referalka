@@ -233,7 +233,8 @@ async def delete_poster(
 # ──────────────────────────────────────────────
 
 class ReferralSettingsIn(BaseModel):
-    gift_count_mode: Optional[str]  = None   # 'registered' | 'visited'  (миграция 042)
+    # 'registered' | 'visited' | 'clicked_link' (миграции 042, 082)
+    gift_count_mode: Optional[str]  = None
     is_enabled:      Optional[bool] = None   # вкл/выкл вкладки «Игра» в Mini App (миграция 053)
 
 
@@ -262,8 +263,8 @@ async def upsert_referral_settings(
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
     mode = data.gift_count_mode or "registered"
-    if mode not in ("registered", "visited"):
-        raise HTTPException(400, "gift_count_mode must be 'registered' or 'visited'")
+    if mode not in ("registered", "visited", "clicked_link"):
+        raise HTTPException(400, "gift_count_mode must be 'registered', 'visited' or 'clicked_link'")
     is_enabled = bool(data.is_enabled) if data.is_enabled is not None else False
     row = await db.fetchrow(
         """INSERT INTO event_referral_settings (event_id, gift_count_mode, is_enabled)

@@ -110,7 +110,7 @@ export default function ContestPage() {
       {/* Tab content */}
       {activeTab === 'overview' && <ContestOverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'  && <PostersTab eventId={eventId} />}
-      {activeTab === 'referral' && <ReferralProgramTab eventId={eventId} />}
+      {activeTab === 'referral' && <ReferralProgramTab eventId={eventId} moduleSlug="contest" />}
       {activeTab === 'voters'   && <EventParticipants eventId={eventId} moduleSlug="contest" />}
     </div>
   )

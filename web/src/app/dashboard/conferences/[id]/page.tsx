@@ -147,7 +147,7 @@ export default function ConferencePage() {
       {tab === 'participants' && <ParticipantsTab eventId={eventId} />}
       {tab === 'raffle'       && <RaffleTab />}
       {tab === 'posters'      && <PostersTab      eventId={eventId} />}
-      {tab === 'referral'     && <ReferralProgramTab eventId={eventId} />}
+      {tab === 'referral'     && <ReferralProgramTab eventId={eventId} moduleSlug="conference" />}
       {tab === 'report'       && <ReportTab       eventId={eventId} />}
     </div>
   )

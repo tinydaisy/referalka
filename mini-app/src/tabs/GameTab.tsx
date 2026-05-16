@@ -89,6 +89,10 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   const visited     = participant?.visited_count    ?? participant?.referrals_count ?? 0
   const registered  = participant?.registered_count ?? participant?.points_total    ?? 0
   const myRank      = participant?.my_rank
+  // gift_count_value — то число, по которому реально открываются подарки;
+  // зависит от gift_count_mode (registered/visited/clicked_link) клиента.
+  // Если бэк не отдал (старая версия) — fallback на registered.
+  const giftCountValue: number = participant?.gift_count_value ?? registered
   // Партнёрская ссылка → веб-лендинг с редиректом.
   // Если у клиента настроен внешний лендинг (events.landing_url, обычно Tilda/GetCourse) —
   // друг попадает СНАЧАЛА на него (формы клиента, аналитика, brand) и только потом
@@ -118,11 +122,11 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   // Если бэк уже вернул gifts_received_count и пороги ещё не догрузились —
   // используем серверное число, чтобы не моргать нулём.
   const giftsCount = sortedGifts.length > 0
-    ? sortedGifts.filter(g => registered >= g.points_cost).length
+    ? sortedGifts.filter(g => giftCountValue >= g.points_cost).length
     : (participant?.gifts_received_count ?? 0)
-  const nextGift = sortedGifts.find(g => g.points_cost > registered)
-  const toNext = nextGift ? nextGift.points_cost - registered : 0
-  const progressPct = nextGift ? Math.min(100, Math.round((registered / nextGift.points_cost) * 100)) : 100
+  const nextGift = sortedGifts.find(g => g.points_cost > giftCountValue)
+  const toNext = nextGift ? nextGift.points_cost - giftCountValue : 0
+  const progressPct = nextGift ? Math.min(100, Math.round((giftCountValue / nextGift.points_cost) * 100)) : 100
 
   // ТОП и Ваши люди — приходят с бэка
   const top: {
@@ -169,8 +173,18 @@ export default function GameTab({ event, participant, tgUser }: Props) {
 
   // ──────────── view: gifts (окно «Подарки») ────────────
   if (view === 'gifts') {
-    const got = sortedGifts.filter(g => registered >= g.points_cost)
-    const locked = sortedGifts.filter(g => registered < g.points_cost)
+    const got = sortedGifts.filter(g => giftCountValue >= g.points_cost)
+    const locked = sortedGifts.filter(g => giftCountValue < g.points_cost)
+    // Текст про правило подсчёта зависит от gift_count_mode и типа события.
+    const giftMode: string = participant?.gift_count_mode || 'registered'
+    const isContest = event?.module_slug === 'contest'
+    const giftRuleHint =
+      giftMode === 'visited'      ? <>Подарки выдаются за <strong>любой переход</strong> по партнёрской ссылке.</> :
+      giftMode === 'clicked_link' ? (isContest
+        ? <>Подарки выдаются за <strong>проголосовавших</strong> людей — кто нажал «Перейти к голосованию» в Mini App.</>
+        : <>Подарки выдаются за <strong>присутствовавших в эфире</strong> — кто нажал «Смотреть стрим» в Mini App.</>
+      ) :
+      <>Подарки выдаются за <strong>зарегистрировавшихся</strong> людей (не за переходы).</>
     return (
       <div className="fade-in" style={{ padding: '0 0 24px' }}>
         <button onClick={() => setView('game')} style={{
@@ -186,7 +200,7 @@ export default function GameTab({ event, participant, tgUser }: Props) {
         }}>
           <div style={{ fontSize: 18, lineHeight: 1, color: '#b86b00', flexShrink: 0 }}>⚠</div>
           <div style={{ fontSize: 11, color: '#7a5a00', lineHeight: 1.5 }}>
-            Подарки выдаются за <strong>зарегистрировавшихся</strong> людей (не за переходы).
+            {giftRuleHint}
           </div>
         </div>
 
@@ -232,7 +246,7 @@ export default function GameTab({ event, participant, tgUser }: Props) {
               🔒 Заблокировано · {locked.length}
             </h3>
             {locked.map(g => {
-              const need = g.points_cost - registered
+              const need = g.points_cost - giftCountValue
               return (
                 <div key={g.id} style={{
                   background: '#f7f8fa', borderRadius: 14, padding: 14, marginBottom: 10,

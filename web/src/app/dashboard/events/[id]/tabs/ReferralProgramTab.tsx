@@ -6,7 +6,7 @@ import FileUploader from '@/components/FileUploader'
 
 type SubTab = 'gifts' | 'materials'
 
-export default function ReferralProgramTab({ eventId }: { eventId: number }) {
+export default function ReferralProgramTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
   const [sub, setSub] = useState<SubTab>('gifts')
   const [showImport, setShowImport] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
@@ -42,7 +42,7 @@ export default function ReferralProgramTab({ eventId }: { eventId: number }) {
         </button>
       </div>
 
-      {sub === 'gifts'     && <GiftsSection     key={`g-${reloadKey}`} eventId={eventId} />}
+      {sub === 'gifts'     && <GiftsSection     key={`g-${reloadKey}`} eventId={eventId} moduleSlug={moduleSlug} />}
       {sub === 'materials' && <MaterialsSection key={`m-${reloadKey}`} eventId={eventId} />}
 
       {showImport && (
@@ -209,7 +209,7 @@ function ImportModal({ eventId, onClose, onImported }: {
 
 // ─── Подарки ─────────────────────────────────
 
-function GiftsSection({ eventId }: { eventId: number }) {
+function GiftsSection({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
   const [items, setItems] = useState<any[]>([])
   const [leadMagnets, setLeadMagnets] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -237,7 +237,7 @@ function GiftsSection({ eventId }: { eventId: number }) {
   return (
     <div className="space-y-4">
       {/* Логика подсчёта подарков */}
-      <GiftCountModeBlock eventId={eventId} />
+      <GiftCountModeBlock eventId={eventId} moduleSlug={moduleSlug} />
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <p className="text-sm text-gray-500">
@@ -324,23 +324,37 @@ function GiftsSection({ eventId }: { eventId: number }) {
 }
 
 
-function GiftCountModeBlock({ eventId }: { eventId: number }) {
-  const [mode, setMode] = useState<'registered' | 'visited' | null>(null)
+type GiftMode = 'registered' | 'visited' | 'clicked_link'
+
+function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
+  const [mode, setMode] = useState<GiftMode | null>(null)
   const [enabled, setEnabled] = useState<boolean>(false)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  // Лейбл третьей опции зависит от типа события:
+  //   contest → «За проголосовавших»; остальные → «За присутствовавших в эфире».
+  const isContest = moduleSlug === 'contest'
+  const clickedLabel = isContest ? 'За проголосовавших' : 'За присутствовавших в эфире'
+  const clickedHint  = isContest
+    ? 'Подарок выдаётся когда приведённый человек реально нажал «Перейти к голосованию» в Mini App.'
+    : 'Подарок выдаётся когда приведённый человек реально нажал «Смотреть стрим» в Mini App в момент эфира.'
+
   useEffect(() => {
     api.referralProgram.settings.get(eventId)
       .then((d: any) => {
-        setMode((d.gift_count_mode === 'visited') ? 'visited' : 'registered')
+        const m: GiftMode =
+          d.gift_count_mode === 'visited'      ? 'visited'      :
+          d.gift_count_mode === 'clicked_link' ? 'clicked_link' :
+          'registered'
+        setMode(m)
         setEnabled(!!d.is_enabled)
       })
       .catch(() => setMode('registered'))
   }, [eventId])
 
-  async function save(next: 'registered' | 'visited') {
+  async function save(next: GiftMode) {
     setSaving(true); setErr(null)
     try {
       await api.referralProgram.settings.save(eventId, {
@@ -385,6 +399,16 @@ function GiftCountModeBlock({ eventId }: { eventId: number }) {
           <div>
             <div className="text-sm font-medium">За переходы по ссылке</div>
             <div className="text-xs text-gray-500">Любой переход по партнёрской ссылке считается. Будут «накручивать», но проще запустить.</div>
+          </div>
+        </label>
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input type="radio" className="mt-1" name={`gcm-${eventId}`}
+                 disabled={saving}
+                 checked={mode === 'clicked_link'}
+                 onChange={() => save('clicked_link')} />
+          <div>
+            <div className="text-sm font-medium">{clickedLabel}</div>
+            <div className="text-xs text-gray-500">{clickedHint}</div>
           </div>
         </label>
       </div>

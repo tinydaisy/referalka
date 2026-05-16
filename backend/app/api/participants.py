@@ -664,6 +664,9 @@ async def get_participant_in_event(
             "referrals_count": 0,
             "visited_count": 0,
             "registered_count": 0,
+            "clicked_count": 0,
+            "gift_count_mode": "registered",
+            "gift_count_value": 0,
             "gifts_received_count": 0,
             "my_people": [],
             "top": top,
@@ -682,13 +685,32 @@ async def get_participant_in_event(
             WHERE referrer_participant_id = $1 AND is_registered = TRUE""",
         row["id"]
     )
+    # Сколько из них нажали главную CTA-ссылку (стрим/голосование)
+    clicked_count = await db.fetchval(
+        """SELECT COUNT(*) FROM event_participants
+            WHERE referrer_participant_id = $1 AND link_clicked_at IS NOT NULL""",
+        row["id"]
+    )
 
-    # Сколько подарков получено: пороги, у которых threshold_count <= registered_count.
-    # Если у события есть подарок за 0 регистраций — он засчитан сразу всем участникам.
+    # Выбираем «зачёт» по которому считаются подарки: registered / visited / clicked_link.
+    # Если event_referral_settings нет — дефолт 'registered'.
+    gift_mode = await db.fetchval(
+        "SELECT gift_count_mode FROM event_referral_settings WHERE event_id = $1",
+        row["event_id"]
+    ) or "registered"
+    if gift_mode == "visited":
+        gift_count_value = visited_count
+    elif gift_mode == "clicked_link":
+        gift_count_value = clicked_count
+    else:
+        gift_count_value = registered_count
+
+    # Сколько подарков получено: пороги, у которых threshold_count <= gift_count_value.
+    # Если у события есть подарок за 0 — он засчитан сразу всем участникам.
     gifts_received_count = await db.fetchval(
         """SELECT COUNT(*) FROM event_referral_thresholds
             WHERE event_id = $1 AND threshold_count <= $2""",
-        row["event_id"], registered_count
+        row["event_id"], gift_count_value
     )
 
     # Список приведённых людей: имя из platform_users (Telegram-первый), fallback на contacts.name
@@ -727,6 +749,9 @@ async def get_participant_in_event(
         "referrals_count": visited_count,         # legacy alias
         "visited_count": visited_count,
         "registered_count": registered_count,
+        "clicked_count": clicked_count,
+        "gift_count_mode": gift_mode,
+        "gift_count_value": gift_count_value,
         "gifts_received_count": gifts_received_count,
         "my_people": my_people,
         "top": top,
