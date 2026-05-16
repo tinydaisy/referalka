@@ -246,7 +246,9 @@ async def public_event_collaborators(
     if role:
         args.append(role)
         sql += f" AND ec.role = ${len(args)}"
-    sql += " ORDER BY ec.sort_order, ec.id"
+    # Тот же порядок, что и в очереди рассылок (broadcasts.py: speaker_intro):
+    # ORDER BY priority, sort_order, id — даём клиенту единую логику приоритета.
+    sql += " ORDER BY ec.priority NULLS LAST, ec.sort_order, ec.id"
     rows = await db.fetch(sql, *args)
     return {"items": [dict(r) for r in rows]}
 
@@ -451,7 +453,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                         THEN cd.end_at   ELSE e.end_at   END AS end_at,
                    e.vip_url,
                    e.chat_url, e.chat_member_count_label, e.require_subscription,
-                   e.stream_url,
+                   e.stream_url, e.skip_contact_form,
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,
                    c.brand_logo_url AS client_brand_logo,

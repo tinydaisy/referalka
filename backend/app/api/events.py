@@ -96,6 +96,11 @@ class UpdateEventRequest(BaseModel):
     chat_subscriptions_required: Optional[bool] = None
     chat_member_count_label: Optional[str] = None
     telegram_chat_ids: Optional[str] = None  # ID чатов/каналов через запятую — общее для меропр и конференций
+    # Чекбокс «Регистрировать без ввода контактных данных» — работает на встроенном
+    # лендинге Mini App, если landing_url не задан. TRUE → клик «Хочу участвовать»
+    # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).
+    skip_contact_form: Optional[bool] = None
+    stream_url: Optional[str] = None
 
 
 @router.get("/", summary="Список событий клиента")
@@ -323,13 +328,15 @@ async def copy_event(
                   webhook_url, module_slug, points_free, points_paid, points_scope,
                   require_subscription, status,
                   chat_url, stream_url, vip_url,
-                  chat_subscriptions_required, chat_member_count_label)
+                  chat_subscriptions_required, chat_member_count_label,
+                  skip_contact_form)
                VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
                        $12,'draft',
                        $13,$14,$15,
-                       $16,$17)
+                       $16,$17,
+                       $18)
                RETURNING *""",
             client_id, new_slug, new_title, src['description'], src['landing_url'],
             src.get('address'),
@@ -339,6 +346,7 @@ async def copy_event(
             src.get('chat_url'), src.get('stream_url'), src.get('vip_url'),
             src.get('chat_subscriptions_required') or False,
             src.get('chat_member_count_label'),
+            src.get('skip_contact_form') or False,
         )
         new_id = new_event['id']
 

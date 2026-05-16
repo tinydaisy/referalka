@@ -11,7 +11,7 @@ import { TelegramChannelField } from '@/components/TelegramChannelField'
 function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; onSave: () => void }) {
   const { t } = useLang()
   return (
-    <div className="flex items-center gap-3 mt-6">
+    <div className="flex items-center gap-3 mt-2">
       <button
         onClick={onSave}
         disabled={saving}
@@ -48,6 +48,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     telegram_chat_ids: conf?.telegram_chat_ids || '',
+    skip_contact_form: !!event?.skip_contact_form,
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -63,8 +64,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       telegram_chat_ids: conf?.telegram_chat_ids || '',
+      skip_contact_form: !!event?.skip_contact_form,
     }))
-  }, [conf, event?.landing_url])
+  }, [conf, event?.landing_url, event?.skip_contact_form])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -77,8 +79,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       // улетают все поля формы — если что-то пустое, оно обнуляет БД.
       // Сравниваем с props.conf / props.event как с initial-снапшотом.
       const eventPatch: any = {}
-      if (form.title !== (event?.title || ''))           eventPatch.title = form.title
-      if (form.landing_url !== (event?.landing_url || '')) eventPatch.landing_url = form.landing_url || null
+      if (form.title !== (event?.title || ''))                  eventPatch.title = form.title
+      if (form.landing_url !== (event?.landing_url || ''))      eventPatch.landing_url = form.landing_url || null
+      if (form.skip_contact_form !== !!event?.skip_contact_form) eventPatch.skip_contact_form = form.skip_contact_form
       if (Object.keys(eventPatch).length > 0) {
         await api.events.update(eventId, eventPatch)
         onEventUpdated?.(eventPatch)
@@ -110,8 +113,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
 
   return (
     <div className="space-y-6 max-w-2xl">
+      {/* 1) ПАРАМЕТРЫ КОНФЕРЕНЦИИ */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <h2 className="font-semibold text-gray-900">{ts.section}</h2>
+        <h2 className="block-title">Параметры конференции</h2>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">{ts.confTitle}</label>
           <input type="text" value={form.title} onChange={set('title')}
@@ -123,6 +127,11 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             placeholder={ts.descPlaceholder}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
         </div>
+      </div>
+
+      {/* 2) НАСТРОЙКА ССЫЛОК */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <h2 className="block-title">Настройка ссылок</h2>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Ссылка на вебинарную комнату / стрим
@@ -149,11 +158,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           <p className="text-xs text-gray-400 mt-1">Если задана — в Mini App над программой появится персиковая кнопка «Расшириться до VIP-тарифа», а в итогах — «Купить VIP-тариф с записями».</p>
         </div>
-        <ExternalLandingBlock
-          slug={event?.slug}
-          value={form.landing_url}
-          onChange={(v) => setForm(f => ({ ...f, landing_url: v }))}
-        />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Ссылка на информацию про розыгрыш
@@ -165,8 +169,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         </div>
       </div>
 
+      {/* 3) ПОДПИСКА НА КАНАЛЫ ОРГАНИЗАТОРОВ */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
-        <h2 className="font-semibold text-gray-900">{ts.subscription}</h2>
+        <h2 className="block-title">{ts.subscription}</h2>
         <p className="text-sm text-gray-500">{ts.subscriptionHint}</p>
         {[
           { value: 'none',         label: ts.subNone,      desc: ts.subNoneDesc },
@@ -189,10 +194,52 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         ))}
       </div>
 
+      {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
+        <h2 className="block-title">Настройки страницы регистрации</h2>
+
+        <ExternalLandingBlock
+          slug={event?.slug}
+          value={form.landing_url}
+          onChange={(v) => setForm(f => ({ ...f, landing_url: v }))}
+        />
+
+        <label
+          className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+            form.skip_contact_form
+              ? 'border-brand bg-brand/5'
+              : 'border-gray-200 hover:border-gray-300'
+          }`}>
+          <input type="checkbox" checked={form.skip_contact_form}
+            onChange={(e) => setForm(f => ({ ...f, skip_contact_form: e.target.checked }))}
+            className="mt-0.5 accent-brand" />
+          <div>
+            <p className="text-sm font-medium text-gray-900">
+              Регистрировать без ввода контактных данных
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+              Используется на встроенном лендинге от ПЛЮСОНа (когда поле «URL вашего
+              лендинга» выше пустое). Клик «Хочу участвовать» сразу создаёт участника
+              по Telegram-аккаунту — без формы с именем, email и телефоном.
+            </p>
+          </div>
+        </label>
+      </div>
+
       <SaveBar saving={saving} saved={saved} onSave={handleSave} />
 
-      {/* Публичные ссылки — внизу */}
+      {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ */}
       <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={(s) => onEventUpdated?.({ slug: s })} eventStatus={event?.status} />
+
+      <style jsx>{`
+        .block-title {
+          font-size: 0.875rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: #25455D;
+        }
+      `}</style>
     </div>
   )
 }

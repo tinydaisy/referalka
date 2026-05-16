@@ -31,7 +31,7 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
   }
 
   return (
-    <div className="border-t border-gray-100 pt-5 mt-5">
+    <div>
       <div className="flex items-center gap-2 mb-1.5">
         <Globe size={16} className="text-gray-500" />
         <h3 className="text-sm font-semibold text-gray-800">

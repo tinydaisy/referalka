@@ -320,6 +320,28 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       return
     }
 
+    // Клиент в дашборде включил «Регистрировать без ввода контактных данных»:
+    // регистрируем по tg_id без формы, имя из Telegram, email/phone пустые.
+    if (event?.skip_contact_form && tgUser?.id) {
+      try {
+        const r: any = await registerParticipant({
+          event_slug: slug,
+          tg_id: tgUser.id,
+          username: tgUser.username,
+          first_name: tgUser.first_name || '',
+          last_name:  tgUser.last_name  || '',
+          ref_code: partnerId,
+          utm_source: utmSource,
+        })
+        const reg = r?.participant || r
+        setParticipant({ ...reg, is_registered: true })
+        setTab('program')
+        return
+      } catch (_) {
+        // Не получилось — fallback на форму.
+      }
+    }
+
     const canAutoRegister = !!(prefill?.email?.trim() && prefill?.phone?.trim())
     if (canAutoRegister && tgUser?.id) {
       try {

@@ -26,6 +26,7 @@ export default function OverviewTab({
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
+  const [skipContactForm, setSkipContactForm] = useState<boolean>(!!event.skip_contact_form)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -66,6 +67,7 @@ export default function OverviewTab({
       const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
       if (endIso !== eventEndIso)                               payload.end_at = endIso
       if (requireSubscription !== !!event.require_subscription) payload.require_subscription = requireSubscription
+      if (skipContactForm !== !!event.skip_contact_form)        payload.skip_contact_form = skipContactForm
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -85,9 +87,9 @@ export default function OverviewTab({
 
   return (
     <div className="space-y-6">
-      {/* Поля события */}
+      {/* 1) ПАРАМЕТРЫ МЕРОПРИЯТИЯ */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
-        <h2 className="font-semibold text-gray-800 mb-4">Параметры мероприятия</h2>
+        <h2 className="block-title mb-4">Параметры мероприятия</h2>
 
         <div className="space-y-4">
           <Field label="Название">
@@ -111,7 +113,14 @@ export default function OverviewTab({
                      className="input" />
             </Field>
           </div>
+        </div>
+      </div>
 
+      {/* 2) НАСТРОЙКА ССЫЛОК */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+        <h2 className="block-title mb-4">Настройка ссылок</h2>
+
+        <div className="space-y-4">
           <Field label="Ссылка на ZOOM или вебинарную комнату" hint="Появится плиткой «Стрим» в Mini App в день эфира">
             <input value={streamUrl} onChange={e => setStreamUrl(e.target.value)}
                    className="input" placeholder="https://us02web.zoom.us/j/..." />
@@ -128,18 +137,12 @@ export default function OverviewTab({
             <input value={vipUrl} onChange={e => setVipUrl(e.target.value)}
                    className="input" placeholder="https://..." />
           </Field>
-
-          <ExternalLandingBlock
-            slug={event?.slug}
-            value={landingUrl}
-            onChange={setLandingUrl}
-          />
         </div>
       </div>
 
-      {/* Подписка на каналы организаторов (события вне конференций) */}
+      {/* 3) ПОДПИСКА НА КАНАЛЫ ОРГАНИЗАТОРОВ */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
-        <h2 className="font-semibold text-gray-800 mb-1">Подписка на каналы организаторов</h2>
+        <h2 className="block-title mb-1">Подписка на каналы организаторов</h2>
         <p className="text-sm text-gray-500 mb-4">
           Если включено — участник должен быть подписан на Telegram-каналы всех
           соорганизаторов события, чтобы войти в чат и получить доступ к Игре/Розыгрышу.
@@ -165,21 +168,53 @@ export default function OverviewTab({
             </label>
           ))}
         </div>
-
-        {err && <div className="mt-4 text-sm text-red-600">{err}</div>}
-
-        <div className="mt-5 flex items-center gap-3">
-          <button onClick={handleSave} disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
-                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-            <Save size={16} />
-            {saving ? 'Сохраняю…' : 'Сохранить'}
-          </button>
-          {savedFlash && <span className="text-sm text-green-600">Сохранено ✓</span>}
-        </div>
       </div>
 
-      {/* Публичные ссылки — внизу */}
+      {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
+        <h2 className="block-title">Настройки страницы регистрации</h2>
+
+        <ExternalLandingBlock
+          slug={event?.slug}
+          value={landingUrl}
+          onChange={setLandingUrl}
+        />
+
+        <label
+          className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+            skipContactForm
+              ? 'border-[#25455D] bg-[#25455D]/5'
+              : 'border-gray-200 hover:border-gray-300'
+          }`}>
+          <input type="checkbox" checked={skipContactForm}
+            onChange={(e) => setSkipContactForm(e.target.checked)}
+            className="mt-0.5 accent-[#25455D]" />
+          <div>
+            <p className="text-sm font-medium text-gray-900">
+              Регистрировать без ввода контактных данных
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+              Используется на встроенном лендинге от ПЛЮСОНа (когда поле «URL вашего
+              лендинга» выше пустое). Клик «Хочу участвовать» сразу создаёт участника
+              по Telegram-аккаунту — без формы с именем, email и телефоном.
+            </p>
+          </div>
+        </label>
+      </div>
+
+      {/* Save bar */}
+      {err && <div className="text-sm text-red-600">{err}</div>}
+      <div className="flex items-center gap-3">
+        <button onClick={handleSave} disabled={saving}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
+                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+          <Save size={16} />
+          {saving ? 'Сохраняю…' : 'Сохранить'}
+        </button>
+        {savedFlash && <span className="text-sm text-green-600">Сохранено ✓</span>}
+      </div>
+
+      {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ */}
       <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={onReload} eventStatus={event?.status} />
 
       <style jsx>{`
@@ -194,6 +229,13 @@ export default function OverviewTab({
         .input:focus {
           border-color: #25455D;
           box-shadow: 0 0 0 3px rgba(37, 69, 93, 0.1);
+        }
+        .block-title {
+          font-size: 0.875rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: #25455D;
         }
       `}</style>
     </div>
