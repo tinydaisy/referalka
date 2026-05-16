@@ -17,6 +17,7 @@ interface Participant {
   is_subscribed?: boolean
   is_unsubscribed?: boolean
   registered_at: string | null
+  link_clicked_at: string | null
   contact_name: string | null
   first_name: string | null
   last_name: string | null
@@ -49,10 +50,12 @@ function ContactCard({
   p,
   onToggleRegistered,
   onDelete,
+  clickLabel,
 }: {
   p: Participant
   onToggleRegistered: (next: boolean) => void
   onDelete: () => void
+  clickLabel: string
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -144,6 +147,22 @@ function ContactCard({
           </button>
         </div>
 
+        {/* Колонка «Был в эфире» / «Проголосовал» — read-only по link_clicked_at */}
+        <div className="w-24 flex justify-center shrink-0">
+          <span
+            title={p.link_clicked_at
+              ? `${clickLabel} — ${new Date(p.link_clicked_at).toLocaleString('ru')}`
+              : 'Не нажал главную ссылку события'}
+            className={`w-6 h-6 rounded-md border flex items-center justify-center ${
+              p.link_clicked_at
+                ? 'bg-emerald-500 border-emerald-500 text-white'
+                : 'bg-white border-gray-300'
+            }`}
+          >
+            {p.link_clicked_at && <Check size={14} strokeWidth={3} />}
+          </span>
+        </div>
+
         {/* Колонка «Подписан / Отписан» — read-only */}
         <div className="w-24 flex justify-center shrink-0">
           {p.is_unsubscribed ? (
@@ -218,13 +237,14 @@ function ContactCard({
   )
 }
 
-function ListHeader() {
+function ListHeader({ clickLabel }: { clickLabel: string }) {
   return (
     <div className="hidden sm:flex items-center gap-3 px-5 py-2.5 border-b border-gray-100 bg-gray-50/50 text-[11px] font-medium uppercase tracking-wider text-gray-400">
       <div className="flex-1 min-w-0">Имя</div>
       <div className="flex-1 max-w-xs">Кто привёл</div>
       <div className="w-24 text-center">Регистрация</div>
       <div className="w-24 text-center">Зарегистр.</div>
+      <div className="w-24 text-center">{clickLabel}</div>
       <div className="w-24 text-center">Подписка</div>
       <div className="w-8" />
       <div className="w-4" />
@@ -269,7 +289,10 @@ function FilterPill({
   )
 }
 
-export default function EventParticipants({ eventId }: { eventId: number }) {
+export default function EventParticipants({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
+  // Лейбл второй галочки — «Был в эфире» / «Проголосовал». У конкурсов
+  // главная ссылка — голосование, у остальных типов — стрим/эфир.
+  const clickLabel = moduleSlug === 'contest' ? 'Проголосовал' : 'Был в эфире'
   const [participants, setParticipants] = useState<Participant[]>([])
   const [counts, setCounts] = useState<Counts>({ total: 0, registered: 0, not_registered: 0 })
   const [loading, setLoading] = useState(true)
@@ -411,13 +434,14 @@ export default function EventParticipants({ eventId }: { eventId: number }) {
           </div>
         ) : (
           <>
-            <ListHeader />
+            <ListHeader clickLabel={clickLabel} />
             {filtered.map(p => (
               <ContactCard
                 key={p.id}
                 p={p}
                 onToggleRegistered={(next) => toggleRegistered(p.id, next)}
                 onDelete={() => deleteParticipant(p.id)}
+                clickLabel={clickLabel}
               />
             ))}
           </>

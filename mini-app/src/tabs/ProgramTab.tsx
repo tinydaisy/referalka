@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { getSessions, getSpeakers, getDays, getEventCollaborators } from '../api'
+import { getSessions, getSpeakers, getDays, getEventCollaborators, trackLinkClick } from '../api'
 import { useChatGate } from '../components/ChatGate'
 
 interface Session {
@@ -402,7 +402,9 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
           В остальные дни — неактивная заглушка «появится в день эфира». */}
       {hasStream && (
         streamLive ? (
-          <a href={event.stream_url} target="_blank" rel="noreferrer" style={{
+          <a href={event.stream_url} target="_blank" rel="noreferrer"
+             onClick={() => trackLinkClick(event?.slug, tgUser)}
+             style={{
             display: 'flex', alignItems: 'center', gap: 12,
             background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
             borderRadius: 14, padding: 14, textDecoration: 'none', marginBottom: 10,

@@ -31,6 +31,25 @@ export const checkConferenceSubscription = (eventId: number, tgId: number) =>
 export const registerParticipant = (data: any) =>
   req('/api/v1/participants/register', { method: 'POST', body: JSON.stringify(data) })
 
+// Клик по главной CTA-ссылке события (стрим / голосование). fire-and-forget.
+export function trackLinkClick(eventSlug: string | undefined | null, tgUser: any) {
+  if (!eventSlug || !tgUser?.id) return
+  try {
+    fetch(`${API_URL}/api/v1/event/link-click`, {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tg_id: Number(tgUser.id),
+        event_slug: eventSlug,
+        first_name: tgUser.first_name || '',
+        last_name:  tgUser.last_name  || '',
+        username:   tgUser.username   || '',
+      }),
+    }).catch(() => {})
+  } catch (_) { /* ignore */ }
+}
+
 export const getParticipantEvents = (tgId: number) =>
   req(`/api/v1/participants/telegram/${tgId}/events`)
 

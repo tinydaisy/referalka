@@ -194,3 +194,62 @@ async def share_to_bot(body: ShareToBotRequest):
         raise HTTPException(status_code=502, detail="telegram send failed")
 
     return {"ok": True, "posters_sent": len(image_urls), "texts_sent": len(texts)}
+
+
+class LinkClickRequest(BaseModel):
+    tg_id: int
+    event_slug: str
+    first_name: str = ""
+    last_name: str = ""
+    username: str = ""
+
+
+@router.post("/event/link-click")
+async def mark_link_click(body: LinkClickRequest):
+    """Mini App → отметка, что участник нажал главную CTA-ссылку события
+    (у мероприятий и конференций это «Смотреть стрим», у конкурсов —
+    «Перейти к голосованию»; адрес у обоих хранится в events.stream_url).
+
+    Пишем первый клик в event_participants.link_clicked_at. Повторные клики
+    не перезаписывают (используем COALESCE). Если записи участника ещё нет —
+    создаём со статусом interested (is_registered=false) и сразу ставим клик.
+    """
+    if not body.event_slug:
+        raise HTTPException(status_code=400, detail="event_slug required")
+    if not body.tg_id:
+        raise HTTPException(status_code=400, detail="tg_id required")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=500, detail="db not available")
+
+    from app.services.contact_merge import upsert_contact_with_identity
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, client_id FROM events WHERE slug = $1 LIMIT 1",
+            body.event_slug,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="event not found")
+        event_id = row["id"]
+        client_id = row["client_id"]
+
+        contact_id, _pu_id, _new = await upsert_contact_with_identity(
+            conn,
+            client_id=client_id,
+            platform_slug='telegram',
+            platform_user_id=str(body.tg_id),
+            username=(body.username.lstrip('@') if body.username else None),
+            first_name=body.first_name or None,
+            last_name=body.last_name or None,
+        )
+
+        await conn.execute(
+            """INSERT INTO event_participants (event_id, contact_id, is_registered, link_clicked_at)
+               VALUES ($1, $2, FALSE, now())
+               ON CONFLICT (event_id, contact_id)
+               DO UPDATE SET link_clicked_at = COALESCE(event_participants.link_clicked_at, EXCLUDED.link_clicked_at)""",
+            event_id, contact_id,
+        )
+    return {"ok": True}

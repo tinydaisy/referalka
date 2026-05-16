@@ -1,4 +1,5 @@
 import { useChatGate } from '../components/ChatGate'
+import { trackLinkClick } from '../api'
 
 const PEACH = '#FFCFA4'
 const DARK  = '#25455D'
@@ -66,7 +67,9 @@ export default function ContestProgramTab({
 
       {/* Кнопка «Перейти к голосованию» */}
       {hasVotingUrl && (
-        <a href={event.stream_url} target="_blank" rel="noreferrer" style={{
+        <a href={event.stream_url} target="_blank" rel="noreferrer"
+           onClick={() => trackLinkClick(event?.slug, tgUser)}
+           style={{
           display: 'flex', alignItems: 'center', gap: 12,
           background: PEACH, color: DARK,
           borderRadius: 14, padding: 14, textDecoration: 'none',

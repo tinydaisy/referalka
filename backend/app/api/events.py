@@ -628,6 +628,7 @@ async def event_participants(
                   c.id AS contact_id,
                   c.ref_code, ep.referrer_ref_code,
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
+                  ep.link_clicked_at,
                   c.name AS contact_name,
                   c.email, c.phone, c.salebot_id,
                   (SELECT pu.platform_user_id FROM platform_users pu
