@@ -1111,6 +1111,16 @@ export default function QueuePage() {
           reasonMap[reason] = (reasonMap[reason] || 0) + 1
         }
         const reasons = Object.entries(reasonMap).sort((a, b) => b[1] - a[1])
+        // Разбивка по ботам (channel_handle).
+        // Старые строки (до миграции 085) не имеют channel_id — попадают в «Без указания».
+        const botMap: Record<string, { sent: number; failed: number }> = {}
+        for (const r of logModal.rows) {
+          const key = r.channel_handle || r.channel_name || 'Без указания'
+          if (!botMap[key]) botMap[key] = { sent: 0, failed: 0 }
+          if (r.status === 'sent') botMap[key].sent += 1
+          else botMap[key].failed += 1
+        }
+        const botEntries = Object.entries(botMap).sort((a, b) => (b[1].sent + b[1].failed) - (a[1].sent + a[1].failed))
         return (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 max-h-[85vh] flex flex-col">
@@ -1124,6 +1134,21 @@ export default function QueuePage() {
               </div>
               <button onClick={() => setLogModal(null)}><X size={18} /></button>
             </div>
+            {/* Разбивка по ботам */}
+            {botEntries.length > 1 || (botEntries.length === 1 && botEntries[0][0] !== 'Без указания') ? (
+              <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-1">
+                <p className="text-xs font-semibold text-blue-700">По ботам:</p>
+                {botEntries.map(([handle, st]) => (
+                  <div key={handle} className="flex items-center justify-between text-xs text-blue-800">
+                    <span className="truncate flex-1">{handle}</span>
+                    <span className="ml-2">
+                      <span className="font-bold text-green-700">{st.sent}</span>
+                      {st.failed > 0 && <span className="text-red-500"> ✕ {st.failed}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {/* Статистика по причинам недоставки */}
             {reasons.length > 0 && (
               <div className="mb-3 bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
@@ -1144,12 +1169,14 @@ export default function QueuePage() {
                 const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.username || `tg:${r.tg_id}`
                 const username = r.username ? `@${r.username}` : ''
                 const ok = r.status === 'sent'
+                const bot = r.channel_handle || r.channel_name
                 return (
                   <div key={i} className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs ${ok ? 'bg-gray-50' : 'bg-red-50'}`}>
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={ok ? 'text-green-500' : 'text-red-400'}>{ok ? '✓' : '✗'}</span>
                       <span className="font-medium text-gray-800 truncate">{name}</span>
                       {username && <span className="text-gray-400 shrink-0">{username}</span>}
+                      {bot && <span className="text-blue-500 shrink-0 text-[10px] bg-blue-50 px-1.5 py-0.5 rounded">{bot}</span>}
                     </div>
                     {!ok && r.error && (
                       <span className="text-red-400 truncate max-w-[140px] ml-2" title={r.error}>{humanReason(r.error)}</span>

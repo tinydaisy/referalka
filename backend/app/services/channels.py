@@ -297,52 +297,44 @@ async def resubscribe_globally(channel_id: int, tg_id: str, db) -> int:
         return 0
 
 
-async def get_telegram_send_targets(client_id: int, tg_ids: list[str], db) -> dict[str, dict]:
-    """Для каждого tg_id (из списка) возвращает канал через который слать рассылку.
+async def get_telegram_send_targets(client_id: int, tg_ids: list[str], db) -> dict[str, list[dict]]:
+    """Для каждого tg_id — СПИСОК каналов клиента, на которые он не отписан.
 
-    Идёт через client_channels (контекст клиента), смотрит подписки этого клиента.
+    Fanout-поведение: один контакт получает по N сообщений (по числу подписок).
+    Порядок внутри списка: главный канал (is_active=TRUE) первым.
 
-    Приоритет:
-      1) is_active=TRUE канал не-отписанный
-      2) любой не-отписанный канал клиента
-      3) tg_id без подписок ни одного канала клиента — отсутствует в map (не получит сообщение)
-
-    Возвращает: { tg_id: {"bot_token": "...", "channel_id": 12, "client_channel_id": 99} }.
+    Возвращает: { tg_id: [{"bot_token": "...", "channel_id": 12, "client_channel_id": 99}, ...] }.
+    tg_id без активных подписок отсутствует в map — получит сообщение через
+    fallback (главный/единственный канал клиента) в вызывающем коде.
     """
     if not tg_ids:
         return {}
     rows = await db.fetch(
         """
-        WITH ranked AS (
-          SELECT
-              pu.platform_user_id AS tg_id,
-              ch.id AS channel_id,
-              cc.id AS client_channel_id,
-              ch.bot_token,
-              ROW_NUMBER() OVER (
-                  PARTITION BY pu.platform_user_id
-                  ORDER BY cc.is_active DESC, ch.id ASC
-              ) AS rn
-            FROM platform_users pu
-            JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
-            JOIN client_channels cc ON cc.id = puc.client_channel_id
-            JOIN channels ch ON ch.id = cc.channel_id
-           WHERE pu.client_id = $1
-             AND pu.platform_slug = 'telegram'
-             AND ch.platform_slug = 'telegram'
-             AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
-             AND puc.is_unsubscribed = FALSE
-             AND pu.platform_user_id = ANY($2::text[])
-        )
-        SELECT tg_id, channel_id, client_channel_id, bot_token FROM ranked WHERE rn = 1
+        SELECT
+            pu.platform_user_id AS tg_id,
+            ch.id AS channel_id,
+            cc.id AS client_channel_id,
+            ch.bot_token
+          FROM platform_users pu
+          JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+          JOIN client_channels cc ON cc.id = puc.client_channel_id
+          JOIN channels ch ON ch.id = cc.channel_id
+         WHERE pu.client_id = $1
+           AND pu.platform_slug = 'telegram'
+           AND ch.platform_slug = 'telegram'
+           AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+           AND puc.is_unsubscribed = FALSE
+           AND pu.platform_user_id = ANY($2::text[])
+         ORDER BY pu.platform_user_id, cc.is_active DESC, ch.id ASC
         """,
         client_id, tg_ids
     )
-    return {
-        r["tg_id"]: {
+    result: dict[str, list[dict]] = {}
+    for r in rows:
+        result.setdefault(r["tg_id"], []).append({
             "bot_token": r["bot_token"],
             "channel_id": r["channel_id"],
             "client_channel_id": r["client_channel_id"],
-        }
-        for r in rows
-    }
+        })
+    return result

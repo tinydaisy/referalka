@@ -218,20 +218,9 @@ async def _send_broadcast(schedule_id: int):
             test_ids = {str(t) for t in (tids or [])}
             final_ids = final_ids & test_ids
 
-        # Идемпотентность: исключаем тех кому уже успешно отправили
-        # (защита от дублей при повторном запуске после сбоя)
-        already_sent = await conn.fetch(
-            """
-            SELECT pu.platform_user_id FROM broadcast_log bl
-            JOIN platform_users pu ON pu.id = bl.platform_user_id
-            WHERE bl.schedule_id = $1 AND bl.status = 'sent'
-            """,
-            schedule_id
-        )
-        already_sent_ids = {r["platform_user_id"] for r in already_sent}
-        if already_sent_ids:
-            logger.info(f"Рассылка {schedule_id}: пропускаем {len(already_sent_ids)} уже получивших")
-        final_ids = final_ids - already_sent_ids
+        # Идемпотентность теперь работает per-канал (см. already_sent_set ниже,
+        # после получения targets_by_tg) — fanout может слать одному tg_id
+        # через несколько ботов, поэтому защита от дубля смотрит пару (tg_id, channel_id).
 
         # Если в тексте есть персональные плейсхолдеры — подтягиваем имена получателей
         needs_first_name = "{first_name}" in (text or "")
@@ -270,17 +259,58 @@ async def _send_broadcast(schedule_id: int):
                              else "https://t.me/pluson_bot/pluson")
             game_link_url = f"{glink_bot_url}?startapp=ref_pg{event_slug_for_glink}_tabgame"
 
-        # Карта «через какой канал слать конкретному получателю».
-        # Пустая запись ⇒ fallback на default_bot_token (главный/единственный канал клиента).
-        target_by_tg = await get_telegram_send_targets(
+        # Fanout: для каждого получателя — список ВСЕХ подписанных каналов клиента
+        # (is_unsubscribed=FALSE). По каждому каналу отправляем отдельное сообщение.
+        # Если у получателя нет ни одной записи в platform_user_channels (легаси-контакт) —
+        # шлём одно сообщение через default_bot_token (главный канал клиента).
+        # Главный токен клиента (для определения channel_id легаси-fallback).
+        default_channel_id = await conn.fetchval(
+            """SELECT ch.id FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE cc.client_id = $1 AND ch.platform_slug = 'telegram'
+                  AND ch.bot_token = $2
+                ORDER BY cc.is_active DESC, ch.id LIMIT 1""",
+            schedule["client_id"], default_bot_token,
+        )
+
+        targets_by_tg = await get_telegram_send_targets(
             schedule["client_id"], list(final_ids), conn
         )
+
+        # Идемпотентность с учётом канала: исключаем уже отправленные пары (tg_id, channel_id).
+        already_sent_pairs = await conn.fetch(
+            """
+            SELECT pu.platform_user_id AS tg_id, bl.channel_id
+              FROM broadcast_log bl
+              JOIN platform_users pu ON pu.id = bl.platform_user_id
+             WHERE bl.schedule_id = $1 AND bl.status = 'sent'
+            """,
+            schedule_id
+        )
+        already_sent_set = {(r["tg_id"], r["channel_id"]) for r in already_sent_pairs}
+
+        # Разворачиваем final_ids в плоский список заданий (tg_id, channel_id, bot_token).
+        send_jobs: list[tuple[str, int | None, str]] = []
+        for tg_id in final_ids:
+            ch_list = targets_by_tg.get(tg_id) or []
+            if ch_list:
+                for t in ch_list:
+                    if (tg_id, t["channel_id"]) in already_sent_set:
+                        continue
+                    send_jobs.append((tg_id, t["channel_id"], t["bot_token"]))
+            else:
+                if (tg_id, default_channel_id) in already_sent_set:
+                    continue
+                send_jobs.append((tg_id, default_channel_id, default_bot_token))
+
+        if already_sent_set:
+            logger.info(f"Рассылка {schedule_id}: пропускаем {len(already_sent_set)} уже успешно отправленных пар (tg_id, channel)")
 
         # Отправляем параллельно (скорость = clients.broadcast_concurrency)
         sent = 0
         sem = asyncio.Semaphore(concurrency)
 
-        async def send_one(tg_id: str, http_client: httpx.AsyncClient):
+        async def send_one(tg_id: str, channel_id: int | None, token: str, http_client: httpx.AsyncClient):
             async with sem:
                 msg_text = text
                 msg_btn_url = button_url
@@ -290,9 +320,6 @@ async def _send_broadcast(schedule_id: int):
                     msg_text = msg_text.replace("{game_link}", game_link_url)
                     if msg_btn_url:
                         msg_btn_url = msg_btn_url.replace("{game_link}", game_link_url)
-                target = target_by_tg.get(tg_id) or {}
-                token = target.get("bot_token") or default_bot_token
-                channel_id = target.get("channel_id")
                 ok, err = await send_telegram_message(
                     http_client, token, tg_id, msg_text, photo_url, button_text, msg_btn_url,
                     buttons=buttons
@@ -300,7 +327,7 @@ async def _send_broadcast(schedule_id: int):
                 return tg_id, channel_id, (ok, err)
 
         async with httpx.AsyncClient(timeout=15, limits=httpx.Limits(max_connections=max(concurrency + 20, 50))) as http_client:
-            results = await asyncio.gather(*[send_one(tid, http_client) for tid in final_ids])
+            results = await asyncio.gather(*[send_one(t, c, tok, http_client) for (t, c, tok) in send_jobs])
 
         # Пишем лог одной пачкой после отправки
         BLOCKED_ERRORS = ("bot was blocked by the user", "user is deactivated", "chat not found", "have no rights to send a message")
@@ -308,8 +335,8 @@ async def _send_broadcast(schedule_id: int):
             is_blocked = not success and tg_error and any(e in tg_error.lower() for e in BLOCKED_ERRORS)
             await conn.execute(
                 """
-                INSERT INTO broadcast_log (schedule_id, platform_user_id, status, error, sent_at)
-                SELECT $1, pu.id, $2, $3, NOW()
+                INSERT INTO broadcast_log (schedule_id, platform_user_id, channel_id, status, error, sent_at)
+                SELECT $1, pu.id, $6, $2, $3, NOW()
                 FROM platform_users pu
                 WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $4 AND pu.client_id = $5
                 """,
@@ -317,7 +344,8 @@ async def _send_broadcast(schedule_id: int):
                 "sent" if success else "failed",
                 tg_error or None,
                 tg_id,
-                schedule["client_id"]
+                schedule["client_id"],
+                channel_id,
             )
             if is_blocked:
                 # Помечаем отписавшимся в КОНКРЕТНОМ канале через который слали.
