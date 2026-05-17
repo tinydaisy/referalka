@@ -51,6 +51,7 @@ async def _send_event_organizer_notification(
     contact_id: int,
     platform_slug: str,
     referrer_contact_id: int | None,
+    tg_id: str | None = None,
 ) -> None:
     """Уведомление в notifications_telegram_chat_id организатора о новом интересе на событие.
     Зеркало `funnel_service._send_organizer_notification` для лид-магнитов, формат тот же,
@@ -82,11 +83,18 @@ async def _send_event_organizer_notification(
             referrer_contact_id, platform_slug,
         )
 
+    # Какой бот «обслужил» этого человека — показываем клиенту в уведомлении.
+    bot_handle = None
+    if tg_id and platform_slug == 'telegram':
+        from .channels import get_bot_handle_for_user
+        bot_handle = await get_bot_handle_for_user(client_id, tg_id, conn)
+
     when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
     parts = [
         "🆕 <b>Новый интерес</b>",
         "",
         f"<b>Событие:</b> {event_title or '—'}",
+        f"<b>Бот:</b> {bot_handle or '—'}",
         f"<b>Когда:</b> {when_str}",
         "",
         "<b>Кто пришёл</b>",
@@ -276,6 +284,7 @@ async def send_event_open_message(
                     contact_id=contact_id,
                     platform_slug='telegram',
                     referrer_contact_id=referrer_contact_id,
+                    tg_id=str(tg_id),
                 )
 
             part = await conn.fetchrow(

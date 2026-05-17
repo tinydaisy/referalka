@@ -297,6 +297,43 @@ async def resubscribe_globally(channel_id: int, tg_id: str, db) -> int:
         return 0
 
 
+async def get_bot_handle_for_user(client_id: int, tg_id: str, db) -> Optional[str]:
+    """Хендл бота, через который пользователь «живёт» у клиента.
+
+    Используется в уведомлениях клиенту («Бот: @ivision_conf_bot»).
+    Логика: ищем активные подписки этого tg_id в контексте client_id, выбираем
+    канал с приоритетом is_active=TRUE и не-системный. Если подписок нет —
+    fallback на главный активный канал клиента (он же и сработает в рассылках
+    через default_bot_token).
+    """
+    handle = await db.fetchval(
+        """SELECT ch.handle
+             FROM platform_user_channels puc
+             JOIN platform_users pu ON pu.id = puc.platform_user_id
+             JOIN client_channels cc ON cc.id = puc.client_channel_id
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE pu.client_id = $1
+              AND pu.platform_slug = 'telegram'
+              AND pu.platform_user_id = $2
+              AND ch.platform_slug = 'telegram'
+              AND puc.is_unsubscribed = FALSE
+            ORDER BY cc.is_active DESC, ch.is_system ASC, ch.id ASC
+            LIMIT 1""",
+        client_id, tg_id,
+    )
+    if handle:
+        return handle
+    # Fallback — главный активный канал клиента.
+    return await db.fetchval(
+        """SELECT ch.handle FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1 AND ch.platform_slug = 'telegram'
+            ORDER BY cc.is_active DESC, ch.is_system ASC, ch.id ASC
+            LIMIT 1""",
+        client_id,
+    )
+
+
 async def get_telegram_send_targets(client_id: int, tg_ids: list[str], db) -> dict[str, list[dict]]:
     """Для каждого tg_id — СПИСОК каналов клиента, на которые он не отписан.
 
