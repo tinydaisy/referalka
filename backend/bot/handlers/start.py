@@ -7,12 +7,16 @@
   /start ref_<old>     — старый формат ref-кода (compat)
   /start               — приветствие + ссылка на свои события
 """
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.filters import CommandStart, CommandObject, Command
 from app.config import settings
 from app.database import get_pool
+import html as _html
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import httpx
 
 router = Router()
 log = logging.getLogger(__name__)
@@ -214,6 +218,162 @@ async def handle_getchatid(message: Message):
         "3. Перешлите мне сюда любое сообщение из канала.\n\n"
         "Я отвечу с ID канала, который надо вставить в Настройки → Технические.",
     )
+
+
+@router.message(F.text & ~F.text.startswith('/') & F.forward_from_chat.is_(None) & F.forward_from.is_(None))
+async def handle_user_message(message: Message):
+    """Свободное сообщение пользователя в бот клиента (VIP или системный @pluson_bot).
+
+    Что делаем:
+      1. Определяем клиента-получателя:
+         - VIP-бот (is_system=FALSE) → единственный главный клиент из client_channels.
+         - Системный @pluson_bot → самый свежий не-системный контекст этого tg_id
+           (последний `platform_users.updated_at`).
+      2. Шлём в `clients.notifications_telegram_chat_id` сообщение с хештегом
+         #user_message и всеми стандартными полями (никнейм, имя, контакт-id, TG ID,
+         utm_source, ссылка на карточку) + полный текст.
+      3. Отвечаем пользователю:
+         - если у него есть @username → «передадим, но для скорости продублируйте
+           сами @work_tg»
+         - если нет → «у вас не указан Telegram-никнейм, мы не сможем вам ответить —
+           напишите напрямую @work_tg»
+    """
+    user = message.from_user
+    bot_id = message.bot.id if message.bot else None
+    if not user or not bot_id:
+        return
+    try:
+        from app.services.channels import find_channel_by_bot_id
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if not ch:
+                return
+
+            # 1. Кому пересылаем?
+            if ch["is_system"]:
+                client_id = await db.fetchval(
+                    """SELECT pu.client_id
+                         FROM platform_users pu
+                         JOIN clients c ON c.id = pu.client_id
+                        WHERE pu.platform_slug = 'telegram'
+                          AND pu.platform_user_id = $1
+                          AND c.email <> 'system@pluson.ru'
+                        ORDER BY pu.updated_at DESC NULLS LAST, pu.id DESC
+                        LIMIT 1""",
+                    str(user.id),
+                )
+            else:
+                client_id = await db.fetchval(
+                    """SELECT client_id FROM client_channels
+                        WHERE channel_id = $1
+                        ORDER BY is_active DESC, id ASC LIMIT 1""",
+                    ch["id"],
+                )
+            if not client_id:
+                # Контекст клиента неизвестен — молча выходим, чтобы пользователь
+                # не получил «техническую» ошибку. Сообщение нигде не оседает —
+                # это сознательный компромисс v1.
+                return
+
+            # 2. Реквизиты клиента
+            client_row = await db.fetchrow(
+                """SELECT notifications_telegram_chat_id, work_tg_username
+                     FROM clients WHERE id = $1""",
+                client_id,
+            )
+            if not client_row:
+                return
+            notif_chat_id = client_row["notifications_telegram_chat_id"]
+            work_tg = (client_row["work_tg_username"] or "").lstrip("@")
+
+            # 3. Контакт юзера в контексте этого клиента
+            contact_row = await db.fetchrow(
+                """SELECT pu.contact_id, c.name, c.utm_source
+                     FROM platform_users pu
+                LEFT JOIN contacts c ON c.id = pu.contact_id
+                    WHERE pu.client_id = $1
+                      AND pu.platform_slug = 'telegram'
+                      AND pu.platform_user_id = $2""",
+                client_id, str(user.id),
+            )
+            contact_id = contact_row["contact_id"] if contact_row else None
+            contact_name = (contact_row["name"] if contact_row else "") or ""
+            utm_source = (contact_row["utm_source"] if contact_row else None)
+
+            # 4. Хендл бота — для контекста в уведомлении
+            bot_handle = await db.fetchval(
+                "SELECT handle FROM channels WHERE id = $1", ch["id"],
+            )
+
+        # 5. Уведомление в канал клиента (от @pluson_bot — как и остальные уведомления)
+        if notif_chat_id:
+            when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+            display_name = (
+                ((user.first_name or "") + " " + (user.last_name or "")).strip()
+                or contact_name or "—"
+            )
+            user_nick = f"@{user.username}" if user.username else "—"
+            card_url = (
+                f"{settings.frontend_url}/dashboard/clients?contact={contact_id}"
+                if contact_id else "—"
+            )
+            parts = [
+                "#user_message 💬",
+                "",
+                f"<b>Когда:</b> {when_str}",
+                f"<b>Бот:</b> {bot_handle or '—'}",
+                "",
+                "<b>Кто написал</b>",
+                f"<b>Никнейм:</b> {user_nick}",
+                f"<b>Имя:</b> {_html.escape(display_name)}",
+                f"<b>TG ID:</b> <code>{user.id}</code>",
+                f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
+                f"<b>Источник (utm_source):</b> {_html.escape(utm_source) if utm_source else '—'}",
+                f"<b>Карточка:</b> {card_url}",
+                "",
+                "<b>Сообщение:</b>",
+                _html.escape(message.text or ""),
+            ]
+            text = "\n".join(parts)
+            token = settings.telegram_bot_token
+            if token:
+                try:
+                    async with httpx.AsyncClient(timeout=10) as http:
+                        await http.post(
+                            f"https://api.telegram.org/bot{token}/sendMessage",
+                            json={
+                                "chat_id": notif_chat_id,
+                                "text": text,
+                                "parse_mode": "HTML",
+                                "disable_web_page_preview": True,
+                            },
+                        )
+                except Exception as e:
+                    log.warning("user_message notify failed: %s", e)
+
+        # 6. Ответ пользователю
+        if user.username and work_tg:
+            reply = (
+                "Спасибо, мы передали ваше сообщение службе заботы 💛\n\n"
+                f"Для скорости — продублируйте, пожалуйста, своё сообщение сами "
+                f"в Telegram: @{work_tg}"
+            )
+        elif user.username and not work_tg:
+            reply = "Спасибо, мы передали ваше сообщение — ответим здесь, в этом боте."
+        elif not user.username and work_tg:
+            reply = (
+                "У вас не указан Telegram-никнейм — мы не сможем вам ответить сюда.\n\n"
+                f"Пожалуйста, напишите напрямую в Telegram: @{work_tg}"
+            )
+        else:
+            reply = (
+                "У вас не указан Telegram-никнейм — мы не сможем вам ответить сюда. "
+                "Добавьте никнейм в настройках Telegram и напишите снова."
+            )
+        await message.answer(reply)
+    except Exception as e:
+        log.exception("handle_user_message failed: %s", e)
 
 
 @router.message()
