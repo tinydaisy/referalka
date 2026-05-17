@@ -319,8 +319,92 @@ export default function ApiDocsPage() {
           </p>
         </Section>
 
-        {/* 3 — программа конференции */}
-        <Section step="3" title="Программа конференции">
+        {/* 3 — подписка/отписка контакта на конкретного бота */}
+        <Section step="3" title="Отметить подписку/отписку контакта на конкретного бота">
+          <p className="text-sm text-gray-700 mb-3">
+            Когда контакт <strong>отписывается от вашего бота</strong> (или, наоборот, возвращается)
+            — вы посылаете нам один запрос, и мы помечаем подписку в БД.
+            Дальше при рассылках iViSiON: ПЛЮСОН не будет слать ему через этот бот,
+            а в карточке контакта станет видно «отписан». Можно использовать,
+            если у вас один клиент-кабинет с <strong>несколькими ботами</strong>
+            (например, основной + сервисный): отписался от сервисного — основной продолжает работать.
+          </p>
+          <Endpoint method="POST" path="/integrations/salebot/subscription" auth />
+
+          <p className="text-xs uppercase tracking-wide text-gray-400 mt-4 mb-2">Тело запроса (JSON)</p>
+          <CodeBlock highlight={['<ВАШ_CLIENT_ID>']} value={`{
+  "client_id": <ВАШ_CLIENT_ID>,    // ← ваш ID из кабинета
+  "platform": "telegram",          // telegram | vk | max
+  "platform_user_id": "5725111966",// tg_id строкой
+  "is_subscribed": false,          // false = отписался, true = вернулся
+  "bot_username": "@my_bot",       // ИЛИ channel_id ниже
+  "channel_id": 7,                 // ИЛИ bot_username выше (один из двух)
+  "username": "ivanov",            // опционально, обновит контакт
+  "first_name": "Иван",            // опционально
+  "last_name": "Иванов",           // опционально
+  "email": "ivan@example.com",     // опционально, для автомерджа
+  "phone": "+79991234567"          // опционально, для автомерджа
+}`} />
+
+          <p className="text-xs uppercase tracking-wide text-gray-400 mt-4 mb-2">Ответ</p>
+          <CodeBlock value={`{
+  "ok": true,
+  "pluson_id": 1234,             // platform_users.id
+  "contact_id": 5678,            // contacts.id
+  "channel_id": 7,               // channels.id резолвленного бота
+  "is_unsubscribed": true        // итоговое состояние в БД
+}`} />
+
+          <p className="text-xs uppercase tracking-wide text-gray-400 mt-4 mb-2">Пример cURL — отписка</p>
+          <CodeBlock highlight={['<ВАШ_CLIENT_ID>', '<ВАШ_ТОКЕН>']} value={`curl -X POST '${apiBase}/integrations/salebot/subscription' \\
+  -H 'Content-Type: application/json' \\
+  -H 'X-Salebot-Secret: <ВАШ_ТОКЕН>' \\
+  -d '{
+    "client_id": <ВАШ_CLIENT_ID>,
+    "platform_user_id": "5725111966",
+    "is_subscribed": false,
+    "bot_username": "@my_bot"
+  }'`} />
+
+          <p className="text-xs uppercase tracking-wide text-gray-400 mt-4 mb-2">Пример настройки в Salebot</p>
+          <div className="rounded-xl border border-gray-200 overflow-hidden text-sm">
+            <table className="w-full">
+              <tbody className="divide-y divide-gray-200">
+                <tr><td className="bg-gray-50 px-3 py-2 font-semibold w-32">Метод</td><td className="px-3 py-2"><code>POST</code></td></tr>
+                <tr><td className="bg-gray-50 px-3 py-2 font-semibold">URL</td><td className="px-3 py-2 break-all"><code>{apiBase}/integrations/salebot/subscription</code></td></tr>
+                <tr><td className="bg-gray-50 px-3 py-2 font-semibold">Заголовки</td><td className="px-3 py-2"><code>{`{"X-Salebot-Secret":"<ВАШ_ТОКЕН>","Content-Type":"application/json"}`}</code></td></tr>
+                <tr><td className="bg-gray-50 px-3 py-2 font-semibold">Когда вызывать</td><td className="px-3 py-2">в блоке «Бот заблокирован» / «Отписался» в вашем сценарии Salebot</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs uppercase tracking-wide text-gray-400 mt-3 mb-2">Тело (вставить как есть, переменные подставит Salebot)</p>
+          <CodeBlock highlight={['<ВАШ_CLIENT_ID>']} value={`{
+  "client_id": <ВАШ_CLIENT_ID>,
+  "platform_user_id": "#client.tg_id#",
+  "is_subscribed": false,
+  "bot_username": "@my_bot"
+}`} />
+
+          <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900 mt-4">
+            💡 Если конструктор не умеет слать заголовки — есть GET-вариант:
+            <CodeBlock compact highlight={['<ВАШ_CLIENT_ID>', '<ВАШ_ТОКЕН>']} value={`GET ${apiBase}/integrations/salebot/subscription
+  ?client_id=<ВАШ_CLIENT_ID>
+  &platform_user_id=5725111966
+  &is_subscribed=false
+  &bot_username=@my_bot
+  &secret=<ВАШ_ТОКЕН>`} />
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 mt-3">
+            ⚠️ Подписка/отписка хранится <strong>раздельно для каждого бота</strong>.
+            Если у вас два бота — отписка от одного не затрагивает второй.
+            Это отличается от блокировки бота через «Stop» в Telegram — там мы помечаем отписку
+            <em> сразу во всех контекстах</em>, потому что физически бот не может больше написать.
+          </div>
+        </Section>
+
+        {/* 4 — программа конференции */}
+        <Section step="4" title="Программа конференции">
           <p className="text-sm text-gray-700 mb-3">
             Программа = список <strong>дней</strong> + список <strong>сессий по каждому дню</strong>.
             Время хранится строкой <code>"HH:MM"</code> и означает МСК (Europe/Moscow).
@@ -367,8 +451,8 @@ export default function ApiDocsPage() {
           </div>
         </Section>
 
-        {/* 4 — список спикеров */}
-        <Section step="4" title="Спикер: регалии, фото, темы">
+        {/* 5 — список спикеров */}
+        <Section step="5" title="Спикер: регалии, фото, темы">
           <p className="text-sm text-gray-700 mb-3">
             Два публичных эндпоинта — список и полный профиль одного спикера.
           </p>
@@ -411,8 +495,8 @@ export default function ApiDocsPage() {
           </p>
         </Section>
 
-        {/* 5 — список каналов */}
-        <Section step="5" title="Список каналов спикеров события">
+        {/* 6 — список каналов */}
+        <Section step="6" title="Список каналов спикеров события">
           <p className="text-sm text-gray-700 mb-3">
             Отдельного эндпоинта «только каналы» нет — берите его из ответа списка спикеров (шаг&nbsp;4).
             Каналы лежат в полях <code>tg_channel_url</code> (ссылка) и <code>tg_channel_id</code> (числовой ID канала, нужен боту для <code>getChatMember</code>).
@@ -428,8 +512,8 @@ export default function ApiDocsPage() {
           </div>
         </Section>
 
-        {/* 6 — проверка подписки */}
-        <Section step="6" title="Проверить подписку участника на каналы спикеров">
+        {/* 7 — проверка подписки */}
+        <Section step="7" title="Проверить подписку участника на каналы спикеров">
           <p className="text-sm text-gray-700 mb-3">
             Бот iViSiON: ПЛЮСОНа сам сходит в каждый канал спикера через Telegram <code>getChatMember</code>
             и вернёт список тех, на которые человек <strong>не подписан</strong>.
@@ -471,8 +555,8 @@ export default function ApiDocsPage() {
           </div>
         </Section>
 
-        {/* 7 — билет розыгрыша */}
-        <Section step="7" title="Бонус: добавить билет розыгрыша">
+        {/* 8 — билет розыгрыша */}
+        <Section step="8" title="Бонус: добавить билет розыгрыша">
           <p className="text-sm text-gray-700 mb-3">
             Когда в боте участник вводит кодовое слово — этот эндпоинт регистрирует билет.
             Без авторизации, идемпотентно по <code>(event_id, ticket_number)</code>.
