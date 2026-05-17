@@ -346,10 +346,17 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
     when = run["landed_at"]
     when_str = when.strftime("%d.%m.%Y %H:%M") if when else ""
 
+    # Активный бот клиента — лид-магниты слушает именно он.
+    bot_handle = None
+    if run["platform_user_id"] and (run["platform_slug"] or "telegram") == "telegram":
+        from app.services.channels import get_bot_handle_for_user
+        bot_handle = await get_bot_handle_for_user(client_id, str(run["platform_user_id"]), db)
+
     parts = [
         "🆕 <b>Новый интерес</b>",
         "",
         f"<b>Лид-магнит:</b> {run['source_name'] or '—'}",
+        f"<b>Бот:</b> {bot_handle or '—'}",
         f"<b>Когда:</b> {when_str or '—'}",
         "",
         "<b>Кто пришёл</b>",
