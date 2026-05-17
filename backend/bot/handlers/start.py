@@ -220,7 +220,13 @@ async def handle_getchatid(message: Message):
     )
 
 
-@router.message(F.text & ~F.text.startswith('/') & F.forward_from_chat.is_(None) & F.forward_from.is_(None))
+@router.message(
+    F.chat.type == 'private'
+    & F.text
+    & ~F.text.startswith('/')
+    & F.forward_from_chat.is_(None)
+    & F.forward_from.is_(None)
+)
 async def handle_user_message(message: Message):
     """Свободное сообщение пользователя в бот клиента (VIP или системный @pluson_bot).
 
@@ -376,9 +382,14 @@ async def handle_user_message(message: Message):
         log.exception("handle_user_message failed: %s", e)
 
 
-@router.message()
+@router.message(F.chat.type == 'private')
 async def handle_forwarded(message: Message):
-    """Любая пересланная сюда из канала запись — отвечаем chat_id (для /getchatid)."""
+    """Любая пересланная сюда из канала запись — отвечаем chat_id (для /getchatid).
+
+    Только в личке с ботом. В групповых чатах/каналах Telegram сам форвардит
+    посты канала в привязанный чат, и без этого фильтра бот сыпал ответами
+    «ID канала: …» в чат, что не нужно.
+    """
     fwd = message.forward_from_chat
     if fwd:
         await message.answer(

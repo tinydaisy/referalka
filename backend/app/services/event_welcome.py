@@ -83,18 +83,11 @@ async def _send_event_organizer_notification(
             referrer_contact_id, platform_slug,
         )
 
-    # Какой бот «обслужил» этого человека — показываем клиенту в уведомлении.
-    bot_handle = None
-    if tg_id and platform_slug == 'telegram':
-        from .channels import get_bot_handle_for_user
-        bot_handle = await get_bot_handle_for_user(client_id, tg_id, conn)
-
     when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
     parts = [
         "🆕 <b>Новый интерес</b>",
         "",
         f"<b>Событие:</b> {event_title or '—'}",
-        f"<b>Бот:</b> {bot_handle or '—'}",
         f"<b>Когда:</b> {when_str}",
         "",
         "<b>Кто пришёл</b>",
