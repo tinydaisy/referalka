@@ -31,6 +31,7 @@ MAX_DIM_BY_KIND = {
     "brand_logo":         600,
     "owner_photo":       1200,
     "funnel_media":      1920,
+    "broadcast_photo":   1920,
 }
 
 JPEG_QUALITY = 85

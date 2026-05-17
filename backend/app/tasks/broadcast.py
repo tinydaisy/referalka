@@ -474,3 +474,67 @@ async def _build_audience(conn, schedule) -> set:
         exclude_ids = {r["platform_user_id"] for r in ex}
 
     return include_ids - exclude_ids
+
+
+# ─────────────────────────────────────────
+# Cleanup временных фото произвольных рассылок
+# ─────────────────────────────────────────
+# Произвольная рассылка может прикреплять фото, загруженное прямо в этой сессии
+# (kind='broadcast_photo' в client_files). Чтобы не засорять хранилище после
+# отправки — удаляем такие фото из R2 + БД через 10 минут после завершения
+# рассылки. Орфаны (загрузили и не использовали) — через час.
+@celery.task(name="app.tasks.broadcast.cleanup_broadcast_photos")
+def cleanup_broadcast_photos():
+    run_async(_cleanup_broadcast_photos())
+
+
+async def _cleanup_broadcast_photos():
+    from app.services import r2_storage
+    conn = await _get_conn()
+    try:
+        # 1. Фото, использованные в рассылках, которые завершились (done/cancelled/
+        #    paused_subscription_expired) > 10 минут назад.
+        used_rows = await conn.fetch(
+            """
+            SELECT DISTINCT cf.id, cf.r2_key, cf.size_bytes, cf.client_id
+              FROM client_files cf
+              JOIN broadcast_schedules bs ON bs.snapshot_photo = cf.url
+             WHERE cf.kind = 'broadcast_photo'
+               AND bs.status IN ('done', 'cancelled', 'paused_subscription_expired')
+               AND bs.finished_at IS NOT NULL
+               AND bs.finished_at < NOW() - INTERVAL '10 minutes'
+            """
+        )
+
+        # 2. Орфаны: загружены > 1 часа назад и ни в одной рассылке не используются.
+        orphan_rows = await conn.fetch(
+            """
+            SELECT cf.id, cf.r2_key, cf.size_bytes, cf.client_id
+              FROM client_files cf
+             WHERE cf.kind = 'broadcast_photo'
+               AND cf.created_at < NOW() - INTERVAL '1 hour'
+               AND NOT EXISTS (
+                 SELECT 1 FROM broadcast_schedules bs WHERE bs.snapshot_photo = cf.url
+               )
+            """
+        )
+
+        # Дедуп по id
+        all_rows = {r["id"]: r for r in (list(used_rows) + list(orphan_rows))}
+        if not all_rows:
+            return
+
+        for row in all_rows.values():
+            try:
+                await r2_storage.delete_object(row["r2_key"])
+            except Exception as e:
+                logger.warning(f"cleanup_broadcast_photos: не смог удалить из R2 {row['r2_key']}: {e}")
+            async with conn.transaction():
+                await conn.execute("DELETE FROM client_files WHERE id = $1", row["id"])
+                await conn.execute(
+                    "UPDATE clients SET storage_used_bytes = GREATEST(0, storage_used_bytes - $1) WHERE id = $2",
+                    int(row["size_bytes"]), row["client_id"],
+                )
+        logger.info(f"cleanup_broadcast_photos: удалено {len(all_rows)} файлов")
+    finally:
+        await conn.close()

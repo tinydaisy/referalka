@@ -82,6 +82,12 @@ def build_key(
     if kind == "funnel_media":
         return f"{base}/funnel_media/{fname}"
 
+    if kind == "broadcast_photo":
+        # Временные фото произвольных рассылок. Воркер cleanup_broadcast_photos
+        # удаляет их через 10 мин после отправки рассылки (или через час, если
+        # фото загружено и не использовано).
+        return f"{base}/broadcast_photos/{fname}"
+
     raise ValueError(f"Неизвестный kind: {kind}")
 
 

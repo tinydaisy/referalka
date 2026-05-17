@@ -31,5 +31,12 @@ celery.conf.update(
             "task": "app.tasks.subscriptions.notify_expiring",
             "schedule": 3600.0,
         },
+        # Каждые 5 минут — удаление временных broadcast_photo:
+        #  - после отправки рассылки (done/cancelled) с задержкой 10 мин;
+        #  - орфанов (загружено, нигде не использовано, > 1 ч).
+        "cleanup-broadcast-photos": {
+            "task": "app.tasks.broadcast.cleanup_broadcast_photos",
+            "schedule": 300.0,
+        },
     }
 )

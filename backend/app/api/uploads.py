@@ -15,6 +15,8 @@ GET    /api/v1/storage/usage     — текущее использование �
     brand_logo        (профиль клиента: логотип в углу страниц Mini App)
     owner_photo       (профиль клиента: фото основателя)
     funnel_media      (фото/видео для текстов воронки лид-магнитов)
+    broadcast_photo   (фото для произвольной рассылки; авто-удаляется через 10 мин
+                       после отправки воркером cleanup_broadcast_photos)
 
 Картинки автоматически ресайзятся под kind (см. image_processor.MAX_DIM_BY_KIND).
 """
@@ -74,7 +76,7 @@ async def upload_file(
     # 1. Валидация kind и обязательных параметров
     if kind not in {
         "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
-        "brand_photo", "brand_logo", "owner_photo", "funnel_media",
+        "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
     }:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 

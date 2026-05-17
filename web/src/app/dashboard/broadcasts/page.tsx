@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
+import FileUploader from '@/components/FileUploader'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -716,10 +717,20 @@ function CustomBroadcastModal(props: {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Фото (URL, опционально)</label>
-            <input type="text" value={photoUrl} onChange={e => setPhotoUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            <label className="text-xs text-gray-500 mb-1 block">Фото (опционально)</label>
+            <FileUploader
+              mode="single"
+              value={photoUrl || null}
+              onChange={(url) => setPhotoUrl(url || '')}
+              kind="broadcast_photo"
+              accept="image/*"
+              aspectClass="aspect-video"
+              emptyText="Перетащите фото или нажмите «Загрузить»"
+              buttonLabel="Загрузить фото"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">
+              Фото авто-удалится через 10 минут после отправки рассылки — хранилище не засоряется.
+            </p>
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Текст (можно {'{first_name}'} — подставится имя)</label>
