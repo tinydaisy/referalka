@@ -236,6 +236,185 @@ async def salebot_register_get(
     return await salebot_register(request, secret, db)
 
 
+class SalebotSubscriptionRequest(BaseModel):
+    """Подписка/отписка контакта на КОНКРЕТНЫЙ бот клиента."""
+    client_id: int                          # зашит в настройках Salebot
+    platform: str = "telegram"             # 'telegram' | 'vk' | 'max'
+    platform_user_id: str                  # tg_id / vk_id / max_id — строкой
+    is_subscribed: Union[str, int, bool]   # true = подписался, false = отписался
+
+    # Идентификация канала — один из двух обязателен
+    channel_id: Optional[int] = None       # channels.id
+    bot_username: Optional[str] = None     # @handle бота — для удобства
+
+    # Опционально — обновить/создать контакт (автомердж по email/phone)
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    salebot_id: Optional[str] = None
+
+    secret: Optional[str] = None           # токен можно передать в теле
+
+    @validator('is_subscribed', pre=True)
+    def parse_bool(cls, v):
+        if isinstance(v, str):
+            return v.strip() in ('1', 'true', 'True')
+        return bool(v)
+
+
+class SalebotSubscriptionResponse(BaseModel):
+    ok: bool
+    pluson_id: int                          # platform_users.id
+    contact_id: int                         # contacts.id
+    channel_id: int                         # channels.id (резолвленный)
+    is_unsubscribed: bool                   # итоговое состояние
+
+
+@router.post(
+    "/salebot/subscription",
+    response_model=SalebotSubscriptionResponse,
+    summary="Подписка/отписка контакта на конкретный бот клиента"
+)
+async def salebot_subscription(
+    data: SalebotSubscriptionRequest,
+    x_salebot_secret: Optional[str] = Header(None),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    # 1. Авторизация
+    token = x_salebot_secret or data.secret
+    await _authorize(token, data.client_id, db)
+
+    # 2. Резолв канала + проверка что он привязан к этому клиенту
+    if not data.channel_id and not data.bot_username:
+        raise HTTPException(
+            status_code=400,
+            detail="Нужно передать channel_id или bot_username"
+        )
+
+    if data.channel_id:
+        cc_id = await db.fetchval(
+            "SELECT id FROM client_channels WHERE client_id = $1 AND channel_id = $2",
+            data.client_id, data.channel_id
+        )
+        if not cc_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Канал {data.channel_id} не привязан к клиенту {data.client_id}"
+            )
+        channel_id = data.channel_id
+    else:
+        handle = (data.bot_username or "").strip()
+        if not handle:
+            raise HTTPException(status_code=400, detail="Пустой bot_username")
+        if not handle.startswith('@'):
+            handle = '@' + handle
+        row = await db.fetchrow(
+            """SELECT ch.id AS ch_id, cc.id AS cc_id
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE cc.client_id = $1
+                  AND ch.platform_slug = $2
+                  AND lower(ch.handle) = lower($3)
+                ORDER BY cc.is_active DESC, ch.id ASC
+                LIMIT 1""",
+            data.client_id, data.platform, handle
+        )
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Бот {handle} не привязан к клиенту {data.client_id} "
+                       f"на платформе {data.platform}"
+            )
+        channel_id = row['ch_id']
+        cc_id = row['cc_id']
+
+    # 3. Upsert контакт + идентичность (автомердж по email/phone, как в /register)
+    contact_id, pluson_id, _is_new = await upsert_contact_with_identity(
+        db,
+        client_id=data.client_id,
+        platform_slug=data.platform,
+        platform_user_id=data.platform_user_id,
+        username=data.username,
+        first_name=data.first_name,
+        last_name=data.last_name,
+        email=data.email,
+        phone=data.phone,
+        salebot_id=data.salebot_id,
+    )
+
+    # 4. UPSERT подписки на конкретный канал
+    is_unsub = not bool(data.is_subscribed)
+    await db.execute(
+        """INSERT INTO platform_user_channels
+             (platform_user_id, client_channel_id, is_unsubscribed,
+              subscribed_at, unsubscribed_at)
+           VALUES ($1, $2, $3,
+                   CASE WHEN $3 = FALSE THEN NOW() ELSE NULL END,
+                   CASE WHEN $3 = TRUE  THEN NOW() ELSE NULL END)
+           ON CONFLICT (platform_user_id, client_channel_id) DO UPDATE
+             SET is_unsubscribed = EXCLUDED.is_unsubscribed,
+                 subscribed_at = CASE
+                     WHEN EXCLUDED.is_unsubscribed = FALSE
+                     THEN COALESCE(platform_user_channels.subscribed_at, NOW())
+                     ELSE platform_user_channels.subscribed_at
+                 END,
+                 unsubscribed_at = CASE
+                     WHEN EXCLUDED.is_unsubscribed = TRUE
+                     THEN COALESCE(platform_user_channels.unsubscribed_at, NOW())
+                     ELSE NULL
+                 END""",
+        pluson_id, cc_id, is_unsub
+    )
+
+    return {
+        "ok": True,
+        "pluson_id": pluson_id,
+        "contact_id": contact_id,
+        "channel_id": channel_id,
+        "is_unsubscribed": is_unsub,
+    }
+
+
+@router.get(
+    "/salebot/subscription",
+    summary="Подписка/отписка через GET (для Salebot без заголовков)"
+)
+async def salebot_subscription_get(
+    client_id: int,
+    platform_user_id: str,
+    is_subscribed: bool,
+    secret: str,
+    channel_id: Optional[int] = None,
+    bot_username: Optional[str] = None,
+    platform: str = "telegram",
+    username: Optional[str] = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    salebot_id: Optional[str] = None,
+    db: asyncpg.Connection = Depends(get_db)
+):
+    request = SalebotSubscriptionRequest(
+        client_id=client_id,
+        platform=platform,
+        platform_user_id=platform_user_id,
+        is_subscribed=is_subscribed,
+        channel_id=channel_id,
+        bot_username=bot_username,
+        username=username,
+        first_name=first_name,
+        last_name=last_name,
+        email=email,
+        phone=phone,
+        salebot_id=salebot_id,
+        secret=secret,
+    )
+    return await salebot_subscription(request, secret, db)
+
+
 @router.get(
     "/salebot/user",
     summary="Получить данные участника по platform_user_id"
