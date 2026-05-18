@@ -34,6 +34,23 @@ import Script from 'next/script'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
+// Tilda overlay-popup и GetCourse popup открывают success-URL ВНУТРИ iframe.
+// `window.location.href = t.me-link` из iframe меняет URL только iframe, а не
+// верхнего окна — Telegram-app не открывается, юзер сидит на спиннере. Поэтому
+// навигация всегда идёт через top-window, и есть видимая кнопка как ручной
+// фолбэк когда даже top-навигация заблокирована popup-blocker'ом.
+function navigateTop(url: string) {
+  try {
+    if (window !== window.top && window.top) {
+      // Writes в `window.top.location.href` разрешены даже для cross-origin
+      // (same-origin policy запрещает только READ из window.top).
+      window.top.location.href = url
+      return
+    }
+  } catch (_) { /* CORS — пробуем обычный путь */ }
+  try { window.location.href = url } catch (_) { /* last resort below */ }
+}
+
 export default function RegisteredReturnPage() {
   const { slug: rawSlug } = useParams()
   const slug = String(rawSlug || '')
@@ -47,6 +64,7 @@ export default function RegisteredReturnPage() {
   const qPid       = sp.get('pid')        || sp.get('partner_id') || ''
   const qUtmSource = sp.get('utm_source') || ''
   const [status, setStatus] = useState<'loading' | 'ok' | 'fallback' | 'error'>('loading')
+  const [fallbackUrl, setFallbackUrl] = useState<string>('')
   const [errorMsg, setErrorMsg] = useState<string>('')
 
   useEffect(() => {
@@ -124,20 +142,22 @@ export default function RegisteredReturnPage() {
       // welcomed_at IS NULL → автоматически вкладка «Интро» (welcome-экран).
       // Бот клиента отдельно шлёт приветствие через event_welcome при event_start
       // в Mini App — пользователь увидит сообщение когда свернёт webview.
-      window.location.replace(redirectPath)
+      // Через top на случай если /r/{slug} открыт в iframe (Tilda overlay).
+      try {
+        if (window !== window.top && window.top) window.top.location.href = redirectPath
+        else window.location.replace(redirectPath)
+      } catch (_) { window.location.replace(redirectPath) }
     }, 100)
     return () => clearInterval(timer)
   }, [slug])
 
   async function fallbackRedirect() {
     // Нет Telegram.WebApp или нет user.id — обычно потому что Tilda/GetCourse
-    // после оплаты редиректит в Safari (не в Telegram webview).
-    // Универсальное решение — t.me-ссылка: iOS/Android откроют Telegram через
-    // universal link, пользователь окажется в чате бота. Бот при /start или
-    // через event_start (когда юзер откроет Mini App) дозарегистрирует.
-    setStatus('fallback')
+    // после оплаты редиректит в Safari или в Tilda-overlay iframe (не в
+    // Telegram webview). Универсальное решение — t.me-ссылка: iOS/Android
+    // откроют Telegram через universal link, пользователь окажется в боте.
+    // Mini App видит startapp `ref_pg{slug}_reg` → авто-регистрация + welcome.
     let handle = 'pluson_bot'
-    let isVip = false
     try {
       const ctrl = new AbortController()
       const t = setTimeout(() => ctrl.abort(), 4000)
@@ -149,16 +169,16 @@ export default function RegisteredReturnPage() {
       if (r.ok) {
         const j = await r.json()
         if (j?.bot_handle) handle = String(j.bot_handle)
-        isVip = !!j?.is_vip_bot
       }
     } catch (_) { /* ignore — пойдём с pluson_bot */ }
     // Short-name `pluson` уникален per-бот (не глобально) — работает у общего
-    // @pluson_bot и у всех VIP-ботов. URL t.me/{handle}/pluson?startapp=...
-    // открывает Mini App НАПРЯМУЮ, без захода в чат бота. Mini App видит
-    // startapp `ref_pg{slug}_reg` → флаг regFromLanding=true → авто-регистрация
-    // + welcome-экран.
+    // @pluson_bot и у всех VIP-ботов.
     const url = `https://t.me/${handle}/pluson?startapp=ref_pg${encodeURIComponent(slug)}_reg`
-    window.location.href = url
+    setFallbackUrl(url)
+    setStatus('fallback')
+    // Сначала пробуем top-window автоматом (Tilda overlay). Если заблокировано
+    // popup-blocker'ом — пользователь увидит кнопку и нажмёт сам.
+    navigateTop(url)
   }
 
   return (
@@ -176,6 +196,33 @@ export default function RegisteredReturnPage() {
             <>
               <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>Не удалось завершить регистрацию</div>
               <div style={{ fontSize: 13, opacity: 0.85, lineHeight: 1.5 }}>{errorMsg}</div>
+            </>
+          ) : status === 'fallback' && fallbackUrl ? (
+            <>
+              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 10 }}>
+                Регистрация завершена ✓
+              </div>
+              <div style={{ fontSize: 14, opacity: 0.9, lineHeight: 1.5, marginBottom: 28 }}>
+                Откройте Telegram, чтобы зайти в кабинет события
+              </div>
+              <a
+                href={fallbackUrl}
+                target="_top"
+                rel="noopener"
+                style={{
+                  display: 'inline-block',
+                  background: '#FFCFA4',
+                  color: '#0a1520',
+                  fontWeight: 700,
+                  fontSize: 16,
+                  padding: '16px 36px',
+                  borderRadius: 12,
+                  textDecoration: 'none',
+                  boxShadow: '0 6px 24px rgba(255,207,164,0.25)',
+                }}
+              >
+                Открыть в Telegram
+              </a>
             </>
           ) : (
             <>
