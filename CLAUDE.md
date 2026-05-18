@@ -67,6 +67,7 @@
 - **Тестирование после каждого запроса** — после каждого изменения обязательно протестировать как реальный пользователь через dev-домен и Telegram Mini App. Описать результаты в ответе
 - Полные реквизиты серверов — в `memory/server_access.md` (прод) и `memory/dev_server.md` (dev)
 - **Cloudflare R2** (хранилище афиш и картинок) — бакет `referalka`, ключи и endpoint в `memory/r2_storage.md`. Переменные окружения: `CF_ACCOUNT_ID`, `CF_R2_ACCESS_KEY_ID`, `CF_R2_SECRET_ACCESS_KEY`, `CF_R2_BUCKET_NAME`, `CF_R2_PUBLIC_URL` (лежат в `web/.env.local` на обоих серверах)
+- **Cloudflare DNS/Proxy** (с 2026-05-14) — `pluson.ru`, `www.pluson.ru`, `dev.pluson.ru` за Cloudflare Free с оранжевой тучей (Proxied). Аккаунт `margarita.forbs1@gmail.com` (другой от R2). NS в Reg.ru переключены на `*.ns.cloudflare.com`. SSL/TLS режим **Full (strict)** + Always Use HTTPS. Решает `net::ERR_TIMED_OUT` для пользователей с зарубежным VPN (Beget RU плохо доступен из-за рубежа). Лимит upload через CF = 100 МБ. Подробности — `memory/project_cloudflare_setup.md`. `margoforbs.ru` пока НЕ за CF.
 
 ---
 
@@ -150,7 +151,12 @@ WHERE-логика контактов вынесена в хелпер [`_build_
 - VIP-клиент добавляет @pluson_bot админом в свой служебный канал, пересылает любое сообщение из канала в @pluson_bot — handler `/getchatid` отвечает с chat_id.
 - Поле настраивается в `/dashboard/settings` → вкладка «Технические» → блок «Канал уведомлений» с инструкцией.
 
-**Шаблон воронки** ([backend/app/api/funnels.py](backend/app/api/funnels.py)) — один на клиента, тип `'lead_magnet'`. Auto-create при первом GET с дефолтными текстами. 5 редактируемых полей: `text_1`, `button_label`, `text_2`, `text_3_delivered`, `text_3_stuck`. Создание новых шаблонов нельзя, только править существующий. Плейсхолдеры подставляются в момент отправки: `{materials_list}` (нумерованный список названий), `{materials_with_links}` (название + ссылка), `{client_brand_name}`, `{client_owner_name}`, `{client_owner_achievements}`, `{subscription_channel}`, `{owner_telegram}`.
+**Шаблон воронки** ([backend/app/api/funnels.py](backend/app/api/funnels.py)) — один на клиента, тип `'lead_magnet'`. Auto-create при первом GET с дефолтными текстами. 5 редактируемых полей: `text_1`, `button_label`, `text_2`, `text_3_delivered`, `text_3_stuck`. Создание новых шаблонов нельзя, только править существующий. Плейсхолдеры подставляются в момент отправки: `{materials_list}` (нумерованный список названий через пустую строку — двойной перенос), `{materials_with_links}` (название + ссылка), `{client_brand_name}`, `{client_owner_name}`, `{client_owner_bio}` (биография из `clients.bio`), `{client_owner_achievements}`, `{subscription_channel}`, `{owner_telegram}`. Сообщения уходят с `parse_mode=HTML` — можно использовать `<b>`, `<i>`, `<a href>`.
+
+**Медиа в шаблоне (миграция 077 от 14.05.2026).** К Тексту 1 и Тексту 2 можно прикрепить фото или видео (поля `text_1_media_url`, `text_1_media_type`, `text_2_media_url`, `text_2_media_type`; CHECK на `photo|video`). Загрузка — через `POST /api/v1/uploads` с `kind='funnel_media'`. Ресайз картинок — до 1920px (видео не ресайзится). Логика отправки в `_send_text_with_media` ([backend/app/services/funnel_service.py](backend/app/services/funnel_service.py)):
+- нет медиа → `sendMessage` (как раньше);
+- медиа + `len(text) ≤ 1024` → одно сообщение `sendPhoto`/`sendVideo` с caption + inline-кнопкой (`TG_CAPTION_LIMIT = 1024`);
+- медиа + текст длиннее → `sendPhoto`/`sendVideo` без caption + `sendMessage` с полным текстом и кнопкой.
 
 **Аналитика лид-магнита/пакета** — 3 счётчика по `funnel_runs.stage`:
 1. **landed** — перешли по ссылке (включая отвал не дошедших до бота)
@@ -601,7 +607,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - `referrer_participant_id` ссылается на `event_participants` — реферальная связь контекстная, только внутри события.
 - ⚠️ `telegram_users` и `notifications_log` — удалены.
 - Модульные таблицы с префиксом `conf_` принадлежат модулю «Конференция».
-- Коллабораторы — глобальная база: `collaborators` + `conf_speaker_events`. У `collaborators` FK `contact_id → contacts(id)`.
+- Коллабораторы — глобальная база: `collaborators` + `conf_speaker_events`. У `collaborators` FK `contact_id → contacts(id)` **NOT NULL** (миграция 086 от 2026-05-18). Коллаб = «расширение контакта»: только должность, фото, регалии, бот-канал, личный TG и т.п.; имя/email/телефон — поля контакта. Создание идёт **только** из существующего контакта (`POST /api/v1/collaborators/ { contact_id }`) — модалка «Добавить из контактов» на `/dashboard/collaborations`. Импорт JSON (`POST /collaborators/import`) — если контакта с таким именем нет, авто-создаёт пустой и привязывает. На карточке коллаба блок «Контакт в общей базе» виден всегда; на карточке контакта (если есть запись в `collaborators`) — плашка «Этот контакт — коллаборатор» со ссылкой. Email/телефон контакта правятся inline на `/dashboard/clients` (`PATCH /api/v1/contacts/{id}`).
 - `conf_speaker_events.notes` (миграция 041 от 2026-04-27) — произвольный текст под спикера в конкретной конференции (шпаргалка ведущего, частушка, заметки по гонорару). Редактируется на странице спикера в дашборде, в публичные endpoints (`/speakers/public`, `/speakers/{id}/public`) не отдаётся.
 - `collaborators.external_ref_param` (миграция 058 от 2026-05-05, расширено 2026-05-07) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки коллаборатора с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим, не валидируем — клиент сам знает, к какой системе привязывает партнёра. **Общая логика** — [`backend/app/services/external_landing.py`](backend/app/services/external_landing.py): `resolve_external_ref_param(client_id, pid)` + `build_external_landing_url(...)`. **Где приписывается** — все 4 точки, в которых открывается `events.landing_url`:
   1. `GET /api/v1/public/events/{slug}/landing-redirect` ([client_profile.py](backend/app/api/client_profile.py)) — для inline-скрипта `mini-app/index.html` ДО React. Только при `status='published'` и не-зарегистрированном пользователе.
@@ -1002,8 +1008,9 @@ CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Кон
 - Примеры: `ref`, `ref_pid5725111966`, `ref_srcinsta`, `ref_pid5725111966_srcinsta`
 
 **Ссылки из лендинга (ivision-conf):**
-- Веб: `https://ivision.margoforbs.ru/ivision-conf-7` (без `app=tg`)
-- Бот: `https://ivision.margoforbs.ru/ivision-conf-7?app=tg[&pid=...][&utm_source=...]` (старое имя `new_partner_id` поддержано)
+- Веб: `https://ivision.pluson.ru/ivision-conf-7` (без `app=tg`)
+- Бот: `https://ivision.pluson.ru/ivision-conf-7?app=tg[&pid=...][&utm_source=...]` (старое имя `new_partner_id` поддержано)
+- Старый домен `https://ivision.margoforbs.ru/*` отдаёт 301-редирект на `ivision.pluson.ru/*` (на Beget nginx) — старые ссылки в Salebot/GetCourse/афишах продолжают работать, но новые публиковать только с новым доменом.
 - Каждый HTML-лендинг содержит скрипт: если `app=tg` → redirect на `t.me/Margo_forbs_bot/ivision?startapp=...`
 
 **partnerId / utmSource** передаются в `EventPage` для fallback-регистрации (если участник не был зарегистрирован через GetCourse).

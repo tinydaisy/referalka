@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check } from 'lucide-react'
+import Link from 'next/link'
+import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 
@@ -463,6 +464,28 @@ export default function ContactsPage() {
               )}
             </div>
 
+            {/* Если контакт — также коллаборатор, показываем ссылку */}
+            {selected.collaborator && (
+              <Link
+                href={`/dashboard/collaborations/${selected.collaborator.id}`}
+                className="mb-6 flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-3 hover:bg-amber-100 transition-colors group"
+              >
+                <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-white border border-amber-200 flex items-center justify-center">
+                  {selected.collaborator.photo_url
+                    ? <img src={selected.collaborator.photo_url} alt={selected.collaborator.name} className="w-full h-full object-cover" />
+                    : <Briefcase size={16} className="text-amber-600" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold text-amber-900 uppercase tracking-wide">Этот контакт — коллаборатор</div>
+                  <div className="text-sm text-gray-800 truncate">
+                    {selected.collaborator.name}
+                    {selected.collaborator.title && <span className="text-gray-500"> — {selected.collaborator.title}</span>}
+                  </div>
+                </div>
+                <ExternalLink size={14} className="text-amber-700 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+              </Link>
+            )}
+
             {/* Каналы — группы по платформам */}
             {selected.identities && selected.identities.length > 0 && (
               <div className="mb-6">
@@ -515,24 +538,31 @@ export default function ContactsPage() {
 
             {/* Реф-код и реферер */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-6">
-              {selected.email && (
-                <div className="flex items-start gap-2">
-                  <Mail size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-400">Email</p>
-                    <p className="text-sm text-gray-800 break-all">{selected.email}</p>
-                  </div>
-                </div>
-              )}
-              {selected.phone && (
-                <div className="flex items-start gap-2">
-                  <Phone size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-400">Телефон</p>
-                    <p className="text-sm text-gray-800">{selected.phone}</p>
-                  </div>
-                </div>
-              )}
+              <ContactFieldEditor
+                contactId={selected.id}
+                field="email"
+                label="Email"
+                icon={<Mail size={15} className="text-gray-400 mt-0.5 shrink-0" />}
+                value={selected.email}
+                inputType="email"
+                onSaved={(v) => {
+                  setSelected((s: any) => s ? { ...s, email: v } : s)
+                  setContacts((cs: any[]) => cs.map(c => c.id === selected.id ? { ...c, email: v } : c))
+                }}
+              />
+              <ContactFieldEditor
+                contactId={selected.id}
+                field="phone"
+                label="Телефон"
+                icon={<Phone size={15} className="text-gray-400 mt-0.5 shrink-0" />}
+                value={selected.phone}
+                inputType="tel"
+                placeholder="+7 999 123-45-67"
+                onSaved={(v) => {
+                  setSelected((s: any) => s ? { ...s, phone: v } : s)
+                  setContacts((cs: any[]) => cs.map(c => c.id === selected.id ? { ...c, phone: v } : c))
+                }}
+              />
               {selected.ref_code && (
                 <div className="flex items-start gap-2">
                   <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
@@ -1022,6 +1052,108 @@ function ContactNameEditor({
       <h2 className="text-xl font-bold text-gray-900 truncate group-hover:text-[#25455D]">{initialName}</h2>
       <Pencil size={14} className="text-gray-300 group-hover:text-gray-600 shrink-0 transition-colors" />
     </button>
+  )
+}
+
+// ─── Inline-редактор поля контакта (email / phone) ───────────────────────────
+function ContactFieldEditor({
+  contactId,
+  field,
+  label,
+  icon,
+  value,
+  inputType,
+  placeholder,
+  onSaved,
+}: {
+  contactId: number
+  field: 'email' | 'phone'
+  label: string
+  icon: React.ReactNode
+  value: string | null
+  inputType: 'email' | 'tel'
+  placeholder?: string
+  onSaved: (newValue: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => { setDraft(value || ''); setEditing(false); setError('') }, [contactId, value])
+
+  async function save() {
+    const v = draft.trim() || null
+    if ((v || null) === (value || null)) { setEditing(false); return }
+    setSaving(true); setError('')
+    try {
+      const r: any = await api.contacts.update(contactId, { [field]: v ?? '' })
+      onSaved(r.contact?.[field] ?? v)
+      setEditing(false)
+    } catch (e: any) {
+      setError(e?.message || 'Ошибка')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-2">
+      {icon}
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-gray-400">{label}</p>
+        {editing ? (
+          <div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <input
+                autoFocus
+                type={inputType}
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') save()
+                  if (e.key === 'Escape') { setEditing(false); setDraft(value || ''); setError('') }
+                }}
+                placeholder={placeholder}
+                className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-brand/30"
+                disabled={saving}
+              />
+              <button
+                onClick={save}
+                disabled={saving}
+                className="p-1.5 rounded-lg text-white shrink-0"
+                style={{ background: '#25455D' }}
+                title="Сохранить"
+              >
+                <Check size={13} />
+              </button>
+              <button
+                onClick={() => { setEditing(false); setDraft(value || ''); setError('') }}
+                disabled={saving}
+                className="p-1.5 rounded-lg border border-gray-200 text-gray-500 shrink-0"
+                title="Отмена"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+          </div>
+        ) : (
+          <button
+            onClick={() => setEditing(true)}
+            className="group flex items-center gap-1.5 max-w-full text-left"
+            title={value ? `Изменить ${label.toLowerCase()}` : `Добавить ${label.toLowerCase()}`}
+          >
+            {value ? (
+              <p className="text-sm text-gray-800 break-all group-hover:text-[#25455D]">{value}</p>
+            ) : (
+              <p className="text-sm text-gray-400 italic group-hover:text-[#25455D]">— добавить</p>
+            )}
+            <Pencil size={11} className="text-gray-300 group-hover:text-gray-600 shrink-0 transition-colors" />
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 

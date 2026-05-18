@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
-import { Plus, Search, Users, ChevronRight, Trash2, Upload, X, FileJson, CheckCircle2, AlertCircle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Plus, Search, Users, ChevronRight, Trash2, Upload, X, FileJson, CheckCircle2, AlertCircle, Mail, Phone, UserPlus } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import { Spinner } from '@/components/Spinner'
@@ -71,6 +72,10 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-bold text-gray-900 text-lg">Пакетный импорт коллабораций</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"><X size={18} /></button>
+        </div>
+
+        <div className="mb-5 bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+          Если коллаба с таким именем нет в Контактах — создастся новый пустой контакт (без email/телефона). Заполнить его можно потом в разделе «Контакты».
         </div>
 
         {/* Формат файла */}
@@ -165,6 +170,149 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   )
 }
 
+// Модалка: «Добавить коллаборатора из контактов». Коллаб обязан быть привязан
+// к существующему контакту — это «расширение» контакта, а не отдельная сущность.
+function AddFromContactModal({
+  onClose,
+  takenContactIds,
+}: {
+  onClose: () => void
+  takenContactIds: Set<number>
+}) {
+  const router = useRouter()
+  const [query, setQuery] = useState('')
+  const [contacts, setContacts] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [creating, setCreating] = useState<number | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setLoading(true)
+      api.contacts.list(query, 50, 0, false)
+        .then((r: any) => setContacts(r.contacts || r.items || []))
+        .catch(() => setContacts([]))
+        .finally(() => setLoading(false))
+    }, query ? 250 : 0)
+    return () => clearTimeout(t)
+  }, [query])
+
+  async function pickContact(c: any) {
+    if (takenContactIds.has(c.id)) return
+    setCreating(c.id); setError('')
+    try {
+      const res = await api.collaborators.create({ contact_id: c.id, name: c.name || undefined })
+      onClose()
+      router.push(`/dashboard/collaborations/${res.collaborator.id}`)
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось создать коллаборатора')
+    } finally {
+      setCreating(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
+          <div>
+            <h3 className="font-bold text-gray-900 text-lg">Добавить коллаборатора</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Выберите контакт — коллаб создастся как его «расширение»</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 border-b border-gray-100 shrink-0">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              autoFocus
+              type="text"
+              placeholder="Имя, email или телефон..."
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="w-6 h-6 border-2 border-brand rounded-full border-t-transparent animate-spin" />
+            </div>
+          ) : contacts.length === 0 ? (
+            <div className="p-8 text-center">
+              <Users size={28} className="mx-auto mb-3 text-gray-300" />
+              <p className="text-sm text-gray-500 mb-2">
+                {query ? 'Ничего не найдено' : 'Нет контактов'}
+              </p>
+              <p className="text-xs text-gray-400">
+                Сначала создайте контакт в разделе{' '}
+                <Link href="/dashboard/clients" className="text-brand hover:underline">«Контакты»</Link>
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {contacts.map(c => {
+                const taken = takenContactIds.has(c.id)
+                const isCreating = creating === c.id
+                return (
+                  <li key={c.id}>
+                    <button
+                      onClick={() => pickContact(c)}
+                      disabled={taken || isCreating}
+                      className={`w-full text-left px-3 py-3 rounded-xl flex items-center gap-3 transition-colors
+                        ${taken ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                    >
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
+                        style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                        {(c.name || '?').trim().charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-sm text-gray-900 truncate">{c.name || 'Без имени'}</div>
+                        <div className="text-xs text-gray-500 truncate flex items-center gap-3">
+                          {c.email && <span className="flex items-center gap-1"><Mail size={10} />{c.email}</span>}
+                          {c.phone && <span className="flex items-center gap-1"><Phone size={10} />{c.phone}</span>}
+                          {!c.email && !c.phone && <span className="text-gray-400">без email/телефона</span>}
+                        </div>
+                      </div>
+                      {taken ? (
+                        <span className="text-[11px] text-gray-400 shrink-0">уже коллаб</span>
+                      ) : isCreating ? (
+                        <Spinner />
+                      ) : (
+                        <UserPlus size={16} className="text-gray-400 shrink-0" />
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+
+        {error && (
+          <div className="p-3 border-t border-red-200 bg-red-50 text-red-700 text-sm flex items-center gap-2">
+            <AlertCircle size={15} /> {error}
+          </div>
+        )}
+
+        <div className="p-4 border-t border-gray-100 text-xs text-gray-500 shrink-0">
+          Не нашли человека?{' '}
+          <Link href="/dashboard/clients" className="text-brand hover:underline">
+            Добавьте контакт
+          </Link>{' '}
+          — и вернитесь сюда.
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CollaborationsPage() {
   const { t } = useLang()
   const tc = t.collaborations
@@ -172,6 +320,7 @@ export default function CollaborationsPage() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [showImport, setShowImport] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
 
   function load(q?: string) {
     setLoading(true)
@@ -198,6 +347,10 @@ export default function CollaborationsPage() {
     }
   }
 
+  const takenContactIds = new Set<number>(
+    items.map(i => i.contact_id).filter((x: any): x is number => typeof x === 'number')
+  )
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -210,10 +363,10 @@ export default function CollaborationsPage() {
             className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2">
             <Upload size={15} /> Импорт из файла
           </button>
-          <Link href="/dashboard/collaborations/new"
+          <button onClick={() => setShowAdd(true)}
             className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2">
-            <Plus size={16} /> {tc.addNew}
-          </Link>
+            <Plus size={16} /> Добавить из контактов
+          </button>
         </div>
       </div>
 
@@ -251,10 +404,10 @@ export default function CollaborationsPage() {
             {query ? tc.empty.searchHint : tc.empty.subtitle}
           </p>
           {!query && (
-            <Link href="/dashboard/collaborations/new"
+            <button onClick={() => setShowAdd(true)}
               className="btn-gold inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold">
-              <Plus size={16} /> {tc.empty.btn}
-            </Link>
+              <Plus size={16} /> Добавить из контактов
+            </button>
           )}
         </div>
       ) : (
@@ -285,13 +438,13 @@ export default function CollaborationsPage() {
             ))}
           </div>
           <div className="border-t border-gray-100">
-            <Link href="/dashboard/collaborations/new"
-              className="flex items-center gap-3 px-5 py-4 text-sm text-gray-400 hover:text-brand hover:bg-gray-50 transition-colors">
+            <button onClick={() => setShowAdd(true)}
+              className="w-full flex items-center gap-3 px-5 py-4 text-sm text-gray-400 hover:text-brand hover:bg-gray-50 transition-colors text-left">
               <div className="w-10 h-10 rounded-full border-2 border-dashed border-gray-200 flex items-center justify-center">
                 <Plus size={16} />
               </div>
-              <span>{tc.addRow}</span>
-            </Link>
+              <span>Добавить из контактов</span>
+            </button>
           </div>
         </div>
       )}
@@ -300,6 +453,13 @@ export default function CollaborationsPage() {
         <ImportModal
           onClose={() => setShowImport(false)}
           onImported={() => load()}
+        />
+      )}
+
+      {showAdd && (
+        <AddFromContactModal
+          onClose={() => setShowAdd(false)}
+          takenContactIds={takenContactIds}
         />
       )}
     </div>

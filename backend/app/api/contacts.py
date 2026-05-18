@@ -669,6 +669,15 @@ async def get_contact(
                 d["utm"] = {}
         lead_magnet_runs_list.append(d)
 
+    # Если этот контакт — также коллаборатор, отдадим краткую инфу
+    collaborator_row = await db.fetchrow(
+        """SELECT id, name, title, photo_url
+             FROM collaborators
+            WHERE contact_id = $1 AND created_by_client_id = $2
+            LIMIT 1""",
+        contact_id, client_id
+    )
+
     # События в которых участвует
     events = await db.fetch("""
         SELECT e.id, e.title, e.slug, ep.is_registered, ep.is_in_chat, ep.registered_at, c.ref_code,
@@ -703,6 +712,7 @@ async def get_contact(
         "identities": identities_list,
         "events": [dict(e) for e in events],
         "lead_magnet_runs": lead_magnet_runs_list,
+        "collaborator": dict(collaborator_row) if collaborator_row else None,
     }
 
 

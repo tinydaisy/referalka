@@ -14,7 +14,10 @@ router = APIRouter(prefix="/api/v1/collaborators", tags=["Коллабораци
 
 
 class CollaboratorCreate(BaseModel):
-    name: str
+    # contact_id обязателен: коллаб = расширение существующего контакта (миграция 086)
+    contact_id: int
+    # name опционален — если не передан, берётся из contacts.name
+    name: Optional[str] = None
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
@@ -47,6 +50,7 @@ class CollaboratorUpdate(BaseModel):
     personal_tg_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
     external_ref_param: Optional[str] = None
+    contact_id: Optional[int] = None
 
 
 def row_to_dict(row):
@@ -76,27 +80,45 @@ async def list_collaborators(
     return {"collaborators": [row_to_dict(r) for r in rows]}
 
 
-@router.post("/", summary="Добавить коллаборацию в базу")
+@router.post("/", summary="Добавить коллаборацию из существующего контакта")
 async def create_collaborator(
     data: CollaboratorCreate,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    client_id = int(client["sub"])
+    # Проверяем что contact_id принадлежит этому клиенту и не помечен мерджем
+    contact = await db.fetchrow(
+        "SELECT id, name FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
+        data.contact_id, client_id
+    )
+    if not contact:
+        raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
+    # Один коллаб на контакт — повторное добавление запрещаем
+    existing = await db.fetchval(
+        "SELECT id FROM collaborators WHERE contact_id = $1", data.contact_id
+    )
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"У этого контакта уже есть коллаборатор (id={existing}). Откройте его карточку."
+        )
+    name = (data.name or contact["name"] or "").strip() or "Без имени"
     row = await db.fetchrow(
         """INSERT INTO collaborators
-           (name, title, achievements,
+           (contact_id, name, title, achievements,
             photo_url, poster_url, photo_folder_url, video_folder_url,
             tg_channel_url, instagram_url, website_url,
             tg_channel_id, personal_tg_id, personal_tg_username, assistant_tg_username,
             external_ref_param,
             created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *""",
-        data.name, data.title, data.achievements,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *""",
+        data.contact_id, name, data.title, data.achievements,
         data.photo_url, data.poster_url, data.photo_folder_url, data.video_folder_url,
         data.tg_channel_url, data.instagram_url, data.website_url,
         data.tg_channel_id, data.personal_tg_id, data.personal_tg_username, data.assistant_tg_username,
         data.external_ref_param,
-        int(client["sub"])
+        client_id
     )
     d = row_to_dict(row)
     return {"speaker": d, "collaborator": d}
@@ -133,6 +155,14 @@ async def update_collaborator(
     db: asyncpg.Connection = Depends(get_db)
 ):
     updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    # Если меняется contact_id — проверяем, что он принадлежит этому клиенту
+    if "contact_id" in updates:
+        own = await db.fetchval(
+            "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
+            updates["contact_id"], int(client["sub"])
+        )
+        if not own:
+            raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
     if not updates:
         row = await db.fetchrow("SELECT * FROM collaborators WHERE id = $1", collaborator_id)
     else:
@@ -193,15 +223,34 @@ async def import_collaborators(
                 if data.skip_duplicates:
                     skipped.append(item.name)
                     continue
+            # contact_id обязателен (миграция 086). Ищем контакт по имени,
+            # если нет — создаём пустой (без email/phone) и привязываем.
+            contact_row = await db.fetchrow(
+                """SELECT id FROM contacts
+                    WHERE client_id = $1 AND merged_into IS NULL
+                      AND LOWER(name) = LOWER($2)
+                    ORDER BY id LIMIT 1""",
+                client_id, item.name
+            )
+            if contact_row:
+                contact_id = contact_row["id"]
+            else:
+                new_contact = await db.fetchrow(
+                    """INSERT INTO contacts (client_id, name)
+                       VALUES ($1, $2)
+                       RETURNING id""",
+                    client_id, item.name
+                )
+                contact_id = new_contact["id"]
             row = await db.fetchrow(
                 """INSERT INTO collaborators
-                   (name, title, achievements, photo_url, photo_folder_url, video_folder_url,
+                   (contact_id, name, title, achievements, photo_url, photo_folder_url, video_folder_url,
                     tg_channel_url, instagram_url, website_url,
                     tg_channel_id, personal_tg_id, personal_tg_username, assistant_tg_username,
                     external_ref_param,
                     created_by_client_id)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, name""",
-                item.name, item.title, item.achievements,
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id, name""",
+                contact_id, item.name, item.title, item.achievements,
                 item.photo_url, item.photo_folder_url, item.video_folder_url,
                 item.tg_channel_url or None, item.instagram_url or None, item.website_url or None,
                 item.tg_channel_id or None, item.personal_tg_id or None,
