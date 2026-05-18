@@ -66,6 +66,12 @@ interface ContactDetail extends Contact {
   }[]
   referrer: { id: number; name: string | null } | null
   merged_ref_codes: string[]
+  collaborator: {
+    id: number
+    name: string
+    title: string | null
+    photo_url: string | null
+  } | null
 }
 
 interface DuplicateContact {
