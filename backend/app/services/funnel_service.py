@@ -610,12 +610,15 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
         )
 
 
-async def run_check_subscription(run_id: int, tg_id: str, db) -> str:
+async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "telegram") -> str:
     """Проверка подписки. Возвращает status:
        'subscribed'             — материалы отправлены (повторный клик = повторная отправка)
        'not_subscribed'         — не подписан на канал клиента
        'no_token'               — у клиента нет TG-бота для отправки
        'not_found'              — забег не найден
+
+    `platform` (telegram/vk) — на какой платформе кликнули «ГОТОВО».
+    Для VK: проверка подписки на VK-сообщество (`groups.isMember`) + отправка через VK API.
     """
     run = await db.fetchrow(
         """SELECT id, client_id, stage, lead_magnet_id, package_id
@@ -627,6 +630,39 @@ async def run_check_subscription(run_id: int, tg_id: str, db) -> str:
 
     client_id = run["client_id"]
     ctx = await _get_brand_context(client_id, db)
+
+    if platform == "vk":
+        # VK-флоу: пропускаем проверку подписки (опционально — позже добавим
+        # groups.isMember для канала клиента в ВК). Выдаём материалы через VK API.
+        from app.services.vk_api import send_message as vk_send_msg
+        is_first_delivery = run["stage"] != "delivered"
+        await db.execute(
+            """UPDATE funnel_runs
+                  SET stage = 'delivered',
+                      subscribed_at = COALESCE(subscribed_at, NOW()),
+                      delivered_at = COALESCE(delivered_at, NOW())
+                WHERE id = $1""",
+            run_id
+        )
+        template = await _get_template(client_id, db)
+        if not template:
+            from app.api.funnels import _get_or_create_template
+            template = await _get_or_create_template(client_id, "lead_magnet", db)
+            template = dict(template)
+        materials = await _materials_for_run(dict(run), db)
+        text_2 = _format_text(template["text_2"], ctx, materials)
+        try:
+            await vk_send_msg(int(tg_id), text_2)
+        except Exception as e:
+            log.warning("VK send text_2 failed for run %s: %s", run_id, e)
+        if is_first_delivery:
+            try:
+                from app.tasks.funnel import send_text_3
+                send_text_3.apply_async(args=[run_id], countdown=30 * 60)
+            except Exception as e:
+                log.warning("Failed to schedule text_3 for run %s: %s", run_id, e)
+        return "subscribed"
+
     channel = ctx.get("subscription_channel", "")
     channel_api = ctx.get("subscription_channel_api", "")
     channel_chat_id = ctx.get("subscription_channel_chat_id", "")

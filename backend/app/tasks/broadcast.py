@@ -373,6 +373,19 @@ async def _send_broadcast(schedule_id: int):
                             buttons=buttons
                         )
 
+        # === VK подписчики (доп. слой, после TG) ===
+        # Шлём VK-подписчикам клиента ту же рассылку через VK API messages.send.
+        # Контакты учитываются отдельно: один человек может быть в TG-базе И VK-базе одновременно —
+        # получит сообщение в обоих местах (это норма, см. CLAUDE.md «один контакт в нескольких контекстах»).
+        try:
+            vk_sent = await _send_broadcast_vk_part(
+                conn, schedule, event_id, text, photo_url, button_text, button_url, buttons=buttons
+            )
+            sent += vk_sent
+            logger.info(f"VK-часть рассылки {schedule_id}: отправлено {vk_sent}")
+        except Exception as ex:
+            logger.warning(f"VK-часть рассылки {schedule_id} упала: {ex}")
+
         await conn.execute(
             "UPDATE broadcast_schedules SET status='done', finished_at=NOW(), recipients_sent=$1 WHERE id=$2",
             sent, schedule_id
@@ -387,6 +400,95 @@ async def _send_broadcast(schedule_id: int):
         )
     finally:
         await conn.close()
+
+
+async def _send_broadcast_vk_part(
+    conn, schedule, event_id: int | None,
+    text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
+    buttons: list | None = None,
+) -> int:
+    """Отправляет рассылку VK-подписчикам клиента через VK API messages.send.
+
+    Использует системный VK community token (VK_SYSTEM_GROUP_TOKEN). У не-VIP клиентов
+    нет своего VK-сообщества — все сообщения идут от единого сообщества iViSiON: ПЛЮСОН
+    (см. memory/vk_prod.md). VIP-VK будем поддерживать позже когда добавим client_channels
+    с platform='vk' и channel.bot_token.
+
+    Возвращает количество успешно отправленных сообщений.
+    """
+    from app.services.vk_api import send_message as vk_send, tg_inline_to_vk_keyboard
+
+    client_id = schedule["client_id"]
+    aud_include = schedule.get("audience_include") or "all_event"
+
+    # Какие VK-подписчики клиента в зависимости от аудитории
+    if aud_include == "all_client":
+        rows = await conn.fetch(
+            """SELECT pu.platform_user_id
+                 FROM platform_users pu
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN client_channels cc ON cc.id = puc.client_channel_id
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE pu.client_id = $1
+                  AND pu.platform_slug = 'vk'
+                  AND ch.platform_slug = 'vk'
+                  AND puc.is_unsubscribed = FALSE""",
+            client_id,
+        )
+    elif event_id and aud_include == "registered_event":
+        rows = await conn.fetch(
+            """SELECT pu.platform_user_id
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN client_channels cc ON cc.id = puc.client_channel_id
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE ep.event_id = $1 AND ep.is_registered = TRUE
+                  AND ch.platform_slug = 'vk' AND puc.is_unsubscribed = FALSE""",
+            event_id,
+        )
+    elif event_id:
+        rows = await conn.fetch(
+            """SELECT pu.platform_user_id
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN client_channels cc ON cc.id = puc.client_channel_id
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE ep.event_id = $1
+                  AND ch.platform_slug = 'vk' AND puc.is_unsubscribed = FALSE""",
+            event_id,
+        )
+    else:
+        return 0
+
+    keyboard = None
+    if buttons:
+        # Конвертация массива кнопок [{label, url}, ...] в VK keyboard
+        keyboard_rows = [[{"text": b.get("label", "Открыть"), "url": b.get("url", "")}] for b in buttons]
+        keyboard = tg_inline_to_vk_keyboard(keyboard_rows)
+    elif button_text and button_url:
+        keyboard = tg_inline_to_vk_keyboard([[{"text": button_text, "url": button_url}]])
+
+    sent = 0
+    for r in rows:
+        try:
+            vk_id_int = int(r["platform_user_id"])
+        except (TypeError, ValueError):
+            continue
+        attachment = None
+        # photo_url пока шлём как текстовую ссылку в начале — нативную загрузку
+        # photos.getMessagesUploadServer добавим в следующей итерации
+        message_text = text or ""
+        if photo_url:
+            message_text = f"{photo_url}\n\n{message_text}".strip()
+        try:
+            res = await vk_send(vk_id_int, message_text, keyboard=keyboard, attachment=attachment)
+            if res:
+                sent += 1
+        except Exception as e:
+            logger.warning(f"VK send failed for vk_id={vk_id_int}: {e}")
+    return sent
 
 
 async def _build_audience(conn, schedule) -> set:
