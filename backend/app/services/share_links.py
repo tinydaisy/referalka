@@ -97,6 +97,20 @@ async def get_client_bot_handles(db, client_id: int) -> dict[str, str | None]:
     return result
 
 
+async def _has_system_channel(db, platform_slug: str, *, allow_test: bool = True) -> bool:
+    """Есть ли системный канал на платформе. allow_test=True учитывает is_test каналы
+    (для отображения «скоро» в UI), False — только полностью активированные."""
+    if allow_test:
+        return bool(await db.fetchval(
+            "SELECT 1 FROM channels WHERE platform_slug = $1 AND is_system = TRUE LIMIT 1",
+            platform_slug,
+        ))
+    return bool(await db.fetchval(
+        "SELECT 1 FROM channels WHERE platform_slug = $1 AND is_system = TRUE AND is_test = FALSE LIMIT 1",
+        platform_slug,
+    ))
+
+
 async def build_share_links(
     db,
     *,
@@ -105,20 +119,23 @@ async def build_share_links(
     partner_id: Optional[str] = None,
     tab: Optional[str] = None,
 ) -> dict[str, str]:
-    """Возвращает {platform → url} для всех **активных** платформ клиента.
+    """Возвращает {platform → url} для всех **активных** платформ клиента + системных.
 
-    Если у клиента есть свой бот/сообщество — используется его handle. Иначе системный.
+    Логика:
+    - Если у клиента подключен свой бот на платформе → его handle
+    - Иначе если есть системный канал ПЛЮСОН на этой платформе → системный bot/app
+    - Платформа добавляется в результат если ИЛИ клиент имеет канал ИЛИ есть системный
     """
-    platforms = await get_active_platforms(db, client_id)
+    platforms = set(await get_active_platforms(db, client_id))
     handles = await get_client_bot_handles(db, client_id)
-    # Гарантируем что для системного клиента (без своих каналов) есть TG + VK с системными ботами
-    if not platforms:
-        platforms = ["telegram", "vk"]
+    # Добавляем платформы где есть системный канал ПЛЮСОН
+    for ps in ("telegram", "vk", "max"):
+        if await _has_system_channel(db, ps, allow_test=True):
+            platforms.add(ps)
     result: dict[str, str] = {}
     if "telegram" in platforms:
         result["telegram"] = telegram_link(event_slug, bot_handle=handles.get("telegram"), partner_id=partner_id, tab=tab)
     if "vk" in platforms:
-        # VK app_id всегда системный пока не поддержим VIP-VK
         result["vk"] = vk_link(event_slug, partner_id=partner_id, tab=tab)
     if "max" in platforms:
         result["max"] = max_link(event_slug, bot_handle=handles.get("max"), partner_id=partner_id, tab=tab)
