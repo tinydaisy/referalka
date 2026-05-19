@@ -19,6 +19,8 @@ from ..config import settings
 from ..database import get_pool
 from ..services.contact_merge import upsert_contact_with_identity, resolve_ref_code
 from ..services.vk_auth import validate_vk_launch_params
+from ..services.vk_api import send_message as vk_send_message, tg_inline_to_vk_keyboard
+from ..services.share_links import vk_link as build_vk_link
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -89,18 +91,35 @@ async def handle_vk_event(body: VkEventRequest):
             _, referrer_contact_id = await resolve_ref_code(conn, body.partner_id, client_id=client_id)
 
         # Создание/обновление event_participants — только если есть event_slug
+        event_title = None
         if body.event_slug:
             ev = await conn.fetchrow(
                 "SELECT id, title, status FROM events WHERE slug = $1 AND client_id = $2",
                 body.event_slug, client_id,
             )
             if ev:
-                await conn.execute(
+                event_title = ev["title"]
+                inserted = await conn.fetchval(
                     """INSERT INTO event_participants (event_id, contact_id, referrer_contact_id)
                        VALUES ($1, $2, $3)
-                       ON CONFLICT (event_id, contact_id) DO NOTHING""",
+                       ON CONFLICT (event_id, contact_id) DO NOTHING
+                       RETURNING id""",
                     ev["id"], contact_id, referrer_contact_id,
                 )
+                # Первый раз увидели человека в этом событии — шлём приветствие в VK
+                if inserted and event_title:
+                    try:
+                        msg = (
+                            f"👋 Здравствуйте, {body.first_name or 'друг'}!\n\n"
+                            f"Спасибо за интерес к событию «{event_title}». Откройте приложение, "
+                            f"чтобы увидеть программу, ваших друзей и подарки за приглашения."
+                        )
+                        keyboard = tg_inline_to_vk_keyboard([[
+                            {"text": "Открыть приложение", "url": build_vk_link(body.event_slug)},
+                        ]])
+                        await vk_send_message(vk_user_id, msg, keyboard=keyboard)
+                    except Exception as e:
+                        logger.warning(f"VK welcome message failed for vk_id={vk_user_id}: {e}")
 
     return {
         "ok": True,
@@ -108,4 +127,5 @@ async def handle_vk_event(body: VkEventRequest):
         "contact_id": contact_id,
         "client_id": client_id,
         "is_new_contact": is_new,
+        "event_title": event_title,
     }

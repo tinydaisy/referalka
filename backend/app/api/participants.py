@@ -227,7 +227,7 @@ async def get_participant_events(tg_id: int, db: asyncpg.Connection = Depends(ge
     "/miniapp/me/events",
     summary="События участника для селектора общего бота (группировка по организатору)",
 )
-async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get_db)):
+async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyncpg.Connection = Depends(get_db)):
     # Селектор @pluson_bot показывает группы организаторов:
     #   1. Клиенты, у которых пользователь был участником ИЛИ владельцем (по telegram_username).
     #   2. Клиенты с активной фичей 'channels' (свой бот) ИСКЛЮЧАЮТСЯ — у них свой Mini App.
@@ -236,10 +236,15 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
     #   • прошедшие события — только те, где пользователь был участником (личная история);
     #   • для владельца клиента — все опубликованные/завершённые события его клиента.
     # Для конференций даты — из conf_days (MIN/MAX), не из events.start_at/end_at.
+    #
+    # `platform` (telegram/vk/max) — определяет идентичность пользователя; параметр `tg_id`
+    # сохраняет имя для обратной совместимости, но в VK/MAX-контексте туда идёт vk_id/max_id.
+    if platform not in ("telegram", "vk", "max"):
+        raise HTTPException(status_code=400, detail="Invalid platform")
     rows = await db.fetch(
         """WITH user_username AS (
               SELECT username FROM platform_users
-               WHERE platform_slug = 'telegram' AND platform_user_id = $1
+               WHERE platform_slug = $2 AND platform_user_id = $1
                LIMIT 1
            ),
            participant_events AS (
@@ -249,7 +254,7 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
                 FROM event_participants ep
                 JOIN contacts c        ON c.id  = ep.contact_id
                 JOIN platform_users pu ON pu.contact_id = c.id
-               WHERE pu.platform_slug = 'telegram' AND pu.platform_user_id = $1
+               WHERE pu.platform_slug = $2 AND pu.platform_user_id = $1
            ),
            owned_clients AS (
               -- LTRIM '@' — clients.telegram_username исторически бывает с собакой,
@@ -351,6 +356,7 @@ async def get_miniapp_me_events(tg_id: int, db: asyncpg.Connection = Depends(get
                 OR e.client_id IN (SELECT id FROM owned_clients)
               )""",
         str(tg_id),
+        platform,
     )
 
     from datetime import datetime, timezone

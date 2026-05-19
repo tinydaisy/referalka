@@ -242,6 +242,47 @@ async def get_event_by_slug(slug: str, db: asyncpg.Connection = Depends(get_db))
     return {"event": dict(event)}
 
 
+@router.get("/slug/{slug}/share-links", summary="Реф-ссылки события (публично, для Mini App)")
+async def get_event_share_links_by_slug(
+    slug: str,
+    pid: str | None = None,
+    tab: str | None = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    from ..services.share_links import build_share_links
+    ev = await db.fetchrow("SELECT id, slug, client_id FROM events WHERE slug = $1", slug)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    links = await build_share_links(
+        db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab,
+    )
+    return {"event_id": ev["id"], "slug": ev["slug"], "links": links}
+
+
+@router.get("/{event_id}/share-links", summary="Реф-ссылки события для всех активных платформ клиента")
+async def get_event_share_links(
+    event_id: int,
+    pid: str | None = None,
+    tab: str | None = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Возвращает словарь {platform → url} с реф-ссылками для шеринга.
+
+    Используется в дашборде (карточка события, страница соорганизатора/спикера)
+    и в Mini App (вкладка «Игра» — показывает только ссылку текущей платформы).
+    Если у клиента не подключены доп. площадки — возвращает только telegram+vk
+    через системные ботов/сообщества.
+    """
+    from ..services.share_links import build_share_links
+    ev = await db.fetchrow("SELECT slug, client_id FROM events WHERE id = $1", event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    links = await build_share_links(
+        db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab,
+    )
+    return {"event_id": event_id, "slug": ev["slug"], "links": links}
+
+
 @router.get("/{event_id}", summary="Получить событие по ID")
 async def get_event(
     event_id: int,
@@ -782,6 +823,52 @@ async def delete_event_participant(
             participant_id
         )
     return {"deleted": True, "id": participant_id}
+
+
+class AddParticipantFromContactRequest(BaseModel):
+    contact_id: int
+    is_registered: Optional[bool] = False
+
+
+@router.post("/{event_id}/participants/from-contact", summary="Добавить участника из контактов (вручную)")
+async def add_event_participant_from_contact(
+    event_id: int,
+    data: AddParticipantFromContactRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Организатор добавляет существующий контакт как участника события.
+    Без рассылок/приветствий — это ручная запись. Если запись уже есть
+    (повторное добавление того же контакта) — обновляет is_registered.
+    """
+    client_id = int(client["sub"])
+    event = await db.fetchval(
+        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+    )
+    if not event:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    contact_ok = await db.fetchval(
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+        data.contact_id, client_id
+    )
+    if not contact_ok:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+    is_registered = bool(data.is_registered)
+    row = await db.fetchrow(
+        """INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at)
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (event_id, contact_id)
+           DO UPDATE SET is_registered = event_participants.is_registered OR EXCLUDED.is_registered
+           RETURNING id, is_registered, (xmax = 0) AS is_new""",
+        event_id, data.contact_id, is_registered
+    )
+    return {
+        "id": row["id"],
+        "is_registered": row["is_registered"],
+        "is_new": bool(row["is_new"]),
+    }
 
 
 # ─── Соорганизаторы / Спикеры события (event_collaborators) ────────────────────

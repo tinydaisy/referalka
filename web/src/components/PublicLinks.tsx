@@ -73,6 +73,14 @@ export default function PublicLinks({
       hint: 'Открывает событие в вашем Telegram-боте (или @pluson_bot, если свой не подключён). Используй в TG-постах и личке',
     },
     {
+      key: 'vk',
+      label: 'ВКонтакте (Mini App)',
+      badge: 'VK',
+      color: '#0077FF',
+      url: `https://vk.com/app54592404#ref_pg${slug}`,
+      hint: 'Открывает событие в VK Mini App «iViSiON: ПЛЮСОН». Используй в VK-постах и личке',
+    },
+    {
       key: 'max',
       label: 'MAX',
       badge: 'MAX',
