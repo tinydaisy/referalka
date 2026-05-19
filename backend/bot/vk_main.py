@@ -31,9 +31,35 @@ logger = logging.getLogger(__name__)
 POLL_TIMEOUT = 25  # seconds
 
 
+async def enable_long_poll(group_id: int, token: str) -> None:
+    """Включить Long Poll API для сообщества + подписаться на нужные события.
+
+    Идемпотентно: можно вызывать каждый раз при старте.
+    """
+    await vk_call("groups.setLongPollSettings", {
+        "group_id": group_id,
+        "enabled": 1,
+        "api_version": "5.199",
+        "message_new": 1,
+        "message_reply": 0,
+        "message_allow": 1,
+        "message_deny": 1,
+        "message_edit": 0,
+        "message_event": 1,  # callback кнопки VK keyboard
+        "message_typing_state": 0,
+    }, token=token)
+    logger.info(f"VK Long Poll enabled for group {group_id}")
+
+
 async def get_long_poll_server(group_id: int, token: str) -> dict[str, Any]:
     """Получить server/key/ts для Long Poll сообщества."""
-    return await vk_call("groups.getLongPollServer", {"group_id": group_id}, token=token)
+    try:
+        return await vk_call("groups.getLongPollServer", {"group_id": group_id}, token=token)
+    except RuntimeError as e:
+        if "longpoll for this group is not enabled" in str(e).lower():
+            await enable_long_poll(group_id, token)
+            return await vk_call("groups.getLongPollServer", {"group_id": group_id}, token=token)
+        raise
 
 
 async def poll_once(server: str, key: str, ts: str) -> dict[str, Any]:
