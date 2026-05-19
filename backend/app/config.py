@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     cf_r2_bucket_name: str = "referalka"
     cf_r2_public_url: str = "https://pub-519fc43b54e1489384397c9cea0c0ded.r2.dev"
 
+    vk_app_id: str = ""
+    vk_app_secure_key: str = ""
+    vk_app_service_token: str = ""
+    vk_system_channel_id: int = 0
+    vk_system_group_id: int = 0
+    vk_system_group_token: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"

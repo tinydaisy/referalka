@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>iViSiON: ПЛЮСОН</title>
+  <!-- Брендированный splash прямо в HTML — виден пока браузер качает
+       React-бандл и VK Bridge. Без этого пользователь видит белый экран. -->
+  <style>
+    html, body {
+      margin: 0; padding: 0;
+      background: linear-gradient(45deg, #25455D, #0a1520);
+      min-height: 100vh;
+      font-family: Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #FFCFA4;
+    }
+    #plusson-splash {
+      position: fixed; inset: 0; z-index: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 20px;
+      padding: 24px 28px;
+      box-sizing: border-box;
+      background: linear-gradient(45deg, #25455D, #0a1520);
+      text-align: center;
+    }
+    #plusson-splash .logo {
+      width: 72px; height: auto; margin-bottom: 4px;
+      opacity: 0.95;
+    }
+    #plusson-splash .brand {
+      font-size: 24px; font-weight: 700; letter-spacing: 1px;
+      color: #FFCFA4; text-transform: uppercase;
+      max-width: 100%;
+    }
+    #plusson-splash .sub {
+      font-size: 13px; line-height: 1.45;
+      color: rgba(255,255,255,0.85);
+      margin-top: -8px;
+      max-width: 320px;
+    }
+    #plusson-splash .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid rgba(255, 207, 164, 0.25);
+      border-top-color: #FFCFA4;
+      border-radius: 50%;
+      animation: plusson-spin 0.8s linear infinite;
+    }
+    @keyframes plusson-spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="plusson-splash">
+    <img class="logo" src="/vk/logo.png" alt="" onerror="this.style.display='none'" />
+    <div class="brand">iViSiON: ПЛЮСОН</div>
+    <div class="sub">Платформа для организаторов и экспертов: управляйте событием от А до Я — спикеры, рассылки, рефералы в одном месте</div>
+    <div class="spinner"></div>
+  </div>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+"""
+POST /api/v1/vk/event — аналог /api/v1/event для VK Mini App.
+
+Принимает launch params от VK Bridge (vk_user_id, vk_app_id, sign, ...), валидирует
+подпись, делает upsert contact+platform_users, шлёт контекстное приветствие
+(если событие задано) в личку пользователя от сообщества.
+
+VK Bridge передаёт launch params как query-string при загрузке iframe Mini App.
+Mini App копирует все vk_* + sign из своего window.location и шлёт сюда.
+"""
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from ..config import settings
+from ..database import get_pool
+from ..services.contact_merge import upsert_contact_with_identity, resolve_ref_code
+from ..services.vk_auth import validate_vk_launch_params
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+class VkEventRequest(BaseModel):
+    # Все launch params от VK Bridge — vk_user_id, vk_app_id, vk_ts, vk_platform, sign, ...
+    launch_params: dict[str, str]
+    # Параметры запуска нашей логики (из startapp-аналога в VK — hash после #)
+    event_slug: str = ""
+    client_id: int = 0
+    partner_id: str = ""
+    utm_source: str = ""
+    initial_tab: str = ""
+    first_name: str = ""
+    last_name: str = ""
+    username: str = ""  # screen_name из VK
+
+
+@router.post("/vk/event")
+async def handle_vk_event(body: VkEventRequest):
+    """Сигнал от VK Mini App при открытии. Валидирует подпись, регистрирует контакт."""
+    # Validate VK Bridge signature
+    if not validate_vk_launch_params(body.launch_params, settings.vk_app_secure_key):
+        logger.warning(f"VK signature invalid: {body.launch_params.get('vk_user_id')}")
+        raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
+
+    vk_user_id_raw = body.launch_params.get("vk_user_id")
+    if not vk_user_id_raw:
+        raise HTTPException(status_code=400, detail="vk_user_id required in launch_params")
+    try:
+        vk_user_id = int(vk_user_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="vk_user_id must be int")
+
+    pool = await get_pool()
+    if not pool:
+        return {"ok": True, "warning": "db not available", "vk_user_id": vk_user_id}
+
+    # Определяем client_id: 1) явный из startapp 2) из event_slug 3) системный клиент (ПЛЮСОН Сервис)
+    async with pool.acquire() as conn:
+        client_id = body.client_id
+        if not client_id and body.event_slug:
+            row = await conn.fetchrow("SELECT client_id FROM events WHERE slug = $1", body.event_slug)
+            if row:
+                client_id = row["client_id"]
+        if not client_id:
+            # системный клиент «ПЛЮСОН Сервис» — для трафика без контекста
+            row = await conn.fetchrow("SELECT id FROM clients WHERE email = $1", "system@pluson.ru")
+            client_id = row["id"] if row else 0
+        if not client_id:
+            return {"ok": False, "error": "no_client_resolved"}
+
+        contact_id, pu_id, is_new = await upsert_contact_with_identity(
+            conn,
+            client_id=client_id,
+            platform_slug="vk",
+            platform_user_id=str(vk_user_id),
+            username=body.username or None,
+            first_name=body.first_name or None,
+            last_name=body.last_name or None,
+            utm_source=body.utm_source or None,
+        )
+
+        # Реферер — если в startapp передан pid (ref_code партнёра)
+        referrer_contact_id = None
+        if body.partner_id:
+            _, referrer_contact_id = await resolve_ref_code(conn, body.partner_id, client_id=client_id)
+
+        # Создание/обновление event_participants — только если есть event_slug
+        if body.event_slug:
+            ev = await conn.fetchrow(
+                "SELECT id, title, status FROM events WHERE slug = $1 AND client_id = $2",
+                body.event_slug, client_id,
+            )
+            if ev:
+                await conn.execute(
+                    """INSERT INTO event_participants (event_id, contact_id, referrer_contact_id)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (event_id, contact_id) DO NOTHING""",
+                    ev["id"], contact_id, referrer_contact_id,
+                )
+
+    return {
+        "ok": True,
+        "vk_user_id": vk_user_id,
+        "contact_id": contact_id,
+        "client_id": client_id,
+        "is_new_contact": is_new,
+    }
