@@ -115,6 +115,21 @@ async def handle_message_allow(event: dict, db) -> None:
             )
     logger.info("VK message_allow: user_id=%s recorded", user_id)
 
+    # Шлём базовое welcome-сообщение сразу после получения разрешения
+    try:
+        from app.services.vk_api import send_message as vk_send_msg, tg_inline_to_vk_keyboard
+        welcome_text = (
+            "👋 Здравствуйте! Спасибо что разрешили нам писать.\n\n"
+            "Это iViSiON: ПЛЮСОН — платформа для организаторов и экспертов. "
+            "Откройте приложение, чтобы посмотреть свои события и партнёрские ссылки."
+        )
+        keyboard = tg_inline_to_vk_keyboard([[
+            {"text": "Открыть приложение", "url": f"https://vk.com/app{settings.vk_app_id}"},
+        ]])
+        await vk_send_msg(int(user_id), welcome_text, keyboard=keyboard)
+    except Exception as e:
+        logger.warning(f"VK welcome on message_allow failed for user={user_id}: {e}")
+
 
 async def handle_message_deny(event: dict, db) -> None:
     """message_deny: пользователь запретил сообществу писать. Отписываем глобально."""
