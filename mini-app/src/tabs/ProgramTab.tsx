@@ -277,11 +277,22 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
   }, [days, sessionsByDay, nowTs])
   const activeSpeakerEventId = activeSession?.speaker_event_id || null
 
+  // Лента дублируется (loop) только если контент шире контейнера — иначе
+  // при 2-3 спикерах второй набор виден на экране сразу и выглядит как дубль.
+  const [shouldLoop, setShouldLoop] = useState(false)
+
   // Авто-скролл ленты спикеров (через requestAnimationFrame — стабильнее
   // setInterval на iOS Telegram WebApp; шаг считаем от dt в мс)
   useEffect(() => {
     const el = speakersScrollRef.current
     if (!el || speakers.length === 0) return
+
+    // Решаем после первого рендера: содержимое влезло целиком — не дублируем
+    // и не запускаем авто-скролл.
+    const loop = el.scrollWidth > el.clientWidth + 8
+    setShouldLoop(loop)
+    if (!loop) return
+
     let raf = 0
     let last = 0
     let paused = false
@@ -310,7 +321,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
       el.removeEventListener('touchstart', onTouch)
       el.removeEventListener('mousedown',  onTouch)
     }
-  }, [speakers.length])
+  }, [speakers.length, shouldLoop])
 
   const formatTimeMsk = (start?: string, end?: string) => {
     if (!start && !end) return '—:—'
@@ -318,8 +329,12 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
     return `${(start || end || '').slice(0, 5)} МСК`
   }
 
-  // Дублируем массив для бесшовного auto-scroll
-  const speakersLoop = useMemo(() => [...speakers, ...speakers], [speakers])
+  // Дублируем массив только если контент шире экрана (для бесшовного auto-scroll).
+  // Иначе показываем спикеров один раз без анимации.
+  const speakersLoop = useMemo(
+    () => (shouldLoop ? [...speakers, ...speakers] : speakers),
+    [speakers, shouldLoop],
+  )
 
   const goToSpeaker = (speakerEventId?: number) => {
     if (!speakerEventId) return
