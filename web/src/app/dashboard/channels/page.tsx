@@ -56,6 +56,7 @@ export default function ChannelsPage() {
   const [editing, setEditing] = useState<Channel | null>(null)
   const [creating, setCreating] = useState(false)
   const [vipWizardOpen, setVipWizardOpen] = useState(false)
+  const [vkWizardOpen, setVkWizardOpen] = useState(false)
   const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null)
   const [importingChannel, setImportingChannel] = useState<Channel | null>(null)
 
@@ -106,6 +107,7 @@ export default function ChannelsPage() {
           onCreate={() => setCreating(true)}
           onDelete={ch => setDeletingChannel(ch)}
           onOpenWizard={() => setVipWizardOpen(true)}
+          onOpenVkWizard={() => setVkWizardOpen(true)}
           onImport={ch => setImportingChannel(ch)}
         />
       )}
@@ -125,6 +127,14 @@ export default function ChannelsPage() {
           clientId={me!.id}
           onClose={() => setVipWizardOpen(false)}
           onDone={() => { setVipWizardOpen(false); load() }}
+        />
+      )}
+
+      {vkWizardOpen && (
+        <VipVkWizard
+          clientId={me!.id}
+          onClose={() => setVkWizardOpen(false)}
+          onDone={() => { setVkWizardOpen(false); load() }}
         />
       )}
 
@@ -214,47 +224,31 @@ function NonVipView({ onUpgrade }: { onUpgrade: () => void }) {
 }
 
 /* ─────── VIP: полный CRUD + кнопка wizard ─────── */
-function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard, onImport }: {
+function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onImport }: {
   channels: Channel[]
   platforms: Platform[]
   onEdit: (ch: Channel) => void
   onCreate: () => void
   onDelete: (ch: Channel) => void
   onOpenWizard: () => void
+  onOpenVkWizard: () => void
   onImport: (ch: Channel) => void
 }) {
-  const mainTgChannel = channels.find(c => c.platform_slug === 'telegram' && c.is_active)
+  const mainTgChannel = channels.find(c => c.platform_slug === 'telegram' && c.is_active && !c.is_system)
+  const mainVkChannel = channels.find(c => c.platform_slug === 'vk' && c.is_active && !c.is_system)
+  const restChannels = channels.filter(c => c !== mainTgChannel && c !== mainVkChannel)
 
   return (
     <div className="space-y-4">
       {!mainTgChannel ? (
-        <div
-          className="rounded-2xl p-6 border-2 border-dashed cursor-pointer hover:bg-gray-50 transition"
-          style={{ borderColor: '#FFCFA4' }}
+        <ConnectInvite
+          title="Подключите свой Telegram-бот"
+          description="Вставьте токен от @BotFather — мы подключим бот, настроим Mini App и дадим инструкцию для финальной привязки. Займёт 2 минуты."
+          buttonText="Запустить мастер"
+          badge="TG"
+          badgeColor="#0088CC"
           onClick={onOpenWizard}
-        >
-          <div className="flex items-start gap-4">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-              style={{ background: '#FFCFA4' }}
-            >
-              <Crown size={20} style={{ color: '#25455D' }} />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 mb-1">Подключите свой Telegram-бот</h3>
-              <p className="text-sm text-gray-600">
-                Вставьте токен от @BotFather — мы подключим бот, настроим Mini App и дадим
-                инструкцию для финальной привязки. Займёт 2 минуты.
-              </p>
-              <button
-                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium"
-                style={{ color: '#25455D' }}
-              >
-                Запустить мастер <ArrowRight size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
+        />
       ) : (
         <ChannelCard
           channel={mainTgChannel}
@@ -264,8 +258,26 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
         />
       )}
 
-      {/* Остальные каналы (VK/MAX и дополнительные TG-боты для рассылок) */}
-      {channels.filter(c => c !== mainTgChannel).map(ch => (
+      {!mainVkChannel ? (
+        <ConnectInvite
+          title="Подключите своё VK-сообщество"
+          description="Создайте сообщество и Mini App в ВКонтакте, вставьте 4 параметра — мы валидируем токен и включим Long Poll. Подробная инструкция со скриншотами — внутри мастера."
+          buttonText="Запустить мастер VK"
+          badge="VK"
+          badgeColor="#0077FF"
+          onClick={onOpenVkWizard}
+        />
+      ) : (
+        <ChannelCard
+          channel={mainVkChannel}
+          onEdit={() => onEdit(mainVkChannel)}
+          onDelete={() => onDelete(mainVkChannel)}
+          onImport={() => onImport(mainVkChannel)}
+        />
+      )}
+
+      {/* Остальные каналы (системные + дополнительные TG-боты для рассылок) */}
+      {restChannels.map(ch => (
         <ChannelCard
           key={ch.id}
           channel={ch}
@@ -383,6 +395,315 @@ function ChannelCard({ channel: ch, onEdit, onDelete, onImport }: {
             ><Trash2 size={14} /></button>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+/* ─────── Карточка-приглашение «Подключите свой канал» ─────── */
+function ConnectInvite({ title, description, buttonText, badge, badgeColor, onClick }: {
+  title: string
+  description: string
+  buttonText: string
+  badge: string
+  badgeColor: string
+  onClick: () => void
+}) {
+  return (
+    <div
+      className="rounded-2xl p-6 border-2 border-dashed cursor-pointer hover:bg-gray-50 transition"
+      style={{ borderColor: '#FFCFA4' }}
+      onClick={onClick}
+    >
+      <div className="flex items-start gap-4">
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-xs"
+          style={{ background: badgeColor }}
+        >
+          {badge}
+        </div>
+        <div className="flex-1">
+          <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+            <Crown size={16} style={{ color: '#FFCFA4' }} />
+            {title}
+          </h3>
+          <p className="text-sm text-gray-600">{description}</p>
+          <button
+            className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium"
+            style={{ color: '#25455D' }}
+          >
+            {buttonText} <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────── VIP-wizard VK: подключение своего сообщества ─────── */
+function VipVkWizard({ clientId, onClose, onDone }: {
+  clientId: number
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [form, setForm] = useState({
+    access_token: '',
+    app_id: '',
+    secure_key: '',
+    group_id: '',
+  })
+  const [showToken, setShowToken] = useState(false)
+  const [showSecure, setShowSecure] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState<{ group_name: string; screen_name: string; mini_app_url: string } | null>(null)
+
+  async function submit() {
+    setError('')
+    const app_id = Number(form.app_id)
+    const group_id = Number(form.group_id)
+    if (!form.access_token.trim()) return setError('Введите Access Token сообщества')
+    if (!app_id || app_id <= 0)   return setError('Неверный VK App ID')
+    if (!form.secure_key.trim())   return setError('Введите Secure key Mini App')
+    if (!group_id || group_id <= 0) return setError('Неверный ID сообщества')
+
+    setSubmitting(true)
+    try {
+      const r = await api.channels.connectVkCommunity({
+        access_token: form.access_token.trim(),
+        app_id, secure_key: form.secure_key.trim(), group_id,
+      })
+      setResult({ group_name: r.group_name, screen_name: r.screen_name, mini_app_url: r.mini_app_url })
+      setStep(3)
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось подключить сообщество')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function copy(value: string) {
+    navigator.clipboard.writeText(value).then(
+      () => alert('Скопировано'),
+      () => alert('Не удалось скопировать'),
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <Crown size={18} style={{ color: '#FFCFA4' }} />
+            Подключение своего VK-сообщества
+          </h2>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Шаг-индикатор */}
+        <div className="flex items-center px-5 py-3 border-b border-gray-100 text-xs text-gray-500">
+          {[1, 2, 3].map(n => (
+            <div key={n} className="flex items-center flex-1 last:flex-none">
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold
+                  ${step >= n ? 'text-white' : 'text-gray-400 bg-gray-100'}`}
+                style={step >= n ? { background: '#25455D' } : undefined}
+              >
+                {step > n ? '✓' : n}
+              </div>
+              {n < 3 && <div className={`flex-1 h-0.5 mx-2 ${step > n ? 'bg-[#25455D]' : 'bg-gray-100'}`} />}
+            </div>
+          ))}
+        </div>
+
+        <div className="p-5">
+          {step === 1 && (
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-900">Шаг 1. Создайте сообщество и Mini App</h3>
+              <p className="text-sm text-gray-600">
+                Пошаговая инструкция со скриншотами — в разделе{' '}
+                <a href="/dashboard/help/vk-setup" target="_blank" rel="noopener"
+                   className="font-medium underline" style={{ color: '#25455D' }}>
+                  Инструкции → Mini App в VK-сообществе
+                </a>.
+              </p>
+              <p className="text-sm text-gray-600">Когда выполните 1–7 пункты — вам понадобятся <b>4 параметра</b>:</p>
+              <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5">
+                <li><b>Access Token сообщества</b> — токен с правами <code className="bg-gray-100 px-1 rounded text-xs">messages + manage</code></li>
+                <li><b>VK Mini App ID</b> — число из dev.vk.com/mini-apps/...</li>
+                <li><b>Secure Key</b> — там же, для валидации подписи</li>
+                <li><b>ID сообщества</b> — число из URL (например vk.com/club<b>123456</b>)</li>
+              </ul>
+              <button
+                onClick={() => setStep(2)}
+                className="w-full py-3 rounded-xl font-semibold text-sm text-white"
+                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+              >
+                Параметры готовы →
+              </button>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-3">
+              <h3 className="font-semibold text-gray-900">Шаг 2. Вставьте параметры</h3>
+              <p className="text-sm text-gray-600">
+                Мы проверим токен через VK API, получим название сообщества и включим Long Poll
+                автоматически.
+              </p>
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Access Token сообщества <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <input
+                    type={showToken ? 'text' : 'password'}
+                    value={form.access_token}
+                    onChange={e => setForm(f => ({ ...f, access_token: e.target.value }))}
+                    className="w-full px-3 py-2.5 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                    placeholder="vk1.a.zZJ..."
+                    disabled={submitting}
+                    autoComplete="off"
+                  />
+                  <button type="button" onClick={() => setShowToken(v => !v)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700">
+                    {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">VK App ID <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={form.app_id}
+                    onChange={e => setForm(f => ({ ...f, app_id: e.target.value.replace(/\D/g, '') }))}
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                    placeholder="54592404"
+                    disabled={submitting}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">ID сообщества <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={form.group_id}
+                    onChange={e => setForm(f => ({ ...f, group_id: e.target.value.replace(/\D/g, '') }))}
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                    placeholder="238697730"
+                    disabled={submitting}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Secure Key Mini App <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <input
+                    type={showSecure ? 'text' : 'password'}
+                    value={form.secure_key}
+                    onChange={e => setForm(f => ({ ...f, secure_key: e.target.value }))}
+                    className="w-full px-3 py-2.5 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                    placeholder="qvlnu84MSNtLKn1zcT90"
+                    disabled={submitting}
+                    autoComplete="off"
+                  />
+                  <button type="button" onClick={() => setShowSecure(v => !v)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700">
+                    {showSecure ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-100 text-red-700 text-sm rounded-xl p-3">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setStep(1)}
+                  className="flex-1 py-2.5 rounded-xl font-medium text-sm border border-gray-200 text-gray-600 hover:bg-gray-50"
+                  disabled={submitting}
+                >Назад</button>
+                <button
+                  onClick={submit}
+                  disabled={submitting}
+                  className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white disabled:opacity-50"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+                >
+                  {submitting ? 'Подключаем…' : 'Подключить'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && result && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
+                <CheckCircle2 size={20} className="text-green-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold text-green-900">«{result.group_name}» подключено</p>
+                  <p className="text-sm text-green-800 mt-0.5">
+                    Long Poll включён, токен сохранён. Осталось вписать URL Mini App в dev.vk.com.
+                  </p>
+                </div>
+              </div>
+
+              <h3 className="font-semibold text-gray-900">Шаг 3. Привязать Mini App URL</h3>
+              <p className="text-sm text-gray-600">
+                В <a href="https://dev.vk.com" target="_blank" rel="noopener" className="font-medium underline" style={{ color: '#25455D' }}>dev.vk.com</a> →
+                ваш Mini App → «Настройки» → поле <b>«URL приложения»</b> вставьте:
+              </p>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                <div className="text-xs text-gray-500 mb-1.5">URL для копирования:</div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs font-mono break-all text-gray-900">
+                    {result.mini_app_url}
+                  </code>
+                  <button
+                    onClick={() => copy(result.mini_app_url)}
+                    className="p-2 rounded-lg hover:bg-gray-200 text-gray-600"
+                    title="Скопировать"
+                  ><Copy size={14} /></button>
+                </div>
+                <div className="text-xs text-gray-400 mt-1.5">
+                  ⚠️ Слэш в конце обязателен.
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
+                <b>Long Poll consumer</b> запустится для вашего сообщества при ближайшем перезапуске
+                фонового процесса (обычно при следующем деплое). До этого момента входящие сообщения
+                и callback кнопок Mini App обрабатываться не будут — только исходящие.
+              </div>
+
+              {result.screen_name && (
+                <a
+                  href={`https://vk.com/${result.screen_name}`}
+                  target="_blank"
+                  rel="noopener"
+                  className="block text-center py-2.5 rounded-xl font-medium text-sm border border-gray-200 hover:bg-gray-50"
+                  style={{ color: '#25455D' }}
+                >
+                  <ExternalLink size={14} className="inline mr-1.5 -mt-0.5" />
+                  Открыть vk.com/{result.screen_name}
+                </a>
+              )}
+
+              <button
+                onClick={onDone}
+                className="w-full py-3 rounded-xl font-semibold text-sm text-white"
+                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+              >Готово</button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

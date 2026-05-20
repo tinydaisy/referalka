@@ -400,6 +400,166 @@ async def connect_telegram_bot(
     }
 
 
+# ─── POST /connect-vk-community ───────────────────────────────────────
+
+class ConnectVkCommunityRequest(BaseModel):
+    access_token: str   # VK Community access token (с правами messages + manage)
+    app_id: int         # ID VK Mini App, прикреплённого к сообществу
+    secure_key: str     # Secure key Mini App — для валидации HMAC подписи launch params
+    group_id: int       # ID сообщества (положительное целое)
+
+
+@router.post("/connect-vk-community", summary="VIP-онбординг: подключить своё VK-сообщество")
+async def connect_vk_community(
+    data: ConnectVkCommunityRequest,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """VIP-онбординг VK. Поток:
+      1. Проверяем подписку (фича 'channels').
+      2. groups.getById через access_token — получаем name/screen_name + валидируем токен.
+      3. groups.setLongPollSettings — включаем нужные события для нашего Long Poll consumer.
+      4. UPSERT channels + client_channels (главный VK-канал клиента).
+      5. Возвращаем mini_app_url для копи-пейста в dev.vk.com (поле URL Mini App).
+    """
+    client_id = int(client["sub"])
+    await _assert_can_use_custom_bot(db, client_id)
+
+    token = data.access_token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Введите access token сообщества")
+    if data.app_id <= 0:
+        raise HTTPException(status_code=400, detail="Неверный VK App ID")
+    if not data.secure_key.strip():
+        raise HTTPException(status_code=400, detail="Введите Secure key Mini App")
+    if data.group_id <= 0:
+        raise HTTPException(status_code=400, detail="Неверный ID сообщества")
+
+    from app.services.vk_api import vk_call
+
+    # 1) Проверяем токен + достаём имя сообщества
+    try:
+        gr_resp = await vk_call(
+            "groups.getById",
+            {"group_id": str(data.group_id), "fields": "screen_name"},
+            token=token,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"VK API: не удалось проверить токен ({e})")
+
+    err = gr_resp.get("error")
+    if err:
+        raise HTTPException(
+            status_code=400,
+            detail=f"VK API: {err.get('error_msg') or 'токен не валиден или не подходит'}",
+        )
+    items = (gr_resp.get("response") or {}).get("groups") or gr_resp.get("response") or []
+    if not items:
+        raise HTTPException(status_code=400, detail="VK API: сообщество не найдено")
+    grp = items[0]
+    group_name = grp.get("name") or f"Сообщество #{data.group_id}"
+    screen_name = grp.get("screen_name") or ""
+
+    # 2) Включаем Long Poll API сообщества + нужные события
+    try:
+        lp = await vk_call(
+            "groups.setLongPollSettings",
+            {
+                "group_id": str(data.group_id),
+                "enabled": 1,
+                "message_new": 1,
+                "message_allow": 1,
+                "message_deny": 1,
+                "message_event": 1,
+            },
+            token=token,
+        )
+        if lp.get("error"):
+            raise RuntimeError(lp["error"].get("error_msg") or "setLongPollSettings failed")
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"VK API: не удалось включить Long Poll ({e}). "
+                   f"Проверьте что токен сообщества имеет права 'manage'.",
+        )
+
+    # 3) UPSERT channels + client_channels
+    import json as _json
+    meta = {
+        "vk_app_id":     int(data.app_id),
+        "vk_secure_key": data.secure_key.strip(),
+        "vk_group_id":   int(data.group_id),
+    }
+
+    existing = await db.fetchrow(
+        """SELECT ch.id, cc.id AS cc_id
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = 'vk'
+              AND ch.is_system = FALSE
+            ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
+        client_id,
+    )
+    async with db.transaction():
+        if existing:
+            await db.execute(
+                """UPDATE channels
+                      SET bot_token = $1, display_name = $2, handle = $3,
+                          platform_meta = $5::jsonb, updated_at = NOW()
+                    WHERE id = $4""",
+                token, group_name, screen_name or f"club{data.group_id}",
+                existing["id"], _json.dumps(meta),
+            )
+            channel_id = existing["id"]
+            await db.execute(
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id
+                      AND cc.client_id = $1 AND ch.platform_slug = 'vk'
+                      AND cc.is_active = TRUE AND cc.id <> $2""",
+                client_id, existing["cc_id"],
+            )
+            await db.execute(
+                "UPDATE client_channels SET is_active = TRUE WHERE id = $1", existing["cc_id"],
+            )
+        else:
+            channel_id = await db.fetchval(
+                """INSERT INTO channels
+                       (platform_slug, display_name, handle, bot_token, is_system, is_test, platform_meta)
+                   VALUES ('vk', $1, $2, $3, FALSE, FALSE, $4::jsonb) RETURNING id""",
+                group_name, screen_name or f"club{data.group_id}", token, _json.dumps(meta),
+            )
+            await db.execute(
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id
+                      AND cc.client_id = $1 AND ch.platform_slug = 'vk'
+                      AND cc.is_active = TRUE""",
+                client_id,
+            )
+            await db.execute(
+                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, TRUE)",
+                client_id, channel_id,
+            )
+
+    base = settings.frontend_url.rstrip("/")
+    mini_app_url = f"{base}/c/{client_id}/vk/"
+
+    # Перезагружать VK Long Poll consumer мы пока не умеем (один процесс на все группы).
+    # Изменения подхватятся при следующем рестарте plusson-vk-bot. Это документировано в UI.
+
+    return {
+        "ok": True,
+        "channel_id": channel_id,
+        "group_name": group_name,
+        "screen_name": screen_name,
+        "mini_app_url": mini_app_url,
+    }
+
+
 # ─── DELETE удаление канала ───────────────────────────────────────────
 
 @router.delete("/{channel_id}")

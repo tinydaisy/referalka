@@ -332,6 +332,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ bot_token }),
       }),
+    connectVkCommunity: (data: { access_token: string; app_id: number; secure_key: string; group_id: number }) =>
+      request('/api/v1/channels/connect-vk-community', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
     importCsv: async (id: number, file: File) => {
       const fd = new FormData()
       fd.append('file', file)
