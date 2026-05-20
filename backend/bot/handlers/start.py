@@ -189,13 +189,190 @@ async def handle_start(message: Message, command: CommandObject):
         )
         return
 
-    # Прямой /start
+    # Прямой /start на VIP-боте клиента — приветствие с фото и списком ближайших событий
+    bot_id = message.bot.id if message.bot else None
+    if bot_id and await _handle_vip_direct_start(message, bot_id):
+        return
+
+    # Прямой /start (системный @pluson_bot или ошибка определения клиента)
     await message.answer(
         f"Привет, {user.first_name or ''}! 👋\n\n"
-        f"Я бот <b>ПЛЮСОН</b> — платформы событийного и реферального маркетинга.\n\n"
+        f"Я бот <b>iViSiON: ПЛЮСОН</b> — платформа для организаторов и экспертов.\n\n"
         f"Откройте Mini App или перейдите по ссылке организатора.",
         parse_mode="HTML",
     )
+
+
+async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
+    """Прямой /start на VIP-боте клиента — приветствие с фото основателя
+    и списком ближайших событий клиента.
+
+    Возвращает True если сообщение отправлено (нужно остановить дальнейшую обработку),
+    False — если это системный @pluson_bot или возникла ошибка (тогда сработает общий fallback).
+    """
+    user = message.from_user
+    if not user:
+        return False
+    if message.chat and message.chat.type != 'private':
+        return False
+    try:
+        from app.services.channels import find_channel_by_bot_id
+        from app.services.event_welcome import _fmt_event_period
+
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if not ch or ch["is_system"]:
+                return False  # системный бот — общий fallback
+
+            client_id = await db.fetchval(
+                """SELECT client_id FROM client_channels
+                    WHERE channel_id = $1
+                    ORDER BY is_active DESC, id ASC LIMIT 1""",
+                ch["id"],
+            )
+            if not client_id:
+                return False
+
+            client = await db.fetchrow(
+                """SELECT id, name, brand_name, owner_name,
+                          profile_photo_url, owner_photo_url
+                     FROM clients WHERE id = $1""",
+                client_id,
+            )
+            if not client:
+                return False
+
+            events = await db.fetch(
+                """
+                SELECT * FROM (
+                    SELECT e.id, e.slug, e.title, e.module_slug,
+                           CASE WHEN e.module_slug = 'conference' THEN
+                             (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
+                                      AT TIME ZONE 'Europe/Moscow'
+                                FROM conf_days d WHERE d.event_id = e.id
+                                ORDER BY d.day_number ASC LIMIT 1)
+                             ELSE e.start_at
+                           END AS effective_start_at,
+                           CASE WHEN e.module_slug = 'conference' THEN
+                             (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
+                                      AT TIME ZONE 'Europe/Moscow'
+                                FROM conf_days d WHERE d.event_id = e.id
+                                ORDER BY d.day_number DESC LIMIT 1)
+                             ELSE e.end_at
+                           END AS effective_end_at
+                      FROM events e
+                     WHERE e.client_id = $1
+                       AND e.status = 'published'
+                ) t
+                WHERE t.effective_start_at IS NOT NULL
+                  AND (t.effective_end_at IS NULL OR t.effective_end_at > NOW())
+                ORDER BY t.effective_start_at ASC
+                LIMIT 4
+                """,
+                client_id,
+            )
+
+        # Текст приветствия
+        brand_name = (client["brand_name"] or client["name"] or "").strip()
+        owner_name_db = (client["owner_name"] or "").strip()
+        greet_name = (user.first_name or "").strip()
+        greeting = f"Привет, {_html.escape(greet_name)}! 👋" if greet_name else "Привет! 👋"
+
+        intro_lines = [greeting, ""]
+        if brand_name:
+            intro_lines.append(f"Добро пожаловать в бот <b>{_html.escape(brand_name)}</b>.")
+        else:
+            intro_lines.append("Добро пожаловать!")
+        if owner_name_db:
+            intro_lines.append(f"С вами — {_html.escape(owner_name_db)}.")
+        intro_lines.append("")
+        intro_lines.append("🌐 По кнопке <b>«ЭКОСИСТЕМА»</b> — полезные материалы и продукты организатора.")
+
+        if events:
+            intro_lines.append("")
+            intro_lines.append("📅 А ещё вы можете попасть на ближайшие события:")
+            intro_lines.append("")
+            for idx, ev in enumerate(events, start=1):
+                is_conf = ev["module_slug"] == "conference"
+                date_str = _fmt_event_period(
+                    ev["effective_start_at"], ev["effective_end_at"], is_conf
+                )
+                title = _html.escape(ev["title"] or "Без названия")
+                intro_lines.append(f"<b>{idx}.</b> {title}")
+                if date_str:
+                    intro_lines.append(f"🗓 {date_str}")
+                intro_lines.append("")
+            # убираем последний пустой
+            while intro_lines and intro_lines[-1] == "":
+                intro_lines.pop()
+
+        text = "\n".join(intro_lines)
+
+        # Клавиатура: «Открыть N» (по 2 в ряд) + «ВСЕ СОБЫТИЯ» + «ЭКОСИСТЕМА»
+        rows: list[list[InlineKeyboardButton]] = []
+        buf: list[InlineKeyboardButton] = []
+        for idx, ev in enumerate(events, start=1):
+            url = f"https://pluson.ru/c/{client_id}/tg/event/{ev['slug']}"
+            buf.append(InlineKeyboardButton(
+                text=f"Открыть {idx}",
+                web_app=WebAppInfo(url=url),
+            ))
+            if len(buf) == 2:
+                rows.append(buf)
+                buf = []
+        if buf:
+            rows.append(buf)
+
+        rows.append([InlineKeyboardButton(
+            text="📅 ВСЕ СОБЫТИЯ",
+            web_app=WebAppInfo(url=f"https://pluson.ru/c/{client_id}/tg/"),
+        )])
+        rows.append([InlineKeyboardButton(
+            text="🌐 ЭКОСИСТЕМА",
+            web_app=WebAppInfo(url=f"https://pluson.ru/c/{client_id}/tg/?_tab=ecosystem"),
+        )])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
+
+        # Фото клиента — приоритет фото основателя, fallback на фото бренда
+        photo_url = client["owner_photo_url"] or client["profile_photo_url"]
+
+        TG_CAPTION_LIMIT = 1024
+        if photo_url:
+            if len(text) <= TG_CAPTION_LIMIT:
+                try:
+                    await message.answer_photo(
+                        photo=photo_url,
+                        caption=text,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                    )
+                    return True
+                except Exception as e:
+                    log.warning("vip_start answer_photo failed: %s — fallback to text", e)
+            else:
+                # Текст не влезает в caption — фото отдельно, потом текст с кнопкой
+                try:
+                    await message.answer_photo(photo=photo_url)
+                except Exception as e:
+                    log.warning("vip_start answer_photo (separate) failed: %s", e)
+                await message.answer(
+                    text, parse_mode="HTML",
+                    reply_markup=keyboard,
+                    disable_web_page_preview=True,
+                )
+                return True
+
+        # Без фото
+        await message.answer(
+            text, parse_mode="HTML",
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+        return True
+    except Exception as e:
+        log.exception("_handle_vip_direct_start failed: %s", e)
+        return False
 
 
 @router.message(Command(commands=["getchatid"]))
