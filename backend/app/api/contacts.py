@@ -864,12 +864,12 @@ async def delete_contact(
         raise HTTPException(status_code=404, detail="Контакт не найден")
 
     # Если этот контакт — коллаборатор (спикер/соорганизатор), блокируем
-    # удаление с понятным русским сообщением.
-    collab = await db.fetchrow(
-        """SELECT id FROM collaborators
-            WHERE contact_id = $1 AND client_id = $2
-            LIMIT 1""",
-        contact_id, client_id,
+    # удаление с понятным русским сообщением. У collaborators нет
+    # client_id — привязка к клиенту идёт через contact_id → contacts.client_id,
+    # а контракт «не чужой контакт» мы уже проверили выше.
+    collab = await db.fetchval(
+        "SELECT id FROM collaborators WHERE contact_id = $1 LIMIT 1",
+        contact_id,
     )
     if collab:
         raise HTTPException(
