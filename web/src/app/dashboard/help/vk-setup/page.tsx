@@ -109,7 +109,32 @@ export default function VkSetupInstructionPage() {
         />
       </Section>
 
-      <Section step="4" title="Включить возможности бота">
+      <Section step="4" title="Подключить чат к сообществу">
+        <p className="text-sm text-gray-700 mb-3">
+          Чат сообщества — это общий чат для участников вашего события (аналог группового чата в Telegram).
+          Туда вы сможете давать ссылку из Mini App, чтобы участники общались друг с другом.
+        </p>
+        <p className="text-sm font-semibold text-gray-800 mb-2">На главной странице сообщества справа:</p>
+        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-4">
+          <li>Найдите блок <strong>«Чаты»</strong> или ссылку <strong>«Создать чат»</strong></li>
+          <li>Нажмите <strong>«Создать чат»</strong></li>
+          <li>Название чата — название вашего события или сообщества</li>
+          <li>Фото чата — можно загрузить (необязательно)</li>
+          <li>Кто может приглашать — <strong>«Все участники сообщества»</strong></li>
+          <li>Нажать <strong>«Создать»</strong></li>
+        </ol>
+        <p className="text-sm text-gray-700 mb-3">
+          После создания скопируйте ссылку на чат (кнопка «Пригласить в чат» → «Скопировать ссылку») —
+          она пригодится, когда будете настраивать событие в дашборде ПЛЮСОН (поле «Чат события»).
+        </p>
+        <Screenshot
+          src="/help/vk-setup/04-chat.png"
+          alt="Создание чата в сообществе"
+          caption="Блок «Чаты» на главной странице сообщества"
+        />
+      </Section>
+
+      <Section step="5" title="Включить возможности бота">
         <p className="text-sm text-gray-700 mb-3">
           Боты в ВК — это автоматизация ответов сообщества. ПЛЮСОН использует их, чтобы шлать
           приветствия, лид-магниты, рассылки, отвечать на нажатия кнопок.
@@ -139,7 +164,7 @@ export default function VkSetupInstructionPage() {
         />
       </Section>
 
-      <Section step="5" title="Получить ключ доступа (Access Token)">
+      <Section step="6" title="Получить ключ доступа (Access Token)">
         <p className="text-sm text-gray-700 mb-3">
           Ключ доступа — это «пароль» от вашего сообщества, через который ПЛЮСОН отправляет сообщения и принимает события.
         </p>
@@ -178,7 +203,7 @@ export default function VkSetupInstructionPage() {
         />
       </Section>
 
-      <Section step="6" title="Зарегистрировать VK Mini App">
+      <Section step="7" title="Зарегистрировать VK Mini App">
         <p className="text-sm text-gray-700 mb-3">
           Mini App — это само приложение ПЛЮСОН внутри ВК. Регистрируется в кабинете разработчика VK,
           не в сообществе. В 2025 году ВК перенёс регистрацию из старой панели <code>vk.ru/editapp</code> в новую панель
@@ -265,7 +290,7 @@ export default function VkSetupInstructionPage() {
         </ul>
       </Section>
 
-      <Section step="7" title="Подключить сообщество к ПЛЮСОН">
+      <Section step="8" title="Подключить сообщество к ПЛЮСОН">
         <p className="text-sm text-gray-700 mb-3">
           Финальный шаг — вписать токен сообщества и реквизиты Mini App в дашборд ПЛЮСОН.
         </p>
