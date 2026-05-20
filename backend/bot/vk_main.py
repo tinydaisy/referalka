@@ -257,12 +257,31 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
         from app.services.funnel_service import run_check_subscription, _get_brand_context
         result = await run_check_subscription(run_id, str(user_id), db, platform="vk")
         if result == "subscribed":
+            # На subscribed бэк уже сам шлёт Текст 2 со ссылками в личку. Здесь только
+            # короткое подтверждение через snackbar — оно нужно VK чтобы убрать
+            # «вращающийся индикатор» на кнопке.
             await _send_event_answer("Готово! Проверяйте сообщения 🎁")
         elif result == "not_subscribed":
             client_id = await db.fetchval("SELECT client_id FROM funnel_runs WHERE id=$1", run_id)
-            brand_ctx = await _get_brand_context(client_id, db) if client_id else {}
-            chan = brand_ctx.get("subscription_channel", "")
-            await _send_event_answer(f"Не вижу подписки на {chan}. Подпишитесь и нажмите снова.")
+            brand_ctx = await _get_brand_context(client_id, db, platform="vk") if client_id else {}
+            chan_url = brand_ctx.get("subscription_channel", "")
+            # Сообщение в чат (видимое), а не snackbar — пользователь должен понять
+            # что и куда подписаться. Кнопка «ГОТОВО» под текстом — для повторной
+            # проверки после подписки.
+            text = (
+                "❗ Не вижу вашей подписки на сообщество.\n\n"
+                f"Подпишитесь, пожалуйста, на:\n{chan_url}\n\n"
+                "И нажмите «ГОТОВО» ещё раз — я отправлю подарки."
+            )
+            keyboard = tg_inline_to_vk_keyboard([[
+                {"text": "ГОТОВО", "callback_data": f"fnl_check_{run_id}"},
+            ]])
+            try:
+                await vk_send_message(int(user_id), text, keyboard=keyboard, token=ctx.token)
+            except Exception as e:
+                logger.warning(f"VK not_subscribed message failed: {e}")
+            # Snackbar тоже шлём — короткое, чтобы кнопка убрала спиннер.
+            await _send_event_answer("Не вижу подписки. Смотрите сообщение в чате.")
         else:
             await _send_event_answer("Что-то пошло не так. Попробуйте позже.")
 
