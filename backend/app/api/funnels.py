@@ -16,7 +16,7 @@ Endpoints:
        run_id (а не slug) — чтобы бот мог сразу найти забег и не плодить дубликаты.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional, Literal
 from urllib.parse import quote_plus
@@ -259,49 +259,6 @@ _PLATFORM_ALIASES = {
 }
 
 
-def _vk_bridge_html(target_url: str, fallback_chat_url: str, brand_name: str = "") -> str:
-    """HTML-страница промежуточной загрузки для VK.
-
-    Авто-редирект на VK Mini App через 700 мс. Если VK iOS WebView заблокировал
-    редирект (Telegram WebView, не-залогиненный браузер и т.п.) — пользователь
-    видит две кнопки: «Открыть ВКонтакте» (главная) и «Открыть чат» (запасная).
-    """
-    safe_brand = (brand_name or "").replace('"', '').replace("<", "").replace(">", "")
-    return f"""<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Открываем ВКонтакте...</title>
-<style>
-  html, body {{ margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-  body {{ background: linear-gradient(45deg, #25455D, #0a1520); color: #fff; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }}
-  .card {{ max-width: 440px; width: 100%; text-align: center; }}
-  .ic {{ width: 72px; height: 72px; border-radius: 18px; background: #FFCFA4; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 24px; }}
-  h1 {{ color: #FFCFA4; font-size: 24px; font-weight: 700; margin: 0 0 12px; }}
-  p {{ line-height: 1.5; opacity: 0.9; font-size: 15px; margin: 0 0 28px; }}
-  .btn-primary {{ display: inline-block; background: #FFCFA4; color: #25455D; font-weight: 700; padding: 16px 36px; border-radius: 14px; font-size: 17px; text-decoration: none; box-shadow: 0 6px 20px rgba(255,207,164,0.4); margin-bottom: 14px; }}
-  .btn-secondary {{ display: inline-block; color: rgba(255,255,255,0.7); font-size: 14px; text-decoration: none; padding: 8px 16px; }}
-  .btn-secondary:hover {{ color: #fff; }}
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="ic">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="#25455D"><path d="M13.16 17.46c-5.46 0-8.57-3.75-8.7-9.98h2.74c.09 4.58 2.1 6.51 3.7 6.91V7.48h2.58v3.95c1.57-.17 3.23-1.96 3.79-3.95h2.58c-.43 2.45-2.22 4.25-3.49 4.99 1.27.6 3.31 2.17 4.08 5.0h-2.84c-.6-1.87-2.12-3.32-4.12-3.52v3.52h-.32z"/></svg>
-    </div>
-    <h1>Открываем ВКонтакте…</h1>
-    <p>Подарки {("от " + safe_brand) if safe_brand else ""} придут в чат с сообществом за пару секунд.</p>
-    <a class="btn-primary" href="{target_url}" id="primary">Открыть ВКонтакте</a>
-    <div><a class="btn-secondary" href="{fallback_chat_url}">Не открывается? Написать в сообщество</a></div>
-  </div>
-<script>
-  setTimeout(function(){{ window.location.href = document.getElementById('primary').href; }}, 700);
-</script>
-</body>
-</html>"""
-
-
 async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db: asyncpg.Connection) -> str:
     """Формирует deeplink в чат с ботом/сообществом нужной платформы.
     Воронка лид-магнита — это «открыли чат → бот пишет приветствие со списком подарков».
@@ -403,22 +360,5 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
         )
 
         redirect_url = await _platform_redirect_url(client_id, platform, run_id, db)
-
-        # Для VK отдаём HTML-промежуток вместо 302: внутри Telegram/iOS WebView
-        # прямой редирект на vk.com/app{id}# нестабилен, и пользователь упирается
-        # в VK-заглушку «Откройте в приложении» без понимания что делать.
-        # HTML-страница с auto-redirect + видимой кнопкой работает везде:
-        #   - залогинен в VK → редирект ~700ms, страница незаметна
-        #   - залип в TG WebView → видна кнопка «Открыть ВКонтакте» + «Написать в сообщество»
-        if platform == 'vk':
-            brand_row = await db.fetchrow(
-                "SELECT COALESCE(NULLIF(brand_name,''), name) AS bn FROM clients WHERE id=$1",
-                client_id,
-            )
-            brand = (brand_row["bn"] if brand_row else "") or ""
-            handles = await get_client_bot_handles(db, client_id)
-            vk_handle = (handles.get('vk') or '').lstrip('@')
-            fallback_chat = f"https://vk.me/{vk_handle}" if vk_handle else redirect_url
-            return HTMLResponse(content=_vk_bridge_html(redirect_url, fallback_chat, brand))
 
     return RedirectResponse(url=redirect_url, status_code=302)
