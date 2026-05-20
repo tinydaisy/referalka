@@ -18,7 +18,7 @@ API каналов доставки клиента (миграция 036, доп
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 
 from app.auth import get_current_client
 from app.config import settings
