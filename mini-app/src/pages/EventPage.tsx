@@ -11,6 +11,7 @@ import EcosystemTab from '../tabs/EcosystemTab'
 import RegistrationFlow from '../components/RegistrationFlow'
 import WelcomePage from '../components/WelcomePage'
 import { getEventLanding, getParticipantInEvent, registerParticipant, markParticipantWelcomed } from '../api'
+import { getPlatformName } from '../platform'
 
 type State = 'not_registered' | 'registered' | 'ended'
 
@@ -139,11 +140,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       const alreadyRegistered = !!part?.participant?.is_registered
       const ended = isEnded(landing)
 
-      // event_start — сигнал «открыл событие». Шлём ВСЕГДА (для всех статусов
-      // и для зареганных/нет): бэкенд по статусу/датам выбирает контекстное
-      // приветствие (register_cta / referral_reminder / next_event_cta /
-      // ecosystem_thanks) и сам дедупит через last_open_msg_kind/at.
-      if (tgUser?.id && slug) {
+      // event_start — сигнал «открыл событие». Шлём только для TG-эндпойнта
+      // (бэк по статусу/датам выбирает контекстное приветствие register_cta /
+      // referral_reminder / next_event_cta / ecosystem_thanks; дедуп через
+      // last_open_msg_kind/at).
+      //
+      // VK-Mini-App шлёт свой event_start через /api/v1/vk/event ещё в App.tsx
+      // при первом монтировании. Здесь второй раз слать не нужно — иначе
+      // TG-эндпойнт попытается отправить sendMessage на vk_user_id под видом
+      // tg_id и 400'ит.
+      if (tgUser?.id && slug && getPlatformName() === 'telegram') {
         fetch(`${import.meta.env.VITE_API_URL}/api/v1/event`, {
           method: 'POST',
           keepalive: true,

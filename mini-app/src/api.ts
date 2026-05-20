@@ -1,4 +1,17 @@
+import { getPlatformName } from './platform'
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+/**
+ * Текущая платформа Mini App. Для TG бэк по дефолту использует 'telegram',
+ * поэтому если platform=telegram — параметр НЕ добавляем, чтобы не менять
+ * существующее поведение TG-эндпоинтов. Для VK/MAX — обязательно добавляем,
+ * иначе бэк попытается найти юзера по vk_user_id под видом tg_id.
+ */
+function platformQuery(prefix: '&' | '?' = '&'): string {
+  const p = getPlatformName()
+  return p === 'telegram' || p === 'web' ? '' : `${prefix}platform=${p}`
+}
 
 export async function req(path: string, options?: RequestInit) {
   // cache: 'no-store' — Telegram WebView (особенно iOS) активно кеширует GET,
@@ -28,8 +41,13 @@ export const checkConferenceSubscription = (eventId: number, tgId: number) =>
   req(`/api/v1/public/conference/${eventId}/check-subscription?tg_id=${tgId}`)
 
 // ── Регистрация и участники ──
+// Передаём platform в body: бэк пишет в platform_users с правильным platform_slug.
+// Для TG это 'telegram' (или опускается — дефолт на бэке), для VK — 'vk', для MAX — 'max'.
 export const registerParticipant = (data: any) =>
-  req('/api/v1/participants/register', { method: 'POST', body: JSON.stringify(data) })
+  req('/api/v1/participants/register', {
+    method: 'POST',
+    body: JSON.stringify({ ...data, platform: getPlatformName() }),
+  })
 
 // Клик по главной CTA-ссылке события (стрим / голосование). fire-and-forget.
 export function trackLinkClick(eventSlug: string | undefined | null, tgUser: any) {
@@ -54,15 +72,17 @@ export const getParticipantEvents = (tgId: number) =>
   req(`/api/v1/participants/telegram/${tgId}/events`)
 
 // ── Селектор общего бота: события участника со всех клиентов ──
+// platform=vk/max — Mini App шлёт vk_user_id / max_user_id под видом tg_id; бэк
+// ищет в platform_users по platform_slug. Для TG параметр опускается.
 export const getMiniAppMyEvents = (tgId: number) =>
-  req(`/api/v1/participants/miniapp/me/events?tg_id=${tgId}`)
+  req(`/api/v1/participants/miniapp/me/events?tg_id=${tgId}${platformQuery()}`)
 
 // ── Список «лидеров» (организаторов) участника для вкладки «Лидеры» ──
 export const getMiniAppMyLeaders = (tgId: number) =>
-  req(`/api/v1/participants/miniapp/me/leaders?tg_id=${tgId}`)
+  req(`/api/v1/participants/miniapp/me/leaders?tg_id=${tgId}${platformQuery()}`)
 
 export const getParticipantInEvent = (slug: string, tgId: number) =>
-  req(`/api/v1/participants/event/${slug}/user/${tgId}`)
+  req(`/api/v1/participants/event/${slug}/user/${tgId}${platformQuery('?')}`)
 
 // Карточка участника со списком его мессенджеров (TG/VK/MAX). Доступна
 // только участникам того же события (защита на бэке).

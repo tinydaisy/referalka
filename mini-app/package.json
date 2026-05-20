@@ -1,15 +1,19 @@
 {
   "name": "plusson-mini-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vite --config vite.config.tg.ts",
+    "dev:vk": "vite --config vite.config.vk.ts",
+    "build:tg": "vite build --config vite.config.tg.ts && mv dist/index_tg.html dist/index.html",
+    "build:vk": "vite build --config vite.config.vk.ts && mv dist-vk/index_vk.html dist-vk/index.html",
+    "build": "npm run build:tg && npm run build:vk",
     "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "@vkontakte/vk-bridge": "^3.0.2"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

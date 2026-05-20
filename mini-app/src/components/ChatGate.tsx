@@ -9,23 +9,18 @@
 //   {debug && <div>{debug}</div>}
 import { useState } from 'react'
 import { checkConferenceSubscription } from '../api'
+import { getPlatform } from '../platform'
 
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
 
 type SubChannel = { speaker_id: number; name: string; tg_channel_id: string; tg_channel_url: string | null }
 
+// Открыть внешнюю ссылку через platform-адаптер.
+// TG → openTelegramLink/openLink; VK → window.top.location (iframe);
+// MAX → openLink. См. src/platform/{telegram,vk,max}.ts.
 function openExternal(url: string) {
-  const tg = (window as any).Telegram?.WebApp
-  if (tg?.openTelegramLink && /^https?:\/\/t\.me\//i.test(url)) {
-    tg.openTelegramLink(url)
-    return
-  }
-  if (tg?.openLink) {
-    tg.openLink(url)
-    return
-  }
-  window.open(url, '_blank', 'noopener,noreferrer')
+  getPlatform().openExternal(url)
 }
 
 export function useChatGate(event: any, tgUser: any) {
