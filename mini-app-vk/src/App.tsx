@@ -144,13 +144,50 @@ export default function App() {
         if (parsed.initialTab) setInitialTab(parsed.initialTab)
       }
 
-      // Воронка лид-магнита: hash вида `fnl_<run_id>` — это аналог TG-deeplink-кнопки START.
-      // Шлём run_id + launch_params на бэк, который вызовет run_started_vk:
-      //   - создаст contact + platform_user('vk') в БД клиента
-      //   - сообщество шлёт пользователю Текст 1 в личку
-      // После успеха показываем экран «Готово, проверьте чат» и кнопку с переходом в диалог.
-      // window.location.replace внутри VK Mini App не работает (iframe sandbox), поэтому
-      // открываем чат через target=_top или закрываем Mini App через VKWebAppClose.
+      // Воронка лид-магнита через прямую ссылку:
+      //   - `m_<slug>` (опционально `_pid<x>_src<y>`) — одиночный лид-магнит
+      //   - `p_<slug>` (опционально `_pid<x>_src<y>`) — пакет
+      // Mini App шлёт на /api/v1/vk/funnel-landing — бэк создаёт funnel_run +
+      // запускает run_started_vk → сообщество отправляет Текст 1 в личку.
+      // После успеха показываем экран статуса с кнопкой «Открыть чат».
+      const funnelMatch = sp ? /^([mp])_([^_]+)((?:_pid[^_]+)?(?:_src[^_]+)?(?:_pid[^_]+)?(?:_src[^_]+)?)$/.exec(sp) : null
+      if (funnelMatch) {
+        const kind = funnelMatch[1] as 'm' | 'p'
+        const slug = funnelMatch[2]
+        const rest = funnelMatch[3] || ''
+        const pidMatch = /_pid([^_]+)/.exec(rest)
+        const srcMatch = /_src([^_]+)/.exec(rest)
+        const lp = adapter.launchParams || {}
+        let ok = false
+        let groupId = 0
+        if (lp.vk_user_id) {
+          try {
+            const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/funnel-landing`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                launch_params: lp,
+                kind, slug,
+                partner_id: pidMatch ? pidMatch[1] : '',
+                utm_source: srcMatch ? srcMatch[1] : '',
+              }),
+            }).then(x => x.ok ? x.json() : null)
+            if (r?.ok) {
+              ok = true
+              groupId = Number(r.group_id || lp.vk_group_id || 0)
+            }
+          } catch (e) {
+            console.warn('funnel-landing failed', e)
+          }
+        }
+        setFunnelStatus(ok ? 'ok' : 'fail')
+        setFunnelGroupId(groupId)
+        setLoading(false)
+        return
+      }
+
+      // Старый формат `fnl_<run_id>` — обратная совместимость (когда юзер пришёл с
+      // pluson.ru/m/{slug}?to=vk → 302 → vk.com/app{aid}#fnl_<run_id>).
       if (sp && sp.startsWith('fnl_')) {
         const runId = Number(sp.slice(4))
         const lp = adapter.launchParams || {}

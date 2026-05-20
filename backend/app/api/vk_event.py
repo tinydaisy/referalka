@@ -10,7 +10,9 @@ Mini App копирует все vk_* + sign из своего window.location �
 """
 from __future__ import annotations
 
+import json
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -44,9 +46,138 @@ class VkEventRequest(BaseModel):
     phone: str = ""    # VKWebAppGetPhoneNumber
 
 
+class VkFunnelLandingRequest(BaseModel):
+    """Запрос на запуск воронки лид-магнита из VK Mini App.
+
+    Используется когда юзер открыл прямую ссылку `vk.com/app{aid}#m_<slug>` или
+    `#p_<slug>`. Mini App парсит hash, шлёт сюда вместе с launch_params.
+    Бэк сам создаёт funnel_run + запускает run_started_vk."""
+    launch_params: dict[str, str]
+    kind: Literal['m', 'p']
+    slug: str
+    partner_id: str = ""
+    utm_source: str = ""
+
+
 class VkFunnelStartRequest(BaseModel):
     launch_params: dict[str, str]
     run_id: int
+
+
+@router.post("/vk/funnel-landing", summary="Прямая landing-воронка из VK Mini App (по slug)")
+async def vk_funnel_landing(body: VkFunnelLandingRequest):
+    """Mini App открыт по `vk.com/app{aid}#m_<slug>` или `#p_<slug>` (без pluson.ru).
+    Создаём funnel_run на лету и запускаем воронку."""
+    vk_app_id_raw = body.launch_params.get("vk_app_id")
+    secure_key: str | None = settings.vk_app_secure_key
+    try:
+        if vk_app_id_raw and int(vk_app_id_raw) != int(getattr(settings, "vk_app_id", "0") or 0):
+            pool = await get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """SELECT platform_meta->>'vk_secure_key' AS sk
+                             FROM channels
+                            WHERE platform_slug = 'vk'
+                              AND (platform_meta->>'vk_app_id')::int = $1
+                            LIMIT 1""",
+                        int(vk_app_id_raw),
+                    )
+                    if row and row["sk"]:
+                        secure_key = row["sk"]
+    except Exception as e:
+        logger.warning(f"VK funnel-landing: secure_key lookup failed app_id={vk_app_id_raw}: {e}")
+
+    if not secure_key or not validate_vk_launch_params(body.launch_params, secure_key):
+        raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
+
+    vk_user_id_raw = body.launch_params.get("vk_user_id")
+    if not vk_user_id_raw:
+        raise HTTPException(status_code=400, detail="vk_user_id required")
+    try:
+        vk_user_id = int(vk_user_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="vk_user_id must be int")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="db not available")
+
+    async with pool.acquire() as conn:
+        # Канал клиента по vk_app_id — для отправки сообщений
+        chan = await conn.fetchrow(
+            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id,
+                      (ch.platform_meta->>'vk_group_id')::int AS vk_group_id
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                  AND cc.is_active = TRUE
+                  AND (ch.platform_meta->>'vk_app_id')::int = $1
+                LIMIT 1""",
+            int(vk_app_id_raw or 0),
+        )
+        if not chan or not chan["bot_token"]:
+            raise HTTPException(status_code=404, detail="VK-сообщество клиента не подключено к этому Mini App")
+
+        # Резолвим slug → lead_magnet или package клиента
+        if body.kind == 'm':
+            row = await conn.fetchrow(
+                "SELECT id, client_id FROM lead_magnets WHERE slug = $1", body.slug,
+            )
+            if not row or row["client_id"] != chan["client_id"]:
+                raise HTTPException(status_code=404, detail="Лид-магнит не найден или не принадлежит клиенту сообщества")
+            lm_id, pkg_id = row["id"], None
+        else:
+            row = await conn.fetchrow(
+                "SELECT id, client_id FROM lead_magnet_packages WHERE slug = $1", body.slug,
+            )
+            if not row or row["client_id"] != chan["client_id"]:
+                raise HTTPException(status_code=404, detail="Пакет не найден или не принадлежит клиенту сообщества")
+            lm_id, pkg_id = None, row["id"]
+
+        client_id = chan["client_id"]
+
+        # Реферер по pid (если передан)
+        referrer_id = None
+        if body.partner_id:
+            referrer_id = await conn.fetchval(
+                "SELECT id FROM contacts WHERE client_id = $1 AND ref_code = $2",
+                client_id, body.partner_id,
+            )
+
+        utm = {"utm_source": body.utm_source} if body.utm_source else {}
+        run_id = await conn.fetchval(
+            """INSERT INTO funnel_runs
+                  (client_id, type, lead_magnet_id, package_id,
+                   contact_id, referrer_contact_id, utm, stage, landed_at,
+                   platform_slug)
+               VALUES ($1, 'lead_magnet', $2, $3, NULL, $4, $5::jsonb, 'landed', NOW(), 'vk')
+               RETURNING id""",
+            client_id, lm_id, pkg_id, referrer_id, json.dumps(utm),
+        )
+
+        user_info = None
+        try:
+            from app.services.vk_api import get_user_info as vk_get_user_info
+            user_info = await vk_get_user_info(vk_user_id)
+        except Exception:
+            pass
+
+        from app.services.funnel_service import run_started_vk
+        await run_started_vk(
+            run_id, str(vk_user_id),
+            username=(user_info or {}).get("screen_name", "") if user_info else "",
+            first_name=(user_info or {}).get("first_name", "") if user_info else "",
+            last_name=(user_info or {}).get("last_name", "") if user_info else "",
+            db=conn,
+            channel_id=chan["channel_id"],
+            token=chan["bot_token"],
+        )
+
+        group_id = int(body.launch_params.get("vk_group_id") or 0) or int(chan["vk_group_id"] or 0)
+
+    return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id, "run_id": run_id}
 
 
 @router.post("/vk/funnel-start", summary="Запуск воронки лид-магнита из VK Mini App")

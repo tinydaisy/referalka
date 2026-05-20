@@ -13,6 +13,7 @@ from aiogram.filters import CommandStart, CommandObject, Command
 from app.config import settings
 from app.database import get_pool
 import html as _html
+import json
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -76,7 +77,77 @@ async def handle_start(message: Message, command: CommandObject):
     # Регистрируем подписку — для счётчика подписчиков канала и базы контактов
     await _record_subscription(message)
 
-    # Воронка лид-магнита
+    # Воронка лид-магнита: прямой формат `/start m_<slug>` (для лид-магнита) или
+    # `/start p_<slug>` (для пакета). Опционально с UTM/pid: `m_<slug>_pid<ref>_src<utm>`.
+    # Бот сам создаёт funnel_run и запускает run_started. Это заменяет старый
+    # путь через pluson.ru/m/{slug}?to=tg.
+    if args.startswith("m_") or args.startswith("p_"):
+        kind = "m" if args.startswith("m_") else "p"
+        # Разбираем `{slug}_pid{X}_src{Y}` — slug = до первого `_pid`/`_src` или весь хвост
+        rest = args[2:]
+        parts = rest.split("_") if rest else []
+        slug = parts[0] if parts else ""
+        pid: str | None = None
+        utm_source: str | None = None
+        for chunk in parts[1:]:
+            if chunk.startswith("pid"):
+                pid = chunk[3:] or None
+            elif chunk.startswith("src"):
+                utm_source = chunk[3:] or None
+        if slug:
+            try:
+                pool = await get_pool()
+                bot_id = message.bot.id if message.bot else None
+                async with pool.acquire() as db:
+                    if kind == "m":
+                        row = await db.fetchrow(
+                            "SELECT id, client_id FROM lead_magnets WHERE slug = $1", slug
+                        )
+                        client_id = row["client_id"] if row else None
+                        lm_id = row["id"] if row else None
+                        pkg_id = None
+                    else:
+                        row = await db.fetchrow(
+                            "SELECT id, client_id FROM lead_magnet_packages WHERE slug = $1", slug
+                        )
+                        client_id = row["client_id"] if row else None
+                        lm_id = None
+                        pkg_id = row["id"] if row else None
+                    if client_id:
+                        referrer_id = None
+                        if pid:
+                            referrer_id = await db.fetchval(
+                                "SELECT id FROM contacts WHERE client_id = $1 AND ref_code = $2",
+                                client_id, pid,
+                            )
+                        utm_json = {"utm_source": utm_source} if utm_source else {}
+                        run_id = await db.fetchval(
+                            """INSERT INTO funnel_runs
+                                  (client_id, type, lead_magnet_id, package_id,
+                                   contact_id, referrer_contact_id, utm, stage, landed_at,
+                                   platform_slug)
+                               VALUES ($1, 'lead_magnet', $2, $3, NULL, $4, $5::jsonb, 'landed', NOW(), 'telegram')
+                               RETURNING id""",
+                            client_id, lm_id, pkg_id, referrer_id, json.dumps(utm_json),
+                        )
+                        from app.services.funnel_service import run_started
+                        await run_started(
+                            run_id,
+                            str(user.id),
+                            user.username or "",
+                            user.first_name or "",
+                            user.last_name or "",
+                            db,
+                            bot_id=bot_id,
+                        )
+                        return
+                # Не нашли воронку — молча падаем дальше на приветствие
+            except Exception as e:
+                log.exception("funnel m_/p_ handler failed: %s", e)
+                await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
+                return
+
+    # Воронка лид-магнита (старый формат, через pluson.ru/m/{slug}?to=tg → 302 → /start fnl_<id>)
     if args.startswith("fnl_"):
         try:
             run_id = int(args.removeprefix("fnl_"))

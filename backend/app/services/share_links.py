@@ -178,33 +178,44 @@ async def build_funnel_landing_links(
     kind: str = "m",
     base_url: str = "https://pluson.ru",
 ) -> dict[str, str]:
-    """Возвращает {platform → public-URL} для landing воронки лид-магнита/пакета.
+    """Возвращает {platform → deeplink} для landing воронки лид-магнита/пакета.
 
-    URL формата `{base_url}/{kind}/{slug}?to={platform}` — публичная ссылка,
-    которой клиент делится с подписчиками. По хиту бэк создаёт funnel_run
-    и редиректит в чат с ботом/сообществом нужной платформы.
+    Прямые ссылки в чат с ботом/сообществом — без промежутка через pluson.ru.
+    Бот / Mini App сами парсят `m_{slug}` или `p_{slug}` в start-параметре/hash
+    и создают funnel_run + запускают воронку.
+
+    Форматы:
+    - TG: `t.me/{bot_handle}?start={kind}_{slug}` (VIP-бот клиента или @pluson_bot)
+    - VK: `vk.com/app{vk_app_id}#{kind}_{slug}` (Mini App клиента)
+    - MAX: `max.ru/{handle}?start={kind}_{slug}` (только если есть собственный MAX-бот)
 
     Логика показа платформы:
-    - TG: показывается если у клиента есть свой TG-бот ИЛИ есть системный
-      @pluson_bot не в test (системный бот умеет работать мультиклиентно
-      через payload `fnl_<run_id>`).
-    - VK: показывается ТОЛЬКО если у клиента есть собственное VK-сообщество
-      в client_channels. Системное сообщество ПЛЮСОНа не используется для
-      выдачи лид-магнитов чужих клиентов (оно не имеет права писать в личку
-      подписчикам клиента и нарушает приватность).
-    - MAX: аналогично VK — только собственный канал клиента.
+    - TG: VIP-бот клиента ИЛИ системный @pluson_bot (мультиклиентный через payload)
+    - VK / MAX — ТОЛЬКО собственный канал клиента (системные принадлежат ПЛЮСОНу
+      и не имеют права писать в личку подписчикам клиента).
     """
     if kind not in ("m", "p"):
         raise ValueError(f"kind must be 'm' or 'p', got {kind!r}")
-    client_platforms = set(await get_active_platforms(db, client_id))
-    base = base_url.rstrip('/')
+    payload = f"{kind}_{slug}"
+    handles = await get_client_bot_handles(db, client_id)
     result: dict[str, str] = {}
-    # TG: свой канал ИЛИ системный @pluson_bot
-    if "telegram" in client_platforms or await _has_system_channel(db, "telegram", allow_test=False):
-        result["telegram"] = f"{base}/{kind}/{slug}?to=tg"
-    # VK / MAX — только если у клиента есть свой канал
-    if "vk" in client_platforms:
-        result["vk"] = f"{base}/{kind}/{slug}?to=vk"
-    if "max" in client_platforms:
-        result["max"] = f"{base}/{kind}/{slug}?to=max"
+
+    # TG: VIP-бот клиента, либо системный @pluson_bot (мультиклиентный)
+    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
+    if tg_handle == PLUSON_TG_HANDLE:
+        if not await _has_system_channel(db, "telegram", allow_test=False):
+            tg_handle = ""
+    if tg_handle:
+        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+
+    # VK: ТОЛЬКО собственное сообщество клиента (нужен его vk_app_id из platform_meta)
+    if handles.get("vk"):
+        vk_app_id = await get_client_vk_app_id(db, client_id)
+        if vk_app_id:
+            result["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
+
+    # MAX: ТОЛЬКО собственный MAX-бот клиента
+    if handles.get("max"):
+        result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
+
     return result
