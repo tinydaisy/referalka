@@ -548,7 +548,7 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
-           ORDER BY cse.priority NULLS LAST, cse.sort_order""",
+           ORDER BY cse.priority NULLS LAST, cse.sort_order, cse.id""",
         event_id
     )
     topics_map = await _load_topics([r["id"] for r in rows], db)

@@ -57,7 +57,7 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
   }
 
   async function handleRemove(ecId: number) {
-    if (!confirm('Убрать соорганизатора из этого события?')) return
+    if (!confirm('Убрать организатора из этого события?')) return
     setRemoving(ecId)
     try {
       await api.events.removeCollaborator(eventId, ecId)
@@ -74,7 +74,7 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
           <div>
-            <h3 className="font-semibold text-gray-800">Соорганизаторы</h3>
+            <h3 className="font-semibold text-gray-800">Организаторы</h3>
             <p className="text-sm text-gray-500 mt-1">
               Кто ещё ведёт это мероприятие — отображается на странице события в Mini App.
               Берётся из общей базы Коллаборации.
@@ -91,10 +91,10 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
 
         {items.length === 0 ? (
           <div className="text-sm text-gray-400 py-8 text-center border-2 border-dashed border-gray-200 rounded-xl">
-            Соорганизаторы не добавлены
+            Организаторы не добавлены
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="flex flex-col gap-3">
             {items.map(c => (
               <div key={c.id} className="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-gray-300 transition-colors">
                 <Link

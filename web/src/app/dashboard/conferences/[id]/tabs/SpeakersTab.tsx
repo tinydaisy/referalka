@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Plus, User, Trash2, Pencil, X, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
@@ -88,6 +88,7 @@ function getMissingGiftLabels(sp: any): string[] {
 }
 
 export default function SpeakersTab({ eventId }: { eventId: number }) {
+  const router = useRouter()
   const { t } = useLang()
   const ts = t.conferences.speakers
   const [speakers, setSpeakers] = useState<any[]>([])
@@ -221,7 +222,11 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
               ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
               : (sp.speaker_topic ? [sp.speaker_topic] : [])
             return (
-              <div key={sp.id} className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors ${i > 0 ? 'border-t border-gray-50' : ''}`}>
+              <div
+                key={sp.id}
+                onClick={() => router.push(`/dashboard/conferences/${eventId}/speakers/${sp.id}`)}
+                className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors cursor-pointer ${i > 0 ? 'border-t border-gray-50' : ''}`}
+              >
                 <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
                   {sp.photo_url
                     ? <ImageThumb url={sp.photo_url} alt={sp.name} className="w-full h-full block" />
@@ -229,9 +234,9 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <Link href={`/dashboard/conferences/${eventId}/speakers/${sp.id}`} className="font-medium text-gray-900 text-sm truncate hover:text-brand transition-colors">
+                    <span className="font-medium text-gray-900 text-sm truncate group-hover:text-brand transition-colors">
                       {sp.name}
-                    </Link>
+                    </span>
                   </div>
                   <p className="text-xs text-gray-400">
                     {ts.roles[sp.role as keyof typeof ts.roles] || sp.role}
@@ -265,12 +270,12 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                       className="w-8 h-12 rounded overflow-hidden block bg-gray-100" />
                   </div>
                 )}
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                  <button onClick={() => openEdit(sp)}
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all" onClick={e => e.stopPropagation()}>
+                  <button onClick={(e) => { e.stopPropagation(); openEdit(sp) }}
                     className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">
                     <Pencil size={14} />
                   </button>
-                  <button onClick={() => remove(sp.id, sp.name)}
+                  <button onClick={(e) => { e.stopPropagation(); remove(sp.id, sp.name) }}
                     className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
                     <Trash2 size={14} />
                   </button>
