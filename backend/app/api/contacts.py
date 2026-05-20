@@ -834,3 +834,52 @@ async def update_contact(
         *args
     )
     return {"ok": True, "contact": dict(row)}
+
+
+@router.delete("/contacts/{contact_id}")
+async def delete_contact(
+    contact_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Полное удаление контакта со всеми связанными данными.
+
+    Каскадно подтянет:
+    - platform_users (идентичности в TG/VK/MAX)
+    - event_participants (участия в событиях + gift_issuances, raffle_tickets через FK)
+    - funnel_runs (прохождения воронок лид-магнитов)
+    - referrer_* ссылки у других участников/контактов → NULL
+
+    БЛОКИРУЕТСЯ если контакт привязан к коллаборатору — сначала надо
+    удалить коллаборацию (в /dashboard/collaborations), потом контакт.
+    Сделано чтобы клиент не убил случайно спикера/соорганизатора одной кнопкой.
+    """
+    client_id = int(client["sub"])
+
+    own = await db.fetchval(
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+        contact_id, client_id
+    )
+    if not own:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+    # Если этот контакт — коллаборатор (спикер/соорганизатор), блокируем
+    # удаление с понятным русским сообщением.
+    collab = await db.fetchrow(
+        """SELECT id FROM collaborators
+            WHERE contact_id = $1 AND client_id = $2
+            LIMIT 1""",
+        contact_id, client_id,
+    )
+    if collab:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Контакт связан с коллаборатором (спикер/соорганизатор). "
+                "Сначала удалите коллаборацию в разделе «Коллаборации» — "
+                "после этого можно будет удалить контакт."
+            ),
+        )
+
+    await db.execute("DELETE FROM contacts WHERE id = $1", contact_id)
+    return {"ok": True}

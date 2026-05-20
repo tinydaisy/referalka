@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase } from 'lucide-react'
+import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2 } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 
@@ -468,6 +468,27 @@ export default function ContactsPage() {
               {selected.is_unsubscribed && (
                 <span className="ml-auto text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full shrink-0">Отписан</span>
               )}
+              <button
+                onClick={async () => {
+                  if (selected.collaborator) {
+                    alert('Контакт связан с коллаборатором (спикер/соорганизатор). Сначала удалите коллаборацию в разделе «Коллаборации», потом контакт.')
+                    return
+                  }
+                  const confirmMsg = `Удалить контакт «${getName(selected)}» полностью?\n\nЭто действие нельзя отменить. Будут удалены:\n• сам контакт и все его идентичности (TG/VK/MAX)\n• все участия в событиях\n• все прохождения воронок лид-магнитов\n\nЕсли хотите просто отписать — используйте мерж или фильтр «Отписаны».`
+                  if (!confirm(confirmMsg)) return
+                  try {
+                    await api.contacts.delete(selected.id)
+                    setSelected(null)
+                    await fetchContacts(search, offset, showUnsubscribed, filters)
+                  } catch (e: any) {
+                    alert('Ошибка удаления: ' + (e?.message || 'неизвестная'))
+                  }
+                }}
+                className="ml-2 p-2 text-red-500 hover:bg-red-50 rounded-lg shrink-0"
+                title="Удалить контакт полностью"
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
 
             {/* Если контакт — также коллаборатор, показываем ссылку */}

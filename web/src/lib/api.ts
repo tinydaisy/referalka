@@ -310,6 +310,8 @@ export const api = {
     get: (id: number) => request(`/api/v1/contacts/${id}`),
     update: (id: number, data: { name?: string; email?: string; phone?: string }) =>
       request(`/api/v1/contacts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request(`/api/v1/contacts/${id}`, { method: 'DELETE' }),
     filterOptions: () => request('/api/v1/contacts/filter-options'),
     duplicates: (id: number) => request(`/api/v1/contacts/${id}/duplicates`),
     merge: (primaryId: number, targetId: number) =>
