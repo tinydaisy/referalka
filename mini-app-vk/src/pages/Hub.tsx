@@ -40,7 +40,12 @@ export default function Hub({ clientId, tgUser, onOpenEvent }: Props) {
       {tab === 'calendar' && (
         <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18, position: 'relative' }}>
           <button
-            onClick={() => window.location.assign(`${APP_BASE}/`)}
+            onClick={() => {
+              // Сохраняем launch params VK / TG initData при возврате
+              const qs = window.location.search || ''
+              const hash = window.location.hash || ''
+              window.location.assign(`${APP_BASE}/${qs}${hash}`)
+            }}
             style={{
               position: 'absolute', top: 14, left: 12,
               background: 'rgba(255,255,255,0.10)',

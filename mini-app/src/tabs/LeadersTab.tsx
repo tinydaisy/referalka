@@ -14,9 +14,10 @@ interface Leader {
 interface Props {
   tgUser: any
   onOpenLeader: (clientId: number) => void
+  onSwitchToPromo?: () => void
 }
 
-export default function LeadersTab({ tgUser, onOpenLeader }: Props) {
+export default function LeadersTab({ tgUser, onOpenLeader, onSwitchToPromo }: Props) {
   const [leaders, setLeaders] = useState<Leader[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -38,11 +39,42 @@ export default function LeadersTab({ tgUser, onOpenLeader }: Props) {
       <div style={{ textAlign: 'center', padding: '60px 24px' }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>🧑‍💼</div>
         <p style={{ color: 'var(--text)', fontWeight: 700, fontSize: 16 }}>
-          У вас пока нет лидеров
+          Вы пока не следите ни за одним лидером
         </p>
         <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
-          Перейдите по ссылке от организатора или эксперта —<br />и он появится здесь
+          Откройте ссылку от организатора или эксперта —<br />и он появится здесь.
         </p>
+        <div style={{
+          marginTop: 28, padding: 16, borderRadius: 14,
+          background: 'linear-gradient(45deg, #25455D, #0a1520)',
+          color: 'white', textAlign: 'left',
+        }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#FFCFA4', marginBottom: 6 }}>
+            А может сами станьте лидером?
+          </p>
+          <p style={{ fontSize: 13, lineHeight: 1.45, opacity: 0.9 }}>
+            iViSiON: ПЛЮСОН — платформа для организаторов и экспертов. Создавайте события,
+            подключайте партнёров, ведите рассылки и базу в одном месте.
+          </p>
+          {onSwitchToPromo && (
+            <button
+              onClick={onSwitchToPromo}
+              style={{
+                marginTop: 14,
+                background: '#FFCFA4',
+                color: '#25455D',
+                border: 'none',
+                padding: '10px 18px',
+                borderRadius: 10,
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Узнать про ПЛЮСОН →
+            </button>
+          )}
+        </div>
       </div>
     )
   }

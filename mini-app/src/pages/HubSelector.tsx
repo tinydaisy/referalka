@@ -25,8 +25,13 @@ export default function HubSelector({ tgUser, onOpenEvent }: Props) {
 
   // Клик по лидеру → переход в Hub этого клиента. Реализуем через
   // window.location — App.tsx по `/c/{N}/...` сам отдаст Hub-компонент.
+  // Сохраняем query-string и hash: VK Bridge launch params (?vk_user_id&sign…)
+  // и TG-startparam (#…) живут именно там — без них следующий рендер не
+  // опознает юзера и Hub окажется пустым.
   function openLeader(clientId: number) {
-    window.location.assign(`/c/${clientId}${APP_BASE}/`)
+    const qs = window.location.search || ''
+    const hash = window.location.hash || ''
+    window.location.assign(`/c/${clientId}${APP_BASE}/${qs}${hash}`)
   }
 
   return (
@@ -68,7 +73,11 @@ export default function HubSelector({ tgUser, onOpenEvent }: Props) {
           />
         )}
         {tab === 'leaders' && (
-          <LeadersTab tgUser={tgUser} onOpenLeader={openLeader} />
+          <LeadersTab
+            tgUser={tgUser}
+            onOpenLeader={openLeader}
+            onSwitchToPromo={() => setTab('plusson')}
+          />
         )}
         {tab === 'plusson' && <PlussonPromoTab />}
       </div>
