@@ -648,21 +648,24 @@ function VipVkWizard({ clientId, onClose, onDone }: {
               <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
                 <CheckCircle2 size={20} className="text-green-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="font-semibold text-green-900">«{result.group_name}» подключено</p>
+                  <p className="font-semibold text-green-900">Сообщество «{result.group_name}» подключено ✓</p>
                   <p className="text-sm text-green-800 mt-0.5">
-                    Long Poll включён, токен сохранён. Осталось вписать URL Mini App в dev.vk.com.
+                    Через ~10 секунд бот вашего сообщества будет готов: начнёт принимать
+                    сообщения от подписчиков, отвечать в Mini App и слать ваши рассылки.
                   </p>
                 </div>
               </div>
 
-              <h3 className="font-semibold text-gray-900">Шаг 3. Привязать Mini App URL</h3>
+              <h3 className="font-semibold text-gray-900">Последний шаг — вставить адрес Mini App в ВК</h3>
               <p className="text-sm text-gray-600">
-                В <a href="https://dev.vk.com" target="_blank" rel="noopener" className="font-medium underline" style={{ color: '#25455D' }}>dev.vk.com</a> →
-                ваш Mini App → «Настройки» → поле <b>«URL приложения»</b> вставьте:
+                Если вы уже сделали это в шаге 7 инструкции — пропустите.
+                Если нет: откройте <a href="https://dev.vk.com" target="_blank" rel="noopener" className="font-medium underline" style={{ color: '#25455D' }}>dev.vk.com</a> →
+                ваш Mini App → раздел <b>«Настройки» → «Размещение»</b>. Туда нужно
+                вставить эту ссылку (во все три поля URL — мобильное приложение, десктоп, мобильный сайт):
               </p>
 
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
-                <div className="text-xs text-gray-500 mb-1.5">URL для копирования:</div>
+                <div className="text-xs text-gray-500 mb-1.5">Ваш персональный URL Mini App:</div>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs font-mono break-all text-gray-900">
                     {result.mini_app_url}
@@ -674,13 +677,8 @@ function VipVkWizard({ clientId, onClose, onDone }: {
                   ><Copy size={14} /></button>
                 </div>
                 <div className="text-xs text-gray-400 mt-1.5">
-                  ⚠️ Слэш в конце обязателен.
+                  ⚠️ Косая черта (слэш) в конце обязательна — не удаляйте её.
                 </div>
-              </div>
-
-              <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-900">
-                ✓ Long Poll consumer вашего сообщества уже запускается — обычно 5–10 секунд.
-                После этого сообщения, callback кнопок Mini App и приветствия начнут работать.
               </div>
 
               {result.screen_name && (
