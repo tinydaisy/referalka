@@ -497,9 +497,11 @@ async def connect_vk_community(
     group_name = grp.get("name") or f"Сообщество #{data.group_id}"
     screen_name = grp.get("screen_name") or ""
 
-    # 2) Включаем Long Poll API сообщества + нужные события
+    # 2) Включаем Long Poll API сообщества + нужные события.
+    # vk_call уже бросает RuntimeError если VK вернул error, и возвращает
+    # распакованный response. Для setLongPollSettings response = 1 (int).
     try:
-        lp = await vk_call(
+        await vk_call(
             "groups.setLongPollSettings",
             {
                 "group_id": str(data.group_id),
@@ -511,8 +513,6 @@ async def connect_vk_community(
             },
             token=token,
         )
-        if lp.get("error"):
-            raise RuntimeError(lp["error"].get("error_msg") or "setLongPollSettings failed")
     except Exception as e:
         raise HTTPException(
             status_code=400,
