@@ -276,24 +276,20 @@ async def _tick():
                  JOIN events e ON e.id = r.event_id
                 WHERE r.finished_at IS NULL"""
         )
+        import datetime as _dt
+        now_utc = _dt.datetime.now(_dt.timezone.utc)
         for r in rows:
-            # Останов если событие началось/завершилось
-            if r["status"] == "ended" or (r["end_at"] is not None and r["end_at"] < r["started_at"]):
+            # Останов ТОЛЬКО когда событие ЗАВЕРШИЛОСЬ — регистрироваться поздно.
+            # Само начало события не повод останавливать догрев: человек может
+            # регаться и во время эфира (многодневные конференции, события в записи,
+            # длинные премии). Если start_at прошёл, но end_at в будущем — шаги
+            # продолжают идти.
+            if r["status"] == "ended" or (r["end_at"] is not None and r["end_at"] < now_utc):
                 await db.execute(
-                    "UPDATE event_nurture_runs SET finished_at=NOW(), finished_reason='event_started' WHERE id=$1",
+                    "UPDATE event_nurture_runs SET finished_at=NOW(), finished_reason='event_ended' WHERE id=$1",
                     r["id"],
                 )
                 continue
-            if r["start_at"] is not None:
-                # Если событие УЖЕ идёт или прошло на момент тика — стоп
-                import datetime as _dt
-                now_utc = _dt.datetime.now(_dt.timezone.utc)
-                if r["start_at"] <= now_utc:
-                    await db.execute(
-                        "UPDATE event_nurture_runs SET finished_at=NOW(), finished_reason='event_started' WHERE id=$1",
-                        r["id"],
-                    )
-                    continue
 
             # Берём следующий активный шаг по индексу last_step_index + 1
             next_step = await db.fetchrow(
