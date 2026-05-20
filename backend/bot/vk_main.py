@@ -341,7 +341,11 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
 
 
 async def _reply_to_user_message(ctx: "GroupCtx", *, peer_id: int) -> None:
-    """Шлёт пользователю короткий ответ с направлением в Экосистему."""
+    """Шлёт пользователю короткий ответ с направлением в Экосистему.
+
+    К ответу прикрепляем VK-клавиатуру с inline-кнопкой, которая открывает
+    Mini App сразу на нужной вкладке (через #hub_tab{name}).
+    """
     if ctx.is_system:
         reply = (
             "Спасибо за сообщение 💛\n\n"
@@ -349,14 +353,19 @@ async def _reply_to_user_message(ctx: "GroupCtx", *, peer_id: int) -> None:
             "перейдите на вкладку «Лидеры», выберите нужного лидера и в разделе "
             "«Экосистема» найдите его контакты для вопросов."
         )
+        button_url = f"https://vk.com/app{ctx.vk_app_id}#hub_tableaders"
+        button_text = "Открыть «Лидеры»"
     else:
         reply = (
             "Спасибо за сообщение 💛\n\n"
             "Если нужно связаться с организатором — откройте приложение, "
             "вкладка «Экосистема». Там вся информация и контакты."
         )
+        button_url = f"https://vk.com/app{ctx.vk_app_id}#hub_tabecosystem"
+        button_text = "Открыть «Экосистему»"
+    kb = tg_inline_to_vk_keyboard([[{"text": button_text, "url": button_url}]])
     try:
-        await vk_send_message(peer_id, reply, token=ctx.token)
+        await vk_send_message(peer_id, reply, keyboard=kb, token=ctx.token)
     except Exception as e:
         logger.warning(f"VK reply to user message failed peer={peer_id}: {e}")
 

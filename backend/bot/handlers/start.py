@@ -363,6 +363,8 @@ async def handle_user_message(message: Message):
         # путь через вкладку «Лидеры» (выбрать конкретного лидера и в его Экосистеме
         # найти контакты).
         # VIP-бот клиента — Экосистема одна, можно вести прямо туда.
+        # К ответу прикрепляем inline-кнопку, которая открывает Mini App
+        # сразу на нужной вкладке через startapp=hub_tab{name}.
         if ch["is_system"]:
             reply = (
                 "Спасибо за сообщение 💛\n\n"
@@ -370,13 +372,24 @@ async def handle_user_message(message: Message):
                 "перейдите на вкладку «Лидеры», выберите нужного лидера и в разделе "
                 "«Экосистема» найдите его контакты для вопросов."
             )
+            button_url = "https://t.me/pluson_bot/pluson?startapp=hub_tableaders"
+            button_text = "Открыть «Лидеры»"
         else:
             reply = (
                 "Спасибо за сообщение 💛\n\n"
                 "Если нужно связаться с организатором — откройте приложение, "
                 "вкладка «Экосистема». Там вся информация и контакты."
             )
-        await message.answer(reply)
+            handle = (bot_handle or "").lstrip("@")
+            button_url = (
+                f"https://t.me/{handle}?startapp=hub_tabecosystem"
+                if handle else "https://t.me/pluson_bot/pluson?startapp=hub_tableaders"
+            )
+            button_text = "Открыть «Экосистему»"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=button_text, url=button_url),
+        ]])
+        await message.answer(reply, reply_markup=kb)
     except Exception as e:
         log.exception("handle_user_message failed: %s", e)
 

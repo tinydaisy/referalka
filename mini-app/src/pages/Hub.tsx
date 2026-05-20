@@ -8,6 +8,7 @@ interface Props {
   clientId: number
   tgUser: any
   onOpenEvent: (slug: string) => void
+  initialTab?: string
 }
 
 // Mini App base ('/tg' для TG, '/vk' для VK). Возврат «к списку лидеров» ведёт
@@ -19,10 +20,12 @@ const NAV: NavItem[] = [
   { id: 'ecosystem', label: 'Экосистема',  icon: 'ecosystem' },
 ]
 
+const VALID_TABS = new Set(NAV.map(n => n.id))
+
 const PEACH = '#FFCFA4'
 
-export default function Hub({ clientId, tgUser, onOpenEvent }: Props) {
-  const [tab, setTab] = useState('calendar')
+export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props) {
+  const [tab, setTab] = useState(initialTab && VALID_TABS.has(initialTab) ? initialTab : 'calendar')
   const [profile, setProfile] = useState<any>(null)
   const tgId = tgUser?.id ? Number(tgUser.id) : undefined
 

@@ -7,6 +7,7 @@ import PlussonPromoTab from '../tabs/PlussonPromoTab'
 interface Props {
   tgUser: any
   onOpenEvent: (slug: string) => void
+  initialTab?: string
 }
 
 const NAV: NavItem[] = [
@@ -15,11 +16,13 @@ const NAV: NavItem[] = [
   { id: 'plusson', label: 'iViSiON: ПЛЮСОН',  icon: 'plus'     },
 ]
 
+const VALID_TABS = new Set(NAV.map(n => n.id))
+
 // Mini App base. У TG это '/tg', у VK '/vk' — берём из vite BASE_URL.
 const APP_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 
-export default function HubSelector({ tgUser, onOpenEvent }: Props) {
-  const [tab, setTab] = useState('events')
+export default function HubSelector({ tgUser, onOpenEvent, initialTab }: Props) {
+  const [tab, setTab] = useState(initialTab && VALID_TABS.has(initialTab) ? initialTab : 'events')
 
   const greeting = tgUser?.first_name ? `Привет, ${tgUser.first_name}!` : 'Привет!'
 
