@@ -21,10 +21,27 @@ import httpx
 
 from app.celery_app import celery
 from app.config import settings
-from app.database import get_pool
 from app.services.channels import get_client_telegram_token
 
 logger = logging.getLogger(__name__)
+
+
+# Celery вызывает task много раз, каждый раз asyncio.run() создаёт новый
+# event loop. Глобальный get_pool() из app.database не подходит — он привязан
+# к event loop из первого вызова и при следующем выдаёт «Event loop is closed».
+# Поэтому подключаемся одиночным asyncpg.connect(), как в tasks/broadcast.py.
+def _get_db_url() -> str:
+    return settings.database_url
+
+
+def _run_async(coro):
+    """Создаёт новый event loop, выполняет корутину и закрывает loop.
+    Безопасно для Celery — каждый task получает свежий loop."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def _format_text(
@@ -226,11 +243,8 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
 
 
 async def _tick():
-    pool = await get_pool()
-    if not pool:
-        logger.info("nurture.tick: pool not ready, skip")
-        return
-    async with pool.acquire() as db:
+    db = await asyncpg.connect(_get_db_url())
+    try:
         # Все активные runs + текущее состояние
         rows = await db.fetch(
             """SELECT r.id, r.event_id, r.contact_id, r.started_at, r.last_step_index,
@@ -298,9 +312,12 @@ async def _tick():
                     "UPDATE event_nurture_runs SET finished_at=NOW(), finished_reason='no_channel' WHERE id=$1",
                     r["id"],
                 )
+    finally:
+        try: await db.close()
+        except Exception: pass
 
 
 @celery.task(name="app.tasks.nurture.tick")
 def nurture_tick():
     """Periodic Celery task: проверяет все активные nurture-runs и шлёт пора-шагам."""
-    asyncio.run(_tick())
+    _run_async(_tick())
