@@ -44,6 +44,27 @@ class VkEventRequest(BaseModel):
     phone: str = ""    # VKWebAppGetPhoneNumber
 
 
+@router.get("/vk/group-for-app", summary="Резолв vk_app_id → vk_group_id")
+async def vk_group_for_app(app_id: int):
+    """Возвращает group_id сообщества, к которому привязан VK Mini App.
+    Нужен фронту чтобы вызвать VKWebAppAllowMessagesFromGroup с правильным
+    group_id, когда Mini App открыт через прямой URL (без vk_group_id в launch params).
+    """
+    pool = await get_pool()
+    if not pool:
+        return {"group_id": None}
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT (platform_meta->>'vk_group_id')::int AS group_id
+                 FROM channels
+                WHERE platform_slug = 'vk'
+                  AND (platform_meta->>'vk_app_id')::int = $1
+                LIMIT 1""",
+            int(app_id),
+        )
+    return {"group_id": row["group_id"] if row else None}
+
+
 @router.post("/vk/event")
 async def handle_vk_event(body: VkEventRequest):
     """Сигнал от VK Mini App при открытии. Валидирует подпись, регистрирует контакт."""
@@ -124,20 +145,37 @@ async def handle_vk_event(body: VkEventRequest):
                        RETURNING id""",
                     ev["id"], contact_id, referrer_participant_id, resolved_ref_code,
                 )
-                # Event-welcome: шлём пользователю всегда при открытии события через VK Mini App
-                # (не только при первом INSERT). Без этого юзер при повторном открытии теряет контекст
-                # и получает generic-welcome от Long Poll handler.
+                # Event-welcome: шлём от ИМЕНИ КЛИЕНТСКОГО VK-сообщества (если подключено),
+                # иначе от системного. Без этого юзер всегда получал бы welcome от системного
+                # @ivision_pluson, а не от того сообщества, через которое открыл Mini App.
+                # Ссылка в кнопке — на клиентский VK App, тоже из platform_meta.
                 if event_title:
                     try:
+                        # Достаём токен клиентского VK-канала. is_system=FALSE → пользовательский.
+                        client_vk = await conn.fetchrow(
+                            """SELECT ch.bot_token, (ch.platform_meta->>'vk_app_id')::int AS vk_app_id
+                                 FROM client_channels cc
+                                 JOIN channels ch ON ch.id = cc.channel_id
+                                WHERE cc.client_id = $1
+                                  AND cc.is_active = TRUE
+                                  AND ch.platform_slug = 'vk'
+                                  AND ch.is_system = FALSE
+                                LIMIT 1""",
+                            client_id,
+                        )
+                        client_token = client_vk["bot_token"] if client_vk else None
+                        client_vk_app_id = client_vk["vk_app_id"] if client_vk else None
                         msg = (
                             f"👋 Здравствуйте, {body.first_name or 'друг'}!\n\n"
                             f"Вы открыли событие «{event_title}». Жмите кнопку ниже, чтобы вернуться "
                             f"в приложение — там программа, друзья и подарки за приглашения."
                         )
                         keyboard = tg_inline_to_vk_keyboard([[
-                            {"text": f"Войти в «{event_title[:30]}»", "url": build_vk_link(body.event_slug)},
+                            {"text": f"Войти в «{event_title[:30]}»",
+                             "url": build_vk_link(body.event_slug, app_id=client_vk_app_id)},
                         ]])
-                        await vk_send_message(vk_user_id, msg, keyboard=keyboard)
+                        # token=None у vk_send_message → fallback на settings.vk_system_group_token.
+                        await vk_send_message(vk_user_id, msg, keyboard=keyboard, token=client_token)
                     except Exception as e:
                         logger.warning(f"VK welcome message failed for vk_id={vk_user_id}: {e}")
 

@@ -149,9 +149,11 @@ async def build_share_links(
     platforms = set(await get_active_platforms(db, client_id))
     handles = await get_client_bot_handles(db, client_id)
     vk_app_id = await get_client_vk_app_id(db, client_id)
-    # Добавляем платформы где есть системный канал ПЛЮСОН
+    # Системный канал засчитываем только если ОН ВЫВЕДЕН клиентам (is_test=FALSE).
+    # Каналы в test-режиме настраиваются админом и не должны светиться у клиентов
+    # в виде публичных ссылок (даже на превью).
     for ps in ("telegram", "vk", "max"):
-        if await _has_system_channel(db, ps, allow_test=True):
+        if await _has_system_channel(db, ps, allow_test=False):
             platforms.add(ps)
     result: dict[str, str] = {}
     if "telegram" in platforms:

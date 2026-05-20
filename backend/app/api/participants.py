@@ -670,8 +670,15 @@ async def get_participant_card(
 async def get_participant_in_event(
     event_slug: str,
     tg_id: int,
+    platform: str = "telegram",  # ?platform=vk — для VK Mini App (тогда tg_id это vk_user_id)
     db: asyncpg.Connection = Depends(get_db)
 ):
+    # Поддерживаемые платформы. Имя query-параметра tg_id оставлено для
+    # обратной совместимости со старыми клиентами — на самом деле это
+    # platform_user_id любой из платформ.
+    if platform not in ("telegram", "vk", "max"):
+        raise HTTPException(status_code=400, detail="Unknown platform")
+
     # Событие — нужно для топа (его считаем независимо от участия пользователя).
     event_id = await db.fetchval(
         "SELECT id FROM events WHERE slug = $1 LIMIT 1", event_slug
@@ -679,18 +686,18 @@ async def get_participant_in_event(
     if not event_id:
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
-    # Контакт у клиента ЭТОГО события (по tg_id). Email/phone отсюда —
+    # Контакт у клиента ЭТОГО события (по platform_user_id). Email/phone отсюда —
     # если оба поля заполнены, фронт пропускает форму регистрации.
     prefill = await db.fetchrow(
         """SELECT c.email, c.phone, c.name
              FROM events e
              JOIN platform_users pu ON pu.client_id = e.client_id
-                                    AND pu.platform_slug = 'telegram'
+                                    AND pu.platform_slug = $3
                                     AND pu.platform_user_id = $2
              JOIN contacts c ON c.id = pu.contact_id
             WHERE e.slug = $1
             LIMIT 1""",
-        event_slug, str(tg_id)
+        event_slug, str(tg_id), platform
     )
     prefill_dict = dict(prefill) if prefill else None
 
@@ -702,9 +709,9 @@ async def get_participant_in_event(
              JOIN events e ON e.id = ep.event_id
              JOIN contacts c ON c.id = ep.contact_id
              JOIN platform_users pu ON pu.contact_id = c.id
-            WHERE e.slug = $1 AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $2
+            WHERE e.slug = $1 AND pu.platform_slug = $3 AND pu.platform_user_id = $2
             LIMIT 1""",
-        event_slug, str(tg_id)
+        event_slug, str(tg_id), platform
     )
     my_pid = row["id"] if row else None
 

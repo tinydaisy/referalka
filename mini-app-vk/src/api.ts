@@ -69,7 +69,7 @@ export const getMiniAppMyLeaders = (tgId: number) =>
   req(`/api/v1/participants/miniapp/me/leaders?tg_id=${tgId}&platform=vk`)
 
 export const getParticipantInEvent = (slug: string, tgId: number) =>
-  req(`/api/v1/participants/event/${slug}/user/${tgId}`)
+  req(`/api/v1/participants/event/${slug}/user/${tgId}?platform=vk`)
 
 // Карточка участника со списком его мессенджеров (TG/VK/MAX). Доступна
 // только участникам того же события (защита на бэке).

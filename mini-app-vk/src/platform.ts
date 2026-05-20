@@ -28,7 +28,7 @@ export interface PlatformAdapter {
   user: PlatformUser | null
   startParam: string | undefined  // VK: содержимое hash после `#` (или undefined)
   launchParams: Record<string, string>  // все vk_* + sign — для отправки на бэк
-  requestWriteAccess(onDone: (granted: boolean) => void): void
+  requestWriteAccess(groupId: number, onDone: (granted: boolean) => void): void
   setHeaderColor?(hex: string): void
   setBackgroundColor?(hex: string): void
 }
@@ -80,12 +80,16 @@ export async function initPlatform(): Promise<PlatformAdapter> {
     user: _user,
     startParam: _startParam,
     launchParams: _launchParams,
-    requestWriteAccess: async (cb) => {
+    requestWriteAccess: async (groupId, cb) => {
       if (!_isVk) { cb(false); return }
-      const groupId = Number((import.meta as any).env.VITE_VK_GROUP_ID || 0)
-      if (!groupId) { cb(false); return }
+      // group_id передаётся явно: для клиентского Mini App = group_id из его
+      // launchParams.vk_group_id (когда открыт из сообщества) или из API
+      // (когда открыт через vk.com/app{ID}#...). Без правильного group_id
+      // VK откажет «приложение не привязано к этому сообществу».
+      const gid = Number(groupId || 0) || Number(_launchParams.vk_group_id || 0)
+      if (!gid) { cb(false); return }
       try {
-        const r: any = await bridge.send('VKWebAppAllowMessagesFromGroup', { group_id: groupId })
+        const r: any = await bridge.send('VKWebAppAllowMessagesFromGroup', { group_id: gid })
         cb(!!r?.result)
       } catch {
         cb(false)

@@ -151,7 +151,17 @@ export default function App() {
       // 4) Если что-то донабрали → второй POST с email/phone, иначе всё.
       const launchParams = getLaunchParams()
       if (Object.keys(launchParams).length > 0 && launchParams.vk_user_id) {
-        adapter.requestWriteAccess(async () => {
+        // group_id — из launchParams (если открыто из сообщества) или из API
+        // (если открыто через прямой URL vk.com/app{ID}#...).
+        let groupId = Number(launchParams.vk_group_id || 0)
+        if (!groupId && launchParams.vk_app_id) {
+          try {
+            const r: any = await fetch(`/api/v1/vk/group-for-app?app_id=${launchParams.vk_app_id}`)
+              .then(x => x.ok ? x.json() : null)
+            if (r?.group_id) groupId = Number(r.group_id)
+          } catch { /* fallback: groupId=0 → write_access skip */ }
+        }
+        adapter.requestWriteAccess(groupId, async () => {
           const status = await sendVkEvent(
             launchParams,
             user,

@@ -289,6 +289,18 @@ function ContactCard({
             <Field label="Зарегистрирован" value={p.is_registered ? 'Да' : 'Нет'} />
             <Field label="В чате" value={p.is_in_chat ? 'Да' : 'Нет'} />
           </div>
+          {p.contact_id ? (
+            <div className="pt-3 mt-3 border-t border-gray-200">
+              <a
+                href={`/dashboard/clients/${p.contact_id}`}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#25455D] hover:underline"
+              >
+                Открыть карточку контакта в общей базе →
+              </a>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

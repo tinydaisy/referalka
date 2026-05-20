@@ -36,10 +36,17 @@ export default function PublicLinks({
 
   // VK App ID клиента — для построения ссылки на ЕГО Mini App, а не на системный.
   // me.vk_app_id заполнен если клиент подключил своё VK-сообщество в /dashboard/channels.
+  // available_platforms — список платформ, готовых к показу (свой канал ИЛИ
+  // системный, выведенный из test-режима). MAX-системный пока в тесте → MAX
+  // в списке не появится у клиентов без своего MAX-канала.
   const [vkAppId, setVkAppId] = useState<number>(PLUSON_VK_APP_ID)
+  const [availablePlatforms, setAvailablePlatforms] = useState<Set<string>>(new Set(['telegram']))
   useEffect(() => {
     api.auth.me().then((m: any) => {
       if (m?.vk_app_id) setVkAppId(Number(m.vk_app_id))
+      if (Array.isArray(m?.available_platforms)) {
+        setAvailablePlatforms(new Set(m.available_platforms as string[]))
+      }
     }).catch(() => {})
   }, [])
 
@@ -65,7 +72,7 @@ export default function PublicLinks({
     }
   }
 
-  const links: LinkRow[] = slug ? [
+  const allLinks: (LinkRow & { platform: string | null })[] = slug ? [
     {
       key: 'web',
       label: 'Веб-страница',
@@ -73,6 +80,7 @@ export default function PublicLinks({
       color: '#25455D',
       url: `${APP_URL}/l/${slug}`,
       hint: 'Лендинг события — публикуй в соцсетях, рассылках, на сайте',
+      platform: null,  // веб всегда показываем
     },
     {
       key: 'telegram',
@@ -81,6 +89,7 @@ export default function PublicLinks({
       color: '#229ED9',
       url: `${APP_URL}/l/${slug}?app=tg`,
       hint: 'Открывает событие в вашем Telegram-боте (или @pluson_bot, если свой не подключён). Используй в TG-постах и личке',
+      platform: 'telegram',
     },
     {
       key: 'vk',
@@ -89,6 +98,7 @@ export default function PublicLinks({
       color: '#0077FF',
       url: `https://vk.com/app${vkAppId}#ref_pg${slug}`,
       hint: 'Открывает событие в VK Mini App «iViSiON: ПЛЮСОН». Используй в VK-постах и личке',
+      platform: 'vk',
     },
     {
       key: 'max',
@@ -97,8 +107,12 @@ export default function PublicLinks({
       color: '#FFCFA4',
       url: `${APP_URL}/l/${slug}?app=max`,
       hint: 'Открывает событие в MAX-канале (как только подключим бота в MAX)',
+      platform: 'max',
     },
   ] : []
+  // Скрываем платформы, у которых системный канал ещё в test-режиме И клиент
+  // не подключил свой. Раньше показывались все 4 — теперь только готовые.
+  const links: LinkRow[] = allLinks.filter(l => l.platform === null || availablePlatforms.has(l.platform))
 
   const copy = async (key: string, url: string) => {
     if (isDraft) {

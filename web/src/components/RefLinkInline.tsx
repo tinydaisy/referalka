@@ -25,10 +25,14 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
   const [copied, setCopied] = useState<string | null>(null)
   const isDraft = eventStatus === 'draft'
   const [vkAppId, setVkAppId] = useState<number>(PLUSON_VK_APP_ID)
+  const [availablePlatforms, setAvailablePlatforms] = useState<Set<string>>(new Set(['telegram']))
 
   useEffect(() => {
     api.auth.me().then((m: any) => {
       if (m?.vk_app_id) setVkAppId(Number(m.vk_app_id))
+      if (Array.isArray(m?.available_platforms)) {
+        setAvailablePlatforms(new Set(m.available_platforms as string[]))
+      }
     }).catch(() => {})
   }, [])
 
@@ -40,7 +44,7 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
     )
   }
 
-  const links = [
+  const allLinks = [
     {
       key: 'telegram',
       badge: 'TG',
@@ -60,6 +64,9 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
       url: `${APP_URL}/l/${slug}?app=max&pid=${refCode}`,
     },
   ]
+  // Скрываем платформы у которых системный канал в test-режиме И клиент не
+  // подключил свой (см. /auth/me available_platforms — заполняется на бэке).
+  const links = allLinks.filter(l => availablePlatforms.has(l.key))
 
   async function handleCopy(e: React.MouseEvent, key: string, url: string) {
     e.preventDefault(); e.stopPropagation()
