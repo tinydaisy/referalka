@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { getMiniAppMyEvents } from '../api'
 
 interface Props {
@@ -20,6 +20,10 @@ interface Ev {
   status?: string
   bucket: 'now' | 'soon' | 'past'
   client_id: number
+  client_name?: string
+  client_brand_name?: string
+  client_photo_url?: string
+  client_positioning?: string
   participation_status?: ParticipationStatus
 }
 
@@ -45,84 +49,43 @@ function EventPoster({ src, alt }: { src?: string; alt: string }) {
   return <img className="poster" src={src} alt={alt} onError={() => setFailed(true)} />
 }
 
-function GroupHeader({ g }: { g: Group }) {
-  const brand = g.client_brand_name || g.client_name || 'Организатор'
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '20px 16px 8px',
-      }}
-    >
-      {g.client_photo_url ? (
-        <img
-          src={g.client_photo_url}
-          alt={brand}
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            objectFit: 'cover',
-            flexShrink: 0,
-          }}
-        />
-      ) : (
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            background: 'linear-gradient(45deg, #25455D, #0a1520)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#FFCFA4',
-            fontWeight: 700,
-            fontSize: 14,
-            flexShrink: 0,
-          }}
-        >
-          {brand[0]?.toUpperCase()}
-        </div>
-      )}
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div
-          style={{
-            fontSize: 15,
-            fontWeight: 700,
-            color: 'var(--text)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {brand}
-        </div>
-        {g.client_positioning && (
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--muted)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {g.client_positioning}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 function StatusPill({ status }: { status?: ParticipationStatus }) {
   if (!status) return null
   if (status === 'registered') return <span className="status-pill status-pill-registered">✓ Вы записаны</span>
   if (status === 'interested') return <span className="status-pill status-pill-interested">Вы интересовались</span>
   return <span className="status-pill status-pill-new">Новое</span>
+}
+
+function BrandHeader({ e }: { e: Ev }) {
+  const brand = e.client_brand_name || e.client_name || 'Организатор'
+  const [failed, setFailed] = useState(false)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 0' }}>
+      {e.client_photo_url && !failed ? (
+        <img
+          src={e.client_photo_url}
+          alt={brand}
+          onError={() => setFailed(true)}
+          style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+        />
+      ) : (
+        <div style={{
+          width: 22, height: 22, borderRadius: '50%',
+          background: 'linear-gradient(45deg, #25455D, #0a1520)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#FFCFA4', fontWeight: 700, fontSize: 10, flexShrink: 0,
+        }}>
+          {brand[0]?.toUpperCase()}
+        </div>
+      )}
+      <div style={{
+        fontSize: 12, fontWeight: 600, color: 'var(--muted)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {brand}
+      </div>
+    </div>
+  )
 }
 
 function EventCard({ e, onOpen }: { e: Ev; onOpen: (s: string) => void }) {
@@ -133,6 +96,7 @@ function EventCard({ e, onOpen }: { e: Ev; onOpen: (s: string) => void }) {
 
   return (
     <div className="hub-card fade-in" onClick={() => onOpen(e.slug)}>
+      <BrandHeader e={e} />
       <EventPoster src={e.poster_url} alt={e.title} />
       <div className="body">
         <div className="badge-row">
@@ -155,6 +119,7 @@ export default function SelectorEventsTab({ tgUser, onOpenEvent, onSwitchToPromo
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [showArchive, setShowArchive] = useState(false)
 
   useEffect(() => {
     if (!tgUser?.id) { setLoading(false); return }
@@ -164,11 +129,40 @@ export default function SelectorEventsTab({ tgUser, onOpenEvent, onSwitchToPromo
       .finally(() => setLoading(false))
   }, [tgUser?.id])
 
+  // Плоский список: распаковываем events из групп, прокидываем в каждый event
+  // данные об организаторе (нужны для брендинговой шапки карточки).
+  const allEvents: Ev[] = useMemo(() => {
+    const out: Ev[] = []
+    for (const g of groups) {
+      for (const e of g.events) {
+        out.push({
+          ...e,
+          client_id:          g.client_id,
+          client_name:        e.client_name        ?? g.client_name,
+          client_brand_name:  e.client_brand_name  ?? g.client_brand_name,
+          client_photo_url:   e.client_photo_url   ?? g.client_photo_url,
+          client_positioning: e.client_positioning ?? g.client_positioning,
+        })
+      }
+    }
+    return out
+  }, [groups])
+
+  const active = useMemo(() => {
+    const arr = allEvents.filter(e => e.bucket !== 'past')
+    return arr.sort((a, b) => bucketRank(a) - bucketRank(b) || dateAsc(a, b))
+  }, [allEvents])
+
+  const past = useMemo(() => {
+    const arr = allEvents.filter(e => e.bucket === 'past')
+    return arr.sort((a, b) => dateDesc(a, b))
+  }, [allEvents])
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Загружаем события…</div>
   }
 
-  if (error || !groups.length) {
+  if (error || (!active.length && !past.length)) {
     return (
       <div style={{ textAlign: 'center', padding: '60px 24px' }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
@@ -200,64 +194,50 @@ export default function SelectorEventsTab({ tgUser, onOpenEvent, onSwitchToPromo
 
   return (
     <div className="fade-in" style={{ paddingBottom: 16 }}>
-      {groups.map(g => (
-        <GroupBlock key={g.client_id} g={g} onOpenEvent={onOpenEvent} />
-      ))}
-    </div>
-  )
-}
-
-function GroupBlock({ g, onOpenEvent }: { g: Group; onOpenEvent: (s: string) => void }) {
-  const active = g.events.filter(e => e.bucket !== 'past')
-  const past = g.events.filter(e => e.bucket === 'past')
-  const [showArchive, setShowArchive] = useState(false)
-
-  return (
-    <div>
-      <GroupHeader g={g} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '0 16px 4px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 16px 4px' }}>
         {active.map(e => (
-          <EventCard key={e.id} e={e} onOpen={onOpenEvent} />
+          <EventCard key={`a-${e.id}`} e={e} onOpen={onOpenEvent} />
         ))}
         {past.length > 0 && (
-          <ArchiveToggle
-            count={past.length}
-            open={showArchive}
-            onToggle={() => setShowArchive(v => !v)}
-          />
+          <button
+            onClick={() => setShowArchive(v => !v)}
+            style={{
+              background: 'transparent',
+              border: '1px dashed var(--muted)',
+              borderRadius: 12,
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              color: 'var(--muted)',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            <span>Архив прошедших · {past.length}</span>
+            <span style={{ fontSize: 12, transition: 'transform 0.2s', transform: showArchive ? 'rotate(180deg)' : 'none' }}>▾</span>
+          </button>
         )}
         {showArchive && past.map(e => (
-          <EventCard key={e.id} e={e} onOpen={onOpenEvent} />
+          <EventCard key={`p-${e.id}`} e={e} onOpen={onOpenEvent} />
         ))}
       </div>
     </div>
   )
 }
 
-function ArchiveToggle({ count, open, onToggle }: { count: number; open: boolean; onToggle: () => void }) {
-  return (
-    <button
-      onClick={onToggle}
-      style={{
-        background: 'transparent',
-        border: '1px dashed var(--muted)',
-        borderRadius: 12,
-        padding: '10px 14px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 8,
-        color: 'var(--muted)',
-        fontSize: 13,
-        fontWeight: 600,
-        cursor: 'pointer',
-        width: '100%',
-      }}
-    >
-      <span>Архив прошедших · {count}</span>
-      <span style={{ fontSize: 12, transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }}>
-        ▾
-      </span>
-    </button>
-  )
+// Сортировка активных: 'now' раньше 'soon'. Внутри — по start_at ASC.
+function bucketRank(e: Ev): number {
+  if (e.bucket === 'now') return 0
+  if (e.bucket === 'soon') return 1
+  return 2
+}
+function dateAsc(a: Ev, b: Ev): number {
+  return (a.start_at || '').localeCompare(b.start_at || '')
+}
+function dateDesc(a: Ev, b: Ev): number {
+  return (b.end_at || b.start_at || '').localeCompare(a.end_at || a.start_at || '')
 }

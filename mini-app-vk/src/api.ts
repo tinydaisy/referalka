@@ -64,6 +64,10 @@ export const getParticipantEvents = (tgId: number) =>
 export const getMiniAppMyEvents = (tgId: number) =>
   req(`/api/v1/participants/miniapp/me/events?tg_id=${tgId}&platform=vk`)
 
+// ── Список «лидеров» (организаторов) участника для вкладки «Лидеры» ──
+export const getMiniAppMyLeaders = (tgId: number) =>
+  req(`/api/v1/participants/miniapp/me/leaders?tg_id=${tgId}&platform=vk`)
+
 export const getParticipantInEvent = (slug: string, tgId: number) =>
   req(`/api/v1/participants/event/${slug}/user/${tgId}`)
 

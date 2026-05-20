@@ -10,6 +10,10 @@ interface Props {
   onOpenEvent: (slug: string) => void
 }
 
+// Mini App base ('/tg' для TG, '/vk' для VK). Возврат «к списку лидеров» ведёт
+// на корень Mini App без cid-префикса — там App.tsx покажет HubSelector.
+const APP_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+
 const NAV: NavItem[] = [
   { id: 'calendar',  label: 'Календарь',   icon: 'calendar'  },
   { id: 'ecosystem', label: 'Экосистема',  icon: 'ecosystem' },
@@ -35,6 +39,19 @@ export default function Hub({ clientId, tgUser, onOpenEvent }: Props) {
       {/* Шапка только на Календаре. На Экосистеме — её собственная шапка-визитка. */}
       {tab === 'calendar' && (
         <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18, position: 'relative' }}>
+          <button
+            onClick={() => window.location.assign(`${APP_BASE}/`)}
+            style={{
+              position: 'absolute', top: 14, left: 12,
+              background: 'rgba(255,255,255,0.10)',
+              border: '1px solid rgba(255,207,164,0.4)',
+              color: '#FFCFA4',
+              fontSize: 12, fontWeight: 600,
+              padding: '4px 10px', borderRadius: 999,
+              cursor: 'pointer',
+            }}
+            title="К списку лидеров"
+          >← К списку лидеров</button>
           {brandLogo && (
             <img src={brandLogo} alt=""
                  onClick={() => setTab('ecosystem')}
@@ -45,7 +62,7 @@ export default function Hub({ clientId, tgUser, onOpenEvent }: Props) {
                    cursor: 'pointer',
                  }} />
           )}
-          <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, paddingRight: brandLogo ? 50 : 0 }}>
+          <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, paddingRight: brandLogo ? 50 : 0, paddingTop: 28 }}>
             {brand}
           </h1>
           {tagline && (

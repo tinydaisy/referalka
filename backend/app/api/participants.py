@@ -269,12 +269,22 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                  AND LOWER(LTRIM(cl.telegram_username, '@')) =
                      LOWER((SELECT username FROM user_username))
            ),
+           funnel_clients AS (
+              -- Клиенты, у которых человек запускал воронку лид-магнита
+              -- (даже если не стал участником ни одного события)
+              SELECT DISTINCT fr.client_id AS id
+                FROM funnel_runs fr
+                JOIN platform_users pu ON pu.contact_id = fr.contact_id
+               WHERE pu.platform_slug = $2 AND pu.platform_user_id = $1
+           ),
            relevant_clients AS (
               SELECT DISTINCT e.client_id AS id
                 FROM events e
                 JOIN participant_events pe ON pe.event_id = e.id
               UNION
               SELECT id FROM owned_clients
+              UNION
+              SELECT id FROM funnel_clients
            ),
            allowed_clients AS (
               -- VIP-фильтр снят: если человек зашёл в этот бот/Mini App, значит
@@ -436,6 +446,99 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
     only_past.sort(key=lambda g: nearest_past(g) or "", reverse=True)
 
     return {"groups": with_future + only_past}
+
+
+@router.get(
+    "/miniapp/me/leaders",
+    summary="Список «лидеров» (организаторов) с которыми связан участник",
+)
+async def get_miniapp_me_leaders(
+    tg_id: int,
+    platform: str = "telegram",
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Список клиентов, с которыми у участника есть хоть какая-то связь:
+    либо он участник их события (event_participants),
+    либо он запустил их воронку лид-магнита (funnel_runs),
+    либо он сам владелец клиента (clients.telegram_username).
+
+    Клик по карточке лидера в Mini App → переход на Hub этого клиента
+    (`/c/{client_id}/tg/` или `/c/{client_id}/vk/`).
+    """
+    if platform not in ("telegram", "vk", "max"):
+        raise HTTPException(status_code=400, detail="Invalid platform")
+
+    rows = await db.fetch(
+        """WITH ep_clients AS (
+              SELECT DISTINCT e.client_id AS id, MAX(ep.registered_at) AS last_at
+                FROM event_participants ep
+                JOIN events e          ON e.id = ep.event_id
+                JOIN platform_users pu ON pu.contact_id = ep.contact_id
+               WHERE pu.platform_slug = $2 AND pu.platform_user_id = $1
+               GROUP BY e.client_id
+           ),
+           fr_clients AS (
+              SELECT DISTINCT fr.client_id AS id, MAX(fr.created_at) AS last_at
+                FROM funnel_runs fr
+                JOIN platform_users pu ON pu.contact_id = fr.contact_id
+               WHERE pu.platform_slug = $2 AND pu.platform_user_id = $1
+               GROUP BY fr.client_id
+           ),
+           own_clients AS (
+              SELECT cl.id, NULL::timestamptz AS last_at
+                FROM clients cl
+                JOIN platform_users pu ON LOWER(LTRIM(cl.telegram_username,'@')) = LOWER(pu.username)
+               WHERE pu.platform_slug = $2 AND pu.platform_user_id = $1
+                 AND cl.telegram_username IS NOT NULL
+           ),
+           merged AS (
+              SELECT id, last_at FROM ep_clients
+              UNION ALL
+              SELECT id, last_at FROM fr_clients
+              UNION ALL
+              SELECT id, last_at FROM own_clients
+           ),
+           leaders AS (
+              SELECT id, MAX(last_at) AS last_at
+                FROM merged
+               GROUP BY id
+           )
+           SELECT cl.id AS client_id,
+                  cl.name AS client_name,
+                  cl.brand_name        AS client_brand_name,
+                  cl.profile_photo_url AS client_photo_url,
+                  cl.positioning       AS client_positioning,
+                  cl.owner_name,
+                  l.last_at,
+                  (SELECT COUNT(*) FROM events e
+                    WHERE e.client_id = cl.id AND e.status IN ('published','ended')) AS events_total,
+                  EXISTS (
+                    SELECT 1 FROM funnel_runs fr
+                      JOIN platform_users pu ON pu.contact_id = fr.contact_id
+                     WHERE fr.client_id = cl.id
+                       AND pu.platform_slug = $2 AND pu.platform_user_id = $1
+                  ) AS via_lead_magnet
+             FROM leaders l
+             JOIN clients cl ON cl.id = l.id
+            ORDER BY l.last_at DESC NULLS LAST, cl.id""",
+        str(tg_id), platform,
+    )
+
+    return {
+        "leaders": [
+            {
+                "client_id":         r["client_id"],
+                "client_name":       r["client_name"],
+                "client_brand_name": r["client_brand_name"],
+                "client_photo_url":  r["client_photo_url"],
+                "client_positioning": r["client_positioning"],
+                "owner_name":        r["owner_name"],
+                "events_total":      int(r["events_total"]),
+                "via_lead_magnet":   bool(r["via_lead_magnet"]),
+            }
+            for r in rows
+        ]
+    }
 
 
 def _build_messenger_url(platform_slug: str, username: str | None, pid: str | None) -> str | None:

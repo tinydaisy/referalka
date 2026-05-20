@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import BottomNav, { NavItem } from '../components/BottomNav'
 import SelectorEventsTab from '../tabs/SelectorEventsTab'
+import LeadersTab from '../tabs/LeadersTab'
 import PlussonPromoTab from '../tabs/PlussonPromoTab'
 
 interface Props {
@@ -9,14 +10,24 @@ interface Props {
 }
 
 const NAV: NavItem[] = [
-  { id: 'events', label: 'События',  icon: 'calendar' },
+  { id: 'events',  label: 'События',          icon: 'calendar' },
+  { id: 'leaders', label: 'Лидеры',           icon: 'leaders'  },
   { id: 'plusson', label: 'iViSiON: ПЛЮСОН',  icon: 'plus'     },
 ]
+
+// Mini App base. У TG это '/tg', у VK '/vk' — берём из vite BASE_URL.
+const APP_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 
 export default function HubSelector({ tgUser, onOpenEvent }: Props) {
   const [tab, setTab] = useState('events')
 
   const greeting = tgUser?.first_name ? `Привет, ${tgUser.first_name}!` : 'Привет!'
+
+  // Клик по лидеру → переход в Hub этого клиента. Реализуем через
+  // window.location — App.tsx по `/c/{N}/...` сам отдаст Hub-компонент.
+  function openLeader(clientId: number) {
+    window.location.assign(`/c/${clientId}${APP_BASE}/`)
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -34,6 +45,20 @@ export default function HubSelector({ tgUser, onOpenEvent }: Props) {
         </div>
       )}
 
+      {tab === 'leaders' && (
+        <div className="grad-header" style={{ paddingTop: 18, paddingBottom: 18 }}>
+          <p style={{ color: '#FFCFA4', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700, opacity: 0.7 }}>
+            iViSiON: ПЛЮСОН
+          </p>
+          <h1 style={{ color: 'white', fontSize: 22, fontWeight: 700, marginTop: 6 }}>
+            Лидеры
+          </h1>
+          <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 4 }}>
+            Организаторы и эксперты, с которыми вы связаны
+          </p>
+        </div>
+      )}
+
       <div className="page">
         {tab === 'events'  && (
           <SelectorEventsTab
@@ -41,6 +66,9 @@ export default function HubSelector({ tgUser, onOpenEvent }: Props) {
             onOpenEvent={onOpenEvent}
             onSwitchToPromo={() => setTab('plusson')}
           />
+        )}
+        {tab === 'leaders' && (
+          <LeadersTab tgUser={tgUser} onOpenLeader={openLeader} />
         )}
         {tab === 'plusson' && <PlussonPromoTab />}
       </div>
