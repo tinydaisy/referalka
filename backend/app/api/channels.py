@@ -437,6 +437,16 @@ async def connect_vk_community(
 
     from app.services.vk_api import vk_call
 
+    def _extract_groups(resp: Any) -> list[dict]:
+        """vk_call возвращает уже распакованное поле `response` VK API.
+        Для groups.getById оно имеет форму {"groups": [...]} (v5.199),
+        либо просто [...] на старых версиях API. Унифицируем."""
+        if isinstance(resp, dict):
+            return resp.get("groups") or []
+        if isinstance(resp, list):
+            return resp
+        return []
+
     # 1) Проверяем токен + достаём имя сообщества
     try:
         gr_resp = await vk_call(
@@ -447,13 +457,7 @@ async def connect_vk_community(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"VK API: не удалось проверить токен ({e})")
 
-    err = gr_resp.get("error")
-    if err:
-        raise HTTPException(
-            status_code=400,
-            detail=f"VK API: {err.get('error_msg') or 'токен не валиден или не подходит'}",
-        )
-    items = (gr_resp.get("response") or {}).get("groups") or gr_resp.get("response") or []
+    items = _extract_groups(gr_resp)
     if not items:
         # Самая частая причина: токен от другого сообщества, чем введённый ID.
         # Для community-токена вызов groups.getById БЕЗ group_id возвращает то
@@ -461,7 +465,7 @@ async def connect_vk_community(
         # диагностику вместо абстрактного «не найдено».
         try:
             own = await vk_call("groups.getById", {"fields": "screen_name"}, token=token)
-            own_items = (own.get("response") or {}).get("groups") or own.get("response") or []
+            own_items = _extract_groups(own)
             if own_items:
                 own_grp = own_items[0]
                 own_id = own_grp.get("id")

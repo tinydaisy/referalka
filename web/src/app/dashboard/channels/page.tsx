@@ -1035,26 +1035,32 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Название (для себя)</label>
                 <input
+                  type="text"
                   value={displayName}
                   onChange={e => setDisplayName(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
-                  placeholder="Например: Основной TG-бот"
                   autoComplete="off"
-                  name="channel-display-name"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-form-type="other"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-gray-500 mb-1">
-                  Handle <span className="text-gray-400">(@username бота / id группы)</span>
-                </label>
+                <label className="block text-xs text-gray-500 mb-1">Handle</label>
                 <input
+                  type="text"
                   value={handle}
                   onChange={e => setHandle(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
-                  placeholder="@pluson_bot"
                   autoComplete="off"
-                  name="channel-handle"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-form-type="other"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                 />
               </div>
             </>
@@ -1062,24 +1068,23 @@ function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard
 
           {platformSlug === 'telegram' && (
             <div>
-              {/* Скрытые decoy-поля: Chrome пытается подставить сохранённый login/password
-                  в первую пару text+password — съест эти, оставив реальные пустыми. */}
-              <input type="text" name="fakeusernameremembered" autoComplete="username"
-                     style={{ display: 'none' }} tabIndex={-1} />
-              <input type="password" name="fakepasswordremembered" autoComplete="current-password"
-                     style={{ display: 'none' }} tabIndex={-1} />
-              <label className="block text-xs text-gray-500 mb-1">
-                Bot Token <span className="text-gray-400">(секрет)</span>
-              </label>
+              <label className="block text-xs text-gray-500 mb-1">Bot Token</label>
               <div className="relative">
+                {/* type="text" умышленно — иначе Chrome принимает поле за password
+                    и пытается автозаполнить сохранённым паролем. Видимость
+                    переключается ниткой *...* / реальный текст через CSS. */}
                 <input
-                  type={showToken ? 'text' : 'password'}
+                  type="text"
                   value={botToken}
                   onChange={e => setBotToken(e.target.value)}
                   className="w-full px-3 py-2 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
-                  placeholder="123456:ABC-DEF..."
-                  autoComplete="new-password"
-                  name="bot-token-secret"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-form-type="other"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
                 />
                 <button
                   type="button"
