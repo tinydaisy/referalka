@@ -168,3 +168,38 @@ async def build_share_links(
     if "max" in platforms:
         result["max"] = max_link(event_slug, bot_handle=handles.get("max"), partner_id=partner_id, tab=tab)
     return result
+
+
+async def build_funnel_landing_links(
+    db,
+    *,
+    client_id: int,
+    slug: str,
+    kind: str = "m",
+    base_url: str = "https://pluson.ru",
+) -> dict[str, str]:
+    """Возвращает {platform → public-URL} для landing воронки лид-магнита/пакета.
+
+    URL формата `{base_url}/{kind}/{slug}?to={platform}` — публичная ссылка,
+    которой клиент делится с подписчиками. По хиту бэк создаёт funnel_run,
+    подбирает VIP/системный бот и редиректит на соответствующий мессенджер.
+
+    Логика выбора платформ та же что в build_share_links:
+    - У клиента есть свой канал на платформе ИЛИ есть системный канал не в test-режиме.
+    - kind = 'm' (лид-магнит) или 'p' (пакет).
+    """
+    if kind not in ("m", "p"):
+        raise ValueError(f"kind must be 'm' or 'p', got {kind!r}")
+    platforms = set(await get_active_platforms(db, client_id))
+    for ps in ("telegram", "vk", "max"):
+        if await _has_system_channel(db, ps, allow_test=False):
+            platforms.add(ps)
+    base = base_url.rstrip('/')
+    result: dict[str, str] = {}
+    if "telegram" in platforms:
+        result["telegram"] = f"{base}/{kind}/{slug}?to=tg"
+    if "vk" in platforms:
+        result["vk"] = f"{base}/{kind}/{slug}?to=vk"
+    if "max" in platforms:
+        result["max"] = f"{base}/{kind}/{slug}?to=max"
+    return result

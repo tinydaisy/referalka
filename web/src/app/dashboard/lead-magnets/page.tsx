@@ -15,12 +15,15 @@ type Tab = 'magnets' | 'packages' | 'template'
 const PEACH = '#FFCFA4'
 const DARK = '#25455D'
 
+type PlatformLinks = Partial<Record<'telegram' | 'vk' | 'max', string>>
+
 interface LeadMagnet {
   id: number
   name: string
   description: string | null
   url: string
   slug: string
+  platform_links?: PlatformLinks
   created_at: string
   updated_at: string
 }
@@ -38,6 +41,7 @@ interface Package {
   name: string
   description: string | null
   slug: string
+  platform_links?: PlatformLinks
   items: PackageItem[]
   created_at: string
   updated_at: string
@@ -211,7 +215,7 @@ function MagnetsList() {
                   <span className="truncate">{lm.url}</span>
                 </a>
                 <div className="mt-2">
-                  <ShareLink kind="m" slug={lm.slug} />
+                  <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} />
                 </div>
               </div>
               <div className="flex gap-1 items-center">
@@ -368,7 +372,7 @@ function PackagesList() {
                   </ul>
                 )}
                 <div className="mt-2">
-                  <ShareLink kind="p" slug={pkg.slug} />
+                  <PlatformShareLinks kind="p" slug={pkg.slug} links={pkg.platform_links} />
                 </div>
               </div>
               <div className="flex gap-1 items-center">
@@ -775,16 +779,74 @@ function StageBadge({ stage }: { stage: string }) {
 
 // ============== Утилиты ==============
 
-function ShareLink({ kind, slug }: { kind: 'm' | 'p'; slug: string }) {
+type PlatformKey = 'telegram' | 'vk' | 'max'
+
+const PLATFORM_META: Record<PlatformKey, { label: string; color: string; Icon: (p: { size?: number }) => JSX.Element }> = {
+  telegram: {
+    label: 'Telegram',
+    color: '#229ED9',
+    Icon: ({ size = 14 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.43 3.64 12.1c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/>
+      </svg>
+    ),
+  },
+  vk: {
+    label: 'VK',
+    color: '#0077FF',
+    Icon: ({ size = 14 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M13.16 17.46c-5.46 0-8.57-3.75-8.7-9.98h2.74c.09 4.58 2.1 6.51 3.7 6.91V7.48h2.58v3.95c1.57-.17 3.23-1.96 3.79-3.95h2.58c-.43 2.45-2.22 4.25-3.49 4.99 1.27.6 3.31 2.17 4.08 5.0h-2.84c-.6-1.87-2.12-3.32-4.12-3.52v3.52h-.32z"/>
+      </svg>
+    ),
+  },
+  max: {
+    label: 'MAX',
+    color: '#F45D22',
+    Icon: ({ size = 14 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M3 4h2.5l3.5 6 3.5-6H15v16h-2.5V9.4L9 15.4 5.5 9.4V20H3V4zm14 0h2.4l3.6 16h-2.5l-.8-3.6h-3l-.8 3.6h-2.5L17 4zm.3 9.8h2l-1-4.6-1 4.6z"/>
+      </svg>
+    ),
+  },
+}
+
+function PlatformShareLinks({ kind, slug, links }: {
+  kind: 'm' | 'p'
+  slug: string
+  links?: PlatformLinks
+}) {
+  // Fallback: если бэк ещё не отдал platform_links, показываем только TG со старым URL.
+  const resolved: PlatformLinks = (links && Object.keys(links).length > 0)
+    ? links
+    : { telegram: `${getPublicBase()}/${kind}/${slug}?to=tg` }
+  const order: PlatformKey[] = ['telegram', 'vk', 'max']
+  return (
+    <div className="flex flex-col gap-1">
+      {order.filter(p => resolved[p]).map(p => (
+        <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} />
+      ))}
+    </div>
+  )
+}
+
+function PlatformLinkRow({ platform, url }: { platform: PlatformKey; url: string }) {
   const [copied, setCopied] = useState(false)
-  const url = `${getPublicBase()}/${kind}/${slug}`
+  const meta = PLATFORM_META[platform]
   function copy() {
     navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
   }
   return (
-    <div className="flex items-center gap-1.5 text-xs">
-      <span className="font-mono text-gray-500 truncate">{url}</span>
-      <button type="button" onClick={copy} className="p-1 rounded hover:bg-gray-100" title="Скопировать">
+    <div className="flex items-center gap-1.5 text-xs min-w-0">
+      <span
+        className="inline-flex items-center justify-center w-4 h-4 shrink-0"
+        style={{ color: meta.color }}
+        title={meta.label}
+      >
+        <meta.Icon size={14} />
+      </span>
+      <span className="font-mono text-gray-500 truncate flex-1 min-w-0">{url}</span>
+      <button type="button" onClick={copy} className="p-1 rounded hover:bg-gray-100 shrink-0" title={`Скопировать ссылку (${meta.label})`}>
         {copied ? <Check size={12} className="text-green-600" /> : <Copy size={12} className="text-gray-400" />}
       </button>
     </div>

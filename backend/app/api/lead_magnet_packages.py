@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
-from app.api.lead_magnets import _make_unique_lead_magnet_slug
+from app.api.lead_magnets import _make_unique_lead_magnet_slug, _public_base
+from app.services.share_links import build_funnel_landing_links
 import asyncpg
 
 router = APIRouter(prefix="/lead-magnet-packages", tags=["Пакеты лид-магнитов"])
@@ -35,11 +36,15 @@ async def _serialize_package(row, db: asyncpg.Connection) -> dict:
          ORDER BY pi.sort_order, lm.name""",
         row["id"]
     )
+    platform_links = await build_funnel_landing_links(
+        db, client_id=row["client_id"], slug=row["slug"], kind='p', base_url=_public_base()
+    )
     return {
         "id": row["id"],
         "name": row["name"],
         "description": row["description"],
         "slug": row["slug"],
+        "platform_links": platform_links,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "items": [dict(i) for i in items],
@@ -52,7 +57,7 @@ async def list_packages(
     db: asyncpg.Connection = Depends(get_db)
 ):
     rows = await db.fetch(
-        """SELECT id, name, description, slug, created_at, updated_at
+        """SELECT id, client_id, name, description, slug, created_at, updated_at
              FROM lead_magnet_packages WHERE client_id = $1
             ORDER BY name""",
         int(client["sub"])
@@ -88,7 +93,7 @@ async def create_package(
         row = await db.fetchrow(
             """INSERT INTO lead_magnet_packages (client_id, name, description, slug)
                VALUES ($1, $2, $3, $4)
-               RETURNING id, name, description, slug, created_at, updated_at""",
+               RETURNING id, client_id, name, description, slug, created_at, updated_at""",
             cid, data.name.strip(), data.description, slug
         )
         if data.items:
@@ -138,7 +143,7 @@ async def get_package(
     db: asyncpg.Connection = Depends(get_db)
 ):
     row = await db.fetchrow(
-        """SELECT id, name, description, slug, created_at, updated_at
+        """SELECT id, client_id, name, description, slug, created_at, updated_at
              FROM lead_magnet_packages WHERE id = $1 AND client_id = $2""",
         package_id, int(client["sub"])
     )
@@ -172,7 +177,7 @@ async def update_package(
             """UPDATE lead_magnet_packages
                   SET name = $1, description = $2, updated_at = NOW()
                 WHERE id = $3 AND client_id = $4
-                RETURNING id, name, description, slug, created_at, updated_at""",
+                RETURNING id, client_id, name, description, slug, created_at, updated_at""",
             data.name.strip(), data.description, package_id, cid
         )
         if not row:

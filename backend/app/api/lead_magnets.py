@@ -13,8 +13,16 @@ from pydantic import BaseModel
 from typing import Optional
 from app.auth import get_current_client
 from app.database import get_db
+from app.services.share_links import build_funnel_landing_links
+from app.config import settings
 import asyncpg
 import secrets
+
+
+def _public_base() -> str:
+    """База публичных landing-ссылок воронок. На dev — https://dev.pluson.ru, на проде https://pluson.ru.
+    В локалке `frontend_url=http://localhost:3000` тоже подходит — landing проксируется через nginx."""
+    return (settings.frontend_url or 'https://pluson.ru').rstrip('/')
 
 router = APIRouter(prefix="/lead-magnets", tags=["Лид-магниты"])
 
@@ -50,13 +58,20 @@ async def list_lead_magnets(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    cid = int(client["sub"])
     rows = await db.fetch(
         """SELECT id, name, description, url, slug, created_at, updated_at
            FROM lead_magnets WHERE client_id = $1
            ORDER BY name""",
-        int(client["sub"])
+        cid
     )
-    return {"items": [dict(r) for r in rows]}
+    items = [dict(r) for r in rows]
+    base = _public_base()
+    for it in items:
+        it["platform_links"] = await build_funnel_landing_links(
+            db, client_id=cid, slug=it["slug"], kind='m', base_url=base
+        )
+    return {"items": items}
 
 
 @router.post("", summary="Создать лид-магнит")
@@ -65,14 +80,19 @@ async def create_lead_magnet(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    cid = int(client["sub"])
     slug = await _make_unique_lead_magnet_slug(db)
     row = await db.fetchrow(
         """INSERT INTO lead_magnets (client_id, name, description, url, slug)
            VALUES ($1, $2, $3, $4, $5)
            RETURNING id, name, description, url, slug, created_at, updated_at""",
-        int(client["sub"]), data.name.strip(), data.description, data.url.strip(), slug
+        cid, data.name.strip(), data.description, data.url.strip(), slug
     )
-    return dict(row)
+    out = dict(row)
+    out["platform_links"] = await build_funnel_landing_links(
+        db, client_id=cid, slug=out["slug"], kind='m', base_url=_public_base()
+    )
+    return out
 
 
 @router.get("/counts", summary="Батч-счётчики воронки по всем лид-магнитам клиента")
@@ -118,14 +138,19 @@ async def get_lead_magnet(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    cid = int(client["sub"])
     row = await db.fetchrow(
         """SELECT id, name, description, url, slug, created_at, updated_at
            FROM lead_magnets WHERE id = $1 AND client_id = $2""",
-        lead_magnet_id, int(client["sub"])
+        lead_magnet_id, cid
     )
     if not row:
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")
-    return dict(row)
+    out = dict(row)
+    out["platform_links"] = await build_funnel_landing_links(
+        db, client_id=cid, slug=out["slug"], kind='m', base_url=_public_base()
+    )
+    return out
 
 
 @router.patch("/{lead_magnet_id}", summary="Обновить лид-магнит")
@@ -135,17 +160,22 @@ async def update_lead_magnet(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
+    cid = int(client["sub"])
     row = await db.fetchrow(
         """UPDATE lead_magnets
               SET name = $1, description = $2, url = $3, updated_at = NOW()
             WHERE id = $4 AND client_id = $5
             RETURNING id, name, description, url, slug, created_at, updated_at""",
         data.name.strip(), data.description, data.url.strip(),
-        lead_magnet_id, int(client["sub"])
+        lead_magnet_id, cid
     )
     if not row:
         raise HTTPException(status_code=404, detail="Лид-магнит не найден")
-    return dict(row)
+    out = dict(row)
+    out["platform_links"] = await build_funnel_landing_links(
+        db, client_id=cid, slug=out["slug"], kind='m', base_url=_public_base()
+    )
+    return out
 
 
 @router.delete("/{lead_magnet_id}", summary="Удалить лид-магнит")

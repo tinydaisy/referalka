@@ -127,14 +127,18 @@ WHERE-логика контактов вынесена в хелпер [`_build_
 
 **Зачем.** Лид-магниты выдаются через бот по фиксированной схеме: «приветствие со списком подарков → проверка подписки на канал → выдача файлов → 30-минутный follow-up». Можно объединять несколько лид-магнитов в один пакет под единой ссылкой.
 
-**Где живёт ссылка на воронку:**
-- Одиночный лид-магнит: `pluson.ru/m/{slug}` (5-символьный код алфавит без визуально похожих)
-- Пакет: `pluson.ru/p/{slug}`
-- С UTM и партнёром: `pluson.ru/m/x7q9k?utm_source=insta&pid=abc123`. UTM любые — всё в `funnel_runs.utm` JSONB. `pid` резолвится в `referrer_contact_id` через `contacts.ref_code`.
+**Где живёт ссылка на воронку (платформа в query, с 2026-05-20):**
+- Одиночный лид-магнит: `pluson.ru/m/{slug}?to={tg|vk|max}` (5-символьный код алфавит без визуально похожих)
+- Пакет: `pluson.ru/p/{slug}?to={tg|vk|max}`
+- С UTM и партнёром: `pluson.ru/m/x7q9k?to=tg&utm_source=insta&pid=abc123`. UTM любые — всё в `funnel_runs.utm` JSONB. `pid` резолвится в `referrer_contact_id` через `contacts.ref_code`.
+- **Платформа обязательна в UI.** Дашборд `/dashboard/lead-magnets` под каждым лид-магнитом и пакетом показывает столько ссылок, сколько у клиента подключено площадок (с учётом `client_channels` + системных каналов с `is_test=FALSE`). Каналы в test-режиме у клиентов не светятся. URL без `?to=` поддержан для обратной совместимости — default = TG.
+- **Формирование ссылок** — [`build_funnel_landing_links`](backend/app/services/share_links.py) (kind='m'|'p') возвращает `{telegram?, vk?, max?}`. Используется в GET `/lead-magnets` и `/lead-magnet-packages` (поле `platform_links`).
 
-**Куда ведёт landing:**
-- VIP-клиент с `tariffs.allow_custom_bot=TRUE` и подключённым TG-ботом → `t.me/<его_бот>?start=fnl_<run_id>`
-- Иначе → `t.me/pluson_bot?start=fnl_<run_id>`
+**Куда ведёт landing (зависит от `?to=`):**
+- `to=tg` (default): VIP с фичей `channels` и подключённым TG-ботом → `t.me/<его_бот>?start=fnl_<run_id>`, иначе → `t.me/pluson_bot?start=fnl_<run_id>`
+- `to=vk`: VIP с подключённым VK Mini App (`channels.platform_meta.vk_app_id`) → `vk.com/app{vip_app_id}#fnl_<run_id>`, иначе → системный `vk.com/app54592404#fnl_<run_id>`
+- `to=max`: VIP с подключённым MAX-ботом (handle в `channels.handle`) → `max.ru/{vip_handle}?startapp=fnl_<run_id>`, иначе → системный `max.ru/id890306512862_1_bot?startapp=fnl_<run_id>`
+- На этапе landing записывается `funnel_runs.platform_slug` — потом обработчик бота своей платформы подхватывает run по run_id. VK/MAX-обработчики в боте пишутся отдельно — URL уже отдаются клиентам корректно.
 
 В обоих случаях наш polling-сервис ([backend/bot/main.py](backend/bot/main.py)) держит обработчики. Multi-bot polling: один Python-процесс крутит и @pluson_bot, и все VIP-боты клиентов параллельно через asyncio.gather.
 

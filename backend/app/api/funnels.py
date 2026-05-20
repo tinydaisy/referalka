@@ -23,6 +23,13 @@ from urllib.parse import quote_plus
 from app.auth import get_current_client
 from app.database import get_db, get_pool
 from app.services.channels import get_client_telegram_token
+from app.services.share_links import (
+    get_client_bot_handles,
+    get_client_vk_app_id,
+    PLUSON_VK_APP_ID,
+    PLUSON_MAX_HANDLE,
+    _has_system_channel,
+)
 from app.config import settings
 import asyncpg
 import json
@@ -245,7 +252,38 @@ async def landing_package(slug: str, request: Request):
     return await _landing(slug, 'p', request)
 
 
+_PLATFORM_ALIASES = {
+    'tg': 'telegram',
+    'telegram': 'telegram',
+    'vk': 'vk',
+    'max': 'max',
+}
+
+
+async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db: asyncpg.Connection) -> str:
+    """Формирует deeplink в нужный мессенджер на основании платформы.
+    Для VIP-клиента берём его бот/сообщество, иначе — системный канал ПЛЮСОН.
+    """
+    if platform == 'telegram':
+        bot_username = await _client_bot_username(client_id, db)
+        return f"https://t.me/{bot_username}?start=fnl_{run_id}"
+    if platform == 'vk':
+        app_id = await get_client_vk_app_id(db, client_id) or PLUSON_VK_APP_ID
+        return f"https://vk.com/app{app_id}#fnl_{run_id}"
+    if platform == 'max':
+        handles = await get_client_bot_handles(db, client_id)
+        handle = (handles.get('max') or PLUSON_MAX_HANDLE).lstrip('@')
+        return f"https://max.ru/{handle}?startapp=fnl_{run_id}"
+    raise HTTPException(status_code=400, detail=f"Неизвестная платформа: {platform}")
+
+
 async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
+    qp = dict(request.query_params)
+    to_raw = (qp.get('to') or 'tg').lower()
+    platform = _PLATFORM_ALIASES.get(to_raw)
+    if not platform:
+        raise HTTPException(status_code=400, detail=f"Параметр to должен быть одним из: tg, vk, max")
+
     pool = await get_pool()
     async with pool.acquire() as db:
         resolved = await _resolve_slug(slug, kind, db)
@@ -253,8 +291,22 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
             raise HTTPException(status_code=404, detail="Воронка не найдена")
         client_id, lm_id, pkg_id, _name = resolved
 
+        # Проверяем что выбранная платформа доступна клиенту
+        # (есть свой канал ИЛИ есть системный канал не в test-режиме).
+        own_channel = await db.fetchval(
+            """SELECT 1
+                 FROM client_channels cc
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1
+                  AND cc.is_active = TRUE
+                  AND ch.platform_slug = $2
+                LIMIT 1""",
+            client_id, platform,
+        )
+        if not own_channel and not await _has_system_channel(db, platform, allow_test=False):
+            raise HTTPException(status_code=404, detail=f"Платформа {platform} не подключена")
+
         # Параметры запроса
-        qp = dict(request.query_params)
         utm = {k: v for k, v in qp.items() if k.startswith('utm_')}
         pid = qp.get('pid') or qp.get('new_partner_id')
         referrer_id = await _resolve_referrer(client_id, pid, db)
@@ -266,16 +318,13 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
         run_id = await db.fetchval(
             """INSERT INTO funnel_runs
                   (client_id, type, lead_magnet_id, package_id,
-                   contact_id, referrer_contact_id, utm, stage, landed_at)
-               VALUES ($1, 'lead_magnet', $2, $3, NULL, $4, $5::jsonb, 'landed', NOW())
+                   contact_id, referrer_contact_id, utm, stage, landed_at,
+                   platform_slug)
+               VALUES ($1, 'lead_magnet', $2, $3, NULL, $4, $5::jsonb, 'landed', NOW(), $6)
                RETURNING id""",
-            client_id, lm_id, pkg_id, referrer_id, json.dumps(utm)
+            client_id, lm_id, pkg_id, referrer_id, json.dumps(utm), platform
         )
 
-        bot_username = await _client_bot_username(client_id, db)
+        redirect_url = await _platform_redirect_url(client_id, platform, run_id, db)
 
-    # Деплинк в бот: payload `fnl_<run_id>`
-    return RedirectResponse(
-        url=f"https://t.me/{bot_username}?start=fnl_{run_id}",
-        status_code=302
-    )
+    return RedirectResponse(url=redirect_url, status_code=302)
