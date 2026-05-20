@@ -145,6 +145,15 @@ export const getClientEvents = (
 export const getEventLanding = (slug: string) =>
   req(`/api/v1/public/events/${slug}/landing`)
 
+// Реф-ссылки события для всех активных платформ клиента (TG / VK / MAX).
+// Возвращает {links: {telegram?, vk?, max?}} — пользователь видит все доступные
+// и сам выбирает какую отправить другу (TG-юзеру → TG-ссылку, VK-юзеру → VK-ссылку).
+export const getEventShareLinks = (slug: string, refCode?: string) => {
+  const qs = refCode ? `?pid=${encodeURIComponent(refCode)}` : ''
+  return req(`/api/v1/events/slug/${encodeURIComponent(slug)}/share-links${qs}`)
+    .catch(() => ({ links: {} }))
+}
+
 // ── Реф-программа (миграция 059) — материалы для шеринга в GameTab ──
 export const getShareTexts = (eventId: number) =>
   req(`/api/v1/public/events/${eventId}/share-texts`).catch(() => ({ items: [] }))

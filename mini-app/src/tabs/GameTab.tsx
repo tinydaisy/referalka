@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { getGifts, getShareTexts, getShareMaterials, sendShareTextToBot } from '../api'
+import { getGifts, getShareTexts, getShareMaterials, sendShareTextToBot, getEventShareLinks } from '../api'
 import ContactCardModal from '../components/ContactCardModal'
+import { getPlatformName } from '../platform'
 
 interface Props { event: any; participant: any; tgUser: any }
 
@@ -83,6 +84,11 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   const [shareTexts, setShareTexts] = useState<{ id: number; content: string; sort: number }[]>([])
   const [shareImages, setShareImages] = useState<{ id: number; image_url: string; source: string }[]>([])
   const [sendingAll, setSendingAll] = useState(false)
+  // Реф-ссылки для всех активных платформ клиента: {telegram?, vk?, max?}.
+  // Бэк сам резолвит handle бота / vk_app_id, добавляет _pid{refCode}.
+  // Пустой объект пока грузится — UI показывает скелетон.
+  const [shareLinks, setShareLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
+  const [copiedPlatform, setCopiedPlatform] = useState<string | null>(null)
 
   // Данные участника
   const refCode  = participant?.ref_code || 'demo'
@@ -98,6 +104,10 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   // Если у клиента настроен внешний лендинг (events.landing_url, обычно Tilda/GetCourse) —
   // друг попадает СНАЧАЛА на него (формы клиента, аналитика, brand) и только потом
   // в Telegram-бот. redirect_web_app.js парсит ?app=tg&pid=... → startapp=ref_pg{slug}_pid{pid}.
+  //
+  // Это «универсальная» веб-ссылка для placeholder {link} в текстах-примерах
+  // (где платформа друга неизвестна заранее). Для прямых deeplink-ов под TG/VK/MAX —
+  // shareLinks (см. ниже).
   const refLink = `${APP_URL}/l/${slug}?app=tg&pid=${refCode}`
 
   // Загружаем подарки → понимаем «следующий» по порогу
@@ -116,6 +126,14 @@ export default function GameTab({ event, participant, tgUser }: Props) {
       getShareMaterials(event.id).then(r => setShareImages(r.items || [])).catch(() => setShareImages([]))
     }
   }, [event?.id])
+
+  // Реф-ссылки для всех активных платформ клиента — грузим раз когда знаем slug+ref_code.
+  // Бэк отдаёт только те платформы, что у клиента подключены или системные.
+  useEffect(() => {
+    if (slug && refCode && refCode !== 'demo') {
+      getEventShareLinks(slug, refCode).then((r: any) => setShareLinks(r?.links || {})).catch(() => setShareLinks({}))
+    }
+  }, [slug, refCode])
 
   const sortedGifts = [...gifts].sort((a, b) => a.points_cost - b.points_cost)
   // Получено подарков считаем локально из загруженных порогов: даёт честное
@@ -325,27 +343,20 @@ export default function GameTab({ event, participant, tgUser }: Props) {
           fontSize: 13, padding: '4px 0', cursor: 'pointer', marginBottom: 8,
         }}>← Назад в Игру</button>
 
-        {/* Партнёрская ссылка — дубль с главного экрана, чтобы можно было
+        {/* Партнёрские ссылки — дубль с главного экрана, чтобы можно было
             скопировать прямо здесь, не возвращаясь назад. */}
-        <div style={{
-          background: 'white', borderRadius: 14, padding: 14, marginBottom: 14,
-          boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-        }}>
-          <div style={{ fontSize: 11, color: '#6b7c8e', marginBottom: 6, fontWeight: 500 }}>
-            Ваша партнёрская ссылка на событие
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{
-              flex: 1, background: '#f7f8fa', padding: 10, borderRadius: 10,
-              fontSize: 12, color: DARK, fontWeight: 600,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>{refLink}</div>
-            <button onClick={() => copy(refLink)} style={{
-              background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)', color: DARK,
-              padding: '10px 14px', borderRadius: 10, fontWeight: 700, fontSize: 13,
-              cursor: 'pointer', border: 'none',
-            }}>{copied ? '✓' : 'Копировать'}</button>
-          </div>
+        <div style={{ marginBottom: 14 }}>
+          <ShareLinksBlock
+            links={shareLinks}
+            refLink={refLink}
+            currentPlatform={getPlatformName()}
+            copiedPlatform={copiedPlatform}
+            onCopy={(p, url) => {
+              navigator.clipboard.writeText(url)
+              setCopiedPlatform(p)
+              setTimeout(() => setCopiedPlatform(null), 2000)
+            }}
+          />
         </div>
 
         {isEmpty && (
@@ -579,27 +590,21 @@ export default function GameTab({ event, participant, tgUser }: Props) {
         )}
       </div>
 
-      {/* Партнёрская ссылка */}
-      <div style={{
-        background: 'white', borderRadius: 14, padding: 14, marginBottom: 12,
-        boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-      }}>
-        <div style={{ fontSize: 11, color: '#6b7c8e', marginBottom: 6, fontWeight: 500 }}>
-          Ваша партнёрская ссылка на событие
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{
-            flex: 1, background: '#f7f8fa', padding: 10, borderRadius: 10,
-            fontSize: 12, color: DARK, fontWeight: 600,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>{refLink}</div>
-          <button onClick={() => copy(refLink)} style={{
-            background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)', color: DARK,
-            padding: '10px 14px', borderRadius: 10, fontWeight: 700, fontSize: 13,
-            cursor: 'pointer', border: 'none',
-          }}>{copied ? '✓' : 'Копировать'}</button>
-        </div>
-      </div>
+      {/* Партнёрские ссылки для всех активных платформ клиента (TG/VK/MAX).
+          Пользователь сам выбирает какую отправить другу: TG-юзеру → TG-ссылку,
+          VK-юзеру → VK-ссылку. Сначала идёт ссылка текущей платформы (откуда
+          открыт Mini App), затем остальные. */}
+      <ShareLinksBlock
+        links={shareLinks}
+        refLink={refLink}
+        currentPlatform={getPlatformName()}
+        copiedPlatform={copiedPlatform}
+        onCopy={(p, url) => {
+          navigator.clipboard.writeText(url)
+          setCopiedPlatform(p)
+          setTimeout(() => setCopiedPlatform(null), 2000)
+        }}
+      />
 
       {/* 3 кнопки: Подарки, Материалы, Поделиться */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
@@ -777,6 +782,123 @@ export default function GameTab({ event, participant, tgUser }: Props) {
           onClose={() => setOpenCardId(null)}
         />
       )}
+    </div>
+  )
+}
+
+
+// ── Блок партнёрских ссылок для разных платформ ────────────────────────
+//
+// Показывает каждую активную у клиента площадку отдельной строкой с deeplink-ом
+// в её Mini App. Пользователь сам выбирает какую отправить другу:
+//   - другу в Telegram — TG-ссылка
+//   - другу ВКонтакте — VK-ссылка
+//   - другу в MAX — MAX-ссылка
+// Сначала идёт ссылка текущей платформы (откуда открыт Mini App), затем остальные.
+//
+// Если бэк ещё не отдал ссылки (грузятся) или у клиента нет ни одной активной
+// платформы — фолбэк на универсальный refLink (веб-лендинг с редиректом).
+
+interface ShareLinksBlockProps {
+  links: { telegram?: string; vk?: string; max?: string }
+  refLink: string
+  currentPlatform: string
+  copiedPlatform: string | null
+  onCopy: (platform: string, url: string) => void
+}
+
+const PLATFORM_META: Record<string, { label: string; icon: string; bg: string; fg: string }> = {
+  telegram: { label: 'Telegram', icon: '✈️', bg: 'rgba(0,136,204,0.10)', fg: '#0088cc' },
+  vk:       { label: 'ВКонтакте', icon: 'VK', bg: 'rgba(70,128,189,0.10)', fg: '#4680bd' },
+  max:      { label: 'MAX',      icon: 'M', bg: 'rgba(255,138,0,0.12)',   fg: '#e07b00' },
+}
+
+function ShareLinksBlock({ links, refLink, currentPlatform, copiedPlatform, onCopy }: ShareLinksBlockProps) {
+  const PEACH = '#FFCFA4'
+  const DARK = '#25455D'
+
+  // Порядок: текущая платформа сверху, затем остальные. Платформы без ссылки
+  // (бэк не вернул) — пропускаем.
+  const order: ('telegram' | 'vk' | 'max')[] = []
+  if (links[currentPlatform as 'telegram' | 'vk' | 'max']) order.push(currentPlatform as any)
+  for (const p of ['telegram', 'vk', 'max'] as const) {
+    if (p !== currentPlatform && links[p]) order.push(p)
+  }
+
+  // Фолбэк: бэк не отдал ни одной ссылки (грузится / клиент без подключённых платформ).
+  // Показываем универсальную веб-ссылку как раньше.
+  if (order.length === 0) {
+    return (
+      <div style={{
+        background: 'white', borderRadius: 14, padding: 14, marginBottom: 12,
+        boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+      }}>
+        <div style={{ fontSize: 11, color: '#6b7c8e', marginBottom: 6, fontWeight: 500 }}>
+          Ваша партнёрская ссылка на событие
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{
+            flex: 1, background: '#f7f8fa', padding: 10, borderRadius: 10,
+            fontSize: 12, color: DARK, fontWeight: 600,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{refLink}</div>
+          <button onClick={() => onCopy('web', refLink)} style={{
+            background: 'linear-gradient(135deg, #FFCFA4, #f5b97e)', color: DARK,
+            padding: '10px 14px', borderRadius: 10, fontWeight: 700, fontSize: 13,
+            cursor: 'pointer', border: 'none',
+          }}>{copiedPlatform === 'web' ? '✓' : 'Копировать'}</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      background: 'white', borderRadius: 14, padding: 14, marginBottom: 12,
+      boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+    }}>
+      <div style={{ fontSize: 13, color: DARK, marginBottom: 4, fontWeight: 700 }}>
+        🔗 Ваши партнёрские ссылки
+      </div>
+      <div style={{ fontSize: 11, color: '#6b7c8e', marginBottom: 10, lineHeight: 1.4 }}>
+        Отправьте другу ту ссылку, которая ведёт в его привычное приложение.
+      </div>
+      {order.map((p, idx) => {
+        const url = links[p]!
+        const meta = PLATFORM_META[p]
+        const isCopied = copiedPlatform === p
+        const isCurrent = p === currentPlatform
+        return (
+          <div key={p} style={{
+            display: 'flex', gap: 8, alignItems: 'center',
+            marginTop: idx === 0 ? 0 : 8,
+          }}>
+            <div style={{
+              flexShrink: 0, width: 36, height: 36, borderRadius: 10,
+              background: meta.bg, color: meta.fg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 800,
+            }}>{meta.icon}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: '#6b7c8e', fontWeight: 600, marginBottom: 2 }}>
+                {meta.label}{isCurrent ? ' · здесь' : ''}
+              </div>
+              <div style={{
+                background: '#f7f8fa', padding: '6px 10px', borderRadius: 8,
+                fontSize: 11, color: DARK, fontWeight: 500,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{url}</div>
+            </div>
+            <button onClick={() => onCopy(p, url)} style={{
+              flexShrink: 0,
+              background: isCurrent ? 'linear-gradient(135deg, #FFCFA4, #f5b97e)' : '#f0f3f7',
+              color: isCurrent ? DARK : DARK,
+              padding: '10px 12px', borderRadius: 10, fontWeight: 700, fontSize: 12,
+              cursor: 'pointer', border: 'none', minWidth: 84,
+            }}>{isCopied ? '✓ Скоп.' : 'Копировать'}</button>
+          </div>
+        )
+      })}
     </div>
   )
 }
