@@ -852,14 +852,19 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
     materials = await _materials_for_run(dict(run), db)
     text_1 = _format_text(template["text_1"], ctx, materials)
 
-    from app.services.vk_api import send_message as vk_send_msg, tg_inline_to_vk_keyboard
+    from app.services.vk_api import send_message_with_media as vk_send_with_media, tg_inline_to_vk_keyboard
     button_label = template["button_label"] or "ГОТОВО"
     keyboard = tg_inline_to_vk_keyboard([[{
         "text": button_label,
         "callback_data": f"fnl_check_{run_id}"
     }]])
     try:
-        msg_id = await vk_send_msg(int(vk_id), text_1, keyboard=keyboard, token=token)
+        msg_id = await vk_send_with_media(
+            int(vk_id), text_1,
+            media_url=template.get("text_1_media_url"),
+            media_type=template.get("text_1_media_type"),
+            keyboard=keyboard, token=token,
+        )
         if msg_id:
             await db.execute(
                 "UPDATE funnel_runs SET last_message_id = $1 WHERE id = $2",
@@ -907,7 +912,7 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
                     return "not_subscribed"
                 # is_member is None означает ошибку API — пропускаем (доверяем).
 
-        from app.services.vk_api import send_message as vk_send_msg
+        from app.services.vk_api import send_message_with_media as vk_send_with_media
         # Шлём от того же сообщества, через которое прилетел клик. Токен этого
         # канала вычисляется по run.platform_slug='vk' + active client_channel.
         vk_token = await _vk_token_for_client(client_id, db) or None
@@ -928,7 +933,12 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         materials = await _materials_for_run(dict(run), db)
         text_2 = _format_text(template["text_2"], ctx, materials)
         try:
-            await vk_send_msg(int(tg_id), text_2, token=vk_token)
+            await vk_send_with_media(
+                int(tg_id), text_2,
+                media_url=template.get("text_2_media_url"),
+                media_type=template.get("text_2_media_type"),
+                token=vk_token,
+            )
         except Exception as e:
             log.warning("VK send text_2 failed for run %s: %s", run_id, e)
         if is_first_delivery:

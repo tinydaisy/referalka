@@ -116,6 +116,64 @@ async def get_user_info(vk_id: int, fields: Iterable[str] = ("first_name", "last
     return None
 
 
+async def upload_photo_to_messages(image_url: str, *, peer_id: int, token: str) -> str | None:
+    """Загружает фото из URL в VK и возвращает attachment-строку `photo{owner_id}_{id}`
+    для использования в messages.send. Возвращает None при любой ошибке."""
+    try:
+        # 1. Получаем upload-сервер для сообщений
+        srv = await vk_call("photos.getMessagesUploadServer", {"peer_id": peer_id}, token=token)
+        upload_url = (srv or {}).get("upload_url")
+        if not upload_url:
+            return None
+        # 2. Скачиваем фото из R2 / любого URL
+        async with httpx.AsyncClient(timeout=30.0) as cli:
+            r = await cli.get(image_url)
+            r.raise_for_status()
+            content = r.content
+            content_type = r.headers.get("content-type", "image/jpeg")
+        # 3. Загружаем на VK upload-сервер
+        async with httpx.AsyncClient(timeout=60.0) as cli:
+            up = await cli.post(upload_url, files={"photo": ("photo.jpg", content, content_type)})
+            up_data = up.json()
+        if not up_data.get("photo"):
+            return None
+        # 4. Сохраняем загруженное фото — получаем owner_id + id для attachment
+        saved = await vk_call("photos.saveMessagesPhoto", {
+            "server": up_data["server"],
+            "photo": up_data["photo"],
+            "hash": up_data["hash"],
+        }, token=token)
+        if isinstance(saved, list) and saved:
+            ph = saved[0]
+            return f"photo{ph['owner_id']}_{ph['id']}"
+    except Exception as e:
+        logger.warning(f"VK upload_photo_to_messages failed for {image_url}: {e}")
+    return None
+
+
+async def send_message_with_media(
+    user_vk_id: int,
+    text: str,
+    *,
+    media_url: str | None = None,
+    media_type: str | None = None,
+    token: str | None = None,
+    keyboard: dict | None = None,
+) -> int | None:
+    """Отправить сообщение с опциональным медиа. Для фото — загружает в VK
+    и прикрепляет как attachment. Для видео — пока шлёт как обычный текст
+    (VK video.save требует более сложного flow).
+    """
+    attachment = None
+    if media_url and media_type == "photo" and token:
+        attachment = await upload_photo_to_messages(media_url, peer_id=user_vk_id, token=token)
+    if media_url and not attachment:
+        # Видео или upload не получился — fallback: вшиваем URL в текст,
+        # VK Messenger развернёт превью через Open Graph
+        text = f"{text}\n\n{media_url}" if text else media_url
+    return await send_message(user_vk_id, text, token=token, keyboard=keyboard, attachment=attachment)
+
+
 async def is_user_member_of_group(group_id: int, vk_id: int, *, token: str | None = None) -> bool | None:
     """Проверить подписан ли пользователь на сообщество. Аналог Telegram getChatMember."""
     try:
