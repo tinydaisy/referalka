@@ -54,8 +54,10 @@ export const getParticipantEvents = (tgId: number) =>
   req(`/api/v1/participants/telegram/${tgId}/events`)
 
 // ── Селектор общего бота: события участника со всех клиентов ──
+// platform=vk — VK Mini App шлёт vk_user_id в качестве tg_id (бэк ищет
+// platform_users где platform_slug='vk' AND platform_user_id=$1).
 export const getMiniAppMyEvents = (tgId: number) =>
-  req(`/api/v1/participants/miniapp/me/events?tg_id=${tgId}`)
+  req(`/api/v1/participants/miniapp/me/events?tg_id=${tgId}&platform=vk`)
 
 export const getParticipantInEvent = (slug: string, tgId: number) =>
   req(`/api/v1/participants/event/${slug}/user/${tgId}`)

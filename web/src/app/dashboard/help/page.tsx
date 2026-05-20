@@ -23,6 +23,12 @@ const ARTICLES: Article[] = [
     emoji: '🤖',
   },
   {
+    href: '/dashboard/help/vk-setup',
+    title: 'Как подключить Mini App к своему сообществу ВКонтакте',
+    description: 'Создание сообщества, Mini App в dev.vk.com, токены сообщества и Secure key, настройка Long Poll и Menu в группе — пошагово со скриншотами',
+    emoji: '🟦',
+  },
+  {
     href: '/docs/api',
     title: 'API iViSiON: ПЛЮСОНа для интеграции с конструкторами чат-ботов',
     description: 'Salebot, BotHelp, SendPulse, n8n, Make, любой webhook. Регистрация участника, программа конференции, спикеры и регалии, каналы, проверка подписки, билет розыгрыша. Есть отдельная секция как настроить блок HTTP-запрос в Salebot и как читать ответ.',

@@ -115,7 +115,25 @@ async def handle_message_allow(event: dict, db) -> None:
             )
     logger.info("VK message_allow: user_id=%s recorded", user_id)
 
-    # Шлём базовое welcome-сообщение сразу после получения разрешения
+    # Generic welcome шлём ТОЛЬКО если человек не пришёл с event-контекстом.
+    # Проверяем: были ли у него за последние 60 секунд upsert в platform_users
+    # с привязкой к event_participants. Если был — значит /api/v1/vk/event сейчас
+    # сам отправит контекстное приветствие, наше generic было бы лишним.
+    recent_event_ctx = await db.fetchval(
+        """SELECT 1 FROM event_participants ep
+            JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                                   AND pu.platform_slug = 'vk'
+                                   AND pu.platform_user_id = $1
+           WHERE ep.registered_at > NOW() - INTERVAL '60 seconds'
+              OR pu.updated_at    > NOW() - INTERVAL '60 seconds'
+           LIMIT 1""",
+        str(user_id),
+    )
+    if recent_event_ctx:
+        logger.info("VK welcome skipped for user=%s (event-context welcome on the way)", user_id)
+        return
+
+    # Иначе — generic welcome (юзер просто написал в сообщество или открыл его страницу)
     try:
         from app.services.vk_api import send_message as vk_send_msg, tg_inline_to_vk_keyboard
         welcome_text = (

@@ -112,23 +112,25 @@ async def handle_vk_event(body: VkEventRequest):
                        RETURNING id""",
                     ev["id"], contact_id, referrer_contact_id,
                 )
-                # Первый раз увидели человека в этом событии — шлём приветствие в VK
-                # + уведомление организатору в TG-канал клиента
-                if inserted and event_title:
+                # Event-welcome: шлём пользователю всегда при открытии события через VK Mini App
+                # (не только при первом INSERT). Без этого юзер при повторном открытии теряет контекст
+                # и получает generic-welcome от Long Poll handler.
+                if event_title:
                     try:
                         msg = (
                             f"👋 Здравствуйте, {body.first_name or 'друг'}!\n\n"
-                            f"Спасибо за интерес к событию «{event_title}». Откройте приложение, "
-                            f"чтобы увидеть программу, ваших друзей и подарки за приглашения."
+                            f"Вы открыли событие «{event_title}». Жмите кнопку ниже, чтобы вернуться "
+                            f"в приложение — там программа, друзья и подарки за приглашения."
                         )
                         keyboard = tg_inline_to_vk_keyboard([[
-                            {"text": "Открыть приложение", "url": build_vk_link(body.event_slug)},
+                            {"text": f"Войти в «{event_title[:30]}»", "url": build_vk_link(body.event_slug)},
                         ]])
                         await vk_send_message(vk_user_id, msg, keyboard=keyboard)
                     except Exception as e:
                         logger.warning(f"VK welcome message failed for vk_id={vk_user_id}: {e}")
 
-                    # Уведомление организатору о новом интересе через ВК (помечено «Платформа: ВКонтакте»)
+                # Уведомление организатору — только при первом INSERT (не плодим спам)
+                if inserted and event_title:
                     try:
                         await _send_event_organizer_notification(
                             conn,
