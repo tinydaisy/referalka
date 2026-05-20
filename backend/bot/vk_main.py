@@ -211,10 +211,17 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
 
 
 async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
-    """message_new: входящее сообщение в личку сообщества."""
+    """message_new: входящее сообщение в личку сообщества.
+
+    Что делаем:
+      1. Upsert контакт (если ещё не было) — VK даёт нам новую идентичность.
+      2. Если payload-кнопка fnl_check — запускаем проверку подписки воронки.
+      3. Иначе свободный текст пользователя — пересылаем в #user_message
+         (notifications_telegram_chat_id) + отвечаем что делать дальше.
+    """
     message = event_obj.get("message") or event_obj
     from_id = message.get("from_id")
-    if not from_id or from_id < 0:
+    if not from_id or from_id < 0:  # отрицательные = от сообщества
         return
 
     await upsert_contact_with_identity(
@@ -237,6 +244,121 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
                 await run_check_subscription(run_id, str(from_id), db, platform="vk")
             except Exception as e:
                 logger.warning(f"VK fnl_check via message payload failed: {e}")
+            return  # payload-action обработан, в #user_message не дублируем
+
+    # Свободный текст. Игнорируем служебные старты (action: chat_invite_user и т.п.)
+    text = (message.get("text") or "").strip()
+    if not text:
+        return
+
+    # Уведомление организатору в его TG-канал #user_message + отвечаем юзеру.
+    await _forward_user_message_to_organizer(db, ctx, from_id=int(from_id), text=text)
+    await _reply_to_user_message(ctx, peer_id=int(from_id))
+
+
+async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: int, text: str) -> None:
+    """Шлёт уведомление #user_message в TG-канал клиента (notifications_telegram_chat_id).
+    Делает best-effort: ошибки логируются, ничего не блокируется.
+    """
+    from app.config import settings as _s
+    import httpx as _httpx
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo  # type: ignore
+    import html as _html
+
+    try:
+        row = await db.fetchrow(
+            """SELECT c.notifications_telegram_chat_id,
+                      pu.contact_id, ct.name AS contact_name, ct.utm_source
+                 FROM clients c
+            LEFT JOIN platform_users pu
+                   ON pu.client_id = c.id AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2
+            LEFT JOIN contacts ct ON ct.id = pu.contact_id
+                WHERE c.id = $1""",
+            ctx.client_id, str(from_id),
+        )
+        if not row or not row["notifications_telegram_chat_id"]:
+            return
+
+        # Имя/ник пользователя VK — через users.get
+        display_name = ""
+        vk_screen = ""
+        try:
+            ui_resp = await vk_call("users.get",
+                {"user_ids": str(from_id), "fields": "screen_name"},
+                token=ctx.token)
+            ui_list = ui_resp if isinstance(ui_resp, list) else (ui_resp.get("response") or [])
+            if ui_list:
+                ui = ui_list[0]
+                display_name = f"{ui.get('first_name','')} {ui.get('last_name','')}".strip()
+                vk_screen = ui.get("screen_name", "")
+        except Exception:
+            pass
+
+        when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+        user_nick = f"@{vk_screen}" if vk_screen else "—"
+        card_url = (
+            f"{_s.frontend_url}/dashboard/clients?contact={row['contact_id']}"
+            if row['contact_id'] else "—"
+        )
+        parts = [
+            "#user_message 💬",
+            "",
+            f"<b>Когда:</b> {when_str}",
+            f"<b>Платформа:</b> ВКонтакте",
+            "",
+            "<b>Кто написал</b>",
+            f"<b>Никнейм:</b> {user_nick}",
+            f"<b>Имя:</b> {_html.escape(display_name or row['contact_name'] or '—')}",
+            f"<b>VK ID:</b> <code>{from_id}</code>",
+            f"<b>ID контакта:</b> {('#' + str(row['contact_id'])) if row['contact_id'] else '—'}",
+            f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",
+            f"<b>Карточка:</b> {card_url}",
+            "",
+            "<b>Сообщение:</b>",
+            _html.escape(text),
+        ]
+        notif_text = "\n".join(parts)
+
+        token = _s.telegram_bot_token
+        if not token:
+            return
+        async with _httpx.AsyncClient(timeout=10) as http:
+            await http.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": row["notifications_telegram_chat_id"],
+                    "text": notif_text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+            )
+    except Exception as e:
+        logger.warning(f"VK user_message notify failed for from_id={from_id}: {e}")
+
+
+async def _reply_to_user_message(ctx: "GroupCtx", *, peer_id: int) -> None:
+    """Шлёт пользователю короткий ответ с направлением в Экосистему."""
+    if ctx.is_system:
+        reply = (
+            "Спасибо за сообщение 💛\n\n"
+            "Чтобы связаться с конкретным организатором — откройте приложение, "
+            "перейдите на вкладку «Лидеры», выберите нужного лидера и в разделе "
+            "«Экосистема» найдите его контакты для вопросов."
+        )
+    else:
+        reply = (
+            "Спасибо за сообщение 💛\n\n"
+            "Если нужно связаться с организатором — откройте приложение, "
+            "вкладка «Экосистема». Там вся информация и контакты."
+        )
+    try:
+        await vk_send_message(peer_id, reply, token=ctx.token)
+    except Exception as e:
+        logger.warning(f"VK reply to user message failed peer={peer_id}: {e}")
 
 
 async def process_event(ev: dict, db, ctx: GroupCtx) -> None:
