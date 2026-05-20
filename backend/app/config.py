@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     vk_system_group_id: int = 0
     vk_system_group_token: str = ""
 
+    max_system_bot_token: str = ""
+    max_system_bot_username: str = "id890306512862_1_bot"
+    max_api_base: str = "https://botapi.max.ru"
+
     class Config:
         env_file = ".env"
         extra = "ignore"

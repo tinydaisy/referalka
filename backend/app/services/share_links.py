@@ -21,6 +21,7 @@ PLUSON_TG_HANDLE = "pluson_bot"
 PLUSON_TG_APP = "pluson"          # short-name Mini App у общего бота
 PLUSON_VK_APP_ID = 54592404       # системный VK Mini App ПЛЮСОН (см. memory/vk_prod.md)
 PLUSON_VK_HANDLE = "ivision_pluson"  # короткий адрес системного сообщества
+PLUSON_MAX_HANDLE = "id890306512862_1_bot"  # системный MAX-бот «ПЛЮСОН-СЕРВИС»
 
 
 def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str | None = None, tab: str | None = None) -> str:
@@ -49,8 +50,12 @@ def vk_link(event_slug: str, *, app_id: int | None = None, partner_id: str | Non
 
 
 def max_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str | None = None, tab: str | None = None) -> str:
-    """Заглушка для MAX. Пока не используется — добавим когда подключим MAX-бот."""
-    handle = bot_handle or "pluson_max_bot"
+    """Реф-ссылка в MAX Mini App.
+
+    Формат: https://max.ru/{bot_username}?startapp={payload}
+    bot_username для системного: id890306512862_1_bot («ПЛЮСОН-СЕРВИС»).
+    """
+    handle = (bot_handle or PLUSON_MAX_HANDLE).lstrip('@')
     parts = [f"ref_pg{event_slug}"]
     if partner_id:
         parts.append(f"pid{partner_id}")
