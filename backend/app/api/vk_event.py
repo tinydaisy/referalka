@@ -96,7 +96,8 @@ async def vk_funnel_start(body: VkFunnelStartRequest):
         # По vk_app_id находим channel клиента — у которого совпадает app_id в platform_meta.
         # Этот channel будет writer'ом для отправки приветствия (Текст 1).
         chan = await conn.fetchrow(
-            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id
+            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id,
+                      (ch.platform_meta->>'vk_group_id')::int AS vk_group_id
                  FROM channels ch
                  JOIN client_channels cc ON cc.channel_id = ch.id
                 WHERE ch.platform_slug = 'vk'
@@ -134,7 +135,8 @@ async def vk_funnel_start(body: VkFunnelStartRequest):
             token=chan["bot_token"],
         )
 
-    return {"ok": True, "vk_user_id": vk_user_id, "group_id": int((body.launch_params.get("vk_group_id") or 0))}
+    group_id = int(body.launch_params.get("vk_group_id") or 0) or int(chan["vk_group_id"] or 0)
+    return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id}
 
 
 @router.get("/vk/group-for-app", summary="Резолв vk_app_id → vk_group_id")
