@@ -49,7 +49,9 @@ function parseStartParam(raw: string): {
   return r
 }
 
-function sendVkEvent(
+// Возвращает {has_email, has_phone} — фронт по ним решает запрашивать ли диалог VK Bridge.
+// Если бэк недоступен или ответ невалиден — возвращаем флаги true (не долбим юзера зря).
+async function sendVkEvent(
   launchParams: Record<string, string>,
   user: any,
   partnerId?: string,
@@ -59,9 +61,9 @@ function sendVkEvent(
   initialTab?: string,
   email?: string | null,
   phone?: string | null,
-) {
+): Promise<{ has_email: boolean; has_phone: boolean }> {
   try {
-    fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/event`, {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/event`, {
       method: 'POST',
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
@@ -79,7 +81,12 @@ function sendVkEvent(
         phone: phone || '',
       }),
     })
+    if (res.ok) {
+      const data: any = await res.json()
+      return { has_email: !!data?.has_email, has_phone: !!data?.has_phone }
+    }
   } catch (_) {}
+  return { has_email: true, has_phone: true }
 }
 
 function parsePathSlug(): string | null {
@@ -134,17 +141,18 @@ export default function App() {
         if (parsed.initialTab) setInitialTab(parsed.initialTab)
       }
 
-      // Шлём event_start на бэк (асинхронно, не ждём ответа)
+      // Шлём event_start на бэк. Поток:
+      // 1) write_access — разрешение писать в личку (обязательно для welcome/рассылок)
+      // 2) Первый POST /vk/event без email/phone — бэк создаёт contact, делает автомердж
+      //    по vk_user_id и возвращает {has_email, has_phone}.
+      // 3) Если has_email=false → диалог VK Bridge на email. Аналогично phone.
+      //    Если оба true (мы уже знаем человека по TG-базе или прошлым визитам) —
+      //    диалоги VK не показываем, не долбим юзера.
+      // 4) Если что-то донабрали → второй POST с email/phone, иначе всё.
       const launchParams = getLaunchParams()
       if (Object.keys(launchParams).length > 0 && launchParams.vk_user_id) {
-        // Цепочка диалогов VK для сбора профиля:
-        // 1) write_access — разрешение писать в личку (обязательно для welcome / рассылок)
-        // 2) email — диалог согласия на email (для автомерджа с TG-контактом если есть)
-        // 3) phone — диалог согласия на телефон (тот же автомердж)
-        // Каждый шаг независим — если пользователь откажет в одном, остальные не блокируются.
         adapter.requestWriteAccess(async () => {
-          const [email, phone] = await Promise.all([requestVkEmail(), requestVkPhone()])
-          sendVkEvent(
+          const status = await sendVkEvent(
             launchParams,
             user,
             parsed.partnerId,
@@ -152,9 +160,28 @@ export default function App() {
             parsed.clientId,
             parsed.utmSource,
             parsed.initialTab,
-            email,
-            phone,
           )
+          const needEmail = !status.has_email
+          const needPhone = !status.has_phone
+          if (!needEmail && !needPhone) return
+
+          const [emailVal, phoneVal] = await Promise.all([
+            needEmail ? requestVkEmail() : Promise.resolve(null),
+            needPhone ? requestVkPhone() : Promise.resolve(null),
+          ])
+          if (emailVal || phoneVal) {
+            sendVkEvent(
+              launchParams,
+              user,
+              parsed.partnerId,
+              parsed.eventSlug,
+              parsed.clientId,
+              parsed.utmSource,
+              parsed.initialTab,
+              emailVal,
+              phoneVal,
+            )
+          }
         })
       }
 

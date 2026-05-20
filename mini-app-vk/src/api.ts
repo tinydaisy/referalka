@@ -28,8 +28,13 @@ export const checkConferenceSubscription = (eventId: number, tgId: number) =>
   req(`/api/v1/public/conference/${eventId}/check-subscription?tg_id=${tgId}`)
 
 // ── Регистрация и участники ──
+// VK Mini App шлёт platform='vk' → бэк пишет в platform_users с platform_slug='vk',
+// а не как раньше дефолтом в 'telegram' (создавало битый дубль с vk_user_id под видом tg_id).
 export const registerParticipant = (data: any) =>
-  req('/api/v1/participants/register', { method: 'POST', body: JSON.stringify(data) })
+  req('/api/v1/participants/register', {
+    method: 'POST',
+    body: JSON.stringify({ ...data, platform: 'vk' }),
+  })
 
 // Клик по главной CTA-ссылке события (стрим / голосование). fire-and-forget.
 export function trackLinkClick(eventSlug: string | undefined | null, tgUser: any) {

@@ -6,7 +6,7 @@ API регистрации участников события (миграция
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
 import asyncpg
 
 from app.database import get_db
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/participants", tags=["Участники"])
 
 class RegisterParticipantRequest(BaseModel):
     event_slug: str
-    tg_id: int
+    tg_id: int  # Исторически называется tg_id, но это platform_user_id (для VK — vk_user_id)
     username: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -25,6 +25,7 @@ class RegisterParticipantRequest(BaseModel):
     phone: Optional[str] = None
     ref_code: Optional[str] = None
     partner_tg_id: Optional[str] = None
+    platform: Literal["telegram", "vk", "max"] = "telegram"
 
 
 async def _resolve_post_register_redirect(db, client_id: int, event_slug: str) -> dict:
@@ -76,11 +77,13 @@ async def register_participant(
         raise HTTPException(status_code=404, detail="Событие не найдено или не опубликовано")
     redirect = await _resolve_post_register_redirect(db, event["client_id"], data.event_slug)
 
-    # Создаём/находим контакт + идентичность (автомердж по email/phone)
+    # Создаём/находим контакт + идентичность (автомердж по email/phone).
+    # platform — 'telegram'/'vk'/'max'. VK Mini App шлёт platform='vk' и в tg_id
+    # сидит vk_user_id (это исторически имя поля, не привязка к платформе).
     contact_id, _platform_user_id, _is_new_contact = await upsert_contact_with_identity(
         db,
         client_id=event["client_id"],
-        platform_slug='telegram',
+        platform_slug=data.platform,
         platform_user_id=str(data.tg_id),
         username=data.username,
         first_name=data.first_name,
@@ -137,12 +140,14 @@ async def register_participant(
             db, data.ref_code, client_id=event["client_id"]
         )
     if not resolved_ref_code and data.partner_tg_id:
+        # Реферер ищется в той же платформе что и сам участник
+        # (VK-юзер не может быть приведён через TG-аккаунт партнёра и наоборот).
         partner_row = await db.fetchrow(
             """SELECT c.id, c.ref_code
                  FROM platform_users pu
                  JOIN contacts c ON c.id = pu.contact_id
-                WHERE pu.client_id = $1 AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $2""",
-            event["client_id"], str(data.partner_tg_id)
+                WHERE pu.client_id = $1 AND pu.platform_slug = $3 AND pu.platform_user_id = $2""",
+            event["client_id"], str(data.partner_tg_id), data.platform
         )
         if partner_row:
             resolved_ref_code = partner_row["ref_code"]

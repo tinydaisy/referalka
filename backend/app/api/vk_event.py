@@ -145,6 +145,15 @@ async def handle_vk_event(body: VkEventRequest):
                     except Exception as e:
                         logger.warning(f"VK organizer notification failed: {e}")
 
+        # Возвращаем фронту флаги — есть ли у этого contact email/phone
+        # (после автомерджа: в TG-базе могло уже быть, тогда диалоги VK Bridge не нужны).
+        existing = await conn.fetchrow(
+            "SELECT COALESCE(email_normalized, '') AS email, COALESCE(phone_normalized, '') AS phone FROM contacts WHERE id = $1",
+            contact_id,
+        )
+        has_email = bool(existing and existing["email"])
+        has_phone = bool(existing and existing["phone"])
+
     return {
         "ok": True,
         "vk_user_id": vk_user_id,
@@ -152,4 +161,6 @@ async def handle_vk_event(body: VkEventRequest):
         "client_id": client_id,
         "is_new_contact": is_new,
         "event_title": event_title,
+        "has_email": has_email,
+        "has_phone": has_phone,
     }
