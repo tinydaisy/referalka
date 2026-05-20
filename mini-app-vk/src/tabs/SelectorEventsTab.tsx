@@ -201,15 +201,63 @@ export default function SelectorEventsTab({ tgUser, onOpenEvent, onSwitchToPromo
   return (
     <div className="fade-in" style={{ paddingBottom: 16 }}>
       {groups.map(g => (
-        <div key={g.client_id}>
-          <GroupHeader g={g} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '0 16px 4px' }}>
-            {g.events.map(e => (
-              <EventCard key={e.id} e={e} onOpen={onOpenEvent} />
-            ))}
-          </div>
-        </div>
+        <GroupBlock key={g.client_id} g={g} onOpenEvent={onOpenEvent} />
       ))}
     </div>
+  )
+}
+
+function GroupBlock({ g, onOpenEvent }: { g: Group; onOpenEvent: (s: string) => void }) {
+  const active = g.events.filter(e => e.bucket !== 'past')
+  const past = g.events.filter(e => e.bucket === 'past')
+  const [showArchive, setShowArchive] = useState(false)
+
+  return (
+    <div>
+      <GroupHeader g={g} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '0 16px 4px' }}>
+        {active.map(e => (
+          <EventCard key={e.id} e={e} onOpen={onOpenEvent} />
+        ))}
+        {past.length > 0 && (
+          <ArchiveToggle
+            count={past.length}
+            open={showArchive}
+            onToggle={() => setShowArchive(v => !v)}
+          />
+        )}
+        {showArchive && past.map(e => (
+          <EventCard key={e.id} e={e} onOpen={onOpenEvent} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ArchiveToggle({ count, open, onToggle }: { count: number; open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      style={{
+        background: 'transparent',
+        border: '1px dashed var(--muted)',
+        borderRadius: 12,
+        padding: '10px 14px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        color: 'var(--muted)',
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: 'pointer',
+        width: '100%',
+      }}
+    >
+      <span>Архив прошедших · {count}</span>
+      <span style={{ fontSize: 12, transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }}>
+        ▾
+      </span>
+    </button>
   )
 }

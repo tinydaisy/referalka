@@ -45,7 +45,7 @@ function Section({ title, items, onOpen }: { title: string; items: Ev[]; onOpen:
   if (!items.length) return null
   return (
     <>
-      <div className="sec-h">{title}</div>
+      {title && <div className="sec-h">{title}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '0 16px 4px' }}>
         {items.map(e => (
           <div key={e.id} className="hub-card fade-in" onClick={() => onOpen(e.slug)}>
@@ -99,7 +99,40 @@ export default function CalendarTab({ clientId, tgId, onOpenEvent }: Props) {
     <div className="fade-in" style={{ paddingBottom: 16 }}>
       <Section title="🔴 Сейчас идёт"  items={data.now}      onOpen={onOpenEvent} />
       <Section title="📅 Скоро"        items={data.upcoming} onOpen={onOpenEvent} />
-      <Section title="✓ Прошли"        items={data.past}     onOpen={onOpenEvent} />
+      <ArchiveSection items={data.past} onOpen={onOpenEvent} />
     </div>
+  )
+}
+
+function ArchiveSection({ items, onOpen }: { items: Ev[]; onOpen: (s: string) => void }) {
+  const [open, setOpen] = useState(false)
+  if (!items.length) return null
+  return (
+    <>
+      <div style={{ padding: '0 16px', marginTop: 8 }}>
+        <button
+          onClick={() => setOpen(v => !v)}
+          style={{
+            background: 'transparent',
+            border: '1px dashed var(--muted)',
+            borderRadius: 12,
+            padding: '10px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            color: 'var(--muted)',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            width: '100%',
+          }}
+        >
+          <span>Архив прошедших · {items.length}</span>
+          <span style={{ fontSize: 12, transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }}>▾</span>
+        </button>
+      </div>
+      {open && <Section title="" items={items} onOpen={onOpen} />}
+    </>
   )
 }
