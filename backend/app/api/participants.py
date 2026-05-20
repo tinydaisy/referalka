@@ -128,6 +128,14 @@ async def register_participant(
                     WHERE id = $1""",
                 existing["id"], upd_ref_code, upd_referrer_pid
             )
+            # Останов воронки догрева — теперь зарегистрирован
+            try:
+                from app.api.event_nurture import start_nurture_run_if_eligible
+                await start_nurture_run_if_eligible(
+                    db, event_id=event["id"], contact_id=contact_id, is_registered=True,
+                )
+            except Exception:
+                pass
         return {"participant": dict(existing), "is_new": False, **redirect}
 
     # Резолв реферера: если передан ref_code (может быть legacy длинный из
@@ -175,6 +183,15 @@ async def register_participant(
          RETURNING id""",
         event["id"], contact_id, referrer_participant_id, resolved_ref_code
     )
+
+    # Регистрация = останов воронки догрева (если она была запущена).
+    try:
+        from app.api.event_nurture import start_nurture_run_if_eligible
+        await start_nurture_run_if_eligible(
+            db, event_id=event["id"], contact_id=contact_id, is_registered=True,
+        )
+    except Exception:
+        pass
 
     return {
         "participant": {"id": participant["id"], "ref_code": user_ref_code},

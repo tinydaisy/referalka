@@ -318,6 +318,19 @@ export const api = {
   platforms: {
     list: () => request('/api/v1/platforms'),
   },
+  eventNurture: {
+    list: (eventId: number) => request(`/api/v1/events/${eventId}/nurture/steps`),
+    create: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/nurture/steps`, {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    update: (stepId: number, data: any) =>
+      request(`/api/v1/events/nurture/steps/${stepId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    remove: (stepId: number) =>
+      request(`/api/v1/events/nurture/steps/${stepId}`, { method: 'DELETE' }),
+  },
   channels: {
     list: () => request('/api/v1/channels'),
     get: (id: number) => request(`/api/v1/channels/${id}`),

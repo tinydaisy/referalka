@@ -296,6 +296,19 @@ async def send_event_open_message(
             if not part:
                 return {"ok": True, "skipped": "no participant after upsert"}
 
+            # Воронка догрева: запускаем если человек открыл и не зарегистрирован.
+            # Если is_registered=true и есть активный run — функция его закроет.
+            try:
+                from app.api.event_nurture import start_nurture_run_if_eligible
+                await start_nurture_run_if_eligible(
+                    conn,
+                    event_id=event_id,
+                    contact_id=contact_id,
+                    is_registered=bool(part["is_registered"]),
+                )
+            except Exception as e:
+                logger.warning(f"event_nurture start failed for event={event_id} contact={contact_id}: {e}")
+
             ref_code = await conn.fetchval(
                 "SELECT ref_code FROM contacts WHERE id = $1", contact_id
             )

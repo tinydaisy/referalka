@@ -141,6 +141,20 @@ async def handle_vk_event(body: VkEventRequest):
                     except Exception as e:
                         logger.warning(f"VK welcome message failed for vk_id={vk_user_id}: {e}")
 
+                # Воронка догрева: запуск (если не зарегистрирован) или останов (если был run).
+                try:
+                    from app.api.event_nurture import start_nurture_run_if_eligible
+                    is_reg = await conn.fetchval(
+                        "SELECT is_registered FROM event_participants WHERE event_id=$1 AND contact_id=$2",
+                        ev["id"], contact_id,
+                    )
+                    await start_nurture_run_if_eligible(
+                        conn, event_id=ev["id"], contact_id=contact_id,
+                        is_registered=bool(is_reg),
+                    )
+                except Exception as e:
+                    logger.warning(f"VK event_nurture start failed: {e}")
+
                 # Уведомление организатору — только при первом INSERT (не плодим спам)
                 if inserted and event_title:
                     try:
