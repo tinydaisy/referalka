@@ -4,7 +4,7 @@ import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
 import LoadingScreen from './components/LoadingScreen'
 import SpinnerOverlay from './components/SpinnerOverlay'
-import { initPlatform, getLaunchParams, getStartParam, getUser } from './platform'
+import { initPlatform, getLaunchParams, getStartParam, getUser, requestVkEmail, requestVkPhone } from './platform'
 
 /*
  * Маршрутизация в VK Mini App:
@@ -57,6 +57,8 @@ function sendVkEvent(
   clientId?: number,
   utmSource?: string,
   initialTab?: string,
+  email?: string | null,
+  phone?: string | null,
 ) {
   try {
     fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/event`, {
@@ -73,6 +75,8 @@ function sendVkEvent(
         utm_source: utmSource || '',
         initial_tab: initialTab || '',
         client_id: clientId || 0,
+        email: email || '',
+        phone: phone || '',
       }),
     })
   } catch (_) {}
@@ -133,10 +137,13 @@ export default function App() {
       // Шлём event_start на бэк (асинхронно, не ждём ответа)
       const launchParams = getLaunchParams()
       if (Object.keys(launchParams).length > 0 && launchParams.vk_user_id) {
-        // Запрашиваем разрешение писать в личку от сообщества — это обязательно для welcome / рассылок.
-        // VK покажет диалог с кнопками «Разрешить»/«Запретить»; результат не блокирует — шлём event_start
-        // в любом случае (даже если запретят — событие зарегистрируем).
-        adapter.requestWriteAccess(() => {
+        // Цепочка диалогов VK для сбора профиля:
+        // 1) write_access — разрешение писать в личку (обязательно для welcome / рассылок)
+        // 2) email — диалог согласия на email (для автомерджа с TG-контактом если есть)
+        // 3) phone — диалог согласия на телефон (тот же автомердж)
+        // Каждый шаг независим — если пользователь откажет в одном, остальные не блокируются.
+        adapter.requestWriteAccess(async () => {
+          const [email, phone] = await Promise.all([requestVkEmail(), requestVkPhone()])
           sendVkEvent(
             launchParams,
             user,
@@ -145,6 +152,8 @@ export default function App() {
             parsed.clientId,
             parsed.utmSource,
             parsed.initialTab,
+            email,
+            phone,
           )
         })
       }

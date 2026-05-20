@@ -112,3 +112,27 @@ export function getStartParam(): string | undefined {
 export function isVk(): boolean {
   return _isVk
 }
+
+// Запрос email пользователя через VK Bridge.
+// Показывает диалог согласия; если согласился — вернёт строку email, иначе null.
+export async function requestVkEmail(): Promise<string | null> {
+  if (!_isVk) return null
+  try {
+    const r: any = await bridge.send('VKWebAppGetEmail')
+    return r?.email || null
+  } catch {
+    return null
+  }
+}
+
+// Запрос телефона пользователя через VK Bridge.
+// Для непроверенных приложений может вернуть ошибку до прохождения модерации.
+export async function requestVkPhone(): Promise<string | null> {
+  if (!_isVk) return null
+  try {
+    const r: any = await bridge.send('VKWebAppGetPhoneNumber')
+    return r?.phone_number || null
+  } catch {
+    return null
+  }
+}

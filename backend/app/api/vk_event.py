@@ -39,6 +39,9 @@ class VkEventRequest(BaseModel):
     first_name: str = ""
     last_name: str = ""
     username: str = ""  # screen_name из VK
+    # Контактные данные из VK Bridge — пользователь явно дал согласие диалогом
+    email: str = ""    # VKWebAppGetEmail
+    phone: str = ""    # VKWebAppGetPhoneNumber
 
 
 @router.post("/vk/event")
@@ -83,6 +86,8 @@ async def handle_vk_event(body: VkEventRequest):
             username=body.username or None,
             first_name=body.first_name or None,
             last_name=body.last_name or None,
+            email=body.email or None,    # автомердж по email — если в TG-базе уже есть «Марго Форбс с email» → склеит
+            phone=body.phone or None,    # то же по phone (8/+7-нормализация на стороне contact_merge)
             utm_source=body.utm_source or None,
         )
 

@@ -1,11 +1,13 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 
 interface Participant {
   id: number
+  contact_id: number
   platform_user_id: string
   ref_code: string
   referrer_ref_code: string | null
@@ -26,6 +28,54 @@ interface Participant {
   phone: string | null
   email: string | null
   referral_count: number
+  // Платформенные идентичности (для иконок + клик на профиль)
+  tg_id?: string | null
+  tg_username?: string | null
+  vk_id?: string | null
+  vk_username?: string | null
+  max_id?: string | null
+  max_username?: string | null
+}
+
+// Иконки платформ — SVG inline (без зависимости от внешних библиотек)
+function PlatformBadge({
+  platform, userId, username,
+}: {
+  platform: 'telegram' | 'vk' | 'max'
+  userId?: string | null
+  username?: string | null
+}) {
+  if (!userId && !username) return null
+  const label = username ? `@${username.replace(/^@+/, '')}` : `#${userId}`
+  const href =
+    platform === 'telegram'
+      ? (username ? `https://t.me/${username.replace(/^@+/, '')}` : `tg://user?id=${userId}`)
+      : platform === 'vk'
+      ? (username ? `https://vk.com/${username.replace(/^@+/, '')}` : `https://vk.com/id${userId}`)
+      : (username ? `https://max.ru/${username}` : '#')
+  const color =
+    platform === 'telegram' ? '#229ED9'
+    : platform === 'vk'     ? '#0077FF'
+    : '#FFCFA4'
+  const letter = platform === 'telegram' ? 'TG' : platform === 'vk' ? 'VK' : 'MAX'
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="inline-flex items-center gap-1 text-xs hover:underline"
+      style={{ color }}
+    >
+      <span
+        className="inline-flex items-center justify-center w-4 h-4 rounded-sm text-[9px] font-bold text-white"
+        style={{ background: color }}
+      >
+        {letter}
+      </span>
+      <span className="truncate max-w-[160px]">{label}</span>
+    </a>
+  )
 }
 
 type RegisteredFilter = 'all' | 'yes' | 'no'
@@ -99,9 +149,17 @@ function ContactCard({
           </div>
           <div className="min-w-0 flex-1">
             <p className="font-medium text-gray-900 text-sm truncate">{name}</p>
-            {p.username && (
-              <p className="text-xs text-gray-400 truncate">@{p.username.replace(/^@+/, '')}</p>
-            )}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+              {p.tg_id || p.tg_username ? (
+                <PlatformBadge platform="telegram" userId={p.tg_id} username={p.tg_username} />
+              ) : null}
+              {p.vk_id || p.vk_username ? (
+                <PlatformBadge platform="vk" userId={p.vk_id} username={p.vk_username} />
+              ) : null}
+              {p.max_id || p.max_username ? (
+                <PlatformBadge platform="max" userId={p.max_id} username={p.max_username} />
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -289,6 +347,153 @@ function FilterPill({
   )
 }
 
+function AddFromContactModal({
+  eventId,
+  existingContactIds,
+  onClose,
+  onAdded,
+}: {
+  eventId: number
+  existingContactIds: Set<number>
+  onClose: () => void
+  onAdded: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const [contacts, setContacts] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [adding, setAdding] = useState<number | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setLoading(true)
+      api.contacts.list(query, 50, 0, false)
+        .then((r: any) => setContacts(r.contacts || r.items || []))
+        .catch(() => setContacts([]))
+        .finally(() => setLoading(false))
+    }, query ? 250 : 0)
+    return () => clearTimeout(t)
+  }, [query])
+
+  async function pickContact(c: any) {
+    if (existingContactIds.has(c.id)) return
+    setAdding(c.id); setError('')
+    try {
+      await api.events.addParticipantFromContact(eventId, c.id, false)
+      onAdded()
+      onClose()
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось добавить участника')
+    } finally {
+      setAdding(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
+          <div>
+            <h3 className="font-bold text-gray-900 text-lg">Добавить участника</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Выберите контакт — он попадёт в список без статуса «зарегистрирован».
+              Поставить галочку можно потом кликом по строке.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 border-b border-gray-100 shrink-0">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              autoFocus
+              type="text"
+              placeholder="Имя, email или телефон..."
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="w-6 h-6 border-2 border-brand rounded-full border-t-transparent animate-spin" />
+            </div>
+          ) : contacts.length === 0 ? (
+            <div className="p-8 text-center">
+              <Users size={28} className="mx-auto mb-3 text-gray-300" />
+              <p className="text-sm text-gray-500 mb-2">
+                {query ? 'Ничего не найдено' : 'Нет контактов'}
+              </p>
+              <p className="text-xs text-gray-400">
+                Сначала добавьте человека в{' '}
+                <Link href="/dashboard/clients" className="text-brand hover:underline">«Контакты»</Link>
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {contacts.map(c => {
+                const taken = existingContactIds.has(c.id)
+                const isAdding = adding === c.id
+                return (
+                  <li key={c.id}>
+                    <button
+                      onClick={() => pickContact(c)}
+                      disabled={taken || isAdding}
+                      className={`w-full text-left px-3 py-3 rounded-xl flex items-center gap-3 transition-colors
+                        ${taken ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                    >
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
+                        style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                        {(c.name || '?').trim().charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-sm text-gray-900 truncate">{c.name || 'Без имени'}</div>
+                        <div className="text-xs text-gray-500 truncate flex items-center gap-3">
+                          {c.email && <span className="flex items-center gap-1"><Mail size={10} />{c.email}</span>}
+                          {c.phone && <span className="flex items-center gap-1"><Phone size={10} />{c.phone}</span>}
+                          {!c.email && !c.phone && <span className="text-gray-400">без email/телефона</span>}
+                        </div>
+                      </div>
+                      {taken ? (
+                        <span className="text-[11px] text-gray-400 shrink-0">уже участник</span>
+                      ) : isAdding ? (
+                        <Spinner />
+                      ) : (
+                        <UserPlus size={16} className="text-gray-400 shrink-0" />
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+
+        {error && (
+          <div className="p-3 border-t border-red-200 bg-red-50 text-red-700 text-sm flex items-center gap-2">
+            <AlertCircle size={15} /> {error}
+          </div>
+        )}
+
+        <div className="p-4 border-t border-gray-100 text-xs text-gray-500 shrink-0">
+          Не нашли человека?{' '}
+          <Link href="/dashboard/clients" className="text-brand hover:underline">
+            Добавьте контакт
+          </Link>{' '}
+          — и вернитесь сюда.
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function EventParticipants({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
   // Лейбл второй галочки — «Был в эфире» / «Проголосовал». У конкурсов
   // главная ссылка — голосование, у остальных типов — стрим/эфир.
@@ -298,6 +503,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<RegisteredFilter>('all')
+  const [showAdd, setShowAdd] = useState(false)
 
   async function load(f: RegisteredFilter) {
     setLoading(true)
@@ -362,6 +568,11 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
     }
   }
 
+  const existingContactIds = useMemo(
+    () => new Set(participants.map(p => p.contact_id).filter((x): x is number => typeof x === 'number')),
+    [participants]
+  )
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return participants
@@ -393,21 +604,39 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
             <Users size={28} className="text-white" />
           </div>
           <h2 className="text-lg font-bold text-gray-900 mb-2">Участников пока нет</h2>
-          <p className="text-gray-500 text-sm max-w-xs mx-auto">
-            Здесь появятся пользователи Telegram, которые открыли бот по вашей реферальной ссылке на это событие.
+          <p className="text-gray-500 text-sm max-w-xs mx-auto mb-6">
+            Здесь появятся пользователи Telegram, которые открыли бот по вашей реферальной ссылке на это событие. Или добавьте их вручную из своих контактов.
           </p>
+          <button onClick={() => setShowAdd(true)}
+            className="btn-gold inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold">
+            <Plus size={16} /> Добавить из контактов
+          </button>
         </div>
+        {showAdd && (
+          <AddFromContactModal
+            eventId={eventId}
+            existingContactIds={existingContactIds}
+            onClose={() => setShowAdd(false)}
+            onAdded={() => load(filter)}
+          />
+        )}
       </div>
     )
   }
 
   return (
     <div>
-      {/* Фильтр-таблетки */}
-      <div className="flex gap-2 mb-3 flex-wrap">
+      {/* Фильтр-таблетки + кнопка добавления */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <FilterPill label="Все" count={counts.total} active={filter === 'all'} onClick={() => setFilter('all')} />
         <FilterPill label="Зарегистрированы" count={counts.registered} active={filter === 'yes'} onClick={() => setFilter('yes')} />
         <FilterPill label="Не зарегистрированы" count={counts.not_registered} active={filter === 'no'} onClick={() => setFilter('no')} />
+        <div className="ml-auto">
+          <button onClick={() => setShowAdd(true)}
+            className="btn-gold inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
+            <Plus size={15} /> Добавить из контактов
+          </button>
+        </div>
       </div>
 
       {/* Поиск */}
@@ -450,6 +679,14 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
       <p className="text-xs text-gray-400 mt-2">
         Галочка в колонке «Зарегистр.» — отметка вручную, что человек зарегистрировался на событие. Снять/поставить можно кликом.
       </p>
+      {showAdd && (
+        <AddFromContactModal
+          eventId={eventId}
+          existingContactIds={existingContactIds}
+          onClose={() => setShowAdd(false)}
+          onAdded={() => load(filter)}
+        />
+      )}
     </div>
   )
 }

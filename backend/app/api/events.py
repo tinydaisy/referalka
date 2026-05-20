@@ -685,6 +685,19 @@ async def event_participants(
                     WHERE pu.contact_id = c.id LIMIT 1) AS first_name,
                   (SELECT pu.last_name FROM platform_users pu
                     WHERE pu.contact_id = c.id LIMIT 1) AS last_name,
+                  -- Платформенные идентичности — для иконок и клиабельных ссылок в UI
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram' LIMIT 1) AS tg_id,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram' LIMIT 1) AS tg_username,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk' LIMIT 1) AS vk_id,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk' LIMIT 1) AS vk_username,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'max' LIMIT 1) AS max_id,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'max' LIMIT 1) AS max_username,
                   (SELECT rc.id FROM contacts rc WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1) AS referrer_contact_id,
                   -- referrer_name: имя из platform_users (Telegram) актуальнее
                   -- и короче, чем contacts.name, в который при импорте из
