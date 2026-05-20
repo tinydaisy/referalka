@@ -18,6 +18,21 @@ export default function VkSetupInstructionPage() {
   }, [])
   const placementUrl = clientId ? `https://pluson.ru/c/${clientId}/vk/` : 'https://pluson.ru/c/{ID}/vk/'
 
+  // Адрес сообщества клиента — он вводит свой короткий адрес (ivision_pluson)
+  // или ID (club238697730), и мы строим прямую ссылку на «Работа с API»
+  // его сообщества. Без этого ссылка vk.ru/community?act=tokens ведёт
+  // на левую страницу «сообщество» (так называется generic-страница ВК).
+  const [vkSlug, setVkSlug] = useState('')
+  const cleanedSlug = vkSlug
+    .trim()
+    .replace(/^https?:\/\/(www\.)?vk\.(ru|com)\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/\?.*$/, '')
+    .replace(/^@/, '')
+  const tokensUrl = cleanedSlug
+    ? `https://vk.ru/${cleanedSlug}?act=tokens`
+    : 'https://vk.ru/<адрес_вашего_сообщества>?act=tokens'
+
   return (
     <div className="pb-24 max-w-3xl">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
@@ -85,8 +100,14 @@ export default function VkSetupInstructionPage() {
           <li><strong>Тематика:</strong> «Бизнес и экономика»</li>
           <li><strong>Адрес страницы:</strong> ваш кастомный тег латиницей вместо автоматического
             <code>club{'{ID}'}</code>. Например <code>ivision_pluson</code> — получится <code>vk.ru/ivision_pluson</code>{' '}
-            (вместо длинного <code>vk.ru/club238697730</code>). Тег применяется сразу после сохранения,
-            работает в ссылках и упоминаниях.
+            (вместо длинного <code>vk.ru/club238697730</code>).
+            <span className="block text-xs text-gray-500 mt-0.5">
+              ⚠️ Не получается сохранить адрес (поле красное, кнопка «Сохранить» неактивна или ВК пишет «адрес занят»)? —
+              <strong> можно пропустить</strong>. ПЛЮСОН будет работать и без короткого адреса, просто в шаге 6 вы
+              введёте свой <code>club{'{ID}'}</code> вместо тега. ID видно в URL вашего сообщества:
+              откройте свою группу — в адресной строке будет что-то вроде <code>vk.ru/club238697730</code>,
+              где <code>club238697730</code> — это и есть ваш ID.
+            </span>
           </li>
           <li><strong>Сайт:</strong> ваш сайт (если есть)</li>
           <li><strong>Город:</strong> ваш город</li>
@@ -195,22 +216,40 @@ export default function VkSetupInstructionPage() {
         </p>
 
         <p className="text-sm text-gray-700 mb-3">
-          В правом меню управления отдельного пункта «Работа с API» в современном ВК <strong>нет</strong> —
-          страница открывается напрямую по ссылке:
+          В правом меню управления сообществом отдельного пункта «Работа с API» в современном ВК <strong>нет</strong> —
+          страница открывается только по прямой ссылке вида <code>vk.ru/<strong>адрес_сообщества</strong>?act=tokens</code>.
+          Введите ниже короткий адрес или ID своего сообщества — мы соберём рабочую ссылку.
         </p>
+
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 mb-3">
+          <label className="text-xs font-semibold text-gray-800 mb-1.5 block">
+            Короткий адрес вашего сообщества (из шага 2)
+          </label>
+          <input
+            type="text"
+            value={vkSlug}
+            onChange={(e) => setVkSlug(e.target.value)}
+            placeholder="ivision_pluson  или  club238697730"
+            className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-300"
+          />
+          <p className="text-[11px] text-gray-500 mt-1.5">
+            Можно вставить целиком URL сообщества (<code>https://vk.ru/ivision_pluson</code>) — мы вытащим адрес автоматически.
+            Если короткого адреса ещё нет, найдите ID: откройте свое сообщество, в URL будет <code>vk.ru/club12345678</code> —
+            введите целиком <code>club12345678</code>.
+          </p>
+        </div>
+
         <p className="text-sm text-gray-700 mb-3 pl-4 border-l-2 border-blue-300">
           ▶{' '}
-          <a href="https://vk.ru/community?act=tokens"
-             target="_blank" rel="noreferrer"
-             className="text-blue-600 hover:underline inline-flex items-center gap-1 font-medium">
-            https://vk.ru/<strong>community</strong>?act=tokens <ExternalLink size={12}/>
-          </a>
-        </p>
-        <p className="text-xs text-gray-500 mb-3">
-          В этой ссылке слово <code>community</code> замените на короткий адрес вашего сообщества из шага 2
-          (например, <code>https://vk.ru/ivision_pluson?act=tokens</code>) — или на <code>club{'{ID}'}</code>,
-          где <code>{'{ID}'}</code> — номер сообщества (он виден в URL вашего сообщества, если короткого адреса
-          ещё нет).
+          {cleanedSlug ? (
+            <a href={tokensUrl}
+               target="_blank" rel="noreferrer"
+               className="text-blue-600 hover:underline inline-flex items-center gap-1 font-medium break-all">
+              {tokensUrl} <ExternalLink size={12}/>
+            </a>
+          ) : (
+            <span className="text-gray-500 font-mono text-sm">{tokensUrl}</span>
+          )}
         </p>
 
         <p className="text-sm font-semibold text-gray-800 mb-2">На открывшейся странице «Работа с API» → вкладка «Ключи доступа»:</p>
