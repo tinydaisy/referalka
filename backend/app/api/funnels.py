@@ -275,13 +275,27 @@ async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db:
         bot_username = await _client_bot_username(client_id, db)
         return f"https://t.me/{bot_username}?start=fnl_{run_id}"
     if platform == 'vk':
-        handles = await get_client_bot_handles(db, client_id)
-        handle = (handles.get('vk') or '').lstrip('@')
-        if not handle:
-            raise HTTPException(status_code=404, detail="У клиента не подключено VK-сообщество для воронки")
-        # vk.me/{handle}?ref=fnl_xxx — открывает чат с сообществом, ref доходит
-        # в Long Poll бота через message_new.message.ref / message.payload.ref.
-        return f"https://vk.me/{handle}?ref=fnl_{run_id}"
+        # Берём собственный Mini App клиента (vk_app_id из platform_meta его VK-канала).
+        # vk.me/{handle}?ref=... в VK НЕ работает для уже подписанных пользователей
+        # (VK передаёт ref только при первом контакте с сообществом, когда есть
+        # кнопка «Начать»). Mini App-посредник решает это: открывается на 1 сек,
+        # вытаскивает vk_user_id через VK Bridge, регистрирует воронку на бэке,
+        # сообщество шлёт Текст 1 в личку и Mini App закрывается.
+        row = await db.fetchrow(
+            """SELECT (ch.platform_meta->>'vk_app_id')::int AS vk_app_id
+                 FROM client_channels cc
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1
+                  AND cc.is_active = TRUE
+                  AND ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                  AND ch.platform_meta->>'vk_app_id' IS NOT NULL
+                LIMIT 1""",
+            client_id,
+        )
+        if not row or not row["vk_app_id"]:
+            raise HTTPException(status_code=404, detail="У клиента не подключено VK Mini App для воронки")
+        return f"https://vk.com/app{int(row['vk_app_id'])}#fnl_{run_id}"
     if platform == 'max':
         handles = await get_client_bot_handles(db, client_id)
         handle = (handles.get('max') or '').lstrip('@')

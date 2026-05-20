@@ -44,6 +44,99 @@ class VkEventRequest(BaseModel):
     phone: str = ""    # VKWebAppGetPhoneNumber
 
 
+class VkFunnelStartRequest(BaseModel):
+    launch_params: dict[str, str]
+    run_id: int
+
+
+@router.post("/vk/funnel-start", summary="Запуск воронки лид-магнита из VK Mini App")
+async def vk_funnel_start(body: VkFunnelStartRequest):
+    """Аналог VK message_new+ref для уже подписанных пользователей сообщества.
+
+    Mini App открывается через `vk.com/app{vk_app_id}#fnl_<run_id>` → берёт run_id
+    и vk_user_id из launch_params → шлёт сюда. Бэк валидирует подпись и вызывает
+    run_started_vk (создаёт contact/platform_user, шлёт Текст 1 в личку).
+    """
+    vk_app_id_raw = body.launch_params.get("vk_app_id")
+    secure_key: str | None = settings.vk_app_secure_key
+    try:
+        if vk_app_id_raw and int(vk_app_id_raw) != int(getattr(settings, "vk_app_id", "0") or 0):
+            pool = await get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """SELECT platform_meta->>'vk_secure_key' AS sk
+                             FROM channels
+                            WHERE platform_slug = 'vk'
+                              AND (platform_meta->>'vk_app_id')::int = $1
+                            LIMIT 1""",
+                        int(vk_app_id_raw),
+                    )
+                    if row and row["sk"]:
+                        secure_key = row["sk"]
+    except Exception as e:
+        logger.warning(f"VK funnel-start: secure_key lookup failed app_id={vk_app_id_raw}: {e}")
+
+    if not secure_key or not validate_vk_launch_params(body.launch_params, secure_key):
+        raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
+
+    vk_user_id_raw = body.launch_params.get("vk_user_id")
+    if not vk_user_id_raw:
+        raise HTTPException(status_code=400, detail="vk_user_id required")
+    try:
+        vk_user_id = int(vk_user_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="vk_user_id must be int")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="db not available")
+
+    async with pool.acquire() as conn:
+        # По vk_app_id находим channel клиента — у которого совпадает app_id в platform_meta.
+        # Этот channel будет writer'ом для отправки приветствия (Текст 1).
+        chan = await conn.fetchrow(
+            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                  AND cc.is_active = TRUE
+                  AND (ch.platform_meta->>'vk_app_id')::int = $1
+                LIMIT 1""",
+            int(vk_app_id_raw or 0),
+        )
+        if not chan or not chan["bot_token"]:
+            raise HTTPException(status_code=404, detail="VK-сообщество клиента не подключено к этому Mini App")
+
+        # Проверяем что run принадлежит этому клиенту (защита от подмены run_id)
+        run_client_id = await conn.fetchval(
+            "SELECT client_id FROM funnel_runs WHERE id = $1", body.run_id,
+        )
+        if run_client_id != chan["client_id"]:
+            raise HTTPException(status_code=403, detail="run_id не принадлежит клиенту этого сообщества")
+
+        user_info = None
+        try:
+            from app.services.vk_api import get_user_info as vk_get_user_info
+            user_info = await vk_get_user_info(vk_user_id)
+        except Exception:
+            pass
+
+        from app.services.funnel_service import run_started_vk
+        await run_started_vk(
+            body.run_id, str(vk_user_id),
+            username=(user_info or {}).get("screen_name", "") if user_info else "",
+            first_name=(user_info or {}).get("first_name", "") if user_info else "",
+            last_name=(user_info or {}).get("last_name", "") if user_info else "",
+            db=conn,
+            channel_id=chan["channel_id"],
+            token=chan["bot_token"],
+        )
+
+    return {"ok": True, "vk_user_id": vk_user_id, "group_id": int((body.launch_params.get("vk_group_id") or 0))}
+
+
 @router.get("/vk/group-for-app", summary="Резолв vk_app_id → vk_group_id")
 async def vk_group_for_app(app_id: int):
     """Возвращает group_id сообщества, к которому привязан VK Mini App.

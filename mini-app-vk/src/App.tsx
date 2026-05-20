@@ -141,6 +141,38 @@ export default function App() {
         if (parsed.initialTab) setInitialTab(parsed.initialTab)
       }
 
+      // Воронка лид-магнита: hash вида `fnl_<run_id>` — это аналог TG-deeplink-кнопки START.
+      // Шлём run_id + launch_params на бэк, который вызовет run_started_vk:
+      //   - создаст contact + platform_user('vk') в БД клиента
+      //   - сообщество шлёт пользователю Текст 1 в личку
+      // После успеха редиректим юзера прямо в чат с сообществом, где его уже ждёт приветствие.
+      if (sp && sp.startsWith('fnl_')) {
+        const runId = Number(sp.slice(4))
+        const lp = adapter.launchParams || {}
+        if (runId && lp.vk_user_id) {
+          try {
+            const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/funnel-start`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ launch_params: lp, run_id: runId }),
+            }).then(x => x.ok ? x.json() : null)
+            if (r?.ok) {
+              const gid = Number(r.group_id || lp.vk_group_id || 0)
+              if (gid) {
+                // Редирект в чат с сообществом — там уже лежит Текст 1.
+                window.location.replace(`https://vk.com/im?sel=-${gid}`)
+                return
+              }
+            }
+          } catch (e) {
+            console.warn('funnel-start failed', e)
+          }
+        }
+        // Если что-то пошло не так — оставляем как фолбэк HubSelector с заглушкой
+        setLoading(false)
+        return
+      }
+
       // Шлём event_start на бэк. Поток:
       // 1) write_access — разрешение писать в личку (обязательно для welcome/рассылок)
       // 2) Первый POST /vk/event без email/phone — бэк создаёт contact, делает автомердж
