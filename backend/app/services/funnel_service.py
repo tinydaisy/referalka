@@ -188,26 +188,24 @@ async def _bot_token_for_client(client_id: int, db) -> Optional[str]:
 
 
 async def _vk_token_for_client(client_id: int, db) -> Optional[str]:
-    """Token VK-сообщества для отправки сообщений участнику воронки.
-    VIP с фичей `channels` и активным VK-каналом → его токен. Иначе → системный."""
-    from app.services.features import client_has_feature
-    if await client_has_feature(db, client_id, "channels"):
-        token = await db.fetchval(
-            """SELECT ch.bot_token
-                 FROM client_channels cc
-                 JOIN channels ch ON ch.id = cc.channel_id
-                WHERE cc.client_id = $1
-                  AND cc.is_active = TRUE
-                  AND ch.platform_slug = 'vk'
-                  AND ch.is_system = FALSE
-                  AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
-                ORDER BY ch.id ASC
-                LIMIT 1""",
-            client_id,
-        )
-        if token:
-            return token
-    return settings.vk_system_group_token or None
+    """Token собственного VK-сообщества клиента для отправки сообщений участнику воронки.
+
+    Возвращает None если у клиента нет своего активного VK-канала.
+    Системный токен ПЛЮСОНа не используем — он принадлежит ПЛЮСОНу и не имеет
+    права писать в личку подписчикам клиента."""
+    return await db.fetchval(
+        """SELECT ch.bot_token
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1
+              AND cc.is_active = TRUE
+              AND ch.platform_slug = 'vk'
+              AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY ch.id ASC
+            LIMIT 1""",
+        client_id,
+    )
 
 
 async def _send_message(token: str, chat_id, text: str, reply_markup: Optional[dict] = None) -> Optional[int]:

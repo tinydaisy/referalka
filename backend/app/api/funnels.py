@@ -260,23 +260,33 @@ _PLATFORM_ALIASES = {
 
 
 async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db: asyncpg.Connection) -> str:
-    """Формирует deeplink в нужный мессенджер на основании платформы.
+    """Формирует deeplink в чат с ботом/сообществом нужной платформы.
     Воронка лид-магнита — это «открыли чат → бот пишет приветствие со списком подарков».
-    Соответственно, для каждой платформы deeplink в чат с ботом/сообществом (НЕ в Mini App).
-    Для VIP-клиента берём его бот/сообщество, иначе — системный канал ПЛЮСОН.
+
+    Правила выбора канала:
+    - TG: VIP-клиент с фичей channels и подключённым ботом → его бот, иначе @pluson_bot
+      (системный TG-бот мультиклиентен через fnl_<run_id> payload).
+    - VK: ТОЛЬКО собственное VK-сообщество клиента. Системное сообщество не
+      используется — оно принадлежит ПЛЮСОНу и не имеет права писать в личку
+      подписчикам клиента (нарушает приватность и юридический контроль контента).
+    - MAX: аналогично VK — только собственный MAX-бот клиента.
     """
     if platform == 'telegram':
         bot_username = await _client_bot_username(client_id, db)
         return f"https://t.me/{bot_username}?start=fnl_{run_id}"
     if platform == 'vk':
+        handles = await get_client_bot_handles(db, client_id)
+        handle = (handles.get('vk') or '').lstrip('@')
+        if not handle:
+            raise HTTPException(status_code=404, detail="У клиента не подключено VK-сообщество для воронки")
         # vk.me/{handle}?ref=fnl_xxx — открывает чат с сообществом, ref доходит
         # в Long Poll бота через message_new.message.ref / message.payload.ref.
-        handles = await get_client_bot_handles(db, client_id)
-        handle = (handles.get('vk') or PLUSON_VK_HANDLE).lstrip('@')
         return f"https://vk.me/{handle}?ref=fnl_{run_id}"
     if platform == 'max':
         handles = await get_client_bot_handles(db, client_id)
-        handle = (handles.get('max') or PLUSON_MAX_HANDLE).lstrip('@')
+        handle = (handles.get('max') or '').lstrip('@')
+        if not handle:
+            raise HTTPException(status_code=404, detail="У клиента не подключён MAX-бот для воронки")
         return f"https://max.ru/{handle}?start=fnl_{run_id}"
     raise HTTPException(status_code=400, detail=f"Неизвестная платформа: {platform}")
 
@@ -295,8 +305,10 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
             raise HTTPException(status_code=404, detail="Воронка не найдена")
         client_id, lm_id, pkg_id, _name = resolved
 
-        # Проверяем что выбранная платформа доступна клиенту
-        # (есть свой канал ИЛИ есть системный канал не в test-режиме).
+        # Проверяем что выбранная платформа доступна клиенту:
+        # - TG: свой канал ИЛИ системный @pluson_bot (мультиклиентный через payload)
+        # - VK/MAX: только свой канал (системные принадлежат ПЛЮСОНу
+        #   и не могут писать в личку чужим подписчикам)
         own_channel = await db.fetchval(
             """SELECT 1
                  FROM client_channels cc
@@ -307,8 +319,12 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
                 LIMIT 1""",
             client_id, platform,
         )
-        if not own_channel and not await _has_system_channel(db, platform, allow_test=False):
-            raise HTTPException(status_code=404, detail=f"Платформа {platform} не подключена")
+        if not own_channel:
+            if platform == 'telegram':
+                if not await _has_system_channel(db, 'telegram', allow_test=False):
+                    raise HTTPException(status_code=404, detail="Платформа telegram не подключена")
+            else:
+                raise HTTPException(status_code=404, detail=f"Платформа {platform} не подключена клиентом")
 
         # Параметры запроса
         utm = {k: v for k, v in qp.items() if k.startswith('utm_')}

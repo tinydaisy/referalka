@@ -181,25 +181,30 @@ async def build_funnel_landing_links(
     """Возвращает {platform → public-URL} для landing воронки лид-магнита/пакета.
 
     URL формата `{base_url}/{kind}/{slug}?to={platform}` — публичная ссылка,
-    которой клиент делится с подписчиками. По хиту бэк создаёт funnel_run,
-    подбирает VIP/системный бот и редиректит на соответствующий мессенджер.
+    которой клиент делится с подписчиками. По хиту бэк создаёт funnel_run
+    и редиректит в чат с ботом/сообществом нужной платформы.
 
-    Логика выбора платформ та же что в build_share_links:
-    - У клиента есть свой канал на платформе ИЛИ есть системный канал не в test-режиме.
-    - kind = 'm' (лид-магнит) или 'p' (пакет).
+    Логика показа платформы:
+    - TG: показывается если у клиента есть свой TG-бот ИЛИ есть системный
+      @pluson_bot не в test (системный бот умеет работать мультиклиентно
+      через payload `fnl_<run_id>`).
+    - VK: показывается ТОЛЬКО если у клиента есть собственное VK-сообщество
+      в client_channels. Системное сообщество ПЛЮСОНа не используется для
+      выдачи лид-магнитов чужих клиентов (оно не имеет права писать в личку
+      подписчикам клиента и нарушает приватность).
+    - MAX: аналогично VK — только собственный канал клиента.
     """
     if kind not in ("m", "p"):
         raise ValueError(f"kind must be 'm' or 'p', got {kind!r}")
-    platforms = set(await get_active_platforms(db, client_id))
-    for ps in ("telegram", "vk", "max"):
-        if await _has_system_channel(db, ps, allow_test=False):
-            platforms.add(ps)
+    client_platforms = set(await get_active_platforms(db, client_id))
     base = base_url.rstrip('/')
     result: dict[str, str] = {}
-    if "telegram" in platforms:
+    # TG: свой канал ИЛИ системный @pluson_bot
+    if "telegram" in client_platforms or await _has_system_channel(db, "telegram", allow_test=False):
         result["telegram"] = f"{base}/{kind}/{slug}?to=tg"
-    if "vk" in platforms:
+    # VK / MAX — только если у клиента есть свой канал
+    if "vk" in client_platforms:
         result["vk"] = f"{base}/{kind}/{slug}?to=vk"
-    if "max" in platforms:
+    if "max" in client_platforms:
         result["max"] = f"{base}/{kind}/{slug}?to=max"
     return result
