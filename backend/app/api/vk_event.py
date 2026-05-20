@@ -68,9 +68,35 @@ async def vk_group_for_app(app_id: int):
 @router.post("/vk/event")
 async def handle_vk_event(body: VkEventRequest):
     """Сигнал от VK Mini App при открытии. Валидирует подпись, регистрирует контакт."""
-    # Validate VK Bridge signature
-    if not validate_vk_launch_params(body.launch_params, settings.vk_app_secure_key):
-        logger.warning(f"VK signature invalid: {body.launch_params.get('vk_user_id')}")
+    # Каждый Mini App в VK имеет СВОЙ secure_key. Если клиент подключил
+    # своё Mini App (vk_app_id ≠ системный) — валидируем его ключом из
+    # channels.platform_meta, не системным. Иначе signature всегда invalid.
+    vk_app_id_raw = body.launch_params.get("vk_app_id")
+    secure_key: str | None = settings.vk_app_secure_key
+    try:
+        if vk_app_id_raw and int(vk_app_id_raw) != int(getattr(settings, "vk_app_id", "0") or 0):
+            pool = await get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """SELECT platform_meta->>'vk_secure_key' AS sk
+                             FROM channels
+                            WHERE platform_slug = 'vk'
+                              AND (platform_meta->>'vk_app_id')::int = $1
+                            LIMIT 1""",
+                        int(vk_app_id_raw),
+                    )
+                    if row and row["sk"]:
+                        secure_key = row["sk"]
+    except Exception as e:
+        logger.warning(f"VK secure_key lookup failed for app_id={vk_app_id_raw}: {e}")
+
+    # Validate VK Bridge signature нужным ключом (системным или клиентским).
+    if not secure_key or not validate_vk_launch_params(body.launch_params, secure_key):
+        logger.warning(
+            f"VK signature invalid: vk_user_id={body.launch_params.get('vk_user_id')} "
+            f"vk_app_id={vk_app_id_raw} used_system_key={secure_key == settings.vk_app_secure_key}"
+        )
         raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
 
     vk_user_id_raw = body.launch_params.get("vk_user_id")

@@ -290,14 +290,14 @@ export default function App() {
   if (clientId) {
     return (
       <>
-        <Hub clientId={clientId} tgUser={vkUser} onOpenEvent={openEvent} />
+        <Hub clientId={clientId} tgUser={vkUser} onOpenEvent={openEvent} initialTab={initialTab} />
         {pendingOpen && <SpinnerOverlay />}
       </>
     )
   }
   return (
     <>
-      <HubSelector tgUser={vkUser} onOpenEvent={openEvent} />
+      <HubSelector tgUser={vkUser} onOpenEvent={openEvent} initialTab={initialTab} />
       {pendingOpen && <SpinnerOverlay />}
     </>
   )

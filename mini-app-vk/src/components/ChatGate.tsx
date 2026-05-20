@@ -16,11 +16,22 @@ const DARK = '#25455D'
 type SubChannel = { speaker_id: number; name: string; tg_channel_id: string; tg_channel_url: string | null }
 
 function openExternal(url: string) {
-  // VK iframe блокирует window.open как popup без user-gesture, поэтому
-  // создаём временный <a target="_blank"> и эмулируем клик — это считается
-  // user-gesture в любом контексте (VK Bridge / TG / обычный браузер).
-  // В TG MA если когда-нибудь будет — Telegram.WebApp.openLink был бы быстрее,
-  // но и anchor-click тоже сработает.
+  // VK Mini App работает внутри iframe на vk.com (или vk.ru).
+  // Универсальные ссылки iOS (t.me/+invite, t.me/joinchat) и
+  // диплинки приложений срабатывают ТОЛЬКО при навигации верхнего
+  // окна — из iframe iOS не передаёт их в Telegram, ссылка остаётся
+  // в web-форме и TG может неправильно её распарсить
+  // («такого пользователя не существует» для t.me/+code).
+  //
+  // Поэтому: пишем в window.top.location.href — VK закроет Mini App,
+  // iOS подхватит universal link, откроет Telegram. Это ожидаемое
+  // поведение для перехода в чат события.
+  try {
+    if (window !== window.top && window.top) {
+      window.top.location.href = url
+      return
+    }
+  } catch (_) { /* CORS — fallthrough на anchor-click ниже */ }
   try {
     const a = document.createElement('a')
     a.href = url
@@ -30,8 +41,6 @@ function openExternal(url: string) {
     a.click()
     document.body.removeChild(a)
   } catch {
-    // Last resort: смена URL текущего фрейма (закрывает Mini App,
-    // но лучше чем тишина).
     window.location.href = url
   }
 }
