@@ -508,7 +508,6 @@ async def get_miniapp_me_leaders(
                   cl.brand_name        AS client_brand_name,
                   cl.profile_photo_url AS client_photo_url,
                   cl.positioning       AS client_positioning,
-                  cl.owner_name,
                   l.last_at,
                   (SELECT COUNT(*) FROM events e
                     WHERE e.client_id = cl.id AND e.status IN ('published','ended')) AS events_total,
@@ -532,7 +531,6 @@ async def get_miniapp_me_leaders(
                 "client_brand_name": r["client_brand_name"],
                 "client_photo_url":  r["client_photo_url"],
                 "client_positioning": r["client_positioning"],
-                "owner_name":        r["owner_name"],
                 "events_total":      int(r["events_total"]),
                 "via_lead_magnet":   bool(r["via_lead_magnet"]),
             }

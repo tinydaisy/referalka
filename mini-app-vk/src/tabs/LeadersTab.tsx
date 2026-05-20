@@ -7,7 +7,6 @@ interface Leader {
   client_brand_name?: string
   client_photo_url?: string
   client_positioning?: string
-  owner_name?: string
   events_total: number
   via_lead_magnet: boolean
 }
