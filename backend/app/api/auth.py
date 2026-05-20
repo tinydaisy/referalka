@@ -213,6 +213,11 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     out = dict(client)
     out["features"] = features
     out["subscription"] = subscription
+    # VK App ID подключённого Mini App (если есть) — фронт PublicLinks
+    # подставляет его в реф-ссылку https://vk.com/app{ID}#ref_pg{slug}.
+    # Без него ссылка вела бы на системный 54592404, а не на клиентский.
+    from app.services.share_links import get_client_vk_app_id
+    out["vk_app_id"] = await get_client_vk_app_id(db, client_id)
     return out
 
 

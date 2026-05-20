@@ -97,6 +97,26 @@ async def get_client_bot_handles(db, client_id: int) -> dict[str, str | None]:
     return result
 
 
+async def get_client_vk_app_id(db, client_id: int) -> Optional[int]:
+    """Возвращает VK App ID клиентского Mini App (из channels.platform_meta).
+    Если клиент не подключил своё сообщество — None (фронт/бэк должны
+    зафолбэчиться на системный PLUSON_VK_APP_ID).
+    """
+    val = await db.fetchval(
+        """SELECT (ch.platform_meta->>'vk_app_id')::int
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1
+              AND cc.is_active = TRUE
+              AND ch.platform_slug = 'vk'
+              AND ch.is_system = FALSE
+              AND ch.platform_meta->>'vk_app_id' IS NOT NULL
+            LIMIT 1""",
+        client_id,
+    )
+    return int(val) if val else None
+
+
 async def _has_system_channel(db, platform_slug: str, *, allow_test: bool = True) -> bool:
     """Есть ли системный канал на платформе. allow_test=True учитывает is_test каналы
     (для отображения «скоро» в UI), False — только полностью активированные."""
@@ -128,6 +148,7 @@ async def build_share_links(
     """
     platforms = set(await get_active_platforms(db, client_id))
     handles = await get_client_bot_handles(db, client_id)
+    vk_app_id = await get_client_vk_app_id(db, client_id)
     # Добавляем платформы где есть системный канал ПЛЮСОН
     for ps in ("telegram", "vk", "max"):
         if await _has_system_channel(db, ps, allow_test=True):
@@ -136,7 +157,7 @@ async def build_share_links(
     if "telegram" in platforms:
         result["telegram"] = telegram_link(event_slug, bot_handle=handles.get("telegram"), partner_id=partner_id, tab=tab)
     if "vk" in platforms:
-        result["vk"] = vk_link(event_slug, partner_id=partner_id, tab=tab)
+        result["vk"] = vk_link(event_slug, app_id=vk_app_id, partner_id=partner_id, tab=tab)
     if "max" in platforms:
         result["max"] = max_link(event_slug, bot_handle=handles.get("max"), partner_id=partner_id, tab=tab)
     return result

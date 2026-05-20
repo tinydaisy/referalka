@@ -4,6 +4,7 @@ import { Copy, Check, Globe, Save } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
+const PLUSON_VK_APP_ID = 54592404  // системный VK Mini App ПЛЮСОН (fallback если клиент не подключил свой)
 
 interface LinkRow {
   key: string
@@ -32,6 +33,15 @@ export default function PublicLinks({
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  // VK App ID клиента — для построения ссылки на ЕГО Mini App, а не на системный.
+  // me.vk_app_id заполнен если клиент подключил своё VK-сообщество в /dashboard/channels.
+  const [vkAppId, setVkAppId] = useState<number>(PLUSON_VK_APP_ID)
+  useEffect(() => {
+    api.auth.me().then((m: any) => {
+      if (m?.vk_app_id) setVkAppId(Number(m.vk_app_id))
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => { setDraft(slug || '') }, [slug])
 
@@ -77,7 +87,7 @@ export default function PublicLinks({
       label: 'ВКонтакте (Mini App)',
       badge: 'VK',
       color: '#0077FF',
-      url: `https://vk.com/app54592404#ref_pg${slug}`,
+      url: `https://vk.com/app${vkAppId}#ref_pg${slug}`,
       hint: 'Открывает событие в VK Mini App «iViSiON: ПЛЮСОН». Используй в VK-постах и личке',
     },
     {
