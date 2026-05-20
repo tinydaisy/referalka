@@ -478,7 +478,7 @@ async def get_miniapp_me_leaders(
                GROUP BY e.client_id
            ),
            fr_clients AS (
-              SELECT DISTINCT fr.client_id AS id, MAX(fr.created_at) AS last_at
+              SELECT DISTINCT fr.client_id AS id, MAX(fr.landed_at) AS last_at
                 FROM funnel_runs fr
                 JOIN platform_users pu ON pu.contact_id = fr.contact_id
                WHERE pu.platform_slug = $2 AND pu.platform_user_id = $1
