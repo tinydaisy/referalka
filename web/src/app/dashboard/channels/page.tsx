@@ -119,6 +119,7 @@ export default function ChannelsPage() {
           platforms={platforms}
           onClose={() => { setEditing(null); setCreating(false) }}
           onSaved={() => { setEditing(null); setCreating(false); load() }}
+          onSwitchToVkWizard={() => { setEditing(null); setCreating(false); setVkWizardOpen(true) }}
         />
       )}
 
@@ -924,11 +925,12 @@ function VipBotWizard({ clientId, onClose, onDone }: {
 }
 
 /* ─────── Старая модалка ручного редактирования (для VK/MAX и edit existing) ─────── */
-function ChannelModal({ channel, platforms, onClose, onSaved }: {
+function ChannelModal({ channel, platforms, onClose, onSaved, onSwitchToVkWizard }: {
   channel: Channel | null
   platforms: Platform[]
   onClose: () => void
   onSaved: () => void
+  onSwitchToVkWizard?: () => void
 }) {
   const [platformSlug, setPlatformSlug] = useState(channel?.platform_slug || 'telegram')
   const [displayName, setDisplayName] = useState(channel?.display_name || '')
@@ -1005,31 +1007,58 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
             </div>
           )}
 
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Название (для себя)</label>
-            <input
-              value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
-              placeholder="Например: Основной TG-бот"
-              autoComplete="off"
-              name="channel-display-name"
-            />
-          </div>
+          {/* VK подключается отдельным мастером — у обычной формы нет нужных полей
+              (Access Token, App ID, Secure Key, ID сообщества). Перебрасываем туда. */}
+          {!channel && platformSlug === 'vk' ? (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <div className="text-sm font-semibold text-gray-900 mb-1">
+                Для VK нужен отдельный мастер
+              </div>
+              <p className="text-sm text-gray-700 mb-3">
+                Сообщество ВКонтакте подключается через специальный мастер из 3 шагов
+                (Access Token сообщества, ID сообщества, App ID и Secure Key Mini App) —
+                эта обычная форма не подходит, в ней нет нужных полей.
+              </p>
+              {onSwitchToVkWizard && (
+                <button
+                  type="button"
+                  onClick={onSwitchToVkWizard}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+                >
+                  Открыть мастер VK
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Название (для себя)</label>
+                <input
+                  value={displayName}
+                  onChange={e => setDisplayName(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                  placeholder="Например: Основной TG-бот"
+                  autoComplete="off"
+                  name="channel-display-name"
+                />
+              </div>
 
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">
-              Handle <span className="text-gray-400">(@username бота / id группы)</span>
-            </label>
-            <input
-              value={handle}
-              onChange={e => setHandle(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
-              placeholder="@pluson_bot"
-              autoComplete="off"
-              name="channel-handle"
-            />
-          </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  Handle <span className="text-gray-400">(@username бота / id группы)</span>
+                </label>
+                <input
+                  value={handle}
+                  onChange={e => setHandle(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                  placeholder="@pluson_bot"
+                  autoComplete="off"
+                  name="channel-handle"
+                />
+              </div>
+            </>
+          )}
 
           {platformSlug === 'telegram' && (
             <div>
@@ -1062,8 +1091,9 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
           )}
 
           {/* Главный канал — переключение через явное действие с подтверждением.
-              Без простой галочки, чтобы случайно не переключить воронку. */}
-          {!channel ? (
+              Без простой галочки, чтобы случайно не переключить воронку.
+              Для VK при создании прячем — там отдельный мастер. */}
+          {!channel && platformSlug === 'vk' ? null : !channel ? (
             // Создание нового канала — обычная галочка
             <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50">
               <input
@@ -1139,16 +1169,18 @@ function ChannelModal({ channel, platforms, onClose, onSaved }: {
 
         <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
-            Отмена
+            {(!channel && platformSlug === 'vk') ? 'Закрыть' : 'Отмена'}
           </button>
-          <button
-            onClick={submit}
-            disabled={saving}
-            className="px-4 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-50"
-            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
-          >
-            {saving ? 'Сохранение...' : 'Сохранить'}
-          </button>
+          {!(!channel && platformSlug === 'vk') && (
+            <button
+              onClick={submit}
+              disabled={saving}
+              className="px-4 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-50"
+              style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+            >
+              {saving ? 'Сохранение...' : 'Сохранить'}
+            </button>
+          )}
         </div>
       </div>
     </div>

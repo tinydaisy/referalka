@@ -210,10 +210,19 @@ export default function VkSetupInstructionPage() {
         />
       </Section>
 
-      <Section step="6" title="Получить ключ доступа (Access Token)">
+      <Section step="6" title="Получить ключ доступа сообщества (Access Token)">
         <p className="text-sm text-gray-700 mb-3">
-          Ключ доступа — это «пароль» от вашего сообщества, через который ПЛЮСОН отправляет сообщения и принимает события.
+          Ключ доступа сообщества — это «пароль» от вашей группы, через который ПЛЮСОН отправляет сообщения подписчикам и принимает события («новый диалог», «нажал кнопку»).
         </p>
+
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 mb-3">
+          ℹ️ <strong>Не путайте с ключами Mini App из шага 7.</strong> Это <em>разные</em> ключи для разных вещей:
+          <ul className="list-disc pl-5 mt-1 space-y-0.5">
+            <li><strong>Шаг 6</strong> (этот) — Access Token сообщества (<code>vk1.a.xxxxx…</code>). От имени сообщества. Для рассылок и приёма сообщений.</li>
+            <li><strong>Шаг 7</strong> — VK App ID + Защищённый ключ + Secure Key. От имени самого Mini App. Чтобы ВК подписывал launch params вашего приложения внутри сообщества.</li>
+          </ul>
+          В дашборде ПЛЮСОНа на шаге 8 вы вставите <strong>все 4 значения</strong> — без любого из них подключение не сработает.
+        </div>
 
         <p className="text-sm text-gray-700 mb-3">
           В правом меню управления сообществом отдельного пункта «Работа с API» в современном ВК <strong>нет</strong> —
