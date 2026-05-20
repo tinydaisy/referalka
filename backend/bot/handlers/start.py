@@ -247,20 +247,24 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                 """
                 SELECT * FROM (
                     SELECT e.id, e.slug, e.title, e.module_slug,
-                           CASE WHEN e.module_slug = 'conference' THEN
-                             (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
-                                      AT TIME ZONE 'Europe/Moscow'
-                                FROM conf_days d WHERE d.event_id = e.id
-                                ORDER BY d.day_number ASC LIMIT 1)
-                             ELSE e.start_at
-                           END AS effective_start_at,
-                           CASE WHEN e.module_slug = 'conference' THEN
-                             (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
-                                      AT TIME ZONE 'Europe/Moscow'
-                                FROM conf_days d WHERE d.event_id = e.id
-                                ORDER BY d.day_number DESC LIMIT 1)
-                             ELSE e.end_at
-                           END AS effective_end_at
+                           COALESCE(
+                             CASE WHEN e.module_slug = 'conference' THEN
+                               (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
+                                        AT TIME ZONE 'Europe/Moscow'
+                                  FROM conf_days d WHERE d.event_id = e.id
+                                  ORDER BY d.day_number ASC LIMIT 1)
+                             END,
+                             e.start_at
+                           ) AS effective_start_at,
+                           COALESCE(
+                             CASE WHEN e.module_slug = 'conference' THEN
+                               (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
+                                        AT TIME ZONE 'Europe/Moscow'
+                                  FROM conf_days d WHERE d.event_id = e.id
+                                  ORDER BY d.day_number DESC LIMIT 1)
+                             END,
+                             e.end_at
+                           ) AS effective_end_at
                       FROM events e
                      WHERE e.client_id = $1
                        AND e.status = 'published'
