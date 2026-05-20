@@ -677,10 +677,9 @@ function VipVkWizard({ clientId, onClose, onDone }: {
                 </div>
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
-                <b>Long Poll consumer</b> запустится для вашего сообщества при ближайшем перезапуске
-                фонового процесса (обычно при следующем деплое). До этого момента входящие сообщения
-                и callback кнопок Mini App обрабатываться не будут — только исходящие.
+              <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-900">
+                ✓ Long Poll consumer вашего сообщества уже запускается — обычно 5–10 секунд.
+                После этого сообщения, callback кнопок Mini App и приветствия начнут работать.
               </div>
 
               {result.screen_name && (

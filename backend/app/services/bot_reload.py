@@ -22,27 +22,41 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-async def reload_bot_polling() -> None:
-    """Fire-and-forget рестарт plusson-bot.service. Не падает при любой ошибке."""
+async def _restart_service(service: str) -> None:
+    """Fire-and-forget рестарт systemd-сервиса. Не падает при любой ошибке."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            "systemctl", "restart", "--no-block", "plusson-bot",
+            "systemctl", "restart", "--no-block", service,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
         try:
             _, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
         except asyncio.TimeoutError:
-            logger.warning("systemctl restart plusson-bot — таймаут 5с (--no-block повис)")
+            logger.warning("systemctl restart %s — таймаут 5с (--no-block повис)", service)
             return
         if proc.returncode != 0:
             logger.warning(
-                "systemctl restart plusson-bot rc=%s stderr=%s",
-                proc.returncode, (stderr or b"").decode(errors="replace").strip()
+                "systemctl restart %s rc=%s stderr=%s",
+                service, proc.returncode, (stderr or b"").decode(errors="replace").strip()
             )
         else:
-            logger.info("plusson-bot перезапущен — изменения channels подхвачены")
+            logger.info("%s перезапущен", service)
     except FileNotFoundError:
-        logger.info("systemctl не найден — рестарт бота пропущен (локальная среда)")
+        logger.info("systemctl не найден — рестарт %s пропущен (локальная среда)", service)
     except Exception as e:
-        logger.warning("Не удалось перезапустить plusson-bot: %s", e)
+        logger.warning("Не удалось перезапустить %s: %s", service, e)
+
+
+async def reload_bot_polling() -> None:
+    """Рестарт plusson-bot (TG-боты VIP-клиентов)."""
+    await _restart_service("plusson-bot")
+
+
+async def reload_vk_polling() -> None:
+    """Рестарт plusson-vk-bot (VK-сообщества VIP-клиентов).
+
+    Вызывается после connect-vk-community / редактирования VK-канала —
+    Long Poll consumer перечитывает список групп при старте.
+    """
+    await _restart_service("plusson-vk-bot")

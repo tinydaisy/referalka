@@ -139,28 +139,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       const alreadyRegistered = !!part?.participant?.is_registered
       const ended = isEnded(landing)
 
-      // event_start — сигнал «открыл событие». Шлём ВСЕГДА (для всех статусов
-      // и для зареганных/нет): бэкенд по статусу/датам выбирает контекстное
-      // приветствие (register_cta / referral_reminder / next_event_cta /
-      // ecosystem_thanks) и сам дедупит через last_open_msg_kind/at.
-      if (tgUser?.id && slug) {
-        fetch(`${import.meta.env.VITE_API_URL}/api/v1/event`, {
-          method: 'POST',
-          keepalive: true,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id:    String(tgUser.id),
-            event:      'event_start',
-            first_name: tgUser.first_name || '',
-            last_name:  tgUser.last_name  || '',
-            username:   tgUser.username   || '',
-            partner_id: partnerId || '',
-            event_slug: slug,
-            client_id:  0,
-            platform:   'telegram',
-          }),
-        }).catch(() => {})
-      }
+      // VK Mini App не дёргает /api/v1/event (TG-endpoint) — приветствие про
+      // событие приходит из /api/v1/vk/event при первом открытии Mini App
+      // (см. App.tsx). Здесь второй раз слать не нужно — иначе TG-эндпойнт
+      // будет пытаться отправить sendMessage на VK_ID как на tg_id и 400'ить.
 
       // Если человек пришёл по ссылке `?startapp=...?_reg` — он только что
       // зарегистрировался на лендинге клиента. Помечаем is_registered=true

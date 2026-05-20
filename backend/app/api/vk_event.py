@@ -92,9 +92,12 @@ async def handle_vk_event(body: VkEventRequest):
         )
 
         # Реферер — если в startapp передан pid (ref_code партнёра)
+        resolved_ref_code = None
         referrer_contact_id = None
         if body.partner_id:
-            _, referrer_contact_id = await resolve_ref_code(conn, body.partner_id, client_id=client_id)
+            resolved_ref_code, referrer_contact_id = await resolve_ref_code(
+                conn, body.partner_id, client_id=client_id,
+            )
 
         # Создание/обновление event_participants — только если есть event_slug
         event_title = None
@@ -105,12 +108,21 @@ async def handle_vk_event(body: VkEventRequest):
             )
             if ev:
                 event_title = ev["title"]
+                # Если реферер сам участвует в этом событии — связываем по participant_id.
+                referrer_participant_id = None
+                if referrer_contact_id:
+                    referrer_participant_id = await conn.fetchval(
+                        """SELECT id FROM event_participants
+                            WHERE contact_id = $1 AND event_id = $2 LIMIT 1""",
+                        referrer_contact_id, ev["id"],
+                    )
                 inserted = await conn.fetchval(
-                    """INSERT INTO event_participants (event_id, contact_id, referrer_contact_id)
-                       VALUES ($1, $2, $3)
+                    """INSERT INTO event_participants
+                          (event_id, contact_id, referrer_participant_id, referrer_ref_code)
+                       VALUES ($1, $2, $3, $4)
                        ON CONFLICT (event_id, contact_id) DO NOTHING
                        RETURNING id""",
-                    ev["id"], contact_id, referrer_contact_id,
+                    ev["id"], contact_id, referrer_participant_id, resolved_ref_code,
                 )
                 # Event-welcome: шлём пользователю всегда при открытии события через VK Mini App
                 # (не только при первом INSERT). Без этого юзер при повторном открытии теряет контекст

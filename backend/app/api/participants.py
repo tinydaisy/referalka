@@ -277,23 +277,11 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
               SELECT id FROM owned_clients
            ),
            allowed_clients AS (
-              -- Исключаем клиентов с активной фичей 'channels' — но только для TG.
-              -- Для VK/MAX нет VIP-настройки пока, поэтому все клиенты пользуются системным
-              -- VK-приложением iViSiON: ПЛЮСОН — селектор должен показывать ВСЕХ
-              -- (иначе VIP-события вообще нигде в VK не видны участникам).
-              SELECT cl.id FROM clients cl
-               WHERE cl.id IN (SELECT id FROM relevant_clients)
-                 AND (
-                   $2 <> 'telegram'   -- VK/MAX → пропускаем фильтр, показываем VIP-события
-                   OR NOT EXISTS (
-                   SELECT 1 FROM client_subscriptions cs
-                     JOIN tariff_features tf ON tf.tariff_id = cs.tariff_id
-                     JOIN features f         ON f.id = tf.feature_id
-                    WHERE cs.client_id = cl.id
-                      AND f.slug = 'channels'
-                      AND cs.status = 'active'
-                      AND cs.expires_at > NOW())
-                 )
+              -- VIP-фильтр снят: если человек зашёл в этот бот/Mini App, значит
+              -- он должен видеть ВСЕ свои события (включая VIP-клиентов).
+              -- Логика разделения по ботам делается на уровне «куда человек
+              -- пришёл» — общий бот → видит всех, VIP-бот клиента → видит этого клиента.
+              SELECT id FROM relevant_clients
            ),
            conf_dates AS (
               -- start = первый день: open_time дня 1, иначе MIN(start_time) сессий дня 1

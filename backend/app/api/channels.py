@@ -548,8 +548,10 @@ async def connect_vk_community(
     base = settings.frontend_url.rstrip("/")
     mini_app_url = f"{base}/c/{client_id}/vk/"
 
-    # Перезагружать VK Long Poll consumer мы пока не умеем (один процесс на все группы).
-    # Изменения подхватятся при следующем рестарте plusson-vk-bot. Это документировано в UI.
+    # Long Poll consumer перечитывает список групп при старте → рестартуем
+    # plusson-vk-bot. Fire-and-forget (--no-block), ошибки логируются.
+    from app.services.bot_reload import reload_vk_polling
+    await reload_vk_polling()
 
     return {
         "ok": True,
