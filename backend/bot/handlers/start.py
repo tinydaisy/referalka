@@ -235,7 +235,7 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                 return False
 
             client = await db.fetchrow(
-                """SELECT id, name, brand_name, owner_name,
+                """SELECT id, name, brand_name,
                           profile_photo_url, owner_photo_url
                      FROM clients WHERE id = $1""",
                 client_id,
@@ -275,7 +275,6 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
 
         # Текст приветствия
         brand_name = (client["brand_name"] or client["name"] or "").strip()
-        owner_name_db = (client["owner_name"] or "").strip()
         greet_name = (user.first_name or "").strip()
         greeting = f"Привет, {_html.escape(greet_name)}! 👋" if greet_name else "Привет! 👋"
 
@@ -284,8 +283,6 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
             intro_lines.append(f"Добро пожаловать в бот <b>{_html.escape(brand_name)}</b>.")
         else:
             intro_lines.append("Добро пожаловать!")
-        if owner_name_db:
-            intro_lines.append(f"С вами — {_html.escape(owner_name_db)}.")
         intro_lines.append("")
         intro_lines.append("🌐 По кнопке <b>«ЭКОСИСТЕМА»</b> — полезные материалы и продукты организатора.")
 
