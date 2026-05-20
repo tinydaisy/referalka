@@ -386,6 +386,19 @@ async def _send_broadcast(schedule_id: int):
         except Exception as ex:
             logger.warning(f"VK-часть рассылки {schedule_id} упала: {ex}")
 
+        # === MAX подписчики (доп. слой, после VK) ===
+        # Та же логика: MAX-подписчики клиента получают рассылку через MAX Bot API.
+        # Токен — клиентского MAX-бота если у клиента есть свой (is_system=FALSE),
+        # иначе системный MAX_SYSTEM_BOT_TOKEN из .env.
+        try:
+            max_sent = await _send_broadcast_max_part(
+                conn, schedule, event_id, text, photo_url, button_text, button_url, buttons=buttons
+            )
+            sent += max_sent
+            logger.info(f"MAX-часть рассылки {schedule_id}: отправлено {max_sent}")
+        except Exception as ex:
+            logger.warning(f"MAX-часть рассылки {schedule_id} упала: {ex}")
+
         await conn.execute(
             "UPDATE broadcast_schedules SET status='done', finished_at=NOW(), recipients_sent=$1 WHERE id=$2",
             sent, schedule_id
@@ -488,6 +501,113 @@ async def _send_broadcast_vk_part(
                 sent += 1
         except Exception as e:
             logger.warning(f"VK send failed for vk_id={vk_id_int}: {e}")
+    return sent
+
+
+async def _send_broadcast_max_part(
+    conn, schedule, event_id: int | None,
+    text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
+    buttons: list | None = None,
+) -> int:
+    """Отправляет рассылку MAX-подписчикам клиента через MAX Bot API.
+
+    Токен резолвится так:
+    - У клиента есть свой MAX-бот (channels.is_system=FALSE) → его bot_token
+    - Иначе → системный settings.max_system_bot_token из .env
+
+    chat_id для приватного диалога с пользователем = его MAX user_id.
+
+    Возвращает количество успешно отправленных сообщений.
+    """
+    from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
+    from app.config import settings as _settings
+
+    client_id = schedule["client_id"]
+    aud_include = schedule.get("audience_include") or "all_event"
+
+    # Какой MAX-бот используется для рассылок этого клиента
+    client_max_token = await conn.fetchval(
+        """SELECT ch.bot_token
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1
+              AND cc.is_active = TRUE
+              AND ch.platform_slug = 'max'
+              AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL
+              AND ch.bot_token <> ''
+            LIMIT 1""",
+        client_id,
+    )
+    max_token = client_max_token or _settings.max_system_bot_token
+    if not max_token:
+        return 0  # У клиента нет MAX-бота и системный токен не настроен
+
+    # Аудитория — те же 3 варианта что у VK
+    if aud_include == "all_client":
+        rows = await conn.fetch(
+            """SELECT pu.platform_user_id
+                 FROM platform_users pu
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN client_channels cc ON cc.id = puc.client_channel_id
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE pu.client_id = $1
+                  AND pu.platform_slug = 'max'
+                  AND ch.platform_slug = 'max'
+                  AND puc.is_unsubscribed = FALSE""",
+            client_id,
+        )
+    elif event_id and aud_include == "registered_event":
+        rows = await conn.fetch(
+            """SELECT pu.platform_user_id
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN client_channels cc ON cc.id = puc.client_channel_id
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE ep.event_id = $1 AND ep.is_registered = TRUE
+                  AND ch.platform_slug = 'max' AND puc.is_unsubscribed = FALSE""",
+            event_id,
+        )
+    elif event_id:
+        rows = await conn.fetch(
+            """SELECT pu.platform_user_id
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN client_channels cc ON cc.id = puc.client_channel_id
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE ep.event_id = $1
+                  AND ch.platform_slug = 'max' AND puc.is_unsubscribed = FALSE""",
+            event_id,
+        )
+    else:
+        return 0
+
+    max_buttons = None
+    if buttons:
+        rows_btn = [[{"text": b.get("label", "Открыть"), "url": b.get("url", "")}] for b in buttons]
+        max_buttons = tg_inline_to_max_keyboard(rows_btn)
+    elif button_text and button_url:
+        max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
+
+    sent = 0
+    for r in rows:
+        try:
+            max_id_int = int(r["platform_user_id"])
+        except (TypeError, ValueError):
+            continue
+        message_text = text or ""
+        # photo_url пока шлём как ссылку в начале текста; нативную загрузку через
+        # /uploads добавим в следующей итерации (как у VK)
+        if photo_url:
+            message_text = f"{photo_url}\n\n{message_text}".strip()
+        try:
+            res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons)
+            if res:
+                sent += 1
+        except Exception as e:
+            logger.warning(f"MAX send failed for max_id={max_id_int}: {e}")
     return sent
 
 
