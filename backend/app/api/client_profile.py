@@ -604,8 +604,27 @@ async def update_my_profile(
 
     if data.bio          is not None: add("bio",          data.bio or None)
     if data.social_links is not None:
-        # Приводим TG-ссылку к https-формату — для воронки лид-магнитов и для согласованности.
-        add("social_links", normalize_social_links(data.social_links), jsonb=True)
+        # Приводим TG/VK ссылки к https-формату — для воронки лид-магнитов и согласованности.
+        normalized = normalize_social_links(data.social_links)
+        # Авто-резолв VK group_id для проверки подписки на сообщество клиента.
+        # Если поле vk изменилось (или vk_group_id отсутствует) — резолвим через utils.resolveScreenName.
+        if normalized.get("vk"):
+            from app.services.social_links import vk_screen_name_from_link
+            from app.services.vk_api import vk_call
+            screen = vk_screen_name_from_link(normalized["vk"])
+            if screen:
+                try:
+                    resp = await vk_call("utils.resolveScreenName", {"screen_name": screen})
+                    if isinstance(resp, dict) and resp.get("type") in ("group", "page") and resp.get("object_id"):
+                        normalized["vk_group_id"] = int(resp["object_id"])
+                    else:
+                        normalized.pop("vk_group_id", None)
+                except Exception as _e:
+                    # резолв не получился — не блокируем сохранение профиля
+                    pass
+        else:
+            normalized.pop("vk_group_id", None)
+        add("social_links", normalized, jsonb=True)
 
     if not sets:
         raise HTTPException(status_code=400, detail="Нечего обновлять")

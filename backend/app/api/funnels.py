@@ -25,8 +25,7 @@ from app.database import get_db, get_pool
 from app.services.channels import get_client_telegram_token
 from app.services.share_links import (
     get_client_bot_handles,
-    get_client_vk_app_id,
-    PLUSON_VK_APP_ID,
+    PLUSON_VK_HANDLE,
     PLUSON_MAX_HANDLE,
     _has_system_channel,
 )
@@ -262,18 +261,23 @@ _PLATFORM_ALIASES = {
 
 async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db: asyncpg.Connection) -> str:
     """Формирует deeplink в нужный мессенджер на основании платформы.
+    Воронка лид-магнита — это «открыли чат → бот пишет приветствие со списком подарков».
+    Соответственно, для каждой платформы deeplink в чат с ботом/сообществом (НЕ в Mini App).
     Для VIP-клиента берём его бот/сообщество, иначе — системный канал ПЛЮСОН.
     """
     if platform == 'telegram':
         bot_username = await _client_bot_username(client_id, db)
         return f"https://t.me/{bot_username}?start=fnl_{run_id}"
     if platform == 'vk':
-        app_id = await get_client_vk_app_id(db, client_id) or PLUSON_VK_APP_ID
-        return f"https://vk.com/app{app_id}#fnl_{run_id}"
+        # vk.me/{handle}?ref=fnl_xxx — открывает чат с сообществом, ref доходит
+        # в Long Poll бота через message_new.message.ref / message.payload.ref.
+        handles = await get_client_bot_handles(db, client_id)
+        handle = (handles.get('vk') or PLUSON_VK_HANDLE).lstrip('@')
+        return f"https://vk.me/{handle}?ref=fnl_{run_id}"
     if platform == 'max':
         handles = await get_client_bot_handles(db, client_id)
         handle = (handles.get('max') or PLUSON_MAX_HANDLE).lstrip('@')
-        return f"https://max.ru/{handle}?startapp=fnl_{run_id}"
+        return f"https://max.ru/{handle}?start=fnl_{run_id}"
     raise HTTPException(status_code=400, detail=f"Неизвестная платформа: {platform}")
 
 

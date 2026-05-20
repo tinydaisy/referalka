@@ -73,11 +73,66 @@ def telegram_api_id(s: Optional[str]) -> str:
     return f"@{path}"
 
 
+_VK_RE_SCREEN = re.compile(r"^[A-Za-z0-9_\.]{2,32}$")
+_VK_RE_PUBLIC = re.compile(r"^(?:public|club|id)(\d+)$", re.I)
+
+
+def normalize_vk_link(s: Optional[str]) -> str:
+    """Любой ввод → корректный https-URL VK-сообщества, либо исходная строка.
+
+    Поддерживает:
+    - `https://vk.com/foo`, `https://vk.ru/foo`, `vk.com/foo`, `vk.ru/foo`,
+      `m.vk.com/foo` — приводит к `https://vk.com/foo`
+    - `https://vk.com/public12345`, `club12345` — оставляет как есть
+    - `@public12345` или `@username` → `https://vk.com/username`
+    - `username` (просто screen_name) → `https://vk.com/username`
+    Если строка не похожа на VK — возвращает как есть.
+    """
+    if not s:
+        return ""
+    raw = s.strip()
+    if not raw:
+        return ""
+    m = re.match(r"^https?://(?:m\.)?(?:vk\.com|vk\.ru)/(.+)$", raw, re.I)
+    if m:
+        return f"https://vk.com/{m.group(1).strip('/')}"
+    if raw.startswith("vk.com/") or raw.startswith("vk.ru/") or raw.startswith("m.vk.com/"):
+        path = raw.split("/", 1)[1].strip("/")
+        return f"https://vk.com/{path}" if path else raw
+    if raw.startswith("@"):
+        u = raw[1:]
+        if _VK_RE_PUBLIC.match(u) or _VK_RE_SCREEN.match(u):
+            return f"https://vk.com/{u}"
+        return raw
+    if _VK_RE_PUBLIC.match(raw) or _VK_RE_SCREEN.match(raw):
+        return f"https://vk.com/{raw}"
+    return raw
+
+
+def vk_screen_name_from_link(s: Optional[str]) -> str:
+    """Из VK-ссылки выделяет screen_name (например `ivision_pluson` или `public212804884`).
+
+    Используется для resolveScreenName при первом сохранении — получить group_id.
+    Если строка не VK или пустая — возвращает "".
+    """
+    norm = normalize_vk_link(s)
+    if not norm.startswith("https://vk.com/"):
+        return ""
+    path = norm[len("https://vk.com/"):].strip("/")
+    if not path:
+        return ""
+    if "/" in path:
+        path = path.split("/", 1)[0]
+    return path
+
+
 def normalize_social_links(social: Optional[dict]) -> dict:
-    """Нормализует все известные TG-поля внутри social_links."""
+    """Нормализует все известные платформенные поля внутри social_links."""
     if not isinstance(social, dict):
         return {}
     out = dict(social)
     if out.get("telegram"):
         out["telegram"] = normalize_telegram_link(out["telegram"])
+    if out.get("vk"):
+        out["vk"] = normalize_vk_link(out["vk"])
     return out

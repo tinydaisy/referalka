@@ -27,7 +27,7 @@ import httpx
 
 from app.config import settings
 from app.database import get_pool
-from app.services.vk_api import vk_call, send_message as vk_send_message, tg_inline_to_vk_keyboard
+from app.services.vk_api import vk_call, send_message as vk_send_message, tg_inline_to_vk_keyboard, get_user_info
 from app.services.contact_merge import upsert_contact_with_identity
 
 logger = logging.getLogger(__name__)
@@ -85,9 +85,46 @@ async def poll_once(server: str, key: str, ts: str) -> dict[str, Any]:
     return r.json()
 
 
+def _extract_funnel_run_id(message_or_event: dict) -> int | None:
+    """Ищет `ref=fnl_<int>` в полях VK события и возвращает run_id.
+
+    Возможные источники (для message_new + message_allow):
+      - object.message.ref     — VK кладёт сюда метку из vk.me/group?ref=...
+      - object.message.payload — JSON с ключом ref (на случай stub-кнопки «Начать»)
+      - object.ref             — поле самого события (message_allow)
+      - object.message.ref_source — иногда содержит метку
+    Возвращает int или None если ref не найден / не соответствует формату fnl_<n>.
+    """
+    candidates: list[Any] = []
+    msg = message_or_event.get("message") if isinstance(message_or_event, dict) else None
+    if isinstance(msg, dict):
+        candidates.extend([msg.get("ref"), msg.get("ref_source")])
+        payload_raw = msg.get("payload")
+        if payload_raw:
+            try:
+                payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
+                if isinstance(payload, dict):
+                    candidates.append(payload.get("ref"))
+            except Exception:
+                pass
+    candidates.extend([message_or_event.get("ref"), message_or_event.get("ref_source")])
+    for c in candidates:
+        if not c:
+            continue
+        s = str(c).strip()
+        if s.startswith("fnl_"):
+            try:
+                return int(s[4:])
+            except ValueError:
+                continue
+    return None
+
+
 async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
     """message_allow: пользователь разрешил сообществу писать ему в личку.
-    Регистрируем контакт + платформу + канал ЭТОГО клиента."""
+    Регистрируем контакт + платформу + канал ЭТОГО клиента.
+
+    Если в событии есть ref=fnl_<run_id> — запускаем VK-воронку лид-магнита."""
     user_id = event.get("user_id")
     if not user_id:
         return
@@ -118,6 +155,26 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
                 pu_id, cc_id,
             )
     logger.info("VK message_allow: group=%s user=%s recorded", ctx.group_id, user_id)
+
+    # Если пришёл с реф-меткой лид-магнита (fnl_<run_id>) — запускаем воронку
+    # и НЕ шлём дженерик welcome (приветствие будет от воронки).
+    funnel_run_id = _extract_funnel_run_id(event)
+    if funnel_run_id:
+        try:
+            user_info = await get_user_info(int(user_id))
+            from app.services.funnel_service import run_started_vk
+            await run_started_vk(
+                funnel_run_id, str(user_id),
+                username=(user_info or {}).get("screen_name", "") if user_info else "",
+                first_name=(user_info or {}).get("first_name", "") if user_info else "",
+                last_name=(user_info or {}).get("last_name", "") if user_info else "",
+                db=db,
+                channel_id=ctx.channel_id,
+                token=ctx.token,
+            )
+            return
+        except Exception as e:
+            logger.warning("VK message_allow funnel start failed: %s", e)
 
     # Generic welcome шлём только если не пришёл с event-контекстом (60-сек защита от дубля)
     recent_event_ctx = await db.fetchval(
@@ -228,6 +285,27 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
         db, client_id=ctx.client_id, platform_slug="vk",
         platform_user_id=str(from_id),
     )
+
+    # Реф-метка лид-магнита (vk.me/group?ref=fnl_xxx) — запускаем воронку.
+    # Проверяем до payload-кнопок, чтобы выдача шла даже если пользователь
+    # написал произвольный текст вместо нажатия Start.
+    funnel_run_id = _extract_funnel_run_id(event_obj)
+    if funnel_run_id:
+        try:
+            user_info = await get_user_info(int(from_id))
+            from app.services.funnel_service import run_started_vk
+            await run_started_vk(
+                funnel_run_id, str(from_id),
+                username=(user_info or {}).get("screen_name", "") if user_info else "",
+                first_name=(user_info or {}).get("first_name", "") if user_info else "",
+                last_name=(user_info or {}).get("last_name", "") if user_info else "",
+                db=db,
+                channel_id=ctx.channel_id,
+                token=ctx.token,
+            )
+            return
+        except Exception as e:
+            logger.warning("VK message_new funnel start failed: %s", e)
 
     # Проверяем payload — может быть нажата кнопка с payload
     payload_raw = message.get("payload")

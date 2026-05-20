@@ -35,8 +35,18 @@ async def _get_template(client_id: int, db) -> Optional[dict]:
     )
 
 
-async def _get_brand_context(client_id: int, db) -> dict:
-    """Подтягивает плейсхолдеры визитки клиента."""
+async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> dict:
+    """Подтягивает плейсхолдеры визитки клиента.
+
+    `platform`:
+        'telegram' → subscription_channel = TG-канал клиента (`social_links.telegram`)
+        'vk'       → subscription_channel = VK-сообщество клиента (`social_links.vk`)
+
+    Возвращает универсальные поля + платформо-зависимые для проверки подписки:
+        - subscription_channel             — https-URL для текста воронки
+        - subscription_channel_api         — id для Bot API (TG: @username, VK: не нужен)
+        - subscription_channel_chat_id     — числовой id (TG: chat_id, VK: group_id)
+    """
     row = await db.fetchrow(
         """SELECT
               COALESCE(NULLIF(brand_name, ''), name) AS brand_name,
@@ -55,21 +65,44 @@ async def _get_brand_context(client_id: int, db) -> dict:
             social = json.loads(social)
         except Exception:
             social = {}
-    # В тексте — https-ссылка (работает и для открытых, и для закрытых каналов с инвайт-кодом).
-    # @-префикс не годится: для `+abc...` даёт мусор `@+abc...`.
-    tg_link = (social or {}).get("telegram") or ""
-    sub_channel = normalize_telegram_link(tg_link)
-    sub_channel_api = telegram_api_id(tg_link)  # @username для getChatMember (открытый канал)
-    # Числовой chat_id канала — самое надёжное для getChatMember, работает и для
-    # закрытых каналов (если бот в канале админ). Сохраняется кнопкой «Получить ID»
-    # в /dashboard/mini-app или вручную через инструкцию в /dashboard/settings.
+
+    sub_channel = ""
+    sub_channel_api = ""
     sub_channel_chat_id = ""
-    raw_chat_id = (social or {}).get("telegram_chat_id")
-    if raw_chat_id is not None and str(raw_chat_id).strip():
-        try:
-            sub_channel_chat_id = str(int(raw_chat_id))
-        except (TypeError, ValueError):
-            sub_channel_chat_id = ""
+    owner_link = ""
+
+    if platform == "vk":
+        from app.services.social_links import normalize_vk_link, vk_screen_name_from_link
+        vk_link = (social or {}).get("vk") or ""
+        sub_channel = normalize_vk_link(vk_link)
+        # screen_name VK сообщества — для resolveScreenName. Для прямой проверки
+        # подписки нужен числовой group_id (хранится в social_links.vk_group_id).
+        sub_channel_api = vk_screen_name_from_link(vk_link)
+        raw_group_id = (social or {}).get("vk_group_id")
+        if raw_group_id is not None and str(raw_group_id).strip():
+            try:
+                sub_channel_chat_id = str(int(raw_group_id))
+            except (TypeError, ValueError):
+                sub_channel_chat_id = ""
+        owner_link = sub_channel
+    else:
+        # Telegram (default)
+        # В тексте — https-ссылка (работает и для открытых, и для закрытых каналов с инвайт-кодом).
+        # @-префикс не годится: для `+abc...` даёт мусор `@+abc...`.
+        tg_link = (social or {}).get("telegram") or ""
+        sub_channel = normalize_telegram_link(tg_link)
+        sub_channel_api = telegram_api_id(tg_link)  # @username для getChatMember (открытый канал)
+        # Числовой chat_id канала — самое надёжное для getChatMember, работает и для
+        # закрытых каналов (если бот в канале админ). Сохраняется кнопкой «Получить ID»
+        # в /dashboard/mini-app или вручную через инструкцию в /dashboard/settings.
+        raw_chat_id = (social or {}).get("telegram_chat_id")
+        if raw_chat_id is not None and str(raw_chat_id).strip():
+            try:
+                sub_channel_chat_id = str(int(raw_chat_id))
+            except (TypeError, ValueError):
+                sub_channel_chat_id = ""
+        owner_link = sub_channel
+
     achievements = row["owner_achievements"] or []
     if isinstance(achievements, str):
         try:
@@ -93,9 +126,9 @@ async def _get_brand_context(client_id: int, db) -> dict:
         "owner_bio": row["bio"] or "",
         "owner_achievements": achievements_text,
         "subscription_channel": sub_channel,                   # https-ссылка для текста
-        "subscription_channel_api": sub_channel_api,           # @username для Bot API
+        "subscription_channel_api": sub_channel_api,           # TG @username / VK screen_name
         "subscription_channel_chat_id": sub_channel_chat_id,   # числовой id (приоритет)
-        "owner_telegram": sub_channel,
+        "owner_telegram": owner_link,
     }
 
 
@@ -152,6 +185,29 @@ async def _bot_token_for_client(client_id: int, db) -> Optional[str]:
         if token:
             return token
     return settings.telegram_bot_token or None
+
+
+async def _vk_token_for_client(client_id: int, db) -> Optional[str]:
+    """Token VK-сообщества для отправки сообщений участнику воронки.
+    VIP с фичей `channels` и активным VK-каналом → его токен. Иначе → системный."""
+    from app.services.features import client_has_feature
+    if await client_has_feature(db, client_id, "channels"):
+        token = await db.fetchval(
+            """SELECT ch.bot_token
+                 FROM client_channels cc
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1
+                  AND cc.is_active = TRUE
+                  AND ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                  AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+                ORDER BY ch.id ASC
+                LIMIT 1""",
+            client_id,
+        )
+        if token:
+            return token
+    return settings.vk_system_group_token or None
 
 
 async def _send_message(token: str, chat_id, text: str, reply_markup: Optional[dict] = None) -> Optional[int]:
@@ -610,6 +666,211 @@ async def run_started(run_id: int, tg_id: str, username: Optional[str],
         )
 
 
+async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
+                         first_name: Optional[str], last_name: Optional[str],
+                         db, channel_id: int, token: str) -> None:
+    """VK-аналог run_started. Вызывается из vk_main.handle_message_new при получении
+    ref=fnl_<run_id> от пользователя в чате с сообществом.
+
+    Идемпотентно:
+    - привязывает забег к platform_user (vk) — создаёт contact если нужно,
+    - регистрирует подписку на client_channel сообщества,
+    - ставит stage=started, platform_slug='vk',
+    - шлёт уведомление организатору (один раз),
+    - отправляет Текст 1 + callback-кнопку «ГОТОВО» через VK API."""
+    run = await db.fetchrow(
+        """SELECT id, client_id, type, lead_magnet_id, package_id, stage,
+                  contact_id, platform_slug, platform_user_id, started_at,
+                  utm, referrer_contact_id
+             FROM funnel_runs WHERE id = $1""",
+        run_id
+    )
+    if not run:
+        log.info("run_started_vk: run %s not found", run_id)
+        return
+
+    client_id = run["client_id"]
+    skeleton_contact_id = run["contact_id"]
+
+    # Дедуп забегов на той же платформе.
+    existing_run = await db.fetchrow(
+        """SELECT id, stage, contact_id
+             FROM funnel_runs
+            WHERE client_id = $1
+              AND platform_slug = 'vk'
+              AND platform_user_id = $2
+              AND COALESCE(lead_magnet_id, 0) = COALESCE($3, 0)
+              AND COALESCE(package_id, 0)     = COALESCE($4, 0)
+              AND id <> $5
+            ORDER BY id ASC LIMIT 1""",
+        client_id, str(vk_id),
+        run["lead_magnet_id"], run["package_id"], run_id
+    )
+    if existing_run:
+        if skeleton_contact_id:
+            used_elsewhere = await db.fetchval(
+                """SELECT EXISTS (
+                       SELECT 1 FROM funnel_runs WHERE contact_id = $1 AND id <> $2
+                       UNION ALL SELECT 1 FROM event_participants WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM platform_users  WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM collaborators    WHERE contact_id = $1
+                   )""",
+                skeleton_contact_id, run_id
+            )
+            await db.execute("DELETE FROM funnel_runs WHERE id = $1", run_id)
+            if not used_elsewhere:
+                await db.execute("DELETE FROM contacts WHERE id = $1", skeleton_contact_id)
+        else:
+            await db.execute("DELETE FROM funnel_runs WHERE id = $1", run_id)
+        run_id = existing_run["id"]
+        run = await db.fetchrow(
+            """SELECT id, client_id, type, lead_magnet_id, package_id, stage,
+                      contact_id, platform_slug, platform_user_id, started_at,
+                      utm, referrer_contact_id
+                 FROM funnel_runs WHERE id = $1""",
+            run_id
+        )
+        skeleton_contact_id = None
+
+    # platform_users — VK identity клиента
+    pu = await db.fetchrow(
+        """SELECT pu.id, pu.contact_id
+             FROM platform_users pu
+            WHERE pu.client_id = $1 AND pu.platform_slug = 'vk' AND pu.platform_user_id = $2""",
+        client_id, str(vk_id)
+    )
+    contact_id: Optional[int] = None
+    if pu:
+        contact_id = pu["contact_id"]
+        await db.execute(
+            """UPDATE platform_users
+                  SET username = COALESCE(NULLIF($1,''), username),
+                      first_name = COALESCE(NULLIF($2,''), first_name),
+                      last_name = COALESCE(NULLIF($3,''), last_name)
+                WHERE id = $4""",
+            username or "", first_name or "", last_name or "", pu["id"]
+        )
+        if skeleton_contact_id and skeleton_contact_id != contact_id:
+            used_elsewhere = await db.fetchval(
+                """SELECT EXISTS (
+                       SELECT 1 FROM funnel_runs WHERE contact_id = $1 AND id <> $2
+                       UNION ALL SELECT 1 FROM event_participants WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM platform_users  WHERE contact_id = $1
+                       UNION ALL SELECT 1 FROM collaborators    WHERE contact_id = $1
+                   )""",
+                skeleton_contact_id, run_id
+            )
+            if not used_elsewhere:
+                await db.execute("DELETE FROM contacts WHERE id = $1", skeleton_contact_id)
+    else:
+        if skeleton_contact_id:
+            contact_id = skeleton_contact_id
+            full_name = ((first_name or "") + " " + (last_name or "")).strip() or (username or "")
+            await db.execute(
+                """UPDATE contacts
+                      SET name = COALESCE(name, NULLIF($1, '')),
+                          last_contact_at = NOW()
+                    WHERE id = $2""",
+                full_name, contact_id
+            )
+        else:
+            from app.services.contact_merge import _generate_unique_ref_code
+            ref_code = await _generate_unique_ref_code(db)
+            run_utm = run["utm"]
+            if isinstance(run_utm, str):
+                try:
+                    run_utm = json.loads(run_utm)
+                except Exception:
+                    run_utm = {}
+            utm_source = (run_utm or {}).get("utm_source")
+            contact_id = await db.fetchval(
+                """INSERT INTO contacts
+                      (client_id, name, ref_code, utm_source,
+                       first_referrer_contact_id, last_contact_at)
+                   VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id""",
+                client_id,
+                ((first_name or "") + " " + (last_name or "")).strip() or (username or ""),
+                ref_code,
+                utm_source,
+                run["referrer_contact_id"],
+            )
+        await db.execute(
+            """INSERT INTO platform_users
+                  (client_id, contact_id, platform_slug, platform_user_id,
+                   username, first_name, last_name)
+               VALUES ($1, $2, 'vk', $3, $4, $5, $6)
+               ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
+            client_id, contact_id, str(vk_id),
+            username, first_name, last_name
+        )
+
+    # Регистрируем подписку на канал сообщества в контексте этого клиента
+    try:
+        cc_id = await db.fetchval(
+            """SELECT cc.id FROM client_channels cc
+                WHERE cc.client_id = $1 AND cc.channel_id = $2 LIMIT 1""",
+            client_id, channel_id,
+        )
+        pu_id = await db.fetchval(
+            """SELECT id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'vk' AND platform_user_id = $2""",
+            client_id, str(vk_id),
+        )
+        if cc_id and pu_id:
+            await db.execute(
+                """INSERT INTO platform_user_channels
+                       (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at)
+                   VALUES ($1, $2, FALSE, NOW())
+                   ON CONFLICT (platform_user_id, client_channel_id)
+                   DO UPDATE SET is_unsubscribed=FALSE, subscribed_at=NOW(), unsubscribed_at=NULL""",
+                pu_id, cc_id,
+            )
+    except Exception as e:
+        log.warning("run_started_vk: register subscription failed: %s", e)
+
+    is_new_started = run["stage"] == "landed"
+    await db.execute(
+        """UPDATE funnel_runs
+              SET contact_id = COALESCE(contact_id, $1),
+                  platform_slug = 'vk',
+                  platform_user_id = $2,
+                  stage = CASE WHEN stage = 'landed' THEN 'started' ELSE stage END,
+                  started_at = COALESCE(started_at, NOW())
+            WHERE id = $3""",
+        contact_id, str(vk_id), run_id
+    )
+
+    if is_new_started:
+        await _send_organizer_notification(client_id, run_id, db)
+
+    # Шлём Текст 1 через VK API с callback-кнопкой
+    template = await _get_template(client_id, db)
+    if not template:
+        from app.api.funnels import _get_or_create_template
+        template = await _get_or_create_template(client_id, "lead_magnet", db)
+        template = dict(template)
+
+    ctx = await _get_brand_context(client_id, db, platform="vk")
+    materials = await _materials_for_run(dict(run), db)
+    text_1 = _format_text(template["text_1"], ctx, materials)
+
+    from app.services.vk_api import send_message as vk_send_msg, tg_inline_to_vk_keyboard
+    button_label = template["button_label"] or "ГОТОВО"
+    keyboard = tg_inline_to_vk_keyboard([[{
+        "text": button_label,
+        "callback_data": f"fnl_check_{run_id}"
+    }]])
+    try:
+        msg_id = await vk_send_msg(int(vk_id), text_1, keyboard=keyboard, token=token)
+        if msg_id:
+            await db.execute(
+                "UPDATE funnel_runs SET last_message_id = $1 WHERE id = $2",
+                msg_id, run_id
+            )
+    except Exception as e:
+        log.warning("run_started_vk: send text_1 failed: %s", e)
+
+
 async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "telegram") -> str:
     """Проверка подписки. Возвращает status:
        'subscribed'             — материалы отправлены (повторный клик = повторная отправка)
@@ -629,12 +890,29 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         return "not_found"
 
     client_id = run["client_id"]
-    ctx = await _get_brand_context(client_id, db)
 
     if platform == "vk":
-        # VK-флоу: пропускаем проверку подписки (опционально — позже добавим
-        # groups.isMember для канала клиента в ВК). Выдаём материалы через VK API.
+        # Берём VK-сообщество клиента для проверки подписки (`social_links.vk_group_id`).
+        # Если не настроено — выдаём без проверки (нечего проверять).
+        ctx = await _get_brand_context(client_id, db, platform="vk")
+        vk_group_id_raw = ctx.get("subscription_channel_chat_id", "")
+        if vk_group_id_raw:
+            try:
+                vk_group_id = int(vk_group_id_raw)
+            except (TypeError, ValueError):
+                vk_group_id = 0
+            if vk_group_id > 0:
+                from app.services.vk_api import is_user_member_of_group
+                # service token — системный (работает для любого публичного сообщества)
+                is_member = await is_user_member_of_group(vk_group_id, int(tg_id))
+                if is_member is False:
+                    return "not_subscribed"
+                # is_member is None означает ошибку API — пропускаем (доверяем).
+
         from app.services.vk_api import send_message as vk_send_msg
+        # Шлём от того же сообщества, через которое прилетел клик. Токен этого
+        # канала вычисляется по run.platform_slug='vk' + active client_channel.
+        vk_token = await _vk_token_for_client(client_id, db) or None
         is_first_delivery = run["stage"] != "delivered"
         await db.execute(
             """UPDATE funnel_runs
@@ -652,7 +930,7 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
         materials = await _materials_for_run(dict(run), db)
         text_2 = _format_text(template["text_2"], ctx, materials)
         try:
-            await vk_send_msg(int(tg_id), text_2)
+            await vk_send_msg(int(tg_id), text_2, token=vk_token)
         except Exception as e:
             log.warning("VK send text_2 failed for run %s: %s", run_id, e)
         if is_first_delivery:
@@ -662,6 +940,8 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
             except Exception as e:
                 log.warning("Failed to schedule text_3 for run %s: %s", run_id, e)
         return "subscribed"
+
+    ctx = await _get_brand_context(client_id, db)
 
     channel = ctx.get("subscription_channel", "")
     channel_api = ctx.get("subscription_channel_api", "")
