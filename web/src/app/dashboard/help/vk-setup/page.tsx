@@ -83,7 +83,8 @@ export default function VkSetupInstructionPage() {
           В шаге 8 откроется форма с этими же 4 полями — туда и вставите.
         </p>
         <ol className="text-xs space-y-1.5 list-decimal pl-5" style={{ color: '#25455D' }}>
-          <li><strong>ID сообщества</strong> — число вида <code>238697730</code>. Берётся в <strong>шаге 2</strong> (из URL вашего сообщества).</li>
+          <li><strong>ID сообщества</strong> — число вида <code>212804884</code>. Берётся в <strong>шаге 2</strong>
+            (число после префикса в URL: <code>club…</code>, <code>public…</code> или <code>event…</code>).</li>
           <li><strong>Access Token сообщества</strong> — длинная строка <code>vk1.a.xxxxx…</code>. Берётся в <strong>шаге 6</strong>.</li>
           <li><strong>VK App ID</strong> — число вида <code>54592404</code>. Берётся в <strong>шаге 7</strong> (после создания Mini App).</li>
           <li><strong>Secure Key (Защищённый ключ)</strong> — длинная строка букв и цифр. Берётся в <strong>шаге 7</strong> (раздел «Разработка → Ключи доступа»).</li>
@@ -136,22 +137,32 @@ export default function VkSetupInstructionPage() {
         <SavePill
           number="1 / 4"
           label="ID сообщества"
-          desc={<>В мастере подключения <strong>нужно только число</strong> (например <code>238697730</code>) —
-            не <code>ivision_pluson</code>, не <code>club238697730</code>, не URL.
+          desc={<>В мастере подключения <strong>нужно только число</strong> (например <code>212804884</code>) —
+            не <code>ivision_community</code>, не <code>public212804884</code>, не URL.
+            <br/><br/>
+            <strong>Префикс зависит от типа сообщества:</strong>
+            <ul className="list-disc pl-5 mt-1 space-y-0.5">
+              <li>Группа (Бизнес / Бренд) → URL <code>vk.ru/<strong>club</strong>238697730</code></li>
+              <li>Публичная страница → URL <code>vk.ru/<strong>public</strong>212804884</code></li>
+              <li>Мероприятие → URL <code>vk.ru/<strong>event</strong>12345678</code></li>
+            </ul>
+            В любом случае нужно <strong>только число после префикса</strong>, сам префикс не вписывайте.
             <br/><br/>
             <strong>Как найти это число у вашего сообщества:</strong>
             <ul className="list-disc pl-5 mt-1 space-y-1">
-              <li><strong>Способ 1 (надёжный).</strong> В вашем сообществе под обложкой нажмите
-                <strong> «⋯» → «Управление»</strong>. Адресная строка браузера станет
-                <code> vk.ru/club<strong>238697730</strong>?act=manage</code> — число между <code>club</code>
-                и <code>?</code> и есть ваш ID. Скопируйте только число.</li>
-              <li><strong>Способ 2.</strong> Откройте любую запись на стене вашего сообщества. URL станет
-                <code> vk.ru/wall-<strong>238697730</strong>_15</code> — число между <code>wall-</code>
-                и <code>_</code> и есть ваш ID (без знака минус).</li>
-              <li><strong>Способ 3 (если короткий адрес ещё не задан).</strong> Главная страница сообщества
-                сама открывается как <code>vk.ru/club<strong>238697730</strong></code> — число и есть ID.</li>
+              <li><strong>Способ 1 (надёжный).</strong> Под обложкой сообщества нажмите
+                <strong> «⋯» → «Управление»</strong>. Адресная строка станет
+                <code> vk.ru/club212804884?act=manage</code> (даже для публичных страниц в «Управлении»
+                префикс становится <code>club</code>). Число между <code>club</code> и <code>?</code> —
+                ваш ID.</li>
+              <li><strong>Способ 2.</strong> На главной сообщества блок «Подробная информация» / в самом низу
+                страницы → строка «Номер сообщества — <code>public212804884</code>» (или <code>club…</code>).
+                Берёте только число.</li>
+              <li><strong>Способ 3.</strong> Откройте любую запись на стене сообщества — URL станет
+                <code> vk.ru/wall-212804884_15</code>. Число между <code>wall-</code> и <code>_</code> и
+                есть ваш ID (без знака минус).</li>
             </ul></>}
-          example="238697730"
+          example="212804884"
         />
 
         <Screenshot
