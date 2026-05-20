@@ -320,6 +320,8 @@ export const api = {
   },
   eventNurture: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/nurture/steps`),
+    previewUrls: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/nurture/preview-urls`),
     create: (eventId: number, data: any) =>
       request(`/api/v1/events/${eventId}/nurture/steps`, {
         method: 'POST', body: JSON.stringify(data),

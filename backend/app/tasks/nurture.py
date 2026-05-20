@@ -63,14 +63,67 @@ def _build_owner_contact(work_tg: str | None, social_telegram: str | None) -> st
     return f'<a href="{href}">@{escape(handle)}</a>'
 
 
-def _build_app_url(*, platform: str, client_id: int | None, slug: str, ref_code: str | None) -> str:
-    """Mini App URL для кнопки «Зарегистрироваться»."""
+async def _build_app_url(
+    db: asyncpg.Connection,
+    *,
+    platform: str,
+    client_id: int | None,
+    slug: str,
+    ref_code: str | None,
+) -> str:
+    """Mini App URL для кнопки «Зарегистрироваться». Учитывает VIP-канал клиента
+    если он есть на этой платформе.
+
+    TG:
+      - VIP: `t.me/{его_бот_handle}/pluson?startapp=ref_pg{slug}_pid{ref}`
+      - системный: `t.me/pluson_bot/pluson?startapp=ref_pg{slug}_pid{ref}_cid{client_id}`
+        (cid нужен чтобы общий Mini App знал в каком контексте регистрировать)
+    VK:
+      - VIP: `vk.com/app{его_vk_app_id}#ref_pg{slug}_pid{ref}`
+      - системный: `vk.com/app{settings.vk_app_id}#ref_pg{slug}_pid{ref}`
+    """
     pid_part = f"_pid{ref_code}" if ref_code else ""
+
+    if platform == "telegram":
+        vip_handle = None
+        if client_id:
+            vip_handle = await db.fetchval(
+                """SELECT REGEXP_REPLACE(ch.handle, '^@', '')
+                     FROM channels ch
+                     JOIN client_channels cc ON cc.channel_id = ch.id
+                    WHERE cc.client_id = $1
+                      AND ch.platform_slug = 'telegram'
+                      AND ch.is_system = FALSE
+                      AND cc.is_active = TRUE
+                      AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+                    ORDER BY ch.id LIMIT 1""",
+                client_id,
+            )
+        if vip_handle:
+            return f"https://t.me/{vip_handle}/pluson?startapp=ref_pg{slug}{pid_part}"
+        # Системный бот: нужен cid чтобы Mini App знал контекст клиента
+        cid_part = f"_cid{client_id}" if client_id else ""
+        return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}{cid_part}"
+
     if platform == "vk":
-        return f"https://vk.com/app{settings.vk_app_id}#ref_pg{slug}{pid_part}"
-    # TG: VIP-бот клиента или системный
-    if client_id:
-        return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}_cid{client_id}"
+        vip_app_id = None
+        if client_id:
+            vip_app_id = await db.fetchval(
+                """SELECT (ch.platform_meta->>'vk_app_id')::int
+                     FROM channels ch
+                     JOIN client_channels cc ON cc.channel_id = ch.id
+                    WHERE cc.client_id = $1
+                      AND ch.platform_slug = 'vk'
+                      AND ch.is_system = FALSE
+                      AND cc.is_active = TRUE
+                      AND ch.platform_meta->>'vk_app_id' IS NOT NULL
+                    ORDER BY ch.id LIMIT 1""",
+                client_id,
+            )
+        app_id = vip_app_id or settings.vk_app_id
+        return f"https://vk.com/app{app_id}#ref_pg{slug}{pid_part}"
+
+    # Прочие платформы — пока нет VIP, fallback на pluson_bot
     return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}"
 
 
@@ -143,7 +196,7 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         plat = ident["platform_slug"]
         pid = ident["platform_user_id"]
         try:
-            url = _build_app_url(platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code)
+            url = await _build_app_url(db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code)
             if plat == "telegram":
                 tok = await get_client_telegram_token(client_id, db) or settings.telegram_bot_token
                 if not tok:

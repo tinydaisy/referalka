@@ -59,14 +59,15 @@ export default function NurtureTab({ eventId }: Props) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<number | null>(null)
   const [drafts, setDrafts] = useState<Record<number, Partial<Step>>>({})
-  const [eventSlug, setEventSlug] = useState<string>('')
+  const [previewUrls, setPreviewUrls] = useState<{ tg_url: string; vk_url: string } | null>(null)
   const lastAddedRef = useRef<number | null>(null)
   const cardRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
-  // Подтягиваем slug события — чтобы показать в подсказке куда ведёт кнопка
+  // Подтягиваем РЕАЛЬНЫЕ URL'ы для подсказки куда ведёт кнопка.
+  // Бэк учитывает VIP-канал клиента: у вас в VIP — t.me/{ваш_бот}/pluson, иначе общий.
   useEffect(() => {
-    api.events.get(eventId).then((r: any) => {
-      setEventSlug(r?.event?.slug || '')
+    api.eventNurture.previewUrls(eventId).then((r: any) => {
+      setPreviewUrls({ tg_url: r?.tg_url || '', vk_url: r?.vk_url || '' })
     }).catch(() => {})
   }, [eventId])
 
@@ -179,10 +180,10 @@ export default function NurtureTab({ eventId }: Props) {
           const currentText = d.text ?? s.text
           const currentLabel = d.button_label ?? s.button_label
           const { value: vuValue, unit: vuUnit } = secondsToValueUnit(currentOffset)
-          // Mini App URL для подсказки «куда ведёт кнопка»
-          const tgUrl = eventSlug
-            ? `https://t.me/pluson_bot/pluson?startapp=ref_pg${eventSlug}`
-            : ''
+          // Mini App URL для подсказки «куда ведёт кнопка» — реальные ссылки от бэка,
+          // учитывают VIP-канал клиента.
+          const tgUrl = previewUrls?.tg_url || ''
+          const vkUrl = previewUrls?.vk_url || ''
           return (
             <div
               key={s.id}
@@ -248,10 +249,15 @@ export default function NurtureTab({ eventId }: Props) {
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
                     placeholder="Зарегистрироваться"
                   />
-                  {tgUrl && (
-                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1 flex-wrap">
-                      <ExternalLink size={11} /> Ведёт на страницу события в Mini App (для TG: <code className="text-[10px]">{tgUrl}</code>; для VK — аналогичная ссылка через сообщество).
-                    </p>
+                  {(tgUrl || vkUrl) && (
+                    <div className="text-[11px] text-gray-400 mt-1 space-y-0.5">
+                      <div className="flex items-start gap-1">
+                        <ExternalLink size={11} className="mt-0.5 shrink-0" />
+                        <span>Ведёт на страницу события в Mini App вашего бота:</span>
+                      </div>
+                      {tgUrl && <div className="ml-4"><code className="text-[10px]">TG: {tgUrl}</code></div>}
+                      {vkUrl && <div className="ml-4"><code className="text-[10px]">VK: {vkUrl}</code></div>}
+                    </div>
                   )}
                 </div>
               </div>

@@ -110,6 +110,27 @@ async def _seed_default_steps_if_empty(db, event_id: int):
 
 # ─── Routes ───────────────────────────────────────────────────────────
 
+@router.get("/{event_id}/nurture/preview-urls")
+async def nurture_preview_urls(
+    event_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Возвращает реальные ссылки куда поведёт кнопка «Зарегистрироваться»
+    в шагах воронки. Учитывает VIP-канал клиента (если есть)."""
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        "SELECT slug FROM events WHERE id = $1 AND client_id = $2",
+        event_id, client_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    from app.tasks.nurture import _build_app_url
+    tg_url = await _build_app_url(db, platform="telegram", client_id=client_id, slug=row["slug"], ref_code=None)
+    vk_url = await _build_app_url(db, platform="vk",       client_id=client_id, slug=row["slug"], ref_code=None)
+    return {"tg_url": tg_url, "vk_url": vk_url}
+
+
 @router.get("/{event_id}/nurture/steps")
 async def list_nurture_steps(
     event_id: int,
