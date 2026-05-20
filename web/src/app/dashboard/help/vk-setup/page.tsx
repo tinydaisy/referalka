@@ -56,7 +56,7 @@ export default function VkSetupInstructionPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border p-4 mb-6 flex items-start gap-3 bg-blue-50 border-blue-200">
+      <div className="rounded-xl border p-4 mb-4 flex items-start gap-3 bg-blue-50 border-blue-200">
         <div className="text-xl flex-shrink-0">💡</div>
         <div>
           <div className="text-sm font-semibold text-gray-800">Зачем это нужно</div>
@@ -67,6 +67,27 @@ export default function VkSetupInstructionPage() {
             (программа, реферальные подарки, экосистема).
           </p>
         </div>
+      </div>
+
+      {/* Чек-лист 4 параметров: что собрать пока проходишь шаги 2/6/7,
+          чтобы в шаге 8 ввести в мастер. Без этого клиент не понимает,
+          что из инструкции — «временные действия», а что — «положить в карман». */}
+      <div className="rounded-xl border-2 p-4 mb-6"
+           style={{ borderColor: '#FFCFA4', background: 'rgba(255,207,164,0.18)' }}>
+        <div className="text-sm font-bold mb-2" style={{ color: '#25455D' }}>
+          📋 Финальная цель: собрать 4 параметра и вставить их в шаге 8
+        </div>
+        <p className="text-xs mb-3" style={{ color: '#25455D' }}>
+          Заведите блокнот (или Apple Notes) и по ходу инструкции выписывайте туда эти 4 значения —
+          в нужный момент шаги будут помечены жёлтой плашкой <strong>«✂️ СОХРАНИТЕ»</strong>.
+          В шаге 8 откроется форма с этими же 4 полями — туда и вставите.
+        </p>
+        <ol className="text-xs space-y-1.5 list-decimal pl-5" style={{ color: '#25455D' }}>
+          <li><strong>ID сообщества</strong> — число вида <code>238697730</code>. Берётся в <strong>шаге 2</strong> (из URL вашего сообщества).</li>
+          <li><strong>Access Token сообщества</strong> — длинная строка <code>vk1.a.xxxxx…</code>. Берётся в <strong>шаге 6</strong>.</li>
+          <li><strong>VK App ID</strong> — число вида <code>54592404</code>. Берётся в <strong>шаге 7</strong> (после создания Mini App).</li>
+          <li><strong>Secure Key (Защищённый ключ)</strong> — длинная строка букв и цифр. Берётся в <strong>шаге 7</strong> (раздел «Разработка → Ключи доступа»).</li>
+        </ol>
       </div>
 
       <Section step="1" title="Создать сообщество в ВКонтакте">
@@ -104,15 +125,25 @@ export default function VkSetupInstructionPage() {
             <span className="block text-xs text-gray-500 mt-0.5">
               ⚠️ Не получается сохранить адрес (поле красное, кнопка «Сохранить» неактивна или ВК пишет «адрес занят»)? —
               <strong> можно пропустить</strong>. ПЛЮСОН будет работать и без короткого адреса, просто в шаге 6 вы
-              введёте свой <code>club{'{ID}'}</code> вместо тега. ID видно в URL вашего сообщества:
-              откройте свою группу — в адресной строке будет что-то вроде <code>vk.ru/club238697730</code>,
-              где <code>club238697730</code> — это и есть ваш ID.
+              введёте свой <code>club{'{ID}'}</code> вместо тега.
             </span>
           </li>
           <li><strong>Сайт:</strong> ваш сайт (если есть)</li>
           <li><strong>Город:</strong> ваш город</li>
           <li>Нажать <strong>«Сохранить»</strong></li>
         </ul>
+
+        <SavePill
+          number="1 / 4"
+          label="ID сообщества"
+          desc={<>Откройте главную страницу своего сообщества — в URL браузера будет
+            <code> vk.ru/club238697730</code> (если короткий адрес ещё не задан) или
+            <code> vk.ru/ivision_pluson</code>. Если в URL видно <code>club</code> + число —
+            это число <strong>и есть</strong> ваш <code>ID сообщества</code> (например <code>238697730</code>).
+            Если короткий адрес уже задан — кликните в сообществе на <strong>«Все записи» / «Информация»</strong>,
+            пролистайте вниз: «ID сообщества: 238697730» написано отдельной строкой. Запишите только число.</>}
+          example="238697730"
+        />
 
         <Screenshot
           src="/help/vk-setup/02-settings-main.png"
@@ -276,7 +307,15 @@ export default function VkSetupInstructionPage() {
           <li>Скопируйте появившийся длинный ключ вида <code>vk1.a.xxxxxxxxxx…</code></li>
         </ol>
 
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-900">
+        <SavePill
+          number="2 / 4"
+          label="Access Token сообщества"
+          desc={<>Это та самая длинная строка, начинающаяся с <code>vk1.a.</code>, которую вы только что
+            скопировали. Сохраните её целиком, как есть.</>}
+          example="vk1.a.zZJxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        />
+
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-900 mt-3">
           🔒 <strong>Ключ это пароль.</strong> Не показывайте его в публичных местах, не отправляйте в чаты,
           не выкладывайте в скриншоты. Если случайно показали — сразу удалите старый ключ в этом же разделе и создайте новый.
         </div>
@@ -337,8 +376,18 @@ export default function VkSetupInstructionPage() {
 
         <p className="text-sm text-gray-700 mb-3">
           После создания вы попадёте в панель управления приложением. <strong>App ID</strong> приложения
-          сразу виден в правой колонке. Дальше нужно настроить несколько разделов в левом меню.
+          сразу виден в правой колонке (короткое число, например <code>54592404</code>).
+          Дальше нужно настроить несколько разделов в левом меню.
         </p>
+
+        <SavePill
+          number="3 / 4"
+          label="VK App ID"
+          desc={<>В правой колонке панели Mini App, сразу после создания. Число (обычно 7–9 цифр).
+            Также его видно в URL: <code>dev.vk.com/mini-apps/<strong>54592404</strong>/settings</code> —
+            число в адресе и есть App ID.</>}
+          example="54592404"
+        />
 
         <p className="text-sm font-semibold text-gray-800 mt-4 mb-2">«Настройки → Информация»:</p>
         <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5 mb-4">
@@ -388,7 +437,17 @@ export default function VkSetupInstructionPage() {
           приложения. Он скрыт звёздочками — нажмите <strong>«Показать»</strong>, скопируйте значение.
           Скриншот ключа делать НЕЛЬЗЯ — это секрет.
         </p>
-        <p className="text-xs text-gray-500">
+
+        <SavePill
+          number="4 / 4"
+          label="Secure Key (Защищённый ключ)"
+          desc={<>В разделе <strong>«Разработка → Ключи доступа»</strong> вашего Mini App.
+            Длинная строка букв и цифр, по умолчанию скрыта звёздочками — нажмите
+            <strong> «Показать»</strong> и скопируйте целиком.</>}
+          example="GqXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        />
+
+        <p className="text-xs text-gray-500 mt-3">
           Защищённый ключ нужен ПЛЮСОНу для проверки подписи запросов от вашего Mini App к нашему
           бэкенду — гарантия что данные не подделаны.
         </p>
@@ -503,6 +562,31 @@ function Screenshot({ src, alt, caption }: { src: string; alt: string; caption?:
         <figcaption className="text-xs text-gray-500 mt-2 italic">{caption}</figcaption>
       )}
     </figure>
+  )
+}
+
+function SavePill({ number, label, desc, example }: {
+  number: string
+  label: string
+  desc: React.ReactNode
+  example: string
+}) {
+  return (
+    <div className="rounded-xl border-2 p-4 mt-3"
+         style={{ borderColor: '#FFCFA4', background: 'rgba(255,207,164,0.22)' }}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+              style={{ background: '#25455D', color: '#FFCFA4' }}>
+          ✂️ СОХРАНИТЕ · {number}
+        </span>
+        <span className="text-sm font-bold" style={{ color: '#25455D' }}>{label}</span>
+      </div>
+      <div className="text-xs mb-2" style={{ color: '#25455D' }}>{desc}</div>
+      <div className="text-[11px] mt-1.5" style={{ color: '#25455D' }}>
+        <span className="opacity-70">Пример:</span>{' '}
+        <code className="bg-white/60 px-1.5 py-0.5 rounded">{example}</code>
+      </div>
+    </div>
   )
 }
 
