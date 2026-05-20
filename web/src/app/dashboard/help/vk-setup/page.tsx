@@ -1,12 +1,23 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, ExternalLink, Copy, Check, ImageOff } from 'lucide-react'
+import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
 
 export default function VkSetupInstructionPage() {
+  // Автоподставляем client_id в URL для шага «Размещение» — клиенту не нужно
+  // знать или вводить свой ID руками, ссылка готова к копированию.
+  const [clientId, setClientId] = useState<number | null>(null)
+  useEffect(() => {
+    api.auth.me().then((m: any) => {
+      if (m?.id) setClientId(Number(m.id))
+    }).catch(() => {})
+  }, [])
+  const placementUrl = clientId ? `https://pluson.ru/c/${clientId}/vk/` : 'https://pluson.ru/c/{ID}/vk/'
+
   return (
     <div className="pb-24 max-w-3xl">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
@@ -72,7 +83,11 @@ export default function VkSetupInstructionPage() {
           <li><strong>Название:</strong> ваш бренд</li>
           <li><strong>Описание:</strong> короткое описание вашего бизнеса/событий</li>
           <li><strong>Тематика:</strong> «Бизнес и экономика»</li>
-          <li><strong>Адрес страницы:</strong> короткое латинское имя, чтобы получилось <code>vk.ru/ваш_адрес</code></li>
+          <li><strong>Адрес страницы:</strong> ваш кастомный тег латиницей вместо автоматического
+            <code>club{'{ID}'}</code>. Например <code>ivision_pluson</code> — получится <code>vk.ru/ivision_pluson</code>{' '}
+            (вместо длинного <code>vk.ru/club238697730</code>). Тег применяется сразу после сохранения,
+            работает в ссылках и упоминаниях.
+          </li>
           <li><strong>Сайт:</strong> ваш сайт (если есть)</li>
           <li><strong>Город:</strong> ваш город</li>
           <li>Нажать <strong>«Сохранить»</strong></li>
@@ -136,10 +151,14 @@ export default function VkSetupInstructionPage() {
 
       <Section step="5" title="Включить возможности бота">
         <p className="text-sm text-gray-700 mb-3">
-          Боты в ВК — это автоматизация ответов сообщества. ПЛЮСОН использует их, чтобы шлать
+          Боты в ВК — это автоматизация ответов сообщества. ПЛЮСОН использует их, чтобы слать
           приветствия, лид-магниты, рассылки, отвечать на нажатия кнопок.
         </p>
-        <p className="text-sm font-semibold text-gray-800 mb-2">В правом меню управления → пункт «Настройки для бота» (отдельный пункт, ниже «Сообщения»):</p>
+        <p className="text-sm font-semibold text-gray-800 mb-2">
+          Внутри уже открытого раздела <strong>«Сообщения»</strong> (тот же, что в шаге 3) — наверху в шапке
+          переключитесь на подвкладку <strong>«Настройки»</strong>, прокрутите до блока{' '}
+          <strong>«Возможности ботов»</strong>:
+        </p>
         <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-4">
           <li>Переключатель <strong>«Возможности ботов»</strong> → <strong>ВКЛ</strong></li>
           <li>Чекбокс <strong>«Добавить кнопку «Начать»»</strong> → <strong>поставить ✅</strong>.
@@ -157,10 +176,16 @@ export default function VkSetupInstructionPage() {
           <li>Нажать <strong>«Сохранить»</strong></li>
         </ol>
 
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-900 mb-3">
+          💡 <strong>Если не видите блок «Возможности ботов»:</strong> в правом меню управления нет отдельного
+          пункта «Настройки для бота» — все настройки бота находятся внутри{' '}
+          <strong>Сообщения → Настройки</strong> (подвкладка в шапке раздела «Сообщения», рядом с «Диалоги»).
+        </div>
+
         <Screenshot
-          src="/help/vk-setup/04-bot-settings.png"
-          alt="Раздел Настройки для бота"
-          caption="Раздел «Настройки для бота» — отдельный пункт в правом меню, ниже «Сообщения»"
+          src="/help/vk-setup/05-bot-settings.png"
+          alt="Раздел Сообщения → Настройки → Возможности ботов"
+          caption="Блок «Возможности ботов» внутри Сообщения → Настройки"
         />
       </Section>
 
@@ -169,14 +194,26 @@ export default function VkSetupInstructionPage() {
           Ключ доступа — это «пароль» от вашего сообщества, через который ПЛЮСОН отправляет сообщения и принимает события.
         </p>
 
-        <p className="text-sm font-semibold text-gray-800 mb-2">В правом меню управления сообществом → пункт «Работа с API»:</p>
+        <p className="text-sm text-gray-700 mb-3">
+          В правом меню управления отдельного пункта «Работа с API» в современном ВК <strong>нет</strong> —
+          страница открывается напрямую по ссылке:
+        </p>
+        <p className="text-sm text-gray-700 mb-3 pl-4 border-l-2 border-blue-300">
+          ▶{' '}
+          <a href="https://vk.ru/community?act=tokens"
+             target="_blank" rel="noreferrer"
+             className="text-blue-600 hover:underline inline-flex items-center gap-1 font-medium">
+            https://vk.ru/<strong>community</strong>?act=tokens <ExternalLink size={12}/>
+          </a>
+        </p>
         <p className="text-xs text-gray-500 mb-3">
-          Если пункта нет в правом меню — откройте напрямую по ссылке{' '}
-          <code>https://vk.ru/club{'{ID}'}?act=tokens</code>, заменив <code>{'{ID}'}</code> на номер вашего
-          сообщества (виден на странице «Настройки» внизу — «Номер сообщества — <code>club…</code>»).
+          В этой ссылке слово <code>community</code> замените на короткий адрес вашего сообщества из шага 2
+          (например, <code>https://vk.ru/ivision_pluson?act=tokens</code>) — или на <code>club{'{ID}'}</code>,
+          где <code>{'{ID}'}</code> — номер сообщества (он виден в URL вашего сообщества, если короткого адреса
+          ещё нет).
         </p>
 
-        <p className="text-sm font-semibold text-gray-800 mb-2">На странице «Работа с API» → вкладка «Ключи доступа»:</p>
+        <p className="text-sm font-semibold text-gray-800 mb-2">На открывшейся странице «Работа с API» → вкладка «Ключи доступа»:</p>
         <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
           <li>Нажмите <strong>«Создать ключ»</strong></li>
           <li>Отметьте чекбоксы прав:
@@ -197,7 +234,7 @@ export default function VkSetupInstructionPage() {
         </div>
 
         <Screenshot
-          src="/help/vk-setup/05-tokens.png"
+          src="/help/vk-setup/06-tokens.png"
           alt="Раздел Работа с API — Ключи доступа"
           caption="Раздел «Работа с API» открывается прямой ссылкой и содержит «Ключи доступа»"
         />
@@ -211,9 +248,16 @@ export default function VkSetupInstructionPage() {
         </p>
 
         <p className="text-sm font-semibold text-gray-800 mb-2">Откройте в браузере:</p>
-        <CopyBlock value="https://dev.vk.com/ru/mini-apps/management/creating-new-apps" />
+        <p className="text-sm pl-4 border-l-2 border-blue-300 mb-3">
+          ▶{' '}
+          <a href="https://dev.vk.com/ru/mini-apps/management/creating-new-apps"
+             target="_blank" rel="noreferrer"
+             className="text-blue-600 hover:underline inline-flex items-center gap-1 font-medium">
+            dev.vk.com/ru/mini-apps/management/creating-new-apps <ExternalLink size={12}/>
+          </a>
+        </p>
 
-        <p className="text-sm text-gray-700 mt-3 mb-2">
+        <p className="text-sm text-gray-700 mb-2">
           На открывшейся странице — таблица с двумя колонками. В <strong>левой колонке «Новая панель управления»</strong>
           кликните по первому пункту:
         </p>
@@ -222,7 +266,7 @@ export default function VkSetupInstructionPage() {
         </p>
 
         <Screenshot
-          src="/help/vk-setup/06a-creating-apps-choice.png"
+          src="/help/vk-setup/07a-creating-apps-choice.png"
           alt="Страница 'Создание новых приложений' — выбор типа"
           caption="Кликаете «Мини-приложение или игра» в левой колонке (новая панель управления)"
         />
@@ -232,9 +276,15 @@ export default function VkSetupInstructionPage() {
         </p>
         <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5 mb-3">
           <li><strong>Название приложения:</strong> ваш бренд (например, <code>iVISION</code>)</li>
-          <li><strong>Тип:</strong> <strong>«Mini App»</strong></li>
-          <li><strong>Платформа:</strong> «Веб-приложение» + «Мобильное приложение»</li>
-          <li>Нажать кнопку создания</li>
+          <li><strong>Тип приложения:</strong> оставить значение по умолчанию — <strong>«Мини приложение»</strong>
+            <span className="block text-xs text-gray-500 mt-0.5">
+              Поля «Платформа: Веб-приложение / Мобильное приложение» в современной форме нет —
+              платформы настраиваются позже в разделе «Размещение».
+            </span>
+          </li>
+          <li><strong>Категория:</strong> выбрать из списка — подойдёт <strong>«Бизнес»</strong>{' '}
+            (можно «Утилиты», «Образование» — зависит от вашей тематики)</li>
+          <li>Нажать кнопку <strong>«Создать»</strong></li>
         </ol>
 
         <p className="text-sm text-gray-700 mb-3">
@@ -246,7 +296,10 @@ export default function VkSetupInstructionPage() {
         <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5 mb-4">
           <li><strong>Описание</strong> — расскажите про ваш бизнес и события</li>
           <li><strong>Краткое описание</strong> — одной строкой, до 128 символов</li>
-          <li><strong>Короткий адрес</strong> — латиницей (например <code>ivision_pluson</code>) — будет <code>vk.ru/app/ваш_адрес</code></li>
+          <li><strong>Короткий адрес</strong> — пропустите этот пункт. ВК показывает ошибку «приложение должно
+            появиться в каталоге» — короткий адрес выдаётся <strong>после модерации</strong> приложения,
+            заполнять сейчас не получится. Вернётесь к нему позже, если будете публиковать в каталог
+            ВК. Для работы с ПЛЮСОН это не нужно.</li>
           <li><strong>Официальное сообщество</strong> — выбрать ваше сообщество из шага 1</li>
           <li><strong>«Запуск приложения из сообщества»</strong> — переключатель <strong>ВКЛ</strong> (в сообществе появится кнопка «Открыть приложение»)</li>
           <li><strong>«Название кнопки»</strong> — выбрать «Открыть приложение» (или похожее) из дропдауна</li>
@@ -259,9 +312,11 @@ export default function VkSetupInstructionPage() {
           Здесь <strong>три отдельные секции</strong> с URL — для разных сценариев открытия. Во все три
           вставляем <strong>один и тот же URL</strong>:
         </p>
-        <div className="mb-3"><CopyBlock value={`https://pluson.ru/c/{ID_КЛИЕНТА}/vk/`} /></div>
+        <div className="mb-2"><CopyBlock value={placementUrl} /></div>
         <p className="text-xs text-gray-500 mb-3">
-          Где <code>{'{ID_КЛИЕНТА}'}</code> — ваш номер клиента в ПЛЮСОН (виден в правом верхнем углу дашборда).
+          {clientId
+            ? <>В URL уже автоматически подставлен <strong>ваш</strong> ID клиента в ПЛЮСОН (<code>{clientId}</code>) — ничего не редактируйте, скопируйте как есть.</>
+            : <>Ваш ID клиента подгружается… после загрузки страницы URL станет персональным.</>}
         </p>
 
         <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5 mb-4">
@@ -274,20 +329,21 @@ export default function VkSetupInstructionPage() {
         </ol>
 
         <Screenshot
-          src="/help/vk-setup/06-miniapp-settings.png"
+          src="/help/vk-setup/07-miniapp-settings.png"
           alt="Раздел Размещение — три секции URL"
           caption="Раздел «Размещение» — три секции URL (мобильное приложение, десктоп iframe, мобильный сайт iframe). Везде один URL."
         />
 
         <p className="text-sm font-semibold text-gray-800 mt-4 mb-2">«Разработка → Ключи доступа»:</p>
         <p className="text-sm text-gray-700 mb-3">
-          VK автоматически сгенерировал два ключа при создании приложения. Они скрыты звёздочками — нажмите
-          <strong>«Показать»</strong>, скопируйте значения. Скриншот ключей делать НЕЛЬЗЯ — это секреты.
+          VK автоматически сгенерировал <strong>«Защищённый ключ»</strong> (Secure Key) при создании
+          приложения. Он скрыт звёздочками — нажмите <strong>«Показать»</strong>, скопируйте значение.
+          Скриншот ключа делать НЕЛЬЗЯ — это секрет.
         </p>
-        <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5">
-          <li><strong>Защищённый ключ</strong> (Secure Key) — длинная строка, нужна для подписи запросов от Mini App к нашему бэкенду</li>
-          <li><strong>Сервисный ключ доступа</strong> (Service Token) — длинная строка, нужна для серверных запросов от ПЛЮСОН к VK API</li>
-        </ul>
+        <p className="text-xs text-gray-500">
+          Защищённый ключ нужен ПЛЮСОНу для проверки подписи запросов от вашего Mini App к нашему
+          бэкенду — гарантия что данные не подделаны.
+        </p>
       </Section>
 
       <Section step="8" title="Подключить сообщество к ПЛЮСОН">
@@ -296,22 +352,22 @@ export default function VkSetupInstructionPage() {
         </p>
         <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
           <li>Откройте раздел <Link href="/dashboard/channels" className="text-blue-600 hover:underline font-medium">«Каналы»</Link> в дашборде</li>
-          <li>Нажмите <strong>«Добавить канал»</strong> → выберите платформу <strong>«ВКонтакте»</strong></li>
-          <li>Заполните поля:
+          <li>В карточке-приглашении <strong>«Подключите своё VK-сообщество»</strong> нажмите кнопку
+            <strong> «Запустить мастер VK»</strong></li>
+          <li>В мастере (шаг 2 из 3) заполните <strong>4 поля</strong>:
             <ul className="list-disc pl-5 mt-1 space-y-0.5">
-              <li><strong>ID сообщества</strong> — число (например, <code>238697730</code>)</li>
-              <li><strong>Access Token сообщества</strong> — <code>vk1.a.xxxxx…</code></li>
-              <li><strong>App ID Mini App</strong> — число</li>
-              <li><strong>Защищённый ключ Mini App</strong> — строка</li>
-              <li><strong>Сервисный ключ Mini App</strong> — строка</li>
+              <li><strong>Access Token сообщества</strong> — длинный ключ <code>vk1.a.xxxxx…</code> из <strong>шага 6</strong></li>
+              <li><strong>VK App ID</strong> — число (из шага 7, в правой колонке панели Mini App)</li>
+              <li><strong>ID сообщества</strong> — число (например, <code>238697730</code>; виден в URL вашего сообщества <code>vk.ru/club<strong>238697730</strong></code> или в Настройки → «Номер сообщества»)</li>
+              <li><strong>Secure Key Mini App</strong> — длинная строка из <strong>«Разработка → Ключи доступа»</strong> вашего Mini App (шаг 7)</li>
             </ul>
           </li>
           <li>Нажмите <strong>«Подключить»</strong>. ПЛЮСОН автоматически:
             <ul className="list-disc pl-5 mt-1 space-y-0.5">
-              <li>проверит, что токен живой</li>
-              <li>зарегистрирует Callback API у вашего сообщества (для приёма событий)</li>
-              <li>привяжет Mini App к сообществу через API</li>
-              <li>пропишет главную кнопку сообщества → «Открыть приложение»</li>
+              <li>проверит, что токен живой (запрос <code>groups.getById</code> к VK API)</li>
+              <li>включит Long Poll API у вашего сообщества (нужно чтобы наш бэкенд получал входящие сообщения и нажатия кнопок)</li>
+              <li>сохранит реквизиты в зашифрованном виде в нашей базе</li>
+              <li>перезапустит свой VK-процесс — обычно за 5–10 секунд ваше сообщество начнёт обслуживаться</li>
             </ul>
           </li>
         </ol>
