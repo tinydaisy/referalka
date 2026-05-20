@@ -16,16 +16,24 @@ const DARK = '#25455D'
 type SubChannel = { speaker_id: number; name: string; tg_channel_id: string; tg_channel_url: string | null }
 
 function openExternal(url: string) {
-  const tg = (window as any).Telegram?.WebApp
-  if (tg?.openTelegramLink && /^https?:\/\/t\.me\//i.test(url)) {
-    tg.openTelegramLink(url)
-    return
+  // VK iframe блокирует window.open как popup без user-gesture, поэтому
+  // создаём временный <a target="_blank"> и эмулируем клик — это считается
+  // user-gesture в любом контексте (VK Bridge / TG / обычный браузер).
+  // В TG MA если когда-нибудь будет — Telegram.WebApp.openLink был бы быстрее,
+  // но и anchor-click тоже сработает.
+  try {
+    const a = document.createElement('a')
+    a.href = url
+    a.target = '_blank'
+    a.rel = 'noopener noreferrer'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  } catch {
+    // Last resort: смена URL текущего фрейма (закрывает Mini App,
+    // но лучше чем тишина).
+    window.location.href = url
   }
-  if (tg?.openLink) {
-    tg.openLink(url)
-    return
-  }
-  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 export function useChatGate(event: any, tgUser: any) {
