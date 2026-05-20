@@ -21,6 +21,7 @@ from ..services.contact_merge import upsert_contact_with_identity, resolve_ref_c
 from ..services.vk_auth import validate_vk_launch_params
 from ..services.vk_api import send_message as vk_send_message, tg_inline_to_vk_keyboard
 from ..services.share_links import vk_link as build_vk_link
+from ..services.event_welcome import _send_event_organizer_notification
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -107,6 +108,7 @@ async def handle_vk_event(body: VkEventRequest):
                     ev["id"], contact_id, referrer_contact_id,
                 )
                 # Первый раз увидели человека в этом событии — шлём приветствие в VK
+                # + уведомление организатору в TG-канал клиента
                 if inserted and event_title:
                     try:
                         msg = (
@@ -120,6 +122,21 @@ async def handle_vk_event(body: VkEventRequest):
                         await vk_send_message(vk_user_id, msg, keyboard=keyboard)
                     except Exception as e:
                         logger.warning(f"VK welcome message failed for vk_id={vk_user_id}: {e}")
+
+                    # Уведомление организатору о новом интересе через ВК (помечено «Платформа: ВКонтакте»)
+                    try:
+                        await _send_event_organizer_notification(
+                            conn,
+                            client_id=client_id,
+                            event_id=ev["id"],
+                            event_title=event_title,
+                            contact_id=contact_id,
+                            platform_slug="vk",
+                            referrer_contact_id=referrer_contact_id,
+                            tg_id=None,
+                        )
+                    except Exception as e:
+                        logger.warning(f"VK organizer notification failed: {e}")
 
     return {
         "ok": True,

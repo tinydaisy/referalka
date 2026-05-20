@@ -133,15 +133,20 @@ export default function App() {
       // Шлём event_start на бэк (асинхронно, не ждём ответа)
       const launchParams = getLaunchParams()
       if (Object.keys(launchParams).length > 0 && launchParams.vk_user_id) {
-        sendVkEvent(
-          launchParams,
-          user,
-          parsed.partnerId,
-          parsed.eventSlug,
-          parsed.clientId,
-          parsed.utmSource,
-          parsed.initialTab,
-        )
+        // Запрашиваем разрешение писать в личку от сообщества — это обязательно для welcome / рассылок.
+        // VK покажет диалог с кнопками «Разрешить»/«Запретить»; результат не блокирует — шлём event_start
+        // в любом случае (даже если запретят — событие зарегистрируем).
+        adapter.requestWriteAccess(() => {
+          sendVkEvent(
+            launchParams,
+            user,
+            parsed.partnerId,
+            parsed.eventSlug,
+            parsed.clientId,
+            parsed.utmSource,
+            parsed.initialTab,
+          )
+        })
       }
 
       setVkUser(prev => prev || (user || MOCK_USER))

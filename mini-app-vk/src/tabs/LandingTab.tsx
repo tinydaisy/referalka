@@ -42,7 +42,7 @@ export default function LandingTab({ event, onRegister }: Props) {
       <div className="fade-in" style={{ paddingBottom: 24 }}>
         {heroPoster && (
           <img src={heroPoster} alt={event?.title}
-               style={{ width: 'calc(100% + 32px)', margin: '-16px -16px 0', display: 'block',
+               style={{ width: 'calc(100% + 32px)', maxHeight: '70vh', margin: '-16px -16px 0', display: 'block',
                         objectFit: 'contain', borderRadius: '0 0 16px 16px' }} />
         )}
 
