@@ -36,6 +36,8 @@ PASSTHROUGH_PREFIXES = (
     "/api/v1/integrations/",
     "/api/v1/participants",
     "/api/v1/event",  # POST event_start, share-to-bot — действия участника, не клиента
+    "/api/v1/vk/",    # VK Mini App callbacks + webhook
+    "/api/v1/max/",   # MAX Mini App callbacks + webhook
     "/api/v1/referral",
     "/r/",
     "/m/",
