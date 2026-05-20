@@ -136,12 +136,21 @@ export default function VkSetupInstructionPage() {
         <SavePill
           number="1 / 4"
           label="ID сообщества"
-          desc={<>Откройте главную страницу своего сообщества — в URL браузера будет
-            <code> vk.ru/club238697730</code> (если короткий адрес ещё не задан) или
-            <code> vk.ru/ivision_pluson</code>. Если в URL видно <code>club</code> + число —
-            это число <strong>и есть</strong> ваш <code>ID сообщества</code> (например <code>238697730</code>).
-            Если короткий адрес уже задан — кликните в сообществе на <strong>«Все записи» / «Информация»</strong>,
-            пролистайте вниз: «ID сообщества: 238697730» написано отдельной строкой. Запишите только число.</>}
+          desc={<>В мастере подключения <strong>нужно только число</strong> (например <code>238697730</code>) —
+            не <code>ivision_pluson</code>, не <code>club238697730</code>, не URL.
+            <br/><br/>
+            <strong>Как найти это число у вашего сообщества:</strong>
+            <ul className="list-disc pl-5 mt-1 space-y-1">
+              <li><strong>Способ 1 (надёжный).</strong> В вашем сообществе под обложкой нажмите
+                <strong> «⋯» → «Управление»</strong>. Адресная строка браузера станет
+                <code> vk.ru/club<strong>238697730</strong>?act=manage</code> — число между <code>club</code>
+                и <code>?</code> и есть ваш ID. Скопируйте только число.</li>
+              <li><strong>Способ 2.</strong> Откройте любую запись на стене вашего сообщества. URL станет
+                <code> vk.ru/wall-<strong>238697730</strong>_15</code> — число между <code>wall-</code>
+                и <code>_</code> и есть ваш ID (без знака минус).</li>
+              <li><strong>Способ 3 (если короткий адрес ещё не задан).</strong> Главная страница сообщества
+                сама открывается как <code>vk.ru/club<strong>238697730</strong></code> — число и есть ID.</li>
+            </ul></>}
           example="238697730"
         />
 
