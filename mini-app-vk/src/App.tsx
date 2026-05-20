@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import bridge from '@vkontakte/vk-bridge'
 import Hub from './pages/Hub'
 import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
@@ -114,6 +115,8 @@ export default function App() {
   const [initialTab, setInitialTab] = useState<string | undefined>()
   const [pendingOpen, setPendingOpen] = useState<boolean>(false)
   const [accessDenied, setAccessDenied] = useState<boolean>(false)
+  const [funnelStatus, setFunnelStatus] = useState<'ok' | 'fail' | null>(null)
+  const [funnelGroupId, setFunnelGroupId] = useState<number>(0)
 
   useEffect(() => {
     (async () => {
@@ -145,10 +148,14 @@ export default function App() {
       // Шлём run_id + launch_params на бэк, который вызовет run_started_vk:
       //   - создаст contact + platform_user('vk') в БД клиента
       //   - сообщество шлёт пользователю Текст 1 в личку
-      // После успеха редиректим юзера прямо в чат с сообществом, где его уже ждёт приветствие.
+      // После успеха показываем экран «Готово, проверьте чат» и кнопку с переходом в диалог.
+      // window.location.replace внутри VK Mini App не работает (iframe sandbox), поэтому
+      // открываем чат через target=_top или закрываем Mini App через VKWebAppClose.
       if (sp && sp.startsWith('fnl_')) {
         const runId = Number(sp.slice(4))
         const lp = adapter.launchParams || {}
+        let ok = false
+        let groupId = 0
         if (runId && lp.vk_user_id) {
           try {
             const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/funnel-start`, {
@@ -157,18 +164,15 @@ export default function App() {
               body: JSON.stringify({ launch_params: lp, run_id: runId }),
             }).then(x => x.ok ? x.json() : null)
             if (r?.ok) {
-              const gid = Number(r.group_id || lp.vk_group_id || 0)
-              if (gid) {
-                // Редирект в чат с сообществом — там уже лежит Текст 1.
-                window.location.replace(`https://vk.com/im?sel=-${gid}`)
-                return
-              }
+              ok = true
+              groupId = Number(r.group_id || lp.vk_group_id || 0)
             }
           } catch (e) {
             console.warn('funnel-start failed', e)
           }
         }
-        // Если что-то пошло не так — оставляем как фолбэк HubSelector с заглушкой
+        setFunnelStatus(ok ? 'ok' : 'fail')
+        setFunnelGroupId(groupId)
         setLoading(false)
         return
       }
@@ -301,6 +305,10 @@ export default function App() {
   const splash = typeof document !== 'undefined' ? document.getElementById('plusson-splash') : null
   if (splash) splash.remove()
 
+  if (funnelStatus) {
+    return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} />
+  }
+
   if (eventSlug) {
     return (
       <>
@@ -332,5 +340,96 @@ export default function App() {
       <HubSelector tgUser={vkUser} onOpenEvent={openEvent} initialTab={initialTab} />
       {pendingOpen && <SpinnerOverlay />}
     </>
+  )
+}
+
+function FunnelStatusScreen({ status, groupId }: { status: 'ok' | 'fail'; groupId: number }) {
+  const chatUrl = groupId ? `https://vk.com/im?sel=-${groupId}` : ''
+  function close() {
+    bridge.send('VKWebAppClose', { status: 'success' }).catch(() => {
+      // Если VKWebAppClose не сработал (десктоп без поддержки) — открываем чат в этой же вкладке
+      if (chatUrl) window.top!.location.href = chatUrl
+    })
+  }
+  if (status === 'ok') {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(45deg, #25455D, #0a1520)',
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}>
+        <div style={{ maxWidth: 420, textAlign: 'center' }}>
+          <div style={{
+            width: 72, height: 72, borderRadius: '50%', background: '#FFCFA4',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 24px',
+          }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#25455D" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <h1 style={{ color: '#FFCFA4', fontSize: 24, margin: '0 0 12px', fontWeight: 700 }}>
+            Подарки уже в чате
+          </h1>
+          <p style={{ lineHeight: 1.5, opacity: 0.9, fontSize: 15, margin: '0 0 28px' }}>
+            Откройте диалог с сообществом — там лежит сообщение со списком ваших подарков
+            и кнопкой «ГОТОВО» для их получения.
+          </p>
+          {chatUrl && (
+            <a href={chatUrl} target="_top" style={{
+              display: 'inline-block', background: '#FFCFA4', color: '#25455D',
+              fontWeight: 700, padding: '14px 32px', borderRadius: 12, fontSize: 16,
+              textDecoration: 'none', boxShadow: '0 4px 14px rgba(255,207,164,0.4)',
+              marginBottom: 12,
+            }}>
+              Открыть чат
+            </a>
+          )}
+          <div>
+            <button onClick={close} style={{
+              background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)',
+              fontSize: 14, cursor: 'pointer', padding: '8px 16px',
+            }}>
+              Закрыть приложение
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  // fail
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(45deg, #25455D, #0a1520)',
+      color: '#fff',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    }}>
+      <div style={{ maxWidth: 420, textAlign: 'center' }}>
+        <h1 style={{ color: '#FFCFA4', fontSize: 22, margin: '0 0 12px', fontWeight: 700 }}>
+          Что-то пошло не так
+        </h1>
+        <p style={{ lineHeight: 1.5, opacity: 0.9, fontSize: 15, margin: '0 0 24px' }}>
+          Попробуйте перейти по ссылке ещё раз. Если ошибка повторится — напишите
+          организатору в сообщество.
+        </p>
+        {chatUrl && (
+          <a href={chatUrl} target="_top" style={{
+            display: 'inline-block', background: '#FFCFA4', color: '#25455D',
+            fontWeight: 700, padding: '12px 28px', borderRadius: 12, fontSize: 15,
+            textDecoration: 'none',
+          }}>
+            Написать организатору
+          </a>
+        )}
+      </div>
+    </div>
   )
 }
