@@ -1945,7 +1945,7 @@ async def export_salebot(
             title_part = s["title"] or ""
             sp_name = s.get("speaker_name") or ""
             sp_role = (s.get("speaker_role") or "").strip()
-            role_label = {"headliner": "хедлайнер", "organizer": "организатор"}.get(sp_role, "")
+            role_label = {"headliner": "хедлайнер", "organizer": "организатор", "jury": "жюри"}.get(sp_role, "")
             if sp_name and role_label:
                 person_part = f" ({sp_name} - {role_label})"
             elif sp_name:
@@ -2206,11 +2206,12 @@ async def send_speaker_to_telegram(
 
 # ─── Отправка программы конференции в Telegram ────────────────────────────────
 
-SCHEDULE_ROLES_WITH_LABEL = {"headliner", "organizer", "partner", "general_partner"}
+SCHEDULE_ROLES_WITH_LABEL = {"headliner", "organizer", "jury", "partner", "general_partner"}
 
 ROLE_LABELS_RU = {
     "headliner": "хедлайнер",
     "organizer": "организатор",
+    "jury": "жюри",
     "partner": "партнёр",
     "general_partner": "генеральный партнёр",
 }
@@ -2400,11 +2401,12 @@ async def send_schedule_to_telegram(
 
 # ─── Отправка списка подарков для розыгрыша в Telegram ───────────────────────
 
-RAFFLE_ROLES_WITH_LABEL = {"headliner", "organizer", "partner", "general_partner"}
+RAFFLE_ROLES_WITH_LABEL = {"headliner", "organizer", "jury", "partner", "general_partner"}
 
 RAFFLE_ROLE_LABELS_RU = {
     "headliner": "хедлайнер",
     "organizer": "организатор",
+    "jury": "жюри",
     "partner": "партнёр",
     "general_partner": "генеральный партнёр",
 }

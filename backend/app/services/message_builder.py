@@ -24,10 +24,11 @@ ROLE_LABELS_INTRO = {
     "headliner": "Хедлайнер",
     "partner": "Партнёр",
     "organizer": "Организатор",
+    "jury": "Жюри",
 }
 
 ORDINALS = {1: "первом", 2: "втором", 3: "третьем", 4: "четвёртом", 5: "пятом"}
-ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор"}
+ROLE_LABELS_DAY = {"headliner": "Хедлайнер", "partner": "Партнёр", "organizer": "Организатор", "jury": "Жюри"}
 
 DAY_TYPES = ("2h_before_unreg", "2h_before_reg", "30min_before", "day_live", "day_end",
              "day_before_09_12_unreg", "day_before_09_12_reg",

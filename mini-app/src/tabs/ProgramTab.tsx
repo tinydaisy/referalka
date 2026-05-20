@@ -74,6 +74,7 @@ const ROLE_LABELS: Record<string, string> = {
   headliner:  'Хедлайнер',
   partner:    'Партнёр',
   organizer:  'Организатор',
+  jury:       'Жюри',
 }
 
 const ROLE_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -81,6 +82,7 @@ const ROLE_COLORS: Record<string, { bg: string; fg: string }> = {
   headliner:  { bg: 'rgba(255,207,164,0.25)',  fg: '#a86b2c' },
   partner:    { bg: 'rgba(76,175,80,0.12)',    fg: '#2e7d32' },
   organizer:  { bg: 'rgba(156,39,176,0.10)',   fg: '#6a1b9a' },
+  jury:       { bg: 'rgba(217,178,114,0.18)',  fg: '#8a6a1e' },
 }
 
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']

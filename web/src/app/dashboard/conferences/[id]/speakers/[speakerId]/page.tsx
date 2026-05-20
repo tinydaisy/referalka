@@ -239,6 +239,7 @@ export default function ConferenceSpeakerPage() {
 
   function calcPriority(role: string, is_commercial: boolean): number {
     if (role === 'organizer') return 10
+    if (role === 'jury') return 15
     if (is_commercial && role === 'headliner') return 20
     if (is_commercial && role === 'speaker') return 30
     if (is_commercial && role === 'partner') return 40

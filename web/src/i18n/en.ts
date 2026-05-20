@@ -185,6 +185,7 @@ export const en = {
       removeConfirm: (name: string) => `Remove "${name}" from the conference?`,
       roles: {
         organizer: 'Organizer',
+        jury: 'Jury',
         headliner: 'Headliner',
         speaker: 'Speaker',
         partner: 'Partner',

@@ -467,6 +467,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                           </Link>
                           {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
                           {row.role === 'headliner' && <div className="text-xs text-gray-400 font-normal">хедлайнер</div>}
+                          {row.role === 'jury' && <div className="text-xs text-gray-400 font-normal">жюри</div>}
                           {row.role === 'partner' && <div className="text-xs text-gray-400 font-normal">партнёр</div>}
                         </td>
                         <td className="px-3 py-1.5 text-center">

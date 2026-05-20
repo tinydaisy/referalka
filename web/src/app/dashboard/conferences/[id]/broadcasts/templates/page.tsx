@@ -424,7 +424,7 @@ export default function TemplatesPage() {
       const giftRaffle = (speaker.gift_raffle_title || '').trim()
 
       if (tplType === 'speaker_intro') {
-        const ROLE_MAP: Record<string, string> = { speaker: 'Спикер', headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
+        const ROLE_MAP: Record<string, string> = { speaker: 'Спикер', headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор', jury: 'Жюри' }
         const roleLabel = ROLE_MAP[speaker.role] || 'Спикер'
         const tgChannel = (speaker.tg_channel_url || '').trim()
         const insta = (speaker.instagram_url || '').trim()
@@ -520,7 +520,7 @@ export default function TemplatesPage() {
 
     // Строим программу дня из сессий
     const daySessions = confSessions.filter((s: any) => s.day === d)
-    const ROLE_LABELS: Record<string, string> = { headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор' }
+    const ROLE_LABELS: Record<string, string> = { headliner: 'Хедлайнер', partner: 'Партнёр', organizer: 'Организатор', jury: 'Жюри' }
     const dayProgram = daySessions.length > 0
       ? daySessions.map((s: any) => {
           const fmt = (v: string) => v ? String(v).slice(0, 5) : ''
@@ -547,6 +547,7 @@ export default function TemplatesPage() {
     const roleOrder = (s: any) => {
       const r = s.speaker_role, c = s.is_commercial
       if (r === 'organizer') return 1
+      if (r === 'jury') return 1.5
       if (c && r === 'headliner') return 2
       if (c && r === 'speaker')   return 3
       if (c && r === 'partner')   return 4
