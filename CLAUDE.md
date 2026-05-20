@@ -219,7 +219,7 @@ iOS блокирует второе как popup без user-gesture.
 Полный recipe с готовым кодом, минимальным backend-endpoint и обработкой
 возврата (флаг в startapp + защита от петли) — в
 [documentation/MINI-APP-WEBVIEW-REDIRECT.md](documentation/MINI-APP-WEBVIEW-REDIRECT.md).
-В этом проекте применяется в [mini-app/index.html](mini-app/index.html) для
+В этом проекте применяется в [mini-app/index_tg.html](mini-app/index_tg.html) для
 авто-перехода на сторонний лендинг клиента (`events.landing_url`) до
 рендера React-бандла.
 
@@ -618,7 +618,7 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 - Коллабораторы — глобальная база: `collaborators` + `conf_speaker_events`. У `collaborators` FK `contact_id → contacts(id)` **NOT NULL** (миграция 086 от 2026-05-18). Коллаб = «расширение контакта»: только должность, фото, регалии, бот-канал, личный TG и т.п.; имя/email/телефон — поля контакта. Создание идёт **только** из существующего контакта (`POST /api/v1/collaborators/ { contact_id }`) — модалка «Добавить из контактов» на `/dashboard/collaborations`. Импорт JSON (`POST /collaborators/import`) — если контакта с таким именем нет, авто-создаёт пустой и привязывает. На карточке коллаба блок «Контакт в общей базе» виден всегда; на карточке контакта (если есть запись в `collaborators`) — плашка «Этот контакт — коллаборатор» со ссылкой. Email/телефон контакта правятся inline на `/dashboard/clients` (`PATCH /api/v1/contacts/{id}`).
 - `conf_speaker_events.notes` (миграция 041 от 2026-04-27) — произвольный текст под спикера в конкретной конференции (шпаргалка ведущего, частушка, заметки по гонорару). Редактируется на странице спикера в дашборде, в публичные endpoints (`/speakers/public`, `/speakers/{id}/public`) не отдаётся.
 - `collaborators.external_ref_param` (миграция 058 от 2026-05-05, расширено 2026-05-07) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки коллаборатора с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим, не валидируем — клиент сам знает, к какой системе привязывает партнёра. **Общая логика** — [`backend/app/services/external_landing.py`](backend/app/services/external_landing.py): `resolve_external_ref_param(client_id, pid)` + `build_external_landing_url(...)`. **Где приписывается** — все 4 точки, в которых открывается `events.landing_url`:
-  1. `GET /api/v1/public/events/{slug}/landing-redirect` ([client_profile.py](backend/app/api/client_profile.py)) — для inline-скрипта `mini-app/index.html` ДО React. Только при `status='published'` и не-зарегистрированном пользователе.
+  1. `GET /api/v1/public/events/{slug}/landing-redirect` ([client_profile.py](backend/app/api/client_profile.py)) — для inline-скрипта `mini-app/index_tg.html` ДО React. Только при `status='published'` и не-зарегистрированном пользователе.
   2. `GET /api/v1/public/events/{slug}/external-ref?pid=…` (новый, [client_profile.py](backend/app/api/client_profile.py)) — справочник pid→`external_ref_param`. Работает независимо от status. Используется фронтами там, где `landing-redirect` не срабатывает.
   3. SSR `/l/[slug]/page.tsx` ([web](web/src/app/l/%5Bslug%5D/page.tsx)) — 301-редирект веб-входа без `?app=tg`. Перед `redirect()` фетчит `external-ref`.
   4. Mini App `EventPage.tsx` ([mini-app](mini-app/src/pages/EventPage.tsx)), функция `redirectToExternalLanding(landingUrl)` — useEffect (SPA-навигация на event с `landing_url`) и `handleWantParticipate` (клик «Хочу участвовать»). Перед `window.location.href` фетчит `external-ref`.
@@ -946,7 +946,46 @@ CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Кон
 - База данных: PostgreSQL на VPS, все миграции применены
 - Бот: @pluson_bot, токен в `.env`
 - Mini App: зарегистрирован в BotFather, short name `pluson` (ОДНА «с»! не `plusson`)
-- Mini App на dev: https://dev.pluson.ru/tg/ (nginx alias на `mini-app/dist/`, vite `base: '/tg/'`)
+- Mini App TG на dev: https://dev.pluson.ru/tg/ (nginx alias на `mini-app/dist/`, vite `base: '/tg/'`)
+- Mini App VK на проде: https://pluson.ru/vk/ (nginx alias на `mini-app/dist-vk/`, vite `base: '/vk/'`)
+
+### Mini App — единый пакет TG/VK/MAX (рефакторинг 2026-05-20)
+
+С 2026-05-20 `mini-app/` обслуживает **все платформы** одним исходным кодом. Папка `mini-app-vk/` удалена. Структура:
+
+```
+mini-app/
+├── src/
+│   ├── platform/
+│   │   ├── index.ts        — PlatformAdapter interface + getPlatform()/setPlatform()
+│   │   ├── telegram.ts     — TG-адаптер (Telegram.WebApp)
+│   │   ├── vk.ts           — VK-адаптер (@vkontakte/vk-bridge)
+│   │   └── max.ts          — MAX-адаптер (window.WebApp, SDK подключается тегом)
+│   ├── main-tg.tsx         — точка входа TG: init + setPlatform + рендер App
+│   ├── main-vk.tsx         — точка входа VK
+│   ├── App.tsx             — общий, branching через `platform.name`
+│   ├── api.ts              — общий, getPlatformName() для ?platform= в нужных запросах
+│   ├── tabs/ pages/ components/ — общие, физически по одному файлу
+│   └── styles/
+├── index_tg.html           — с inline-скриптом landing-redirect для TG
+├── index_vk.html           — короче, без landing-redirect (VK работает иначе)
+├── vite.config.tg.ts       — base: '/tg/', outDir: 'dist'
+├── vite.config.vk.ts       — base: '/vk/', outDir: 'dist-vk'
+└── package.json            — build:tg + build:vk + build (запускает оба)
+```
+
+**Сборка:**
+```bash
+cd mini-app && npm run build
+# → dist/index.html + dist/assets/... (TG)
+# → dist-vk/index.html + dist-vk/assets/... (VK)
+```
+
+**Правило:** любая фича в Mini App пишется один раз в `mini-app/src/` — попадает во все платформы автоматически. Платформо-специфичное (init SDK, обработка funnel-ссылок VK, диалоги VK Bridge на email/phone) — внутри `if (getPlatformName() === 'vk')` в App.tsx или в `platform/vk.ts`.
+
+**MAX-фронт:** ещё не задеплоен (пока работает только бэк — миграция 090 + max_api/max_auth/max_event/max_webhook). Когда будет нужен — добавить `main-max.tsx` + `index_max.html` + `vite.config.max.ts` + nginx-блок `/max/`. Адаптер `platform/max.ts` уже готов (SDK почти идентичен Telegram WebApp).
+
+См. `memory/project_mini_app_unification_plan.md` и `memory/feedback_check_duplicated_packages.md`.
 - Клиент: margarita.vl2011@gmail.com / Playball8013!
 - Администратор: admin@plusson.app / Mill20ion!Forbs
 
