@@ -254,9 +254,17 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     # Уведомление организатору шлём ТОЛЬКО для VIP-сообществ. В системном
     # сообществе @pluson_bot/ivision_pluson мы не знаем, какому организатору
     # пользователь хочет написать — поэтому никаких уведомлений никому.
+    work_tg: str | None = None
     if not ctx.is_system:
         await _forward_user_message_to_organizer(db, ctx, from_id=int(from_id), text=text)
-    await _reply_to_user_message(ctx, peer_id=int(from_id))
+        # Для VIP — берём личный TG-ник клиента (work_tg_username из настроек),
+        # чтобы предложить пользователю написать туда напрямую.
+        work_tg = await db.fetchval(
+            "SELECT work_tg_username FROM clients WHERE id = $1", ctx.client_id,
+        )
+        if work_tg:
+            work_tg = work_tg.lstrip("@") or None
+    await _reply_to_user_message(ctx, peer_id=int(from_id), work_tg=work_tg)
 
 
 async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: int, text: str) -> None:
@@ -343,11 +351,15 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
         logger.warning(f"VK user_message notify failed for from_id={from_id}: {e}")
 
 
-async def _reply_to_user_message(ctx: "GroupCtx", *, peer_id: int) -> None:
-    """Шлёт пользователю короткий ответ с направлением в Экосистему.
+async def _reply_to_user_message(
+    ctx: "GroupCtx", *, peer_id: int, work_tg: str | None = None,
+) -> None:
+    """Шлёт пользователю короткий ответ.
 
-    К ответу прикрепляем VK-клавиатуру с inline-кнопкой, которая открывает
-    Mini App сразу на нужной вкладке (через #hub_tab{name}).
+    - Системное сообщество → текст про «Лидеры» + кнопка на эту вкладку Mini App.
+    - VIP-сообщество с work_tg → «напишите лично @{work_tg}» + URL-кнопка
+      «НАПИСАТЬ ЛИЧНО» → t.me/{work_tg}?text=Есть+вопрос (открывается в TG-приложении).
+    - VIP без work_tg → fallback на кнопку «Открыть Экосистему».
     """
     if ctx.is_system:
         reply = (
@@ -358,6 +370,15 @@ async def _reply_to_user_message(ctx: "GroupCtx", *, peer_id: int) -> None:
         )
         button_url = f"https://vk.com/app{ctx.vk_app_id}#hub_tableaders"
         button_text = "Открыть «Лидеры»"
+    elif work_tg:
+        from urllib.parse import quote
+        prefill = quote("Есть вопрос")
+        reply = (
+            "Спасибо, видим ваше сообщение 💛\n\n"
+            f"Для оперативного ответа напишите лично — @{work_tg} в Telegram."
+        )
+        button_url = f"https://t.me/{work_tg}?text={prefill}"
+        button_text = "НАПИСАТЬ ЛИЧНО"
     else:
         reply = (
             "Спасибо за сообщение 💛\n\n"
