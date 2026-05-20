@@ -230,19 +230,18 @@ async def handle_getchatid(message: Message):
 async def handle_user_message(message: Message):
     """Свободное сообщение пользователя в бот клиента (VIP или системный @pluson_bot).
 
-    Что делаем:
-      1. Определяем клиента-получателя:
-         - VIP-бот (is_system=FALSE) → единственный главный клиент из client_channels.
-         - Системный @pluson_bot → самый свежий не-системный контекст этого tg_id
-           (последний `platform_users.updated_at`).
-      2. Шлём в `clients.notifications_telegram_chat_id` сообщение с хештегом
-         #user_message и всеми стандартными полями (никнейм, имя, контакт-id, TG ID,
-         utm_source, ссылка на карточку) + полный текст.
-      3. Отвечаем пользователю:
-         - если у него есть @username → «передадим, но для скорости продублируйте
-           сами @work_tg»
-         - если нет → «у вас не указан Telegram-никнейм, мы не сможем вам ответить —
-           напишите напрямую @work_tg»
+    Развилка по типу бота:
+
+    1) Системный @pluson_bot — мы НЕ знаем, какому организатору пользователь
+       хочет написать (бот общий, в нём могут быть подписки на десятки клиентов).
+       Никаких уведомлений никому НЕ шлём, никого не угадываем. Просто отвечаем
+       пользователю текстом «откройте Лидеры» + web_app-кнопкой на эту вкладку.
+
+    2) VIP-бот клиента — клиент за этим ботом ровно один (client_channels).
+       Шлём уведомление #user_message в `clients.notifications_telegram_chat_id`,
+       пользователю отвечаем «напишите лично @{work_tg}» + URL-кнопка
+       «НАПИСАТЬ ЛИЧНО» → `t.me/{work_tg}?text=Есть вопрос`. Если у клиента
+       work_tg_username пуст — fallback на кнопку «Открыть Экосистему».
     """
     user = message.from_user
     bot_id = message.bot.id if message.bot else None
@@ -256,33 +255,34 @@ async def handle_user_message(message: Message):
             if not ch:
                 return
 
-            # 1. Кому пересылаем?
+            # === Ветка 1: системный @pluson_bot ===
             if ch["is_system"]:
-                client_id = await db.fetchval(
-                    """SELECT pu.client_id
-                         FROM platform_users pu
-                         JOIN clients c ON c.id = pu.client_id
-                        WHERE pu.platform_slug = 'telegram'
-                          AND pu.platform_user_id = $1
-                          AND c.email <> 'system@pluson.ru'
-                        ORDER BY pu.updated_at DESC NULLS LAST, pu.id DESC
-                        LIMIT 1""",
-                    str(user.id),
+                # Ничего не лукапим, никому не уведомляем — просто отвечаем.
+                reply = (
+                    "Спасибо за сообщение 💛\n\n"
+                    "Чтобы связаться с конкретным организатором — откройте приложение, "
+                    "перейдите на вкладку «Лидеры», выберите нужного лидера и в разделе "
+                    "«Экосистема» найдите его контакты для вопросов."
                 )
-            else:
-                client_id = await db.fetchval(
-                    """SELECT client_id FROM client_channels
-                        WHERE channel_id = $1
-                        ORDER BY is_active DESC, id ASC LIMIT 1""",
-                    ch["id"],
-                )
-            if not client_id:
-                # Контекст клиента неизвестен — молча выходим, чтобы пользователь
-                # не получил «техническую» ошибку. Сообщение нигде не оседает —
-                # это сознательный компромисс v1.
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="Открыть «Лидеры»",
+                        web_app=WebAppInfo(url="https://pluson.ru/tg/?_tab=leaders"),
+                    ),
+                ]])
+                await message.answer(reply, reply_markup=kb)
                 return
 
-            # 2. Реквизиты клиента
+            # === Ветка 2: VIP-бот клиента ===
+            client_id = await db.fetchval(
+                """SELECT client_id FROM client_channels
+                    WHERE channel_id = $1
+                    ORDER BY is_active DESC, id ASC LIMIT 1""",
+                ch["id"],
+            )
+            if not client_id:
+                return
+
             client_row = await db.fetchrow(
                 """SELECT notifications_telegram_chat_id, work_tg_username
                      FROM clients WHERE id = $1""",
@@ -293,7 +293,6 @@ async def handle_user_message(message: Message):
             notif_chat_id = client_row["notifications_telegram_chat_id"]
             work_tg = (client_row["work_tg_username"] or "").lstrip("@")
 
-            # 3. Контакт юзера в контексте этого клиента
             contact_row = await db.fetchrow(
                 """SELECT pu.contact_id, c.name, c.utm_source
                      FROM platform_users pu
@@ -307,12 +306,11 @@ async def handle_user_message(message: Message):
             contact_name = (contact_row["name"] if contact_row else "") or ""
             utm_source = (contact_row["utm_source"] if contact_row else None)
 
-            # 4. Хендл бота — для контекста в уведомлении
             bot_handle = await db.fetchval(
                 "SELECT handle FROM channels WHERE id = $1", ch["id"],
             )
 
-        # 5. Уведомление в канал клиента (от @pluson_bot — как и остальные уведомления)
+        # Уведомление в канал клиента (от @pluson_bot)
         if notif_chat_id:
             when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
             display_name = (
@@ -341,7 +339,7 @@ async def handle_user_message(message: Message):
                 "<b>Сообщение:</b>",
                 _html.escape(message.text or ""),
             ]
-            text = "\n".join(parts)
+            notif_text = "\n".join(parts)
             token = settings.telegram_bot_token
             if token:
                 try:
@@ -350,7 +348,7 @@ async def handle_user_message(message: Message):
                             f"https://api.telegram.org/bot{token}/sendMessage",
                             json={
                                 "chat_id": notif_chat_id,
-                                "text": text,
+                                "text": notif_text,
                                 "parse_mode": "HTML",
                                 "disable_web_page_preview": True,
                             },
@@ -358,33 +356,30 @@ async def handle_user_message(message: Message):
                 except Exception as e:
                     log.warning("user_message notify failed: %s", e)
 
-        # 6. Ответ пользователю
-        # Системный @pluson_bot — путь через вкладку «Лидеры». VIP-бот клиента —
-        # сразу Экосистема. Кнопку делаем web_app, а не URL: это открывает
-        # Mini App прямо в чате с заголовком бота (например «ПЛЮСОН от iViSiON»).
-        # URL-кнопка через `t.me/<bot>/pluson?startapp=…` показывает в шапке
-        # подпись короткого имени Mini App ("pluson"), а не бота.
-        # Mini App читает вкладку из query `?_tab=…` (см. mini-app/src/App.tsx).
-        if ch["is_system"]:
+        # Ответ пользователю VIP-бота
+        if work_tg:
             reply = (
-                "Спасибо за сообщение 💛\n\n"
-                "Чтобы связаться с конкретным организатором — откройте приложение, "
-                "перейдите на вкладку «Лидеры», выберите нужного лидера и в разделе "
-                "«Экосистема» найдите его контакты для вопросов."
+                "Спасибо, видим ваше сообщение 💛\n\n"
+                f"Для оперативного ответа напишите лично — @{work_tg}."
             )
-            mini_app_url = "https://pluson.ru/tg/?_tab=leaders"
-            button_text = "Открыть «Лидеры»"
+            from urllib.parse import quote
+            prefill = quote("Есть вопрос")
+            personal_url = f"https://t.me/{work_tg}?text={prefill}"
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="НАПИСАТЬ ЛИЧНО", url=personal_url),
+            ]])
         else:
             reply = (
                 "Спасибо за сообщение 💛\n\n"
                 "Если нужно связаться с организатором — откройте приложение, "
                 "вкладка «Экосистема». Там вся информация и контакты."
             )
-            mini_app_url = f"https://pluson.ru/c/{client_id}/tg/?_tab=ecosystem"
-            button_text = "Открыть «Экосистему»"
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=button_text, web_app=WebAppInfo(url=mini_app_url)),
-        ]])
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="Открыть «Экосистему»",
+                    web_app=WebAppInfo(url=f"https://pluson.ru/c/{client_id}/tg/?_tab=ecosystem"),
+                ),
+            ]])
         await message.answer(reply, reply_markup=kb)
     except Exception as e:
         log.exception("handle_user_message failed: %s", e)

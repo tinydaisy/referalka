@@ -251,8 +251,11 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     if not text:
         return
 
-    # Уведомление организатору в его TG-канал #user_message + отвечаем юзеру.
-    await _forward_user_message_to_organizer(db, ctx, from_id=int(from_id), text=text)
+    # Уведомление организатору шлём ТОЛЬКО для VIP-сообществ. В системном
+    # сообществе @pluson_bot/ivision_pluson мы не знаем, какому организатору
+    # пользователь хочет написать — поэтому никаких уведомлений никому.
+    if not ctx.is_system:
+        await _forward_user_message_to_organizer(db, ctx, from_id=int(from_id), text=text)
     await _reply_to_user_message(ctx, peer_id=int(from_id))
 
 
