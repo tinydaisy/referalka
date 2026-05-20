@@ -28,14 +28,14 @@ router = APIRouter(prefix="/events", tags=["Воронка догрева"])
 # ─── Pydantic ─────────────────────────────────────────────────────────
 
 class NurtureStepCreate(BaseModel):
-    offset_minutes: int = Field(..., ge=0)
+    offset_seconds: int = Field(..., ge=0)
     text:           str = ""
     button_label:   str = "Зарегистрироваться"
     is_active:      bool = True
 
 
 class NurtureStepUpdate(BaseModel):
-    offset_minutes: Optional[int] = Field(None, ge=0)
+    offset_seconds: Optional[int] = Field(None, ge=0)
     text:           Optional[str] = None
     button_label:   Optional[str] = None
     is_active:      Optional[bool] = None
@@ -47,7 +47,7 @@ class NurtureStepUpdate(BaseModel):
 
 DEFAULT_STEPS = [
     {
-        "offset_minutes": 30,
+        "offset_seconds": 30 * 60,  # 30 минут
         "text": (
             "⏰ <b>Кажется, что-то отвлекло</b> — но вы открывали «{event_title}»! "
             "Регистрация занимает минуту — закрепите место сейчас, чтобы не пропустить.\n\n"
@@ -56,17 +56,18 @@ DEFAULT_STEPS = [
         "button_label": "Зарегистрироваться",
     },
     {
-        "offset_minutes": 60 * 24,
+        "offset_seconds": 60 * 24,
         "text": (
             "💛 <b>Доброго времени!</b>\n\n"
             "Вчера вы открывали «{event_title}», но не успели зарегистрироваться. "
-            "Возможно были сомнения? Если что-то осталось непонятным — напишите нам прямо в этом боте.\n\n"
+            "Возможно остались вопросы? Свяжитесь с организатором — {owner_telegram} — "
+            "и мы поможем определиться.\n\n"
             "А если всё хорошо — забронируйте место одним нажатием ↓"
         ),
         "button_label": "Хочу участвовать",
     },
     {
-        "offset_minutes": 60 * 48,
+        "offset_seconds": 60 * 48,
         "text": (
             "⚠️ <b>Последний шанс!</b>\n\n"
             "До «{event_title}» совсем немного — поток участников растёт, "
@@ -101,9 +102,9 @@ async def _seed_default_steps_if_empty(db, event_id: int):
     for i, step in enumerate(DEFAULT_STEPS):
         await db.execute(
             """INSERT INTO event_nurture_steps
-                  (event_id, sort_order, offset_minutes, text, button_label, is_active)
+                  (event_id, sort_order, offset_seconds, text, button_label, is_active)
                VALUES ($1, $2, $3, $4, $5, TRUE)""",
-            event_id, i, step["offset_minutes"], step["text"], step["button_label"],
+            event_id, i, step["offset_seconds"], step["text"], step["button_label"],
         )
 
 
@@ -120,7 +121,7 @@ async def list_nurture_steps(
     await _assert_event_belongs_to_client(db, event_id, int(client["sub"]))
     await _seed_default_steps_if_empty(db, event_id)
     rows = await db.fetch(
-        """SELECT id, sort_order, offset_minutes, text, button_label, is_active, updated_at
+        """SELECT id, sort_order, offset_seconds, text, button_label, is_active, updated_at
              FROM event_nurture_steps
             WHERE event_id = $1
             ORDER BY sort_order, id""",
@@ -143,10 +144,10 @@ async def create_nurture_step(
     )
     new_id = await db.fetchval(
         """INSERT INTO event_nurture_steps
-              (event_id, sort_order, offset_minutes, text, button_label, is_active)
+              (event_id, sort_order, offset_seconds, text, button_label, is_active)
            VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id""",
-        event_id, next_sort, data.offset_minutes, data.text, data.button_label, data.is_active,
+        event_id, next_sort, data.offset_seconds, data.text, data.button_label, data.is_active,
     )
     return {"id": new_id}
 
@@ -171,8 +172,8 @@ async def update_nurture_step(
 
     updates = []
     args = [step_id]
-    if data.offset_minutes is not None:
-        args.append(data.offset_minutes); updates.append(f"offset_minutes = ${len(args)}")
+    if data.offset_seconds is not None:
+        args.append(data.offset_seconds); updates.append(f"offset_seconds = ${len(args)}")
     if data.text is not None:
         args.append(data.text); updates.append(f"text = ${len(args)}")
     if data.button_label is not None:

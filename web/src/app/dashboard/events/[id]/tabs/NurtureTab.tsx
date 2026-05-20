@@ -1,12 +1,12 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { Plus, Trash2, Clock, Save } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Trash2, Clock, Save, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 
 interface Step {
   id: number
   sort_order: number
-  offset_minutes: number
+  offset_seconds: number
   text: string
   button_label: string
   is_active: boolean
@@ -16,30 +16,20 @@ interface Props {
   eventId: number
 }
 
-// Удобные пресеты интервалов для дропдауна.
-const OFFSET_PRESETS: { label: string; minutes: number }[] = [
-  { label: 'через 15 минут',  minutes: 15 },
-  { label: 'через 30 минут',  minutes: 30 },
-  { label: 'через 1 час',     minutes: 60 },
-  { label: 'через 3 часа',    minutes: 180 },
-  { label: 'через 6 часов',   minutes: 360 },
-  { label: 'через 12 часов',  minutes: 720 },
-  { label: 'через 1 сутки',   minutes: 1440 },
-  { label: 'через 2 суток',   minutes: 2880 },
-  { label: 'через 3 суток',   minutes: 4320 },
-  { label: 'через 7 суток',   minutes: 10080 },
-]
-
-function formatOffset(min: number): string {
-  if (min < 60) return `через ${min} мин`
-  if (min < 1440) {
-    const h = Math.floor(min / 60); const m = min % 60
-    return m ? `через ${h} ч ${m} мин` : `через ${h} ч`
-  }
-  const d = Math.floor(min / 1440); const rest = min % 1440
-  if (rest === 0) return `через ${d} ${plural(d, 'сутки', 'суток', 'суток')}`
-  const h = Math.floor(rest / 60)
-  return `через ${d} ${plural(d, 'д', 'д', 'д')} ${h} ч`
+// Единицы для интервалов. Множитель в секундах.
+type Unit = 'seconds' | 'minutes' | 'hours' | 'days'
+const UNIT_FACTORS: Record<Unit, number> = {
+  seconds: 1,
+  minutes: 60,
+  hours:   3600,
+  days:    86400,
+}
+const UNIT_LABELS: Record<Unit, [string, string, string]> = {
+  // (1, 2..4, 5+) — стандартный slavic plural
+  seconds: ['секунда',  'секунды',  'секунд'],
+  minutes: ['минута',   'минуты',   'минут'],
+  hours:   ['час',      'часа',     'часов'],
+  days:    ['сутки',    'суток',    'суток'],
 }
 
 function plural(n: number, one: string, few: string, many: string) {
@@ -49,11 +39,49 @@ function plural(n: number, one: string, few: string, many: string) {
   return many
 }
 
+// Из секунд вернёт удобное (число, единица) — наибольшая единица где значение целое.
+function secondsToValueUnit(sec: number): { value: number; unit: Unit } {
+  if (sec === 0) return { value: 0, unit: 'minutes' }
+  if (sec % 86400 === 0) return { value: sec / 86400, unit: 'days' }
+  if (sec % 3600 === 0)  return { value: sec / 3600,  unit: 'hours' }
+  if (sec % 60 === 0)    return { value: sec / 60,    unit: 'minutes' }
+  return { value: sec, unit: 'seconds' }
+}
+
+function formatOffset(sec: number): string {
+  const { value, unit } = secondsToValueUnit(sec)
+  const [one, few, many] = UNIT_LABELS[unit]
+  return `через ${value} ${plural(value, one, few, many)}`
+}
+
 export default function NurtureTab({ eventId }: Props) {
   const [steps, setSteps] = useState<Step[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<number | null>(null)
   const [drafts, setDrafts] = useState<Record<number, Partial<Step>>>({})
+  const [eventSlug, setEventSlug] = useState<string>('')
+  const lastAddedRef = useRef<number | null>(null)
+  const cardRefs = useRef<Record<number, HTMLDivElement | null>>({})
+
+  // Подтягиваем slug события — чтобы показать в подсказке куда ведёт кнопка
+  useEffect(() => {
+    api.events.get(eventId).then((r: any) => {
+      setEventSlug(r?.event?.slug || '')
+    }).catch(() => {})
+  }, [eventId])
+
+  // После reload — если был добавлен шаг, scroll к нему и подсветить
+  useEffect(() => {
+    if (lastAddedRef.current && steps.find(s => s.id === lastAddedRef.current)) {
+      const el = cardRefs.current[lastAddedRef.current]
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.style.outline = '2px solid #FFCFA4'
+        setTimeout(() => { if (el) el.style.outline = '' }, 2000)
+      }
+      lastAddedRef.current = null
+    }
+  }, [steps])
 
   async function load() {
     setLoading(true)
@@ -96,14 +124,16 @@ export default function NurtureTab({ eventId }: Props) {
   }
 
   async function addStep() {
-    // Дефолт — 30 мин после последнего шага, простой текст-заготовка
-    const lastOffset = steps.length ? steps[steps.length - 1].offset_minutes : 30
-    await api.eventNurture.create(eventId, {
-      offset_minutes: lastOffset + 1440,
-      text: 'Новое сообщение воронки.',
+    // Дефолт — сутки после последнего шага. Новый шаг ВЫКЛЮЧЕН — клиент
+    // допишет текст и включит вручную.
+    const lastOffset = steps.length ? steps[steps.length - 1].offset_seconds : 30 * 60
+    const r = await api.eventNurture.create(eventId, {
+      offset_seconds: lastOffset + 86400,
+      text: 'Новое сообщение воронки. Допишите текст и включите шаг ↑',
       button_label: 'Зарегистрироваться',
-      is_active: true,
+      is_active: false,
     })
+    lastAddedRef.current = r?.id || null
     load()
   }
 
@@ -126,9 +156,15 @@ export default function NurtureTab({ eventId }: Props) {
         <p className="text-xs text-gray-500 mt-2">
           Поддерживается HTML-форматирование: <code>&lt;b&gt;жирный&lt;/b&gt;</code>,{' '}
           <code>&lt;i&gt;курсив&lt;/i&gt;</code>, <code>&lt;a href="..."&gt;ссылка&lt;/a&gt;</code>.
-          Плейсхолдеры в тексте: <code>{'{event_title}'}</code> — название события,{' '}
-          <code>{'{event_date_short}'}</code> — дата в формате «28 мая в 11:00 МСК».
         </p>
+        <p className="text-xs text-gray-500 mt-1">
+          Плейсхолдеры в тексте подставляются автоматически при отправке:
+        </p>
+        <ul className="text-xs text-gray-500 mt-1 ml-4 list-disc space-y-0.5">
+          <li><code>{'{event_title}'}</code> — название события</li>
+          <li><code>{'{event_date_short}'}</code> — дата в формате «28 мая в 11:00 МСК»</li>
+          <li><code>{'{owner_telegram}'}</code> — ваш Telegram-контакт из настроек (поле «Telegram для связи» в профиле). Если поле пустое — fallback на текст про Экосистему.</li>
+        </ul>
       </div>
 
       {steps.length === 0 ? (
@@ -139,12 +175,19 @@ export default function NurtureTab({ eventId }: Props) {
         steps.map((s, i) => {
           const d = drafts[s.id] || {}
           const dirty = Object.keys(d).length > 0
-          const currentOffset = d.offset_minutes ?? s.offset_minutes
+          const currentOffset = d.offset_seconds ?? s.offset_seconds
           const currentText = d.text ?? s.text
           const currentLabel = d.button_label ?? s.button_label
+          const { value: vuValue, unit: vuUnit } = secondsToValueUnit(currentOffset)
+          // Mini App URL для подсказки «куда ведёт кнопка»
+          const tgUrl = eventSlug
+            ? `https://t.me/pluson_bot/pluson?startapp=ref_pg${eventSlug}`
+            : ''
           return (
-            <div key={s.id}
-                 className={`bg-white rounded-2xl border shadow-sm p-5 ${s.is_active ? 'border-gray-100' : 'border-gray-200 bg-gray-50 opacity-75'}`}>
+            <div
+              key={s.id}
+              ref={el => { cardRefs.current[s.id] = el }}
+              className={`bg-white rounded-2xl border shadow-sm p-5 transition-all ${s.is_active ? 'border-gray-100' : 'border-gray-200 bg-gray-50 opacity-75'}`}>
               <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
@@ -168,23 +211,34 @@ export default function NurtureTab({ eventId }: Props) {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-1">
-                  <label className="block text-xs text-gray-500 mb-1">Когда отправить</label>
-                  <select
-                    value={OFFSET_PRESETS.find(p => p.minutes === currentOffset)?.minutes ?? -1}
-                    onChange={e => {
-                      const v = Number(e.target.value)
-                      if (v > 0) patchDraft(s.id, { offset_minutes: v })
-                    }}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
-                  >
-                    {OFFSET_PRESETS.map(p => (
-                      <option key={p.minutes} value={p.minutes}>{p.label}</option>
-                    ))}
-                    {!OFFSET_PRESETS.some(p => p.minutes === currentOffset) && (
-                      <option value={currentOffset}>{formatOffset(currentOffset)} (текущее)</option>
-                    )}
-                  </select>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Через</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      value={vuValue || 1}
+                      onChange={e => {
+                        const v = Math.max(1, Number(e.target.value) || 1)
+                        patchDraft(s.id, { offset_seconds: v * UNIT_FACTORS[vuUnit] })
+                      }}
+                      className="w-20 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                    />
+                    <select
+                      value={vuUnit}
+                      onChange={e => {
+                        const newUnit = e.target.value as Unit
+                        patchDraft(s.id, { offset_seconds: (vuValue || 1) * UNIT_FACTORS[newUnit] })
+                      }}
+                      className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                    >
+                      <option value="seconds">секунд</option>
+                      <option value="minutes">минут</option>
+                      <option value="hours">часов</option>
+                      <option value="days">суток</option>
+                    </select>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">от первого открытия события</p>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">Надпись на кнопке</label>
@@ -194,6 +248,11 @@ export default function NurtureTab({ eventId }: Props) {
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
                     placeholder="Зарегистрироваться"
                   />
+                  {tgUrl && (
+                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1 flex-wrap">
+                      <ExternalLink size={11} /> Ведёт на страницу события в Mini App (для TG: <code className="text-[10px]">{tgUrl}</code>; для VK — аналогичная ссылка через сообщество).
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -208,18 +267,16 @@ export default function NurtureTab({ eventId }: Props) {
                 />
               </div>
 
-              {dirty && (
-                <div className="mt-3 flex justify-end">
-                  <button
-                    onClick={() => saveStep(s)}
-                    disabled={saving === s.id}
-                    className="px-4 py-2 rounded-lg text-white font-semibold text-sm inline-flex items-center gap-2 disabled:opacity-50"
-                    style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
-                  >
-                    <Save size={14} /> {saving === s.id ? 'Сохранение…' : 'Сохранить'}
-                  </button>
-                </div>
-              )}
+              <div className="mt-3 flex justify-end">
+                <button
+                  onClick={() => saveStep(s)}
+                  disabled={!dirty || saving === s.id}
+                  className="px-4 py-2 rounded-lg text-white font-semibold text-sm inline-flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+                >
+                  <Save size={14} /> {saving === s.id ? 'Сохранение…' : dirty ? 'Сохранить' : 'Сохранено'}
+                </button>
+              </div>
             </div>
           )
         })

@@ -27,13 +27,40 @@ from app.services.channels import get_client_telegram_token
 logger = logging.getLogger(__name__)
 
 
-def _format_text(text: str, *, event_title: str, event_date_short: str) -> str:
+def _format_text(
+    text: str,
+    *,
+    event_title: str,
+    event_date_short: str,
+    owner_telegram: str = "",
+) -> str:
     """Подставляет плейсхолдеры. Безопасно — формат-строка может содержать
     случайные {...} в HTML; используем replace, а не .format()."""
     out = text or ""
     out = out.replace("{event_title}",      escape(event_title or ""))
     out = out.replace("{event_date_short}", escape(event_date_short or ""))
+    out = out.replace("{owner_telegram}",   owner_telegram or "")  # уже HTML-тег <a>
     return out
+
+
+def _build_owner_contact(work_tg: str | None, social_telegram: str | None) -> str:
+    """Контакт организатора для подстановки в {owner_telegram}.
+
+    Приоритет: clients.work_tg_username → clients.social_links.telegram. Возвращаем
+    HTML-якорь <a href="t.me/..."> с лейблом @username. Если ничего нет —
+    fallback на текст про Экосистему приложения."""
+    handle = (work_tg or "").lstrip("@").strip()
+    if not handle and social_telegram:
+        # social_telegram уже нормализован к https://t.me/... (см. services/social_links.py)
+        # Достаём из него username для лейбла.
+        s = social_telegram.strip()
+        if "t.me/" in s:
+            handle = s.split("t.me/", 1)[1].split("/", 1)[0].split("?", 1)[0]
+    if not handle:
+        # Без контакта в настройках — нейтральный fallback
+        return "откройте приложение → вкладка «Экосистема» — там контакты"
+    href = f"https://t.me/{handle}"
+    return f'<a href="{href}">@{escape(handle)}</a>'
 
 
 def _build_app_url(*, platform: str, client_id: int | None, slug: str, ref_code: str | None) -> str:
@@ -82,7 +109,22 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         except Exception:
             event_date_short = ""
 
-    text = _format_text(step_row["text"], event_title=event_title, event_date_short=event_date_short)
+    # Контакт организатора — из настроек клиента
+    contact_row = await db.fetchrow(
+        "SELECT work_tg_username, social_links->>'telegram' AS social_tg FROM clients WHERE id = $1",
+        run_row["client_id"],
+    )
+    owner_tg = _build_owner_contact(
+        (contact_row["work_tg_username"] if contact_row else None),
+        (contact_row["social_tg"] if contact_row else None),
+    )
+
+    text = _format_text(
+        step_row["text"],
+        event_title=event_title,
+        event_date_short=event_date_short,
+        owner_telegram=owner_tg,
+    )
     button_label = step_row["button_label"] or "Зарегистрироваться"
 
     # Получатель: ищем идентичности контакта в TG и VK
@@ -165,7 +207,7 @@ async def _tick():
 
             # Берём следующий активный шаг по индексу last_step_index + 1
             next_step = await db.fetchrow(
-                """SELECT id, sort_order, offset_minutes, text, button_label
+                """SELECT id, sort_order, offset_seconds, text, button_label
                      FROM event_nurture_steps
                     WHERE event_id = $1 AND is_active = TRUE
                     ORDER BY sort_order, id
@@ -182,8 +224,8 @@ async def _tick():
 
             # Пора ли слать?
             ready = await db.fetchval(
-                "SELECT $1::timestamptz + ($2 * INTERVAL '1 minute') <= NOW()",
-                r["started_at"], int(next_step["offset_minutes"]),
+                "SELECT $1::timestamptz + ($2 * INTERVAL '1 second') <= NOW()",
+                r["started_at"], int(next_step["offset_seconds"]),
             )
             if not ready:
                 continue
