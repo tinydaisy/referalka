@@ -7,13 +7,21 @@ function getToken() {
 
 async function request(path: string, options?: RequestInit) {
   const token = getToken()
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...options,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...options,
+    })
+  } catch (e: any) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new Error('Нет подключения к интернету. Проверьте сеть и попробуйте ещё раз.')
+    }
+    throw new Error('Сервер недоступен. Попробуйте ещё раз через минуту или напишите в поддержку.')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || 'Что-то пошло не так')
@@ -102,6 +110,11 @@ export const api = {
     deleteParticipant: (id: number, participantId: number) =>
       request(`/api/v1/events/${id}/participants/${participantId}`, {
         method: 'DELETE',
+      }),
+    addParticipantFromContact: (id: number, contactId: number, isRegistered = false) =>
+      request(`/api/v1/events/${id}/participants/from-contact`, {
+        method: 'POST',
+        body: JSON.stringify({ contact_id: contactId, is_registered: isRegistered }),
       }),
     // Коллабораторы события (соорганизаторы / спикеры — общая таблица event_collaborators)
     listCollaborators: (id: number, role?: string) =>
