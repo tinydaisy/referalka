@@ -455,7 +455,40 @@ async def connect_vk_community(
         )
     items = (gr_resp.get("response") or {}).get("groups") or gr_resp.get("response") or []
     if not items:
-        raise HTTPException(status_code=400, detail="VK API: сообщество не найдено")
+        # Самая частая причина: токен от другого сообщества, чем введённый ID.
+        # Для community-токена вызов groups.getById БЕЗ group_id возвращает то
+        # сообщество, к которому привязан токен — это позволяет дать точную
+        # диагностику вместо абстрактного «не найдено».
+        try:
+            own = await vk_call("groups.getById", {"fields": "screen_name"}, token=token)
+            own_items = (own.get("response") or {}).get("groups") or own.get("response") or []
+            if own_items:
+                own_grp = own_items[0]
+                own_id = own_grp.get("id")
+                own_name = own_grp.get("name") or "?"
+                own_screen = own_grp.get("screen_name") or ""
+                if own_id and int(own_id) != int(data.group_id):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Токен принадлежит сообществу «{own_name}» "
+                            f"(ID {own_id}{', vk.ru/' + own_screen if own_screen else ''}), "
+                            f"а вы указали ID сообщества {data.group_id}. "
+                            f"Создайте новый Access Token именно в том сообществе, чей ID вписан, "
+                            f"и повторите."
+                        ),
+                    )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # если диагностика не удалась — отдаём общую ошибку ниже
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"VK API: сообщество с ID {data.group_id} не найдено по этому токену. "
+                f"Проверьте что токен создан именно в этом сообществе и не отозван."
+            ),
+        )
     grp = items[0]
     group_name = grp.get("name") or f"Сообщество #{data.group_id}"
     screen_name = grp.get("screen_name") or ""

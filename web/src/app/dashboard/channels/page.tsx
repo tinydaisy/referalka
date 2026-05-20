@@ -535,7 +535,7 @@ function VipVkWizard({ clientId, onClose, onDone }: {
               <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5">
                 <li><b>Access Token сообщества</b> — токен с правами <code className="bg-gray-100 px-1 rounded text-xs">messages + manage</code></li>
                 <li><b>VK Mini App ID</b> — число из dev.vk.com/mini-apps/...</li>
-                <li><b>Secure Key</b> — там же, для валидации подписи</li>
+                <li><b>Защищённый ключ Mini App</b> (Secure Key) — там же. <span className="text-amber-700">Не путать с «Сервисным ключом доступа» — это другой ключ, нам нужен именно «Защищённый».</span></li>
                 <li><b>ID сообщества</b> — число из URL (например vk.com/club<b>123456</b>)</li>
               </ul>
               <button
@@ -601,7 +601,7 @@ function VipVkWizard({ clientId, onClose, onDone }: {
               </div>
 
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Secure Key Mini App <span className="text-red-500">*</span></label>
+                <label className="block text-xs text-gray-500 mb-1">Защищённый ключ Mini App (Secure Key) <span className="text-red-500">*</span></label>
                 <div className="relative">
                   <input
                     type={showSecure ? 'text' : 'password'}

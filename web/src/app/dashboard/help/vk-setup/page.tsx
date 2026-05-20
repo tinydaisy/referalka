@@ -453,17 +453,28 @@ export default function VkSetupInstructionPage() {
 
         <p className="text-sm font-semibold text-gray-800 mt-4 mb-2">«Разработка → Ключи доступа»:</p>
         <p className="text-sm text-gray-700 mb-3">
-          VK автоматически сгенерировал <strong>«Защищённый ключ»</strong> (Secure Key) при создании
-          приложения. Он скрыт звёздочками — нажмите <strong>«Показать»</strong>, скопируйте значение.
-          Скриншот ключа делать НЕЛЬЗЯ — это секрет.
+          В этом разделе ВК показывает <strong>два</strong> ключа с похожими названиями. Нам нужен
+          только <strong>«Защищённый ключ»</strong> (Secure Key). Скопируйте именно его — нажмите
+          «Показать», возьмите значение.
         </p>
+
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 mb-3">
+          ⚠️ <strong>Не перепутайте два ключа:</strong>
+          <ul className="list-disc pl-5 mt-1 space-y-0.5">
+            <li><strong>Защищённый ключ</strong> (Secure Key) — <strong>нужен нам</strong>. Через него
+              ВК подписывает запросы Mini App к нашему бэкенду.</li>
+            <li><strong>Сервисный ключ доступа</strong> — <em>не нужен</em>. Это серверный токен
+              для прямых вызовов VK API, ПЛЮСОН его не использует. Если вставите его вместо
+              защищённого — подключение работать не будет.</li>
+          </ul>
+        </div>
 
         <SavePill
           number="4 / 4"
-          label="Secure Key (Защищённый ключ)"
-          desc={<>В разделе <strong>«Разработка → Ключи доступа»</strong> вашего Mini App.
-            Длинная строка букв и цифр, по умолчанию скрыта звёздочками — нажмите
-            <strong> «Показать»</strong> и скопируйте целиком.</>}
+          label="Защищённый ключ (Secure Key)"
+          desc={<>В разделе <strong>«Разработка → Ключи доступа»</strong> вашего Mini App, строка
+            <strong> «Защищённый ключ»</strong> (НЕ «Сервисный ключ доступа»!).
+            По умолчанию скрыта звёздочками — нажмите <strong>«Показать»</strong> и скопируйте целиком.</>}
           example="GqXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         />
 
