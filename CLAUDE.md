@@ -498,7 +498,7 @@ SELECT $new_client_id, ch.id, TRUE
 - `clients.achievements` JSONB `[{label,value}]` — «Факты в цифрах» бренда (скрывается если пусто).
 
 **Основатель** — отдельная страница [`mini-app/src/pages/OwnerPage.tsx`](mini-app/src/pages/OwnerPage.tsx):
-- `clients.owner_name` — имя основателя (отдельно от технического `clients.name` из регистрации).
+- ⚠️ Отдельной колонки `clients.owner_name` в БД **нет** — миграция её не создала. Имя основателя в UI берётся из `clients.name` (техническое имя из регистрации). При SQL-запросах не использовать `owner_name`.
 - `clients.owner_photo_url` — фото основателя.
 - `clients.owner_positioning` — позиционирование основателя.
 - `clients.owner_achievements` JSONB `[{label,value}]` — «Факты в цифрах» основателя.
