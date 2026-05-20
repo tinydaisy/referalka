@@ -158,10 +158,33 @@ async def _send_via_telegram(bot_token: str, chat_id: str, text: str, button_lab
             raise RuntimeError(f"TG sendMessage {r.status_code}: {r.text[:200]}")
 
 
+def _html_to_plain(html_text: str) -> str:
+    """Превращает HTML-форматированный текст (для TG) в plain text для VK.
+
+    VK Bot API не поддерживает HTML/Markdown — теги и entity видны как сырой
+    текст в чате. Стрипаем теги, разворачиваем `<a href>` в `label (URL)`
+    чтобы пользователь увидел ссылку, и unescape-ируем `&quot;` / `&amp;` / etc.
+    """
+    import re
+    from html import unescape
+    # Сначала `<a href="X">label</a>` → `label (X)` (или просто X если label пуст)
+    def repl_a(m: re.Match) -> str:
+        href = m.group(1)
+        label = re.sub(r'<[^>]+>', '', m.group(2)).strip()
+        return f"{label} ({href})" if label and label != href else href
+    out = re.sub(r'<a\s+href="([^"]+)"[^>]*>(.*?)</a>', repl_a, html_text or "", flags=re.DOTALL | re.IGNORECASE)
+    # Остальные теги — стрипаем целиком
+    out = re.sub(r'<[^>]+>', '', out)
+    # HTML entities: &quot; → " , &amp; → & и т.п.
+    out = unescape(out)
+    return out
+
+
 async def _send_via_vk(token: str, user_id: int, text: str, button_label: str, url: str) -> None:
     from app.services.vk_api import send_message as vk_send, tg_inline_to_vk_keyboard
+    plain = _html_to_plain(text)
     keyboard = tg_inline_to_vk_keyboard([[{"text": button_label, "url": url}]])
-    await vk_send(user_id, text, token=token, keyboard=keyboard)
+    await vk_send(user_id, plain, token=token, keyboard=keyboard)
 
 
 async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
