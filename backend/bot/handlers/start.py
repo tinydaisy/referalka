@@ -359,12 +359,12 @@ async def handle_user_message(message: Message):
                     log.warning("user_message notify failed: %s", e)
 
         # 6. Ответ пользователю
-        # Системный @pluson_bot обслуживает много разных организаторов — указываем
-        # путь через вкладку «Лидеры» (выбрать конкретного лидера и в его Экосистеме
-        # найти контакты).
-        # VIP-бот клиента — Экосистема одна, можно вести прямо туда.
-        # К ответу прикрепляем inline-кнопку, которая открывает Mini App
-        # сразу на нужной вкладке через startapp=hub_tab{name}.
+        # Системный @pluson_bot — путь через вкладку «Лидеры». VIP-бот клиента —
+        # сразу Экосистема. Кнопку делаем web_app, а не URL: это открывает
+        # Mini App прямо в чате с заголовком бота (например «ПЛЮСОН от iViSiON»).
+        # URL-кнопка через `t.me/<bot>/pluson?startapp=…` показывает в шапке
+        # подпись короткого имени Mini App ("pluson"), а не бота.
+        # Mini App читает вкладку из query `?_tab=…` (см. mini-app/src/App.tsx).
         if ch["is_system"]:
             reply = (
                 "Спасибо за сообщение 💛\n\n"
@@ -372,7 +372,7 @@ async def handle_user_message(message: Message):
                 "перейдите на вкладку «Лидеры», выберите нужного лидера и в разделе "
                 "«Экосистема» найдите его контакты для вопросов."
             )
-            button_url = "https://t.me/pluson_bot/pluson?startapp=hub_tableaders"
+            mini_app_url = "https://pluson.ru/tg/?_tab=leaders"
             button_text = "Открыть «Лидеры»"
         else:
             reply = (
@@ -380,14 +380,10 @@ async def handle_user_message(message: Message):
                 "Если нужно связаться с организатором — откройте приложение, "
                 "вкладка «Экосистема». Там вся информация и контакты."
             )
-            handle = (bot_handle or "").lstrip("@")
-            button_url = (
-                f"https://t.me/{handle}?startapp=hub_tabecosystem"
-                if handle else "https://t.me/pluson_bot/pluson?startapp=hub_tableaders"
-            )
+            mini_app_url = f"https://pluson.ru/c/{client_id}/tg/?_tab=ecosystem"
             button_text = "Открыть «Экосистему»"
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=button_text, url=button_url),
+            InlineKeyboardButton(text=button_text, web_app=WebAppInfo(url=mini_app_url)),
         ]])
         await message.answer(reply, reply_markup=kb)
     except Exception as e:

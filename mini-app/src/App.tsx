@@ -133,6 +133,11 @@ export default function App() {
     const qsReg = new URLSearchParams(window.location.search).get('_reg')
     if (qsReg === '1') setRegFromLanding(true)
 
+    // ?_tab=leaders|ecosystem|… — Mini App открыт через web_app inline-кнопку,
+    // которая не пробрасывает startapp. Считываем из query, если startparam пуст.
+    const qsTab = new URLSearchParams(window.location.search).get('_tab')
+    if (qsTab && !parsed.initialTab) setInitialTab(qsTab)
+
     // Live-метка: пользователь пришёл по публичной live-ссылке организатора —
     // сразу ставим event_participants.live_at = now() (окно «в эфире» 120 минут).
     if (parsed.live && parsed.eventSlug && user?.id) {
