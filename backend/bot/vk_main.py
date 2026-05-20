@@ -290,6 +290,37 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     # Проверяем до payload-кнопок, чтобы выдача шла даже если пользователь
     # написал произвольный текст вместо нажатия Start.
     funnel_run_id = _extract_funnel_run_id(event_obj)
+    # Страховка: если ref не пришёл, но у юзера есть СВЕЖИЙ landed-забег
+    # без started_at (он пришёл через Mini App, но Текст 1 ещё не успел уйти —
+    # например, не дал права на сообщения) — продолжаем последний.
+    if not funnel_run_id:
+        recent_run = await db.fetchval(
+            """SELECT id FROM funnel_runs
+                WHERE client_id = $1
+                  AND type = 'lead_magnet'
+                  AND platform_slug = 'vk'
+                  AND stage = 'landed'
+                  AND landed_at > NOW() - INTERVAL '10 minutes'
+                ORDER BY landed_at DESC
+                LIMIT 1""",
+            ctx.client_id,
+        )
+        # Дополнительно подтянем по vk_user_id если он уже был связан с забегом
+        if not recent_run:
+            recent_run = await db.fetchval(
+                """SELECT id FROM funnel_runs
+                    WHERE client_id = $1
+                      AND type = 'lead_magnet'
+                      AND platform_slug = 'vk'
+                      AND platform_user_id = $2
+                      AND stage IN ('landed', 'started')
+                      AND landed_at > NOW() - INTERVAL '24 hours'
+                    ORDER BY landed_at DESC
+                    LIMIT 1""",
+                ctx.client_id, str(from_id),
+            )
+        if recent_run:
+            funnel_run_id = recent_run
     if funnel_run_id:
         try:
             user_info = await get_user_info(int(from_id))

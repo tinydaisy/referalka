@@ -161,6 +161,24 @@ export default function App() {
         let ok = false
         let groupId = 0
         if (lp.vk_user_id) {
+          // Сначала запрашиваем у пользователя разрешение писать ему в личку
+          // от сообщества (VKWebAppAllowMessagesFromGroup). Без него VK
+          // блокирует messages.send → Текст 1 не дойдёт. group_id для Mini App
+          // берём из launch_params или резолвим через vk/group-for-app.
+          let gid = Number(lp.vk_group_id || 0)
+          if (!gid && lp.vk_app_id) {
+            try {
+              const g: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+                .then(x => x.ok ? x.json() : null)
+              if (g?.group_id) gid = Number(g.group_id)
+            } catch (_) {}
+          }
+          // requestWriteAccess не блокирующий — выполняем в Promise чтобы
+          // дождаться ответа пользователя (allow/deny) перед запуском воронки.
+          await new Promise<void>((resolve) => {
+            if (!gid) return resolve()
+            adapter.requestWriteAccess(gid, () => resolve())
+          })
           try {
             const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/funnel-landing`, {
               method: 'POST',
@@ -174,7 +192,7 @@ export default function App() {
             }).then(x => x.ok ? x.json() : null)
             if (r?.ok) {
               ok = true
-              groupId = Number(r.group_id || lp.vk_group_id || 0)
+              groupId = Number(r.group_id || gid || 0)
             }
           } catch (e) {
             console.warn('funnel-landing failed', e)
