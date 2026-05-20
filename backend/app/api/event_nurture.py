@@ -20,7 +20,7 @@ from typing import Optional, Literal
 import asyncpg
 
 from app.database import get_db
-from app.api.auth import get_current_client
+from app.auth import get_current_client
 
 router = APIRouter(prefix="/events", tags=["Воронка догрева"])
 
