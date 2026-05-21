@@ -138,6 +138,11 @@ async def public_client_events(
                WHERE pu.platform_slug = 'telegram'
                  AND pu.platform_user_id = $2
             )
+            -- Для конференций приоритет — даты программы (conf_days). Но если
+            -- программа ещё не заведена, а в events.start_at дата уже выставлена —
+            -- fallback на неё, чтобы событие не «проваливалось» в конец из-за NULL
+            -- (видно в Mini App «Календарь»: «Ж.И.В.У.» без conf_days оказывалось
+            -- ниже мероприятия с более поздним start_at).
             SELECT e.id, e.slug, e.title, e.description, e.module_slug,
                    (SELECT url FROM event_posters
                      WHERE event_id = e.id
@@ -149,25 +154,24 @@ async def public_client_events(
                               END, sort, id
                      LIMIT 1) AS poster_url,
                    e.status,
-                   CASE WHEN e.module_slug = 'conference'
-                        THEN cd.start_at ELSE e.start_at END AS start_at,
-                   CASE WHEN e.module_slug = 'conference'
-                        THEN cd.end_at   ELSE e.end_at   END AS end_at,
+                   COALESCE(
+                     CASE WHEN e.module_slug = 'conference' THEN cd.start_at END,
+                     e.start_at
+                   ) AS start_at,
+                   COALESCE(
+                     CASE WHEN e.module_slug = 'conference' THEN cd.end_at END,
+                     e.end_at
+                   ) AS end_at,
                    CASE
-                     WHEN (CASE WHEN e.module_slug = 'conference'
-                                THEN cd.start_at ELSE e.start_at END) IS NULL
-                       OR (CASE WHEN e.module_slug = 'conference'
-                                THEN cd.end_at   ELSE e.end_at   END) IS NULL
+                     WHEN COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.start_at END, e.start_at) IS NULL
+                       OR COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at   END, e.end_at)   IS NULL
                           THEN 'upcoming'
                      WHEN NOW() BETWEEN
-                          (CASE WHEN e.module_slug = 'conference'
-                                THEN cd.start_at ELSE e.start_at END)
+                          COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.start_at END, e.start_at)
                           AND
-                          (CASE WHEN e.module_slug = 'conference'
-                                THEN cd.end_at   ELSE e.end_at   END)
+                          COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at   END, e.end_at)
                           THEN 'now'
-                     WHEN (CASE WHEN e.module_slug = 'conference'
-                                THEN cd.end_at   ELSE e.end_at   END) < NOW()
+                     WHEN COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at   END, e.end_at) < NOW()
                           THEN 'past'
                      ELSE 'upcoming'
                    END AS bucket,
@@ -181,8 +185,10 @@ async def public_client_events(
               LEFT JOIN conf_dates cd        ON cd.event_id = e.id
               LEFT JOIN user_participation up ON up.event_id = e.id
              WHERE e.client_id = $1 AND e.status IN ('published','ended')
-             ORDER BY (CASE WHEN e.module_slug = 'conference'
-                            THEN cd.start_at ELSE e.start_at END) NULLS LAST""",
+             ORDER BY COALESCE(
+                        CASE WHEN e.module_slug = 'conference' THEN cd.start_at END,
+                        e.start_at
+                      ) NULLS LAST""",
         client_id,
         str(tg_id) if tg_id else None,
     )

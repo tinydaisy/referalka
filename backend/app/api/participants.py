@@ -350,10 +350,17 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                                ELSE 4
                              END, sort, id
                     LIMIT 1) AS poster_url,
-                  CASE WHEN e.module_slug = 'conference'
-                       THEN cd.start_at ELSE e.start_at END AS start_at,
-                  CASE WHEN e.module_slug = 'conference'
-                       THEN cd.end_at   ELSE e.end_at   END AS end_at,
+                  -- Для конференций приоритет conf_days; если программа не
+                  -- заведена — fallback на events.start_at/end_at, чтобы
+                  -- конференция не пропадала из списка / сортировалась корректно.
+                  COALESCE(
+                    CASE WHEN e.module_slug = 'conference' THEN cd.start_at END,
+                    e.start_at
+                  ) AS start_at,
+                  COALESCE(
+                    CASE WHEN e.module_slug = 'conference' THEN cd.end_at END,
+                    e.end_at
+                  ) AS end_at,
                   pe.participant_id, pe.ref_code,
                   COALESCE(pe.is_registered, false) AS is_registered,
                   COALESCE(pe.is_in_chat,    false) AS is_in_chat,
@@ -371,8 +378,8 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
               AND (
                 -- будущие/идущие опубликованные — все, как промо
                 (e.status = 'published' AND (
-                   (CASE WHEN e.module_slug = 'conference' THEN cd.end_at ELSE e.end_at END) IS NULL
-                   OR (CASE WHEN e.module_slug = 'conference' THEN cd.end_at ELSE e.end_at END) >= NOW()
+                   COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at END, e.end_at) IS NULL
+                   OR COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at END, e.end_at) >= NOW()
                 ))
                 -- прошедшие — только если пользователь был участником
                 OR pe.event_id IS NOT NULL
