@@ -4,7 +4,6 @@ import { Copy, Check, Globe, Save } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
-const PLUSON_VK_APP_ID = 54592404  // системный VK Mini App ПЛЮСОН (fallback если клиент не подключил свой)
 
 interface LinkRow {
   key: string
@@ -34,21 +33,17 @@ export default function PublicLinks({
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  // VK App ID клиента — для построения ссылки на ЕГО Mini App, а не на системный.
-  // me.vk_app_id заполнен если клиент подключил своё VK-сообщество в /dashboard/channels.
-  // available_platforms — список платформ, готовых к показу (свой канал ИЛИ
-  // системный, выведенный из test-режима). MAX-системный пока в тесте → MAX
-  // в списке не появится у клиентов без своего MAX-канала.
-  const [vkAppId, setVkAppId] = useState<number>(PLUSON_VK_APP_ID)
-  const [availablePlatforms, setAvailablePlatforms] = useState<Set<string>>(new Set(['telegram']))
+  // Прямые deeplink-ссылки на платформы (TG-бот клиента / VK Mini App / MAX-бот)
+  // приходят с бэка: build_share_links сам выбирает бот клиента или системный.
+  // Старый фолбэк через pluson.ru/l/{slug}?app=tg оставлен только на случай,
+  // если бэк временно недоступен — рабочий редирект /l/{slug} тоже понимает.
+  const [shareLinks, setShareLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
   useEffect(() => {
-    api.auth.me().then((m: any) => {
-      if (m?.vk_app_id) setVkAppId(Number(m.vk_app_id))
-      if (Array.isArray(m?.available_platforms)) {
-        setAvailablePlatforms(new Set(m.available_platforms as string[]))
-      }
-    }).catch(() => {})
-  }, [])
+    if (!slug) { setShareLinks({}); return }
+    api.events.shareLinks(slug)
+      .then((r: any) => setShareLinks(r?.links || {}))
+      .catch(() => setShareLinks({}))
+  }, [slug])
 
   useEffect(() => { setDraft(slug || '') }, [slug])
 
@@ -72,6 +67,9 @@ export default function PublicLinks({
     }
   }
 
+  // WEB — локальный URL, открывает SSR-лендинг pluson.ru/l/{slug}.
+  // TG/VK/MAX — прямые deeplink из shareLinks (бэк сам выбирает бот клиента
+  // или системный @pluson_bot / системное VK-сообщество).
   const allLinks: (LinkRow & { platform: string | null })[] = slug ? [
     {
       key: 'web',
@@ -80,15 +78,15 @@ export default function PublicLinks({
       color: '#25455D',
       url: `${APP_URL}/l/${slug}`,
       hint: 'Лендинг события — публикуй в соцсетях, рассылках, на сайте',
-      platform: null,  // веб всегда показываем
+      platform: null,
     },
     {
       key: 'telegram',
       label: 'Telegram (Mini App)',
       badge: 'TG',
       color: '#229ED9',
-      url: `${APP_URL}/l/${slug}?app=tg`,
-      hint: 'Открывает событие в вашем Telegram-боте (или @pluson_bot, если свой не подключён). Используй в TG-постах и личке',
+      url: shareLinks.telegram || '',
+      hint: 'Прямая ссылка в Telegram — открывает Mini App вашего бота (или @pluson_bot, если свой не подключён). Используй в TG-постах и личке',
       platform: 'telegram',
     },
     {
@@ -96,8 +94,8 @@ export default function PublicLinks({
       label: 'ВКонтакте (Mini App)',
       badge: 'VK',
       color: '#0077FF',
-      url: `https://vk.com/app${vkAppId}#ref_pg${slug}`,
-      hint: 'Открывает событие в VK Mini App «iViSiON: ПЛЮСОН». Используй в VK-постах и личке',
+      url: shareLinks.vk || '',
+      hint: 'Прямая ссылка в VK Mini App. Используй в VK-постах и личке',
       platform: 'vk',
     },
     {
@@ -105,14 +103,15 @@ export default function PublicLinks({
       label: 'MAX',
       badge: 'MAX',
       color: '#FFCFA4',
-      url: `${APP_URL}/l/${slug}?app=max`,
-      hint: 'Открывает событие в MAX-канале (как только подключим бота в MAX)',
+      url: shareLinks.max || '',
+      hint: 'Прямая ссылка в MAX-бот. Используй когда подключите свой MAX-канал',
       platform: 'max',
     },
   ] : []
-  // Скрываем платформы, у которых системный канал ещё в test-режиме И клиент
-  // не подключил свой. Раньше показывались все 4 — теперь только готовые.
-  const links: LinkRow[] = allLinks.filter(l => l.platform === null || availablePlatforms.has(l.platform))
+  // Показываем только те платформы, по которым бэк вернул реальный URL
+  // (это значит: либо у клиента есть свой канал, либо есть боевой системный).
+  // WEB-строка показывается всегда.
+  const links: LinkRow[] = allLinks.filter(l => l.platform === null || !!l.url)
 
   const copy = async (key: string, url: string) => {
     if (isDraft) {

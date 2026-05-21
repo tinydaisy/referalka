@@ -100,15 +100,17 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   // зависит от gift_count_mode (registered/visited/clicked_link) клиента.
   // Если бэк не отдал (старая версия) — fallback на registered.
   const giftCountValue: number = participant?.gift_count_value ?? registered
-  // Партнёрская ссылка → веб-лендинг с редиректом.
-  // Если у клиента настроен внешний лендинг (events.landing_url, обычно Tilda/GetCourse) —
-  // друг попадает СНАЧАЛА на него (формы клиента, аналитика, brand) и только потом
-  // в Telegram-бот. redirect_web_app.js парсит ?app=tg&pid=... → startapp=ref_pg{slug}_pid{pid}.
-  //
-  // Это «универсальная» веб-ссылка для placeholder {link} в текстах-примерах
-  // (где платформа друга неизвестна заранее). Для прямых deeplink-ов под TG/VK/MAX —
-  // shareLinks (см. ниже).
-  const refLink = `${APP_URL}/l/${slug}?app=tg&pid=${refCode}`
+  // Партнёрская ссылка для placeholder {link} в текстах-примерах и для нативного
+  // шеринга. Приоритет — прямой deeplink в TG (или платформу, на которой сейчас
+  // открыт Mini App), который пришёл с бэка. Пока shareLinks грузятся —
+  // временный фолбэк на pluson.ru/l/{slug}, чтобы UI не моргал.
+  const currentPlatform = getPlatformName()
+  const refLink =
+    shareLinks.telegram
+    || shareLinks[currentPlatform as 'telegram' | 'vk' | 'max']
+    || shareLinks.vk
+    || shareLinks.max
+    || `${APP_URL}/l/${slug}?app=tg&pid=${refCode}`
 
   // Загружаем подарки → понимаем «следующий» по порогу
   useEffect(() => {

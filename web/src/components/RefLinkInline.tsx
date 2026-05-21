@@ -3,8 +3,12 @@ import { useEffect, useState } from 'react'
 import { Copy, Check, Link2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
-const PLUSON_VK_APP_ID = 54592404  // системный VK Mini App ПЛЮСОН (fallback)
+/**
+ * Блок «Партнёрская ссылка» для карточки спикера/организатора.
+ * Показывает прямые deeplink-ссылки на все активные площадки клиента (TG, VK, MAX) —
+ * каждая с pid=refCode партнёра. Источник — /events/slug/{slug}/share-links
+ * (бэк сам выбирает бот клиента или системный @pluson_bot).
+ */
 
 interface Props {
   slug: string | null | undefined
@@ -15,26 +19,17 @@ interface Props {
   eventStatus?: 'draft' | 'published' | 'ended' | null
 }
 
-/**
- * Блок «Партнёрская ссылка» для карточки спикера/организатора.
- * Показывает ссылки на ВСЕ активные площадки клиента (TG, VK, MAX) — каждая
- * с pid=refCode партнёра. VK ведёт сразу в Mini App клиента (или системный
- * если своего нет). TG/MAX — через /l/{slug}?app=… (web→редиректит в бот).
- */
 export default function RefLinkInline({ slug, refCode, compact = false, eventStatus }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const isDraft = eventStatus === 'draft'
-  const [vkAppId, setVkAppId] = useState<number>(PLUSON_VK_APP_ID)
-  const [availablePlatforms, setAvailablePlatforms] = useState<Set<string>>(new Set(['telegram']))
+  const [shareLinks, setShareLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
 
   useEffect(() => {
-    api.auth.me().then((m: any) => {
-      if (m?.vk_app_id) setVkAppId(Number(m.vk_app_id))
-      if (Array.isArray(m?.available_platforms)) {
-        setAvailablePlatforms(new Set(m.available_platforms as string[]))
-      }
-    }).catch(() => {})
-  }, [])
+    if (!slug || !refCode) { setShareLinks({}); return }
+    api.events.shareLinks(slug, refCode)
+      .then((r: any) => setShareLinks(r?.links || {}))
+      .catch(() => setShareLinks({}))
+  }, [slug, refCode])
 
   if (!slug || !refCode) {
     return (
@@ -45,28 +40,13 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
   }
 
   const allLinks = [
-    {
-      key: 'telegram',
-      badge: 'TG',
-      label: 'Telegram',
-      url: `${APP_URL}/l/${slug}?app=tg&pid=${refCode}`,
-    },
-    {
-      key: 'vk',
-      badge: 'VK',
-      label: 'ВКонтакте',
-      url: `https://vk.com/app${vkAppId}#ref_pg${slug}_pid${refCode}`,
-    },
-    {
-      key: 'max',
-      badge: 'MAX',
-      label: 'MAX',
-      url: `${APP_URL}/l/${slug}?app=max&pid=${refCode}`,
-    },
+    { key: 'telegram', badge: 'TG',  label: 'Telegram',   url: shareLinks.telegram || '' },
+    { key: 'vk',       badge: 'VK',  label: 'ВКонтакте',  url: shareLinks.vk || '' },
+    { key: 'max',      badge: 'MAX', label: 'MAX',        url: shareLinks.max || '' },
   ]
-  // Скрываем платформы у которых системный канал в test-режиме И клиент не
-  // подключил свой (см. /auth/me available_platforms — заполняется на бэке).
-  const links = allLinks.filter(l => availablePlatforms.has(l.key))
+  // Показываем только те платформы, по которым бэк вернул URL (есть свой канал
+  // ИЛИ есть боевой системный для этой платформы).
+  const links = allLinks.filter(l => !!l.url)
 
   async function handleCopy(e: React.MouseEvent, key: string, url: string) {
     e.preventDefault(); e.stopPropagation()
@@ -85,6 +65,9 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
     // В компактном виде (на карточках в списке) — только TG-ссылка одной строкой,
     // чтобы не раздувать ряды. Полный набор площадок открывается в карточке спикера.
     const tg = links[0]
+    if (!tg) {
+      return <div className="text-[11px] text-gray-400 italic mt-1">загрузка ссылки…</div>
+    }
     return (
       <div className="flex items-center gap-1.5 mt-1">
         <code

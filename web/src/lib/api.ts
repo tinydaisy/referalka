@@ -100,6 +100,10 @@ export const api = {
     copy: (id: number) =>
       request(`/api/v1/events/${id}/copy`, { method: 'POST' }),
     analytics: (id: number) => request(`/api/v1/events/${id}/analytics`),
+    shareLinks: (slug: string, pid?: string) => {
+      const qs = pid ? `?pid=${encodeURIComponent(pid)}` : ''
+      return request(`/api/v1/events/slug/${encodeURIComponent(slug)}/share-links${qs}`)
+    },
     participants: (id: number, registered: 'all' | 'yes' | 'no' = 'all') =>
       request(`/api/v1/events/${id}/participants?registered=${registered}`),
     setRegistered: (id: number, participantId: number, isRegistered: boolean) =>
