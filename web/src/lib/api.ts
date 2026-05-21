@@ -144,6 +144,8 @@ export const api = {
     get: (id: number) => request(`/api/v1/collaborators/${id}`),
     create: (data: any) =>
       request('/api/v1/collaborators/', { method: 'POST', body: JSON.stringify(data) }),
+    quick: (data: any) =>
+      request('/api/v1/collaborators/quick', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: number, data: any) =>
       request(`/api/v1/collaborators/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>

@@ -454,6 +454,11 @@ class SpeakerCreateAndAdd(BaseModel):
     is_commercial: bool = False
     is_visible: bool = True
     sort_order: int = 0
+    # Дедуп по имени: если у клиента уже есть контакт с таким именем —
+    # без force_create эндпоинт вернёт needs_choice с вариантами для UI.
+    # Если клиент выбрал «привязать к существующему» — передаёт existing_contact_id.
+    force_create: bool = False
+    existing_contact_id: Optional[int] = None
 
 
 class SpeakerEventUpdate(BaseModel):
@@ -669,41 +674,99 @@ async def create_and_add_speaker(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
+    client_id = int(client["sub"])
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Имя обязательно")
 
-    # 1. Создаём в глобальной базе
-    sp = await db.fetchrow(
-        """INSERT INTO collaborators
-           (name, title, achievements,
-            photo_url, photo_folder_url, video_folder_url,
-            tg_channel_url, instagram_url, website_url, created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *""",
-        data.name, data.title, data.achievements,
-        data.photo_url, data.photo_folder_url, data.video_folder_url,
-        data.tg_channel_url, data.instagram_url, data.website_url,
-        int(client["sub"])
-    )
+    contact_id: Optional[int] = data.existing_contact_id
 
-    # 2. Гарантируем контакт + ref_code у нового коллаба (создаст плейсхолдер если нужно)
-    await ensure_collaborator_contact(sp["id"], db)
+    # Если клиент сразу указал existing_contact_id — проверяем что он его
+    if contact_id is not None:
+        own = await db.fetchval(
+            "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
+            contact_id, client_id
+        )
+        if not own:
+            raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
 
-    topics_list = data.topics if data.topics is not None else (
-        [data.speaker_topic] if data.speaker_topic else []
-    )
-    first_topic = topics_list[0] if topics_list else None
+    # Если existing_contact_id не дали и не force_create — ищем похожие по имени.
+    # Возвращаем клиенту выбор (UI: «Использовать существующего» / «Создать нового»).
+    if contact_id is None and not data.force_create:
+        matches = await db.fetch(
+            """SELECT c.id, c.name, c.email, c.phone,
+                      EXISTS(SELECT 1 FROM collaborators col WHERE col.contact_id = c.id) AS has_collab
+                 FROM contacts c
+                WHERE c.client_id = $1
+                  AND c.merged_into IS NULL
+                  AND LOWER(TRIM(c.name)) = LOWER($2)
+                ORDER BY c.id
+                LIMIT 10""",
+            client_id, name
+        )
+        if matches:
+            return {
+                "needs_choice": True,
+                "matches": [
+                    {"id": m["id"], "name": m["name"], "email": m["email"],
+                     "phone": m["phone"], "has_collab": m["has_collab"]}
+                    for m in matches
+                ],
+            }
 
-    cse = await db.fetchrow(
-        """INSERT INTO event_collaborators
-           (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
-            gift_raffle_title, gift_raffle_url,
-            poster_url, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
-        sp["id"], event_id, data.role, first_topic,
-        data.gift_after_speech_title, data.gift_after_speech_url,
-        data.gift_raffle_title, data.gift_raffle_url,
-        data.poster_url, data.partner_url, data.extra_info, data.notes,
-        data.is_commercial, data.is_visible, data.sort_order
-    )
-    await _save_topics(cse["id"], topics_list, db)
+    async with db.transaction():
+        # 1. Контакт: либо существующий, либо новый
+        if contact_id is None:
+            contact_id = await db.fetchval(
+                """INSERT INTO contacts (client_id, name, ref_code)
+                   VALUES ($1, $2, SUBSTR(REPLACE(gen_random_uuid()::text, '-', ''), 1, 8))
+                   RETURNING id""",
+                client_id, name
+            )
+        else:
+            # Если уже есть коллаб у этого контакта — 409 (один коллаб на контакт)
+            existing_coll = await db.fetchval(
+                "SELECT id FROM collaborators WHERE contact_id = $1", contact_id
+            )
+            if existing_coll:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"У этого контакта уже есть коллаборатор (id={existing_coll}). Откройте его карточку и добавьте в событие через «Из базы»."
+                )
+
+        # 2. Коллаб в глобальной базе
+        sp = await db.fetchrow(
+            """INSERT INTO collaborators
+               (contact_id, name, title, achievements,
+                photo_url, photo_folder_url, video_folder_url,
+                tg_channel_url, instagram_url, website_url, created_by_client_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *""",
+            contact_id, name, data.title, data.achievements,
+            data.photo_url, data.photo_folder_url, data.video_folder_url,
+            data.tg_channel_url, data.instagram_url, data.website_url,
+            client_id
+        )
+
+        # 3. Участие в событии
+        topics_list = data.topics if data.topics is not None else (
+            [data.speaker_topic] if data.speaker_topic else []
+        )
+        first_topic = topics_list[0] if topics_list else None
+
+        cse = await db.fetchrow(
+            """INSERT INTO event_collaborators
+               (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
+                gift_raffle_title, gift_raffle_url,
+                poster_url, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
+            sp["id"], event_id, data.role, first_topic,
+            data.gift_after_speech_title, data.gift_after_speech_url,
+            data.gift_raffle_title, data.gift_raffle_url,
+            data.poster_url, data.partner_url, data.extra_info, data.notes,
+            data.is_commercial, data.is_visible, data.sort_order
+        )
+        await _save_topics(cse["id"], topics_list, db)
+
     topics_map = await _load_topics([cse["id"]], db)
     result = {**dict(sp), **dict(cse), "speaker_id": sp["id"], "topics": topics_map.get(cse["id"], [])}
     await regenerate_landing_data(event_id, db)

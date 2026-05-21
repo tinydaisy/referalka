@@ -123,13 +123,23 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
   }
   useEffect(() => { if (modal === 'base') searchBase('') }, [modal])
 
-  async function createNew() {
+  // Возможные match'и контактов с тем же именем — приходят с бэка как needs_choice.
+  // UI: модалка с выбором «использовать существующего» / «создать нового всё равно».
+  const [nameChoice, setNameChoice] = useState<{ matches: any[]; payload: any } | null>(null)
+
+  async function createNew(opts?: { force_create?: boolean; existing_contact_id?: number | null }) {
     if (!form.name.trim()) return
     setSaving(true)
     try {
       const topics = form.topics.filter(t => t.trim())
-      await api.conference.speakers.create(eventId, { ...form, topics })
+      const payload: any = { ...form, topics, ...(opts || {}) }
+      const res = await api.conference.speakers.create(eventId, payload)
+      if (res?.needs_choice) {
+        setNameChoice({ matches: res.matches || [], payload })
+        return
+      }
       setModal(null)
+      setNameChoice(null)
       setForm({ name: '', role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
       load()
     } catch (err: any) { alert(err.message) } finally { setSaving(false) }
@@ -433,6 +443,45 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
               {saving ? <><Spinner /> {t.common.saving}</> : t.common.save}
             </button>
             <button onClick={() => { setModal(null); setEditSpeaker(null) }} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Выбор при совпадении имени: использовать существующего контакта или создать нового всё равно */}
+      {nameChoice && (
+        <Modal title="Похожий контакт уже есть" onClose={() => setNameChoice(null)}>
+          <p className="text-sm text-gray-600 mb-3">
+            У вас уже есть {nameChoice.matches.length === 1 ? 'контакт' : 'контакты'} с именем
+            <b> «{form.name.trim()}»</b>. Используем существующий или создать ещё одного?
+          </p>
+          <div className="space-y-2 mb-4">
+            {nameChoice.matches.map(m => (
+              <button
+                key={m.id}
+                onClick={() => createNew({ existing_contact_id: m.id })}
+                disabled={m.has_collab || saving}
+                className="w-full text-left p-3 rounded-xl border border-gray-200 hover:border-brand hover:bg-brand/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={m.has_collab ? 'У этого контакта уже есть коллаборатор' : 'Привязать спикера к этому контакту'}
+              >
+                <div className="font-medium text-gray-900">{m.name}</div>
+                {(m.email || m.phone) && (
+                  <div className="text-xs text-gray-400 mt-0.5">{[m.email, m.phone].filter(Boolean).join(' · ')}</div>
+                )}
+                {m.has_collab && <div className="text-xs text-amber-600 mt-1">⚠️ У этого контакта уже есть коллаборатор</div>}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => createNew({ force_create: true })}
+              disabled={saving}
+              className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}
+            >
+              {saving ? <><Spinner /> Создаём...</> : 'Всё равно создать нового'}
+            </button>
+            <button onClick={() => setNameChoice(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+              Отмена
+            </button>
           </div>
         </Modal>
       )}

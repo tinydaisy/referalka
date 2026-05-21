@@ -321,6 +321,7 @@ export default function CollaborationsPage() {
   const [query, setQuery] = useState('')
   const [showImport, setShowImport] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
+  const [showCreateNew, setShowCreateNew] = useState(false)
 
   function load(q?: string) {
     setLoading(true)
@@ -364,8 +365,12 @@ export default function CollaborationsPage() {
             <Upload size={15} /> Импорт из файла
           </button>
           <button onClick={() => setShowAdd(true)}
+            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2">
+            <Plus size={15} /> Из контактов
+          </button>
+          <button onClick={() => setShowCreateNew(true)}
             className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2">
-            <Plus size={16} /> Добавить из контактов
+            <Plus size={16} /> Создать нового
           </button>
         </div>
       </div>
@@ -462,6 +467,146 @@ export default function CollaborationsPage() {
           takenContactIds={takenContactIds}
         />
       )}
+
+      {showCreateNew && (
+        <QuickCreateCollabModal
+          onClose={() => setShowCreateNew(false)}
+          onCreated={() => { setShowCreateNew(false); load() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Модалка создания коллаборатора «с нуля» — имя + опц. поля.
+// При совпадении имени с существующим контактом бэк возвращает needs_choice,
+// и мы показываем список совпадений с кнопками «использовать» или «всё равно создать».
+function QuickCreateCollabModal({
+  onClose, onCreated,
+}: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState('')
+  const [title, setTitle] = useState('')
+  const [tgUsername, setTgUsername] = useState('')
+  const [instagram, setInstagram] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [choice, setChoice] = useState<{ matches: any[] } | null>(null)
+
+  async function submit(opts?: { force_create?: boolean; existing_contact_id?: number }) {
+    if (!name.trim()) return
+    setSaving(true)
+    try {
+      const payload: any = {
+        name: name.trim(),
+        title: title.trim() || null,
+        assistant_tg_username: tgUsername.trim().replace(/^@/, '') || null,
+        instagram_url: instagram.trim() || null,
+        ...(opts || {}),
+      }
+      const res = await api.collaborators.quick(payload)
+      if (res?.needs_choice) {
+        setChoice({ matches: res.matches || [] })
+        return
+      }
+      onCreated()
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-bold text-gray-900">{choice ? 'Похожий контакт уже есть' : 'Новый коллаборатор'}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1"><X size={18} /></button>
+        </div>
+
+        {!choice ? (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className="label">Имя и фамилия *</label>
+                <input
+                  type="text" value={name} autoFocus
+                  onChange={e => setName(e.target.value)}
+                  className="input" placeholder="Например, Иван Петров"
+                />
+              </div>
+              <div>
+                <label className="label">Должность / роль</label>
+                <input
+                  type="text" value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  className="input" placeholder="Бизнес-тренер, продюсер, и т.д."
+                />
+              </div>
+              <div>
+                <label className="label">Telegram username</label>
+                <input
+                  type="text" value={tgUsername}
+                  onChange={e => setTgUsername(e.target.value)}
+                  className="input" placeholder="ivan_petrov (без @)"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  tg_id подцепится автоматически когда коллаб напишет в бот клиента.
+                </p>
+              </div>
+              <div>
+                <label className="label">Instagram URL</label>
+                <input
+                  type="text" value={instagram}
+                  onChange={e => setInstagram(e.target.value)}
+                  className="input" placeholder="https://instagram.com/..."
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => submit()} disabled={!name.trim() || saving}
+                className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
+                {saving ? 'Создаём...' : 'Создать'}
+              </button>
+              <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                Отмена
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-gray-600 mb-3">
+              У вас уже есть {choice.matches.length === 1 ? 'контакт' : 'контакты'} с именем
+              <b> «{name.trim()}»</b>. Привязать коллаб к существующему или создать нового всё равно?
+            </p>
+            <div className="space-y-2 mb-4">
+              {choice.matches.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => submit({ existing_contact_id: m.id })}
+                  disabled={m.has_collab || saving}
+                  className="w-full text-left p-3 rounded-xl border border-gray-200 hover:border-brand hover:bg-brand/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="font-medium text-gray-900">{m.name}</div>
+                  {(m.email || m.phone) && (
+                    <div className="text-xs text-gray-400 mt-0.5">{[m.email, m.phone].filter(Boolean).join(' · ')}</div>
+                  )}
+                  {m.has_collab && <div className="text-xs text-amber-600 mt-1">⚠️ У этого контакта уже есть коллаборатор</div>}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => submit({ force_create: true })} disabled={saving}
+                className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm ${saving ? 'btn-loading' : ''}`}>
+                {saving ? 'Создаём...' : 'Всё равно создать нового'}
+              </button>
+              <button onClick={() => setChoice(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                Назад
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

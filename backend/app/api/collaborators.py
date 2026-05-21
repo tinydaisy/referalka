@@ -182,6 +182,108 @@ async def update_collaborator(
     return {"speaker": d, "collaborator": d}
 
 
+class CollaboratorQuickCreate(BaseModel):
+    """
+    Создать коллаба «с нуля» (без предварительного создания контакта в /clients).
+    Дедупликация по имени: если у клиента есть контакт с таким же именем,
+    эндпоинт без force_create возвращает needs_choice + варианты для UI.
+    """
+    name: str
+    title: Optional[str] = None
+    achievements: Optional[List[str]] = None
+    photo_url: Optional[str] = None
+    poster_url: Optional[str] = None
+    tg_channel_url: Optional[str] = None
+    tg_channel_id: Optional[str] = None
+    instagram_url: Optional[str] = None
+    website_url: Optional[str] = None
+    assistant_tg_username: Optional[str] = None
+    external_ref_param: Optional[str] = None
+    force_create: bool = False
+    existing_contact_id: Optional[int] = None
+
+
+@router.post("/quick", summary="Создать коллаба + контакт одной транзакцией (с дедупом по имени)")
+async def create_collaborator_quick(
+    data: CollaboratorQuickCreate,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    client_id = int(client["sub"])
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Имя обязательно")
+
+    contact_id: Optional[int] = data.existing_contact_id
+    if contact_id is not None:
+        own = await db.fetchval(
+            "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
+            contact_id, client_id
+        )
+        if not own:
+            raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
+
+    if contact_id is None and not data.force_create:
+        matches = await db.fetch(
+            """SELECT c.id, c.name, c.email, c.phone,
+                      EXISTS(SELECT 1 FROM collaborators col WHERE col.contact_id = c.id) AS has_collab
+                 FROM contacts c
+                WHERE c.client_id = $1
+                  AND c.merged_into IS NULL
+                  AND LOWER(TRIM(c.name)) = LOWER($2)
+                ORDER BY c.id
+                LIMIT 10""",
+            client_id, name
+        )
+        if matches:
+            return {
+                "needs_choice": True,
+                "matches": [
+                    {"id": m["id"], "name": m["name"], "email": m["email"],
+                     "phone": m["phone"], "has_collab": m["has_collab"]}
+                    for m in matches
+                ],
+            }
+
+    async with db.transaction():
+        if contact_id is None:
+            contact_id = await db.fetchval(
+                """INSERT INTO contacts (client_id, name, ref_code)
+                   VALUES ($1, $2, SUBSTR(REPLACE(gen_random_uuid()::text, '-', ''), 1, 8))
+                   RETURNING id""",
+                client_id, name
+            )
+        else:
+            existing_coll = await db.fetchval(
+                "SELECT id FROM collaborators WHERE contact_id = $1", contact_id
+            )
+            if existing_coll:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"У этого контакта уже есть коллаборатор (id={existing_coll})."
+                )
+
+        row = await db.fetchrow(
+            """INSERT INTO collaborators
+               (contact_id, name, title, achievements,
+                photo_url, poster_url,
+                tg_channel_url, tg_channel_id,
+                instagram_url, website_url,
+                assistant_tg_username, external_ref_param,
+                created_by_client_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
+            contact_id, name, data.title, data.achievements,
+            data.photo_url, data.poster_url,
+            data.tg_channel_url, data.tg_channel_id,
+            data.instagram_url, data.website_url,
+            data.assistant_tg_username, data.external_ref_param,
+            client_id
+        )
+
+    d = row_to_dict(row)
+    return {"collaborator": d, "speaker": d}
+
+
 class CollaboratorImportItem(BaseModel):
     name: str
     title: Optional[str] = None
