@@ -123,12 +123,19 @@ async def get_user_info(vk_id: int, fields: Iterable[str] = ("first_name", "last
     return None
 
 
-async def upload_photo_to_messages(image_url: str, *, peer_id: int, token: str) -> str | None:
+async def upload_photo_to_messages(
+    image_url: str, *, peer_id: int | None = None, token: str
+) -> str | None:
     """Загружает фото из URL в VK и возвращает attachment-строку `photo{owner_id}_{id}`
-    для использования в messages.send. Возвращает None при любой ошибке."""
+    для использования в messages.send. Возвращает None при любой ошибке.
+
+    Если `peer_id` не задан — фото грузится без привязки к конкретному диалогу,
+    один и тот же attachment можно прислать многим получателям (для рассылок).
+    """
     try:
         # 1. Получаем upload-сервер для сообщений
-        srv = await vk_call("photos.getMessagesUploadServer", {"peer_id": peer_id}, token=token)
+        srv_params = {"peer_id": peer_id} if peer_id is not None else {}
+        srv = await vk_call("photos.getMessagesUploadServer", srv_params, token=token)
         upload_url = (srv or {}).get("upload_url")
         if not upload_url:
             return None

@@ -429,7 +429,12 @@ async def _send_broadcast_vk_part(
 
     Возвращает количество успешно отправленных сообщений.
     """
-    from app.services.vk_api import send_message as vk_send, tg_inline_to_vk_keyboard
+    from app.services.vk_api import (
+        send_message as vk_send,
+        tg_inline_to_vk_keyboard,
+        upload_photo_to_messages as vk_upload_photo,
+    )
+    from app.config import settings as _vk_settings
 
     client_id = schedule["client_id"]
     aud_include = schedule.get("audience_include") or "all_event"
@@ -496,20 +501,36 @@ async def _send_broadcast_vk_part(
     elif button_text and button_url:
         keyboard = tg_inline_to_vk_keyboard([[{"text": button_text, "url": button_url}]])
 
+    # Загружаем фото в VK один раз для всей рассылки — получаем attachment-строку
+    # `photo{owner_id}_{id}`, которую можно слать многим получателям. Без этого
+    # фото уходило как обычный URL в тексте (без превью, как голая ссылка).
+    photo_attachment: str | None = None
+    if photo_url:
+        try:
+            photo_attachment = await vk_upload_photo(
+                photo_url, token=_vk_settings.vk_system_group_token
+            )
+        except Exception as e:
+            logger.warning(f"VK photo upload failed for {photo_url}: {e}")
+        if not photo_attachment:
+            logger.warning(f"VK photo upload returned None — отправим как ссылку: {photo_url}")
+
     sent = 0
     for r in rows:
         try:
             vk_id_int = int(r["platform_user_id"])
         except (TypeError, ValueError):
             continue
-        attachment = None
-        # photo_url пока шлём как текстовую ссылку в начале — нативную загрузку
-        # photos.getMessagesUploadServer добавим в следующей итерации
         message_text = text or ""
-        if photo_url:
+        # Fallback: если загрузить фото не получилось — вшиваем URL в текст,
+        # VK развернёт превью по Open Graph (хуже превью, но лучше чем ничего).
+        if photo_url and not photo_attachment:
             message_text = f"{photo_url}\n\n{message_text}".strip()
         try:
-            res = await vk_send(vk_id_int, message_text, keyboard=keyboard, attachment=attachment)
+            res = await vk_send(
+                vk_id_int, message_text,
+                keyboard=keyboard, attachment=photo_attachment,
+            )
             if res:
                 sent += 1
         except Exception as e:
