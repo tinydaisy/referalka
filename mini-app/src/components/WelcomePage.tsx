@@ -84,12 +84,14 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
             }}
             style={{
               display: 'block', width: '100%', cursor: 'pointer',
-              background: '#FFCFA4', color: '#25455D',
+              background: 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)',
+              color: '#FFFFFF',
               borderRadius: 14, padding: '16px 16px', marginBottom: 16,
               textAlign: 'center', fontWeight: 900, fontSize: 15,
               letterSpacing: 1.2, textTransform: 'uppercase',
-              boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
-              border: '1px solid rgba(37,69,93,0.08)',
+              boxShadow: '0 4px 14px rgba(220,38,38,0.45)',
+              border: '1px solid rgba(127,29,29,0.5)',
+              textShadow: '0 1px 2px rgba(0,0,0,0.35)',
             }}
           >
             {vipLabel}
