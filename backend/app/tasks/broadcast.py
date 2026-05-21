@@ -475,6 +475,19 @@ async def _send_broadcast_vk_part(
     else:
         return 0
 
+    # Тестовый режим: сужаем VK-аудиторию до clients.test_vk_ids ∩ обычная аудитория.
+    # Если test_vk_ids пуст — VK-часть пропускается (никому ничего не отправляем).
+    if schedule.get("is_test"):
+        test_vk = await conn.fetchval(
+            "SELECT test_vk_ids FROM clients WHERE id=$1", client_id
+        )
+        test_vk_set = {str(t) for t in (test_vk or [])}
+        if not test_vk_set:
+            return 0
+        rows = [r for r in rows if str(r["platform_user_id"]) in test_vk_set]
+        if not rows:
+            return 0
+
     keyboard = None
     if buttons:
         # Конвертация массива кнопок [{label, url}, ...] в VK keyboard
@@ -583,6 +596,19 @@ async def _send_broadcast_max_part(
         )
     else:
         return 0
+
+    # Тестовый режим: сужаем MAX-аудиторию до clients.test_max_ids ∩ обычная аудитория.
+    # Если test_max_ids пуст — MAX-часть пропускается.
+    if schedule.get("is_test"):
+        test_max = await conn.fetchval(
+            "SELECT test_max_ids FROM clients WHERE id=$1", client_id
+        )
+        test_max_set = {str(t) for t in (test_max or [])}
+        if not test_max_set:
+            return 0
+        rows = [r for r in rows if str(r["platform_user_id"]) in test_max_set]
+        if not rows:
+            return 0
 
     max_buttons = None
     if buttons:

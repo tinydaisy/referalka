@@ -789,7 +789,7 @@ function CustomBroadcastModal(props: {
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
-            <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым Telegram ID)</span>
+            <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX ID из настроек)</span>
           </label>
         </div>
         <div className="flex gap-2 mt-5">
