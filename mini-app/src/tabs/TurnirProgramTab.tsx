@@ -882,7 +882,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
             borderBottom: `2px solid ${PEACH}`,
             boxShadow: '0 4px 12px rgba(37,69,93,0.15)',
           }}>
-            Спикеры
+            Жюри и спикеры
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 16 }}>
             {speakers.map((sp, idx) => {
