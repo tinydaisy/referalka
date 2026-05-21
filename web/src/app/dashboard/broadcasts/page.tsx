@@ -709,7 +709,7 @@ function CustomBroadcastModal(props: {
         </div>
         <div className="space-y-3">
           <div className="text-xs bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-blue-800">
-            Получатели: вся ваша база контактов (Telegram, не отписавшиеся).
+            Получатели: вся ваша база контактов (Telegram + VK + MAX — каждый получит через ту платформу, на которую подписан, не отписавшиеся).
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Дата и время ({props.tzLabel})</label>
@@ -958,7 +958,7 @@ function BulkBroadcastModal(props: {
         </div>
         <div className="space-y-3">
           <div className="text-xs bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-blue-800">
-            Получатели: вся ваша база контактов (Telegram, не отписавшиеся).
+            Получатели: вся ваша база контактов (Telegram + VK + MAX — каждый получит через ту платформу, на которую подписан, не отписавшиеся).
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
             <p className="font-semibold mb-1">Формат (разделитель — строка <code className="bg-white px-1 rounded">---</code>):</p>
