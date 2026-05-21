@@ -326,7 +326,7 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
             </label>
           </div>
           <div className="flex gap-3 mt-5">
-            <button onClick={createNew} disabled={!form.name.trim() || saving}
+            <button onClick={() => createNew()} disabled={!form.name.trim() || saving}
               className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
               {saving ? <><Spinner /> {t.common.saving}</> : ts.newModal.addBtn}
             </button>
