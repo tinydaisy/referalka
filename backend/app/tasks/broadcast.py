@@ -442,8 +442,8 @@ async def _send_broadcast_vk_part(
     # Какое VK-сообщество шлёт рассылку. Приоритет — собственное сообщество
     # клиента (channels.is_system=FALSE с непустым токеном), fallback на
     # системное iViSiON: ПЛЮСОН. Аналогично логике MAX-части.
-    client_vk_token = await conn.fetchval(
-        """SELECT ch.bot_token
+    client_vk = await conn.fetchrow(
+        """SELECT ch.id AS channel_id, ch.bot_token
              FROM client_channels cc
              JOIN channels ch ON ch.id = cc.channel_id
             WHERE cc.client_id = $1 AND cc.is_active = TRUE
@@ -452,14 +452,24 @@ async def _send_broadcast_vk_part(
             LIMIT 1""",
         client_id,
     )
-    vk_token = client_vk_token or _vk_settings.vk_system_group_token
+    if client_vk:
+        vk_token = client_vk["bot_token"]
+        vk_channel_id = client_vk["channel_id"]
+    else:
+        vk_token = _vk_settings.vk_system_group_token
+        # ID системного VK-канала — для записи в broadcast_log
+        vk_channel_id = await conn.fetchval(
+            """SELECT id FROM channels
+                WHERE platform_slug = 'vk' AND is_system = TRUE
+                ORDER BY is_test ASC, id LIMIT 1"""
+        )
     if not vk_token:
         return 0  # ни своего сообщества, ни системного токена
 
     # Какие VK-подписчики клиента в зависимости от аудитории
     if aud_include == "all_client":
         rows = await conn.fetch(
-            """SELECT pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
@@ -472,7 +482,7 @@ async def _send_broadcast_vk_part(
         )
     elif event_id and aud_include == "registered_event":
         rows = await conn.fetch(
-            """SELECT pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -484,7 +494,7 @@ async def _send_broadcast_vk_part(
         )
     elif event_id:
         rows = await conn.fetch(
-            """SELECT pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -543,16 +553,35 @@ async def _send_broadcast_vk_part(
         # VK развернёт превью по Open Graph (хуже превью, но лучше чем ничего).
         if photo_url and not photo_attachment:
             message_text = f"{photo_url}\n\n{message_text}".strip()
+        ok = False
+        err: str | None = None
         try:
             res = await vk_send(
                 vk_id_int, message_text,
                 token=vk_token,
                 keyboard=keyboard, attachment=photo_attachment,
             )
-            if res:
-                sent += 1
+            ok = bool(res)
+            if not ok:
+                err = "VK send returned None"
         except Exception as e:
+            err = str(e)
             logger.warning(f"VK send failed for vk_id={vk_id_int}: {e}")
+        # Лог отправки — модалка «Получатели рассылки» читает отсюда,
+        # без этого VK-получатели не были видны в UI (recipients_sent
+        # учитывал их, а список — нет).
+        try:
+            await conn.execute(
+                """INSERT INTO broadcast_log
+                       (schedule_id, platform_user_id, channel_id, status, error, sent_at)
+                   VALUES ($1, $2, $3, $4, $5, NOW())""",
+                schedule["id"], r["pu_id"], vk_channel_id,
+                "sent" if ok else "failed", err,
+            )
+        except Exception as e:
+            logger.warning(f"VK broadcast_log insert failed for pu_id={r['pu_id']}: {e}")
+        if ok:
+            sent += 1
     return sent
 
 
@@ -578,8 +607,8 @@ async def _send_broadcast_max_part(
     aud_include = schedule.get("audience_include") or "all_event"
 
     # Какой MAX-бот используется для рассылок этого клиента
-    client_max_token = await conn.fetchval(
-        """SELECT ch.bot_token
+    client_max = await conn.fetchrow(
+        """SELECT ch.id AS channel_id, ch.bot_token
              FROM client_channels cc
              JOIN channels ch ON ch.id = cc.channel_id
             WHERE cc.client_id = $1
@@ -591,14 +620,23 @@ async def _send_broadcast_max_part(
             LIMIT 1""",
         client_id,
     )
-    max_token = client_max_token or _settings.max_system_bot_token
+    if client_max:
+        max_token = client_max["bot_token"]
+        max_channel_id = client_max["channel_id"]
+    else:
+        max_token = _settings.max_system_bot_token
+        max_channel_id = await conn.fetchval(
+            """SELECT id FROM channels
+                WHERE platform_slug = 'max' AND is_system = TRUE
+                ORDER BY is_test ASC, id LIMIT 1"""
+        )
     if not max_token:
         return 0  # У клиента нет MAX-бота и системный токен не настроен
 
     # Аудитория — те же 3 варианта что у VK
     if aud_include == "all_client":
         rows = await conn.fetch(
-            """SELECT pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
@@ -611,7 +649,7 @@ async def _send_broadcast_max_part(
         )
     elif event_id and aud_include == "registered_event":
         rows = await conn.fetch(
-            """SELECT pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -623,7 +661,7 @@ async def _send_broadcast_max_part(
         )
     elif event_id:
         rows = await conn.fetch(
-            """SELECT pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -667,12 +705,29 @@ async def _send_broadcast_max_part(
         # /uploads добавим в следующей итерации (как у VK)
         if photo_url:
             message_text = f"{photo_url}\n\n{message_text}".strip()
+        ok = False
+        err: str | None = None
         try:
             res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons)
-            if res:
-                sent += 1
+            ok = bool(res)
+            if not ok:
+                err = "MAX send returned None"
         except Exception as e:
+            err = str(e)
             logger.warning(f"MAX send failed for max_id={max_id_int}: {e}")
+        # Лог отправки — чтобы MAX-получатели тоже попадали в модалку «Получатели рассылки».
+        try:
+            await conn.execute(
+                """INSERT INTO broadcast_log
+                       (schedule_id, platform_user_id, channel_id, status, error, sent_at)
+                   VALUES ($1, $2, $3, $4, $5, NOW())""",
+                schedule["id"], r["pu_id"], max_channel_id,
+                "sent" if ok else "failed", err,
+            )
+        except Exception as e:
+            logger.warning(f"MAX broadcast_log insert failed for pu_id={r['pu_id']}: {e}")
+        if ok:
+            sent += 1
     return sent
 
 
