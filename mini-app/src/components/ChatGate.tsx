@@ -24,7 +24,7 @@ function openExternal(url: string) {
 }
 
 export function useChatGate(event: any, tgUser: any) {
-  const isConference = event?.module_slug === 'conference'
+  const isConference = ['conference','turnir'].includes(event?.module_slug)
 
   const [chatGate, setChatGate] = useState<{
     loading: boolean

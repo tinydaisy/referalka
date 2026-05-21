@@ -153,7 +153,7 @@ function tgLink(url?: string | null, username?: string | null): string | null {
 // Для одиночных событий — если сегодня попадает в [start_at..end_at].
 function isStreamDay(event: any, days: Day[]): boolean {
   const today = todayIso()
-  if (event?.module_slug === 'conference' && days.length > 0) {
+  if (['conference','turnir'].includes(event?.module_slug) && days.length > 0) {
     return days.some(d => d.day_date === today)
   }
   if (!event?.start_at) return false
@@ -167,7 +167,7 @@ function isStreamDay(event: any, days: Day[]): boolean {
 }
 
 export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
-  const isConference = event?.module_slug === 'conference'
+  const isConference = ['conference','turnir'].includes(event?.module_slug)
   // Кнопка VIP появляется если у события вписан vip_url
   // (единый источник истины в events.vip_url).
   const vipUrl  = event?.vip_url || ''

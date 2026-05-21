@@ -17,7 +17,7 @@ function formatEndDate(d: string | Date | null | undefined): string {
 
 export default function ResultsTab({ event, participant, onOpenEvent }: Props) {
   const successor = event?.successor
-  const isConference = event?.module_slug === 'conference'
+  const isConference = ['conference','turnir'].includes(event?.module_slug)
   const hasVip = !!event?.vip_url
   const isRegistered = !!participant?.is_registered
 

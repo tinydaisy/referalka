@@ -41,7 +41,7 @@ export default function EventPage() {
   if (!event) return null
 
   // Конференции — отдельный модуль, в нём своя обширная UI; оставляем кнопку перехода
-  const isConference = event.module_slug === 'conference'
+  const isConference = ['conference','turnir'].includes(event.module_slug)
 
   // «Рассылки» — отдельная страница со своими подвкладками (Шаблоны / Очередь),
   // как в карточке конференции. Здесь это `<Link>`, не таб контента (см. рендер ниже).
