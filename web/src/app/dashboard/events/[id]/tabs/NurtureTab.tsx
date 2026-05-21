@@ -157,6 +157,10 @@ export default function NurtureTab({ eventId }: Props) {
         <p className="text-xs text-gray-500 mt-2">
           Поддерживается HTML-форматирование: <code>&lt;b&gt;жирный&lt;/b&gt;</code>,{' '}
           <code>&lt;i&gt;курсив&lt;/i&gt;</code>, <code>&lt;a href="..."&gt;ссылка&lt;/a&gt;</code>.
+          {' '}<span className="text-amber-700">
+            Работает только в&nbsp;Telegram и&nbsp;MAX — в&nbsp;ВКонтакте теги срезаются автоматически
+            (отправляется чистый текст).
+          </span>
         </p>
         <p className="text-xs text-gray-500 mt-1">
           Плейсхолдеры в тексте подставляются автоматически при отправке:

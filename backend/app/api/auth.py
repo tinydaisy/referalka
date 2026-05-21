@@ -173,7 +173,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
                 c.created_at, c.timezone,
-                c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id,
                 c.integration_token,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
@@ -253,6 +253,8 @@ class ProfileUpdate(BaseModel):
     telegram_username: Optional[str] = None
     timezone: Optional[str] = None
     test_telegram_ids: Optional[list] = None
+    test_vk_ids: Optional[list] = None
+    test_max_ids: Optional[list] = None
     work_tg_username: Optional[str] = None
     work_tg_id: Optional[int] = None
     broadcast_concurrency: Optional[int] = None
@@ -275,7 +277,7 @@ async def update_me(
         client = await db.fetchrow(
             """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
                 c.created_at, c.timezone,
-                c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id
            FROM clients c WHERE c.id = $1""",
             client_id
@@ -302,7 +304,7 @@ async def update_me(
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
                   c.created_at, c.timezone,
-                  c.test_telegram_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                  c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id
              FROM clients c WHERE c.id = $1""",
         client_id

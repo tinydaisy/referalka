@@ -1643,16 +1643,105 @@ async def test_template(
         raise HTTPException(status_code=404, detail="Шаблон не найден")
 
     client_row = await db.fetchrow(
-        "SELECT test_telegram_ids, timezone FROM clients WHERE id=$1", client_id
+        "SELECT test_telegram_ids, test_vk_ids, test_max_ids, timezone FROM clients WHERE id=$1",
+        client_id
     )
     from app.services.channels import get_client_telegram_token
     bot_token = await get_client_telegram_token(client_id, db)
-    if not bot_token:
-        raise HTTPException(status_code=400, detail="Токен бота не задан в настройках (channels)")
-    test_ids = client_row["test_telegram_ids"] or []
-    if not test_ids:
-        raise HTTPException(status_code=400, detail="Тестовые Telegram ID не заданы в настройках")
+    test_tg_ids = client_row["test_telegram_ids"] or []
+    test_vk_ids = client_row["test_vk_ids"] or []
+    test_max_ids = client_row["test_max_ids"] or []
+    if not (test_tg_ids or test_vk_ids or test_max_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="Тестовые ID не заданы. Откройте Настройки → Технические → «Тестовые рассылки»."
+        )
+    if test_tg_ids and not bot_token:
+        # У клиента есть тестовые TG ID, но TG-бот не подключён — это
+        # ошибка конфигурации; не молчим, чтобы не казалось будто всё ОК.
+        raise HTTPException(status_code=400, detail="Тестовые Telegram ID заданы, но токен бота не задан в настройках (channels)")
     tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
+
+    # MAX-токен — приоритет клиентский, fallback системный
+    from app.config import settings as _settings
+    client_max_token = await db.fetchval(
+        """SELECT ch.bot_token
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND cc.is_active = TRUE
+              AND ch.platform_slug = 'max' AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            LIMIT 1""",
+        client_id,
+    )
+    max_token = client_max_token or _settings.max_system_bot_token
+
+    async def _send_one_content(http, content: dict):
+        """Шлёт `content` (text/photo/button_text/button_url) во все тестовые
+        ID всех включённых платформ. Возвращает список результатов
+        [{platform, chat_id, ok, error}, ...]."""
+        out: list[dict] = []
+        text = content.get("text") or ""
+        photo = content.get("photo")
+        btn_text = content.get("button_text")
+        btn_url = content.get("button_url")
+
+        # === Telegram ===
+        if test_tg_ids and bot_token:
+            for chat_id in [str(t) for t in test_tg_ids]:
+                ok, err = await send_telegram_message(
+                    http, bot_token, chat_id, text, photo, btn_text, btn_url
+                )
+                out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
+
+        # === VK === (стрип HTML делает сам vk_api.send_message)
+        if test_vk_ids:
+            from app.services.vk_api import (
+                send_message as vk_send,
+                tg_inline_to_vk_keyboard,
+            )
+            vk_keyboard = None
+            if btn_text and btn_url:
+                vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": btn_url}]])
+            # Фото в превью: VK сам развернёт по URL в начале сообщения.
+            vk_text = f"{photo}\n\n{text}".strip() if photo else text
+            for vid in [str(t) for t in test_vk_ids]:
+                try:
+                    res = await vk_send(int(vid), vk_text, keyboard=vk_keyboard)
+                    out.append({
+                        "platform": "vk", "chat_id": vid,
+                        "ok": bool(res), "error": None if res else "VK send returned None"
+                    })
+                except Exception as e:
+                    out.append({"platform": "vk", "chat_id": vid, "ok": False, "error": str(e)})
+
+        # === MAX === (стрип HTML — пока не делаем, MAX поддерживает HTML аналогично TG)
+        if test_max_ids and max_token:
+            from app.services.max_api import (
+                send_message as max_send,
+                tg_inline_to_max_keyboard,
+            )
+            max_buttons = None
+            if btn_text and btn_url:
+                max_buttons = tg_inline_to_max_keyboard([[{"text": btn_text, "url": btn_url}]])
+            max_text = text
+            if photo:
+                max_text = f"{photo}\n\n{max_text}".strip()
+            for mid in [str(t) for t in test_max_ids]:
+                try:
+                    res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons)
+                    out.append({
+                        "platform": "max", "chat_id": mid,
+                        "ok": bool(res), "error": None if res else "MAX send returned None"
+                    })
+                except Exception as e:
+                    out.append({"platform": "max", "chat_id": mid, "ok": False, "error": str(e)})
+        elif test_max_ids and not max_token:
+            for mid in [str(t) for t in test_max_ids]:
+                out.append({"platform": "max", "chat_id": mid, "ok": False,
+                            "error": "MAX-бот не подключён и системный токен не настроен"})
+
+        return out
 
     SPEAKER_TYPES = ("gift", "speaker_intro", "5min_before")
 
@@ -1679,14 +1768,7 @@ async def test_template(
                     event_id=event_id, session_id=s["session_id"],
                     fire_at=None, tz=tz,
                 )
-                speaker_results = []
-                for chat_id in [str(t) for t in test_ids]:
-                    ok, err = await send_telegram_message(
-                        http, bot_token, chat_id,
-                        content["text"], content["photo"],
-                        content["button_text"], content["button_url"]
-                    )
-                    speaker_results.append({"chat_id": chat_id, "ok": ok, "error": err})
+                speaker_results = await _send_one_content(http, content)
                 results.append({"speaker": s["speaker_name"], "results": speaker_results})
         return {"ok": True, "sent": len(sessions), "details": results}
 
@@ -1711,15 +1793,8 @@ async def test_template(
             fire_at=fake_fire_at, tz=tz,
             template_id=tpl["id"],
         )
-        send_results = []
         async with httpx.AsyncClient(timeout=15) as http:
-            for chat_id in [str(t) for t in test_ids]:
-                ok, err = await send_telegram_message(
-                    http, bot_token, chat_id,
-                    content["text"], content["photo"],
-                    content["button_text"], content["button_url"]
-                )
-                send_results.append({"chat_id": chat_id, "ok": ok, "error": err})
+            send_results = await _send_one_content(http, content)
         return {"ok": True, "sent": 1, "details": [{"speaker": tpl["name"], "results": send_results}]}
 
 

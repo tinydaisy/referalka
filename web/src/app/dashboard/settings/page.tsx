@@ -33,7 +33,7 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '' })
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -53,6 +53,8 @@ export default function SettingsPage() {
         telegram_username: c.telegram_username || '',
         timezone: tz,
         test_telegram_ids_raw: (c.test_telegram_ids || []).join(', '),
+        test_vk_ids_raw: (c.test_vk_ids || []).join(', '),
+        test_max_ids_raw: (c.test_max_ids || []).join(', '),
         work_tg_username: c.work_tg_username || '',
         work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
@@ -77,10 +79,10 @@ export default function SettingsPage() {
     setSaving(true)
     setError('')
     try {
-      const testIds = form.test_telegram_ids_raw
-        .split(/[,\s]+/)
-        .map((s: string) => s.trim())
-        .filter(Boolean)
+      const parseIds = (raw: string) => raw.split(/[,\s]+/).map((s: string) => s.trim()).filter(Boolean)
+      const testIds = parseIds(form.test_telegram_ids_raw)
+      const testVkIds = parseIds(form.test_vk_ids_raw)
+      const testMaxIds = parseIds(form.test_max_ids_raw)
       const concurrency = Math.max(1, Math.min(100, Number(form.broadcast_concurrency) || 30))
       await api.auth.updateMe({
         name: form.name,
@@ -88,6 +90,8 @@ export default function SettingsPage() {
         telegram_username: form.telegram_username,
         timezone: form.timezone,
         test_telegram_ids: testIds,
+        test_vk_ids: testVkIds,
+        test_max_ids: testMaxIds,
         work_tg_username: form.work_tg_username || null,
         work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
         broadcast_concurrency: concurrency,
@@ -241,7 +245,7 @@ export default function SettingsPage() {
         {tab === 'tech' && (
         <>
 
-        {/* Test Telegram IDs */}
+        {/* Test recipient IDs (TG / VK / MAX) */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-start gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
@@ -250,26 +254,91 @@ export default function SettingsPage() {
             <div>
               <h3 className="font-semibold text-gray-800">Тестовые рассылки</h3>
               <p className="text-sm text-gray-500 mt-0.5">
-                Telegram ID аккаунтов для тестовых рассылок. Укажите через запятую.
+                ID аккаунтов, на которые отправляется тестовое сообщение из шаблонов рассылок.
+                По каждой платформе указывайте через запятую или пробел.
               </p>
             </div>
           </div>
-          <input
-            type="text"
-            value={form.test_telegram_ids_raw}
-            onChange={set('test_telegram_ids_raw')}
-            placeholder=""
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
-          />
-          {form.test_telegram_ids_raw && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {form.test_telegram_ids_raw.split(/[,\s]+/).filter(Boolean).map((id: string) => (
-                <span key={id} className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded-lg px-2 py-0.5 font-mono">
-                  {id.trim()}
-                </span>
-              ))}
-            </div>
-          )}
+
+          {/* Telegram */}
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Telegram ID
+            </label>
+            <input
+              type="text"
+              value={form.test_telegram_ids_raw}
+              onChange={set('test_telegram_ids_raw')}
+              placeholder="123456789, 987654321"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Tелеграм-ID можно узнать у бота <span className="font-mono">@userinfobot</span>.
+            </p>
+            {form.test_telegram_ids_raw && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {form.test_telegram_ids_raw.split(/[,\s]+/).filter(Boolean).map((id: string) => (
+                  <span key={id} className="text-xs bg-blue-50 text-blue-700 border border-blue-100 rounded-lg px-2 py-0.5 font-mono">
+                    {id.trim()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* VK */}
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              VK ID
+            </label>
+            <input
+              type="text"
+              value={form.test_vk_ids_raw}
+              onChange={set('test_vk_ids_raw')}
+              placeholder="123456789"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Числовой ID профиля ВК (vk.com/id<span className="font-mono">123456789</span>).
+              Тестовый аккаунт должен быть подписан на VK-сообщество — иначе ВК не пустит сообщение.
+            </p>
+            {form.test_vk_ids_raw && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {form.test_vk_ids_raw.split(/[,\s]+/).filter(Boolean).map((id: string) => (
+                  <span key={id} className="text-xs bg-sky-50 text-sky-700 border border-sky-100 rounded-lg px-2 py-0.5 font-mono">
+                    {id.trim()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* MAX */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              MAX ID
+            </label>
+            <input
+              type="text"
+              value={form.test_max_ids_raw}
+              onChange={set('test_max_ids_raw')}
+              placeholder="123456789"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              ID профиля MAX. Тестовый аккаунт должен начать диалог с вашим MAX-ботом (или с системным
+              ботом ПЛЮСОНа), иначе сообщение не уйдёт.
+            </p>
+            {form.test_max_ids_raw && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {form.test_max_ids_raw.split(/[,\s]+/).filter(Boolean).map((id: string) => (
+                  <span key={id} className="text-xs bg-amber-50 text-amber-700 border border-amber-100 rounded-lg px-2 py-0.5 font-mono">
+                    {id.trim()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Broadcast speed */}

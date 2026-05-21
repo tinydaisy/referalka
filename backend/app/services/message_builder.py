@@ -42,6 +42,52 @@ def html_to_telegram(s: str) -> str:
     out = re.sub(r"\n{3,}", "\n\n", out)
     return out.strip()
 
+
+# VK messages.send не поддерживает форматирование вообще — теги уходят
+# в чат как обычный текст («<b>привет</b>» отображается дословно).
+# Эта функция превращает Telegram/HTML-разметку в чистый текст для VK.
+# Правила:
+#  - <br>, </p>, </div>, </h*> → переносы строк
+#  - <li> → «• », </li> → \n
+#  - <a href="URL">text</a> → URL (анкорный текст отбрасывается, VK сам
+#    делает превью по ссылке)
+#  - <b>/<i>/<u>/<s>/<em>/<strong>/<ins>/<del>/<strike>/<code>/<pre>/<span> и
+#    прочее inline-форматирование — просто удаляются (содержимое остаётся)
+#  - HTML-сущности &amp; &lt; &gt; &quot; &nbsp; → реальные символы
+def html_to_vk_text(s: str) -> str:
+    if not s:
+        return ""
+    out = s
+    # Ссылки: <a href="URL">текст</a> → URL
+    out = re.sub(r'<a\s+[^>]*href\s*=\s*["\']([^"\']+)["\'][^>]*>.*?</a\s*>',
+                 r'\1', out, flags=re.I | re.S)
+    # Блочные → переносы строк
+    out = re.sub(r"<br\s*/?>", "\n", out, flags=re.I)
+    out = re.sub(r"</p\s*>", "\n\n", out, flags=re.I)
+    out = re.sub(r"<p[^>]*>", "", out, flags=re.I)
+    out = re.sub(r"<li[^>]*>", "• ", out, flags=re.I)
+    out = re.sub(r"</li\s*>", "\n", out, flags=re.I)
+    out = re.sub(r"<h[1-6][^>]*>", "", out, flags=re.I)
+    out = re.sub(r"</h[1-6]\s*>", "\n\n", out, flags=re.I)
+    out = re.sub(r"</div\s*>", "\n", out, flags=re.I)
+    # Все оставшиеся теги (включая <b>/<i>/<u>/<s>/<em>/<strong>/<code>/...) — снести
+    out = re.sub(r"</?[a-zA-Z][^>]*>", "", out)
+    # HTML-сущности → символы
+    out = (out
+           .replace("&nbsp;", " ")
+           .replace("&amp;", "&")
+           .replace("&lt;", "<")
+           .replace("&gt;", ">")
+           .replace("&quot;", '"')
+           .replace("&#39;", "'")
+           .replace("&apos;", "'"))
+    # Схлопываем тройные+ переносы строк
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    # Пробелы перед/после переносов
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n[ \t]+", "\n", out)
+    return out.strip()
+
 logger = logging.getLogger(__name__)
 
 RU_MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"]

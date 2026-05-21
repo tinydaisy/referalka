@@ -51,13 +51,20 @@ async def send_message(
 ) -> int | None:
     """Отправить личное сообщение от сообщества пользователю с vk_id.
 
+    Если в `text` пришёл HTML/Telegram-форматированный текст (теги `<b>`,
+    `<a href>`, `<br>` и т.п.) — конвертируем в чистый текст через
+    `html_to_vk_text`. VK API форматирование вообще не поддерживает,
+    без конвертации теги уходят дословно.
+
     :param keyboard: VK keyboard JSON dict (см. https://dev.vk.com/ru/api/bots/development/keyboard)
     :param attachment: строка типа `photo123_456` для прикрепления медиа
     :return: message_id или None если упало
     """
+    from .message_builder import html_to_vk_text
+    safe_text = html_to_vk_text(text) if text else ""
     params: dict[str, Any] = {
         "user_id": user_vk_id,
-        "message": text,
+        "message": safe_text,
         "random_id": random.randint(1, 2**31 - 1),
         "dont_parse_links": 0,
     }

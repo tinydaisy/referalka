@@ -585,6 +585,13 @@ function TemplateEditor() {
         </code>
       </div>
 
+      <div className="text-xs text-gray-600 bg-sky-50 border border-sky-100 rounded-lg p-3 leading-snug">
+        <strong>HTML-разметка</strong> (<span className="font-mono">&lt;b&gt; &lt;i&gt; &lt;u&gt; &lt;s&gt; &lt;a href=...&gt;</span>) работает
+        только в&nbsp;Telegram и&nbsp;MAX. В&nbsp;ВКонтакте теги не поддерживаются — при отправке они
+        автоматически срезаются, останется чистый текст. Ссылки <span className="font-mono">&lt;a&gt;</span> в&nbsp;ВК
+        превращаются в обычный URL (превью ВК разворачивает сам).
+      </div>
+
       {/* === Текст 1 === */}
       <section className="bg-white rounded-xl border-2 border-gray-300 p-5 space-y-4">
         <header className="border-b border-gray-200 pb-3">
@@ -816,10 +823,13 @@ function PlatformShareLinks({ kind, slug, links }: {
   slug: string
   links?: PlatformLinks
 }) {
-  // Fallback: если бэк ещё не отдал platform_links, показываем только TG со старым URL.
+  // Fallback: если бэк ещё не отдал platform_links — показываем прямой
+  // deeplink на системный @pluson_bot. Бот сам распарсит /start m_<slug> или
+  // /start p_<slug> (см. backend/bot/handlers/start.py). VIP-бот клиента
+  // приходит с бэка через platform_links — здесь не пытаемся угадать.
   const resolved: PlatformLinks = (links && Object.keys(links).length > 0)
     ? links
-    : { telegram: `${getPublicBase()}/${kind}/${slug}?to=tg` }
+    : { telegram: `https://t.me/pluson_bot?start=${kind}_${slug}` }
   const order: PlatformKey[] = ['telegram', 'vk', 'max']
   return (
     <div className="flex flex-col gap-1">
