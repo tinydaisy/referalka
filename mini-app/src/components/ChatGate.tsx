@@ -38,9 +38,14 @@ export function useChatGate(event: any, tgUser: any) {
 
   async function openChat() {
     if (!event?.chat_url) return
-    const needsCheck = isConference || !!event?.require_subscription
+    // Проверка подписки сейчас работает только для Telegram-каналов
+    // (через Bot API getChatMember). На VK/MAX площадки подписки спикеров
+    // ещё не реализованы — поэтому в VK/MAX пускаем в чат без проверки.
+    // TODO: реализовать проверку подписок на VK-сообщества и MAX-каналы.
+    const platformName = getPlatform().name
+    const needsCheck = (isConference || !!event?.require_subscription) && platformName === 'telegram'
     if (!needsCheck || !event?.id || !tgUser?.id) {
-      setDebug(`ПРОПУЩЕНО: needsCheck=${needsCheck} eventId=${event?.id} tgId=${tgUser?.id || '(пусто)'} module=${event?.module_slug} require_sub=${event?.require_subscription} isConf=${isConference}`)
+      setDebug(`ПРОПУЩЕНО: platform=${platformName} needsCheck=${needsCheck} eventId=${event?.id} tgId=${tgUser?.id || '(пусто)'} module=${event?.module_slug} require_sub=${event?.require_subscription} isConf=${isConference}`)
       openExternal(event.chat_url)
       return
     }
