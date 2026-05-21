@@ -38,7 +38,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   const { t } = useLang()
   const [form, setForm] = useState({
     title: event?.title || '',
-    description: conf?.description || '',
+    description: event?.description || '',
     description_post_register: event?.description_post_register || '',
     stream_url: conf?.stream_url || '',
     chat_url: conf?.chat_url || '',
@@ -58,7 +58,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   useEffect(() => {
     setForm(f => ({
       ...f,
-      description: conf?.description || '',
+      description: event?.description || '',
       description_post_register: event?.description_post_register || '',
       stream_url: conf?.stream_url || '',
       chat_url: conf?.chat_url || '',
@@ -70,7 +70,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       telegram_chat_ids: conf?.telegram_chat_ids || '',
       skip_contact_form: !!event?.skip_contact_form,
     }))
-  }, [conf, event?.landing_url, event?.skip_contact_form, event?.description_post_register])
+  }, [conf, event?.landing_url, event?.skip_contact_form, event?.description, event?.description_post_register])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -86,6 +86,8 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.title !== (event?.title || ''))                  eventPatch.title = form.title
       if (form.landing_url !== (event?.landing_url || ''))      eventPatch.landing_url = form.landing_url || null
       if (form.skip_contact_form !== !!event?.skip_contact_form) eventPatch.skip_contact_form = form.skip_contact_form
+      if (form.description !== (event?.description || ''))
+        eventPatch.description = form.description || null
       if (form.description_post_register !== (event?.description_post_register || ''))
         eventPatch.description_post_register = form.description_post_register || null
       if (Object.keys(eventPatch).length > 0) {
@@ -94,7 +96,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       }
 
       const confPatch: any = {}
-      if (form.description !== (conf?.description || ''))             confPatch.description = form.description || null
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
       if (form.chat_url !== (conf?.chat_url || ''))                    confPatch.chat_url = form.chat_url || null
       if (form.vip_url !== (conf?.vip_url || ''))                      confPatch.vip_url = form.vip_url || null

@@ -325,6 +325,17 @@ API:
 
 **В превью рассылок** ([`broadcasts/templates/page.tsx`](web/src/app/dashboard/conferences/[id]/broadcasts/templates/page.tsx)) спикерская афиша подставляется только для шаблонов со спикером (`speaker_intro`, `5min_before`, `gift`). Дневные/событийные шаблоны (`day_*`, `pre_conf`, `2h_before_*`, `30min_before`) подставляют горизонтальную афишу события из `event_posters`, а не первого попавшегося спикера.
 
+### Описание события — единое поле `events.description` для всех типов (миграция 092 от 2026-05-21)
+
+У события два независимых поля описания, оба живут на уровне `events` (не в `conf_conferences`):
+
+- `events.description` — **«Описание для лендинга»** (продающий текст). Показывается на встроенном лендинге Mini App ([LandingTab.tsx](mini-app/src/tabs/LandingTab.tsx)) до регистрации и в превью рассылок как `{conf_description}`.
+- `events.description_post_register` — **«Описание после регистрации»** (инструкции «что делать дальше»). Показывается в Mini App на вкладке «Программа»/«Турнир»/«Конкурс» под плитками стрима и чата ([ProgramTab.tsx](mini-app/src/tabs/ProgramTab.tsx), [TurnirProgramTab.tsx](mini-app/src/tabs/TurnirProgramTab.tsx), [ContestProgramTab.tsx](mini-app/src/tabs/ContestProgramTab.tsx)).
+
+Правило едино для всех `module_slug` (`base`, `conference`, `turnir`, `contest`, ...). До миграции 092 для конференций/турниров «Описание для лендинга» ошибочно сохранялось в `conf_conferences.description`, которое Mini App не читает — отсюда баг «на лендинге показывается описание после регистрации».
+
+**Миграция 092:** перенесла `conf_conferences.description → events.description` (только там, где `events.description` пустое или совпадало с `description_post_register` после копирования миграции 084 — т.е. legacy-значение), потом дропнула колонку `conf_conferences.description`. Поле `description` убрано из `ConferenceUpdate` (Pydantic). В `regenerate_landing_data` и в плейсхолдерах `{conf_description}` шаблонов рассылок (`pre_conf`, `custom`) теперь берётся `events.description`. В `SettingsTab` конференций/турниров поле «Описание для лендинга» сохраняется через `PATCH /events/{id} { description }` вместе с остальными `events`-полями.
+
 ### Статус событий и даты конференций (миграция 043 от 28.04.2026)
 
 **Статусы `events.status`:**

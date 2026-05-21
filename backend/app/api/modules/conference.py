@@ -200,7 +200,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         "name": event["title"] if event else "",
         "name_sub": conf["offer"] or "",
         "dates": f"{date_str(conf['start_date'])} — {date_str(conf['end_date'])}" if conf["start_date"] else "",
-        "description": conf["description"] or "",
+        "description": (event["description"] if event else "") or "",
         "registration_url": (event["landing_url"] if event else None) or conf["getcourse_form_url"] or "",
         "chat_url": (event["chat_url"] if event else None) or conf["chat_url"] or "",
         "stream_url": event_stream_url,
@@ -239,7 +239,8 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
 class ConferenceUpdate(BaseModel):
     subtitle: Optional[str] = None
     offer: Optional[str] = None
-    description: Optional[str] = None
+    # description перенесён в events.description (миграция 092). Поле живёт
+    # на уровне события, конференции/турниры используют то же поле.
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     landing_url: Optional[str] = None

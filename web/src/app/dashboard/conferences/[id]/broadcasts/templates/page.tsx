@@ -595,7 +595,7 @@ export default function TemplatesPage() {
     const confDay1Date = confDay1?.day_date
       ? new Date(confDay1.day_date + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
       : ''
-    const realConfDesc = confData?.description || ''
+    const realConfDesc = eventData?.description || ''
 
     out = out
       .replace(/\{conf_title\}/g, realConfTitle)

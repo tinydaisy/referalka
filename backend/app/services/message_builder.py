@@ -448,7 +448,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
     elif tpl_type == "pre_conf":
         conf_row = await conn.fetchrow(
             """
-            SELECT e.title as conf_title, cc.description as conf_description,
+            SELECT e.title as conf_title, e.description as conf_description,
                    e.landing_url AS registration_url,
                    cd.day_date
             FROM events e
@@ -519,7 +519,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         conf_row = await conn.fetchrow(
             """
-            SELECT e.title as conf_title, cc.description as conf_description,
+            SELECT e.title as conf_title, e.description as conf_description,
                    e.landing_url AS registration_url, cc.raffle_url
             FROM events e
             JOIN conf_conferences cc ON cc.event_id = e.id
