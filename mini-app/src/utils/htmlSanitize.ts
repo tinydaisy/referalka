@@ -80,7 +80,11 @@ export function sanitizeHtml(input: string): string {
     const root = doc.body.firstElementChild
     if (!root) return ''
     sanitizeNode(root)
-    return root.innerHTML
+    // Переносы строк, которые клиент сделал в textarea между HTML-тегами,
+    // по дефолту в HTML схлопываются как пробелы — текст превращается в
+    // одну сплошную строку. Конвертируем каждый \n в <br>, чтобы поведение
+    // совпало с тем, что клиент видит в textarea (1 перевод = 1 перенос).
+    return root.innerHTML.replace(/\r?\n/g, '<br>')
   } catch {
     return ''
   }

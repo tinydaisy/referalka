@@ -1,0 +1,77 @@
+// Персиково-красная кнопка оплаты VIP-тарифа. При нажатии запускает
+// async-колбэк (redirectToVip в EventPage), пока тот резолвится — на
+// кнопке крутится спиннер вместо текста. Это нужно потому что
+// redirectToVip уходит во внешний браузер через openLink (Telegram WebApp
+// иногда заметно «думает» перед открытием системного браузера, и
+// пользователь успевает кликнуть второй раз).
+
+import { useState, CSSProperties } from 'react'
+
+interface Props {
+  label: string
+  url: string
+  onClick: (url: string) => void | Promise<void>
+  style?: CSSProperties
+}
+
+export default function VipButton({ label, url, onClick, style }: Props) {
+  const [busy, setBusy] = useState(false)
+
+  async function handle() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await onClick(url)
+    } finally {
+      // Небольшая задержка перед сбросом — пока браузер открывается,
+      // не давать перерендеру моргнуть текстом обратно.
+      setTimeout(() => setBusy(false), 800)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      disabled={busy}
+      style={{
+        display: 'block', width: '100%', cursor: busy ? 'wait' : 'pointer',
+        background: 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)',
+        color: '#FFFFFF',
+        borderRadius: 14, padding: '16px 16px', marginBottom: 12,
+        textAlign: 'center', fontWeight: 900, fontSize: 15,
+        letterSpacing: 1.2, textTransform: 'uppercase',
+        boxShadow: '0 4px 14px rgba(220,38,38,0.45)',
+        border: '1px solid rgba(127,29,29,0.5)',
+        textShadow: '0 1px 2px rgba(0,0,0,0.35)',
+        opacity: busy ? 0.9 : 1,
+        ...style,
+      }}
+    >
+      {busy ? (
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <Spinner />
+          Открываем…
+        </span>
+      ) : label}
+    </button>
+  )
+}
+
+function Spinner() {
+  return (
+    <>
+      <span
+        style={{
+          width: 16, height: 16,
+          border: '2px solid rgba(255,255,255,0.35)',
+          borderTopColor: '#FFFFFF',
+          borderRadius: '50%',
+          display: 'inline-block',
+          animation: 'vip-spin 0.7s linear infinite',
+        }}
+      />
+      <style>{`@keyframes vip-spin { to { transform: rotate(360deg); } }`}</style>
+    </>
+  )
+}

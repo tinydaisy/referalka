@@ -4,6 +4,7 @@
 // и больше не показывается.
 import { markParticipantWelcomed } from '../api'
 import { useChatGate } from './ChatGate'
+import VipButton from './VipButton'
 
 interface Props {
   event: any                  // данные события (для названия и chat_url)
@@ -76,26 +77,12 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
         {modal}
 
         {vipUrl && (
-          <button
-            type="button"
-            onClick={() => {
-              if (onVipClick) onVipClick(vipUrl)
-              else window.open(vipUrl, '_blank', 'noopener,noreferrer')
-            }}
-            style={{
-              display: 'block', width: '100%', cursor: 'pointer',
-              background: 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)',
-              color: '#FFFFFF',
-              borderRadius: 14, padding: '16px 16px', marginBottom: 16,
-              textAlign: 'center', fontWeight: 900, fontSize: 15,
-              letterSpacing: 1.2, textTransform: 'uppercase',
-              boxShadow: '0 4px 14px rgba(220,38,38,0.45)',
-              border: '1px solid rgba(127,29,29,0.5)',
-              textShadow: '0 1px 2px rgba(0,0,0,0.35)',
-            }}
-          >
-            {vipLabel}
-          </button>
+          <VipButton
+            label={vipLabel}
+            url={vipUrl}
+            onClick={onVipClick || ((u) => { window.open(u, '_blank', 'noopener,noreferrer') })}
+            style={{ marginBottom: 16 }}
+          />
         )}
 
         <p style={{ color: '#25455D', fontSize: 13, fontWeight: 600, margin: '4px 0 10px' }}>

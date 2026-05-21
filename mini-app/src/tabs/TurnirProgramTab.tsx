@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { getSessions, getSpeakers, getDays, getStages, getEventCollaborators, trackLinkClick } from '../api'
 import { useChatGate } from '../components/ChatGate'
 import EventDescription from '../components/EventDescription'
+import VipButton from '../components/VipButton'
 
 interface Session {
   id: number
@@ -415,29 +416,15 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
         </div>
       )}
 
-      {/* VIP — персиковая кнопка с синим текстом, видна над стримом и чатом.
-          У конференции — сразу под каруселью спикеров; у мероприятия — в самом верху. */}
+      {/* VIP — персиково-красная кнопка, видна над стримом и чатом.
+          У конференции — сразу под каруселью спикеров; у мероприятия — в самом верху.
+          Открывается во ВНЕШНЕМ браузере (см. EventPage.redirectToVip). */}
       {hasVip && (
-        <button
-          type="button"
-          onClick={() => {
-            if (onVipClick) onVipClick(vipUrl)
-            else window.open(vipUrl, '_blank', 'noopener,noreferrer')
-          }}
-          style={{
-            display: 'block', width: '100%', cursor: 'pointer',
-            background: 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)',
-            color: '#FFFFFF',
-            borderRadius: 14, padding: '16px 16px', marginBottom: 12,
-            textAlign: 'center', fontWeight: 900, fontSize: 15,
-            letterSpacing: 1.2, textTransform: 'uppercase',
-            boxShadow: '0 4px 14px rgba(220,38,38,0.45)',
-            border: '1px solid rgba(127,29,29,0.5)',
-            textShadow: '0 1px 2px rgba(0,0,0,0.35)',
-          }}
-        >
-          {vipLabel}
-        </button>
+        <VipButton
+          label={vipLabel}
+          url={vipUrl}
+          onClick={onVipClick || ((u) => { window.open(u, '_blank', 'noopener,noreferrer') })}
+        />
       )}
 
       {/* Стрим — плашка во всю ширину.

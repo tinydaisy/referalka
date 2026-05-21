@@ -421,6 +421,11 @@ async def send_event_open_message(
 
     is_conf = ev["module_slug"] == "conference"
 
+    # Вторая кнопка-фолбэк: «Войти в кабинет» — открывает хаб бота
+    # (для общего @pluson_bot — селектор событий, для VIP-бота — Хаб клиента).
+    cabinet_btn = {"text": "Войти в кабинет", "url": bot_url_base}
+    extra_buttons: list[list[dict]] = []
+
     if kind == "register_cta":
         date_str = _fmt_event_period(ev["effective_start_at"], ev["effective_end_at"], is_conf)
         text = f"Привет, {name}! 👋\n\nДобро пожаловать на «{ev_title}» 🎉"
@@ -434,10 +439,10 @@ async def send_event_open_message(
         text = f"Привет, {name}! 👋\n\nВы записаны на «{ev_title}»."
         if date_str:
             text += f"\n\n🗓 {date_str}"
-        text += "\n\nВы ещё успеваете получить подарки за приглашение друзей 🎁"
         btn_text = "Получить подарки"
         pid_part = f"_pid{ref_code}" if ref_code else ""
         btn_url = f"{bot_url_base}?startapp=ref_pg{ev['slug']}_tabgame{pid_part}"
+        extra_buttons.append([cabinet_btn])
     elif kind == "next_event_cta":
         succ_title = (successor_ev["title"] if successor_ev else "") or "следующее событие"
         succ_date = ""
@@ -477,7 +482,7 @@ async def send_event_open_message(
                     "text": text,
                     "disable_web_page_preview": True,
                     "reply_markup": {
-                        "inline_keyboard": [[{"text": btn_text, "url": btn_url}]]
+                        "inline_keyboard": [[{"text": btn_text, "url": btn_url}]] + extra_buttons
                     },
                 },
             )

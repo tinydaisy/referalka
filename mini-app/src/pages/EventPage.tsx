@@ -309,7 +309,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     getPlatform().redirectTo(fullUrl)
   }
 
-  // Открытие ссылки на оплату VIP-тарифа. Если у участника есть pid
+  // Открытие ссылки на оплату VIP-тарифа. Открываем во ВНЕШНЕМ браузере
+  // (а не внутри Mini App webview) — у платёжных страниц webview иногда
+  // ломает CSS, кнопки оплаты и колл-беки. Если у участника есть pid
   // (его привёл партнёр), к URL дописывается партнёрский параметр клиента
   // (collaborators.external_ref_param) — как у стороннего лендинга.
   async function redirectToVip(vipUrl: string) {
@@ -331,7 +333,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       } catch { /* тихо игнорим — основной редирект не ломаем */ }
     }
     const { getPlatform } = await import('../platform')
-    getPlatform().redirectTo(fullUrl)
+    getPlatform().openExternal(fullUrl)
   }
 
   if (loading || !event) {
