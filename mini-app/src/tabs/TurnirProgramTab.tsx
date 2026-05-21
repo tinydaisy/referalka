@@ -710,62 +710,55 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                       ? `${fmtDate(stage.start_date)} – ${fmtDate(stage.end_date)}`
                       : (stage.start_date ? `с ${fmtDate(stage.start_date)}` : '')
                     const isDescOpen = openStageDesc === stage.id
+                    const hasDesc = !!stage.description?.trim()
                     return (
                       <div key={stage.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* Шапка этапа — один блок. Название — PEACH (бренд),
+                            подпись и даты — белым. Стрелочка справа раскрывает описание
+                            прямо внутри тёмной плашки (если описание есть). */}
                         <div style={{
                           background: 'linear-gradient(45deg, #25455D, #0a1520)',
-                          color: 'white', padding: '12px 14px', borderRadius: 12,
+                          padding: '12px 14px', borderRadius: 12,
                           marginTop: sIdx === 0 ? 0 : 4,
-                        }}>
-                          {stage.subtitle && (
-                            <div style={{ fontSize: 11, fontWeight: 700, color: 'white', opacity: 0.85, letterSpacing: 0.6, textTransform: 'uppercase' }}>
-                              {stage.subtitle}
+                          cursor: hasDesc ? 'pointer' : 'default',
+                        }}
+                        onClick={() => { if (hasDesc) setOpenStageDesc(isDescOpen ? null : stage.id) }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              {stage.subtitle && (
+                                <div style={{ fontSize: 11, fontWeight: 700, color: 'white', opacity: 0.85, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+                                  {stage.subtitle}
+                                </div>
+                              )}
+                              <div style={{ fontSize: 15, fontWeight: 900, marginTop: stage.subtitle ? 2 : 0, lineHeight: 1.25, color: PEACH }}>
+                                {stage.title}
+                              </div>
+                              {range && (
+                                <div style={{ fontSize: 12, fontWeight: 600, color: 'white', marginTop: 4 }}>
+                                  {range}
+                                </div>
+                              )}
                             </div>
-                          )}
-                          <div style={{ fontSize: 15, fontWeight: 900, marginTop: stage.subtitle ? 2 : 0, lineHeight: 1.25, color: 'white' }}>
-                            {stage.title}
+                            {hasDesc && (
+                              <span style={{
+                                color: PEACH, fontSize: 18, lineHeight: 1, paddingTop: 2,
+                                transform: isDescOpen ? 'rotate(90deg)' : 'none',
+                                transition: 'transform 0.2s', flexShrink: 0,
+                              }}>▸</span>
+                            )}
                           </div>
-                          {range && (
-                            <div style={{ fontSize: 12, fontWeight: 600, color: 'white', marginTop: 4 }}>
-                              {range}
+                          {hasDesc && isDescOpen && (
+                            <div style={{
+                              marginTop: 10, paddingTop: 10,
+                              borderTop: '1px solid rgba(255,207,164,0.25)',
+                              fontSize: 13, lineHeight: 1.55, color: '#dbe5ee',
+                              whiteSpace: 'pre-wrap',
+                            }}>
+                              {stage.description}
                             </div>
                           )}
                         </div>
-
-                        {/* Описание этапа — отдельной раскрывающейся плашкой под шапкой этапа.
-                            По умолчанию свёрнуто. Если описания нет — плашки нет. */}
-                        {stage.description && (
-                          <div style={{
-                            background: 'white', borderRadius: 12,
-                            border: '1px solid rgba(37,69,93,0.10)',
-                            boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-                            overflow: 'hidden',
-                          }}>
-                            <button
-                              onClick={() => setOpenStageDesc(isDescOpen ? null : stage.id)}
-                              style={{
-                                width: '100%', display: 'flex', alignItems: 'center',
-                                justifyContent: 'space-between', padding: '10px 14px',
-                                background: 'transparent', border: 0, cursor: 'pointer',
-                                fontFamily: 'inherit', textAlign: 'left',
-                              }}
-                            >
-                              <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>Описание этапа</span>
-                              <span style={{ fontSize: 18, color: '#c5cdd6',
-                                             transform: isDescOpen ? 'rotate(90deg)' : 'none',
-                                             transition: 'transform 0.2s' }}>▸</span>
-                            </button>
-                            {isDescOpen && (
-                              <div style={{
-                                padding: '0 14px 12px',
-                                fontSize: 13, lineHeight: 1.55, color: '#3a4a5a',
-                                whiteSpace: 'pre-wrap',
-                              }}>
-                                {stage.description}
-                              </div>
-                            )}
-                          </div>
-                        )}
 
                         {sd.map(renderDay)}
                       </div>

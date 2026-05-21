@@ -134,11 +134,36 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 
   async function deleteStage(stageId: number) {
     const stageDays = days.filter(d => d.stage_id === stageId)
-    const msg = stageDays.length > 0
-      ? `Удалить этап? ${stageDays.length} ${stageDays.length === 1 ? 'день останется' : 'дня(дней) останутся'} без группировки.`
-      : 'Удалить этап?'
-    if (!confirm(msg)) return
+    if (stageDays.length === 0) {
+      if (!confirm('Удалить этап?')) return
+      await api.conference.stages.delete(eventId, stageId)
+      await load()
+      return
+    }
+    // Два варианта: только этап (дни → без группировки) ИЛИ этап вместе с днями.
+    const withDays = confirm(
+      `В этапе ${stageDays.length} ${stageDays.length === 1 ? 'день' : 'дня(дней)'}.\n\n` +
+      `ОК — удалить этап ВМЕСТЕ с этими днями и их сессиями.\n` +
+      `Отмена — оставить дни «без группировки».\n\n` +
+      `Что выбрать?`
+    )
+    if (withDays) {
+      // Удалить дни (каскадно с сессиями) + этап
+      for (const d of stageDays) {
+        await api.conference.days.delete(eventId, d.day_number)
+      }
+    }
     await api.conference.stages.delete(eventId, stageId)
+    await load()
+  }
+
+  async function deleteAllOrphans() {
+    const orphans = days.filter(d => !d.stage_id)
+    if (orphans.length === 0) return
+    if (!confirm(`Удалить все ${orphans.length} ${orphans.length === 1 ? 'день' : 'дня(дней)'} без группировки? Все сессии в них тоже удалятся.`)) return
+    for (const d of orphans) {
+      await api.conference.days.delete(eventId, d.day_number)
+    }
     await load()
   }
 
@@ -401,9 +426,18 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       {/* Дни без этапа */}
       {orphanDays.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 bg-gray-100 text-sm font-semibold text-gray-600 flex items-center gap-2">
-            <Calendar size={14} className="opacity-60" />
-            Без группировки
+          <div className="px-5 py-3 bg-gray-100 text-sm font-semibold text-gray-600 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Calendar size={14} className="opacity-60" />
+              Без группировки
+            </div>
+            <button
+              onClick={deleteAllOrphans}
+              className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+              title="Удалить все дни без группировки"
+            >
+              <Trash2 size={12} /> Удалить все
+            </button>
           </div>
           <div className="px-3 py-3 space-y-3">
             {orphanDays.map(day => (
