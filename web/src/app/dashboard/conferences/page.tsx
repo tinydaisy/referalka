@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { Plus, Users, Calendar, ChevronRight, Mic, Trash2, Copy } from 'lucide-react'
+import { useRouter, usePathname } from 'next/navigation'
+import { Plus, Users, Calendar, ChevronRight, Mic, Trash2, Copy, Trophy } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import ViewToggle, { ViewMode } from '@/components/ViewToggle'
@@ -37,6 +37,22 @@ function dateColorClass(end: string | null | undefined): string {
 export default function ConferencesPage() {
   const { t } = useLang()
   const router = useRouter()
+  const pathname = usePathname()
+  // Та же страница обслуживает /dashboard/conferences и /dashboard/tournaments —
+  // обе работают с теми же таблицами conf_*, отличаются только module_slug и UI-лейблами.
+  const isTournament = !!pathname?.startsWith('/dashboard/tournaments')
+  const basePath = isTournament ? '/dashboard/tournaments' : '/dashboard/conferences'
+  const moduleSlug = isTournament ? 'turnir' : 'conference'
+  const pageTitle = isTournament ? 'Премии/Турниры' : t.conferences.title
+  const pageSubtitle = isTournament
+    ? 'Чемпионаты, премии и многоэтапные программы — те же возможности что у конференций.'
+    : t.conferences.subtitle
+  const addNewLabel = isTournament ? 'Создать турнир' : t.conferences.addNew
+  const emptyTitle = isTournament ? 'Здесь будут ваши турниры' : t.conferences.empty.title
+  const emptySubtitle = isTournament ? 'Создайте первый турнир или премию' : t.conferences.empty.subtitle
+  const emptyBtn = isTournament ? 'Создать первый турнир' : t.conferences.empty.btn
+  const HeaderIcon = isTournament ? Trophy : Mic
+
   const [events, setEvents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<number | null>(null)
@@ -50,26 +66,27 @@ export default function ConferencesPage() {
     ended:     { label: t.status.ended,     cls: 'bg-red-50 text-red-600 border-red-200',              dot: 'bg-red-400' },
   }
 
+  const storageKey = isTournament ? 'plusson_tournaments_view' : 'plusson_conferences_view'
   useEffect(() => {
-    const saved = localStorage.getItem('plusson_conferences_view') as ViewMode | null
+    const saved = localStorage.getItem(storageKey) as ViewMode | null
     if (saved === 'grid' || saved === 'list') setView(saved)
-  }, [])
+  }, [storageKey])
 
   function setViewPersist(v: ViewMode) {
     setView(v)
-    localStorage.setItem('plusson_conferences_view', v)
+    localStorage.setItem(storageKey, v)
   }
 
   async function load() {
     setLoading(true)
     try {
-      const r = await api.events.list('conference')
+      const r = await api.events.list(moduleSlug)
       setEvents(r.events || [])
     } finally {
       setLoading(false)
     }
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [moduleSlug])
 
   async function handleDelete(e: React.MouseEvent | null, id: number, title: string) {
     e?.preventDefault(); e?.stopPropagation()
@@ -110,16 +127,16 @@ export default function ConferencesPage() {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: '#25455D' }}>
-            <Mic size={24} /> {t.conferences.title}
+            <HeaderIcon size={24} /> {pageTitle}
           </h1>
-          <p className="text-gray-500 mt-1 text-sm">{t.conferences.subtitle}</p>
+          <p className="text-gray-500 mt-1 text-sm">{pageSubtitle}</p>
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle view={view} onChange={setViewPersist} />
-          <Link href="/dashboard/conferences/new"
+          <Link href={`${basePath}/new`}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
                 style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-            <Plus size={16} /> {t.conferences.addNew}
+            <Plus size={16} /> {addNewLabel}
           </Link>
         </div>
       </div>
@@ -128,14 +145,14 @@ export default function ConferencesPage() {
         <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
           <div className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center"
                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-            <Mic size={36} className="text-white" />
+            <HeaderIcon size={36} className="text-white" />
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-3">{t.conferences.empty.title}</h2>
-          <p className="text-gray-500 mb-8 max-w-sm mx-auto">{t.conferences.empty.subtitle}</p>
-          <Link href="/dashboard/conferences/new"
+          <h2 className="text-xl font-bold text-gray-900 mb-3">{emptyTitle}</h2>
+          <p className="text-gray-500 mb-8 max-w-sm mx-auto">{emptySubtitle}</p>
+          <Link href={`${basePath}/new`}
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white"
                 style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-            <Plus size={16} /> {t.conferences.empty.btn}
+            <Plus size={16} /> {emptyBtn}
           </Link>
         </div>
       ) : view === 'list' ? (
@@ -148,7 +165,7 @@ export default function ConferencesPage() {
             const dateCls   = startIso || endIso ? dateColorClass(endIso) : 'text-gray-400'
             return (
               <div key={e.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
-                <Link href={`/dashboard/conferences/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
+                <Link href={`${basePath}/${e.id}`} className="flex-1 min-w-0 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-gray-900 truncate">{e.title}</span>
@@ -192,7 +209,7 @@ export default function ConferencesPage() {
             return (
               <div key={event.id} className="relative group">
                 <Link
-                  href={`/dashboard/conferences/${event.id}`}
+                  href={`${basePath}/${event.id}`}
                   className={`block bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
                 >
                   <div className="h-3" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }} />

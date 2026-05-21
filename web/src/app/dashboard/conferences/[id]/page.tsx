@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams, useSearchParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Download } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -26,6 +26,9 @@ export default function ConferencePage() {
   const { id } = useParams()
   const eventId = Number(id)
   const searchParams = useSearchParams()
+  const pathname = usePathname()
+  const isTournament = !!pathname?.startsWith('/dashboard/tournaments')
+  const basePath = isTournament ? '/dashboard/tournaments' : '/dashboard/conferences'
   const { t } = useLang()
   const initialTab = (searchParams.get('tab') as Tab) || 'settings'
   const [tab, setTab] = useState<Tab>(VALID_TABS.includes(initialTab) ? initialTab : 'settings')
@@ -92,7 +95,7 @@ export default function ConferencePage() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-6">
-        <Link href="/dashboard/conferences" className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+        <Link href={basePath} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
           <ArrowLeft size={18} />
         </Link>
         <div className="flex-1 min-w-0">
@@ -136,7 +139,7 @@ export default function ConferencePage() {
               {tb.label}
             </button>
           ))}
-          <Link href={`/dashboard/conferences/${eventId}/broadcasts/templates`}
+          <Link href={`${basePath}/${eventId}/broadcasts/templates`}
             className="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-white/60">
             Рассылки
           </Link>

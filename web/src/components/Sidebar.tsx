@@ -44,6 +44,10 @@ export default function Sidebar() {
         { href: '/dashboard/events', label: t.nav.events, icon: Calendar },
         // Конференции — только для тарифов с фичей 'conference' (ПРОФИ, VIP, Пробный)
         ...(hasConference ? [{ href: '/dashboard/conferences', label: t.nav.conferences, icon: Mic }] : []),
+        // Премии/Турниры — multi-day программы (этапы / недели / дни) поверх тех же таблиц
+        // conf_* что и конференции, но семантика и UI заточены под чемпионаты/премии.
+        // Доступ — той же фичей 'conference' пока не выделим в отдельную.
+        ...(hasConference ? [{ href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy }] : []),
         // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
         ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
       ],
@@ -55,13 +59,6 @@ export default function Sidebar() {
         { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users },
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
         { href: '/dashboard/channels', label: t.nav.channels, icon: Radio },
-      ],
-    },
-    {
-      label: t.nav.soon,
-      items: [
-        { href: '#', label: t.nav.awards, icon: Award },
-        { href: '#', label: t.nav.tournaments, icon: Trophy },
       ],
     },
   ]

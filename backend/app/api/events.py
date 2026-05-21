@@ -130,7 +130,7 @@ async def list_events(
                           END, sort, id
                  LIMIT 1) AS poster_url,
                e.points_free, e.points_paid, e.created_at, e.start_at, e.end_at, e.address,
-               CASE WHEN e.module_slug = 'conference' THEN
+               CASE WHEN e.module_slug IN ('conference','turnir') THEN
                  (SELECT (d.day_date + COALESCE(
                             NULLIF(d.open_time,'')::time,
                             (SELECT MIN(NULLIF(s.start_time,'')::time)
@@ -143,7 +143,7 @@ async def list_events(
                     ORDER BY d.day_number ASC LIMIT 1)
                  ELSE e.start_at
                END AS effective_start_at,
-               CASE WHEN e.module_slug = 'conference' THEN
+               CASE WHEN e.module_slug IN ('conference','turnir') THEN
                  (SELECT (d.day_date + COALESCE(
                             NULLIF(d.close_time,'')::time,
                             (SELECT MAX(NULLIF(s.end_time,'')::time)
@@ -208,8 +208,9 @@ async def create_event(
         default_skip_contact_form,
     )
 
-    # Если модуль — конференция, создаём запись в conf_conferences
-    if data.module_slug == "conference":
+    # Конференции и турниры используют те же таблицы conf_* (программа, спикеры).
+    # Создаём запись в conf_conferences для обоих типов.
+    if data.module_slug in ("conference", "turnir"):
         await db.execute(
             "INSERT INTO conf_conferences (event_id) VALUES ($1) ON CONFLICT DO NOTHING",
             event["id"]
@@ -474,8 +475,8 @@ async def copy_event(
                 new_id, *[g[c] for c in cols]
             )
 
-        # Если конференция — копируем conf_*
-        if src['module_slug'] == 'conference':
+        # Конференции и турниры используют те же таблицы conf_* — копируем для обоих.
+        if src['module_slug'] in ('conference', 'turnir'):
             old_conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
             if old_conf:
                 cols = [k for k in dict(old_conf).keys() if k not in ('id', 'event_id', 'editor_code')]

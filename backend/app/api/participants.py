@@ -354,11 +354,11 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                   -- заведена — fallback на events.start_at/end_at, чтобы
                   -- конференция не пропадала из списка / сортировалась корректно.
                   COALESCE(
-                    CASE WHEN e.module_slug = 'conference' THEN cd.start_at END,
+                    CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END,
                     e.start_at
                   ) AS start_at,
                   COALESCE(
-                    CASE WHEN e.module_slug = 'conference' THEN cd.end_at END,
+                    CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at END,
                     e.end_at
                   ) AS end_at,
                   pe.participant_id, pe.ref_code,
@@ -378,8 +378,8 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
               AND (
                 -- будущие/идущие опубликованные — все, как промо
                 (e.status = 'published' AND (
-                   COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at END, e.end_at) IS NULL
-                   OR COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at END, e.end_at) >= NOW()
+                   COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at END, e.end_at) IS NULL
+                   OR COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at END, e.end_at) >= NOW()
                 ))
                 -- прошедшие — только если пользователь был участником
                 OR pe.event_id IS NOT NULL

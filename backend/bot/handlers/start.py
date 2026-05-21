@@ -319,7 +319,7 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                 SELECT * FROM (
                     SELECT e.id, e.slug, e.title, e.module_slug,
                            COALESCE(
-                             CASE WHEN e.module_slug = 'conference' THEN
+                             CASE WHEN e.module_slug IN ('conference','turnir') THEN
                                (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
                                         AT TIME ZONE 'Europe/Moscow'
                                   FROM conf_days d WHERE d.event_id = e.id
@@ -328,7 +328,7 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                              e.start_at
                            ) AS effective_start_at,
                            COALESCE(
-                             CASE WHEN e.module_slug = 'conference' THEN
+                             CASE WHEN e.module_slug IN ('conference','turnir') THEN
                                (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
                                         AT TIME ZONE 'Europe/Moscow'
                                   FROM conf_days d WHERE d.event_id = e.id

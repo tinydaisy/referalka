@@ -155,23 +155,23 @@ async def public_client_events(
                      LIMIT 1) AS poster_url,
                    e.status,
                    COALESCE(
-                     CASE WHEN e.module_slug = 'conference' THEN cd.start_at END,
+                     CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END,
                      e.start_at
                    ) AS start_at,
                    COALESCE(
-                     CASE WHEN e.module_slug = 'conference' THEN cd.end_at END,
+                     CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at END,
                      e.end_at
                    ) AS end_at,
                    CASE
-                     WHEN COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.start_at END, e.start_at) IS NULL
-                       OR COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at   END, e.end_at)   IS NULL
+                     WHEN COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END, e.start_at) IS NULL
+                       OR COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at   END, e.end_at)   IS NULL
                           THEN 'upcoming'
                      WHEN NOW() BETWEEN
-                          COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.start_at END, e.start_at)
+                          COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END, e.start_at)
                           AND
-                          COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at   END, e.end_at)
+                          COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at   END, e.end_at)
                           THEN 'now'
-                     WHEN COALESCE(CASE WHEN e.module_slug = 'conference' THEN cd.end_at   END, e.end_at) < NOW()
+                     WHEN COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at   END, e.end_at) < NOW()
                           THEN 'past'
                      ELSE 'upcoming'
                    END AS bucket,
@@ -186,7 +186,7 @@ async def public_client_events(
               LEFT JOIN user_participation up ON up.event_id = e.id
              WHERE e.client_id = $1 AND e.status IN ('published','ended')
              ORDER BY COALESCE(
-                        CASE WHEN e.module_slug = 'conference' THEN cd.start_at END,
+                        CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END,
                         e.start_at
                       ) NULLS LAST""",
         client_id,
@@ -454,9 +454,9 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                               END, sort, id
                      LIMIT 1) AS poster_url,
                    e.landing_url, e.address, e.status,
-                   CASE WHEN e.module_slug = 'conference'
+                   CASE WHEN e.module_slug IN ('conference','turnir')
                         THEN cd.start_at ELSE e.start_at END AS start_at,
-                   CASE WHEN e.module_slug = 'conference'
+                   CASE WHEN e.module_slug IN ('conference','turnir')
                         THEN cd.end_at   ELSE e.end_at   END AS end_at,
                    e.vip_url,
                    e.chat_url, e.chat_member_count_label, e.require_subscription,
@@ -503,7 +503,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
     succ = await db.fetchrow(
         """WITH ev_start AS (
               SELECT e.id, e.client_id, e.slug, e.title, e.module_slug, e.status,
-                     CASE WHEN e.module_slug = 'conference' THEN
+                     CASE WHEN e.module_slug IN ('conference','turnir') THEN
                        (SELECT (d.day_date + COALESCE(
                                   NULLIF(d.open_time,'')::time,
                                   (SELECT MIN(NULLIF(s.start_time,'')::time)

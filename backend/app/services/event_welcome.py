@@ -202,7 +202,7 @@ async def send_event_open_message(
                 """
                 SELECT e.id, e.slug, e.title, e.module_slug, e.status,
                        e.client_id,
-                       CASE WHEN e.module_slug = 'conference' THEN
+                       CASE WHEN e.module_slug IN ('conference','turnir') THEN
                          (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
                                   AT TIME ZONE 'Europe/Moscow'
                             FROM conf_days d
@@ -210,7 +210,7 @@ async def send_event_open_message(
                            ORDER BY d.day_number ASC LIMIT 1)
                          ELSE e.start_at
                        END AS effective_start_at,
-                       CASE WHEN e.module_slug = 'conference' THEN
+                       CASE WHEN e.module_slug IN ('conference','turnir') THEN
                          (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
                                   AT TIME ZONE 'Europe/Moscow'
                             FROM conf_days d
@@ -331,14 +331,14 @@ async def send_event_open_message(
                 """
                 SELECT * FROM (
                     SELECT e.id, e.slug, e.title, e.status, e.module_slug,
-                           CASE WHEN e.module_slug = 'conference' THEN
+                           CASE WHEN e.module_slug IN ('conference','turnir') THEN
                              (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
                                       AT TIME ZONE 'Europe/Moscow'
                                 FROM conf_days d WHERE d.event_id = e.id
                                 ORDER BY d.day_number ASC LIMIT 1)
                              ELSE e.start_at
                            END AS effective_start_at,
-                           CASE WHEN e.module_slug = 'conference' THEN
+                           CASE WHEN e.module_slug IN ('conference','turnir') THEN
                              (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
                                       AT TIME ZONE 'Europe/Moscow'
                                 FROM conf_days d WHERE d.event_id = e.id
