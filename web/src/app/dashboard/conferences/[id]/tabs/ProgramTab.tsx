@@ -27,7 +27,10 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
   const [sessions, setSessions] = useState<any[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [savingDay, setSavingDay] = useState<number | null>(null)
+  const [savingAll, setSavingAll] = useState(false)
+  // dirtyDays — какие day_number имеют несохранённые правки (для подсветки кнопки).
+  // Сбрасывается после успешного сохранения.
+  const [dirtyDays, setDirtyDays] = useState<Set<number>>(new Set())
   const [dayForms, setDayForms] = useState<Record<number, any>>({})
   const [sessionModal, setSessionModal] = useState<{ day: number } | null>(null)
   const [sessionForm, setSessionForm] = useState({ title: '', topic_id: '', speaker_id: '', start_time: '', end_time: '' })
@@ -68,12 +71,27 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
     load()
   }
 
-  async function saveDay(dayNum: number) {
-    setSavingDay(dayNum)
+  // Глобальное сохранение всех дней программы — заменяет per-day кнопку-дискету.
+  // Шлёт PUT для каждого dirtyDays, после успеха сбрасывает dirtyDays и перезагружает.
+  async function saveAllDays() {
+    if (dirtyDays.size === 0) return
+    setSavingAll(true)
     try {
-      const f = dayForms[dayNum] || {}
-      await api.conference.days.upsert(eventId, dayNum, { day_date: f.day_date || null })
-    } catch (err: any) { alert(err.message) } finally { setSavingDay(null) }
+      for (const dayNum of Array.from(dirtyDays)) {
+        const f = dayForms[dayNum] || {}
+        await api.conference.days.upsert(eventId, dayNum, {
+          day_date: f.day_date || null,
+          stream_url: f.stream_url || null,
+        })
+      }
+      setDirtyDays(new Set())
+      // Перезагружаем с бэка — клиент видит ровно то, что улетело в БД.
+      await load()
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setSavingAll(false)
+    }
   }
 
   async function deleteDay(dayNum: number) {
@@ -163,7 +181,6 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
         const dayNum = day.day_number
         const daySessions = sessions.filter((s: any) => s.day === dayNum).sort((a: any, b: any) => a.sort_order - b.sort_order)
         const df = dayForms[dayNum] || {}
-        const isSavingThis = savingDay === dayNum
 
         return (
           <div key={dayNum} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -174,19 +191,15 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
               </button>
             </div>
 
-            <div className="px-5 py-4 border-b border-gray-50 flex flex-col sm:flex-row gap-3">
-              <div className="flex-1">
-                <label className="label">{tp.date}</label>
-                <input type="date" value={df.day_date || ''}
-                  onChange={e => setDayForms(f => ({ ...f, [dayNum]: { ...df, day_date: e.target.value } }))}
-                  className="input" />
-              </div>
-              <div className="flex items-end">
-                <button onClick={() => saveDay(dayNum)} disabled={isSavingThis}
-                  className={`h-10 px-4 rounded-xl border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors ${isSavingThis ? 'btn-loading' : ''}`}>
-                  {isSavingThis ? <Spinner /> : <Save size={14} />}
-                </button>
-              </div>
+            <div className="px-5 py-4 border-b border-gray-50">
+              <label className="label">{tp.date}</label>
+              <input type="date" value={df.day_date || ''}
+                onChange={e => {
+                  const v = e.target.value
+                  setDayForms(prev => ({ ...prev, [dayNum]: { ...(prev[dayNum] || {}), day_date: v } }))
+                  setDirtyDays(prev => { const n = new Set(prev); n.add(dayNum); return n })
+                }}
+                className="input" />
             </div>
 
             <div className="px-5 py-3">
@@ -235,6 +248,21 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
           className="w-full py-3 rounded-2xl border-2 border-dashed border-gray-200 text-sm text-gray-400 hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2">
           <Plus size={16} /> {tp.addDayMore}
         </button>
+      )}
+
+      {/* Глобальная sticky-кнопка «Сохранить программу» — появляется только при
+          наличии несохранённых правок (dirtyDays > 0). Заменяет per-day иконки-дискеты:
+          клиент не должен жать сохранить у каждого дня отдельно. */}
+      {dirtyDays.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+          <button onClick={saveAllDays} disabled={savingAll}
+            className="btn-gold px-7 py-3 rounded-2xl text-sm font-bold shadow-2xl flex items-center gap-2 disabled:opacity-70">
+            {savingAll ? <Spinner /> : <Save size={16} />}
+            {savingAll
+              ? 'Сохраняем...'
+              : `Сохранить программу${dirtyDays.size > 1 ? ` (${dirtyDays.size})` : ''}`}
+          </button>
+        </div>
       )}
 
       {sessionModal && (
