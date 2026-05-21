@@ -1171,7 +1171,10 @@ async def verify_event_collaborator_channel(
         if "member list is inaccessible" in desc:
             detail = f"Бот не админ канала. Добавьте {bot_ref} в администраторы канала (без прав публикации — достаточно нулевых прав)."
         elif "chat not found" in desc:
-            detail = "Канал не найден. Проверьте ID канала — он должен начинаться с -100."
+            if not channel_id.startswith("-100"):
+                detail = f"Канал не найден. ID канала должен начинаться с «-100» (у вас: «{channel_id}»). Скопируйте правильный ID и сохраните профиль."
+            else:
+                detail = f"Канал не найден. Скорее всего {bot_ref} ещё не добавлен в канал. Откройте канал → Управление → Администраторы → добавьте {bot_ref}, и нажмите ещё раз."
         elif "user not found" in desc:
             detail = "Личный аккаунт не найден в Telegram. Проверьте «ID личного аккаунта»."
         elif "bot was kicked" in desc or "kicked" in desc:
