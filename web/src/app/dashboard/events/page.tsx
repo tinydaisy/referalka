@@ -53,7 +53,9 @@ export default function EventsPage() {
     setLoading(true)
     try {
       const res = await api.events.list()
-      const filtered = (res.events || []).filter((e: EventItem) => e.module_slug !== 'conference' && e.module_slug !== 'contest')
+      const filtered = (res.events || []).filter(
+        (e: EventItem) => e.module_slug !== 'conference' && e.module_slug !== 'contest' && e.module_slug !== 'turnir'
+      )
       // Догружаем start_at для каждого через GET (list не возвращает) — батчем по необходимости
       // Но для производительности — пока без догрузки, используем created_at если start_at нет
       setItems(filtered)
