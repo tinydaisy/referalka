@@ -522,15 +522,25 @@ export default function GeneralBroadcastsPage() {
           reasonMap[reason] = (reasonMap[reason] || 0) + 1
         }
         const reasons = Object.entries(reasonMap).sort((a, b) => b[1] - a[1])
-        // Разбивка по ботам. Старые строки до миграции 085 без channel_id → «Без указания».
-        const botMap: Record<string, { sent: number; failed: number }> = {}
+        // Разбивка по ботам/сообществам. Старые строки до миграции 085 без channel_id → «Без указания».
+        const PLATFORM_LABEL: Record<string, string> = { telegram: 'TG', vk: 'VK', max: 'MAX' }
+        const PLATFORM_PILL_CLASS: Record<string, string> = {
+          telegram: 'bg-sky-100 text-sky-700 border-sky-200',
+          vk: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+          max: 'bg-amber-100 text-amber-700 border-amber-200',
+        }
+        const botMap: Record<string, { sent: number; failed: number; platform: string }> = {}
         for (const r of logModal.rows) {
-          const key = r.channel_handle || r.channel_name || 'Без указания'
-          if (!botMap[key]) botMap[key] = { sent: 0, failed: 0 }
+          const handle = r.channel_handle || r.channel_name || 'Без указания'
+          const platform = r.channel_platform || r.user_platform || ''
+          const key = platform ? `${platform}::${handle}` : handle
+          if (!botMap[key]) botMap[key] = { sent: 0, failed: 0, platform }
           if (r.status === 'sent') botMap[key].sent += 1
           else botMap[key].failed += 1
         }
-        const botEntries = Object.entries(botMap).sort((a, b) => (b[1].sent + b[1].failed) - (a[1].sent + a[1].failed))
+        const botEntries = Object.entries(botMap)
+          .map(([key, st]) => ({ key, handle: key.includes('::') ? key.split('::')[1] : key, ...st }))
+          .sort((a, b) => (b.sent + b.failed) - (a.sent + a.failed))
         return (
           <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 max-h-[85vh] flex flex-col">
@@ -544,15 +554,22 @@ export default function GeneralBroadcastsPage() {
                 </div>
                 <button onClick={() => setLogModal(null)}><X size={18} /></button>
               </div>
-              {botEntries.length > 1 || (botEntries.length === 1 && botEntries[0][0] !== 'Без указания') ? (
+              {botEntries.length > 1 || (botEntries.length === 1 && botEntries[0].handle !== 'Без указания') ? (
                 <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-1">
-                  <p className="text-xs font-semibold text-blue-700">По ботам:</p>
-                  {botEntries.map(([handle, st]) => (
-                    <div key={handle} className="flex items-center justify-between text-xs text-blue-800">
-                      <span className="truncate flex-1">{handle}</span>
-                      <span className="ml-2">
-                        <span className="font-bold text-green-700">{st.sent}</span>
-                        {st.failed > 0 && <span className="text-red-500"> ✕ {st.failed}</span>}
+                  <p className="text-xs font-semibold text-blue-700">По каналам отправки:</p>
+                  {botEntries.map(e => (
+                    <div key={e.key} className="flex items-center justify-between text-xs text-blue-800 gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {e.platform && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${PLATFORM_PILL_CLASS[e.platform] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                            {PLATFORM_LABEL[e.platform] || e.platform.toUpperCase()}
+                          </span>
+                        )}
+                        <span className="truncate">{e.handle}</span>
+                      </div>
+                      <span className="ml-2 shrink-0">
+                        <span className="font-bold text-green-700">{e.sent}</span>
+                        {e.failed > 0 && <span className="text-red-500"> ✕ {e.failed}</span>}
                       </span>
                     </div>
                   ))}
@@ -574,14 +591,21 @@ export default function GeneralBroadcastsPage() {
                   <p className="text-sm text-gray-400 text-center py-6">Лог пуст</p>
                 )}
                 {logModal.rows.map((r: any, i: number) => {
-                  const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.username || `tg:${r.tg_id}`
+                  const platform = r.channel_platform || r.user_platform || ''
+                  const userIdLabel = platform === 'vk' ? `vk:${r.tg_id}` : platform === 'max' ? `max:${r.tg_id}` : `tg:${r.tg_id}`
+                  const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.username || userIdLabel
                   const username = r.username ? `@${r.username}` : ''
                   const ok = r.status === 'sent'
                   const bot = r.channel_handle || r.channel_name
+                  const platformLabel = PLATFORM_LABEL[platform] || (platform ? platform.toUpperCase() : '')
+                  const pillClass = PLATFORM_PILL_CLASS[platform] || 'bg-gray-100 text-gray-600 border-gray-200'
                   return (
                     <div key={i} className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs ${ok ? 'bg-gray-50' : 'bg-red-50'}`}>
                       <div className="flex items-center gap-2 min-w-0">
                         <span className={ok ? 'text-green-500' : 'text-red-400'}>{ok ? '✓' : '✗'}</span>
+                        {platformLabel && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${pillClass}`}>{platformLabel}</span>
+                        )}
                         <span className="font-medium text-gray-800 truncate">{name}</span>
                         {username && <span className="text-gray-400 shrink-0">{username}</span>}
                         {bot && <span className="text-blue-500 shrink-0 text-[10px] bg-blue-50 px-1.5 py-0.5 rounded">{bot}</span>}

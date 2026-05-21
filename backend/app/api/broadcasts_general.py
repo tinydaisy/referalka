@@ -342,7 +342,9 @@ async def log(
         """
         SELECT bl.platform_user_id, bl.status, bl.error, bl.sent_at,
                pu.first_name, pu.last_name, pu.username, pu.platform_user_id as tg_id,
-               bl.channel_id, ch.handle AS channel_handle, ch.display_name AS channel_name
+               pu.platform_slug AS user_platform,
+               bl.channel_id, ch.handle AS channel_handle, ch.display_name AS channel_name,
+               ch.platform_slug AS channel_platform
         FROM broadcast_log bl
         LEFT JOIN platform_users pu ON pu.id = bl.platform_user_id
         LEFT JOIN channels ch ON ch.id = bl.channel_id
