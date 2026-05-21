@@ -53,15 +53,14 @@ export async function initPlatform(): Promise<PlatformAdapter> {
         .catch(() => cb(false))
     },
     openExternal: (url: string) => {
-      // VK Mini App работает в iframe на vk.com. Universal-link iOS работают
-      // ТОЛЬКО при навигации верхнего окна — из iframe iOS не пробрасывает
-      // диплинк в нативное приложение. Поэтому window.top.location.
-      try {
-        if (window !== window.top && window.top) {
-          window.top.location.href = url
-          return
-        }
-      } catch (_) { /* CORS — fall through */ }
+      // Семантика «openExternal» в VK Mini App = «открыть во внешнем браузере,
+      // не закрывая Mini App». VK Bridge API для этого нет (есть только
+      // OpenApp/PayForm/QR/Contacts/WallPost). Рабочий путь — `<a target="_blank">`:
+      // VK на мобильном обычно делегирует системному браузеру (Safari/Chrome),
+      // на десктопе — открывает новую вкладку. Mini App остаётся.
+      // window.top.location.href раньше использовался для universal-link iOS,
+      // но он закрывал Mini App и грузил URL в VK in-app webview — это и было
+      // «открывается внутри приложения». Оставлен как fallback.
       try {
         const a = document.createElement('a')
         a.href = url
@@ -70,9 +69,15 @@ export async function initPlatform(): Promise<PlatformAdapter> {
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
-      } catch {
-        window.location.href = url
-      }
+        return
+      } catch (_) { /* fall through */ }
+      try {
+        if (window !== window.top && window.top) {
+          window.top.location.href = url
+          return
+        }
+      } catch (_) { /* CORS */ }
+      window.location.href = url
     },
     redirectTo: (url: string) => {
       // window.location.replace на VK iframe ведёт себя по-разному:
