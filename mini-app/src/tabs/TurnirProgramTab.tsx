@@ -530,8 +530,9 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
 
       {/* Программа по дням — аккордеон. С 2026-05-21: если у события есть этапы
           (conf_stages) — дни группируются под заголовками этапов. Если этапов нет —
-          плоский список как раньше. */}
-      {isTurnir && days.length > 0 && (() => {
+          плоский список как раньше. Показываем блок если есть хоть что-то:
+          этап без дней — это тоже валидное состояние (карточка-анонс). */}
+      {isTurnir && (days.length > 0 || stages.length > 0) && (() => {
         const stagesSorted = [...stages].sort((a, b) => a.sort_order - b.sort_order)
         const daysByStage = (sid: number | null) =>
           days.filter(x => (x.stage_id ?? null) === sid)
