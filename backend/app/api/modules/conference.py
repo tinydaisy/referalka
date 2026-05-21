@@ -412,6 +412,7 @@ class SpeakerAddToEvent(BaseModel):
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
     notes: Optional[str] = None
+    is_commercial: bool = False
     is_visible: bool = True
     sort_order: int = 0
 
