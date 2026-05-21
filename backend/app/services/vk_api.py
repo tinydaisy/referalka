@@ -165,6 +165,53 @@ async def upload_photo_to_messages(
     return None
 
 
+async def upload_video_to_messages(
+    video_url: str, *, token: str, name: str = "video"
+) -> str | None:
+    """Загружает видео из URL в VK и возвращает attachment-строку
+    `video{owner_id}_{id}`. Возвращает None при любой ошибке.
+
+    Двушаговая загрузка через video.save:
+    1. video.save({name, wallpost=0, is_private=0}) → upload_url + owner_id + video_id
+    2. POST файла видео на upload_url multipart полем `video_file`
+    После загрузки VK ещё немного обрабатывает видео (кодек/превью),
+    но attachment уже доступен и сообщение уходит сразу — у получателя
+    плеер может показывать «обрабатывается» первые секунды, это норма.
+    """
+    try:
+        save = await vk_call(
+            "video.save",
+            {"name": name, "wallpost": 0, "is_private": 0},
+            token=token,
+        )
+        if not isinstance(save, dict):
+            return None
+        upload_url = save.get("upload_url")
+        owner_id = save.get("owner_id")
+        video_id = save.get("video_id")
+        if not upload_url or owner_id is None or video_id is None:
+            return None
+        # Скачиваем видео из R2 / любого URL
+        async with httpx.AsyncClient(timeout=120.0) as cli:
+            r = await cli.get(video_url)
+            r.raise_for_status()
+            content = r.content
+            content_type = r.headers.get("content-type", "video/mp4")
+        # Загружаем на VK upload-сервер. Видео могут быть большими — timeout 5 мин.
+        filename = "video.mp4"
+        if "webm" in content_type:
+            filename = "video.webm"
+        elif "quicktime" in content_type or "mov" in content_type:
+            filename = "video.mov"
+        async with httpx.AsyncClient(timeout=300.0) as cli:
+            up = await cli.post(upload_url, files={"video_file": (filename, content, content_type)})
+            up.raise_for_status()
+        return f"video{owner_id}_{video_id}"
+    except Exception as e:
+        logger.warning(f"VK upload_video_to_messages failed for {video_url}: {e}")
+        return None
+
+
 async def send_message_with_media(
     user_vk_id: int,
     text: str,
@@ -174,16 +221,21 @@ async def send_message_with_media(
     token: str | None = None,
     keyboard: dict | None = None,
 ) -> int | None:
-    """Отправить сообщение с опциональным медиа. Для фото — загружает в VK
-    и прикрепляет как attachment. Для видео — пока шлёт как обычный текст
-    (VK video.save требует более сложного flow).
+    """Отправить сообщение с опциональным медиа.
+
+    Для photo — загружаем в VK через photos.getMessagesUploadServer
+    (под peer_id получателя), для video — через video.save. Если загрузка
+    упала по любой причине — fallback: вшиваем URL в текст, VK развернёт
+    превью по Open Graph.
     """
     attachment = None
-    if media_url and media_type == "photo" and token:
-        attachment = await upload_photo_to_messages(media_url, peer_id=user_vk_id, token=token)
+    if media_url and token:
+        if media_type == "photo":
+            attachment = await upload_photo_to_messages(media_url, peer_id=user_vk_id, token=token)
+        elif media_type == "video":
+            attachment = await upload_video_to_messages(media_url, token=token)
     if media_url and not attachment:
-        # Видео или upload не получился — fallback: вшиваем URL в текст,
-        # VK Messenger развернёт превью через Open Graph
+        # Загрузка не получилась (или тип неподдерживаемый) — fallback на URL.
         text = f"{text}\n\n{media_url}" if text else media_url
     return await send_message(user_vk_id, text, token=token, keyboard=keyboard, attachment=attachment)
 
