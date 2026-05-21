@@ -183,6 +183,8 @@ export const api = {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/days`),
       upsert: (eventId: number, dayNumber: number, data: any) =>
         request(`/api/v1/events/${eventId}/conference/days/${dayNumber}`, { method: 'PUT', body: JSON.stringify(data) }),
+      delete: (eventId: number, dayNumber: number) =>
+        request(`/api/v1/events/${eventId}/conference/days/${dayNumber}`, { method: 'DELETE' }),
     },
     stages: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/stages`),

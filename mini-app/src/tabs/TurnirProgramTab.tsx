@@ -191,6 +191,8 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
 
   const [days, setDays] = useState<Day[]>([])
   const [stages, setStages] = useState<Stage[]>([])
+  // Какой этап имеет раскрытое описание (только один за раз). NULL — все свёрнуты.
+  const [openStageDesc, setOpenStageDesc] = useState<number | null>(null)
   const [sessionsByDay, setSessionsByDay] = useState<Record<number, Session[]>>({})
   const [speakers, setSpeakers] = useState<Speaker[]>([])
   // Соорганизаторы — только для не-конф мероприятий (role='organizer' в event_collaborators)
@@ -707,30 +709,64 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                     const range = (stage.start_date && stage.end_date)
                       ? `${fmtDate(stage.start_date)} – ${fmtDate(stage.end_date)}`
                       : (stage.start_date ? `с ${fmtDate(stage.start_date)}` : '')
+                    const isDescOpen = openStageDesc === stage.id
                     return (
                       <div key={stage.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{
                           background: 'linear-gradient(45deg, #25455D, #0a1520)',
-                          color: PEACH, padding: '12px 14px', borderRadius: 12,
+                          color: 'white', padding: '12px 14px', borderRadius: 12,
                           marginTop: sIdx === 0 ? 0 : 4,
                         }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.7, letterSpacing: 0.6, textTransform: 'uppercase' }}>
-                            Этап {sIdx + 1}{stage.subtitle ? ` · ${stage.subtitle}` : ''}
-                          </div>
-                          <div style={{ fontSize: 15, fontWeight: 900, marginTop: 2, lineHeight: 1.25 }}>
+                          {stage.subtitle && (
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'white', opacity: 0.85, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+                              {stage.subtitle}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 15, fontWeight: 900, marginTop: stage.subtitle ? 2 : 0, lineHeight: 1.25, color: 'white' }}>
                             {stage.title}
                           </div>
                           {range && (
-                            <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85, marginTop: 4 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'white', marginTop: 4 }}>
                               {range}
                             </div>
                           )}
-                          {stage.description && (
-                            <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 6, color: '#dbe5ee', whiteSpace: 'pre-wrap' }}>
-                              {stage.description}
-                            </div>
-                          )}
                         </div>
+
+                        {/* Описание этапа — отдельной раскрывающейся плашкой под шапкой этапа.
+                            По умолчанию свёрнуто. Если описания нет — плашки нет. */}
+                        {stage.description && (
+                          <div style={{
+                            background: 'white', borderRadius: 12,
+                            border: '1px solid rgba(37,69,93,0.10)',
+                            boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+                            overflow: 'hidden',
+                          }}>
+                            <button
+                              onClick={() => setOpenStageDesc(isDescOpen ? null : stage.id)}
+                              style={{
+                                width: '100%', display: 'flex', alignItems: 'center',
+                                justifyContent: 'space-between', padding: '10px 14px',
+                                background: 'transparent', border: 0, cursor: 'pointer',
+                                fontFamily: 'inherit', textAlign: 'left',
+                              }}
+                            >
+                              <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>Описание этапа</span>
+                              <span style={{ fontSize: 18, color: '#c5cdd6',
+                                             transform: isDescOpen ? 'rotate(90deg)' : 'none',
+                                             transition: 'transform 0.2s' }}>▸</span>
+                            </button>
+                            {isDescOpen && (
+                              <div style={{
+                                padding: '0 14px 12px',
+                                fontSize: 13, lineHeight: 1.55, color: '#3a4a5a',
+                                whiteSpace: 'pre-wrap',
+                              }}>
+                                {stage.description}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {sd.map(renderDay)}
                       </div>
                     )

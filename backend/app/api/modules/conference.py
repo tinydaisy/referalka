@@ -1094,6 +1094,24 @@ async def upsert_day(
     return {"day": dict(day)}
 
 
+@router.delete("/days/{day_number}", summary="Удалить день")
+async def delete_day(
+    event_id: int,
+    day_number: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+    # Сначала каскадно удаляем сессии этого дня (на conf_sessions.day нет FK,
+    # только колонка INT, поэтому удаляем вручную).
+    await db.execute("DELETE FROM conf_sessions WHERE event_id=$1 AND day=$2", event_id, day_number)
+    res = await db.execute("DELETE FROM conf_days WHERE event_id=$1 AND day_number=$2", event_id, day_number)
+    if res.endswith("0"):
+        raise HTTPException(status_code=404, detail="День не найден")
+    await regenerate_landing_data(event_id, db)
+    return {"ok": True}
+
+
 # ─── Сессии ───────────────────────────────────────────────────────────────────
 
 class SessionCreate(BaseModel):

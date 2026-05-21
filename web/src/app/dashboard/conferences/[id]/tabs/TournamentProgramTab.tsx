@@ -175,10 +175,11 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 
   async function deleteDay(dayNum: number) {
     if (!confirm(`Удалить день ${dayNum} и все его сессии?`)) return
-    const daySessions = sessions.filter(s => s.day === dayNum)
-    await Promise.all(daySessions.map(s => api.conference.sessions.delete(eventId, s.id)))
-    setDays(prev => prev.filter(d => d.day_number !== dayNum))
-    setSessions(prev => prev.filter(s => s.day !== dayNum))
+    // Сначала чистим dirty-флаг, чтобы saveAll не воскресил день через PUT-upsert
+    setDirtyDays(prev => { const n = new Set(prev); n.delete(dayNum); return n })
+    setDayForms(prev => { const { [dayNum]: _, ...rest } = prev; return rest })
+    await api.conference.days.delete(eventId, dayNum)
+    await load()
   }
 
   function patchDayForm(dayNum: number, patch: Partial<Day>) {
