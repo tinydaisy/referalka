@@ -270,6 +270,23 @@ GetCourse/Tilda сами подставляют `{email}` и т.п. при ре�
 
 **ВАЖНО:** не использовать в новых фичах редирект клиента напрямую на `t.me/.../?startapp=..._reg` — только через `/r/{slug}`. Подробности — [memory/project_landing_return_one_webview.md](memory/project_landing_return_one_webview.md).
 
+### Этапы программы — опциональный уровень над днями (миграция 093 от 2026-05-21)
+
+Конференция и турнир получили опциональную группировку дней в этапы. Структура иерархическая: **Этап → День → Сессия**, плюс «боковая» ось «Залы» в БД (в UI пока не используется).
+
+**Таблицы:**
+- `conf_stages (id, event_id, sort_order, title, subtitle, description, start_date, end_date)` — этапы программы. Применяется в основном для турниров: «Предстарт» (2 недели, без детализации по дням), «Основной этап» (с программой по дням и спикерам).
+- `conf_days.stage_id` (FK на `conf_stages`, ON DELETE SET NULL) — к какому этапу принадлежит день. NULL = «свободный» день вне группировки (как все существующие записи).
+- `conf_days.title` — кастомное имя дня, fallback на «День N» по `day_number`.
+- `conf_tracks (id, event_id, sort_order, title, color, stream_url, description)` — залы события (параллельные потоки). Заведены в БД для будущей фичи «параллельные залы внутри дня»; в UI ничего не отображается.
+- `conf_sessions.track_id` (FK на `conf_tracks`, SET NULL) — сессия привязана к залу. NULL = общий зал.
+
+**Где НЕ показывается интерфейс этапов** — в дашборде **конференций** (`/dashboard/conferences/[id]` → таб «Программа») рендерится старый `ProgramTab.tsx` без изменений. Только для модуля `turnir` (path `/dashboard/tournaments/[id]`) рендерится новый `TournamentProgramTab.tsx` с трёхуровневой иерархией Этап → День → Сессия.
+
+**Mini App:** `TurnirProgramTab.tsx` грузит этапы через `GET /api/v1/events/{id}/conference/stages/public`. Если этапы есть — дни группируются под заголовками этапов (с диапазоном дат, описанием и подписью типа «2 недели»). Если этапов нет — плоский список дней, как раньше. Поле `conf_days.title` используется в подписи дня (fallback «День N»).
+
+**API:** CRUD `/api/v1/events/{event_id}/conference/stages` (GET/POST/PATCH/DELETE). Эндпоинт `/conference/program-public` отдаёт целиком дерево `{ stages, days, sessions }` для Mini App. `/conference/days` (PUT) принимает `stage_id` и `title`. `/conference/sessions` (POST/PATCH) принимает `track_id`.
+
 ### Время программы — строки "HH:MM" + " МСК" везде (миграция 048 от 28.04.2026)
 
 Чтобы убрать сдвиги часовых поясов в Mini App / веб / рассылках, время программы хранится строкой "HH:MM" и считается МСК по соглашению.
