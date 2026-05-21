@@ -19,7 +19,7 @@ interface Props {
 const TILE_BG = 'linear-gradient(45deg, rgba(37,69,93,0.04), rgba(255,207,164,0.10))'
 
 export default function WelcomePage({ event, participantId, raffleEnabled, referralEnabled, tgUser, onContinue, onVipClick }: Props) {
-  const chatUrl: string | null = event?.chat_url || null
+  const chatUrl: string | null = event?.chat_url || event?.chat_url_tg || event?.chat_url_vk || event?.chat_url_max || null
   const eventTitle = event?.title || 'события'
   const vipUrl: string = (event?.vip_url || '').trim()
   const vipLabel: string = (event?.vip_button_label || '').trim() || 'Расшириться до VIP-тарифа'

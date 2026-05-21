@@ -95,7 +95,15 @@ class UpdateEventRequest(BaseModel):
     # VIP / Чат
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
+    # Чат события — отдельная ссылка на каждую платформу + выбор главной.
+    # chat_url оставлено как legacy shadow: при PATCH chat_url_* / primary
+    # бэк сам пересчитывает его = chat_url_<primary>. Старые места кода
+    # (broadcast templates, public landing) продолжают читать его как раньше.
     chat_url: Optional[str] = None
+    chat_url_tg: Optional[str] = None
+    chat_url_vk: Optional[str] = None
+    chat_url_max: Optional[str] = None
+    primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     chat_subscriptions_required: Optional[bool] = None
     chat_member_count_label: Optional[str] = None
     telegram_chat_ids: Optional[str] = None  # ID чатов/каналов через запятую — общее для меропр и конференций
@@ -346,8 +354,34 @@ async def update_event(
         f"UPDATE events SET {', '.join(set_parts)} WHERE id = $1",
         event_id, *values
     )
+
+    # chat_url — legacy shadow поле. После PATCH chat_url_* / primary
+    # пересчитываем его = chat_url_<primary>. Если primary пустой ИЛИ
+    # соответствующее поле пустое — chat_url становится NULL.
+    if any(k in updates for k in ("chat_url_tg", "chat_url_vk", "chat_url_max", "primary_chat_platform")):
+        await _refresh_chat_url_shadow(db, event_id)
+
     updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1", event_id)
     return {"event": dict(updated)}
+
+
+async def _refresh_chat_url_shadow(db: asyncpg.Connection, event_id: int) -> None:
+    """Синхронизирует events.chat_url с chat_url_<primary> для обратной
+    совместимости. Вызывается после UPDATE chat_url_* / primary_chat_platform.
+    """
+    await db.execute(
+        """UPDATE events
+              SET chat_url = NULLIF(
+                  CASE primary_chat_platform
+                    WHEN 'telegram' THEN chat_url_tg
+                    WHEN 'vk'       THEN chat_url_vk
+                    WHEN 'max'      THEN chat_url_max
+                    ELSE NULL
+                  END, ''
+              )
+            WHERE id = $1""",
+        event_id,
+    )
 
 
 @router.post("/{event_id}/copy", summary="Скопировать событие со всеми настройками")
@@ -379,16 +413,18 @@ async def copy_event(
                   start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
                   require_subscription, status,
-                  chat_url, stream_url, vip_url, vip_button_label,
+                  chat_url, chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform,
+                  stream_url, vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
                   skip_contact_form)
                VALUES ($1,$2,$3,$4,$5,$6,$7,
                        NULL,NULL,
                        $8,$9,$10,$11,$12,
                        $13,'draft',
-                       $14,$15,$16,$17,
-                       $18,$19,
-                       $20)
+                       $14,$15,$16,$17,$18,
+                       $19,$20,$21,
+                       $22,$23,
+                       $24)
                RETURNING *""",
             client_id, new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -397,7 +433,10 @@ async def copy_event(
             src['webhook_url'], src['module_slug'],
             src['points_free'], src['points_paid'], src['points_scope'],
             src['require_subscription'],
-            src.get('chat_url'), src.get('stream_url'), src.get('vip_url'),
+            src.get('chat_url'),
+            src.get('chat_url_tg'), src.get('chat_url_vk'), src.get('chat_url_max'),
+            src.get('primary_chat_platform'),
+            src.get('stream_url'), src.get('vip_url'),
             src.get('vip_button_label'),
             src.get('chat_subscriptions_required') or False,
             src.get('chat_member_count_label'),

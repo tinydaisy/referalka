@@ -4,7 +4,7 @@ import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
 import ExternalLandingBlock from '@/components/ExternalLandingBlock'
-import { TelegramChannelField } from '@/components/TelegramChannelField'
+import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 
 export default function OverviewTab({
   event, eventId, onReload,
@@ -21,8 +21,13 @@ export default function OverviewTab({
   // потому что ProgramTab Mini App рендерит блок стрима по stream_url.
   // Раньше поле сохраняло в events.address — старые данные подтягиваются как fallback.
   const [streamUrl, setStreamUrl] = useState(event.stream_url || event.address || '')
-  const [chatUrl, setChatUrl] = useState(event.chat_url || '')
-  const [chatIds, setChatIds] = useState<string>(event.telegram_chat_ids || '')
+  const [chats, setChats] = useState<EventChatsValue>({
+    tg:  event.chat_url_tg  || (event.primary_chat_platform === 'telegram' ? (event.chat_url || '') : ''),
+    vk:  event.chat_url_vk  || '',
+    max: event.chat_url_max || '',
+    primary: (event.primary_chat_platform as ChatPlatform | null) || (event.chat_url ? 'telegram' : null),
+    chatIds: event.telegram_chat_ids || '',
+  })
   const [vipUrl, setVipUrl] = useState(event.vip_url || '')
   const [vipButtonLabel, setVipButtonLabel] = useState(event.vip_button_label || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
@@ -58,9 +63,15 @@ export default function OverviewTab({
       const su = streamUrl.trim()
       const initStream = event.stream_url || event.address || ''
       if (su !== initStream)                                    payload.stream_url = su || null
-      const c = chatUrl.trim()
-      if (c !== (event.chat_url || ''))                         payload.chat_url = c || null
-      const ids = chatIds.trim()
+      const tg  = chats.tg.trim()
+      const vk  = chats.vk.trim()
+      const mx  = chats.max.trim()
+      if (tg  !== (event.chat_url_tg  || ''))                   payload.chat_url_tg  = tg  || null
+      if (vk  !== (event.chat_url_vk  || ''))                   payload.chat_url_vk  = vk  || null
+      if (mx  !== (event.chat_url_max || ''))                   payload.chat_url_max = mx  || null
+      const initPrimary = (event.primary_chat_platform as ChatPlatform | null) || null
+      if (chats.primary !== initPrimary)                        payload.primary_chat_platform = chats.primary || null
+      const ids = chats.chatIds.trim()
       if (ids !== (event.telegram_chat_ids || ''))              payload.telegram_chat_ids = ids || null
       const v = vipUrl.trim()
       if (v !== (event.vip_url || ''))                          payload.vip_url = v || null
@@ -144,12 +155,7 @@ export default function OverviewTab({
                    className="input" placeholder="https://us02web.zoom.us/j/..." />
           </Field>
 
-          <TelegramChannelField
-            title="Чат участников события"
-            mode="multi"
-            value={{ url: chatUrl, chatId: chatIds }}
-            onChange={(next) => { setChatUrl(next.url); setChatIds(next.chatId) }}
-          />
+          <EventChatsField value={chats} onChange={setChats} />
 
           <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App на «Программе» и в «Интро» появится персиковая кнопка. Если у участника есть pid (его привёл партнёр) — к ссылке добавится партнёрский параметр коллаборатора, как у стороннего лендинга.">
             <input value={vipUrl} onChange={e => setVipUrl(e.target.value)}

@@ -249,6 +249,10 @@ class ConferenceUpdate(BaseModel):
     # источник истины один. Оставлены здесь как поля, чтобы фронт мог
     # отправить их в одном PATCH со всеми остальными настройками.
     chat_url: Optional[str] = None
+    chat_url_tg: Optional[str] = None
+    chat_url_vk: Optional[str] = None
+    chat_url_max: Optional[str] = None
+    primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     stream_url: Optional[str] = None
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
@@ -275,6 +279,10 @@ async def get_conference(
                e.slug        AS event_slug,
                e.status      AS event_status,
                e.chat_url    AS event_chat_url,
+               e.chat_url_tg  AS event_chat_url_tg,
+               e.chat_url_vk  AS event_chat_url_vk,
+               e.chat_url_max AS event_chat_url_max,
+               e.primary_chat_platform AS event_primary_chat_platform,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
                e.vip_button_label AS event_vip_button_label,
@@ -291,7 +299,11 @@ async def get_conference(
     d = dict(conf)
     # chat_url / stream_url / vip_url / landing_url / telegram_chat_ids — единый
     # источник истины events (миграция 076 для telegram_chat_ids).
-    d["chat_url"]   = d.pop("event_chat_url")   or d.get("chat_url") or ""
+    d["chat_url"]      = d.pop("event_chat_url")     or d.get("chat_url") or ""
+    d["chat_url_tg"]   = d.pop("event_chat_url_tg")  or ""
+    d["chat_url_vk"]   = d.pop("event_chat_url_vk")  or ""
+    d["chat_url_max"]  = d.pop("event_chat_url_max") or ""
+    d["primary_chat_platform"] = d.pop("event_primary_chat_platform") or None
     d["stream_url"] = d.pop("event_stream_url") or ""
     d["vip_url"]    = d.pop("event_vip_url")    or ""
     d["vip_button_label"] = d.pop("event_vip_button_label") or ""
@@ -334,13 +346,21 @@ async def update_conference(
         await db.execute("INSERT INTO conf_conferences (event_id) VALUES ($1)", event_id)
 
     raw = data.model_dump(exclude_unset=True)
-    # chat_url, stream_url, vip_url, telegram_chat_ids — единый источник в events,
-    # не в conf_conferences (миграция 076 — telegram_chat_ids перенесён из conf_conferences).
-    event_chat_url      = raw.pop("chat_url", None)          if "chat_url"          in raw else None
-    event_stream_url    = raw.pop("stream_url", None)        if "stream_url"        in raw else None
-    event_vip_url       = raw.pop("vip_url", None)           if "vip_url"           in raw else None
-    event_vip_btn_label = raw.pop("vip_button_label", None)  if "vip_button_label"  in raw else None
-    event_tg_chat_ids   = raw.pop("telegram_chat_ids", None) if "telegram_chat_ids" in raw else None
+    # Поля, которые живут в events (не в conf_conferences) — единый источник истины.
+    EVENT_FIELDS = (
+        "chat_url", "chat_url_tg", "chat_url_vk", "chat_url_max",
+        "primary_chat_platform",
+        "stream_url", "vip_url", "vip_button_label", "telegram_chat_ids",
+    )
+    sent = data.model_dump(exclude_unset=True)
+    event_updates: dict = {}
+    for f in EVENT_FIELDS:
+        if f in raw:
+            val = raw.pop(f)
+            # Для строковых *_url полей нормализуем пустую строку в NULL
+            if f in ("vip_url", "vip_button_label") and isinstance(val, str):
+                val = val.strip() or None
+            event_updates[f] = val
 
     if raw:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(raw.keys())]
@@ -349,19 +369,17 @@ async def update_conference(
             event_id, *raw.values()
         )
 
-    sent = data.model_dump(exclude_unset=True)
-    if "chat_url" in sent:
-        await db.execute("UPDATE events SET chat_url = $1 WHERE id = $2", event_chat_url, event_id)
-    if "stream_url" in sent:
-        await db.execute("UPDATE events SET stream_url = $1 WHERE id = $2", event_stream_url, event_id)
-    if "vip_url" in sent:
-        vip = (event_vip_url or "").strip() or None
-        await db.execute("UPDATE events SET vip_url = $1 WHERE id = $2", vip, event_id)
-    if "vip_button_label" in sent:
-        lbl = (event_vip_btn_label or "").strip() or None
-        await db.execute("UPDATE events SET vip_button_label = $1 WHERE id = $2", lbl, event_id)
-    if "telegram_chat_ids" in sent:
-        await db.execute("UPDATE events SET telegram_chat_ids = $1 WHERE id = $2", event_tg_chat_ids, event_id)
+    if event_updates:
+        set_parts = [f"{k} = ${i+2}" for i, k in enumerate(event_updates.keys())]
+        await db.execute(
+            f"UPDATE events SET {', '.join(set_parts)} WHERE id = $1",
+            event_id, *event_updates.values()
+        )
+        # chat_url — legacy shadow. После UPDATE chat_url_* / primary
+        # пересчитываем chat_url = chat_url_<primary>.
+        if any(k in event_updates for k in ("chat_url_tg", "chat_url_vk", "chat_url_max", "primary_chat_platform")):
+            from ..events import _refresh_chat_url_shadow
+            await _refresh_chat_url_shadow(db, event_id)
 
     await regenerate_landing_data(event_id, db)
     # Возвращаем тот же обогащённый объект что и в GET /conference/ —
@@ -372,6 +390,10 @@ async def update_conference(
         """
         SELECT cc.*, e.title AS event_title,
                e.chat_url    AS event_chat_url,
+               e.chat_url_tg  AS event_chat_url_tg,
+               e.chat_url_vk  AS event_chat_url_vk,
+               e.chat_url_max AS event_chat_url_max,
+               e.primary_chat_platform AS event_primary_chat_platform,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
                e.vip_button_label AS event_vip_button_label,
@@ -385,6 +407,10 @@ async def update_conference(
     )
     d = dict(conf)
     d["chat_url"]          = d.pop("event_chat_url")   or d.get("chat_url") or ""
+    d["chat_url_tg"]       = d.pop("event_chat_url_tg")  or ""
+    d["chat_url_vk"]       = d.pop("event_chat_url_vk")  or ""
+    d["chat_url_max"]      = d.pop("event_chat_url_max") or ""
+    d["primary_chat_platform"] = d.pop("event_primary_chat_platform") or None
     d["stream_url"]        = d.pop("event_stream_url") or ""
     d["vip_url"]           = d.pop("event_vip_url")    or ""
     d["vip_button_label"]  = d.pop("event_vip_button_label") or ""

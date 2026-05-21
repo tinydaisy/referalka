@@ -187,7 +187,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
   const vipUrl  = event?.vip_url || ''
   const hasVip  = !!vipUrl
   const vipLabel = (event?.vip_button_label || '').trim() || 'Расшириться до VIP-тарифа'
-  const hasChat = !!event?.chat_url
+  const hasChat = !!(event?.chat_url || event?.chat_url_tg || event?.chat_url_vk || event?.chat_url_max)
 
   const [days, setDays] = useState<Day[]>([])
   const [stages, setStages] = useState<Stage[]>([])

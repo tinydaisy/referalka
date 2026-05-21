@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
-import { TelegramChannelField } from '@/components/TelegramChannelField'
+import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 
 export default function ContestOverviewTab({
   event, eventId, onReload,
@@ -19,8 +19,13 @@ export default function ContestOverviewTab({
   // (то же поле, что у мероприятий — там оно для ZOOM/стрима). Mini App
   // в режиме контестa показывает её плиткой «Перейти к голосованию».
   const [votingUrl, setVotingUrl] = useState(event.stream_url || '')
-  const [chatUrl, setChatUrl] = useState(event.chat_url || '')
-  const [chatIds, setChatIds] = useState<string>(event.telegram_chat_ids || '')
+  const [chats, setChats] = useState<EventChatsValue>({
+    tg:  event.chat_url_tg  || (event.primary_chat_platform === 'telegram' ? (event.chat_url || '') : ''),
+    vk:  event.chat_url_vk  || '',
+    max: event.chat_url_max || '',
+    primary: (event.primary_chat_platform as ChatPlatform | null) || (event.chat_url ? 'telegram' : null),
+    chatIds: event.telegram_chat_ids || '',
+  })
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [saving, setSaving] = useState(false)
@@ -46,9 +51,15 @@ export default function ContestOverviewTab({
       if (dpr !== (event.description_post_register || ''))      payload.description_post_register = dpr || null
       const v = votingUrl.trim()
       if (v !== (event.stream_url || ''))                       payload.stream_url = v || null
-      const c = chatUrl.trim()
-      if (c !== (event.chat_url || ''))                         payload.chat_url = c || null
-      const ids = chatIds.trim()
+      const tg  = chats.tg.trim()
+      const vk  = chats.vk.trim()
+      const mx  = chats.max.trim()
+      if (tg  !== (event.chat_url_tg  || ''))                   payload.chat_url_tg  = tg  || null
+      if (vk  !== (event.chat_url_vk  || ''))                   payload.chat_url_vk  = vk  || null
+      if (mx  !== (event.chat_url_max || ''))                   payload.chat_url_max = mx  || null
+      const initPrimary = (event.primary_chat_platform as ChatPlatform | null) || null
+      if (chats.primary !== initPrimary)                        payload.primary_chat_platform = chats.primary || null
+      const ids = chats.chatIds.trim()
       if (ids !== (event.telegram_chat_ids || ''))              payload.telegram_chat_ids = ids || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
       const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
@@ -126,12 +137,7 @@ export default function ContestOverviewTab({
                    className="input" placeholder="https://forbes.ru/vote/..." />
           </Field>
 
-          <TelegramChannelField
-            title="Чат голосующих и партнёров"
-            mode="multi"
-            value={{ url: chatUrl, chatId: chatIds }}
-            onChange={(next) => { setChatUrl(next.url); setChatIds(next.chatId) }}
-          />
+          <EventChatsField value={chats} onChange={setChats} />
         </div>
       </div>
 

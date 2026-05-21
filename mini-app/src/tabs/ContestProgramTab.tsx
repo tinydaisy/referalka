@@ -42,7 +42,7 @@ export default function ContestProgramTab({
   // показываем: на странице регистрации он уже был.
   const descriptionPost: string = event?.description_post_register || ''
   const hasVotingUrl  = !!event?.stream_url
-  const hasChat       = !!event?.chat_url
+  const hasChat       = !!(event?.chat_url || event?.chat_url_tg || event?.chat_url_vk || event?.chat_url_max)
 
   const { openChat: openChatWithCheck, modal: chatModal, loading: chatLoading } = useChatGate(event, tgUser)
 

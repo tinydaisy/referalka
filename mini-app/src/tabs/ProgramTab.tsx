@@ -175,7 +175,7 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Pr
   const vipUrl  = event?.vip_url || ''
   const hasVip  = !!vipUrl
   const vipLabel = (event?.vip_button_label || '').trim() || 'Расшириться до VIP-тарифа'
-  const hasChat = !!event?.chat_url
+  const hasChat = !!(event?.chat_url || event?.chat_url_tg || event?.chat_url_vk || event?.chat_url_max)
 
   const [days, setDays] = useState<Day[]>([])
   const [sessionsByDay, setSessionsByDay] = useState<Record<number, Session[]>>({})

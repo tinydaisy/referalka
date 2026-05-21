@@ -476,7 +476,9 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    CASE WHEN e.module_slug IN ('conference','turnir')
                         THEN cd.end_at   ELSE e.end_at   END AS end_at,
                    e.vip_url, e.vip_button_label,
-                   e.chat_url, e.chat_member_count_label, e.require_subscription,
+                   e.chat_url, e.chat_url_tg, e.chat_url_vk, e.chat_url_max,
+                   e.primary_chat_platform,
+                   e.chat_member_count_label, e.require_subscription,
                    e.stream_url, e.skip_contact_form,
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,

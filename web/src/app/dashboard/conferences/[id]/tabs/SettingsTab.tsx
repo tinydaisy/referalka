@@ -6,7 +6,7 @@ import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import PublicLinks from '@/components/PublicLinks'
 import ExternalLandingBlock from '@/components/ExternalLandingBlock'
-import { TelegramChannelField } from '@/components/TelegramChannelField'
+import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 
 function SaveBar({ saving, saved, onSave }: { saving: boolean; saved: boolean; onSave: () => void }) {
   const { t } = useLang()
@@ -41,7 +41,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     description: event?.description || '',
     description_post_register: event?.description_post_register || '',
     stream_url: conf?.stream_url || '',
-    chat_url: conf?.chat_url || '',
     // landing_url — единое поле для всех событий (events.landing_url),
     // после миграции 057. Старое conf_conferences.registration_url удалено.
     landing_url: event?.landing_url || '',
@@ -49,8 +48,15 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     vip_button_label: conf?.vip_button_label || '',
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
-    telegram_chat_ids: conf?.telegram_chat_ids || '',
     skip_contact_form: !!event?.skip_contact_form,
+  })
+  // Чаты события — отдельный state (3 URL + radio + chat-IDs).
+  const [chats, setChats] = useState<EventChatsValue>({
+    tg:  conf?.chat_url_tg  || (conf?.primary_chat_platform === 'telegram' ? (conf?.chat_url || '') : ''),
+    vk:  conf?.chat_url_vk  || '',
+    max: conf?.chat_url_max || '',
+    primary: (conf?.primary_chat_platform as ChatPlatform | null) || (conf?.chat_url ? 'telegram' : null),
+    chatIds: conf?.telegram_chat_ids || '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -61,15 +67,20 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       description: event?.description || '',
       description_post_register: event?.description_post_register || '',
       stream_url: conf?.stream_url || '',
-      chat_url: conf?.chat_url || '',
       landing_url: event?.landing_url || '',
       vip_url: conf?.vip_url || '',
       vip_button_label: conf?.vip_button_label || '',
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
-      telegram_chat_ids: conf?.telegram_chat_ids || '',
       skip_contact_form: !!event?.skip_contact_form,
     }))
+    setChats({
+      tg:  conf?.chat_url_tg  || (conf?.primary_chat_platform === 'telegram' ? (conf?.chat_url || '') : ''),
+      vk:  conf?.chat_url_vk  || '',
+      max: conf?.chat_url_max || '',
+      primary: (conf?.primary_chat_platform as ChatPlatform | null) || (conf?.chat_url ? 'telegram' : null),
+      chatIds: conf?.telegram_chat_ids || '',
+    })
   }, [conf, event?.landing_url, event?.skip_contact_form, event?.description, event?.description_post_register])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -97,12 +108,19 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
 
       const confPatch: any = {}
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
-      if (form.chat_url !== (conf?.chat_url || ''))                    confPatch.chat_url = form.chat_url || null
       if (form.vip_url !== (conf?.vip_url || ''))                      confPatch.vip_url = form.vip_url || null
       if (form.vip_button_label !== (conf?.vip_button_label || ''))    confPatch.vip_button_label = form.vip_button_label || null
       if (form.raffle_url !== (conf?.raffle_url || ''))                confPatch.raffle_url = form.raffle_url || null
       if (form.subscription_mode !== (conf?.subscription_mode || 'none')) confPatch.subscription_mode = form.subscription_mode
-      if (form.telegram_chat_ids !== (conf?.telegram_chat_ids || ''))  confPatch.telegram_chat_ids = form.telegram_chat_ids || null
+      // Чаты события — 3 URL + primary + chatIds
+      const tg = chats.tg.trim(), vk = chats.vk.trim(), mx = chats.max.trim()
+      const ids = chats.chatIds.trim()
+      const initPrimary = (conf?.primary_chat_platform as ChatPlatform | null) || null
+      if (tg !== (conf?.chat_url_tg  || ''))                           confPatch.chat_url_tg  = tg || null
+      if (vk !== (conf?.chat_url_vk  || ''))                           confPatch.chat_url_vk  = vk || null
+      if (mx !== (conf?.chat_url_max || ''))                           confPatch.chat_url_max = mx || null
+      if (chats.primary !== initPrimary)                               confPatch.primary_chat_platform = chats.primary || null
+      if (ids !== (conf?.telegram_chat_ids || ''))                     confPatch.telegram_chat_ids = ids || null
 
       if (Object.keys(confPatch).length > 0) {
         const updated = await api.conference.update(eventId, confPatch)
@@ -170,12 +188,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           <p className="text-xs text-gray-400 mt-1">Если у каждого дня свой стрим — задаётся в редакторе программы по дням.</p>
         </div>
-        <TelegramChannelField
-          title="Чат участников события"
-          mode="multi"
-          value={{ url: form.chat_url, chatId: form.telegram_chat_ids }}
-          onChange={(next) => setForm(f => ({ ...f, chat_url: next.url, telegram_chat_ids: next.chatId }))}
-        />
+        <EventChatsField value={chats} onChange={setChats} />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             Ссылка на оплату VIP-тарифа
