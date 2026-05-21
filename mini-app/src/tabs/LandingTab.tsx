@@ -15,6 +15,9 @@ function formatDateLong(dt?: string) {
     const timePart = new Date(dt).toLocaleTimeString('ru', {
       hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
     })
+    // Если время не задано (бэк отдаёт 00:00 как fallback при пустом open_time
+    // у конф/турниров и при дате без времени) — показываем только дату.
+    if (timePart === '00:00') return datePart
     return `${datePart}, ${timePart} МСК`
   } catch { return '' }
 }
