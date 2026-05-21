@@ -439,6 +439,23 @@ async def _send_broadcast_vk_part(
     client_id = schedule["client_id"]
     aud_include = schedule.get("audience_include") or "all_event"
 
+    # Какое VK-сообщество шлёт рассылку. Приоритет — собственное сообщество
+    # клиента (channels.is_system=FALSE с непустым токеном), fallback на
+    # системное iViSiON: ПЛЮСОН. Аналогично логике MAX-части.
+    client_vk_token = await conn.fetchval(
+        """SELECT ch.bot_token
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND cc.is_active = TRUE
+              AND ch.platform_slug = 'vk' AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            LIMIT 1""",
+        client_id,
+    )
+    vk_token = client_vk_token or _vk_settings.vk_system_group_token
+    if not vk_token:
+        return 0  # ни своего сообщества, ни системного токена
+
     # Какие VK-подписчики клиента в зависимости от аудитории
     if aud_include == "all_client":
         rows = await conn.fetch(
@@ -504,12 +521,12 @@ async def _send_broadcast_vk_part(
     # Загружаем фото в VK один раз для всей рассылки — получаем attachment-строку
     # `photo{owner_id}_{id}`, которую можно слать многим получателям. Без этого
     # фото уходило как обычный URL в тексте (без превью, как голая ссылка).
+    # Загружаем под тем же токеном, которым шлём — иначе owner_id фото будет
+    # чужим и VK отклонит сообщение.
     photo_attachment: str | None = None
     if photo_url:
         try:
-            photo_attachment = await vk_upload_photo(
-                photo_url, token=_vk_settings.vk_system_group_token
-            )
+            photo_attachment = await vk_upload_photo(photo_url, token=vk_token)
         except Exception as e:
             logger.warning(f"VK photo upload failed for {photo_url}: {e}")
         if not photo_attachment:
@@ -529,6 +546,7 @@ async def _send_broadcast_vk_part(
         try:
             res = await vk_send(
                 vk_id_int, message_text,
+                token=vk_token,
                 keyboard=keyboard, attachment=photo_attachment,
             )
             if res:
