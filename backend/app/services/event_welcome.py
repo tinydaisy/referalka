@@ -421,9 +421,15 @@ async def send_event_open_message(
 
     is_conf = ev["module_slug"] == "conference"
 
-    # Вторая кнопка-фолбэк: «Войти в кабинет» — открывает хаб бота
-    # (для общего @pluson_bot — селектор событий, для VIP-бота — Хаб клиента).
-    cabinet_btn = {"text": "Войти в кабинет", "url": bot_url_base}
+    # Вторая кнопка-фолбэк: «Войти в кабинет» — открывает хаб бота.
+    # ⚠️ Обязательно `?startapp=hub`: без startapp Telegram у VIP-бота
+    # открывает обычный чат с ботом (не Mini App), потому что short-name
+    # каждого клиента нам неизвестен. С `startapp=hub` Telegram
+    # гарантированно запускает Mini App; App.tsx видит sp='hub'
+    # → парсит как пустой start_param → рендерит Hub клиента по cid
+    # из path (`/c/{N}/tg/`). Для общего @pluson_bot bot_url_base уже
+    # содержит short-name (`/pluson`), но `?startapp=hub` не мешает.
+    cabinet_btn = {"text": "Войти в кабинет", "url": f"{bot_url_base}?startapp=hub"}
     extra_buttons: list[list[dict]] = []
 
     if kind == "register_cta":
