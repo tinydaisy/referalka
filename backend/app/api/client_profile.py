@@ -101,34 +101,51 @@ async def public_client_events(
     #   'new' (нет записи в event_participants) | 'interested' (есть, не зарегистрирован) | 'registered'.
     rows = await db.fetch(
         """WITH conf_dates AS (
-              -- start = первый день: open_time дня 1, иначе MIN(start_time) сессий дня 1
-              -- end   = последний день: close_time, иначе MAX(end_time) сессий посл. дня
-              SELECT d.event_id,
-                     (SELECT (d2.day_date + COALESCE(
-                                NULLIF(d2.open_time,'')::time,
-                                (SELECT MIN(NULLIF(s.start_time,'')::time)
-                                   FROM conf_sessions s
-                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
-                                '00:00'::time
-                              )) AT TIME ZONE 'Europe/Moscow'
-                        FROM conf_days d2
-                        WHERE d2.event_id = d.event_id
-                        ORDER BY d2.day_number ASC LIMIT 1) AS start_at,
-                     (SELECT (d2.day_date + COALESCE(
-                                NULLIF(d2.close_time,'')::time,
-                                (SELECT MAX(NULLIF(s.end_time,'')::time)
-                                   FROM conf_sessions s
-                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
-                                (SELECT MAX(NULLIF(s.start_time,'')::time)
-                                   FROM conf_sessions s
-                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
-                                '23:59'::time
-                              )) AT TIME ZONE 'Europe/Moscow'
-                        FROM conf_days d2
-                        WHERE d2.event_id = d.event_id
-                        ORDER BY d2.day_number DESC LIMIT 1) AS end_at
-                FROM conf_days d
-               GROUP BY d.event_id
+              -- Для конференций/турниров дата старта/окончания события =
+              -- MIN/MAX между датами программы (conf_days) и датами этапов
+              -- (conf_stages). Этап может существовать без детальных дней
+              -- (напр. «Предстарт 15–26 июн»), и его даты тоже должны
+              -- учитываться — иначе турнир со старшим conf_days, но ранним
+              -- этапом, уезжает в конец списка ниже мероприятий, которые
+              -- по факту начинаются позже.
+              -- LEAST/GREATEST в Postgres игнорируют NULL — если этапов
+              -- или дней нет, используется только то, что есть.
+              SELECT e.id AS event_id,
+                     LEAST(
+                       (SELECT (d2.day_date + COALESCE(
+                                  NULLIF(d2.open_time,'')::time,
+                                  (SELECT MIN(NULLIF(s.start_time,'')::time)
+                                     FROM conf_sessions s
+                                    WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                  '00:00'::time
+                                )) AT TIME ZONE 'Europe/Moscow'
+                          FROM conf_days d2
+                          WHERE d2.event_id = e.id
+                          ORDER BY d2.day_number ASC LIMIT 1),
+                       (SELECT MIN(st.start_date::timestamp AT TIME ZONE 'Europe/Moscow')
+                          FROM conf_stages st
+                          WHERE st.event_id = e.id AND st.start_date IS NOT NULL)
+                     ) AS start_at,
+                     GREATEST(
+                       (SELECT (d2.day_date + COALESCE(
+                                  NULLIF(d2.close_time,'')::time,
+                                  (SELECT MAX(NULLIF(s.end_time,'')::time)
+                                     FROM conf_sessions s
+                                    WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                  (SELECT MAX(NULLIF(s.start_time,'')::time)
+                                     FROM conf_sessions s
+                                    WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                  '23:59'::time
+                                )) AT TIME ZONE 'Europe/Moscow'
+                          FROM conf_days d2
+                          WHERE d2.event_id = e.id
+                          ORDER BY d2.day_number DESC LIMIT 1),
+                       (SELECT MAX((st.end_date + '23:59'::time) AT TIME ZONE 'Europe/Moscow')
+                          FROM conf_stages st
+                          WHERE st.event_id = e.id AND st.end_date IS NOT NULL)
+                     ) AS end_at
+                FROM events e
+               WHERE e.module_slug IN ('conference', 'turnir')
             ),
             user_participation AS (
               SELECT ep.event_id, ep.is_registered

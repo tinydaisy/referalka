@@ -191,8 +191,9 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
 
   const [days, setDays] = useState<Day[]>([])
   const [stages, setStages] = useState<Stage[]>([])
-  // Какой этап имеет раскрытое описание (только один за раз). NULL — все свёрнуты.
-  const [openStageDesc, setOpenStageDesc] = useState<number | null>(null)
+  // Какой этап раскрыт (только один за раз). NULL — все свёрнуты.
+  // Раскрытие показывает и описание этапа, и список дней внутри.
+  const [openStageId, setOpenStageId] = useState<number | null>(null)
   const [sessionsByDay, setSessionsByDay] = useState<Record<number, Session[]>>({})
   const [speakers, setSpeakers] = useState<Speaker[]>([])
   // Соорганизаторы — только для не-конф мероприятий (role='organizer' в event_collaborators)
@@ -710,20 +711,26 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                     const range = (stage.start_date && stage.end_date)
                       ? `${fmtDate(stage.start_date)} – ${fmtDate(stage.end_date)}`
                       : (stage.start_date ? `с ${fmtDate(stage.start_date)}` : '')
-                    const isDescOpen = openStageDesc === stage.id
+                    const isStageOpen = openStageId === stage.id
                     const hasDesc = !!stage.description?.trim()
+                    const expandable = hasDesc || sd.length > 0
                     return (
-                      <div key={stage.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div key={stage.id} style={{
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        marginTop: sIdx === 0 ? 0 : 4,
+                      }}>
                         {/* Шапка этапа — один блок. Название — PEACH (бренд),
-                            подпись и даты — белым. Стрелочка справа раскрывает описание
-                            прямо внутри тёмной плашки (если описание есть). */}
+                            подпись и даты — белым. Стрелочка справа раскрывает
+                            и описание, и список дней — всё прячется внутри
+                            этапа, пока этап свёрнут. */}
                         <div style={{
                           background: 'linear-gradient(45deg, #25455D, #0a1520)',
-                          padding: '12px 14px', borderRadius: 12,
-                          marginTop: sIdx === 0 ? 0 : 4,
-                          cursor: hasDesc ? 'pointer' : 'default',
+                          padding: '12px 14px',
+                          borderRadius: isStageOpen && (hasDesc || sd.length > 0) ? '12px 12px 0 0' : 12,
+                          cursor: expandable ? 'pointer' : 'default',
                         }}
-                        onClick={() => { if (hasDesc) setOpenStageDesc(isDescOpen ? null : stage.id) }}
+                        onClick={() => { if (expandable) setOpenStageId(isStageOpen ? null : stage.id) }}
                         >
                           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -741,15 +748,15 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                                 </div>
                               )}
                             </div>
-                            {hasDesc && (
+                            {expandable && (
                               <span style={{
                                 color: PEACH, fontSize: 18, lineHeight: 1, paddingTop: 2,
-                                transform: isDescOpen ? 'rotate(90deg)' : 'none',
+                                transform: isStageOpen ? 'rotate(90deg)' : 'none',
                                 transition: 'transform 0.2s', flexShrink: 0,
                               }}>▸</span>
                             )}
                           </div>
-                          {hasDesc && isDescOpen && (
+                          {hasDesc && isStageOpen && (
                             <div style={{
                               marginTop: 10, paddingTop: 10,
                               borderTop: '1px solid rgba(255,207,164,0.25)',
@@ -761,7 +768,16 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                           )}
                         </div>
 
-                        {sd.map(renderDay)}
+                        {isStageOpen && sd.length > 0 && (
+                          <div style={{
+                            background: 'rgba(37,69,93,0.06)',
+                            padding: 8,
+                            borderRadius: '0 0 12px 12px',
+                            display: 'flex', flexDirection: 'column', gap: 8,
+                          }}>
+                            {sd.map(renderDay)}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
