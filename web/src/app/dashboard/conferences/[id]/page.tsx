@@ -10,6 +10,7 @@ import { EventStatusToggle } from '@/components/EventStatusToggle'
 import SettingsTab  from './tabs/SettingsTab'
 import SpeakersTab  from './tabs/SpeakersTab'
 import ProgramTab   from './tabs/ProgramTab'
+import TournamentProgramTab from './tabs/TournamentProgramTab'
 import ParticipantsTab from './tabs/ParticipantsTab'
 import RaffleTab  from './tabs/RaffleTab'
 import PostersTab from './tabs/PostersTab'
@@ -148,7 +149,7 @@ export default function ConferencePage() {
 
       {tab === 'settings'     && <SettingsTab     eventId={eventId} conf={conf} event={event} onConfUpdated={setConf} onEventUpdated={(patch: any) => setEvent((e: any) => ({ ...e, ...patch }))} />}
       {tab === 'speakers'     && <SpeakersTab     eventId={eventId} />}
-      {tab === 'program'      && <ProgramTab      eventId={eventId} />}
+      {tab === 'program'      && (isTournament ? <TournamentProgramTab eventId={eventId} /> : <ProgramTab eventId={eventId} />)}
       {tab === 'participants' && <ParticipantsTab eventId={eventId} />}
       {tab === 'raffle'       && <RaffleTab />}
       {tab === 'posters'      && <PostersTab      eventId={eventId} />}

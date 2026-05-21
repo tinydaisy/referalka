@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { getSessions, getSpeakers, getDays, getEventCollaborators, trackLinkClick } from '../api'
+import { getSessions, getSpeakers, getDays, getStages, getEventCollaborators, trackLinkClick } from '../api'
 import { useChatGate } from '../components/ChatGate'
 import EventDescription from '../components/EventDescription'
 
@@ -24,6 +24,18 @@ interface Day {
   day_date?: string
   open_time?: string
   close_time?: string
+  stage_id?: number | null
+  title?: string | null
+}
+
+interface Stage {
+  id: number
+  sort_order: number
+  title: string
+  subtitle?: string | null
+  description?: string | null
+  start_date?: string | null
+  end_date?: string | null
 }
 
 interface Speaker {
@@ -177,6 +189,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
   const hasChat = !!event?.chat_url
 
   const [days, setDays] = useState<Day[]>([])
+  const [stages, setStages] = useState<Stage[]>([])
   const [sessionsByDay, setSessionsByDay] = useState<Record<number, Session[]>>({})
   const [speakers, setSpeakers] = useState<Speaker[]>([])
   // Соорганизаторы — только для не-конф мероприятий (role='organizer' в event_collaborators)
@@ -236,9 +249,11 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
     Promise.all([
       getDays(event.id).then((r: any) => r.days as Day[]).catch(() => []),
       getSpeakers(event.id).then((r: any) => r.speakers as Speaker[]).catch(() => []),
-    ]).then(([d, sp]) => {
+      getStages(event.id).then((r: any) => r.stages as Stage[]).catch(() => []),
+    ]).then(([d, sp, st]) => {
       setDays(d)
       setSpeakers(sp)
+      setStages(st || [])
       // На refresh сбрасываем кэш сессий, чтобы перезагрузить активный день
       setSessionsByDay({})
       setOpenDay(prev => {
@@ -524,19 +539,22 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
         />
       )}
 
-      {/* Программа по дням — аккордеон */}
-      {isTurnir && days.length > 0 && (
-        <>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', margin: '6px 2px 8px' }}>
-            Программа
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {days.map(d => {
+      {/* Программа по дням — аккордеон. С 2026-05-21: если у события есть этапы
+          (conf_stages) — дни группируются под заголовками этапов. Если этапов нет —
+          плоский список как раньше. */}
+      {isTurnir && days.length > 0 && (() => {
+        const stagesSorted = [...stages].sort((a, b) => a.sort_order - b.sort_order)
+        const daysByStage = (sid: number | null) =>
+          days.filter(x => (x.stage_id ?? null) === sid)
+        const orphanDays = daysByStage(null)
+
+        const renderDay = (d: Day) => {
               const state = dayState(d)
               const isOpen = openDay === d.day_number
+              const baseName = d.title?.trim() || `День ${d.day_number}`
               const dayLabel = d.day_date
-                ? `День ${d.day_number} · ${fmtDate(d.day_date)}`
-                : `День ${d.day_number}`
+                ? `${baseName} · ${fmtDate(d.day_date)}`
+                : baseName
               const stateLabel = state === 'past' ? 'завершён' : state === 'today' ? 'идёт сейчас' : 'впереди'
               const accent = state === 'today'
               return (
@@ -685,10 +703,69 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                   )}
                 </div>
               )
-            })}
-          </div>
-        </>
-      )}
+        }
+
+        return (
+          <>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', margin: '6px 2px 8px' }}>
+              Программа
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {stagesSorted.length === 0 ? (
+                days.map(renderDay)
+              ) : (
+                <>
+                  {stagesSorted.map((stage, sIdx) => {
+                    const sd = daysByStage(stage.id)
+                    const range = (stage.start_date && stage.end_date)
+                      ? `${fmtDate(stage.start_date)} – ${fmtDate(stage.end_date)}`
+                      : (stage.start_date ? `с ${fmtDate(stage.start_date)}` : '')
+                    return (
+                      <div key={stage.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{
+                          background: 'linear-gradient(45deg, #25455D, #0a1520)',
+                          color: PEACH, padding: '12px 14px', borderRadius: 12,
+                          marginTop: sIdx === 0 ? 0 : 4,
+                        }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.7, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+                            Этап {sIdx + 1}{stage.subtitle ? ` · ${stage.subtitle}` : ''}
+                          </div>
+                          <div style={{ fontSize: 15, fontWeight: 900, marginTop: 2, lineHeight: 1.25 }}>
+                            {stage.title}
+                          </div>
+                          {range && (
+                            <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85, marginTop: 4 }}>
+                              {range}
+                            </div>
+                          )}
+                          {stage.description && (
+                            <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 6, color: '#dbe5ee', whiteSpace: 'pre-wrap' }}>
+                              {stage.description}
+                            </div>
+                          )}
+                        </div>
+                        {sd.map(renderDay)}
+                      </div>
+                    )
+                  })}
+                  {orphanDays.length > 0 && (
+                    <>
+                      <div style={{
+                        fontSize: 11, fontWeight: 700, color: 'var(--muted)',
+                        textTransform: 'uppercase', letterSpacing: 0.5,
+                        margin: '8px 2px 0',
+                      }}>
+                        Без группировки
+                      </div>
+                      {orphanDays.map(renderDay)}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )
+      })()}
 
       {/* Дата мероприятия — отдельной плашкой (описание перенесено под плитки выше). */}
       {!isTurnir && event?.start_at && (

@@ -184,6 +184,18 @@ export const api = {
       upsert: (eventId: number, dayNumber: number, data: any) =>
         request(`/api/v1/events/${eventId}/conference/days/${dayNumber}`, { method: 'PUT', body: JSON.stringify(data) }),
     },
+    stages: {
+      list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/stages`),
+      create: (eventId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/conference/stages`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (eventId: number, stageId: number, data: any) =>
+        request(`/api/v1/events/${eventId}/conference/stages/${stageId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (eventId: number, stageId: number) =>
+        request(`/api/v1/events/${eventId}/conference/stages/${stageId}`, { method: 'DELETE' }),
+    },
+    program: {
+      public: (eventId: number) => request(`/api/v1/events/${eventId}/conference/program-public`),
+    },
     sessions: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/sessions`),
       create: (eventId: number, data: any) =>

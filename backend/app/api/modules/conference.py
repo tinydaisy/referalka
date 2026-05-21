@@ -867,6 +867,151 @@ async def remove_speaker_from_event(
     return {"message": "Спикер убран из события (остался в базе)"}
 
 
+# ─── Этапы конференции/турнира ────────────────────────────────────────────────
+# Опциональный уровень над днями. Если у события нет ни одного этапа —
+# дни лежат «без группировки», UI рендерит плоский список (как раньше).
+
+class StageCreate(BaseModel):
+    title: str
+    subtitle: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[str] = None  # "YYYY-MM-DD"
+    end_date: Optional[str] = None
+    sort_order: int = 0
+
+
+class StageUpdate(BaseModel):
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+def _parse_date(s: Optional[str]):
+    return date.fromisoformat(s) if s else None
+
+
+@router.get("/stages", summary="Этапы события")
+async def list_stages(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+    stages = await db.fetch(
+        "SELECT * FROM conf_stages WHERE event_id = $1 ORDER BY sort_order, id",
+        event_id,
+    )
+    return {"stages": [dict(s) for s in stages]}
+
+
+@router.post("/stages", summary="Создать этап")
+async def create_stage(
+    event_id: int,
+    data: StageCreate,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+    if not data.title.strip():
+        raise HTTPException(status_code=422, detail="Название этапа обязательно")
+    stage = await db.fetchrow(
+        """INSERT INTO conf_stages (event_id, sort_order, title, subtitle, description, start_date, end_date)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""",
+        event_id, data.sort_order, data.title.strip(),
+        data.subtitle, data.description,
+        _parse_date(data.start_date), _parse_date(data.end_date),
+    )
+    return {"stage": dict(stage)}
+
+
+@router.patch("/stages/{stage_id}", summary="Обновить этап")
+async def update_stage(
+    event_id: int,
+    stage_id: int,
+    data: StageUpdate,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+    payload = data.model_dump(exclude_unset=True)
+    if "start_date" in payload:
+        payload["start_date"] = _parse_date(payload["start_date"])
+    if "end_date" in payload:
+        payload["end_date"] = _parse_date(payload["end_date"])
+    if "title" in payload and (not payload["title"] or not payload["title"].strip()):
+        raise HTTPException(status_code=422, detail="Название этапа обязательно")
+    if not payload:
+        row = await db.fetchrow("SELECT * FROM conf_stages WHERE id=$1 AND event_id=$2", stage_id, event_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Этап не найден")
+        return {"stage": dict(row)}
+    set_parts = [f"{k} = ${i+3}" for i, k in enumerate(payload.keys())]
+    row = await db.fetchrow(
+        f"UPDATE conf_stages SET {', '.join(set_parts)} WHERE id=$1 AND event_id=$2 RETURNING *",
+        stage_id, event_id, *payload.values()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Этап не найден")
+    return {"stage": dict(row)}
+
+
+@router.delete("/stages/{stage_id}", summary="Удалить этап")
+async def delete_stage(
+    event_id: int,
+    stage_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await check_conference_access(event_id, int(client["sub"]), db)
+    # ON DELETE SET NULL на conf_days.stage_id — дни не теряются, просто становятся «вне этапа»
+    res = await db.execute("DELETE FROM conf_stages WHERE id=$1 AND event_id=$2", stage_id, event_id)
+    if res.endswith("0"):
+        raise HTTPException(status_code=404, detail="Этап не найден")
+    return {"ok": True}
+
+
+# ─── Программа целиком (для Mini App) ─────────────────────────────────────────
+
+@router.get("/program-public", summary="Программа этапов/дней/сессий для Mini App")
+async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get_db)):
+    """
+    Возвращает структурированную программу события: этапы → дни → сессии.
+    Если этапов нет — массив пустой; фронт рисует плоский список дней.
+    stream_url у дней и сессий не возвращаем (отдельный приватный запрос для зарегистрированных).
+    """
+    stages = await db.fetch(
+        "SELECT id, sort_order, title, subtitle, description, start_date, end_date "
+        "FROM conf_stages WHERE event_id = $1 ORDER BY sort_order, id",
+        event_id,
+    )
+    days = await db.fetch(
+        "SELECT id, day_number, day_date, open_time, close_time, stage_id, title "
+        "FROM conf_days WHERE event_id = $1 ORDER BY day_number",
+        event_id,
+    )
+    sessions = await db.fetch(
+        """SELECT s.id, s.day, s.start_time, s.end_time, s.title, s.gift_description,
+                  s.track_label, s.track_color, s.track_id, s.sort_order,
+                  s.speaker_id AS speaker_event_id,
+                  col.name AS speaker_name, col.title AS speaker_title,
+                  col.photo_url, cse.role AS speaker_role
+           FROM conf_sessions s
+           LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
+           LEFT JOIN collaborators col ON col.id = cse.speaker_id
+           WHERE s.event_id = $1
+           ORDER BY s.day, s.sort_order, s.start_time""",
+        event_id,
+    )
+    return {
+        "stages":   [dict(s) for s in stages],
+        "days":     [dict(d) for d in days],
+        "sessions": [dict(s) for s in sessions],
+    }
+
+
 # ─── Дни конференции ──────────────────────────────────────────────────────────
 
 class DayUpdate(BaseModel):
@@ -874,6 +1019,8 @@ class DayUpdate(BaseModel):
     open_time: Optional[str] = None
     close_time: Optional[str] = None
     stream_url: Optional[str] = None
+    stage_id: Optional[int] = None  # NULL = день вне этапа
+    title: Optional[str] = None     # кастомное имя дня (fallback "День N")
 
 
 @router.get("/days", summary="Дни конференции")
@@ -896,13 +1043,29 @@ async def list_days_public(event_id: int, db: asyncpg.Connection = Depends(get_d
     отдельный запрос). Нужен, чтобы Mini App мог отрисовать аккордеон с днями.
     """
     days = await db.fetch(
-        """SELECT day_number, day_date, open_time, close_time
+        """SELECT day_number, day_date, open_time, close_time, stage_id, title
              FROM conf_days
             WHERE event_id = $1
          ORDER BY day_number""",
         event_id,
     )
     return {"days": [dict(d) for d in days]}
+
+
+@router.get("/stages/public", summary="Этапы (для Mini App)")
+async def list_stages_public(event_id: int, db: asyncpg.Connection = Depends(get_db)):
+    """
+    Публичный список этапов для рендера в Mini App. Группировка дней под этапами —
+    клиентская: фронт читает day.stage_id и сопоставляет.
+    """
+    stages = await db.fetch(
+        """SELECT id, sort_order, title, subtitle, description, start_date, end_date
+             FROM conf_stages
+            WHERE event_id = $1
+         ORDER BY sort_order, id""",
+        event_id,
+    )
+    return {"stages": [dict(s) for s in stages]}
 
 
 @router.put("/days/{day_number}", summary="Сохранить день")
@@ -920,12 +1083,12 @@ async def upsert_day(
     close_time = _normalize_hhmm(data.close_time)
 
     day = await db.fetchrow(
-        """INSERT INTO conf_days (event_id, day_number, day_date, open_time, close_time, stream_url)
-           VALUES ($1,$2,$3,$4,$5,$6)
+        """INSERT INTO conf_days (event_id, day_number, day_date, open_time, close_time, stream_url, stage_id, title)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            ON CONFLICT (event_id, day_number) DO UPDATE
-             SET day_date=$3, open_time=$4, close_time=$5, stream_url=$6
+             SET day_date=$3, open_time=$4, close_time=$5, stream_url=$6, stage_id=$7, title=$8
            RETURNING *""",
-        event_id, day_number, day_date, open_time, close_time, data.stream_url
+        event_id, day_number, day_date, open_time, close_time, data.stream_url, data.stage_id, data.title
     )
     await regenerate_landing_data(event_id, db)
     return {"day": dict(day)}
@@ -944,6 +1107,7 @@ class SessionCreate(BaseModel):
     stream_url: Optional[str] = None
     track_label: Optional[str] = None
     track_color: Optional[str] = None
+    track_id: Optional[int] = None  # FK на conf_tracks (на будущее, UI пока не использует)
     sort_order: int = 0
 
 
@@ -956,6 +1120,7 @@ class SessionUpdate(BaseModel):
     title: Optional[str] = None
     gift_description: Optional[str] = None
     stream_url: Optional[str] = None
+    track_id: Optional[int] = None
     sort_order: Optional[int] = None
 
 
@@ -995,7 +1160,7 @@ async def list_sessions(
 async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = Depends(get_db)):
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.start_time, s.end_time, s.title,
-                  s.gift_description, s.stream_url, s.track_label, s.track_color,
+                  s.gift_description, s.stream_url, s.track_label, s.track_color, s.track_id,
                   s.speaker_id AS speaker_event_id,
                   col.name as speaker_name, col.title as speaker_title,
                   col.photo_url, cse.role as speaker_role,
@@ -1033,10 +1198,10 @@ async def create_session(
     session = await db.fetchrow(
         """INSERT INTO conf_sessions
           (event_id, speaker_id, topic_id, day, start_time, end_time, title,
-           gift_description, stream_url, track_label, track_color, sort_order)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
+           gift_description, stream_url, track_label, track_color, track_id, sort_order)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
         event_id, data.speaker_id, data.topic_id, data.day, start_t, end_t, title,
-        data.gift_description, data.stream_url, data.track_label, data.track_color, data.sort_order
+        data.gift_description, data.stream_url, data.track_label, data.track_color, data.track_id, data.sort_order
     )
     await regenerate_landing_data(event_id, db)
     return {"session": dict(session)}

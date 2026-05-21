@@ -107,6 +107,9 @@ export const getSpeakers = (eventId: number) =>
 export const getDays = (eventId: number) =>
   req(`/api/v1/events/${eventId}/conference/days/public`)
 
+export const getStages = (eventId: number) =>
+  req(`/api/v1/events/${eventId}/conference/stages/public`)
+
 export const getSessions = (eventId: number, day: number) =>
   req(`/api/v1/events/${eventId}/conference/sessions/day/${day}`)
 
