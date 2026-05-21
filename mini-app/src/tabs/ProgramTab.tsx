@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { getSessions, getSpeakers, getDays, getEventCollaborators, trackLinkClick } from '../api'
 import { useChatGate } from '../components/ChatGate'
+import EventDescription from '../components/EventDescription'
 
 interface Session {
   id: number
@@ -513,13 +514,14 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Pr
           стрима и чата. Текст с лендинга (event.description) после
           регистрации больше не дублируем. */}
       {event?.description_post_register && (
-        <div className="card" style={{
-          padding: 16, marginBottom: 12,
-          color: 'var(--text)', fontSize: 14, lineHeight: 1.55,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        }}>
-          {event.description_post_register}
-        </div>
+        <EventDescription
+          className="card"
+          text={event.description_post_register}
+          style={{
+            padding: 16, marginBottom: 12,
+            color: 'var(--text)', fontSize: 14, lineHeight: 1.55,
+          }}
+        />
       )}
 
       {/* Программа по дням — аккордеон */}

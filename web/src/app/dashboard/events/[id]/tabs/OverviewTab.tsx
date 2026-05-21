@@ -105,16 +105,16 @@ export default function OverviewTab({
 
           <Field
             label="Описание для лендинга"
-            hint="Продающий текст. Показывается на лендинге события (веб-странице и в Mini App до регистрации)."
+            hint={'Продающий текст. Показывается на лендинге события (веб-странице и в Mini App до регистрации). Можно использовать HTML: <b>жирный</b>, <i>курсив</i>, <a href="...">ссылка</a>, <br>, <ul><li>списки</li></ul>, <h3>подзаголовок</h3>.'}
           >
             <textarea value={description} onChange={e => setDescription(e.target.value)}
                       rows={3} className="input"
-                      placeholder="О чём это мероприятие — пара предложений" />
+                      placeholder="О чём это мероприятие — пара предложений. Поддерживается HTML." />
           </Field>
 
           <Field
             label="Описание после регистрации"
-            hint="Инструкции для зарегистрировавшихся (что делать дальше). Показывается в Mini App на вкладке «Программа» под кнопками стрима и чата. Ссылки http(s) автоматически кликабельны."
+            hint={'Инструкции для зарегистрировавшихся (что делать дальше). Показывается в Mini App на вкладке «Программа» под кнопками стрима и чата. Можно использовать HTML: <b>, <i>, <a>, <br>, <ul><li>. В простом тексте ссылки http(s) кликабельны автоматически.'}
           >
             <textarea value={descriptionPostRegister} onChange={e => setDescriptionPostRegister(e.target.value)}
                       rows={4} className="input"

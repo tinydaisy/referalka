@@ -1,3 +1,5 @@
+import EventDescription from '../components/EventDescription'
+
 interface Props {
   event: any
   onRegister: () => void
@@ -72,12 +74,10 @@ export default function LandingTab({ event, onRegister }: Props) {
 
           {event?.description && (
             <>
-              <p style={{
-                color: 'var(--text)', fontSize: 14, lineHeight: 1.6,
-                marginTop: 18, whiteSpace: 'pre-wrap',
-              }}>
-                {event.description}
-              </p>
+              <EventDescription
+                text={event.description}
+                style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.6, marginTop: 18 }}
+              />
               {/* Дубль кнопки ПОД описанием — если описание заполнено. */}
               <div style={{ marginTop: 18 }}>{cta}</div>
             </>
@@ -111,9 +111,10 @@ export default function LandingTab({ event, onRegister }: Props) {
         )}
 
         {event?.description && (
-          <p style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.6, marginTop: 18, whiteSpace: 'pre-wrap' }}>
-            {event.description}
-          </p>
+          <EventDescription
+            text={event.description}
+            style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.6, marginTop: 18 }}
+          />
         )}
 
         <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={onRegister}>

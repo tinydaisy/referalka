@@ -87,16 +87,16 @@ export default function ContestOverviewTab({
 
           <Field
             label="Описание для лендинга"
-            hint="Продающий текст. Показывается на лендинге конкурса (веб-странице и в Mini App до регистрации)."
+            hint={'Продающий текст. Показывается на лендинге конкурса (веб-странице и в Mini App до регистрации). Можно использовать HTML: <b>, <i>, <a href="...">, <br>, <ul><li>, <h3>.'}
           >
             <textarea value={description} onChange={e => setDescription(e.target.value)}
                       rows={4} className="input"
-                      placeholder="Расскажите голосующему о конкурсе — пара предложений, почему важно проголосовать." />
+                      placeholder="Расскажите голосующему о конкурсе — пара предложений. Поддерживается HTML." />
           </Field>
 
           <Field
             label="Описание после регистрации"
-            hint="Инструкция: как именно проголосовать. Показывается в Mini App на вкладке «Программа» под кнопками голосования и чата. Ссылки http(s) автоматически кликабельны."
+            hint={'Инструкция: как именно проголосовать. Показывается в Mini App на вкладке «Программа» под кнопками голосования и чата. Можно использовать HTML: <b>, <i>, <a>, <br>, <ul><li>. В простом тексте ссылки http(s) кликабельны автоматически.'}
           >
             <textarea value={descriptionPostRegister} onChange={e => setDescriptionPostRegister(e.target.value)}
                       rows={5} className="input"

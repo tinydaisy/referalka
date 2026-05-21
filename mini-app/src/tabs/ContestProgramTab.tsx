@@ -1,4 +1,5 @@
 import { useChatGate } from '../components/ChatGate'
+import EventDescription from '../components/EventDescription'
 import { trackLinkClick } from '../api'
 
 const PEACH = '#FFCFA4'
@@ -107,17 +108,17 @@ export default function ContestProgramTab({
       )}
 
       {/* Описание после регистрации — инструкции под кнопками.
-          Рендерим как один <div white-space: pre-wrap>, чтобы двойные переносы
-          сохранялись. linkify() возвращает массив React-нод вперемешку со
-          строками — текст остаётся обычным текстом и подчиняется pre-wrap. */}
+          Если клиент использовал HTML-разметку, рендерим её через sanitize.
+          Иначе — plain-текст с pre-wrap + автолинкификация http-ссылок. */}
       {descriptionPost && (
-        <div style={{
-          background: 'white', borderRadius: 14, padding: 16,
-          marginTop: 4, color: DARK, fontSize: 14, lineHeight: 1.55,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        }}>
-          {linkify(descriptionPost)}
-        </div>
+        <EventDescription
+          text={descriptionPost}
+          style={{
+            background: 'white', borderRadius: 14, padding: 16,
+            marginTop: 4, color: DARK, fontSize: 14, lineHeight: 1.55,
+          }}
+          renderPlain={(t) => linkify(t)}
+        />
       )}
 
       {chatModal}

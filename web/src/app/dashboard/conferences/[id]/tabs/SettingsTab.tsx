@@ -136,7 +136,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           <textarea value={form.description} onChange={set('description') as any} rows={3}
             placeholder="Продающий текст для лендинга и Mini App до регистрации"
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
-          <p className="text-xs text-gray-400 mt-1">Показывается на лендинге события и в Mini App до регистрации.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Показывается на лендинге события и в Mini App до регистрации.
+            Можно использовать HTML: {'<b>, <i>, <a href="...">, <br>, <ul><li>, <h3>'}.
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -145,9 +148,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           <textarea value={form.description_post_register}
             onChange={e => setForm(f => ({ ...f, description_post_register: e.target.value }))}
             rows={4}
-            placeholder="Инструкции для зарегистрировавшихся (что делать дальше). Ссылки http(s) автоматически кликабельны."
+            placeholder="Инструкции для зарегистрировавшихся (что делать дальше). Поддерживается HTML."
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand resize-none" />
-          <p className="text-xs text-gray-400 mt-1">Показывается в Mini App на вкладке «Программа» под кнопками стрима и чата.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Показывается в Mini App на вкладке «Программа» под кнопками стрима и чата.
+            Поддерживается HTML: {'<b>, <i>, <a href="...">, <br>, <ul><li>'}. В простом тексте ссылки http(s) кликабельны автоматически.
+          </p>
         </div>
       </div>
 

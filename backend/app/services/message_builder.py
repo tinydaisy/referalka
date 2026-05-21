@@ -15,6 +15,33 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+
+# Telegram parse_mode=HTML понимает только узкий набор тегов:
+# <b>/<strong>, <i>/<em>, <u>/<ins>, <s>/<strike>/<del>, <a>, <code>,
+# <pre>, <blockquote>, <span class="tg-spoiler">.
+# Если в описании клиент написал <p>/<br>/<ul>/<li>/<h2>/<div> и т.п.,
+# Telegram свалит запрос с "can't parse entities". Конвертируем такой
+# HTML в Telegram-совместимый текст: блочные теги → переносы строк,
+# списки → префикс «• ».
+def html_to_telegram(s: str) -> str:
+    if not s:
+        return ""
+    out = s
+    out = re.sub(r"<br\s*/?>", "\n", out, flags=re.I)
+    out = re.sub(r"</p\s*>", "\n\n", out, flags=re.I)
+    out = re.sub(r"<p[^>]*>", "", out, flags=re.I)
+    out = re.sub(r"<li[^>]*>", "• ", out, flags=re.I)
+    out = re.sub(r"</li\s*>", "\n", out, flags=re.I)
+    # Заголовки → отдельный абзац жирным
+    out = re.sub(r"<h[1-6][^>]*>", "<b>", out, flags=re.I)
+    out = re.sub(r"</h[1-6]\s*>", "</b>\n\n", out, flags=re.I)
+    # Остальные неподдерживаемые блочные теги — просто удалить, оставив текст
+    for tag in ("ul", "ol", "div", "section", "article", "span", "blockquote", "hr"):
+        out = re.sub(rf"</?{tag}[^>]*>", "", out, flags=re.I)
+    # Схлопываем тройные+ переносы строк
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
 logger = logging.getLogger(__name__)
 
 RU_MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"]
@@ -459,7 +486,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             event_id
         )
         conf_title = (conf_row["conf_title"] or "") if conf_row else ""
-        conf_desc = (conf_row["conf_description"] or "") if conf_row else ""
+        conf_desc = html_to_telegram((conf_row["conf_description"] or "") if conf_row else "")
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
         conf_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else ""
@@ -528,7 +555,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             event_id
         )
         conf_title = (conf_row["conf_title"] or "") if conf_row else ""
-        conf_desc = (conf_row["conf_description"] or "") if conf_row else ""
+        conf_desc = html_to_telegram((conf_row["conf_description"] or "") if conf_row else "")
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
 
