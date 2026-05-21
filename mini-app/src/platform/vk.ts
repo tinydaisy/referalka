@@ -74,6 +74,25 @@ export async function initPlatform(): Promise<PlatformAdapter> {
         window.location.href = url
       }
     },
+    redirectTo: (url: string) => {
+      // window.location.replace на VK iframe ведёт себя по-разному:
+      //  - iOS: VK Bridge закрывает Mini App и открывает URL в встроенном
+      //    Safari View (внутри VK app) — пользователь видит лендинг как часть
+      //    приложения.
+      //  - Android: VK выкидывает в системный Chrome ВНЕ приложения —
+      //    пользователь не понимает что произошло, /r/{slug}-возврат ломается.
+      // VKWebAppOpenApp (по слухам подходит) — это для других Mini App.
+      // Рабочий универсальный способ — навигация ВЕРХНЕГО окна (window.top),
+      // это закрывает Mini App и навигирует браузерный таб на лендинг
+      // одинаково на iOS и Android (VK выгрузит свой UI и юзер увидит сайт).
+      try {
+        if (window !== window.top && window.top) {
+          window.top.location.replace(url)
+          return
+        }
+      } catch (_) { /* CORS — fallback */ }
+      window.location.replace(url)
+    },
     close: () => {
       bridge.send('VKWebAppClose', { status: 'success' }).catch(() => {})
     },

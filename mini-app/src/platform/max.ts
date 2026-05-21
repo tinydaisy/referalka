@@ -40,6 +40,12 @@ export async function initPlatform(): Promise<PlatformAdapter> {
       }
       window.open(url, '_blank', 'noopener,noreferrer')
     },
+    redirectTo: (url: string) => {
+      // MAX SDK почти идентичен Telegram WebApp — внутри webview navigate работает
+      // корректно. Если в будущем выяснится та же проблема что у VK на Android —
+      // переписать на window.top.location или нативный метод SDK.
+      window.location.replace(url)
+    },
     close: () => { try { max.close?.() } catch {} },
     setHeaderColor: (h) => { try { max.setHeaderColor?.(h) } catch {} },
     setBackgroundColor: (h) => { try { max.setBackgroundColor?.(h) } catch {} },

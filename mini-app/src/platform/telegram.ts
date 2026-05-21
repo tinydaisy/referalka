@@ -36,6 +36,12 @@ export async function initPlatform(): Promise<PlatformAdapter> {
       }
       window.open(url, '_blank', 'noopener,noreferrer')
     },
+    redirectTo: (url: string) => {
+      // В TG webview window.location.replace работает корректно — webview сам
+      // навигируется на лендинг клиента, после регистрации /r/{slug} вернёт
+      // обратно в Mini App в том же окне (см. project_landing_return_one_webview).
+      window.location.replace(url)
+    },
     close: () => { try { twa.close?.() } catch {} },
     setHeaderColor: (h) => { try { twa.setHeaderColor?.(h) } catch {} },
     setBackgroundColor: (h) => { try { twa.setBackgroundColor?.(h) } catch {} },

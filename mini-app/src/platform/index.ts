@@ -55,6 +55,19 @@ export interface PlatformAdapter {
    */
   openExternal(url: string): void
 
+  /**
+   * Hard-redirect текущего webview на URL — для landing-redirect на сторонний
+   * лендинг клиента (Tilda/GetCourse). НЕ open external — webview уходит, и
+   * после регистрации клиент возвращает на /r/{slug} (см. recipe в docs).
+   *
+   * - TG: window.location.replace — работает внутри Telegram webview.
+   * - VK: bridge.send('VKWebAppRedirect') — обязательно через мост, иначе на
+   *   Android `window.location.replace` выкидывает пользователя в Chrome
+   *   вне VK app (на iOS «случайно» работает).
+   * - MAX: аналог TG.
+   */
+  redirectTo(url: string): void
+
   /** Закрыть Mini App (если поддержано). */
   close(): void
 
@@ -103,6 +116,7 @@ export function webFallback(): PlatformAdapter {
     launchParams: {},
     requestWriteAccess: (_opts, cb) => cb(false),
     openExternal: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
+    redirectTo: (url) => { window.location.replace(url) },
     close: () => { /* noop */ },
   }
 }

@@ -342,7 +342,10 @@ export default function App() {
       if (res.ok) {
         const data = await res.json()
         if (data && data.redirect_url) {
-          window.location.replace(data.redirect_url)
+          // На VK iframe window.location.replace на Android выкидывает в
+          // системный Chrome — используем platform.redirectTo (navigate
+          // window.top) для одинакового поведения на iOS и Android.
+          getPlatform().redirectTo(data.redirect_url)
           return  // webview уплывает
         }
       }

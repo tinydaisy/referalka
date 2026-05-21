@@ -302,7 +302,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
         }
       } catch { /* тихо игнорим, основной редирект не ломаем */ }
     }
-    window.location.href = fullUrl
+    // platform.redirectTo: для VK на Android навигирует window.top вместо
+    // window.location (которое выкидывало в Chrome вне приложения).
+    const { getPlatform } = await import('../platform')
+    getPlatform().redirectTo(fullUrl)
   }
 
   if (loading || !event) {
