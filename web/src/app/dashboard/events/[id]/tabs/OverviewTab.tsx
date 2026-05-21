@@ -24,6 +24,7 @@ export default function OverviewTab({
   const [chatUrl, setChatUrl] = useState(event.chat_url || '')
   const [chatIds, setChatIds] = useState<string>(event.telegram_chat_ids || '')
   const [vipUrl, setVipUrl] = useState(event.vip_url || '')
+  const [vipButtonLabel, setVipButtonLabel] = useState(event.vip_button_label || '')
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
@@ -63,6 +64,8 @@ export default function OverviewTab({
       if (ids !== (event.telegram_chat_ids || ''))              payload.telegram_chat_ids = ids || null
       const v = vipUrl.trim()
       if (v !== (event.vip_url || ''))                          payload.vip_url = v || null
+      const vbl = vipButtonLabel.trim()
+      if (vbl !== (event.vip_button_label || ''))               payload.vip_button_label = vbl || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
       const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
       if (startIso !== eventStartIso)                           payload.start_at = startIso
@@ -148,9 +151,15 @@ export default function OverviewTab({
             onChange={(next) => { setChatUrl(next.url); setChatIds(next.chatId) }}
           />
 
-          <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App над программой появится персиковая кнопка «Расшириться до VIP-тарифа»">
+          <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App на «Программе» и в «Интро» появится персиковая кнопка. Если у участника есть pid (его привёл партнёр) — к ссылке добавится партнёрский параметр коллаборатора, как у стороннего лендинга.">
             <input value={vipUrl} onChange={e => setVipUrl(e.target.value)}
                    className="input" placeholder="https://..." />
+          </Field>
+
+          <Field label="Текст кнопки VIP-тарифа" hint="Что будет написано на кнопке в Mini App. По умолчанию — «Расшириться до VIP-тарифа».">
+            <input value={vipButtonLabel} onChange={e => setVipButtonLabel(e.target.value)}
+                   className="input" placeholder="Расшириться до VIP-тарифа"
+                   maxLength={64} />
           </Field>
         </div>
       </div>

@@ -250,6 +250,7 @@ class ConferenceUpdate(BaseModel):
     chat_url: Optional[str] = None
     stream_url: Optional[str] = None
     vip_url: Optional[str] = None
+    vip_button_label: Optional[str] = None
     getcourse_form_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
     subscription_mode: Optional[str] = None   # none | organizer | all_speakers
@@ -275,6 +276,7 @@ async def get_conference(
                e.chat_url    AS event_chat_url,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
+               e.vip_button_label AS event_vip_button_label,
                e.landing_url AS event_landing_url,
                e.telegram_chat_ids AS event_telegram_chat_ids
         FROM conf_conferences cc
@@ -291,6 +293,7 @@ async def get_conference(
     d["chat_url"]   = d.pop("event_chat_url")   or d.get("chat_url") or ""
     d["stream_url"] = d.pop("event_stream_url") or ""
     d["vip_url"]    = d.pop("event_vip_url")    or ""
+    d["vip_button_label"] = d.pop("event_vip_button_label") or ""
     d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
     # event_landing_url — для шаблонов рассылок и превью; conf_conferences.landing_url
     # (если осталось) — это устаревший шаблон встроенного лендинга, не путать.
@@ -335,6 +338,7 @@ async def update_conference(
     event_chat_url      = raw.pop("chat_url", None)          if "chat_url"          in raw else None
     event_stream_url    = raw.pop("stream_url", None)        if "stream_url"        in raw else None
     event_vip_url       = raw.pop("vip_url", None)           if "vip_url"           in raw else None
+    event_vip_btn_label = raw.pop("vip_button_label", None)  if "vip_button_label"  in raw else None
     event_tg_chat_ids   = raw.pop("telegram_chat_ids", None) if "telegram_chat_ids" in raw else None
 
     if raw:
@@ -352,6 +356,9 @@ async def update_conference(
     if "vip_url" in sent:
         vip = (event_vip_url or "").strip() or None
         await db.execute("UPDATE events SET vip_url = $1 WHERE id = $2", vip, event_id)
+    if "vip_button_label" in sent:
+        lbl = (event_vip_btn_label or "").strip() or None
+        await db.execute("UPDATE events SET vip_button_label = $1 WHERE id = $2", lbl, event_id)
     if "telegram_chat_ids" in sent:
         await db.execute("UPDATE events SET telegram_chat_ids = $1 WHERE id = $2", event_tg_chat_ids, event_id)
 
@@ -366,6 +373,7 @@ async def update_conference(
                e.chat_url    AS event_chat_url,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
+               e.vip_button_label AS event_vip_button_label,
                e.landing_url AS event_landing_url,
                e.telegram_chat_ids AS event_telegram_chat_ids
         FROM conf_conferences cc
@@ -378,6 +386,7 @@ async def update_conference(
     d["chat_url"]          = d.pop("event_chat_url")   or d.get("chat_url") or ""
     d["stream_url"]        = d.pop("event_stream_url") or ""
     d["vip_url"]           = d.pop("event_vip_url")    or ""
+    d["vip_button_label"]  = d.pop("event_vip_button_label") or ""
     d["event_landing_url"] = d.pop("event_landing_url") or ""
     d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
     return {"conference": d}

@@ -44,7 +44,7 @@ interface Speaker {
   topics?: { topic: string }[]
 }
 
-interface Props { event: any; tgUser?: any; refreshKey?: number }
+interface Props { event: any; tgUser?: any; refreshKey?: number; onVipClick?: (vipUrl: string) => void | Promise<void> }
 
 // Сейчас в Москве — "YYYY-MM-DD" и "HH:MM" (24ч), без зависимости от
 // часового пояса устройства. Используется для выделения активной сессии.
@@ -166,12 +166,13 @@ function isStreamDay(event: any, days: Day[]): boolean {
   return now >= startDay && now <= endDay
 }
 
-export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
+export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Props) {
   const isConference = event?.module_slug === 'conference'
   // Кнопка VIP появляется если у события вписан vip_url
   // (единый источник истины в events.vip_url).
   const vipUrl  = event?.vip_url || ''
   const hasVip  = !!vipUrl
+  const vipLabel = (event?.vip_button_label || '').trim() || 'Расшириться до VIP-тарифа'
   const hasChat = !!event?.chat_url
 
   const [days, setDays] = useState<Day[]>([])
@@ -401,17 +402,24 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
       {/* VIP — персиковая кнопка с синим текстом, видна над стримом и чатом.
           У конференции — сразу под каруселью спикеров; у мероприятия — в самом верху. */}
       {hasVip && (
-        <a href={vipUrl} target="_blank" rel="noreferrer" style={{
-          display: 'block', textDecoration: 'none',
-          background: PEACH, color: DARK,
-          borderRadius: 14, padding: '16px 16px', marginBottom: 12,
-          textAlign: 'center', fontWeight: 900, fontSize: 15,
-          letterSpacing: 1.2, textTransform: 'uppercase',
-          boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
-          border: `1px solid rgba(37,69,93,0.08)`,
-        }}>
-          Расшириться до VIP-тарифа
-        </a>
+        <button
+          type="button"
+          onClick={() => {
+            if (onVipClick) onVipClick(vipUrl)
+            else window.open(vipUrl, '_blank', 'noopener,noreferrer')
+          }}
+          style={{
+            display: 'block', width: '100%', cursor: 'pointer',
+            background: PEACH, color: DARK,
+            borderRadius: 14, padding: '16px 16px', marginBottom: 12,
+            textAlign: 'center', fontWeight: 900, fontSize: 15,
+            letterSpacing: 1.2, textTransform: 'uppercase',
+            boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
+            border: `1px solid rgba(37,69,93,0.08)`,
+          }}
+        >
+          {vipLabel}
+        </button>
       )}
 
       {/* Стрим — плашка во всю ширину.

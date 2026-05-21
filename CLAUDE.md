@@ -532,7 +532,8 @@ API:
 **Подсчёт подарков — `event_referral_settings.gift_count_mode`** = `'registered'` (default) | `'visited'`. Клиент в дашборде выбирает: подарки выдаются за зарегистрировавшихся или за переходы. Mini App показывает соответствующий счётчик.
 
 **VIP-тариф и Чат — только для конференций** (поля в `events`):
-- `has_vip_tariff` BOOL + `vip_price`, `vip_url`, `vip_title`, `vip_description` — кнопка «ОПЛАТИТЬ VIP-ТАРИФ» в программе и «КУПИТЬ VIP-ТАРИФ С ЗАПИСЯМИ» в итогах
+- `has_vip_tariff` BOOL + `vip_price`, `vip_url`, `vip_title`, `vip_description` — кнопка VIP в программе и «КУПИТЬ VIP-ТАРИФ С ЗАПИСЯМИ» в итогах
+- `vip_button_label` TEXT NULL (миграция 091 от 2026-05-21) — кастомный текст кнопки VIP в Mini App («Программа» + «Интро»). Если пусто — дефолт «Расшириться до VIP-тарифа». При клике в Mini App к `vip_url` дописывается партнёрский параметр коллаборатора (`external_ref_param`) — резолв через `/public/events/{slug}/external-ref?pid=...`, аналогично сторонним лендингам. Хелпер: `redirectToVip` в [mini-app/src/pages/EventPage.tsx](mini-app/src/pages/EventPage.tsx), прокидывается в [ProgramTab](mini-app/src/tabs/ProgramTab.tsx) / [TurnirProgramTab](mini-app/src/tabs/TurnirProgramTab.tsx) / [WelcomePage](mini-app/src/components/WelcomePage.tsx) как `onVipClick`. Настраивается в дашборде — «Основное» мероприятия и «Настройки» конференции.
 - `chat_url` + `chat_subscriptions_required` BOOL + `chat_member_count_label` (статичная подпись «900+ человек») — плитка чата в программе
 
 **Розыгрыш** — три новые таблицы:

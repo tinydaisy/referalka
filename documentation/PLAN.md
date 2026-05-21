@@ -68,6 +68,7 @@ channels (боты/группы клиента)
 | **042** | 2026-04-27 | **Бренд клиента + VIP/Чат конференции + Призы розыгрыша**: `clients.brand_name`; `events.has_vip_tariff/vip_price/vip_url/vip_title/vip_description/chat_url/chat_subscriptions_required/chat_member_count_label`; `event_referral_settings.gift_count_mode` ('registered' default \| 'visited'); новые таблицы `event_raffle_settings`, `event_raffle_prizes`, `event_raffle_keywords`; UNIQUE индекс `channels(client_id, platform_slug) WHERE is_active` |
 | **052** | 2026-04-30 | **Разделение визитки на «Бренд» и «Основатель»**: `clients.brand_logo_url` (логотип в углу страниц Mini App), `owner_name`, `owner_photo_url`, `owner_positioning`, `owner_achievements` JSONB. Существующие поля переосмыслены — `profile_photo_url`/`positioning`/`achievements` = бренд, `bio`/`social_links` = основатель. Дашборд `/dashboard/mini-app` — 3 вкладки. Mini App: убрано слово «ЭКОСИСТЕМА», логотип в углу шапок, новая страница `OwnerPage.tsx` |
 | **067-072** | 2026-05-07 | **Подписочная архитектура тарифов и фич**: новые таблицы `features` (5 фич), `tariff_features` (M2M), `client_subscriptions` (active/expired/paused), `clients.current_subscription_id`. В `tariffs` колонки `contact_limit`, `broadcasts_daily_limit`, `default_duration_days`. Удалены `allow_custom_bot`, `trial_months`, `max_events`, `max_participants`. Тарифы: `trial`/`start`/`pro`/`vip` (990/2490/3900). Backend: `services/features.py`, `services/subscriptions.py`, `middleware/subscription_guard.py` (403 на write при истёкшей), Celery `expire_overdue` + `notify_expiring`. Frontend: `SubscriptionBadge` + `SubscriptionBanner` в DashboardLayout, вкладка «Подписка» в settings, скрытие Конференций без фичи, переписан `/admin/tariffs` |
+| **091** | 2026-05-21 | **Кастомный текст кнопки VIP-тарифа**: `events.vip_button_label TEXT NULL`. Применяется на вкладке «Программа» и «Интро» (WelcomePage) в Mini App. Если пусто — дефолт «Расшириться до VIP-тарифа». Mini App при клике дёргает `/public/events/{slug}/external-ref?pid=...` и приписывает к `vip_url` партнёрский параметр коллаборатора (аналогично сторонним лендингам). Настраивается в дашборде: «Основное» мероприятия и «Настройки» конференции |
 
 ---
 
@@ -572,9 +573,41 @@ Backend готов. Нужны UI-страницы:
 
 **Когда делать:** не в MVP. Откладываем до момента, когда у VIP-клиентов появится реальный спрос «у меня в VK аудитория больше, чем в TG, хочу там тоже». Сейчас VK можно использовать только как канал рассылок (и то — `channels` готовы, но рассыльщик под VK API ещё не написан).
 
+### 3.П Приём оплаты за мероприятия клиента (Продамус pass-through, обсуждено 2026-05-07)
+
+**Суть:** клиенты ПЛЮСОНа могут делать свои мероприятия платными. Деньги идут **напрямую клиенту через его собственный Продамус** (или ЮKassa), мы их не касаемся — только помечаем участника оплатившим и открываем платный контент.
+
+**Почему pass-through, а не маркетплейс:**
+- Нет агентского договора, нет налоговых рисков, не нужна банковская лицензия
+- Чеки фискализирует Продамус клиента (54-ФЗ его проблема, не наша)
+- Целевая аудитория Марго — инфобиз, у них у всех уже подключен Продамус, обучать не надо
+
+**Что нужно сделать:**
+- [ ] Миграция: `clients.prodamus_url`, `clients.prodamus_secret_key` (для проверки подписи webhook)
+- [ ] Миграция: `event_pricing` (event_id, tier_name, price, description, sort) — поддержка нескольких тарифов на событие (Standard / VIP / Early bird)
+- [ ] Миграция: `event_orders` (id, event_id, participant_id, pricing_id, amount, status `pending|paid|refunded|failed`, prodamus_order_id, paid_at, created_at)
+- [ ] Миграция: `event_participants.is_paid BOOL DEFAULT FALSE` (можно вычислять через JOIN, но для скорости — кеш)
+- [ ] Дашборд: `/dashboard/settings` → новая вкладка «Платежи» — поля Продамус URL + secret_key, инструкция «как взять у Продамуса»
+- [ ] Дашборд: в карточке события — тумблер «Платное» + UI редактора тарифов (название/цена/описание)
+- [ ] Дашборд: новая вкладка «Заказы» в карточке события — таблица `event_orders` со статусами, фильтрами, поиском
+- [ ] API: `POST /api/v1/events/{id}/pay` — создаёт `event_orders` со status=pending, возвращает URL Продамуса с предзаполненными `order_id` (наш UUID) + email/имя/tg_id участника
+- [ ] API: `POST /api/v1/payments/prodamus/webhook?client_id=N` — валидация HMAC-подписи по `clients.prodamus_secret_key`, поиск заказа по `order_id`, ставит `event_orders.status='paid'` + `event_participants.is_paid=true`. Идемпотентно (повторный webhook не дублирует).
+- [ ] Mini App: на лендинге события — блок цены и кнопка «Оплатить» (если `event.is_paid_event=true && !participant.is_paid`). После оплаты — автоматически открываются закрытые вкладки/материалы.
+- [ ] Mini App: страница «Мои оплаты» в карточке участника (история его заказов)
+- [ ] Гейт по фичам тарифа: добавить фичу `paid_events` в `features`, привязать к pro/vip — обычный start не получает приём оплаты
+
+**Объём работ:** 5–7 дней (1 неделя).
+
+**Альтернативы провайдеров:** клиент может выбирать — Продамус (популярен у инфобиза, агент по 54-ФЗ), ЮKassa (универсальный), CloudPayments (есть рекуррент). Для MVP — только Продамус, остальные — параметризованным `clients.payment_provider` enum в будущем.
+
+**Открытые вопросы:**
+- Возвраты — делать через UI клиента (ручная кнопка «Вернуть» → API Продамуса) или клиент возвращает сам в кабинете Продамуса, а мы только слушаем webhook возврата? (Скорее второе — меньше работы.)
+- Что показывать неоплатившему участнику — полный лендинг с кнопкой «Оплатить» или скрывать программу/материалы до оплаты? (Скорее первое — лендинг = промо.)
+- Передача данных участника в Продамус — заполнять email/phone из его профиля или дать ему ввести заново на стороне Продамуса? (Заполнять — меньше трения.)
+
 - [ ] Реферальная ссылка спикера: спикер — это особый участник или отдельная роль? (Предложение: спикер = участник с флагом `is_speaker`, получает персональный ref_code для отслеживания своих приглашений)
 - [ ] Конкретные цены тарифов (Базовый / Профессиональный)
-- [ ] Платёжная система (ЮKassa или Stripe)
+- [ ] Платёжная система за наш сервис (ЮKassa или Stripe — отдельно от 3.П, та про оплату мероприятий клиента)
 
 ---
 

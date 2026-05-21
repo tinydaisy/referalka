@@ -12,13 +12,16 @@ interface Props {
   referralEnabled: boolean    // показывать ли плитку «Игра» (партнёрская программа)
   tgUser: any                 // нужен для проверки подписки на каналы соорганизаторов
   onContinue: () => void      // переход на «Программу»
+  onVipClick?: (vipUrl: string) => void | Promise<void>  // открытие VIP-ссылки с партнёрским параметром
 }
 
 const TILE_BG = 'linear-gradient(45deg, rgba(37,69,93,0.04), rgba(255,207,164,0.10))'
 
-export default function WelcomePage({ event, participantId, raffleEnabled, referralEnabled, tgUser, onContinue }: Props) {
+export default function WelcomePage({ event, participantId, raffleEnabled, referralEnabled, tgUser, onContinue, onVipClick }: Props) {
   const chatUrl: string | null = event?.chat_url || null
   const eventTitle = event?.title || 'события'
+  const vipUrl: string = (event?.vip_url || '').trim()
+  const vipLabel: string = (event?.vip_button_label || '').trim() || 'Расшириться до VIP-тарифа'
   const { openChat, modal, loading } = useChatGate(event, tgUser)
 
   async function handleContinue() {
@@ -71,6 +74,27 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
           </div>
         )}
         {modal}
+
+        {vipUrl && (
+          <button
+            type="button"
+            onClick={() => {
+              if (onVipClick) onVipClick(vipUrl)
+              else window.open(vipUrl, '_blank', 'noopener,noreferrer')
+            }}
+            style={{
+              display: 'block', width: '100%', cursor: 'pointer',
+              background: '#FFCFA4', color: '#25455D',
+              borderRadius: 14, padding: '16px 16px', marginBottom: 16,
+              textAlign: 'center', fontWeight: 900, fontSize: 15,
+              letterSpacing: 1.2, textTransform: 'uppercase',
+              boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
+              border: '1px solid rgba(37,69,93,0.08)',
+            }}
+          >
+            {vipLabel}
+          </button>
+        )}
 
         <p style={{ color: '#25455D', fontSize: 13, fontWeight: 600, margin: '4px 0 10px' }}>
           А ещё в Mini App вас ждёт:

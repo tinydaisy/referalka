@@ -46,6 +46,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     // после миграции 057. Старое conf_conferences.registration_url удалено.
     landing_url: event?.landing_url || '',
     vip_url: conf?.vip_url || '',
+    vip_button_label: conf?.vip_button_label || '',
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     telegram_chat_ids: conf?.telegram_chat_ids || '',
@@ -63,6 +64,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       chat_url: conf?.chat_url || '',
       landing_url: event?.landing_url || '',
       vip_url: conf?.vip_url || '',
+      vip_button_label: conf?.vip_button_label || '',
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       telegram_chat_ids: conf?.telegram_chat_ids || '',
@@ -96,6 +98,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
       if (form.chat_url !== (conf?.chat_url || ''))                    confPatch.chat_url = form.chat_url || null
       if (form.vip_url !== (conf?.vip_url || ''))                      confPatch.vip_url = form.vip_url || null
+      if (form.vip_button_label !== (conf?.vip_button_label || ''))    confPatch.vip_button_label = form.vip_button_label || null
       if (form.raffle_url !== (conf?.raffle_url || ''))                confPatch.raffle_url = form.raffle_url || null
       if (form.subscription_mode !== (conf?.subscription_mode || 'none')) confPatch.subscription_mode = form.subscription_mode
       if (form.telegram_chat_ids !== (conf?.telegram_chat_ids || ''))  confPatch.telegram_chat_ids = form.telegram_chat_ids || null
@@ -174,7 +177,18 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           <input type="url" value={form.vip_url} onChange={set('vip_url')}
             placeholder="https://..."
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-          <p className="text-xs text-gray-400 mt-1">Если задана — в Mini App над программой появится персиковая кнопка «Расшириться до VIP-тарифа», а в итогах — «Купить VIP-тариф с записями».</p>
+          <p className="text-xs text-gray-400 mt-1">Если задана — в Mini App на «Программе» и в «Интро» появится персиковая кнопка. Если участника привёл партнёр (pid), к ссылке добавится партнёрский параметр коллаборатора, как у стороннего лендинга. В итогах остаётся «Купить VIP-тариф с записями».</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Текст кнопки VIP-тарифа
+            <span className="text-gray-400 font-normal ml-1">— опционально</span>
+          </label>
+          <input type="text" value={form.vip_button_label} onChange={set('vip_button_label')}
+            placeholder="Расшириться до VIP-тарифа"
+            maxLength={64}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          <p className="text-xs text-gray-400 mt-1">Что будет написано на кнопке в Mini App (Программа + Интро). По умолчанию — «Расшириться до VIP-тарифа».</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
