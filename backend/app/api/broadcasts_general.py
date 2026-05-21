@@ -340,7 +340,7 @@ async def log(
     await _check_owner(db, schedule_id, client_id)
     rows = await db.fetch(
         """
-        SELECT bl.platform_user_id, bl.status, bl.error, bl.sent_at,
+        SELECT bl.platform_user_id, bl.status, bl.error, bl.sent_at, bl.read_at,
                pu.first_name, pu.last_name, pu.username, pu.platform_user_id as tg_id,
                pu.platform_slug AS user_platform,
                bl.channel_id, ch.handle AS channel_handle, ch.display_name AS channel_name,

@@ -515,6 +515,7 @@ export default function GeneralBroadcastsPage() {
       {/* Лог */}
       {logModal && (() => {
         const sentCount = logModal.rows.filter((r: any) => r.status === 'sent').length
+        const readCount = logModal.rows.filter((r: any) => r.status === 'sent' && r.read_at).length
         const failed = logModal.rows.filter((r: any) => r.status !== 'sent')
         const reasonMap: Record<string, number> = {}
         for (const r of failed) {
@@ -549,6 +550,7 @@ export default function GeneralBroadcastsPage() {
                   <h3 className="font-semibold text-gray-800 text-sm">Получатели рассылки</h3>
                   <p className="text-xs text-gray-400">
                     Всего: {logModal.rows.length} · <span className="text-green-600">доставлено {sentCount}</span>
+                    {readCount > 0 && <> · <span className="text-blue-600" title="Прочтения отслеживаются только в VK (Telegram Bot API не даёт read receipts)">прочитано {readCount}</span></>}
                     {failed.length > 0 && <> · <span className="text-red-500">не дошло {failed.length}</span></>}
                   </p>
                 </div>
@@ -609,6 +611,9 @@ export default function GeneralBroadcastsPage() {
                         <span className="font-medium text-gray-800 truncate">{name}</span>
                         {username && <span className="text-gray-400 shrink-0">{username}</span>}
                         {bot && <span className="text-blue-500 shrink-0 text-[10px] bg-blue-50 px-1.5 py-0.5 rounded">{bot}</span>}
+                        {ok && r.read_at && (
+                          <span className="text-blue-600 shrink-0 text-[10px] bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded" title={`Прочитано ${new Date(r.read_at).toLocaleString('ru-RU')}`}>👁 прочитано</span>
+                        )}
                       </div>
                       {!ok && r.error && (
                         <span className="text-red-400 truncate max-w-[140px] ml-2" title={r.error}>{humanReason(r.error)}</span>

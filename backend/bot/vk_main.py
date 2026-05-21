@@ -59,6 +59,11 @@ async def enable_long_poll(ctx: GroupCtx) -> None:
         "message_edit": 0,
         "message_event": 1,
         "message_typing_state": 0,
+        # message_read нужен для статистики прочтений рассылок — при открытии
+        # юзером чата с сообществом VK кидает событие с last_message_id, по
+        # которому мы помечаем broadcast_log.read_at для всех сообщений
+        # рассылок <= этого id.
+        "message_read": 1,
     }, token=ctx.token)
     logger.info(f"VK Long Poll enabled for group {ctx.group_id}")
 
@@ -522,6 +527,50 @@ async def _reply_to_user_message(
         logger.warning(f"VK reply to user message failed peer={peer_id}: {e}")
 
 
+async def handle_message_read(event_obj: dict, db, ctx: GroupCtx) -> None:
+    """message_read: юзер прочитал сообщение от сообщества в личке.
+
+    VK кидает событие с парой (from_id, last_message_id). last_message_id —
+    максимальный id исходящего сообщения сообщества, до которого юзер «дочитал»
+    (точнее — открыл чат, и VK поднял read marker до этого id).
+
+    Что делаем: помечаем broadcast_log.read_at для всех записей где
+    - channel_id = текущая VK-группа (ctx.channel_id)
+    - platform_users.platform_user_id = from_id
+    - external_message_id <= last_message_id
+    - read_at IS NULL (не помечать повторно)
+    """
+    try:
+        from_id = int(event_obj.get("from_id") or 0)
+        last_msg_id = int(event_obj.get("last_message_id") or 0)
+    except (TypeError, ValueError):
+        return
+    if not from_id or not last_msg_id:
+        return
+    try:
+        rows = await db.execute(
+            """UPDATE broadcast_log AS bl
+                  SET read_at = NOW()
+                 FROM platform_users pu
+                WHERE bl.platform_user_id = pu.id
+                  AND bl.channel_id = $1
+                  AND pu.platform_user_id = $2
+                  AND pu.platform_slug = 'vk'
+                  AND bl.external_message_id IS NOT NULL
+                  AND bl.external_message_id <= $3
+                  AND bl.read_at IS NULL
+                  AND bl.status = 'sent'""",
+            ctx.channel_id, str(from_id), last_msg_id,
+        )
+        # rows здесь — строка вида "UPDATE N", логируем только если что-то помечено
+        if isinstance(rows, str) and rows.startswith("UPDATE "):
+            n = int(rows.split()[1])
+            if n > 0:
+                logger.info(f"VK message_read group={ctx.group_id} from={from_id} last_id={last_msg_id} → +{n} read")
+    except Exception as e:
+        logger.warning(f"VK message_read UPDATE failed group={ctx.group_id} from={from_id}: {e}")
+
+
 async def process_event(ev: dict, db, ctx: GroupCtx) -> None:
     """Диспетчер событий Long Poll."""
     t = ev.get("type")
@@ -535,6 +584,8 @@ async def process_event(ev: dict, db, ctx: GroupCtx) -> None:
             await handle_message_event(obj, db, ctx)
         elif t == "message_new":
             await handle_message_new(obj, db, ctx)
+        elif t == "message_read":
+            await handle_message_read(obj, db, ctx)
         # message_reply, group_join, group_leave — не обрабатываем пока
     except Exception as e:
         logger.exception(f"VK process_event group={ctx.group_id} type={t} failed: {e}")

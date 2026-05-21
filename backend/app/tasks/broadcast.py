@@ -555,6 +555,7 @@ async def _send_broadcast_vk_part(
             message_text = f"{photo_url}\n\n{message_text}".strip()
         ok = False
         err: str | None = None
+        vk_message_id: int | None = None
         try:
             res = await vk_send(
                 vk_id_int, message_text,
@@ -562,21 +563,24 @@ async def _send_broadcast_vk_part(
                 keyboard=keyboard, attachment=photo_attachment,
             )
             ok = bool(res)
+            if ok and isinstance(res, int):
+                vk_message_id = res
             if not ok:
                 err = "VK send returned None"
         except Exception as e:
             err = str(e)
             logger.warning(f"VK send failed for vk_id={vk_id_int}: {e}")
-        # Лог отправки — модалка «Получатели рассылки» читает отсюда,
-        # без этого VK-получатели не были видны в UI (recipients_sent
-        # учитывал их, а список — нет).
+        # Лог отправки — модалка «Получатели рассылки» читает отсюда.
+        # external_message_id = vk message_id из messages.send — нужен чтобы
+        # потом при event'е message_read сопоставить запись и поставить read_at.
         try:
             await conn.execute(
                 """INSERT INTO broadcast_log
-                       (schedule_id, platform_user_id, channel_id, status, error, sent_at)
-                   VALUES ($1, $2, $3, $4, $5, NOW())""",
+                       (schedule_id, platform_user_id, channel_id, status, error,
+                        external_message_id, sent_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, NOW())""",
                 schedule["id"], r["pu_id"], vk_channel_id,
-                "sent" if ok else "failed", err,
+                "sent" if ok else "failed", err, vk_message_id,
             )
         except Exception as e:
             logger.warning(f"VK broadcast_log insert failed for pu_id={r['pu_id']}: {e}")
