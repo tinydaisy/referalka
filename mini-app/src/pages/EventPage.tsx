@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import BottomNav, { NavItem } from '../components/BottomNav'
 import LandingTab from '../tabs/LandingTab'
 import ProgramTab from '../tabs/ProgramTab'
+import TurnirProgramTab from '../tabs/TurnirProgramTab'
 import ContestProgramTab from '../tabs/ContestProgramTab'
 import GameTab from '../tabs/GameTab'
 import RaffleTab from '../tabs/RaffleTab'
@@ -308,6 +309,31 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     getPlatform().redirectTo(fullUrl)
   }
 
+  // Открытие ссылки на оплату VIP-тарифа. Если у участника есть pid
+  // (его привёл партнёр), к URL дописывается партнёрский параметр клиента
+  // (collaborators.external_ref_param) — как у стороннего лендинга.
+  async function redirectToVip(vipUrl: string) {
+    let fullUrl = vipUrl
+    if (partnerId) {
+      try {
+        const apiBase = import.meta.env.VITE_API_URL || ''
+        const r = await fetch(
+          `${apiBase}/api/v1/public/events/${encodeURIComponent(slug)}/external-ref?pid=${encodeURIComponent(partnerId)}`,
+        )
+        if (r.ok) {
+          const data = await r.json()
+          const extra = (data?.external_ref_param as string) || ''
+          if (extra) {
+            const sep = fullUrl.includes('?') ? '&' : '?'
+            fullUrl += sep + extra.replace(/^[?&]+/, '')
+          }
+        }
+      } catch { /* тихо игнорим — основной редирект не ломаем */ }
+    }
+    const { getPlatform } = await import('../platform')
+    getPlatform().redirectTo(fullUrl)
+  }
+
   if (loading || !event) {
     return (
       <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
@@ -459,6 +485,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
             raffleEnabled={raffleOn}
             referralEnabled={refOn}
             tgUser={tgUser}
+            onVipClick={redirectToVip}
             onContinue={() => {
               setParticipant((p: any) => ({ ...(p || {}), welcomed_at: new Date().toISOString() }))
               setTab('program')
@@ -466,9 +493,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
           />
         )}
         {tab === 'landing'   && <LandingTab  event={event} onRegister={handleWantParticipate} />}
-        {tab === 'program'   && (event?.module_slug === 'contest'
-          ? <ContestProgramTab event={event} tgUser={tgUser} refreshKey={refreshKey} />
-          : <ProgramTab        event={event} tgUser={tgUser} refreshKey={refreshKey} />
+        {tab === 'program'   && (
+          event?.module_slug === 'contest' ?
+            <ContestProgramTab  event={event} tgUser={tgUser} refreshKey={refreshKey} /> :
+          event?.module_slug === 'turnir' ?
+            // Турниры пока используют копию ProgramTab. Со временем макет
+            // разойдётся: у турниров будут этапы (Этап 1 / Этап 2) с
+            // диапазонами дат и вложенными внутри днями, у конференций
+            // останутся «дни». См. memory/project_mini_app_unification_plan.md.
+            <TurnirProgramTab   event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip} /> :
+            <ProgramTab         event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip} />
         )}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}

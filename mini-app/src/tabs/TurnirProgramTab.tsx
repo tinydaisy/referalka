@@ -153,7 +153,7 @@ function tgLink(url?: string | null, username?: string | null): string | null {
 // Для одиночных событий — если сегодня попадает в [start_at..end_at].
 function isStreamDay(event: any, days: Day[]): boolean {
   const today = todayIso()
-  if (event?.module_slug === 'conference' && days.length > 0) {
+  if (event?.module_slug === 'turnir' && days.length > 0) {
     return days.some(d => d.day_date === today)
   }
   if (!event?.start_at) return false
@@ -166,8 +166,8 @@ function isStreamDay(event: any, days: Day[]): boolean {
   return now >= startDay && now <= endDay
 }
 
-export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
-  const isConference = event?.module_slug === 'conference'
+export default function TurnirProgramTab({ event, tgUser, refreshKey }: Props) {
+  const isTurnir = event?.module_slug === 'turnir'
   // Кнопка VIP появляется если у события вписан vip_url
   // (единый источник истины в events.vip_url).
   const vipUrl  = event?.vip_url || ''
@@ -207,7 +207,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
 
   // Соорганизаторы для не-конф мероприятий
   useEffect(() => {
-    if (!event?.id || isConference) { setCoOrganizers([]); return }
+    if (!event?.id || isTurnir) { setCoOrganizers([]); return }
     getEventCollaborators(event.id, 'organizer')
       .then((r: any) => {
         const items = (r.items || []).map((c: any) => ({
@@ -224,13 +224,13 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         setCoOrganizers(items)
       })
       .catch(() => setCoOrganizers([]))
-  }, [event?.id, isConference, refreshKey])
+  }, [event?.id, isTurnir, refreshKey])
 
   // Загрузка дней + спикеров. refreshKey в зависимостях — чтобы при возврате
   // на вкладку программы данные подтягивались заново (клиент мог поправить
   // расписание / убрать спикера / сменить статус регистрации).
   useEffect(() => {
-    if (!event?.id || !isConference) return
+    if (!event?.id || !isTurnir) return
     Promise.all([
       getDays(event.id).then((r: any) => r.days as Day[]).catch(() => []),
       getSpeakers(event.id).then((r: any) => r.speakers as Speaker[]).catch(() => []),
@@ -246,7 +246,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
         return today?.day_number || future?.day_number || d[0]?.day_number || null
       })
     })
-  }, [event?.id, isConference, refreshKey])
+  }, [event?.id, isTurnir, refreshKey])
 
   // Лениво грузим сессии раскрываемого дня
   useEffect(() => {
@@ -348,7 +348,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
   return (
     <div className="fade-in">
       {/* Авто-скролл лента спикеров */}
-      {isConference && speakers.length > 0 && (
+      {isTurnir && speakers.length > 0 && (
         <div
           ref={speakersScrollRef}
           style={{
@@ -513,7 +513,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
       )}
 
       {/* Программа по дням — аккордеон */}
-      {isConference && days.length > 0 && (
+      {isTurnir && days.length > 0 && (
         <>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', margin: '6px 2px 8px' }}>
             Программа
@@ -679,7 +679,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
       )}
 
       {/* Дата мероприятия — отдельной плашкой (описание перенесено под плитки выше). */}
-      {!isConference && event?.start_at && (
+      {!isTurnir && event?.start_at && (
         <div className="card" style={{ padding: 16 }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
@@ -699,7 +699,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
       )}
 
       {/* Соорганизаторы — для не-конф мероприятий, внизу программы */}
-      {!isConference && coOrganizers.length > 0 && (
+      {!isTurnir && coOrganizers.length > 0 && (
         <>
           <div style={{
             background: 'linear-gradient(45deg, #25455D, #0a1520)',
@@ -759,7 +759,7 @@ export default function ProgramTab({ event, tgUser, refreshKey }: Props) {
       )}
 
       {/* Карточки спикеров — расширенная информация (как в шаблоне рассылки speaker_intro) */}
-      {isConference && speakers.length > 0 && (
+      {isTurnir && speakers.length > 0 && (
         <>
           {/* Жирная разделительная плашка между программой и спикерами */}
           <div style={{
