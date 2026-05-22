@@ -399,6 +399,18 @@ async def _send_broadcast(schedule_id: int):
         except Exception as ex:
             logger.warning(f"MAX-часть рассылки {schedule_id} упала: {ex}")
 
+        # === Email подписчики (доп. слой, после MAX) ===
+        # Email-получатели клиента получают рассылку через локальный Postfix
+        # с главного email-канала клиента. Один человек = один email = одно письмо.
+        try:
+            email_sent = await _send_broadcast_email_part(
+                conn, schedule, event_id, text, photo_url, button_text, button_url, buttons=buttons
+            )
+            sent += email_sent
+            logger.info(f"Email-часть рассылки {schedule_id}: отправлено {email_sent}")
+        except Exception as ex:
+            logger.warning(f"Email-часть рассылки {schedule_id} упала: {ex}")
+
         await conn.execute(
             "UPDATE broadcast_schedules SET status='done', finished_at=NOW(), recipients_sent=$1 WHERE id=$2",
             sent, schedule_id
@@ -730,6 +742,190 @@ async def _send_broadcast_max_part(
             )
         except Exception as e:
             logger.warning(f"MAX broadcast_log insert failed for pu_id={r['pu_id']}: {e}")
+        if ok:
+            sent += 1
+    return sent
+
+
+async def _send_broadcast_email_part(
+    conn, schedule, event_id: int | None,
+    text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
+    buttons: list | None = None,
+) -> int:
+    """Отправляет рассылку email-подписчикам клиента через локальный Postfix.
+
+    Адрес отправителя берётся из главного email-канала клиента
+    (channels.email_subdomain / email_from_local / email_from_name). Если канал
+    системный (email_subdomain=NULL) — шлём от noreply@pluson.ru с именем,
+    взятым из clients.brand_name (или clients.name как fallback).
+
+    photo_url пока не используется (plain-text MVP), кнопка вставляется
+    ссылкой в конец текста — HTML-вёрстка появится в следующей итерации
+    (планируется визуальный редактор + рендер HTML-блока для кнопки).
+
+    Возвращает количество успешно отправленных писем.
+    """
+    from app.services.email_sender import EmailSender, EmailSendError
+    from app.services.unsubscribe_token import make_email_unsubscribe_token
+
+    client_id = schedule["client_id"]
+    aud_include = schedule.get("audience_include") or "all_event"
+
+    # Главный email-канал клиента + параметры отправителя
+    channel = await conn.fetchrow(
+        """SELECT ch.id AS channel_id, cc.id AS client_channel_id,
+                  ch.email_subdomain, ch.email_from_local, ch.email_from_name,
+                  cl.brand_name, cl.name AS client_name
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+             JOIN clients cl ON cl.id = cc.client_id
+            WHERE cc.client_id = $1
+              AND cc.is_active = TRUE
+              AND ch.platform_slug = 'email'
+            ORDER BY cc.added_at LIMIT 1""",
+        client_id,
+    )
+    if not channel:
+        # У клиента нет email-канала вообще (рассинхрон с миграцией 097).
+        return 0
+
+    channel_dict = dict(channel)
+    client_brand_name = channel_dict.get("brand_name") or channel_dict.get("client_name") or "ПЛЮСОН"
+
+    # Получатели — email-identity с активной подпиской на ЭТОТ канал
+    # и не помеченные как битые (email_is_dead).
+    if aud_include == "all_client":
+        rows = await conn.fetch(
+            """SELECT pu.id AS pu_id, pu.contact_id, pu.platform_user_id AS email,
+                      COALESCE(NULLIF(pu.first_name, ''), c.name, 'друг') AS first_name
+                 FROM platform_users pu
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN contacts c ON c.id = pu.contact_id
+                WHERE pu.client_id = $1
+                  AND pu.platform_slug = 'email'
+                  AND pu.email_is_dead = FALSE
+                  AND puc.client_channel_id = $2
+                  AND puc.is_unsubscribed = FALSE""",
+            client_id, channel_dict["client_channel_id"],
+        )
+    elif event_id and aud_include == "registered_event":
+        rows = await conn.fetch(
+            """SELECT pu.id AS pu_id, pu.contact_id, pu.platform_user_id AS email,
+                      COALESCE(NULLIF(pu.first_name, ''), c.name, 'друг') AS first_name
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'email'
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN contacts c ON c.id = pu.contact_id
+                WHERE ep.event_id = $1 AND ep.is_registered = TRUE
+                  AND pu.email_is_dead = FALSE
+                  AND puc.client_channel_id = $2
+                  AND puc.is_unsubscribed = FALSE""",
+            event_id, channel_dict["client_channel_id"],
+        )
+    elif event_id:
+        rows = await conn.fetch(
+            """SELECT pu.id AS pu_id, pu.contact_id, pu.platform_user_id AS email,
+                      COALESCE(NULLIF(pu.first_name, ''), c.name, 'друг') AS first_name
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'email'
+                 JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+                 JOIN contacts c ON c.id = pu.contact_id
+                WHERE ep.event_id = $1
+                  AND pu.email_is_dead = FALSE
+                  AND puc.client_channel_id = $2
+                  AND puc.is_unsubscribed = FALSE""",
+            event_id, channel_dict["client_channel_id"],
+        )
+    else:
+        return 0
+
+    # Тестовый режим: для email пока нет отдельного test-списка email-адресов.
+    # Если is_test=TRUE — шлём только на email-адреса контактов, у которых
+    # есть TG-id из clients.test_telegram_ids (то есть тестовые «свои люди»).
+    if schedule.get("is_test"):
+        test_tg = await conn.fetchval(
+            "SELECT test_telegram_ids FROM clients WHERE id=$1", client_id
+        )
+        test_tg_set = {str(t) for t in (test_tg or [])}
+        if not test_tg_set:
+            return 0
+        # Ищем contact_id'ы которые имеют TG-identity из тестового списка
+        test_contact_ids = await conn.fetch(
+            """SELECT DISTINCT contact_id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'telegram'
+                  AND platform_user_id = ANY($2::text[])""",
+            client_id, list(test_tg_set),
+        )
+        test_set = {r["contact_id"] for r in test_contact_ids}
+        rows = [r for r in rows if r["contact_id"] in test_set]
+        if not rows:
+            return 0
+
+    # Готовим текст письма. Subject из шаблона рассылок появится в следующей
+    # итерации (поле broadcast_templates.subject — отдельная миграция). Пока
+    # тема собирается из первой строки текста, если она короткая.
+    body_text = text or ""
+    first_line = body_text.split("\n", 1)[0].strip() if body_text else ""
+    subject = first_line if (0 < len(first_line) <= 120) else "Новое сообщение от ПЛЮСОН"
+
+    # Кнопка → текстовая ссылка в конце письма (для email-каналов кнопка
+    # рендерится как стилизованная ссылка; полноценный HTML-блок-кнопка
+    # появится с HTML-вёрсткой писем — следующий подэтап).
+    if button_text and button_url:
+        body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
+    elif buttons:
+        body_text = body_text.rstrip() + "\n\n" + "\n".join(
+            f"{b.get('label','Открыть')}: {b.get('url','')}" for b in buttons
+        )
+
+    sender = EmailSender()
+    sent = 0
+    for r in rows:
+        email_addr = (r["email"] or "").strip()
+        if not email_addr or "@" not in email_addr:
+            continue
+
+        # Персональный токен отписки на пару (контакт × канал клиента)
+        unsub_token = make_email_unsubscribe_token(
+            client_id=client_id,
+            contact_id=r["contact_id"],
+            client_channel_id=channel_dict["client_channel_id"],
+        )
+
+        # Персонализация: {first_name}
+        msg_text = body_text
+        if "{first_name}" in msg_text:
+            msg_text = msg_text.replace("{first_name}", r["first_name"] or "друг")
+
+        ok = False
+        err: str | None = None
+        msg_id: str | None = None
+        try:
+            msg_id = sender.send(
+                channel=channel_dict,
+                client_brand_name=client_brand_name,
+                to_email=email_addr,
+                subject=subject,
+                body_text=msg_text,
+                unsubscribe_token=unsub_token,
+            )
+            ok = True
+        except EmailSendError as e:
+            err = str(e)
+
+        # Лог отправки — модалка «Получатели рассылки» читает отсюда
+        try:
+            await conn.execute(
+                """INSERT INTO broadcast_log
+                       (schedule_id, platform_user_id, channel_id, status, error,
+                        external_message_id, sent_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, NOW())""",
+                schedule["id"], r["pu_id"], channel_dict["channel_id"],
+                "sent" if ok else "failed", err, msg_id,
+            )
+        except Exception as e:
+            logger.warning(f"Email broadcast_log insert failed for pu_id={r['pu_id']}: {e}")
+
         if ok:
             sent += 1
     return sent
