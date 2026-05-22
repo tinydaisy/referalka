@@ -33,6 +33,9 @@ class AddCustomRequest(BaseModel):
     photo_url: Optional[str] = None
     buttons: List[ButtonItem] = []
     is_test: bool = False
+    # Каналы для отправки: NULL/None = все каналы клиента (default),
+    # [] = никуда не слать, [N,M] = только эти channel_id.
+    target_channel_ids: Optional[List[int]] = None
 
 
 class BulkItem(BaseModel):
@@ -40,6 +43,7 @@ class BulkItem(BaseModel):
     text: str
     photo_url: Optional[str] = None
     buttons: List[ButtonItem] = []
+    target_channel_ids: Optional[List[int]] = None
 
 
 class BulkAddRequest(BaseModel):
@@ -174,6 +178,7 @@ async def list_schedules(
         SELECT id, type, fire_at, status, recipients_sent, is_test,
                audience_include, audience_exclude, started_at, finished_at,
                error_log, snapshot_text, snapshot_photo, snapshot_buttons,
+               target_channel_ids,
                CASE WHEN finished_at IS NOT NULL AND started_at IS NOT NULL
                     THEN EXTRACT(EPOCH FROM (finished_at - started_at))::int
                     ELSE NULL END as duration_seconds,
@@ -236,12 +241,13 @@ async def add_custom(
         INSERT INTO broadcast_schedules
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
-           snapshot_text, snapshot_photo, snapshot_buttons)
+           snapshot_text, snapshot_photo, snapshot_buttons, target_channel_ids)
         VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                $4, $5, $6::jsonb)
+                $4, $5, $6::jsonb, $7)
         RETURNING id, fire_at, status
         """,
-        client_id, dt_utc, data.is_test, data.text, data.photo_url, _json.dumps(buttons)
+        client_id, dt_utc, data.is_test, data.text, data.photo_url, _json.dumps(buttons),
+        data.target_channel_ids,
     )
     return dict(row)
 
@@ -272,6 +278,7 @@ async def bulk_add(
             "text": it.text,
             "photo_url": it.photo_url,
             "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in it.buttons if b.text.strip() and b.url.strip()],
+            "target_channel_ids": it.target_channel_ids,
         })
     if errors_by_idx:
         return {"ok": False, "errors": errors_by_idx, "total": len(data.items)}
@@ -285,12 +292,13 @@ async def bulk_add(
                 INSERT INTO broadcast_schedules
                   (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
-                   snapshot_text, snapshot_photo, snapshot_buttons)
+                   snapshot_text, snapshot_photo, snapshot_buttons, target_channel_ids)
                 VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                        $4, $5, $6::jsonb)
+                        $4, $5, $6::jsonb, $7)
                 RETURNING id
                 """,
-                client_id, p["dt_utc"], data.is_test, p["text"], p["photo_url"], _json.dumps(p["buttons"])
+                client_id, p["dt_utc"], data.is_test, p["text"], p["photo_url"],
+                _json.dumps(p["buttons"]), p["target_channel_ids"],
             )
             created_ids.append(row["id"])
     return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids}
@@ -398,14 +406,15 @@ async def copy(
         INSERT INTO broadcast_schedules
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
-           snapshot_text, snapshot_photo, snapshot_buttons)
+           snapshot_text, snapshot_photo, snapshot_buttons, target_channel_ids)
         VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'draft', $3, 'all_client', 'none',
-                $4, $5, $6::jsonb)
+                $4, $5, $6::jsonb, $7)
         RETURNING id
         """,
         client_id, full["fire_at"], full["is_test"],
         full["snapshot_text"], full["snapshot_photo"],
-        full["snapshot_buttons"] if isinstance(full["snapshot_buttons"], str) else _json.dumps(full["snapshot_buttons"] or [])
+        full["snapshot_buttons"] if isinstance(full["snapshot_buttons"], str) else _json.dumps(full["snapshot_buttons"] or []),
+        full["target_channel_ids"],
     )
     return {"ok": True, "id": new["id"]}
 
@@ -450,6 +459,7 @@ class UpdateScheduleRequest(BaseModel):
     text: Optional[str] = None
     photo_url: Optional[str] = None
     buttons: Optional[List[ButtonItem]] = None
+    target_channel_ids: Optional[List[int]] = None
 
 
 @router.patch("/schedules/{schedule_id}", summary="Обновить содержимое рассылки (draft/pending)")
@@ -500,6 +510,10 @@ async def update_schedule(
         clean = [{"text": b.text.strip(), "url": b.url.strip()}
                  for b in data.buttons if b.text.strip() and b.url.strip()]
         sets.append(f"snapshot_buttons=${idx}::jsonb"); args.append(_json.dumps(clean)); idx += 1
+
+    if data.target_channel_ids is not None:
+        sets.append(f"target_channel_ids=${idx}::int[]")
+        args.append(data.target_channel_ids); idx += 1
 
     if not sets:
         return {"ok": True, "no_change": True}

@@ -90,14 +90,14 @@ export default function LegalTab() {
   const [clientId, setClientId] = useState<number | null>(null)
 
   const auth = (): Record<string, string> => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    const token = typeof window !== 'undefined' ? localStorage.getItem('plusson_token') : null
     return token ? { Authorization: `Bearer ${token}` } : {}
   }
 
   // Декодируем client_id из JWT для построения публичной ссылки
   useEffect(() => {
     try {
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('plusson_token')
       if (token) {
         const payload = JSON.parse(atob(token.split('.')[1]))
         setClientId(parseInt(payload.sub))

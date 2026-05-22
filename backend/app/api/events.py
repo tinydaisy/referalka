@@ -112,6 +112,10 @@ class UpdateEventRequest(BaseModel):
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).
     skip_contact_form: Optional[bool] = None
     stream_url: Optional[str] = None
+    # Welcome-письмо при регистрации (миграция 099). См. event_welcome_email.py.
+    welcome_enabled: Optional[bool] = None
+    welcome_text: Optional[str] = None
+    welcome_email_subject: Optional[str] = None
 
 
 @router.get("/", summary="Список событий клиента")

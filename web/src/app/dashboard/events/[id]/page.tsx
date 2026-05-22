@@ -8,10 +8,11 @@ import PostersTab from './tabs/PostersTab'
 import ReferralProgramTab from './tabs/ReferralProgramTab'
 import CoOrganizersTab from './tabs/CoOrganizersTab'
 import NurtureTab from './tabs/NurtureTab'
+import WelcomeTab from './tabs/WelcomeTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture' | 'welcome'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -53,6 +54,7 @@ export default function EventPage() {
     { key: 'posters',       label: 'Афиши' },
     { key: 'referral',      label: 'Реф-программа' },
     { key: 'nurture',       label: 'Воронка догрева' },
+    { key: 'welcome',       label: 'Приветствие' },
     { key: 'participants',  label: 'Участники' },
   ]
 
@@ -122,6 +124,7 @@ export default function EventPage() {
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
       {activeTab === 'co_organizers' && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
       {activeTab === 'nurture'       && <NurtureTab eventId={eventId} />}
+      {activeTab === 'welcome'       && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} moduleSlug={event.module_slug} />}
     </div>
   )

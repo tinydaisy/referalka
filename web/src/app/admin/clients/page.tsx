@@ -25,15 +25,47 @@ interface Client {
   collaborators_count: number
 }
 
+interface EmailQuality {
+  client_id: number
+  sent: number
+  bounces_hard: number
+  unsubs: number
+  bounce_rate: number
+  unsub_rate: number
+  status: 'green' | 'yellow' | 'red'
+  recommendation: string
+}
+
 export default function AdminClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
+  const [emailQuality, setEmailQuality] = useState<Record<number, EmailQuality>>({})
+  const [qualityModal, setQualityModal] = useState<EmailQuality | null>(null)
 
   useEffect(() => {
     const q = search ? `search=${encodeURIComponent(search)}` : ''
     api.admin.clients(q).then((r: any) => { setClients(r.clients || []); setTotal(r.total || 0) }).catch(() => {})
   }, [search])
+
+  // Метрики качества email-рассылок — отдельным запросом, чтобы не блокировать
+  // основной список (миграция 098-099)
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('plusson_token') : null
+    if (!token) return
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+    fetch(`${apiUrl}/api/v1/admin/clients-email-quality`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: any) => {
+        if (!data?.clients) return
+        const map: Record<number, EmailQuality> = {}
+        for (const q of data.clients) map[q.client_id] = q
+        setEmailQuality(map)
+      })
+      .catch(() => {})
+  }, [])
 
   return (
     <div>
@@ -76,6 +108,18 @@ export default function AdminClientsPage() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-gray-900 text-sm truncate">{c.name}</span>
+                          {emailQuality[c.id] && emailQuality[c.id].status !== 'green' && (
+                            <button
+                              onClick={() => setQualityModal(emailQuality[c.id])}
+                              title="Метрики email-рассылок"
+                              className="shrink-0">
+                              <span className={`text-sm ${
+                                emailQuality[c.id].status === 'red' ? 'text-red-500' : 'text-yellow-500'
+                              }`}>
+                                {emailQuality[c.id].status === 'red' ? '🔴' : '🟡'}
+                              </span>
+                            </button>
+                          )}
                           {!c.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">не активен</span>}
                         </div>
                         <div className="text-xs text-gray-400 truncate">{c.email}</div>
@@ -144,6 +188,43 @@ export default function AdminClientsPage() {
       <p className="text-xs text-gray-400 mt-4">
         💡 Колонки «дата продления», «выручка» и история тарифов появятся когда подключим тарифную архитектуру (отдельная задача).
       </p>
+
+      {/* Модалка с метриками качества email-рассылок */}
+      {qualityModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+             onClick={() => setQualityModal(null)}>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl"
+               onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 mb-4">
+              {qualityModal.status === 'red' ? '🔴' : '🟡'} Метрики email за 30 дней
+            </h3>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between"><dt className="text-gray-500">Отправлено</dt>
+                   <dd className="font-semibold">{qualityModal.sent}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500">Битых адресов</dt>
+                   <dd className="font-semibold">{qualityModal.bounces_hard} ({qualityModal.bounce_rate}%)</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500">Отписок</dt>
+                   <dd className="font-semibold">{qualityModal.unsubs} ({qualityModal.unsub_rate}%)</dd></div>
+            </dl>
+            <div className={`mt-4 rounded-xl p-3 text-sm ${
+              qualityModal.status === 'red'
+                ? 'bg-red-50 text-red-700'
+                : 'bg-yellow-50 text-yellow-800'
+            }`}>
+              {qualityModal.recommendation}
+            </div>
+            <p className="text-xs text-gray-500 mt-4 leading-relaxed">
+              <b>Нормы:</b><br/>
+              🟡 жёлтый — bounce &gt; 5% или unsub &gt; 1%<br/>
+              🔴 красный — bounce &gt; 10% или unsub &gt; 3%
+            </p>
+            <button onClick={() => setQualityModal(null)}
+              className="mt-4 w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-sm font-medium">
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

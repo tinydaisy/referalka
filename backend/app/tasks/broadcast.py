@@ -126,13 +126,33 @@ async def _send_broadcast(schedule_id: int):
         # Читаем шаблон отдельным свежим запросом — максимально близко к отправке,
         # чтобы правки шаблона применились даже если очередь уже активирована
         tmpl = await conn.fetchrow(
-            "SELECT text, photo_url, button_text, button_url FROM broadcast_templates WHERE id=$1",
+            "SELECT text, photo_url, button_text, button_url, target_channel_ids "
+            "FROM broadcast_templates WHERE id=$1",
             schedule["template_id"]
         ) if schedule["template_id"] else None
         tmpl_text_val  = tmpl["text"]         if tmpl else ""
         tmpl_photo_val = tmpl["photo_url"]    if tmpl else None
         tmpl_btn_text_val = tmpl["button_text"] if tmpl else None
         tmpl_btn_url_val  = tmpl["button_url"]  if tmpl else ""
+
+        # Фильтр «Каналы для отправки» (миграция 100). Если в schedule задано
+        # явно — используем его. Если NULL и есть шаблон — fallback на target
+        # из шаблона. NULL в обоих местах = слать по всем каналам (default,
+        # обратная совместимость для всех старых рассылок).
+        target_channel_ids = schedule.get("target_channel_ids")
+        if target_channel_ids is None and tmpl is not None:
+            target_channel_ids = tmpl["target_channel_ids"]
+        target_channel_set: set[int] | None = (
+            set(target_channel_ids) if target_channel_ids is not None else None
+        )
+
+        def _channel_allowed(channel_id: int | None) -> bool:
+            """Разрешена ли отправка через данный channel_id с учётом target_channel_set."""
+            if target_channel_set is None:
+                return True  # NULL = все каналы
+            if channel_id is None:
+                return False  # клиент явно ограничил — без id не слать
+            return channel_id in target_channel_set
 
         # Токен бота для тех получателей, у кого нет привязки к конкретному каналу
         # (легаси-контакты без записи в platform_user_channels). Берём главный
@@ -290,15 +310,21 @@ async def _send_broadcast(schedule_id: int):
         already_sent_set = {(r["tg_id"], r["channel_id"]) for r in already_sent_pairs}
 
         # Разворачиваем final_ids в плоский список заданий (tg_id, channel_id, bot_token).
+        # Если у рассылки задан target_channel_set — оставляем только указанные каналы.
         send_jobs: list[tuple[str, int | None, str]] = []
         for tg_id in final_ids:
             ch_list = targets_by_tg.get(tg_id) or []
             if ch_list:
                 for t in ch_list:
+                    if not _channel_allowed(t["channel_id"]):
+                        continue
                     if (tg_id, t["channel_id"]) in already_sent_set:
                         continue
                     send_jobs.append((tg_id, t["channel_id"], t["bot_token"]))
             else:
+                # Легаси-контакт без записи в platform_user_channels — fallback на главный канал.
+                if not _channel_allowed(default_channel_id):
+                    continue
                 if (tg_id, default_channel_id) in already_sent_set:
                     continue
                 send_jobs.append((tg_id, default_channel_id, default_bot_token))
@@ -379,7 +405,8 @@ async def _send_broadcast(schedule_id: int):
         # получит сообщение в обоих местах (это норма, см. CLAUDE.md «один контакт в нескольких контекстах»).
         try:
             vk_sent = await _send_broadcast_vk_part(
-                conn, schedule, event_id, text, photo_url, button_text, button_url, buttons=buttons
+                conn, schedule, event_id, text, photo_url, button_text, button_url,
+                buttons=buttons, target_channel_set=target_channel_set,
             )
             sent += vk_sent
             logger.info(f"VK-часть рассылки {schedule_id}: отправлено {vk_sent}")
@@ -392,7 +419,8 @@ async def _send_broadcast(schedule_id: int):
         # иначе системный MAX_SYSTEM_BOT_TOKEN из .env.
         try:
             max_sent = await _send_broadcast_max_part(
-                conn, schedule, event_id, text, photo_url, button_text, button_url, buttons=buttons
+                conn, schedule, event_id, text, photo_url, button_text, button_url,
+                buttons=buttons, target_channel_set=target_channel_set,
             )
             sent += max_sent
             logger.info(f"MAX-часть рассылки {schedule_id}: отправлено {max_sent}")
@@ -404,7 +432,8 @@ async def _send_broadcast(schedule_id: int):
         # с главного email-канала клиента. Один человек = один email = одно письмо.
         try:
             email_sent = await _send_broadcast_email_part(
-                conn, schedule, event_id, text, photo_url, button_text, button_url, buttons=buttons
+                conn, schedule, event_id, text, photo_url, button_text, button_url,
+                buttons=buttons, target_channel_set=target_channel_set,
             )
             sent += email_sent
             logger.info(f"Email-часть рассылки {schedule_id}: отправлено {email_sent}")
@@ -431,6 +460,7 @@ async def _send_broadcast_vk_part(
     conn, schedule, event_id: int | None,
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
     buttons: list | None = None,
+    target_channel_set: set[int] | None = None,
 ) -> int:
     """Отправляет рассылку VK-подписчикам клиента через VK API messages.send.
 
@@ -477,6 +507,11 @@ async def _send_broadcast_vk_part(
         )
     if not vk_token:
         return 0  # ни своего сообщества, ни системного токена
+
+    # Фильтр «Каналы для отправки» (миграция 100): если задан явный список —
+    # пропускаем всю VK-часть, когда её канал не выбран. NULL = все каналы.
+    if target_channel_set is not None and vk_channel_id not in target_channel_set:
+        return 0
 
     # Какие VK-подписчики клиента в зависимости от аудитории
     if aud_include == "all_client":
@@ -605,6 +640,7 @@ async def _send_broadcast_max_part(
     conn, schedule, event_id: int | None,
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
     buttons: list | None = None,
+    target_channel_set: set[int] | None = None,
 ) -> int:
     """Отправляет рассылку MAX-подписчикам клиента через MAX Bot API.
 
@@ -648,6 +684,10 @@ async def _send_broadcast_max_part(
         )
     if not max_token:
         return 0  # У клиента нет MAX-бота и системный токен не настроен
+
+    # Фильтр «Каналы для отправки» (миграция 100).
+    if target_channel_set is not None and max_channel_id not in target_channel_set:
+        return 0
 
     # Аудитория — те же 3 варианта что у VK
     if aud_include == "all_client":
@@ -751,6 +791,7 @@ async def _send_broadcast_email_part(
     conn, schedule, event_id: int | None,
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
     buttons: list | None = None,
+    target_channel_set: set[int] | None = None,
 ) -> int:
     """Отправляет рассылку email-подписчикам клиента через локальный Postfix.
 
@@ -787,6 +828,10 @@ async def _send_broadcast_email_part(
     )
     if not channel:
         # У клиента нет email-канала вообще (рассинхрон с миграцией 097).
+        return 0
+
+    # Фильтр «Каналы для отправки» (миграция 100).
+    if target_channel_set is not None and channel["channel_id"] not in target_channel_set:
         return 0
 
     channel_dict = dict(channel)

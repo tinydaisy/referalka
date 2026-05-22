@@ -8,7 +8,7 @@ import csv
 import io
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.auth import get_current_client
@@ -593,6 +593,12 @@ async def get_contact(
           c.created_at,
           c.merged_into,
           c.merged_ref_codes,
+          c.consent_pd_at,
+          c.consent_pd_ip,
+          c.consent_pd_policy_ver,
+          c.consent_marketing_at,
+          c.consent_marketing_ip,
+          c.consent_marketing_policy_ver,
           (SELECT json_build_object('id', ref.id, 'name', ref.name)
              FROM contacts ref
             WHERE ref.id = c.first_referrer_contact_id LIMIT 1) AS referrer
@@ -896,6 +902,119 @@ async def delete_contact(
 
 
 # ─── 152-ФЗ: экспорт и удаление персональных данных ──────────────────────
+
+
+@router.post("/contacts/import")
+async def import_contacts_csv(
+    file: UploadFile = File(...),
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """
+    Импорт CSV контактов БЕЗ привязки к каналу (Этап 4).
+    Колонки: name, email, phone, telegram_username (любые опционально, регистр любой).
+    Разделитель — авто (запятая, точка с запятой, табуляция).
+
+    Логика:
+    - Каждая строка → find_or_create_contact (автомердж по email/phone)
+    - Если совпало только по одному полю (e.g. тот же email, но другой phone)
+      — создаём новый контакт + помечаем строкой в conflicts отчёте
+    - Возвращает {created, updated, conflicts: [{row, csv_name, db_match_id, reason}]}
+    """
+    import csv as _csv
+    import io as _io
+    from app.services.contact_merge import (
+        find_or_create_contact, normalize_email, normalize_phone,
+    )
+    if (file.content_type or "") and "csv" not in file.content_type and "text" not in file.content_type:
+        raise HTTPException(status_code=400, detail="Ожидается CSV-файл")
+    raw = await file.read()
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Файл больше 10 МБ")
+
+    # Кодировка: пробуем utf-8, fallback на cp1251
+    text = None
+    for enc in ("utf-8-sig", "utf-8", "cp1251"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise HTTPException(status_code=400, detail="Не удалось определить кодировку")
+
+    # Auto-detect разделитель
+    sniffer = _csv.Sniffer()
+    try:
+        dialect = sniffer.sniff(text[:2048], delimiters=",;\t")
+    except _csv.Error:
+        dialect = _csv.excel
+
+    reader = _csv.DictReader(_io.StringIO(text), dialect=dialect)
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV без заголовка")
+
+    # Алиасы колонок
+    cols = {h.strip().lower(): h for h in reader.fieldnames}
+    def pick(*names):
+        for n in names:
+            if n in cols:
+                return cols[n]
+        return None
+
+    col_name  = pick("name", "имя", "фио", "full_name")
+    col_email = pick("email", "e-mail", "почта")
+    col_phone = pick("phone", "телефон", "tel")
+    col_tg    = pick("telegram_username", "telegram", "tg", "username")
+
+    client_id = int(client["sub"])
+    stats = {"created": 0, "merged": 0, "conflicts": []}
+
+    for i, row in enumerate(reader, start=2):
+        name = (row.get(col_name) or "").strip() if col_name else None
+        email = (row.get(col_email) or "").strip() if col_email else None
+        phone = (row.get(col_phone) or "").strip() if col_phone else None
+        tg_username = (row.get(col_tg) or "").strip().lstrip("@") if col_tg else None
+
+        if not (email or phone or tg_username):
+            continue
+
+        email_n = normalize_email(email)
+        phone_n = normalize_phone(phone)
+
+        # Конфликтная ситуация: email совпал с одним контактом, phone — с другим
+        if email_n and phone_n:
+            by_email = await db.fetchval(
+                "SELECT id FROM contacts WHERE client_id=$1 AND email_normalized=$2 AND is_active=TRUE LIMIT 1",
+                client_id, email_n,
+            )
+            by_phone = await db.fetchval(
+                "SELECT id FROM contacts WHERE client_id=$1 AND phone_normalized=$2 AND is_active=TRUE LIMIT 1",
+                client_id, phone_n,
+            )
+            if by_email and by_phone and by_email != by_phone:
+                # Конфликт — создаём новый, но фиксируем
+                contact_id, _is_new = await find_or_create_contact(
+                    db, client_id=client_id, name=name, email=email, phone=phone,
+                )
+                stats["conflicts"].append({
+                    "row": i, "csv_name": name, "csv_email": email, "csv_phone": phone,
+                    "match_by_email_id": by_email, "match_by_phone_id": by_phone,
+                    "created_contact_id": contact_id,
+                    "reason": "email совпал с одним контактом, телефон — с другим",
+                })
+                stats["created"] += 1
+                continue
+
+        contact_id, is_new = await find_or_create_contact(
+            db, client_id=client_id, name=name, email=email, phone=phone,
+        )
+        if is_new:
+            stats["created"] += 1
+        else:
+            stats["merged"] += 1
+
+    return stats
 
 
 @router.get("/contacts/{contact_id}/export")

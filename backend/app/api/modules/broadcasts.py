@@ -59,6 +59,9 @@ class TemplateCreate(BaseModel):
     audience_exclude: Optional[str] = None
     custom_day_ref: Optional[str] = None        # 'before_1' | 'day_1' | 'after_1' для type='custom'
     custom_time: Optional[str] = None           # 'HH:MM'
+    # Каналы для отправки: NULL/None = все каналы клиента (default), [] = никуда,
+    # [N,M] = только эти channel_id. Унаследуется в schedules через generate_schedules.
+    target_channel_ids: Optional[List[int]] = None
 
 
 class TemplateUpdate(BaseModel):
@@ -78,6 +81,7 @@ class TemplateUpdate(BaseModel):
     intro_days_before: Optional[int] = None     # за сколько дней до конференции
     custom_day_ref: Optional[str] = None        # для type='custom'
     custom_time: Optional[str] = None           # для type='custom'
+    target_channel_ids: Optional[List[int]] = None
 
 
 DEFAULT_TEMPLATES = [
@@ -366,6 +370,7 @@ async def list_templates(
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
+               target_channel_ids,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -414,6 +419,7 @@ async def list_templates(
             """
             SELECT id, name, type, text, photo_url, button_text, button_url,
                    schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
+                   target_channel_ids,
                    created_at
             FROM broadcast_templates
             WHERE event_id = $1
@@ -455,20 +461,21 @@ async def create_template(
         INSERT INTO broadcast_templates
           (client_id, event_id, name, type, text, photo_url, button_text, button_url,
            audience_include, audience_exclude, custom_day_ref, custom_time,
-           schedule_mode, allow_custom_datetime)
+           schedule_mode, allow_custom_datetime, target_channel_ids)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
                 COALESCE($9, 'all_event'), COALESCE($10, 'none'),
                 $11, $12,
-                COALESCE($13, schedule_mode), COALESCE($14, allow_custom_datetime))
+                COALESCE($13, schedule_mode), COALESCE($14, allow_custom_datetime), $15)
         RETURNING id, name, type, text, photo_url, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
-                  custom_day_ref, custom_time, created_at
+                  custom_day_ref, custom_time, target_channel_ids, created_at
         """,
         client_id, event_id, data.name, data.type,
         data.text, data.photo_url, data.button_text, data.button_url,
         data.audience_include, data.audience_exclude,
         data.custom_day_ref, data.custom_time,
         schedule_mode, allow_custom_datetime,
+        data.target_channel_ids,
     )
     return dict(row)
 
@@ -499,12 +506,13 @@ async def update_template(
             intro_days_before = COALESCE($14, intro_days_before),
             custom_day_ref = COALESCE($15, custom_day_ref),
             custom_time = COALESCE($16, custom_time),
+            target_channel_ids = COALESCE($17::int[], target_channel_ids),
             updated_at = NOW()
-        WHERE id = $17 AND event_id = $18
+        WHERE id = $18 AND event_id = $19
         RETURNING id, name, type, text, photo_url, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
-                  custom_day_ref, custom_time
+                  custom_day_ref, custom_time, target_channel_ids
         """,
         data.name, data.type, data.text,
         data.photo_url, data.button_text, data.button_url,
@@ -512,6 +520,7 @@ async def update_template(
         data.audience_include, data.audience_exclude, data.allow_custom_datetime,
         data.intro_start_time, data.intro_interval_min, data.intro_days_before,
         data.custom_day_ref, data.custom_time,
+        data.target_channel_ids,
         template_id, event_id
     )
     if not row:

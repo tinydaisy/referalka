@@ -324,6 +324,13 @@ export default function ContactsPage() {
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
+            <Link
+              href="/dashboard/clients/import"
+              className="px-2.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 text-sm flex items-center gap-1 shrink-0"
+              title="Импорт контактов из CSV"
+            >
+              📥
+            </Link>
             <button
               onClick={() => setFilterPanelOpen(true)}
               className={`relative px-2.5 rounded-lg border text-sm flex items-center gap-1 shrink-0 ${
@@ -633,6 +640,79 @@ export default function ContactsPage() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Согласия на обработку данных и маркетинг (152-ФЗ) */}
+            <div className="mb-6">
+              <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">Согласия и данные (152-ФЗ)</p>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  {selected.consent_pd_at ? (
+                    <span className="text-green-600">✓</span>
+                  ) : (
+                    <span className="text-gray-300">○</span>
+                  )}
+                  <span className="text-gray-700">Согласие на обработку перс. данных</span>
+                  {selected.consent_pd_at && (
+                    <span className="text-xs text-gray-400 ml-auto">
+                      {formatDate(selected.consent_pd_at)}
+                      {selected.consent_pd_policy_ver ? ` · v${selected.consent_pd_policy_ver}` : ''}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {selected.consent_marketing_at ? (
+                    <span className="text-green-600">✓</span>
+                  ) : (
+                    <span className="text-gray-300">○</span>
+                  )}
+                  <span className="text-gray-700">Согласие на маркетинговые рассылки</span>
+                  {selected.consent_marketing_at && (
+                    <span className="text-xs text-gray-400 ml-auto">
+                      {formatDate(selected.consent_marketing_at)}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2 flex-wrap">
+                <button
+                  onClick={async () => {
+                    const token = localStorage.getItem('plusson_token') || ''
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+                    const r = await fetch(`${apiUrl}/api/v1/contacts/${selected.id}/export`, {
+                      headers: { Authorization: `Bearer ${token}` },
+                    })
+                    if (!r.ok) { alert('Не удалось экспортировать'); return }
+                    const data = await r.json()
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `contact_${selected.id}_export.json`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
+                  📥 Скачать данные (JSON)
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Удалить персональные данные «${getName(selected)}»?\n\nПо требованию 152-ФЗ оператор обязан удалить ПД субъекта по запросу. Будут стёрты: имя, email, телефон, идентичности TG/VK/MAX и все подписки. Контакт станет неактивным.\n\nЭто действие нельзя отменить.`)) return
+                    const token = localStorage.getItem('plusson_token') || ''
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+                    const r = await fetch(`${apiUrl}/api/v1/contacts/${selected.id}/personal-data`, {
+                      method: 'DELETE',
+                      headers: { Authorization: `Bearer ${token}` },
+                    })
+                    if (!r.ok) { alert('Не удалось удалить'); return }
+                    alert('Персональные данные стёрты')
+                    setSelected(null)
+                    await fetchContacts(search, offset, showUnsubscribed, filters)
+                  }}
+                  className="text-xs px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50">
+                  🗑 Стереть ПД
+                </button>
+              </div>
             </div>
 
             {/* Метки */}

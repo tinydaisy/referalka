@@ -1,0 +1,204 @@
+'use client'
+
+/**
+ * Минимальный визуальный редактор HTML — B, I, U, ссылка.
+ *
+ * Реализация — нативный contentEditable + execCommand. Без внешних редакторов
+ * вроде TipTap/Slate (по правилу проекта «без UI-библиотек»).
+ *
+ * Что умеет:
+ * - Жирный, курсив, подчёркивание
+ * - Создание ссылок (с диалогом для ввода URL)
+ * - Снятие форматирования
+ * - Переключение «Текст ↔ HTML» (для редактирования сырого HTML)
+ * - sanitizes на onChange: оставляем только разрешённые теги/атрибуты
+ *
+ * Allowlist: <b>/<strong>, <i>/<em>, <u>, <a href>, <br>, <p>, <ul>, <ol>, <li>.
+ * Остальное вырезается.
+ *
+ * Использование:
+ *   <RichTextEditor value={html} onChange={setHtml} placeholder="..." rows={10} />
+ */
+import { useEffect, useRef, useState } from 'react'
+
+interface Props {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  rows?: number      // примерная высота в «строках» (16px каждая)
+  className?: string
+}
+
+const ALLOWED_TAGS = new Set([
+  'b', 'strong', 'i', 'em', 'u', 'a', 'br', 'p', 'ul', 'ol', 'li', 'div', 'span',
+])
+const ALLOWED_ATTRS_PER_TAG: Record<string, string[]> = {
+  a: ['href', 'target', 'rel'],
+}
+const ALLOWED_URL_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:']
+
+function sanitize(html: string): string {
+  if (typeof window === 'undefined') return html
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html')
+  const root = doc.body.firstElementChild
+  if (!root) return ''
+
+  const walk = (node: Element) => {
+    for (const child of Array.from(node.children)) {
+      walk(child)
+    }
+    const tag = node.tagName.toLowerCase()
+    if (!ALLOWED_TAGS.has(tag)) {
+      // Заменяем на текст-контент (сохраняем содержимое, но без обёртки)
+      const text = node.textContent || ''
+      const replacement = doc.createTextNode(text)
+      node.replaceWith(replacement)
+      return
+    }
+    // Срезаем недопустимые атрибуты
+    const allowed = ALLOWED_ATTRS_PER_TAG[tag] || []
+    for (const attr of Array.from(node.attributes)) {
+      if (!allowed.includes(attr.name)) {
+        node.removeAttribute(attr.name)
+      }
+    }
+    // Для <a> — валидация URL-схемы
+    if (tag === 'a') {
+      const href = node.getAttribute('href') || ''
+      try {
+        const u = new URL(href, 'https://placeholder.local/')
+        if (!ALLOWED_URL_SCHEMES.includes(u.protocol)) {
+          node.removeAttribute('href')
+        } else {
+          node.setAttribute('target', '_blank')
+          node.setAttribute('rel', 'noopener noreferrer')
+        }
+      } catch {
+        node.removeAttribute('href')
+      }
+    }
+  }
+  walk(root)
+  return root.innerHTML
+}
+
+export default function RichTextEditor({
+  value, onChange, placeholder, rows = 8, className = '',
+}: Props) {
+  const editorRef = useRef<HTMLDivElement>(null)
+  const [showSource, setShowSource] = useState(false)
+
+  // Инициализация и внешние изменения value (только если редактор НЕ в фокусе,
+  // иначе курсор будет «прыгать» при каждом нажатии клавиши).
+  useEffect(() => {
+    const el = editorRef.current
+    if (!el) return
+    if (document.activeElement === el) return
+    if (el.innerHTML !== value) el.innerHTML = value || ''
+  }, [value])
+
+  function exec(command: string, arg?: string) {
+    document.execCommand(command, false, arg)
+    flush()
+  }
+
+  function flush() {
+    const el = editorRef.current
+    if (!el) return
+    const cleaned = sanitize(el.innerHTML)
+    onChange(cleaned)
+  }
+
+  function insertLink() {
+    const url = window.prompt('Введите URL ссылки', 'https://')
+    if (!url) return
+    let normalized = url.trim()
+    if (!/^(?:https?|mailto|tel):/.test(normalized)) {
+      normalized = 'https://' + normalized
+    }
+    exec('createLink', normalized)
+  }
+
+  function clearFormatting() {
+    exec('removeFormat')
+    document.execCommand('unlink', false, undefined)
+    flush()
+  }
+
+  const minH = `${Math.max(rows * 20, 80)}px`
+
+  return (
+    <div className={`border border-gray-200 rounded-xl bg-white ${className}`}>
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-1 border-b border-gray-100 px-2 py-2">
+        <button type="button" onClick={() => exec('bold')}
+          className="px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-gray-100"
+          title="Жирный (Ctrl/Cmd + B)">B</button>
+        <button type="button" onClick={() => exec('italic')}
+          className="px-3 py-1.5 rounded-lg text-sm italic hover:bg-gray-100"
+          title="Курсив (Ctrl/Cmd + I)">I</button>
+        <button type="button" onClick={() => exec('underline')}
+          className="px-3 py-1.5 rounded-lg text-sm underline hover:bg-gray-100"
+          title="Подчёркнутый (Ctrl/Cmd + U)">U</button>
+        <span className="w-px h-5 bg-gray-200 mx-1" />
+        <button type="button" onClick={insertLink}
+          className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
+          title="Вставить ссылку">🔗 Ссылка</button>
+        <button type="button" onClick={() => exec('insertUnorderedList')}
+          className="px-3 py-1.5 rounded-lg text-sm hover:bg-gray-100"
+          title="Маркированный список">• Список</button>
+        <span className="w-px h-5 bg-gray-200 mx-1" />
+        <button type="button" onClick={clearFormatting}
+          className="px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:bg-gray-100"
+          title="Снять форматирование">⌫ Очистить</button>
+        <span className="flex-1" />
+        <button type="button" onClick={() => setShowSource(s => !s)}
+          className="px-3 py-1.5 rounded-lg text-xs text-gray-500 hover:bg-gray-100"
+          title="Редактировать сырой HTML">
+          {showSource ? '✓ Визуально' : '<> HTML'}
+        </button>
+      </div>
+
+      {/* Editor */}
+      {showSource ? (
+        <textarea
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full px-4 py-3 text-sm font-mono focus:outline-none rounded-b-xl"
+          style={{ minHeight: minH, resize: 'vertical' }}
+        />
+      ) : (
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={flush}
+          onBlur={flush}
+          onPaste={(e) => {
+            // Запрет на богатый paste — берём только текст
+            e.preventDefault()
+            const text = e.clipboardData.getData('text/plain')
+            document.execCommand('insertText', false, text)
+          }}
+          className="w-full px-4 py-3 text-sm focus:outline-none whitespace-pre-wrap"
+          style={{ minHeight: minH, lineHeight: 1.5 }}
+          data-placeholder={placeholder || ''}
+        />
+      )}
+
+      {/* Подсказка-плейсхолдер через CSS-псевдо */}
+      <style jsx>{`
+        [contenteditable]:empty::before {
+          content: attr(data-placeholder);
+          color: #9ca3af;
+          pointer-events: none;
+        }
+        [contenteditable] a {
+          color: #2563eb;
+          text-decoration: underline;
+        }
+      `}</style>
+    </div>
+  )
+}
