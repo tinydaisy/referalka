@@ -209,8 +209,12 @@ async def upload_video_to_messages(
         elif "quicktime" in content_type or "mov" in content_type:
             filename = "video.mov"
         # Загружаем на VK upload-сервер. Видео могут быть большими — timeout 5 мин.
-        async with httpx.AsyncClient(timeout=300.0) as cli:
-            up = await cli.post(upload_url, files={"file": (filename, content, content_type)})
+        async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as cli:
+            up = await cli.post(
+                upload_url,
+                files={"file": (filename, content, content_type)},
+                headers={"User-Agent": "Mozilla/5.0 (PlussonBot)"},
+            )
             up.raise_for_status()
             up_data = up.json()
         file_token = up_data.get("file") if isinstance(up_data, dict) else None
