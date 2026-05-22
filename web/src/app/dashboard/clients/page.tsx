@@ -72,6 +72,13 @@ interface ContactDetail extends Contact {
     title: string | null
     photo_url: string | null
   } | null
+  // Согласия 152-ФЗ (миграция 099)
+  consent_pd_at: string | null
+  consent_pd_ip: string | null
+  consent_pd_policy_ver: number | null
+  consent_marketing_at: string | null
+  consent_marketing_ip: string | null
+  consent_marketing_policy_ver: number | null
 }
 
 interface DuplicateContact {
