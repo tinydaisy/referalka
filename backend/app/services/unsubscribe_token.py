@@ -13,7 +13,7 @@ JWT-токены для ссылок отписки от email-рассылок.
 """
 import time
 from typing import Optional
-import jwt
+from jose import jwt, JWTError
 from app.config import settings
 
 
@@ -52,7 +52,7 @@ def parse_email_unsubscribe_token(token: str) -> Optional[dict]:
     """
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[_ALGORITHM])
-    except Exception:
+    except (JWTError, Exception):
         return None
     if payload.get("kind") != _KIND:
         return None
