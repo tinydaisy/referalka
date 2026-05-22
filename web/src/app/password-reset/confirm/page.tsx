@@ -1,11 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export default function PasswordResetConfirmPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#25455D]" />}>
+      <Inner />
+    </Suspense>
+  )
+}
+
+function Inner() {
   const sp = useSearchParams()
   const router = useRouter()
   const token = sp.get('token') || ''
