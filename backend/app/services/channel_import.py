@@ -380,6 +380,17 @@ async def import_csv_to_channel(
                     contact_id, client_id, tg_id, csv_username
                 )
 
+            # Если в CSV был email — синхронизируем email-идентичность
+            # контакта + подписку на главный email-канал клиента (миграция 097).
+            # Это обеспечивает, что после импорта CSV email-получатели
+            # автоматически попадают в email-рассылку.
+            if csv_email_n:
+                from app.services.contact_merge import sync_email_identity_and_subscription
+                await sync_email_identity_and_subscription(
+                    db, client_id=client_id, contact_id=contact_id,
+                    email=csv_email_n, first_name=csv_name or None,
+                )
+
             # 4. Подписка на канал — перетираем по CSV (целевое действие импорта).
             # Архитектура G: подписка через client_channel_id (контекст клиент×канал).
             existing_sub = await db.fetchrow(

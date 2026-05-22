@@ -833,6 +833,16 @@ async def update_contact(
         f"WHERE id = ${len(args)} RETURNING id, name, email, phone",
         *args
     )
+
+    # Если email менялся — синхронизируем email-идентичность + подписку
+    # на главный email-канал клиента (миграция 097).
+    if data.email is not None and row["email"]:
+        from app.services.contact_merge import sync_email_identity_and_subscription
+        await sync_email_identity_and_subscription(
+            db, client_id=client_id, contact_id=contact_id,
+            email=row["email"], first_name=row["name"],
+        )
+
     return {"ok": True, "contact": dict(row)}
 
 

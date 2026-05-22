@@ -135,6 +135,13 @@ async def find_or_create_contact(
                 WHERE id = $1""",
             found['id'], name, email, email_norm, phone, phone_norm, salebot_id, utm_source
         )
+        # Sync email-идентичности + подписки на главный email-канал клиента.
+        # Запускаем только если email был передан — иначе не трогаем существующую.
+        if email_norm:
+            await sync_email_identity_and_subscription(
+                db, client_id=client_id, contact_id=found['id'],
+                email=email_norm, first_name=name,
+            )
         return found['id'], False
 
     # Создаём новый contact с уникальным ref_code
@@ -147,6 +154,12 @@ async def find_or_create_contact(
         client_id, name, email, email_norm, phone, phone_norm,
         salebot_id, utm_source, tags, ref_code
     )
+    # Sync email-канала для нового контакта
+    if email_norm:
+        await sync_email_identity_and_subscription(
+            db, client_id=client_id, contact_id=contact_id,
+            email=email_norm, first_name=name,
+        )
     return contact_id, True
 
 
@@ -157,6 +170,127 @@ async def _generate_unique_ref_code(db, max_tries: int = 10) -> str:
         if not exists:
             return code
     raise RuntimeError("Не удалось сгенерировать уникальный ref_code за {} попыток".format(max_tries))
+
+
+async def sync_email_identity_and_subscription(
+    db,
+    *,
+    client_id: int,
+    contact_id: int,
+    email: Optional[str],
+    first_name: Optional[str] = None,
+) -> Optional[int]:
+    """
+    После INSERT/UPDATE contacts.email — синхронизирует email-идентичность
+    в platform_users + подписку в platform_user_channels на главный
+    email-канал клиента.
+
+    Возвращает platform_users.id (email-идентичность) или None если email пустой.
+
+    Логика:
+    1. Нормализуем email. Если пустой → ничего не делаем, возвращаем None.
+    2. Ищем существующую email-identity у contact (UNIQUE contact_id+platform_slug).
+       - Есть и совпадает → берём её id.
+       - Есть и НЕ совпадает (email сменился) → UPDATE platform_user_id.
+         Может упасть на UNIQUE(client_id, slug, platform_user_id) если этот
+         email уже занят другим контактом → подавляем и возвращаем существующую.
+       - Нет → INSERT новую identity.
+    3. Находим главный (is_active=TRUE) email-канал клиента через client_channels.
+       Если нет — выходим (системный канал должен быть привязан миграцией 097,
+       это страховка от рассинхрона).
+    4. Делаем upsert подписки platform_user_channels для этой identity на этот канал.
+       НЕ перезатираем is_unsubscribed=TRUE — если контакт уже отписался,
+       сохраняем его выбор.
+    """
+    email_norm = normalize_email(email)
+    if not email_norm:
+        return None
+
+    # 1) Ищем существующую email-идентичность контакта
+    existing = await db.fetchrow(
+        """SELECT id, platform_user_id FROM platform_users
+            WHERE contact_id = $1 AND platform_slug = 'email'
+            LIMIT 1""",
+        contact_id,
+    )
+
+    pu_id: Optional[int] = None
+    if existing:
+        if existing["platform_user_id"] == email_norm:
+            pu_id = existing["id"]
+        else:
+            # email сменился — пробуем UPDATE
+            try:
+                await db.execute(
+                    """UPDATE platform_users
+                          SET platform_user_id = $2,
+                              first_name = COALESCE($3, first_name),
+                              updated_at = NOW()
+                        WHERE id = $1""",
+                    existing["id"], email_norm, first_name,
+                )
+                pu_id = existing["id"]
+            except Exception:
+                # Конфликт: новый email уже привязан к другому контакту того же клиента.
+                # Оставляем старую идентичность как есть — этот случай обработает
+                # ручной мердж контактов или 409 на уровне API.
+                pu_id = existing["id"]
+    else:
+        # 2) INSERT новой email-identity
+        try:
+            pu_id = await db.fetchval(
+                """INSERT INTO platform_users
+                       (contact_id, client_id, platform_slug, platform_user_id, first_name)
+                    VALUES ($1, $2, 'email', $3, $4)
+                 RETURNING id""",
+                contact_id, client_id, email_norm, first_name,
+            )
+        except Exception:
+            # Конфликт UNIQUE (client_id, platform_slug, platform_user_id) —
+            # этот email уже привязан к другому contact_id у того же клиента.
+            # Берём существующую запись и не падаем — подписку всё равно
+            # привяжем на ту identity.
+            other = await db.fetchrow(
+                """SELECT id FROM platform_users
+                    WHERE client_id = $1 AND platform_slug = 'email'
+                      AND platform_user_id = $2
+                    LIMIT 1""",
+                client_id, email_norm,
+            )
+            if not other:
+                # Странный случай — не получилось ни вставить, ни найти. Выходим.
+                return None
+            pu_id = other["id"]
+
+    if not pu_id:
+        return None
+
+    # 3) Главный email-канал клиента
+    client_channel_id = await db.fetchval(
+        """SELECT cc.id
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = 'email'
+              AND cc.is_active = TRUE
+            ORDER BY cc.added_at LIMIT 1""",
+        client_id,
+    )
+    if not client_channel_id:
+        # У клиента нет email-канала вообще (рассинхрон с миграцией 097).
+        # Идентичность создали — на этом всё.
+        return pu_id
+
+    # 4) Подписка (не перезаписываем is_unsubscribed!)
+    await db.execute(
+        """INSERT INTO platform_user_channels
+               (platform_user_id, client_channel_id, subscribed_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (platform_user_id, client_channel_id) DO NOTHING""",
+        pu_id, client_channel_id,
+    )
+
+    return pu_id
 
 
 async def upsert_platform_user(
@@ -272,6 +406,14 @@ async def upsert_contact_with_identity(
             email, normalize_email(email), phone, normalize_phone(phone),
             salebot_id, utm_source
         )
+        # Если был передан email — синхронизируем email-канал.
+        # (existing identity ≠ email; email — это поле контакта, синхронизация
+        # касается отдельной email-identity у этого же contact_id)
+        if email:
+            await sync_email_identity_and_subscription(
+                db, client_id=client_id, contact_id=pu_existing['contact_id'],
+                email=email, first_name=contact_name,
+            )
         return pu_existing['contact_id'], pu_existing['id'], False
 
     # Идентичности нет — ищем/создаём контакт
@@ -432,5 +574,22 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
                 WHERE id = $2""",
             primary_id, secondary_id
         )
+
+        # Если у primary в результате остался email — убедимся, что
+        # email-идентичность и подписка на главный email-канал на месте.
+        # (мог быть кейс: secondary имел email, primary — нет → теперь у
+        # primary email есть, identity ещё не было)
+        primary_email_after = await db.fetchval(
+            "SELECT email FROM contacts WHERE id = $1",
+            primary_id,
+        )
+        if primary_email_after:
+            primary_name_after = await db.fetchval(
+                "SELECT name FROM contacts WHERE id = $1", primary_id
+            )
+            await sync_email_identity_and_subscription(
+                db, client_id=client_id, contact_id=primary_id,
+                email=primary_email_after, first_name=primary_name_after,
+            )
 
     return {"primary_id": primary_id, "secondary_id": secondary_id, "merged_ref_code": secondary_ref}
