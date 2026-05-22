@@ -89,7 +89,7 @@ export default function LegalTab() {
   const [publishing, setPublishing] = useState(false)
   const [clientId, setClientId] = useState<number | null>(null)
 
-  const auth = () => {
+  const auth = (): Record<string, string> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     return token ? { Authorization: `Bearer ${token}` } : {}
   }
