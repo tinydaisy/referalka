@@ -730,6 +730,34 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 **Дашборд BroadcastsTab** — [один компонент](web/src/app/dashboard/events/[id]/tabs/BroadcastsTab.tsx) для мероприятий и конференций (две карточки: «Шаблоны» и «Очередь», ведут на `/dashboard/conferences/{id}/broadcasts/{templates|queue}` — URL-сегмент `conferences` исторический, эти страницы работают с любым событием).
 
+### Выбор каналов отправки для рассылки (миграция 100 от 2026-05-22)
+
+К каждой рассылке (произвольной и шаблонной) клиент может выбрать **подмножество** своих каналов. По умолчанию рассылка уходит **по всем** подключённым каналам — это поведение «как было до миграции», обратная совместимость сохраняется.
+
+**Поле:** `target_channel_ids INTEGER[] NULL` в `broadcast_templates` и в `broadcast_schedules`.
+
+**Семантика:**
+- `NULL` — слать по всем каналам клиента (default).
+- `[]` (пустой массив) — никуда не слать.
+- `[3, 11]` — слать только через `channel_id` 3 и 11.
+
+**Источник истины в Celery** ([backend/app/tasks/broadcast.py](backend/app/tasks/broadcast.py)) — fallback-цепочка:
+1. `schedule.target_channel_ids` (приоритет — клиент мог переопределить per-расписание).
+2. Если NULL и есть `schedule.template_id` → `template.target_channel_ids` (наследование от шаблона).
+3. Если оба NULL → слать всем.
+
+Это позволяет:
+- Custom-рассылке задавать каналы вручную через UI формы.
+- Шаблонной рассылке наследовать значение из шаблона **в момент отправки** — если клиент позже меняет состав каналов в шаблоне, это автоматически применится к ВСЕМ ещё-не-отправленным `broadcast_schedules` (что хорошо для авто-генерируемых через `generate_schedules`, которые сами поле не копируют).
+
+**Фильтрация** применяется в каждой из 4 платформенных функций ([tasks/broadcast.py](backend/app/tasks/broadcast.py)):
+- **Telegram** — фильтрует `send_jobs` по `channel_id in target_channel_set`.
+- **VK** (`_send_broadcast_vk_part`), **MAX** (`_send_broadcast_max_part`), **Email** (`_send_broadcast_email_part`) — в начале функции; если итоговый `channel_id` платформы не в списке → `return 0` (вся платформа пропущена).
+
+**UI** — общий компонент [BroadcastChannelPicker.tsx](web/src/components/BroadcastChannelPicker.tsx). Список всех каналов клиента, сгруппированный по платформам (Telegram → VK → MAX → Email), с счётчиком подписчиков справа и кнопкой «Снять всё/Выбрать все». По умолчанию все галочки включены — фронт всегда отдаёт массив. Используется в двух местах:
+- Форма произвольной рассылки `/dashboard/broadcasts` (create + edit modals).
+- Редактор шаблона `/dashboard/conferences/{id}/broadcasts/templates` (edit + create modals).
+
 ### ⚠️ Мультиплатформа — каналы доставки (миграции 033+034+036, 26.04.2026)
 - Таблица **`channels`** (id, client_id, `platform_slug` → platforms, display_name, handle, bot_token, is_active) — каналы доставки клиента (бот в TG / группа VK / канал MAX). У клиента может быть несколько каналов.
 - Таблица **`platform_user_channels`** (platform_user_id, channel_id, platform_slug, is_unsubscribed, subscribed_at, unsubscribed_at) — подписка идентичности на конкретный канал, отписка per-канал. Составные FK гарантируют совпадение платформ.
