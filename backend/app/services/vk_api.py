@@ -165,17 +165,70 @@ async def upload_photo_to_messages(
     return None
 
 
+async def upload_video_via_user_token(
+    video_url: str, *, user_token: str, group_id: int | None = None, name: str = "video",
+) -> str | None:
+    """Нативная загрузка видео через video.save user-токеном (со scope=video).
+
+    Этот путь даёт настоящий video-attachment с инлайн-плеером в чате VK.
+    Community-токен такой возможности не имеет — приходится получать токен от
+    админа сообщества через OAuth (см. /api/v1/channels/vk/oauth-url и сохранение
+    в channels.platform_meta.vk_admin_user_token).
+
+    Шаги:
+    1. video.save({name, group_id?, wallpost=0, is_private=0}) → upload_url + owner_id + video_id
+    2. POST файла на upload_url multipart полем `video_file`
+    3. attachment = video{owner_id}_{video_id}
+
+    Если задан group_id — видео сохраняется в раздел "Видео" сообщества (от имени
+    юзера-админа). Иначе — в личный профиль юзера-владельца токена.
+    Возвращает None при любой ошибке (caller сделает fallback на doc).
+    """
+    try:
+        save_params: dict[str, Any] = {"name": name, "wallpost": 0, "is_private": 0}
+        if group_id:
+            save_params["group_id"] = group_id
+        save = await vk_call("video.save", save_params, token=user_token)
+        if not isinstance(save, dict):
+            return None
+        upload_url = save.get("upload_url")
+        owner_id = save.get("owner_id")
+        video_id = save.get("video_id")
+        if not upload_url or owner_id is None or video_id is None:
+            return None
+        async with httpx.AsyncClient(timeout=120.0) as cli:
+            r = await cli.get(video_url)
+            r.raise_for_status()
+            content = r.content
+            content_type = r.headers.get("content-type", "video/mp4")
+        filename = "video.mp4"
+        if "webm" in content_type:
+            filename = "video.webm"
+        elif "quicktime" in content_type or "mov" in content_type:
+            filename = "video.mov"
+        async with httpx.AsyncClient(timeout=300.0, follow_redirects=True) as cli:
+            up = await cli.post(
+                upload_url,
+                files={"video_file": (filename, content, content_type)},
+                headers={"User-Agent": "Mozilla/5.0 (PlussonBot)"},
+            )
+            up.raise_for_status()
+        return f"video{owner_id}_{video_id}"
+    except Exception as e:
+        logger.warning(f"VK upload_video_via_user_token failed for {video_url}: {e}")
+        return None
+
+
 async def upload_video_to_messages(
     video_url: str, *, peer_id: int | None = None, token: str,
 ) -> str | None:
     """Загружает видео из URL в VK как ДОКУМЕНТ (через docs.getMessagesUploadServer)
     и возвращает attachment-строку `doc{owner_id}_{id}`. None при любой ошибке.
 
-    Почему не video.save: метод `video.save` недоступен для community-токенов
-    (`error 27: method is unavailable with group auth`). VK требует user token
-    для нативного видео. Сообщества могут грузить только через docs.* — VK
-    при отображении документа с расширением .mp4/.webm/.mov показывает
-    инлайн-плеер прямо в чате (как Telegram для отправленного видеофайла).
+    Это fallback для случая когда у клиента нет user-токена админа VK (для
+    нативного видео используется upload_video_via_user_token). Сообщество без
+    user-токена может грузить только через docs.* — VK показывает MP4-документ
+    как файл с иконкой загрузки, а не инлайн-плеер.
 
     Шаги:
     1. docs.getMessagesUploadServer({peer_id?}) → upload_url
@@ -247,20 +300,34 @@ async def send_message_with_media(
     media_type: str | None = None,
     token: str | None = None,
     keyboard: dict | None = None,
+    user_token: str | None = None,
+    user_token_group_id: int | None = None,
 ) -> int | None:
     """Отправить сообщение с опциональным медиа.
 
-    Для photo — загружаем в VK через photos.getMessagesUploadServer
-    (под peer_id получателя), для video — через video.save. Если загрузка
-    упала по любой причине — fallback: вшиваем URL в текст, VK развернёт
-    превью по Open Graph.
+    Для photo — загружаем через photos.getMessagesUploadServer (под peer_id
+    получателя) community-токеном.
+
+    Для video — иерархия попыток:
+    1. Если задан `user_token` (со scope=video) — нативная загрузка через
+       video.save, attachment = video{owner_id}_{video_id}. Плеер в чате.
+    2. Иначе — docs.getMessagesUploadServer + docs.save community-токеном.
+       Файл .mp4 без инлайн-плеера (юзер видит иконку загрузки).
+    3. Если и это упало — URL в текст (Open Graph превью).
     """
     attachment = None
     if media_url and token:
         if media_type == "photo":
             attachment = await upload_photo_to_messages(media_url, peer_id=user_vk_id, token=token)
         elif media_type == "video":
-            attachment = await upload_video_to_messages(media_url, peer_id=user_vk_id, token=token)
+            if user_token:
+                attachment = await upload_video_via_user_token(
+                    media_url, user_token=user_token, group_id=user_token_group_id
+                )
+            if not attachment:
+                attachment = await upload_video_to_messages(
+                    media_url, peer_id=user_vk_id, token=token
+                )
     if media_url and not attachment:
         # Загрузка не получилась (или тип неподдерживаемый) — fallback на URL.
         text = f"{text}\n\n{media_url}" if text else media_url

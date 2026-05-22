@@ -208,6 +208,44 @@ async def _vk_token_for_client(client_id: int, db) -> Optional[str]:
     )
 
 
+async def _vk_admin_user_token_for_client(client_id: int, db) -> tuple[Optional[str], Optional[int]]:
+    """User-токен админа VK-сообщества клиента (для нативной загрузки video.save)
+    + group_id чтобы видео сохранилось в раздел «Видео» сообщества.
+
+    Возвращает (user_token, group_id). Оба None — если клиент не прошёл OAuth
+    в дашборде. См. POST /api/v1/channels/vk/admin-token.
+    """
+    row = await db.fetchrow(
+        """SELECT ch.platform_meta
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1
+              AND cc.is_active = TRUE
+              AND ch.platform_slug = 'vk'
+              AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY ch.id ASC
+            LIMIT 1""",
+        client_id,
+    )
+    if not row:
+        return None, None
+    import json as _json
+    meta = row["platform_meta"] or {}
+    if isinstance(meta, str):
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            return None, None
+    user_token = meta.get("vk_admin_user_token")
+    group_id = meta.get("vk_group_id")
+    try:
+        group_id = int(group_id) if group_id else None
+    except (TypeError, ValueError):
+        group_id = None
+    return user_token, group_id
+
+
 async def _send_message(token: str, chat_id, text: str, reply_markup: Optional[dict] = None) -> Optional[int]:
     """Возвращает message_id или None при ошибке."""
     payload = {
@@ -858,12 +896,16 @@ async def run_started_vk(run_id: int, vk_id: str, username: Optional[str],
         "text": button_label,
         "callback_data": f"fnl_check_{run_id}"
     }]])
+    # User-токен админа сообщества для нативной загрузки видео (video.save).
+    # Без него видео упадёт в fallback на docs.save — файл вместо плеера.
+    vk_user_tok, vk_user_grp = await _vk_admin_user_token_for_client(client_id, db)
     try:
         msg_id = await vk_send_with_media(
             int(vk_id), text_1,
             media_url=template.get("text_1_media_url"),
             media_type=template.get("text_1_media_type"),
             keyboard=keyboard, token=token,
+            user_token=vk_user_tok, user_token_group_id=vk_user_grp,
         )
         if msg_id:
             await db.execute(
@@ -932,12 +974,14 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
             template = dict(template)
         materials = await _materials_for_run(dict(run), db)
         text_2 = _format_text(template["text_2"], ctx, materials)
+        vk_user_tok, vk_user_grp = await _vk_admin_user_token_for_client(client_id, db)
         try:
             await vk_send_with_media(
                 int(tg_id), text_2,
                 media_url=template.get("text_2_media_url"),
                 media_type=template.get("text_2_media_type"),
                 token=vk_token,
+                user_token=vk_user_tok, user_token_group_id=vk_user_grp,
             )
         except Exception as e:
             log.warning("VK send text_2 failed for run %s: %s", run_id, e)

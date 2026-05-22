@@ -269,12 +269,15 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
           onClick={onOpenVkWizard}
         />
       ) : (
-        <ChannelCard
-          channel={mainVkChannel}
-          onEdit={() => onEdit(mainVkChannel)}
-          onDelete={() => onDelete(mainVkChannel)}
-          onImport={() => onImport(mainVkChannel)}
-        />
+        <>
+          <ChannelCard
+            channel={mainVkChannel}
+            onEdit={() => onEdit(mainVkChannel)}
+            onDelete={() => onDelete(mainVkChannel)}
+            onImport={() => onImport(mainVkChannel)}
+          />
+          <VkVideoTokenBlock channel={mainVkChannel} />
+        </>
       )}
 
       {/* Остальные каналы (системные + дополнительные TG-боты для рассылок) */}
@@ -440,6 +443,132 @@ function ConnectInvite({ title, description, buttonText, badge, badgeColor, onCl
     </div>
   )
 }
+
+/* ─────── VK видео-токен админа (OAuth Implicit Flow) ───────
+ *
+ * Зачем: community-токен VK запрещает video.save (нужны права scope=video).
+ * Чтобы видео в воронках лид-магнитов уходило с нативным VK-плеером
+ * (а не файлом MP4), клиент проходит OAuth у себя в аккаунте админа сообщества
+ * и пастит редирект-URL сюда. Бэк парсит #access_token и пишет в platform_meta.
+ */
+function VkVideoTokenBlock({ channel }: { channel: Channel }) {
+  const [pasteOpen, setPasteOpen] = useState(false)
+  const [redirectUrl, setRedirectUrl] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const connected = !!(channel as any).vk_admin_token_connected
+  const adminName = (channel as any).vk_admin_user_name || ''
+  const adminScreen = (channel as any).vk_admin_user_screen || ''
+
+  async function startOauth() {
+    setError(null)
+    try {
+      const r = await api.channels.vkOauthUrl(channel.id) as { oauth_url: string }
+      window.open(r.oauth_url, '_blank', 'noopener')
+      setPasteOpen(true)
+    } catch (e: any) {
+      setError(e.message || 'Не удалось получить OAuth URL')
+    }
+  }
+
+  async function saveToken() {
+    setSaving(true); setError(null)
+    try {
+      await api.channels.vkSaveAdminToken({ channel_id: channel.id, redirect_url: redirectUrl })
+      setPasteOpen(false)
+      setRedirectUrl('')
+      window.location.reload()  // перечитываем list_channels чтобы обновить connected flag
+    } catch (e: any) {
+      setError(e.message || 'Не удалось сохранить токен')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function disconnect() {
+    if (!confirm('Отключить токен для нативного видео? Видео в воронках будут уходить файлом MP4, не плеером.')) return
+    try {
+      await api.channels.vkDeleteAdminToken(channel.id)
+      window.location.reload()
+    } catch (e: any) {
+      setError(e.message || 'Не удалось отключить')
+    }
+  }
+
+  return (
+    <div className="bg-blue-50/40 border border-blue-100 rounded-2xl p-4">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+          <span className="text-sm font-bold text-blue-700">📹</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="font-semibold text-gray-800 text-sm">Нативное видео в VK-воронках</h4>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Чтобы видео в шаблонах воронок лид-магнитов приходило получателям с инлайн-плеером
+            (а не файлом MP4), VK требует токен админа сообщества с правом <code>video</code>.
+            Сообществу такие права не выдаются.
+          </p>
+          {connected ? (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
+                ✓ Подключён{adminName ? `: ${adminName}` : ''}
+                {adminScreen && (
+                  <a href={`https://vk.com/${adminScreen}`} target="_blank" rel="noopener"
+                     className="ml-1 underline">vk.com/{adminScreen}</a>
+                )}
+              </span>
+              <button onClick={disconnect}
+                className="text-xs text-red-600 hover:underline">Отключить</button>
+            </div>
+          ) : (
+            <>
+              {!pasteOpen ? (
+                <button onClick={startOauth}
+                  className="mt-3 px-3 py-1.5 rounded-lg text-white text-xs font-medium"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                  Подключить VK для нативного видео →
+                </button>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  <div className="text-xs text-gray-700 bg-white border border-blue-200 rounded-lg p-3 space-y-1.5">
+                    <p><b>Что делать:</b></p>
+                    <ol className="list-decimal ml-4 space-y-1">
+                      <li>Откройте вкладку VK (она уже открыта рядом).</li>
+                      <li>Подтвердите права доступа к видео и сообщениям.</li>
+                      <li>VK редиректит на страницу <code>oauth.vk.com/blank.html</code> — она почти пустая.</li>
+                      <li>Скопируйте <b>весь URL</b> из адресной строки браузера (он содержит <code>#access_token=…</code>).</li>
+                      <li>Вставьте сюда и нажмите «Сохранить».</li>
+                    </ol>
+                  </div>
+                  <textarea
+                    value={redirectUrl}
+                    onChange={e => setRedirectUrl(e.target.value)}
+                    placeholder="https://oauth.vk.com/blank.html#access_token=…&expires_in=0&user_id=…"
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:outline-none focus:border-blue-400"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={saveToken} disabled={saving || !redirectUrl.trim()}
+                      className="px-3 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
+                      style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                      {saving ? 'Сохраняю…' : 'Сохранить'}
+                    </button>
+                    <button onClick={() => { setPasteOpen(false); setRedirectUrl(''); setError(null) }}
+                      className="px-3 py-1.5 rounded-lg text-gray-600 text-xs hover:bg-gray-100">
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
 /* ─────── VIP-wizard VK: подключение своего сообщества ─────── */
 function VipVkWizard({ clientId, onClose, onDone }: {

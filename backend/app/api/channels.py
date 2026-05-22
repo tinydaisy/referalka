@@ -115,7 +115,19 @@ async def list_channels(client=Depends(get_current_client), db=Depends(get_db)):
               (SELECT COUNT(*) FROM platform_user_channels puc
                 WHERE puc.client_channel_id = cc.id AND puc.is_unsubscribed = FALSE) AS subscribers,
               (SELECT COUNT(*) FROM platform_user_channels puc
-                WHERE puc.client_channel_id = cc.id AND puc.is_unsubscribed = TRUE) AS unsubscribed
+                WHERE puc.client_channel_id = cc.id AND puc.is_unsubscribed = TRUE) AS unsubscribed,
+              -- vk_admin_user_token: для VK-сообщества клиента — флаг подключённого
+              -- OAuth user-токена для нативной загрузки видео. Сам токен наружу
+              -- не отдаём, только наличие + имя владельца для UI.
+              CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
+                   THEN (ch.platform_meta ? 'vk_admin_user_token')
+                   ELSE FALSE END AS vk_admin_token_connected,
+              CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
+                   THEN ch.platform_meta->>'vk_admin_user_name'
+                   ELSE NULL END AS vk_admin_user_name,
+              CASE WHEN ch.platform_slug = 'vk' AND ch.is_system = FALSE
+                   THEN ch.platform_meta->>'vk_admin_user_screen'
+                   ELSE NULL END AS vk_admin_user_screen
              FROM channels ch
              JOIN client_channels cc ON cc.channel_id = ch.id
              JOIN platforms p ON p.slug = ch.platform_slug
@@ -597,6 +609,191 @@ async def connect_vk_community(
         "screen_name": screen_name,
         "mini_app_url": mini_app_url,
     }
+
+
+# ─── VK OAuth: токен админа для нативного видео ───────────────────────
+#
+# Community-токен VK не имеет прав на video.save (error 27 «method is unavailable
+# with group auth»). Чтобы воронки/рассылки могли слать видео нативным плеером,
+# нужен user-токен админа сообщества со scope=video,offline.
+#
+# Поток (Implicit Flow):
+#   1. Клиент жмёт «Подключить VK для видео» — фронт получает oauth_url отсюда.
+#   2. Открывается окно VK с правами scope=video,offline,messages.
+#   3. VK редиректит на https://oauth.vk.com/blank.html#access_token=...&user_id=...
+#      Это страница VK, мы её не контролируем — клиент копирует ВЕСЬ URL и пастит
+#      обратно в дашборд.
+#   4. POST /vk/admin-token парсит #access_token=... → проверяет через users.get →
+#      пишет в channels.platform_meta.vk_admin_user_token.
+#   5. upload_video_to_messages при наличии user-токена использует video.save +
+#      messages.send с video-attachment вместо docs.save (см. vk_api.py).
+#
+# OAuth Implicit Flow VK помечен deprecated, но пока работает. Альтернатива
+# (VK ID 2.0 с PKCE+refresh) на отдельную итерацию.
+
+@router.get("/vk/oauth-url", summary="OAuth URL для получения user-токена с правами video")
+async def vk_oauth_url(
+    channel_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Возвращает URL VK OAuth Implicit Flow для подключённого VK-канала клиента.
+
+    Используется app_id из channel.platform_meta — токен будет выдан этому
+    конкретному приложению клиента (не общему ПЛЮСОНа). scope=video,messages,offline:
+    - video — для video.save (нативная загрузка)
+    - messages — на случай если будем слать через user-токен
+    - offline — бессрочный токен (без expires_in)
+    """
+    client_id = int(client["sub"])
+    ch = await db.fetchrow(
+        """SELECT ch.id, ch.platform_meta, ch.is_system
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2 AND ch.platform_slug = 'vk'""",
+        channel_id, client_id,
+    )
+    if not ch:
+        raise HTTPException(status_code=404, detail="VK-канал не найден")
+    if ch["is_system"]:
+        raise HTTPException(status_code=403, detail="Системный канал, нативное видео не настраивается")
+    import json as _json
+    meta = ch["platform_meta"] or {}
+    if isinstance(meta, str):
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+    vk_app_id = meta.get("vk_app_id") or settings.vk_app_id
+    if not vk_app_id:
+        raise HTTPException(
+            status_code=400,
+            detail="У канала не указан vk_app_id в platform_meta. Подключите Mini App клиента сначала.",
+        )
+    oauth_url = (
+        f"https://oauth.vk.com/authorize"
+        f"?client_id={vk_app_id}"
+        f"&display=page"
+        f"&redirect_uri=https://oauth.vk.com/blank.html"
+        f"&scope=video,messages,offline"
+        f"&response_type=token"
+        f"&v=5.199"
+    )
+    return {"oauth_url": oauth_url, "vk_app_id": int(vk_app_id)}
+
+
+class VkAdminTokenSaveRequest(BaseModel):
+    channel_id: int
+    redirect_url: str  # весь URL который VK дал после redirect (с #access_token=...)
+
+
+@router.post("/vk/admin-token", summary="Сохранить user-токен админа VK для нативного видео")
+async def vk_save_admin_token(
+    body: VkAdminTokenSaveRequest,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Парсит access_token из URL который VK выдал после OAuth, проверяет его через
+    users.get и сохраняет в channels.platform_meta.vk_admin_user_token.
+    """
+    client_id = int(client["sub"])
+    ch = await db.fetchrow(
+        """SELECT ch.id, ch.platform_meta, ch.is_system
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2 AND ch.platform_slug = 'vk'""",
+        body.channel_id, client_id,
+    )
+    if not ch:
+        raise HTTPException(status_code=404, detail="VK-канал не найден")
+    if ch["is_system"]:
+        raise HTTPException(status_code=403, detail="Системный канал")
+
+    # Парсим access_token и user_id из URL (формат: ?...#access_token=X&user_id=Y&expires_in=Z)
+    import re as _re
+    token_match = _re.search(r"[#&?]access_token=([^&]+)", body.redirect_url)
+    if not token_match:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "В URL не найден access_token. Скопируйте полный URL из адресной строки "
+                "VK после подтверждения прав (там должно быть `#access_token=…`)."
+            ),
+        )
+    access_token = token_match.group(1)
+    uid_match = _re.search(r"[#&?]user_id=(\d+)", body.redirect_url)
+    user_id = int(uid_match.group(1)) if uid_match else None
+
+    # Проверяем токен через users.get
+    from app.services.vk_api import vk_call
+    try:
+        info = await vk_call("users.get", {"fields": "screen_name"}, token=access_token)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"VK API не принял токен: {e}")
+    if not isinstance(info, list) or not info:
+        raise HTTPException(status_code=400, detail="users.get вернул пустой ответ — токен невалиден")
+    me = info[0]
+    user_id = user_id or me.get("id")
+    full_name = f"{me.get('first_name', '')} {me.get('last_name', '')}".strip()
+    screen_name = me.get("screen_name", "")
+
+    import json as _json
+    meta = ch["platform_meta"] or {}
+    if isinstance(meta, str):
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+    meta = dict(meta)
+    meta["vk_admin_user_token"] = access_token
+    meta["vk_admin_user_id"] = user_id
+    meta["vk_admin_user_name"] = full_name
+    meta["vk_admin_user_screen"] = screen_name
+    await db.execute(
+        "UPDATE channels SET platform_meta = $1::jsonb WHERE id = $2",
+        _json.dumps(meta), ch["id"],
+    )
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "name": full_name,
+        "screen_name": screen_name,
+    }
+
+
+@router.delete("/vk/admin-token", summary="Удалить user-токен админа VK")
+async def vk_delete_admin_token(
+    channel_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """Удаляет vk_admin_user_token из channels.platform_meta. После этого видео
+    в воронках снова будут уходить как документ .mp4 (fallback)."""
+    client_id = int(client["sub"])
+    ch = await db.fetchrow(
+        """SELECT ch.id, ch.platform_meta
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE ch.id = $1 AND cc.client_id = $2 AND ch.platform_slug = 'vk'""",
+        channel_id, client_id,
+    )
+    if not ch:
+        raise HTTPException(status_code=404, detail="VK-канал не найден")
+    import json as _json
+    meta = ch["platform_meta"] or {}
+    if isinstance(meta, str):
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+    meta = dict(meta)
+    for k in ("vk_admin_user_token", "vk_admin_user_id", "vk_admin_user_name", "vk_admin_user_screen"):
+        meta.pop(k, None)
+    await db.execute(
+        "UPDATE channels SET platform_meta = $1::jsonb WHERE id = $2",
+        _json.dumps(meta), ch["id"],
+    )
+    return {"ok": True}
 
 
 # ─── DELETE удаление канала ───────────────────────────────────────────
