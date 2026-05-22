@@ -7,6 +7,7 @@ import {
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import FileUploader from '@/components/FileUploader'
+import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -71,6 +72,7 @@ export default function GeneralBroadcastsPage() {
     text: string
     photo_url: string
     buttons: { text: string; url: string }[]
+    target_channel_ids: number[] | null
   }>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
@@ -446,6 +448,7 @@ export default function GeneralBroadcastsPage() {
                               text: s.snapshot_text || '',
                               photo_url: s.snapshot_photo || '',
                               buttons: btns.map(b => ({ text: b.text || '', url: b.url || '' })),
+                              target_channel_ids: Array.isArray(s.target_channel_ids) ? s.target_channel_ids : null,
                             })
                           }}
                             className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
@@ -505,6 +508,7 @@ export default function GeneralBroadcastsPage() {
             photo_url: editModal.photo_url,
             buttons: editModal.buttons,
             is_test: editModal.is_test,
+            target_channel_ids: editModal.target_channel_ids,
           }}
           onClose={() => setEditModal(null)}
           onSaved={async () => { setEditModal(null); await load(); showMsg('Сохранено') }}
@@ -684,6 +688,7 @@ function CustomBroadcastModal(props: {
     photo_url?: string
     buttons?: { text: string; url: string }[]
     is_test?: boolean
+    target_channel_ids?: number[] | null
   }
 }) {
   const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
@@ -691,6 +696,11 @@ function CustomBroadcastModal(props: {
   const [photoUrl, setPhotoUrl] = useState(props.initial?.photo_url || '')
   const [buttons, setButtons] = useState<{text: string; url: string}[]>(props.initial?.buttons || [])
   const [isTest, setIsTest] = useState(!!props.initial?.is_test)
+  // target_channel_ids: null = «пока не выбрано» (BroadcastChannelPicker
+  // проставит все каналы клиента); массив = подмножество.
+  const [targetChannels, setTargetChannels] = useState<number[] | null>(
+    props.initial?.target_channel_ids ?? null
+  )
   const [saving, setSaving] = useState(false)
   const isEdit = typeof props.editId === 'number'
 
@@ -709,12 +719,17 @@ function CustomBroadcastModal(props: {
     if (hasButtonErrors) { props.onError('Исправьте ошибки в кнопках'); return }
     setSaving(true)
     try {
-      const payload = {
+      const payload: any = {
         fire_at: fireAt,
         text,
         photo_url: photoUrl || null,
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
+      }
+      // target_channel_ids передаём только когда picker уже отрисовался
+      // (после useEffect он точно перешёл из null в массив).
+      if (targetChannels !== null) {
+        payload.target_channel_ids = targetChannels
       }
       if (isEdit) {
         await api.broadcasts.update(props.editId!, payload)
@@ -816,6 +831,7 @@ function CustomBroadcastModal(props: {
               )}
             </div>
           </div>
+          <BroadcastChannelPicker value={targetChannels} onChange={setTargetChannels} />
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX ID из настроек)</span>

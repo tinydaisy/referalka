@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 
 type TypeDef = {
   type: string
@@ -157,6 +158,9 @@ const emptyForm = {
   button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
   intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
   custom_day_ref: '', custom_time: '12:00',
+  // target_channel_ids: null = «по всем каналам клиента» (default),
+  // [] = никуда не слать, [N,M] = только эти channel_id.
+  target_channel_ids: null as number[] | null,
 }
 
 // Превью с гарантированным плейсхолдером при битом URL.
@@ -246,13 +250,19 @@ export default function TemplatesPage() {
 
   async function save() {
     try {
-      const payload = {
+      const payload: any = {
         ...form,
         audience_include: (form as any).audience_include || 'all_event',
         audience_exclude: (form as any).audience_exclude || 'none',
         intro_start_time: (form as any).intro_start_time || '11:00',
         intro_interval_min: (form as any).intro_interval_min || 15,
         intro_days_before: (form as any).intro_days_before || 1,
+      }
+      // target_channel_ids: null = «не трогаем текущее значение в БД»,
+      // массив = заменяем целиком. Picker всегда приводит null → массив после
+      // первичной отрисовки, поэтому здесь обычно уже массив.
+      if ((form as any).target_channel_ids !== null && (form as any).target_channel_ids !== undefined) {
+        payload.target_channel_ids = (form as any).target_channel_ids
       }
       const res = await api.conference.templates.update(eventId, editModal.id, payload)
       setTemplates(templates.map((x: any) => x.id === editModal.id ? res : x))
@@ -289,7 +299,7 @@ export default function TemplatesPage() {
         alert('Укажите время в формате HH:MM')
         return
       }
-      const payload = {
+      const payload: any = {
         name: f.name,
         type: 'custom',
         text: f.text || '',
@@ -300,6 +310,9 @@ export default function TemplatesPage() {
         audience_exclude: f.audience_exclude || 'none',
         custom_day_ref: f.custom_day_ref,
         custom_time: f.custom_time,
+      }
+      if (f.target_channel_ids !== null && f.target_channel_ids !== undefined) {
+        payload.target_channel_ids = f.target_channel_ids
       }
       const res = await api.conference.templates.create(eventId, payload)
       setTemplates([...templates, res])
@@ -335,6 +348,7 @@ export default function TemplatesPage() {
       intro_days_before: t.intro_days_before || 1,
       custom_day_ref: t.custom_day_ref || '',
       custom_time: t.custom_time || '12:00',
+      target_channel_ids: Array.isArray(t.target_channel_ids) ? t.target_channel_ids : null,
     } as any)
   }
 
@@ -986,6 +1000,13 @@ export default function TemplatesPage() {
                   Итого: {audienceLabel((form as any).audience_include || 'all_event', (form as any).audience_exclude || 'none')}
                 </p>
               </div>
+
+              <div className="border border-gray-100 rounded-xl p-3 bg-gray-50">
+                <BroadcastChannelPicker
+                  value={(form as any).target_channel_ids ?? null}
+                  onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
+                />
+              </div>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={save}
@@ -1123,6 +1144,13 @@ export default function TemplatesPage() {
                 <p className="text-xs text-indigo-600 font-medium pt-1">
                   Итого: {audienceLabel((form as any).audience_include || 'all_event', (form as any).audience_exclude || 'none')}
                 </p>
+              </div>
+
+              <div className="border border-gray-100 rounded-xl p-3 bg-gray-50">
+                <BroadcastChannelPicker
+                  value={(form as any).target_channel_ids ?? null}
+                  onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
+                />
               </div>
             </div>
             <div className="flex gap-2 mt-5">
