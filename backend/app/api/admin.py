@@ -471,3 +471,99 @@ async def delete_system_channel(
         await db.execute("DELETE FROM client_channels WHERE channel_id = $1", channel_id)
         await db.execute("DELETE FROM channels WHERE id = $1", channel_id)
     return {"ok": True}
+
+
+# ─── Email-метрики качества рассылок клиента (для warning-значков) ───────
+
+
+@router.get("/clients-email-quality", summary="Метрики качества email-рассылок по клиентам")
+async def clients_email_quality(
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """
+    За последние 30 дней по каждому клиенту считает:
+    - sent — успешно отправленных email-писем
+    - bounces_hard — hard-bounces
+    - unsubs — отписок от email-канала
+    - bounce_rate / unsub_rate — проценты от sent
+    - status — 'green' / 'yellow' / 'red':
+        red    = bounce > 10% или unsub > 3%
+        yellow = bounce > 5%  или unsub > 1%
+        green  = всё ниже
+
+    UI в /admin/clients использует это поле чтобы рисовать значок предупреждения.
+    """
+    rows = await db.fetch(
+        """
+        WITH email_channels AS (
+            SELECT cc.client_id, ch.id AS channel_id, cc.id AS client_channel_id
+              FROM client_channels cc
+              JOIN channels ch ON ch.id = cc.channel_id
+             WHERE ch.platform_slug = 'email'
+        ),
+        sent_30d AS (
+            SELECT ec.client_id, COUNT(*) AS cnt
+              FROM email_channels ec
+              JOIN broadcast_log bl ON bl.channel_id = ec.channel_id
+             WHERE bl.status = 'sent' AND bl.sent_at > NOW() - INTERVAL '30 days'
+             GROUP BY ec.client_id
+        ),
+        bounces_30d AS (
+            SELECT bl.client_id, COUNT(*) AS cnt
+              FROM email_bounce_log bl
+             WHERE bl.bounce_type = 'hard' AND bl.bounced_at > NOW() - INTERVAL '30 days'
+               AND bl.client_id IS NOT NULL
+             GROUP BY bl.client_id
+        ),
+        unsubs_30d AS (
+            SELECT ul.client_id, COUNT(*) AS cnt
+              FROM email_unsubscribe_log ul
+             WHERE ul.unsubscribed_at > NOW() - INTERVAL '30 days'
+             GROUP BY ul.client_id
+        )
+        SELECT c.id AS client_id, c.name, c.email AS client_email,
+               COALESCE(s.cnt, 0) AS sent,
+               COALESCE(b.cnt, 0) AS bounces_hard,
+               COALESCE(u.cnt, 0) AS unsubs
+          FROM clients c
+          LEFT JOIN sent_30d s   ON s.client_id = c.id
+          LEFT JOIN bounces_30d b ON b.client_id = c.id
+          LEFT JOIN unsubs_30d u  ON u.client_id = c.id
+         WHERE c.id != 3  -- исключаем системный клиент
+        ORDER BY c.id
+        """
+    )
+
+    result = []
+    for r in rows:
+        sent = int(r["sent"] or 0)
+        b = int(r["bounces_hard"] or 0)
+        u = int(r["unsubs"] or 0)
+        bounce_rate = (b / sent * 100.0) if sent else 0.0
+        unsub_rate = (u / sent * 100.0) if sent else 0.0
+
+        if bounce_rate > 10 or unsub_rate > 3:
+            status = "red"
+            recommendation = "Качество базы критически низкое — приостановите рассылки и проверьте источники контактов"
+        elif bounce_rate > 5 or unsub_rate > 1:
+            status = "yellow"
+            recommendation = "Метрики выше нормы — проверьте свежесть базы и согласия на маркетинг"
+        else:
+            status = "green"
+            recommendation = ""
+
+        result.append({
+            "client_id": r["client_id"],
+            "name": r["name"],
+            "email": r["client_email"],
+            "sent": sent,
+            "bounces_hard": b,
+            "unsubs": u,
+            "bounce_rate": round(bounce_rate, 2),
+            "unsub_rate": round(unsub_rate, 2),
+            "status": status,
+            "recommendation": recommendation,
+        })
+
+    return {"period_days": 30, "clients": result}

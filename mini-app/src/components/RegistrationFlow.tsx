@@ -15,6 +15,8 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
   const [name,  setName]  = useState(tgUser?.first_name ? `${tgUser.first_name}${tgUser.last_name ? ' ' + tgUser.last_name : ''}` : '')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const [consentPd, setConsentPd] = useState(false)
+  const [consentMkt, setConsentMkt] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -25,6 +27,8 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
     if (!name.trim())  { setError('Укажите имя'); return }
     if (!isValidEmail(email)) { setError('Email указан неверно'); return }
     if (!isValidPhone(phone)) { setError('Телефон указан неверно'); return }
+    if (!consentPd)  { setError('Без согласия на обработку персональных данных регистрация невозможна (152-ФЗ)'); return }
+    if (!consentMkt) { setError('Без согласия на маркетинговые рассылки регистрация невозможна'); return }
     setError(null)
     submit()
   }
@@ -44,6 +48,9 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
         phone: phone.trim(),
         ref_code: partnerId,
         utm_source: utmSource,
+        consent_pd: consentPd,
+        consent_marketing: consentMkt,
+        policy_version: event?.privacy_policy_version || 0,
       })
       setStep(2)
       // Через 1.5 сек закрыть и обновить
@@ -111,11 +118,37 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
               </button>
             </div>
 
+            {/* Согласия (152-ФЗ). Обе галочки обязательные. */}
+            <div style={{ marginTop: 12, marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, lineHeight: 1.4, color: 'var(--muted)' }}>
+                <input type="checkbox" checked={consentPd} onChange={e => setConsentPd(e.target.checked)}
+                       style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
+                <span>
+                  Я согласен на обработку моих персональных данных. С{' '}
+                  {event?.client_id ? (
+                    <a href={`https://pluson.ru/c/${event.client_id}/privacy`} target="_blank" rel="noreferrer"
+                       style={{ color: 'var(--peach)', textDecoration: 'underline' }}>
+                      Политикой обработки персональных данных
+                    </a>
+                  ) : 'Политикой обработки персональных данных'} ознакомлен.
+                </span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, lineHeight: 1.4, color: 'var(--muted)' }}>
+                <input type="checkbox" checked={consentMkt} onChange={e => setConsentMkt(e.target.checked)}
+                       style={{ marginTop: 3, flexShrink: 0, width: 16, height: 16 }} />
+                <span>
+                  Я согласен на получение информационных и маркетинговых рассылок от{' '}
+                  {event?.client_brand_name || event?.client_name || 'организатора'}.
+                  Вы в любой момент можете отказаться от получения писем.
+                </span>
+              </label>
+            </div>
+
             {error && (
               <p style={{ color: '#f87171', fontSize: 13, marginBottom: 12 }}>{error}</p>
             )}
 
-            <button className="btn btn-primary" disabled={submitting} onClick={next}>
+            <button className="btn btn-primary" disabled={submitting || !consentPd || !consentMkt} onClick={next}>
               {submitting ? 'Регистрируем...' : 'Зарегистрироваться'}
             </button>
             <button onClick={onClose} disabled={submitting}

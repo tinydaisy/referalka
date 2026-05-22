@@ -1,13 +1,14 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard, Plug, Copy, Check, RefreshCw, ExternalLink, Bell } from 'lucide-react'
+import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
 import { useLang, type Lang } from '@/contexts/LangContext'
 import MiniAppSettingsPage from '../mini-app/page'
+import LegalTab from '@/components/settings/LegalTab'
 
-type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription'
+type Tab = 'profile' | 'tech' | 'integration' | 'mini-app' | 'subscription' | 'legal'
 
 const TIMEZONES = [
   { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
@@ -30,8 +31,9 @@ const TIMEZONES = [
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'profile'
+    // (тип Tab расширен — добавлен legal)
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
-    return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription') ? t : 'profile'
+    return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal') ? t : 'profile'
   })
   const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '' })
   const [tariff, setTariff] = useState<any>(null)
@@ -113,6 +115,7 @@ export default function SettingsPage() {
     { id: 'integration',  label: 'Интеграция',   icon: Plug      },
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     { id: 'subscription', label: 'Подписка',     icon: CreditCard},
+    { id: 'legal',        label: 'Юр. данные',   icon: ShieldCheck},
   ]
 
   return (
@@ -149,6 +152,9 @@ export default function SettingsPage() {
 
       {/* Подписка — отдельный блок */}
       {tab === 'subscription' && <SubscriptionTab />}
+
+      {/* Юр. данные + Политика — отдельный блок */}
+      {tab === 'legal' && <LegalTab />}
 
       {/* Профиль и Техническое — общая форма с одной кнопкой Сохранить */}
       {(tab === 'profile' || tab === 'tech') && (

@@ -155,9 +155,87 @@ async def _notify_expiring_async() -> int:
 
         if sent_count:
             log.info("notify_expiring: отправлено %s уведомлений", sent_count)
-        return sent_count
+
+        # Email-уведомления на тот же email клиента (миграция 099).
+        # Идемпотентность через notified_email_7d/3d/1d.
+        email_sent = await _notify_expiring_email(db)
+        if email_sent:
+            log.info("notify_expiring_email: отправлено %s писем", email_sent)
+        return sent_count + email_sent
     finally:
         await db.close()
+
+
+async def _notify_expiring_email(db) -> int:
+    """Шлёт письмо клиенту на его email о скором истечении подписки.
+    Отдельные флаги notified_email_7d/3d/1d (миграция 099).
+    Письмо уходит через системный email-канал ПЛЮСОНа (noreply@pluson.ru)."""
+    from app.services.email_sender import EmailSender, EmailSendError
+    from app.services.unsubscribe_token import make_email_unsubscribe_token
+
+    sent_count = 0
+
+    for days, flag in [(7, "notified_email_7d"), (3, "notified_email_3d"), (1, "notified_email_1d")]:
+        rows = await db.fetch(
+            f"""SELECT cs.id AS sub_id, cs.expires_at, cs.client_id,
+                       c.email, c.name, c.brand_name, t.name AS tariff_name
+                  FROM client_subscriptions cs
+                  JOIN clients c ON c.id = cs.client_id
+                  JOIN tariffs t ON t.id = cs.tariff_id
+                 WHERE cs.status = 'active'
+                   AND cs.expires_at > NOW()
+                   AND cs.expires_at <= NOW() + INTERVAL '{days} days'
+                   AND cs.{flag} = FALSE
+                   AND c.email IS NOT NULL AND TRIM(c.email) <> ''"""
+        )
+        for r in rows:
+            ch = await db.fetchrow(
+                """SELECT ch.id AS channel_id, cc.id AS client_channel_id,
+                          ch.email_subdomain, ch.email_from_local
+                     FROM client_channels cc
+                     JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.client_id = $1
+                      AND ch.platform_slug = 'email' AND ch.is_system = TRUE
+                    LIMIT 1""",
+                r["client_id"],
+            )
+            if not ch:
+                continue
+            channel_dict = dict(ch)
+            channel_dict["email_from_name"] = "iViSiON: ПЛЮСОН"
+            unsub_token = make_email_unsubscribe_token(
+                client_id=r["client_id"], contact_id=0,
+                client_channel_id=ch["client_channel_id"],
+            )
+            try:
+                EmailSender().send(
+                    channel=channel_dict,
+                    client_brand_name="iViSiON: ПЛЮСОН",
+                    to_email=r["email"],
+                    subject=(
+                        f"Через {days} дн{'я' if days < 5 else 'ей'} истекает подписка ПЛЮСОНа"
+                        if days > 1 else "🔴 Завтра истекает подписка ПЛЮСОНа"
+                    ),
+                    body_text=(
+                        f"Здравствуйте, {r['name'] or 'друг'}!\n\n"
+                        f"Через {days} дн{'я' if days < 5 else 'ей'} истекает ваша подписка "
+                        f"на тариф «{r['tariff_name']}» в ПЛЮСОНе.\n\n"
+                        f"Дата окончания: {r['expires_at'].strftime('%d.%m.%Y %H:%M')} МСК.\n\n"
+                        f"Продлите подписку, чтобы рассылки и редактирование продолжали работать:\n"
+                        f"{settings.frontend_url}/dashboard/settings?tab=subscription\n\n"
+                        f"— Команда ПЛЮСОН"
+                    ),
+                    unsubscribe_token=unsub_token,
+                )
+                await db.execute(
+                    f"UPDATE client_subscriptions SET {flag} = TRUE WHERE id = $1",
+                    r["sub_id"],
+                )
+                sent_count += 1
+            except EmailSendError as e:
+                log.warning("notify_expiring_email failed for client_id=%s: %s", r["client_id"], e)
+
+    return sent_count
 
 
 async def _send_pluson_message(chat_id: int, text: str) -> bool:

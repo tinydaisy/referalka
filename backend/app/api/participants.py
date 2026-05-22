@@ -4,7 +4,7 @@ API регистрации участников события (миграция
 Использует helper `upsert_contact_with_identity` — автомердж по email/phone
 и единая точка входа контакта в систему.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, Literal
 import asyncpg
@@ -26,6 +26,14 @@ class RegisterParticipantRequest(BaseModel):
     ref_code: Optional[str] = None
     partner_tg_id: Optional[str] = None
     platform: Literal["telegram", "vk", "max"] = "telegram"
+    # Согласия (152-ФЗ). Обе галочки обязательные на форме регистрации.
+    # Если форма пришла из flow «возврат с лендинга» (/r/{slug}) — клиент
+    # клиента уже собрал согласия на своей стороне (это его ответственность,
+    # ПЛЮСОН тут не источник правды). Поэтому в backend оставляем поля
+    # опциональными и не блокируем регистрацию.
+    consent_pd: Optional[bool] = None
+    consent_marketing: Optional[bool] = None
+    policy_version: Optional[int] = None  # ID версии политики, под которой согласие
 
 
 async def _resolve_post_register_redirect(db, client_id: int, event_slug: str) -> dict:
@@ -67,6 +75,7 @@ async def _resolve_post_register_redirect(db, client_id: int, event_slug: str) -
 @router.post("/register", summary="Зарегистрировать участника в событии")
 async def register_participant(
     data: RegisterParticipantRequest,
+    request: Request,
     db: asyncpg.Connection = Depends(get_db)
 ):
     event = await db.fetchrow(
@@ -91,6 +100,57 @@ async def register_participant(
         email=data.email,
         phone=data.phone,
     )
+
+    # Сохраняем согласия (152-ФЗ).
+    # consent_pd обязательно True если форма передаёт — фиксируем дату/IP/версию политики.
+    # consent_marketing → если False (или не передано), email-подписка остаётся отписанной;
+    # если True — оставляем подписку активной (как уже создана syncом).
+    # Если поля не переданы вовсе — ничего не трогаем (старый flow, например webhook).
+    if data.consent_pd is True:
+        ip = (request.client.host if request and request.client else "") or ""
+        policy_ver = data.policy_version or 0
+        await db.execute(
+            """UPDATE contacts
+                  SET consent_pd_at = COALESCE(consent_pd_at, NOW()),
+                      consent_pd_ip = COALESCE(consent_pd_ip, $2),
+                      consent_pd_policy_ver = COALESCE(consent_pd_policy_ver, $3)
+                WHERE id = $1""",
+            contact_id, ip[:64], policy_ver,
+        )
+    if data.consent_marketing is True:
+        ip = (request.client.host if request and request.client else "") or ""
+        policy_ver = data.policy_version or 0
+        await db.execute(
+            """UPDATE contacts
+                  SET consent_marketing_at = COALESCE(consent_marketing_at, NOW()),
+                      consent_marketing_ip = COALESCE(consent_marketing_ip, $2),
+                      consent_marketing_policy_ver = COALESCE(consent_marketing_policy_ver, $3)
+                WHERE id = $1""",
+            contact_id, ip[:64], policy_ver,
+        )
+    elif data.consent_marketing is False and data.email:
+        # Явно не согласился на маркетинг → проставляем is_unsubscribed=TRUE
+        # на email-канале клиента, чтобы исключить из рассылок.
+        # (Транзакционные письма про регистрацию событий всё равно пойдут —
+        # они не маркетинг, они системные.)
+        pu_row = await db.fetchrow(
+            """SELECT id FROM platform_users
+                WHERE contact_id = $1 AND platform_slug = 'email' LIMIT 1""",
+            contact_id,
+        )
+        if pu_row:
+            await db.execute(
+                """UPDATE platform_user_channels puc
+                      SET is_unsubscribed = TRUE,
+                          unsubscribed_at = COALESCE(unsubscribed_at, NOW())
+                     FROM client_channels cc
+                     JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE puc.client_channel_id = cc.id
+                      AND puc.platform_user_id = $1
+                      AND ch.platform_slug = 'email'
+                      AND cc.client_id = $2""",
+                pu_row["id"], event["client_id"],
+            )
 
     # Уже зарегистрирован?
     existing = await db.fetchrow(
@@ -189,6 +249,16 @@ async def register_participant(
         from app.api.event_nurture import start_nurture_run_if_eligible
         await start_nurture_run_if_eligible(
             db, event_id=event["id"], contact_id=contact_id, is_registered=True,
+        )
+    except Exception:
+        pass
+
+    # Welcome-email на регистрацию (если включён шаблон у события).
+    # Дедуп — через event_participants.welcome_email_sent_at, шлём один раз.
+    try:
+        from app.services.event_welcome_email import send_welcome_email_if_needed
+        await send_welcome_email_if_needed(
+            db, event_id=event["id"], contact_id=contact_id,
         )
     except Exception:
         pass

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from app.auth import hash_password, verify_password, create_token
@@ -344,4 +344,144 @@ async def change_password(
 
     new_hash = hash_password(data.new_password)
     await db.execute("UPDATE clients SET password_hash = $1 WHERE id = $2", new_hash, client_id)
+    return {"ok": True}
+
+
+# ─── Восстановление пароля по email ─────────────────────────────────────
+
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/password-reset/request", summary="Запросить восстановление пароля")
+async def password_reset_request(
+    data: PasswordResetRequest,
+    request: Request,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """
+    Принимает email клиента — генерирует токен (живёт 1 час), сохраняет
+    в password_reset_tokens (хеш токена), шлёт письмо со ссылкой
+    https://pluson.ru/password-reset/confirm?token=...
+
+    Всегда возвращает 200 OK — даже если email не зарегистрирован
+    (чтобы не давать enumeration «у вас есть аккаунт / нет»).
+    """
+    import hashlib
+    import secrets
+    from datetime import datetime, timedelta
+
+    email_norm = (data.email or "").strip().lower()
+    if not email_norm or "@" not in email_norm:
+        # Не раскрываем подробностей — отвечаем как успешный запрос
+        return {"ok": True}
+
+    row = await db.fetchrow(
+        "SELECT id, email FROM clients WHERE LOWER(email) = $1",
+        email_norm,
+    )
+
+    if row:
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expires_at = datetime.utcnow() + timedelta(hours=1)
+        ip = (request.client.host if request and request.client else "") or ""
+        await db.execute(
+            """INSERT INTO password_reset_tokens
+                   (client_id, token_hash, expires_at, ip_address)
+                VALUES ($1, $2, $3, $4)""",
+            row["id"], token_hash, expires_at, ip[:64],
+        )
+
+        # Шлём письмо с ссылкой через системный email-канал ПЛЮСОНа
+        try:
+            from app.services.email_sender import EmailSender, EmailSendError
+            from app.services.unsubscribe_token import make_email_unsubscribe_token
+
+            # Системный email-канал ПЛЮСОНа (is_system=TRUE) для клиента row["id"]
+            ch = await db.fetchrow(
+                """SELECT ch.id AS channel_id, cc.id AS client_channel_id,
+                          ch.email_subdomain, ch.email_from_local
+                     FROM client_channels cc
+                     JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.client_id = $1
+                      AND ch.platform_slug = 'email'
+                      AND ch.is_system = TRUE
+                    LIMIT 1""",
+                row["id"],
+            )
+            if ch:
+                from app.config import settings as _s
+                reset_url = f"{_s.frontend_url.rstrip('/')}/password-reset/confirm?token={token}"
+                channel_dict = dict(ch)
+                channel_dict["email_from_name"] = "iViSiON: ПЛЮСОН"
+
+                # Заглушка для unsub-токена — для транзакционных писем
+                # отписка не предполагается (это системные уведомления).
+                # Но подвал отписки всё равно вставится — пусть будет.
+                fake_unsub = make_email_unsubscribe_token(
+                    client_id=row["id"], contact_id=0,
+                    client_channel_id=ch["client_channel_id"],
+                )
+
+                sender = EmailSender()
+                sender.send(
+                    channel=channel_dict,
+                    client_brand_name="iViSiON: ПЛЮСОН",
+                    to_email=row["email"],
+                    subject="Восстановление пароля — ПЛЮСОН",
+                    body_text=(
+                        f"Здравствуйте!\n\n"
+                        f"Вы запросили восстановление пароля в личном кабинете ПЛЮСОНа.\n\n"
+                        f"Перейдите по ссылке, чтобы задать новый пароль:\n"
+                        f"{reset_url}\n\n"
+                        f"Ссылка действует 1 час. Если вы не запрашивали восстановление — "
+                        f"проигнорируйте это письмо.\n\n"
+                        f"— Команда ПЛЮСОН"
+                    ),
+                    unsubscribe_token=fake_unsub,
+                )
+        except Exception:
+            # SMTP-проблема не должна выдавать пользователю что email существует.
+            pass
+
+    return {"ok": True}
+
+
+@router.post("/password-reset/confirm", summary="Подтвердить новый пароль")
+async def password_reset_confirm(
+    data: PasswordResetConfirm,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    import hashlib
+
+    if not data.new_password or len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Пароль должен быть не короче 8 символов")
+
+    token_hash = hashlib.sha256(data.token.encode()).hexdigest()
+    row = await db.fetchrow(
+        """SELECT id, client_id FROM password_reset_tokens
+            WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+            LIMIT 1""",
+        token_hash,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="Ссылка недействительна или устарела")
+
+    new_hash = hash_password(data.new_password)
+    async with db.transaction():
+        await db.execute(
+            "UPDATE clients SET password_hash = $1 WHERE id = $2",
+            new_hash, row["client_id"],
+        )
+        await db.execute(
+            "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1",
+            row["id"],
+        )
     return {"ok": True}

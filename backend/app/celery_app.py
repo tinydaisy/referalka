@@ -6,7 +6,7 @@ celery = Celery(
     "plusson",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture"]
+    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.email_bounce"]
 )
 
 celery.conf.update(
@@ -42,6 +42,12 @@ celery.conf.update(
         "nurture-tick": {
             "task": "app.tasks.nurture.tick",
             "schedule": 300.0,
+        },
+        # Раз в час — парсинг bounce-возвратов из mail.log,
+        # автоматическое отписывание битых адресов (миграция 098)
+        "process-email-bounces": {
+            "task": "app.tasks.email_bounce.process_bounces",
+            "schedule": 3600.0,
         },
     }
 )

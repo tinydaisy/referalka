@@ -893,3 +893,117 @@ async def delete_contact(
 
     await db.execute("DELETE FROM contacts WHERE id = $1", contact_id)
     return {"ok": True}
+
+
+# ─── 152-ФЗ: экспорт и удаление персональных данных ──────────────────────
+
+
+@router.get("/contacts/{contact_id}/export")
+async def export_contact_data(
+    contact_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """
+    Экспорт всех данных контакта в JSON (требование 152-ФЗ — субъект
+    персональных данных вправе получить свои данные по запросу).
+    Только своих контактов.
+    """
+    client_id = int(client["sub"])
+    c = await db.fetchrow(
+        """SELECT id, name, email, phone, ref_code, tags,
+                  utm_source, salebot_id, created_at, updated_at,
+                  consent_pd_at, consent_pd_ip, consent_pd_policy_ver,
+                  consent_marketing_at, consent_marketing_ip, consent_marketing_policy_ver
+             FROM contacts WHERE id = $1 AND client_id = $2""",
+        contact_id, client_id,
+    )
+    if not c:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+    identities = await db.fetch(
+        """SELECT platform_slug, platform_user_id, username, first_name, last_name, created_at
+             FROM platform_users
+            WHERE contact_id = $1 AND client_id = $2
+            ORDER BY platform_slug""",
+        contact_id, client_id,
+    )
+
+    subscriptions = await db.fetch(
+        """SELECT ch.platform_slug, ch.handle, ch.display_name,
+                  puc.is_unsubscribed, puc.subscribed_at, puc.unsubscribed_at
+             FROM platform_user_channels puc
+             JOIN platform_users pu ON pu.id = puc.platform_user_id
+             JOIN client_channels cc ON cc.id = puc.client_channel_id
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE pu.contact_id = $1
+            ORDER BY ch.platform_slug""",
+        contact_id,
+    )
+
+    events_participated = await db.fetch(
+        """SELECT ep.event_id, e.title AS event_title, ep.is_registered,
+                  ep.registered_at, ep.referrer_ref_code
+             FROM event_participants ep
+             JOIN events e ON e.id = ep.event_id
+            WHERE ep.contact_id = $1
+            ORDER BY ep.registered_at DESC""",
+        contact_id,
+    )
+
+    return {
+        "exported_at": "now",
+        "contact": dict(c),
+        "platform_identities": [dict(r) for r in identities],
+        "channel_subscriptions": [dict(r) for r in subscriptions],
+        "events_participated": [dict(r) for r in events_participated],
+    }
+
+
+@router.delete("/contacts/{contact_id}/personal-data")
+async def erase_contact_personal_data(
+    contact_id: int,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """
+    Удаление персональных данных контакта (требование 152-ФЗ: «право на забвение»).
+
+    Что делает:
+    - Зануляет персональные поля: name, email, phone, email_normalized, phone_normalized
+    - Удаляет все идентичности (platform_users) и подписки контакта
+    - Помечает контакт is_active=FALSE
+    - Запись в contacts остаётся (для целостности FK на event_participants,
+      ref_code и т.п.), но без идентифицирующих данных
+
+    Использовать только по запросу самого контакта или регуляторов.
+    """
+    client_id = int(client["sub"])
+    own = await db.fetchval(
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+        contact_id, client_id,
+    )
+    if not own:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+
+    async with db.transaction():
+        await db.execute(
+            "DELETE FROM platform_users WHERE contact_id = $1",
+            contact_id,
+        )
+        await db.execute(
+            """UPDATE contacts
+                  SET name = NULL,
+                      email = NULL, email_normalized = NULL,
+                      phone = NULL, phone_normalized = NULL,
+                      salebot_id = NULL,
+                      tags = '[]'::jsonb,
+                      utm_source = NULL,
+                      consent_pd_at = NULL, consent_pd_ip = NULL,
+                      consent_marketing_at = NULL, consent_marketing_ip = NULL,
+                      is_active = FALSE,
+                      updated_at = NOW()
+                WHERE id = $1""",
+            contact_id,
+        )
+    return {"ok": True, "message": "Персональные данные контакта удалены"}
