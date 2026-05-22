@@ -166,30 +166,35 @@ async def upload_photo_to_messages(
 
 
 async def upload_video_to_messages(
-    video_url: str, *, token: str, name: str = "video"
+    video_url: str, *, peer_id: int | None = None, token: str,
 ) -> str | None:
-    """Загружает видео из URL в VK и возвращает attachment-строку
-    `video{owner_id}_{id}`. Возвращает None при любой ошибке.
+    """Загружает видео из URL в VK как ДОКУМЕНТ (через docs.getMessagesUploadServer)
+    и возвращает attachment-строку `doc{owner_id}_{id}`. None при любой ошибке.
 
-    Двушаговая загрузка через video.save:
-    1. video.save({name, wallpost=0, is_private=0}) → upload_url + owner_id + video_id
-    2. POST файла видео на upload_url multipart полем `video_file`
-    После загрузки VK ещё немного обрабатывает видео (кодек/превью),
-    но attachment уже доступен и сообщение уходит сразу — у получателя
-    плеер может показывать «обрабатывается» первые секунды, это норма.
+    Почему не video.save: метод `video.save` недоступен для community-токенов
+    (`error 27: method is unavailable with group auth`). VK требует user token
+    для нативного видео. Сообщества могут грузить только через docs.* — VK
+    при отображении документа с расширением .mp4/.webm/.mov показывает
+    инлайн-плеер прямо в чате (как Telegram для отправленного видеофайла).
+
+    Шаги:
+    1. docs.getMessagesUploadServer({peer_id?}) → upload_url
+    2. POST файла multipart полем `file` → {file: "..."}
+    3. docs.save({file}) → {type, doc: {owner_id, id, ...}}
+    4. attachment = doc{owner_id}_{id}
+
+    Если `peer_id` не задан — VK загружает «общий» документ без привязки к диалогу,
+    тот же attachment можно слать многим получателям (нужно для broadcast).
     """
     try:
-        save = await vk_call(
-            "video.save",
-            {"name": name, "wallpost": 0, "is_private": 0},
-            token=token,
-        )
-        if not isinstance(save, dict):
+        srv_params: dict[str, Any] = {}
+        if peer_id is not None:
+            srv_params["peer_id"] = peer_id
+        srv = await vk_call("docs.getMessagesUploadServer", srv_params, token=token)
+        if not isinstance(srv, dict):
             return None
-        upload_url = save.get("upload_url")
-        owner_id = save.get("owner_id")
-        video_id = save.get("video_id")
-        if not upload_url or owner_id is None or video_id is None:
+        upload_url = srv.get("upload_url")
+        if not upload_url:
             return None
         # Скачиваем видео из R2 / любого URL
         async with httpx.AsyncClient(timeout=120.0) as cli:
@@ -197,16 +202,34 @@ async def upload_video_to_messages(
             r.raise_for_status()
             content = r.content
             content_type = r.headers.get("content-type", "video/mp4")
-        # Загружаем на VK upload-сервер. Видео могут быть большими — timeout 5 мин.
+        # Расширение определяет, что VK покажет инлайн-плеер (.mp4/.webm/.mov)
         filename = "video.mp4"
         if "webm" in content_type:
             filename = "video.webm"
         elif "quicktime" in content_type or "mov" in content_type:
             filename = "video.mov"
+        # Загружаем на VK upload-сервер. Видео могут быть большими — timeout 5 мин.
         async with httpx.AsyncClient(timeout=300.0) as cli:
-            up = await cli.post(upload_url, files={"video_file": (filename, content, content_type)})
+            up = await cli.post(upload_url, files={"file": (filename, content, content_type)})
             up.raise_for_status()
-        return f"video{owner_id}_{video_id}"
+            up_data = up.json()
+        file_token = up_data.get("file") if isinstance(up_data, dict) else None
+        if not file_token:
+            logger.warning(f"VK upload_video: upload returned no `file` field: {up_data}")
+            return None
+        saved = await vk_call("docs.save", {"file": file_token}, token=token)
+        # docs.save возвращает либо dict {type: 'doc', doc: {...}}, либо list (старые API)
+        doc = None
+        if isinstance(saved, dict):
+            doc = saved.get("doc") or saved.get("video") or saved.get("audio_message")
+        elif isinstance(saved, list) and saved:
+            first = saved[0]
+            if isinstance(first, dict):
+                doc = first
+        if not doc or "owner_id" not in doc or "id" not in doc:
+            logger.warning(f"VK upload_video: docs.save returned no owner_id/id: {saved}")
+            return None
+        return f"doc{doc['owner_id']}_{doc['id']}"
     except Exception as e:
         logger.warning(f"VK upload_video_to_messages failed for {video_url}: {e}")
         return None
@@ -233,7 +256,7 @@ async def send_message_with_media(
         if media_type == "photo":
             attachment = await upload_photo_to_messages(media_url, peer_id=user_vk_id, token=token)
         elif media_type == "video":
-            attachment = await upload_video_to_messages(media_url, token=token)
+            attachment = await upload_video_to_messages(media_url, peer_id=user_vk_id, token=token)
     if media_url and not attachment:
         # Загрузка не получилась (или тип неподдерживаемый) — fallback на URL.
         text = f"{text}\n\n{media_url}" if text else media_url
