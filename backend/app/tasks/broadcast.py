@@ -954,40 +954,82 @@ async def _send_broadcast_email_part(
         plain_first_line = _strip_html(raw_text).split("\n", 1)[0].strip()
         subject = plain_first_line if (0 < len(plain_first_line) <= 120) else "Новое сообщение от ПЛЮСОН"
 
-    # Решаем, есть ли в исходном тексте HTML-разметка. Если есть — шлём
-    # multipart (HTML + plain-fallback), чтобы Gmail рендерил <b>/<i>/<a>
-    # как форматирование, а не показывал теги как текст. Если нет —
-    # обычный plain.
+    # Email шлём ВСЕГДА multipart (HTML + plain-fallback): в HTML — фото в
+    # начале, кликабельные ссылки, красивая кнопка в фирменных цветах
+    # (#FFCFA4 фон, #25455D текст). plain-часть — как fallback для клиентов,
+    # которые HTML не рендерят (редко).
+    def _linkify(t: str) -> str:
+        """Plain URL → <a href>. Применяем только к строкам где нет HTML."""
+        return _re.sub(
+            r"(?<![\"'>=])(https?://[^\s<]+)",
+            r'<a href="\1" style="color:#3D8CB6;text-decoration:underline;">\1</a>',
+            t,
+        )
+
     has_html = bool(_re.search(r"<[a-zA-Z][^>]*>", raw_text))
     if has_html:
-        # HTML-часть: переносы строк в <br>, ссылки кнопок добавляются HTML-ссылками.
-        html_body = raw_text.replace("\n", "<br>\n")
-        if button_text and button_url:
-            html_body += f'<br><br><a href="{button_url}">{button_text}</a>'
-        elif buttons:
-            html_body += "<br><br>" + "<br>".join(
-                f'<a href="{b.get("url","")}">{b.get("label","Открыть")}</a>'
-                for b in buttons
-            )
-        # Plain-часть: HTML вырезан, переносы и кнопки — текстом.
-        plain_body = _strip_html(raw_text)
-        if button_text and button_url:
-            plain_body = plain_body.rstrip() + f"\n\n{button_text}: {button_url}"
-        elif buttons:
-            plain_body = plain_body.rstrip() + "\n\n" + "\n".join(
-                f"{b.get('label','Открыть')}: {b.get('url','')}" for b in buttons
-            )
-        body_text = plain_body
+        # В тексте уже есть теги — переводим переносы в <br>, plain URL за
+        # пределами тегов превращаем в кликабельные.
+        html_inner = _linkify(raw_text.replace("\n", "<br>\n"))
     else:
-        # Без HTML — старая логика plain-text.
-        body_text = raw_text
-        if button_text and button_url:
-            body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
-        elif buttons:
-            body_text = body_text.rstrip() + "\n\n" + "\n".join(
-                f"{b.get('label','Открыть')}: {b.get('url','')}" for b in buttons
-            )
-        html_body = None
+        # Plain → экранируем спецсимволы, переносы → <br>, URL → <a>.
+        escaped = (raw_text
+                   .replace("&", "&amp;")
+                   .replace("<", "&lt;")
+                   .replace(">", "&gt;")
+                   .replace("\n", "<br>\n"))
+        html_inner = _linkify(escaped)
+
+    # Фото в начале HTML (если задано). max-width 600px чтобы хорошо
+    # рендерилось на мобильных и десктопе.
+    html_image = ""
+    if photo_url:
+        html_image = (
+            f'<div style="margin-bottom:20px;">'
+            f'<img src="{photo_url}" alt="" '
+            f'style="display:block;max-width:100%;width:600px;height:auto;'
+            f'border-radius:12px;border:0;outline:none;"/>'
+            f'</div>'
+        )
+
+    # HTML-кнопка (если задана). Фирменный персик #FFCFA4 фон, текст #25455D.
+    def _html_button(label: str, url: str) -> str:
+        safe_label = (label or "Открыть").replace("<", "&lt;").replace(">", "&gt;")
+        return (
+            f'<table role="presentation" border="0" cellspacing="0" cellpadding="0" '
+            f'style="margin:28px 0;">'
+            f'<tr><td style="background-color:#FFCFA4;border-radius:12px;text-align:center;">'
+            f'<a href="{url}" target="_blank" '
+            f'style="display:inline-block;padding:14px 32px;color:#25455D;'
+            f'font-family:Roboto,-apple-system,sans-serif;font-size:16px;font-weight:700;'
+            f'text-decoration:none;border-radius:12px;">{safe_label}</a>'
+            f'</td></tr></table>'
+        )
+
+    html_button = ""
+    if button_text and button_url:
+        html_button = _html_button(button_text, button_url)
+    elif buttons:
+        html_button = "".join(_html_button(b.get("label", "Открыть"), b.get("url", "")) for b in buttons)
+
+    # Собираем полное HTML-тело (с оборачивающим контейнером).
+    html_body = (
+        f'<div style="font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
+        f'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;">'
+        f'{html_image}'
+        f'<div>{html_inner}</div>'
+        f'{html_button}'
+        f'</div>'
+    )
+
+    # Plain-часть: HTML вырезан + текстовая кнопка.
+    body_text = _strip_html(raw_text)
+    if button_text and button_url:
+        body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
+    elif buttons:
+        body_text = body_text.rstrip() + "\n\n" + "\n".join(
+            f"{b.get('label','Открыть')}: {b.get('url','')}" for b in buttons
+        )
 
     sender = EmailSender()
     sent = 0
