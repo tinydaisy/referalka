@@ -138,7 +138,12 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       } : null)
       setPrefill(part?.prefill || null)
 
-      const alreadyRegistered = !!part?.participant?.is_registered
+      // Если человек когда-то отписался от email — мы заново показываем ему
+      // landing с формой регистрации, чтобы он мог снова подписаться (re-opt-in).
+      // Формально is_registered=true, но мы воспринимаем как «не зарегистрирован»
+      // до повторного нажатия «Хочу участвовать».
+      const emailUnsubscribed = !!part?.participant?.email_unsubscribed
+      const alreadyRegistered = !!part?.participant?.is_registered && !emailUnsubscribed
       const ended = isEnded(landing)
 
       // event_start — сигнал «открыл событие». Шлём только для TG-эндпойнта

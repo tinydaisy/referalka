@@ -196,6 +196,10 @@ async def register_participant(
                 )
             except Exception:
                 pass
+        # Re-opt-in: если пользователь когда-то отписался от email и теперь
+        # снова заполняет форму — возвращаем подписку. Это явное действие
+        # пользователя (он только что согласился с обработкой и подтвердил).
+        await _resubscribe_email(db, contact_id=contact_id, client_id=event["client_id"])
         return {"participant": dict(existing), "is_new": False, **redirect}
 
     # Резолв реферера: если передан ref_code (может быть legacy длинный из
@@ -253,6 +257,9 @@ async def register_participant(
     except Exception:
         pass
 
+    # Re-opt-in: возвращаем email-подписку, если был отписан.
+    await _resubscribe_email(db, contact_id=contact_id, client_id=event["client_id"])
+
     # Welcome-email на регистрацию (если включён шаблон у события).
     # Дедуп — через event_participants.welcome_email_sent_at, шлём один раз.
     try:
@@ -268,6 +275,30 @@ async def register_participant(
         "is_new": True,
         **redirect,
     }
+
+
+async def _resubscribe_email(db, *, contact_id: int, client_id: int):
+    """При регистрации через форму с галочками — возвращаем email-подписку,
+    если контакт был ранее отписан. Логически: «человек только что снова
+    согласился с обработкой и подтвердил, что хочет получать материалы».
+    Затрагиваем ВСЕ email-каналы клиента (на случай если каналов несколько)."""
+    try:
+        await db.execute(
+            """UPDATE platform_user_channels puc
+                  SET is_unsubscribed = FALSE,
+                      unsubscribed_at = NULL
+                FROM platform_users pu
+                JOIN client_channels cc ON cc.id = puc.client_channel_id
+               WHERE puc.platform_user_id = pu.id
+                 AND pu.contact_id = $1
+                 AND pu.platform_slug = 'email'
+                 AND cc.client_id = $2
+                 AND puc.is_unsubscribed = TRUE""",
+            contact_id, client_id,
+        )
+    except Exception:
+        # Не блокируем регистрацию — re-opt-in best-effort.
+        pass
 
 
 @router.post("/{participant_id}/activate", summary="Активировать участника")
@@ -961,8 +992,25 @@ async def get_participant_in_event(
         for p in people_rows
     ]
 
+    # Re-opt-in flag: если у этого участника есть отписка от email для любого
+    # из системных email-каналов клиента — фронт покажет форму регистрации
+    # заново, чтобы дать возможность вернуться в подписку.
+    email_unsubscribed = await db.fetchval(
+        """SELECT EXISTS (
+              SELECT 1
+                FROM event_participants ep0
+                JOIN platform_users pu ON pu.contact_id = ep0.contact_id
+                                       AND pu.platform_slug = 'email'
+                JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
+               WHERE ep0.id = $1 AND puc.is_unsubscribed = TRUE
+           )""",
+        row["id"]
+    ) or False
+    participant_dict = dict(row)
+    participant_dict["email_unsubscribed"] = bool(email_unsubscribed)
+
     return {
-        "participant": dict(row),
+        "participant": participant_dict,
         "referrals_count": visited_count,         # legacy alias
         "visited_count": visited_count,
         "registered_count": registered_count,
