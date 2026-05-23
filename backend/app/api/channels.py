@@ -653,12 +653,12 @@ def _encode_state(channel_id: int, client_id: int, code_verifier: str) -> str:
         "cv": code_verifier,
         "exp": int(_time.time()) + 600,
     }
-    return _jose_jwt.encode(payload, settings.secret_key, algorithm="HS256")
+    return _jose_jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
 def _decode_state(state: str) -> dict:
     from jose import jwt as _jose_jwt
-    return _jose_jwt.decode(state, settings.secret_key, algorithms=["HS256"])
+    return _jose_jwt.decode(state, settings.jwt_secret, algorithms=["HS256"])
 
 
 @router.get("/vk/oauth-url", summary="OAuth URL для получения user-токена с правами video")
