@@ -948,15 +948,16 @@ async def _send_broadcast_email_part(
         s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#39;", "'")
         return s
 
-    # Subject — приоритет на subject_override (поле из шаблона рассылки/
-    # welcome-письма). Если не задан — fallback на первую строку текста.
-    # Всегда без HTML-тегов (иначе Gmail воспримет «<b>...» как
-    # спам-сигнал и положит письмо в Promo/Spam).
+    # Subject:
+    # 1) Если задан subject_override (поле «Заголовок» из формы рассылки или
+    #    welcome_email_subject события) — используем его.
+    # 2) Иначе — «Новое сообщение от {бренд клиента}». НЕ берём первую строку
+    #    текста, чтобы тема не превращалась в обрезанный кусок body.
     if subject_override and subject_override.strip():
         subject = _strip_html(subject_override).strip()[:200]
     else:
-        plain_first_line = _strip_html(raw_text).split("\n", 1)[0].strip()
-        subject = plain_first_line if (0 < len(plain_first_line) <= 120) else "Новое сообщение от ПЛЮСОН"
+        brand_for_subject = (client_brand_name or "ПЛЮСОН").strip()
+        subject = f"Новое сообщение от {brand_for_subject}"
 
     # Email шлём ВСЕГДА multipart (HTML + plain-fallback): в HTML — фото в
     # начале, кликабельные ссылки, красивая кнопка в фирменных цветах
@@ -996,18 +997,19 @@ async def _send_broadcast_email_part(
             f'</div>'
         )
 
-    # HTML-кнопка (если задана). Фирменный персик #FFCFA4 фон, текст #25455D.
+    # HTML-кнопка: простой <a> с inline-стилем. Без <table> — Gmail
+    # надёжнее рендерит и сохраняет href кликабельным.
     def _html_button(label: str, url: str) -> str:
         safe_label = (label or "Открыть").replace("<", "&lt;").replace(">", "&gt;")
+        safe_url = (url or "#").replace('"', "")
         return (
-            f'<table role="presentation" border="0" cellspacing="0" cellpadding="0" '
-            f'style="margin:28px 0;">'
-            f'<tr><td style="background-color:#FFCFA4;border-radius:12px;text-align:center;">'
-            f'<a href="{url}" target="_blank" '
-            f'style="display:inline-block;padding:14px 32px;color:#25455D;'
+            f'<div style="margin:28px 0;">'
+            f'<a href="{safe_url}" target="_blank" rel="noopener" '
+            f'style="display:inline-block;background-color:#FFCFA4;color:#25455D !important;'
+            f'padding:14px 36px;border-radius:12px;text-decoration:none;'
             f'font-family:Roboto,-apple-system,sans-serif;font-size:16px;font-weight:700;'
-            f'text-decoration:none;border-radius:12px;">{safe_label}</a>'
-            f'</td></tr></table>'
+            f'line-height:1;">{safe_label}</a>'
+            f'</div>'
         )
 
     html_button = ""
@@ -1019,14 +1021,19 @@ async def _send_broadcast_email_part(
             for b in buttons
         )
 
-    # Собираем полное HTML-тело (с оборачивающим контейнером).
+    # Собираем полное HTML-тело — с doctype/html/body, иначе Gmail может
+    # порезать стили и инлайн-ссылки превратить в plain.
     html_body = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '</head><body style="margin:0;padding:20px;background:#f6f8fa;">'
         f'<div style="font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
-        f'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;">'
+        f'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;'
+        f'background:#fff;padding:24px;border-radius:16px;">'
         f'{html_image}'
         f'<div>{html_inner}</div>'
         f'{html_button}'
-        f'</div>'
+        f'</div></body></html>'
     )
 
     # Plain-часть: HTML вырезан + текстовая кнопка.
