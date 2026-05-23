@@ -117,14 +117,20 @@ def _build_plain_footer(unsub_url: str, brand_name: Optional[str] = None) -> str
 def _build_html_footer(unsub_url: str, brand_name: Optional[str] = None) -> str:
     # Подвал: отступ ~3 строки + черта + мелкий серый текст с гипер-ссылкой.
     brand = (brand_name or "").strip() or "наших проектах"
+    # font-size: 12px !important + кастомный wrapper-class — нужны чтобы Gmail
+    # mobile (iOS/Android) не подменял мелкий шрифт на свой «безопасный».
+    # На десктопе и так маленький, на мобиле — теперь тоже.
     return (
         '<div style="height:50px;"></div>'  # ≈ 3 пустые строки вертикального отступа
         '<hr style="border:none;border-top:1px solid #d0d7de;margin:0 0 12px 0;">'
-        '<p style="color:#7d8c9c;font-size:11px;line-height:1.55;margin:0;padding:0 4px;'
-        'font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;">'
+        '<p style="color:#7d8c9c;font-size:12px !important;line-height:1.5;margin:0;padding:0 4px;'
+        'font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
+        '-webkit-text-size-adjust:none;text-size-adjust:none;">'
+        f'<span style="font-size:12px !important;">'
         f'Вы получили это письмо, потому что регистрировались в событиях или проектах {brand}.<br>'
         f'Если вы не хотите получать письма от нас, вы можете '
-        f'<a href="{unsub_url}" style="color:#3D8CB6;text-decoration:underline;">отписаться</a>.'
+        f'<a href="{unsub_url}" style="color:#3D8CB6;text-decoration:underline;font-size:12px !important;">отписаться</a>.'
+        f'</span>'
         '</p>'
     )
 
