@@ -1075,16 +1075,20 @@ async def _send_broadcast_email_part(
 
     # Собираем полное HTML-тело — с doctype/html/body, иначе Gmail может
     # порезать стили и инлайн-ссылки превратить в plain.
+    # Внешний фон страницы — белый, а сам контент письма (текст, картинка,
+    # кнопка) лежит на светло-голубой плашке #E8F2FA. Подвал отписки потом
+    # инжектится в email_sender ПОСЛЕ голубой плашки, на белом фоне.
     html_body = (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '</head><body style="margin:0;padding:20px;background:#f6f8fa;">'
+        '</head><body style="margin:0;padding:20px;background:#ffffff;">'
         f'<div style="font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
-        f'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;'
-        f'background:#fff;padding:24px;border-radius:16px;">'
+        f'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;">'
+        f'<div style="background:#E8F2FA;padding:30px 24px;border-radius:16px;">'
         f'{html_image}'
         f'<div>{html_inner}</div>'
         f'{html_button}'
+        f'</div>'
         f'</div></body></html>'
     )
 

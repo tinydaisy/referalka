@@ -102,25 +102,33 @@ def _unsubscribe_url(token: str) -> str:
     return f"{base}/api/v1/email/unsubscribe?token={token}"
 
 
-def _build_plain_footer(unsub_url: str) -> str:
+def _build_plain_footer(unsub_url: str, brand_name: Optional[str] = None) -> str:
     # В plain-варианте гипер-ссылку не сделаешь, поэтому пишем URL открытым.
     # Большинство клиентов автоматически превращают такие URL в кликабельные.
+    brand = (brand_name or "").strip() or "наших проектах"
     return (
-        "\n\n"
+        "\n\n\n\n\n\n\n\n\n\n"
         "---\n"
-        "Если вы больше не хотите получать письма — отпишитесь по ссылке:\n"
+        f"Вы получили это письмо, потому что регистрировались в проектах {brand}. "
+        "Если вы не хотите получать письма от нас, вы можете отписаться:\n"
         f"{unsub_url}"
     )
 
 
-def _build_html_footer(unsub_url: str) -> str:
-    # В HTML «отписаться» — гипер-ссылка, URL не показывается явно.
+def _build_html_footer(unsub_url: str, brand_name: Optional[str] = None) -> str:
+    # В HTML «отписаться» — гипер-ссылка. Подвал отделяется от тела письма
+    # большим вертикальным отступом (имитация 10 пустых строк) и горизонтальной
+    # чертой. Текст мелкий, серый — чтобы не отвлекал от основного содержимого.
+    brand = (brand_name or "").strip() or "наших проектах"
     return (
-        '<hr style="margin-top:32px;border:none;border-top:1px solid #eee;">'
-        '<p style="color:#999;font-size:12px;line-height:1.5;margin:16px 0;text-align:center;">'
-        f'Если вы больше не хотите получать письма — '
+        '<div style="height:160px;"></div>'  # ≈ 10 пустых строк вертикального отступа
+        '<hr style="border:none;border-top:1px solid #d0d7de;margin:0 0 12px 0;">'
+        '<p style="color:#7d8c9c;font-size:11px;line-height:1.55;margin:0;padding:0 4px;'
+        'font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;">'
+        f'Вы получили это письмо, потому что регистрировались в проектах {brand}.<br>'
+        f'Если вы не хотите получать письма от нас, вы можете '
         f'<a href="{unsub_url}" style="color:#3D8CB6;text-decoration:underline;">отписаться</a>.'
-        "</p>"
+        '</p>'
     )
 
 
@@ -150,15 +158,18 @@ def _plain_to_html(text: str) -> str:
 
 def _wrap_html_body(inner_html: str) -> str:
     """Оборачивает «голый» HTML в полный документ с шапкой и centered-контейнером.
-    Применяется когда у нас был только plain-text → автогенерируем HTML."""
+    Применяется когда у нас был только plain-text → автогенерируем HTML.
+    Контент письма помещается на светло-голубом фоне (#E8F2FA) — фирменный
+    стиль email-вёрстки ПЛЮСОНа (подвал отписки потом ставится ниже, на белом)."""
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '</head><body style="margin:0;padding:20px;background:#f6f8fa;">'
+        '</head><body style="margin:0;padding:20px;background:#ffffff;">'
         '<div style="font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
-        'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;'
-        'background:#fff;padding:24px;border-radius:16px;">'
+        'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;">'
+        '<div style="background:#E8F2FA;padding:30px 24px;border-radius:16px;">'
         f'{inner_html}'
+        '</div>'
         '</div></body></html>'
     )
 
@@ -204,17 +215,23 @@ class EmailSender:
         unsub_url = _unsubscribe_url(unsubscribe_token)
         msg_id = make_msgid(domain=from_address.split("@", 1)[1])
 
-        plain_body = (body_text or "") + _build_plain_footer(unsub_url)
+        plain_body = (body_text or "") + _build_plain_footer(unsub_url, client_brand_name)
 
         # HTML-версия — есть ВСЕГДА, даже если caller передал только plain-text.
-        # Это нужно чтобы подвал «отписаться» в письме был гипер-ссылкой, а не
-        # голым уродливым URL. Если body_html уже задан — используем его как есть;
-        # иначе автогенерируем из body_text (linkify, переносы, html-doc обёртка).
+        # Подвал отписки вставляется ВНУТРИ <body>, перед </body> — иначе
+        # некоторые клиенты игнорируют HTML после </html>.
+        html_footer = _build_html_footer(unsub_url, client_brand_name)
+
         if body_html:
-            html_body_full = body_html + _build_html_footer(unsub_url)
+            html_outer = body_html
         else:
             auto_html_inner = _plain_to_html(body_text or "")
-            html_body_full = _wrap_html_body(auto_html_inner) + _build_html_footer(unsub_url)
+            html_outer = _wrap_html_body(auto_html_inner)
+
+        if "</body>" in html_outer:
+            html_body_full = html_outer.replace("</body>", html_footer + "</body>", 1)
+        else:
+            html_body_full = html_outer + html_footer
 
         # MIME-структура (RFC 2387 — самая совместимая для Gmail/Outlook/Apple Mail):
         #   multipart/related
