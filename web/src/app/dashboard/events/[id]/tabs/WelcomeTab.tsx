@@ -12,9 +12,9 @@
  * Письмо отправляется при первой регистрации участника на событие.
  * Дедуп через event_participants.welcome_email_sent_at.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
-import RichTextEditor from '@/components/RichTextEditor'
+import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 
 interface Props {
   event: any
@@ -29,6 +29,7 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const editorRef = useRef<RichTextEditorHandle>(null)
 
   useEffect(() => {
     setEnabled(event.welcome_enabled || false)
@@ -39,10 +40,15 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
   async function save() {
     setSaving(true); setError(null); setSaved(false)
     try {
+      // Берём актуальное значение прямо из редактора — даже если user
+      // не успел потерять фокус и onChange не сработал, getValue() прочитает
+      // innerHTML и прогонит через sanitize.
+      const liveBody = editorRef.current?.getValue() ?? body
+      setBody(liveBody) // синхронизируем стейт
       await api.events.update(eventId, {
         welcome_enabled: enabled,
         welcome_email_subject: subject || null,
-        welcome_text: body || null,
+        welcome_text: liveBody || null,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -116,6 +122,7 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
             Текст приветствия
           </label>
           <RichTextEditor
+            ref={editorRef}
             value={body}
             onChange={setBody}
             placeholder="Привет, {name}!&#10;&#10;Спасибо за регистрацию на «{event_title}»..."

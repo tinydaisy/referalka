@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Send, XCircle, Eye, Clock, CheckCircle, AlertCircle, Loader2, X,
   Edit2, Trash2, Copy, Users, ChevronDown, ChevronRight, FileText, Upload, Play
@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import FileUploader from '@/components/FileUploader'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
-import RichTextEditor from '@/components/RichTextEditor'
+import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -704,16 +704,25 @@ function CustomBroadcastModal(props: {
   )
   const [saving, setSaving] = useState(false)
   const isEdit = typeof props.editId === 'number'
+  const editorRef = useRef<RichTextEditorHandle>(null)
 
   const htmlErrors = validateTelegramHtml(text)
   const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
   const hasButtonErrors = buttonErrors.some(errs => errs.length > 0)
 
   async function save() {
+    // Берём актуальное значение из редактора (важно если user не успел потерять
+    // фокус — onChange срабатывает только на blur/input, и в state может быть
+    // ещё пусто). getValue() читает innerHTML и прогоняет через sanitize.
+    const liveText = editorRef.current?.getValue() ?? text
+    if (liveText !== text) setText(liveText)
+
     // Валидация показывается через alert() — блокирующее окно, которое
     // нельзя не заметить (toast наверху страницы скрывается за модалкой).
     if (!fireAt) { alert('Укажите дату и время'); return }
-    if (!text.trim()) { alert('Пустой текст'); return }
+    // Проверяем на пустоту по тексту без HTML-тегов
+    const plain = liveText.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+    if (!plain) { alert('Пустой текст'); return }
     if (htmlErrors.length > 0) {
       alert(
         'Telegram не примет такое сообщение:\n\n' +
@@ -736,7 +745,7 @@ function CustomBroadcastModal(props: {
     try {
       const payload: any = {
         fire_at: fireAt,
-        text,
+        text: liveText,
         photo_url: photoUrl || null,
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
@@ -794,6 +803,7 @@ function CustomBroadcastModal(props: {
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Текст (можно {'{first_name}'} — подставится имя)</label>
             <RichTextEditor
+              ref={editorRef}
               value={text}
               onChange={setText}
               placeholder="Привет, {first_name}! ..."

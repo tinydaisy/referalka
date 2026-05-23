@@ -13,13 +13,21 @@
  * - Переключение «Текст ↔ HTML» (для редактирования сырого HTML)
  * - sanitizes на onChange: оставляем только разрешённые теги/атрибуты
  *
- * Allowlist: <b>/<strong>, <i>/<em>, <u>, <a href>, <br>, <p>, <ul>, <ol>, <li>.
- * Остальное вырезается.
+ * Allowlist: <b>/<strong>, <i>/<em>, <u>, <a href>, <br>.
+ * Блочные теги (div/p/li) при sanitize заменяются на <br>.
  *
  * Использование:
- *   <RichTextEditor value={html} onChange={setHtml} placeholder="..." rows={10} />
+ *   const editorRef = useRef<RichTextEditorHandle>(null)
+ *   <RichTextEditor ref={editorRef} value={html} onChange={setHtml} />
+ *   // перед save — editorRef.current?.getValue() возвращает АКТУАЛЬНОЕ
+ *   // содержимое (важно если user не успел потерять фокус на редакторе).
  */
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+
+export interface RichTextEditorHandle {
+  /** Возвращает текущее значение редактора (с sanitize), даже если onChange ещё не успел сработать. */
+  getValue: () => string
+}
 
 interface Props {
   value: string
@@ -107,11 +115,23 @@ function sanitize(html: string): string {
   return root.innerHTML
 }
 
-export default function RichTextEditor({
+const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichTextEditor({
   value, onChange, placeholder, rows = 8, className = '',
-}: Props) {
+}, ref) {
   const editorRef = useRef<HTMLDivElement>(null)
+  const sourceValueRef = useRef<string>(value)  // последнее значение в source-mode
   const [showSource, setShowSource] = useState(false)
+
+  // Imperative API — позволяет родителю получить актуальное значение
+  // напрямую из DOM (не дожидаясь, пока сработает onChange после onBlur).
+  useImperativeHandle(ref, () => ({
+    getValue: () => {
+      if (showSource) return sourceValueRef.current
+      const el = editorRef.current
+      if (!el) return value
+      return sanitize(el.innerHTML)
+    },
+  }), [showSource, value])
 
   // Инициализация и внешние изменения value (только если редактор НЕ в фокусе,
   // иначе курсор будет «прыгать» при каждом нажатии клавиши).
@@ -208,7 +228,7 @@ export default function RichTextEditor({
       {showSource ? (
         <textarea
           value={value}
-          onChange={e => onChange(e.target.value)}
+          onChange={e => { sourceValueRef.current = e.target.value; onChange(e.target.value) }}
           placeholder={placeholder}
           className="w-full px-4 py-3 text-sm font-mono focus:outline-none rounded-b-xl"
           style={{ minHeight: minH, resize: 'vertical' }}
@@ -247,4 +267,6 @@ export default function RichTextEditor({
       `}</style>
     </div>
   )
-}
+})
+
+export default RichTextEditor
