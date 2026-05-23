@@ -586,12 +586,15 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
             primary_id, sec['name'], sec['email'], sec['phone'], secondary_ref
         )
 
-        # Soft-delete второстепенного
+        # Soft-delete второстепенного. ref_code НЕ обнуляем (миграция 060
+        # сделала его NOT NULL). Secondary остаётся со своим ref_code, но
+        # с merged_into != NULL и is_active = FALSE — резолверы должны
+        # фильтровать `merged_into IS NULL` и/или ходить через
+        # primary.merged_ref_codes (куда secondary_ref уже добавлен выше).
         await db.execute(
             """UPDATE contacts
                   SET merged_into = $1,
                       is_active   = FALSE,
-                      ref_code    = NULL,
                       updated_at  = NOW()
                 WHERE id = $2""",
             primary_id, secondary_id
