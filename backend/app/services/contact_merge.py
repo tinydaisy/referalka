@@ -96,12 +96,17 @@ async def find_or_create_contact(
     salebot_id: Optional[str] = None,
     utm_source: Optional[str] = None,
     tags: Optional[list] = None,
+    lookup_telegram_username: Optional[str] = None,
 ) -> tuple[int, bool]:
     """
     Находит contact по email/phone у клиента или создаёт новый.
 
     Возвращает (contact_id, is_new). Если автомердж сработал — обновляем
     пустые поля найденного контакта новыми данными.
+
+    lookup_telegram_username: дополнительный fallback-поиск по TG-нику через
+    platform_users (когда email/phone не нашли ничего). Используется
+    интеграциями (GetCourse), где tg_id неизвестен, но в форме просили ник.
     """
     email_norm = normalize_email(email)
     phone_norm = normalize_phone(phone)
@@ -119,6 +124,18 @@ async def find_or_create_contact(
                 ORDER BY id LIMIT 1""",
             client_id, email_norm, phone_norm
         )
+
+    # Fallback: ищем по TG-нику если email/phone не дали результата.
+    if not found and lookup_telegram_username:
+        tg_contact_id = await find_contact_by_telegram_username(
+            db, client_id=client_id, telegram_username=lookup_telegram_username,
+        )
+        if tg_contact_id:
+            found = await db.fetchrow(
+                """SELECT id, name, email, email_normalized, phone, phone_normalized, salebot_id, utm_source
+                     FROM contacts WHERE id = $1 AND is_active = TRUE""",
+                tg_contact_id,
+            )
 
     if found:
         # Дозаполняем пустые поля (если у нашли есть пробелы — берём из нового импорта)
@@ -343,6 +360,23 @@ async def upsert_platform_user(
     return pu_id
 
 
+async def find_contact_by_telegram_username(
+    db, *, client_id: int, telegram_username: str
+) -> Optional[int]:
+    """Ищет contact по TG-юзернейму через platform_users у этого клиента.
+    Регистр игнорируется, ведущий @ убирается. Возвращает contact_id или None."""
+    handle = (telegram_username or "").strip().lstrip('@')
+    if not handle:
+        return None
+    return await db.fetchval(
+        """SELECT contact_id FROM platform_users
+            WHERE client_id = $1 AND platform_slug = 'telegram'
+              AND lower(username) = lower($2)
+            ORDER BY id LIMIT 1""",
+        client_id, handle,
+    )
+
+
 async def upsert_contact_with_identity(
     db,
     *,
@@ -358,6 +392,7 @@ async def upsert_contact_with_identity(
     utm_source: Optional[str] = None,
     tags: Optional[list] = None,
     platform_meta: Optional[dict] = None,
+    lookup_telegram_username: Optional[str] = None,
 ) -> tuple[int, int, bool]:
     """
     Главный helper: создаёт/находит contact и привязывает к нему идентичность.
@@ -366,8 +401,13 @@ async def upsert_contact_with_identity(
 
     Логика:
     1. Если идентичность уже существует — берём её contact_id, обновляем поля.
-    2. Если нет — автомердж по email/phone находит contact или создаёт новый.
+    2. Если нет — автомердж по email/phone находит contact (или ищем по
+       lookup_telegram_username если email/phone не нашли), иначе создаём новый.
     3. Создаём идентичность с привязкой к contact_id.
+
+    lookup_telegram_username: TG-ник для поиска существующего контакта (используется
+    интеграциями типа GetCourse, где tg_id неизвестен, но в форме просили ник).
+    На создание TG-идентичности не влияет — только поиск.
     """
     pu_existing = await db.fetchrow(
         """SELECT id, contact_id FROM platform_users
@@ -416,7 +456,9 @@ async def upsert_contact_with_identity(
             )
         return pu_existing['contact_id'], pu_existing['id'], False
 
-    # Идентичности нет — ищем/создаём контакт
+    # Идентичности нет — ищем/создаём контакт. TG-ник передаём как fallback
+    # для случаев, когда email/phone не нашли ничего (например, GetCourse
+    # webhook без email, но со скрытым полем telegram_username из формы).
     contact_id, is_new = await find_or_create_contact(
         db,
         client_id=client_id,
@@ -426,6 +468,7 @@ async def upsert_contact_with_identity(
         salebot_id=salebot_id,
         utm_source=utm_source,
         tags=tags,
+        lookup_telegram_username=lookup_telegram_username,
     )
 
     # Контакт нашли по email/phone, но у него уже привязан ДРУГОЙ tg/vk — не можем

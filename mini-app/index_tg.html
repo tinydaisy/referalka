@@ -138,7 +138,10 @@
     function maybeRedirectToLanding() {
       if (!eventSlug || regFlag) return;
       try {
-        var qs = '?tg_id=' + encodeURIComponent(String(u.id || ''));
+        var uid = String(u.id || '');
+        var qs = '?tg_id=' + encodeURIComponent(uid)
+               + '&platform=tg'
+               + (uid ? '&platform_user_id=' + encodeURIComponent(uid) : '');
         if (partnerId) qs += '&pid=' + encodeURIComponent(partnerId);
         if (utmSource) qs += '&utm_source=' + encodeURIComponent(utmSource);
         fetch('/api/v1/public/events/' + encodeURIComponent(eventSlug) + '/landing-redirect' + qs)

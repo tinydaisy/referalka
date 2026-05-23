@@ -11,7 +11,12 @@ import asyncpg
 
 from app.database import get_db
 from app.config import settings
-from app.services.contact_merge import upsert_contact_with_identity
+from app.services.contact_merge import (
+    upsert_contact_with_identity,
+    find_or_create_contact,
+    name_from_parts,
+    resolve_ref_code,
+)
 
 router = APIRouter(prefix="/integrations", tags=["Интеграции"])
 
@@ -58,8 +63,9 @@ async def _authorize(
 class SalebotRegisterRequest(BaseModel):
     client_id: int                          # зашит в настройках Salebot
     platform: str = "telegram"             # 'telegram' | 'vk' | 'max'
-    platform_user_id: str                  # tg_id / vk_id / max_id — строкой
+    platform_user_id: Optional[str] = None # tg_id / vk_id / max_id — строкой. Опционально для веб-интеграций (GetCourse), где известен только email/phone
     username: Optional[str] = None
+    telegram_username: Optional[str] = None # TG-ник из формы (для поиска существующего контакта когда tg_id нет)
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
@@ -68,7 +74,9 @@ class SalebotRegisterRequest(BaseModel):
     event_id: Optional[str] = None         # зашит в настройках Salebot (опционально, строка или число)
     is_registered: Union[str, int, bool] = False
     is_in_chat: Union[str, int, bool] = False
-    partner_tg_id: Optional[str] = None    # tg_id рефовода (спикер или участник) — ищем его ref_code
+    partner_tg_id: Optional[str] = None    # tg_id рефовода — fallback (старая логика)
+    pid: Optional[str] = None              # ref_code партнёра (приоритетнее partner_tg_id)
+    external_ref_param: Optional[str] = None # партнёрский параметр внешней платформы клиента (например "gcpc=fdd97") — обновляет contacts.external_ref_param
 
     @validator('is_registered', 'is_in_chat', pre=True)
     def parse_bool(cls, v):
@@ -80,7 +88,8 @@ class SalebotRegisterRequest(BaseModel):
 
 class SalebotRegisterResponse(BaseModel):
     ok: bool
-    pluson_id: int                          # platform_users.id
+    pluson_id: Optional[int] = None        # platform_users.id (None для web-интеграций без platform_user_id)
+    contact_id: Optional[int] = None       # contacts.id
     participant_id: Optional[int] = None   # event_participants.id (если event_id передан)
     ref_code: Optional[str] = None
     is_new_user: bool
@@ -108,19 +117,45 @@ async def salebot_register(
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
 
-    # Создаём/находим контакт + идентичность (автомердж по email/phone)
-    contact_id, pluson_id, is_new_user = await upsert_contact_with_identity(
-        db,
-        client_id=data.client_id,
-        platform_slug=data.platform,
-        platform_user_id=data.platform_user_id,
-        username=data.username,
-        first_name=data.first_name,
-        last_name=data.last_name,
-        email=data.email,
-        phone=data.phone,
-        salebot_id=data.salebot_id,
-    )
+    # Создаём/находим контакт + идентичность (автомердж по email/phone/tg_username)
+    pluson_id: Optional[int] = None
+    if data.platform_user_id:
+        # Полный путь: с привязкой к платформенной идентичности
+        contact_id, pluson_id, is_new_user = await upsert_contact_with_identity(
+            db,
+            client_id=data.client_id,
+            platform_slug=data.platform,
+            platform_user_id=data.platform_user_id,
+            username=data.username,
+            first_name=data.first_name,
+            last_name=data.last_name,
+            email=data.email,
+            phone=data.phone,
+            salebot_id=data.salebot_id,
+            lookup_telegram_username=data.telegram_username,
+        )
+    else:
+        # Веб-интеграция без идентификатора платформы (например, GetCourse-форма
+        # в обычном браузере): только find_or_create по email/phone/tg_username.
+        contact_id, is_new_user = await find_or_create_contact(
+            db,
+            client_id=data.client_id,
+            name=name_from_parts(data.first_name, data.last_name),
+            email=data.email,
+            phone=data.phone,
+            salebot_id=data.salebot_id,
+            lookup_telegram_username=data.telegram_username,
+        )
+
+    # UPSERT contacts.external_ref_param (если передан) — партнёрский параметр
+    # внешней платформы клиента типа "gcpc=fdd97". Свежее значение из GetCourse
+    # важнее старого — перезатираем.
+    if data.external_ref_param is not None:
+        erp = (data.external_ref_param or "").strip() or None
+        await db.execute(
+            "UPDATE contacts SET external_ref_param = $1, updated_at = NOW() WHERE id = $2",
+            erp, contact_id,
+        )
 
     # Если event_id передан — upsert event_participants
     participant_id = None
@@ -163,9 +198,15 @@ async def salebot_register(
         else:
             is_new_participant = True
 
-            # Ищем ref_code рефовода по partner_tg_id (через platform_users → contacts)
+            # Ищем ref_code рефовода. Приоритет:
+            #   1. pid — прямой ref_code (с учётом merged_ref_codes для слитых контактов)
+            #   2. partner_tg_id — fallback через TG-идентичность партнёра
             referrer_ref_code = None
-            if data.partner_tg_id:
+            if data.pid:
+                referrer_ref_code, _ = await resolve_ref_code(
+                    db, data.pid, client_id=data.client_id
+                )
+            if not referrer_ref_code and data.partner_tg_id:
                 referrer_ref_code = await db.fetchval(
                     """
                     SELECT c.ref_code FROM platform_users pu
@@ -186,9 +227,17 @@ async def salebot_register(
                 event_id_int, contact_id, data.is_registered, data.is_in_chat, referrer_ref_code
             )
 
+    # Если event_id не передавался — берём ref_code контакта (для веб-интеграций
+    # без события — сразу отдаём свежесозданный ref_code партнёра).
+    if not ref_code:
+        ref_code = await db.fetchval(
+            "SELECT ref_code FROM contacts WHERE id = $1", contact_id
+        )
+
     return {
         "ok": 1,
-        "pluson_id": str(pluson_id),
+        "pluson_id": pluson_id,
+        "contact_id": contact_id,
         "participant_id": str(participant_id or 0),
         "ref_code": ref_code or "",
         "is_new_user": 1 if is_new_user else 0,
@@ -198,15 +247,16 @@ async def salebot_register(
 
 @router.get(
     "/salebot/register",
-    summary="Регистрация через GET (для Salebot без заголовков)"
+    summary="Регистрация через GET (для Salebot/конструкторов без заголовков)"
 )
 async def salebot_register_get(
     client_id: int,
-    platform_user_id: str,
-    event_id: int,
     secret: str,
+    event_id: Optional[int] = None,
+    platform_user_id: Optional[str] = None,
     salebot_id: Optional[str] = None,
     username: Optional[str] = None,
+    telegram_username: Optional[str] = None,
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
     email: Optional[str] = None,
@@ -214,6 +264,9 @@ async def salebot_register_get(
     is_registered: bool = False,
     is_in_chat: bool = False,
     platform: str = "telegram",
+    partner_tg_id: Optional[str] = None,
+    pid: Optional[str] = None,
+    external_ref_param: Optional[str] = None,
     db: asyncpg.Connection = Depends(get_db)
 ):
     await _authorize(secret, client_id, db)
@@ -223,15 +276,19 @@ async def salebot_register_get(
         platform=platform,
         platform_user_id=platform_user_id,
         username=username,
+        telegram_username=telegram_username,
         first_name=first_name,
         last_name=last_name,
         email=email,
         phone=phone,
         salebot_id=salebot_id,
-        event_id=str(event_id),
+        event_id=str(event_id) if event_id is not None else None,
         is_registered=is_registered,
         is_in_chat=is_in_chat,
-        secret=secret
+        partner_tg_id=partner_tg_id,
+        pid=pid,
+        external_ref_param=external_ref_param,
+        secret=secret,
     )
     return await salebot_register(request, secret, db)
 

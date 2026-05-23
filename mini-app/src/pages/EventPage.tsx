@@ -283,8 +283,23 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // Дублирует логику бэка из app/services/external_landing.py для случаев,
   // когда /landing-redirect ДО React не сработал (status='draft' / SPA-навигация).
   async function redirectToExternalLanding(landingUrl: string) {
+    const { getPlatform, getPlatformName } = await import('../platform')
+    const platformName = getPlatformName()         // 'tg' | 'vk' | 'max' | 'web'
+    const platformUser = getPlatform().user
+    const platformUserId = platformUser?.id ? String(platformUser.id) : ''
+
     const params = new URLSearchParams()
+    // Legacy-имена (для существующих лендингов клиентов, где скрытые поля
+    // уже привязаны к tg_id).
     if (tgUser?.id) params.set('tg_id', String(tgUser.id))
+    if (platformName === 'vk' && platformUserId) params.set('vk_id', platformUserId)
+    // Универсальная пара platform_user_id + platform — для новых интеграций
+    // (GetCourse, Tilda и т.п.) где webhook принимает одно поле независимо
+    // от платформы.
+    if (platformUserId) {
+      params.set('platform_user_id', platformUserId)
+      params.set('platform', platformName === 'tg' ? 'tg' : platformName)
+    }
     if (partnerId)  params.set('pid', partnerId)
     if (utmSource)  params.set('utm_source', utmSource)
     params.set('event_slug', slug)
@@ -306,7 +321,6 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     }
     // platform.redirectTo: для VK на Android навигирует window.top вместо
     // window.location (которое выкидывало в Chrome вне приложения).
-    const { getPlatform } = await import('../platform')
     getPlatform().redirectTo(fullUrl)
   }
 

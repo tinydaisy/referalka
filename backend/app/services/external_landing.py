@@ -50,15 +50,34 @@ def build_external_landing_url(
     *,
     event_slug: str,
     tg_id: Optional[int] = None,
+    vk_id: Optional[int] = None,
+    platform: Optional[str] = None,
     pid: Optional[str] = None,
     utm_source: Optional[str] = None,
     external_ref_param: Optional[str] = None,
 ) -> str:
     """Склеивает URL стороннего лендинга со стандартными query-параметрами и
-    в самом конце дописывает партнёрский параметр клиента (например &gcpc=fdd97)."""
+    в самом конце дописывает партнёрский параметр клиента (например &gcpc=fdd97).
+
+    Параметры идентификации участника:
+      - tg_id / vk_id — конкретный ID на платформе (legacy-имена для совместимости)
+      - platform_user_id + platform — универсальная пара (новый формат). Если
+        переданы tg_id или vk_id — также кладём их в platform_user_id+platform.
+
+    Клиент в GetCourse/Tilda настраивает «Сохранять GET-параметры в форме» —
+    скрытые поля platform_user_id и platform приходят в webhook регистрации.
+    """
     qs = {"event_slug": event_slug}
     if tg_id is not None:
         qs["tg_id"] = str(tg_id)
+        qs.setdefault("platform_user_id", str(tg_id))
+        qs.setdefault("platform", "tg")
+    if vk_id is not None:
+        qs["vk_id"] = str(vk_id)
+        qs.setdefault("platform_user_id", str(vk_id))
+        qs.setdefault("platform", "vk")
+    if platform and "platform" not in qs:
+        qs["platform"] = platform
     if pid:
         qs["pid"] = pid
     if utm_source:
