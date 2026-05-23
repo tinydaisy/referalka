@@ -39,7 +39,7 @@ from email.mime.base import MIMEBase
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.utils import formatdate, make_msgid
+from email.utils import formataddr, formatdate, make_msgid
 from typing import Optional
 
 from app.config import settings
@@ -78,15 +78,22 @@ def _build_from_address(channel: dict) -> str:
 
 def _build_from_header(channel: dict, client_brand_name: Optional[str]) -> str:
     """
-    Формирует значение заголовка From в виде '<Name> <email>'.
+    Формирует значение заголовка From в RFC 5322-совместимом формате.
     - Имя берётся из channel.email_from_name (если задано),
       иначе client_brand_name, иначе просто email без имени.
+    - Используется email.utils.formataddr — он сам корректно квотирует
+      display-name и кодирует не-ASCII в RFC 2047.
+    - Двоеточие «:» в display-name заменяется на тире, иначе Gmail парсит
+      «iViSiON: ПЛЮСОН» как RFC 5322 group-syntax (group_name: addrs;)
+      и отвечает 550-5.7.1 «multiple addresses in From: header».
     """
     addr = _build_from_address(channel)
     name = (channel.get("email_from_name") or "").strip() or (client_brand_name or "").strip()
-    if name:
-        return f'"{name}" <{addr}>'
-    return addr
+    if not name:
+        return addr
+    # Защита от group-syntax парсинга: : и ; в display-name → " — "
+    safe_name = name.replace(":", " —").replace(";", ",")
+    return formataddr((safe_name, addr))
 
 
 def _unsubscribe_url(token: str) -> str:

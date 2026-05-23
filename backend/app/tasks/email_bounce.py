@@ -51,6 +51,13 @@ LINE_RE = re.compile(
     r'(?:\s*\((?P<message>[^)]*)\))?'
 )
 
+# postfix/cleanup пишет: «<qid>: message-id=<our-internal-id@pluson.ru>».
+# По qid из bounce-строки мы находим внутренний Message-ID и обновляем
+# broadcast_log.status='bounced' (по полю external_message_id).
+MSGID_RE = re.compile(
+    r'postfix/cleanup\[\d+\]:\s+(?P<qid>[A-Z0-9]+):\s+message-id=<(?P<msgid>[^>]+)>'
+)
+
 HARD_TRIGGERS = (
     "user unknown", "account does not exist", "mailbox not found",
     "no such user", "address rejected", "blocked", "domain does not exist",
@@ -116,6 +123,16 @@ async def _process_bounces_async():
 
         new_bounces = 0
         new_dead = 0
+        new_broadcast_bounced = 0
+
+        # Сначала собираем карту qid → message-id для всех cleanup-строк лога.
+        # Это нужно, чтобы для каждой bounce-строки сразу знать наш внутренний
+        # Message-ID и обновить broadcast_log.status='bounced'.
+        qid_to_msgid: dict[str, str] = {}
+        for line in lines:
+            mm = MSGID_RE.search(line)
+            if mm:
+                qid_to_msgid[mm.group("qid")] = mm.group("msgid")
 
         for line in lines:
             m = LINE_RE.search(line)
@@ -132,6 +149,25 @@ async def _process_bounces_async():
             dsn = m.group("dsn")
             message = m.group("message")
             bounce_type = _classify(dsn, message, status)
+
+            # Обновляем broadcast_log: 'sent' → 'bounced' (если есть Message-ID).
+            # Постфикс заворачивает наш Message-ID в <…>, в broadcast_log мы
+            # тоже храним с угловыми скобками — сравниваем как есть.
+            msgid = qid_to_msgid.get(qid)
+            if msgid and bounce_type in ("hard", "soft"):
+                # bounce: внешняя система отказала — статус «bounced».
+                # deferred (queue временно отложен) пока трактуем тоже как bounced,
+                # потому что обычно после deferred → bounced в течение часа.
+                res = await conn.execute(
+                    """UPDATE broadcast_log
+                          SET status = 'bounced',
+                              error = COALESCE($2, error)
+                        WHERE external_message_id = $1
+                          AND status = 'sent'""",
+                    f"<{msgid}>", (message or dsn or "")[:500],
+                )
+                if "UPDATE" in res and "UPDATE 0" not in res:
+                    new_broadcast_bounced += 1
 
             # Найдём client_id и client_channel_id по email-получателю
             # (берём первую найденную identity)
@@ -201,6 +237,9 @@ async def _process_bounces_async():
                   AND bounced_at > NOW() - INTERVAL '1 day'"""
         )
 
-        logger.info(f"process_bounces: новых bounce={new_bounces}, помечено битых={new_dead}")
+        logger.info(
+            f"process_bounces: новых bounce={new_bounces}, помечено битых={new_dead}, "
+            f"broadcast_log → bounced={new_broadcast_bounced}"
+        )
     finally:
         await conn.close()
