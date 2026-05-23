@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import FileUploader from '@/components/FileUploader'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import RichTextEditor from '@/components/RichTextEditor'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -778,11 +779,13 @@ function CustomBroadcastModal(props: {
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Текст (можно {'{first_name}'} — подставится имя)</label>
-            <textarea value={text} onChange={e => setText(e.target.value)}
-              rows={6}
+            <RichTextEditor
+              value={text}
+              onChange={setText}
               placeholder="Привет, {first_name}! ..."
-              className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${htmlErrors.length > 0 ? 'border-red-300 bg-red-50/30' : 'border-gray-200'}`} />
-            <p className="text-xs text-gray-400 mt-1">HTML-разметка Telegram: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;s&gt;, &lt;code&gt;, &lt;a href="..."&gt;</p>
+              rows={8}
+            />
+            <p className="text-xs text-gray-400 mt-1">Жирный, курсив, подчёркивание и ссылки. Telegram примет это форматирование как есть. Для VK теги срежутся, останется только текст и ссылки.</p>
             {htmlErrors.length > 0 && (
               <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-0.5">
                 <p className="text-xs font-semibold text-red-700">⚠ Ошибки в HTML — Telegram не примет такое сообщение:</p>
@@ -834,7 +837,7 @@ function CustomBroadcastModal(props: {
           <BroadcastChannelPicker value={targetChannels} onChange={setTargetChannels} />
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
-            <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX ID из настроек)</span>
+            <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX / Email из настроек)</span>
           </label>
         </div>
         <div className="flex gap-2 mt-5">

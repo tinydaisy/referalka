@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation'
 import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import RichTextEditor from '@/components/RichTextEditor'
 
 type TypeDef = {
   type: string
@@ -852,12 +853,15 @@ export default function TemplatesPage() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Текст сообщения</label>
-                <textarea value={form.text} onChange={e => setForm({ ...form, text: e.target.value })}
-                  rows={10} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none resize-y font-mono" />
+                <RichTextEditor
+                  value={form.text || ''}
+                  onChange={(v) => setForm({ ...form, text: v })}
+                  placeholder="Используйте плейсхолдеры {conf_title}, {day_number}, {first_name} и т.п."
+                  rows={10}
+                />
                 <p className="text-[11px] text-gray-500 mt-1 leading-snug">
-                  Поддерживаются HTML-теги <span className="font-mono">&lt;b&gt; &lt;i&gt; &lt;u&gt; &lt;s&gt; &lt;a href=...&gt;</span> —
-                  только в&nbsp;Telegram и&nbsp;MAX. В&nbsp;ВКонтакте форматирование не работает: теги будут срезаны,
-                  останется только чистый текст и&nbsp;ссылки.
+                  Жирный, курсив, подчёркивание и ссылки. Telegram и MAX покажут как есть. В&nbsp;ВКонтакте
+                  форматирование не работает — останется только чистый текст и&nbsp;ссылки.
                 </p>
                 {currentType && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1001,12 +1005,10 @@ export default function TemplatesPage() {
                 </p>
               </div>
 
-              <div className="border border-gray-100 rounded-xl p-3 bg-gray-50">
-                <BroadcastChannelPicker
-                  value={(form as any).target_channel_ids ?? null}
-                  onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
-                />
-              </div>
+              <BroadcastChannelPicker
+                value={(form as any).target_channel_ids ?? null}
+                onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
+              />
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={save}
@@ -1064,15 +1066,15 @@ export default function TemplatesPage() {
 
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Текст сообщения</label>
-                <textarea value={(form as any).text}
-                  onChange={e => setForm({ ...form, text: e.target.value })}
-                  rows={8}
+                <RichTextEditor
+                  value={(form as any).text || ''}
+                  onChange={(v) => setForm({ ...form, text: v } as any)}
                   placeholder="Используйте плейсхолдеры {conf_title}, {day_number}, {first_name} и т.п."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none resize-y font-mono" />
+                  rows={8}
+                />
                 <p className="text-[11px] text-gray-500 mt-1 leading-snug">
-                  Поддерживаются HTML-теги <span className="font-mono">&lt;b&gt; &lt;i&gt; &lt;u&gt; &lt;s&gt; &lt;a href=...&gt;</span> —
-                  только в&nbsp;Telegram и&nbsp;MAX. В&nbsp;ВКонтакте форматирование не работает: теги будут срезаны,
-                  останется только чистый текст и&nbsp;ссылки.
+                  Жирный, курсив, подчёркивание и ссылки. Telegram и MAX покажут как есть. В&nbsp;ВКонтакте
+                  форматирование не работает — останется только чистый текст и&nbsp;ссылки.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   <span className="text-xs text-gray-400 mr-1">Вставить:</span>
@@ -1146,12 +1148,10 @@ export default function TemplatesPage() {
                 </p>
               </div>
 
-              <div className="border border-gray-100 rounded-xl p-3 bg-gray-50">
-                <BroadcastChannelPicker
-                  value={(form as any).target_channel_ids ?? null}
-                  onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
-                />
-              </div>
+              <BroadcastChannelPicker
+                value={(form as any).target_channel_ids ?? null}
+                onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
+              />
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={createCustom}

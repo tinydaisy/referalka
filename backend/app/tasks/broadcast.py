@@ -884,44 +884,89 @@ async def _send_broadcast_email_part(
     else:
         return 0
 
-    # Тестовый режим: для email пока нет отдельного test-списка email-адресов.
-    # Если is_test=TRUE — шлём только на email-адреса контактов, у которых
-    # есть TG-id из clients.test_telegram_ids (то есть тестовые «свои люди»).
+    # Тестовый режим: сужаем аудиторию.
+    # Источник 1 — clients.test_email_ids (явный список адресов, миграция 102).
+    # Источник 2 — clients.test_telegram_ids → резолв в email-адреса того же контакта.
+    # Их объединение и применяем. Если оба пусты — email-часть пропускаем.
     if schedule.get("is_test"):
-        test_tg = await conn.fetchval(
-            "SELECT test_telegram_ids FROM clients WHERE id=$1", client_id
+        test_row = await conn.fetchrow(
+            "SELECT test_email_ids, test_telegram_ids FROM clients WHERE id=$1", client_id
         )
-        test_tg_set = {str(t) for t in (test_tg or [])}
-        if not test_tg_set:
+        test_emails_set = {str(e).strip().lower() for e in (test_row["test_email_ids"] or []) if str(e).strip()}
+        test_tg_set = {str(t) for t in (test_row["test_telegram_ids"] or [])}
+        allowed_contact_ids: set[int] = set()
+        if test_tg_set:
+            tg_contact_rows = await conn.fetch(
+                """SELECT DISTINCT contact_id FROM platform_users
+                    WHERE client_id = $1 AND platform_slug = 'telegram'
+                      AND platform_user_id = ANY($2::text[])""",
+                client_id, list(test_tg_set),
+            )
+            allowed_contact_ids = {r["contact_id"] for r in tg_contact_rows}
+        if not test_emails_set and not allowed_contact_ids:
             return 0
-        # Ищем contact_id'ы которые имеют TG-identity из тестового списка
-        test_contact_ids = await conn.fetch(
-            """SELECT DISTINCT contact_id FROM platform_users
-                WHERE client_id = $1 AND platform_slug = 'telegram'
-                  AND platform_user_id = ANY($2::text[])""",
-            client_id, list(test_tg_set),
-        )
-        test_set = {r["contact_id"] for r in test_contact_ids}
-        rows = [r for r in rows if r["contact_id"] in test_set]
+        rows = [
+            r for r in rows
+            if (r["email"] and str(r["email"]).strip().lower() in test_emails_set)
+               or (r["contact_id"] in allowed_contact_ids)
+        ]
         if not rows:
             return 0
 
     # Готовим текст письма. Subject из шаблона рассылок появится в следующей
     # итерации (поле broadcast_templates.subject — отдельная миграция). Пока
     # тема собирается из первой строки текста, если она короткая.
-    body_text = text or ""
-    first_line = body_text.split("\n", 1)[0].strip() if body_text else ""
-    subject = first_line if (0 < len(first_line) <= 120) else "Новое сообщение от ПЛЮСОН"
+    import re as _re
+    raw_text = text or ""
 
-    # Кнопка → текстовая ссылка в конце письма (для email-каналов кнопка
-    # рендерится как стилизованная ссылка; полноценный HTML-блок-кнопка
-    # появится с HTML-вёрсткой писем — следующий подэтап).
-    if button_text and button_url:
-        body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
-    elif buttons:
-        body_text = body_text.rstrip() + "\n\n" + "\n".join(
-            f"{b.get('label','Открыть')}: {b.get('url','')}" for b in buttons
-        )
+    def _strip_html(s: str) -> str:
+        """HTML-теги → пусто. Минимальный замены HTML-entities."""
+        s = _re.sub(r"<br\s*/?>", "\n", s, flags=_re.IGNORECASE)
+        s = _re.sub(r"</p\s*>", "\n\n", s, flags=_re.IGNORECASE)
+        s = _re.sub(r"</li\s*>", "\n", s, flags=_re.IGNORECASE)
+        s = _re.sub(r"<[^>]+>", "", s)
+        s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#39;", "'")
+        return s
+
+    # Subject — ВСЕГДА без HTML-тегов (иначе Gmail воспримет «<b>...» как
+    # спам-сигнал и положит письмо в Promo/Spam, а возможно и тихо удалит).
+    plain_first_line = _strip_html(raw_text).split("\n", 1)[0].strip()
+    subject = plain_first_line if (0 < len(plain_first_line) <= 120) else "Новое сообщение от ПЛЮСОН"
+
+    # Решаем, есть ли в исходном тексте HTML-разметка. Если есть — шлём
+    # multipart (HTML + plain-fallback), чтобы Gmail рендерил <b>/<i>/<a>
+    # как форматирование, а не показывал теги как текст. Если нет —
+    # обычный plain.
+    has_html = bool(_re.search(r"<[a-zA-Z][^>]*>", raw_text))
+    if has_html:
+        # HTML-часть: переносы строк в <br>, ссылки кнопок добавляются HTML-ссылками.
+        html_body = raw_text.replace("\n", "<br>\n")
+        if button_text and button_url:
+            html_body += f'<br><br><a href="{button_url}">{button_text}</a>'
+        elif buttons:
+            html_body += "<br><br>" + "<br>".join(
+                f'<a href="{b.get("url","")}">{b.get("label","Открыть")}</a>'
+                for b in buttons
+            )
+        # Plain-часть: HTML вырезан, переносы и кнопки — текстом.
+        plain_body = _strip_html(raw_text)
+        if button_text and button_url:
+            plain_body = plain_body.rstrip() + f"\n\n{button_text}: {button_url}"
+        elif buttons:
+            plain_body = plain_body.rstrip() + "\n\n" + "\n".join(
+                f"{b.get('label','Открыть')}: {b.get('url','')}" for b in buttons
+            )
+        body_text = plain_body
+    else:
+        # Без HTML — старая логика plain-text.
+        body_text = raw_text
+        if button_text and button_url:
+            body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
+        elif buttons:
+            body_text = body_text.rstrip() + "\n\n" + "\n".join(
+                f"{b.get('label','Открыть')}: {b.get('url','')}" for b in buttons
+            )
+        html_body = None
 
     sender = EmailSender()
     sent = 0
@@ -938,9 +983,12 @@ async def _send_broadcast_email_part(
         )
 
         # Персонализация: {first_name}
-        msg_text = body_text
-        if "{first_name}" in msg_text:
-            msg_text = msg_text.replace("{first_name}", r["first_name"] or "друг")
+        first_name_val = r["first_name"] or "друг"
+        msg_text = body_text.replace("{first_name}", first_name_val) if "{first_name}" in body_text else body_text
+        msg_html = (
+            html_body.replace("{first_name}", first_name_val) if (html_body and "{first_name}" in html_body)
+            else html_body
+        )
 
         ok = False
         err: str | None = None
@@ -953,6 +1001,7 @@ async def _send_broadcast_email_part(
                 subject=subject,
                 body_text=msg_text,
                 unsubscribe_token=unsub_token,
+                body_html=msg_html,
             )
             ok = True
         except EmailSendError as e:

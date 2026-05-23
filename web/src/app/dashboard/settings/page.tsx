@@ -35,7 +35,7 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '' })
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -57,6 +57,7 @@ export default function SettingsPage() {
         test_telegram_ids_raw: (c.test_telegram_ids || []).join(', '),
         test_vk_ids_raw: (c.test_vk_ids || []).join(', '),
         test_max_ids_raw: (c.test_max_ids || []).join(', '),
+        test_email_ids_raw: (c.test_email_ids || []).join(', '),
         work_tg_username: c.work_tg_username || '',
         work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
@@ -85,6 +86,7 @@ export default function SettingsPage() {
       const testIds = parseIds(form.test_telegram_ids_raw)
       const testVkIds = parseIds(form.test_vk_ids_raw)
       const testMaxIds = parseIds(form.test_max_ids_raw)
+      const testEmailIds = parseIds(form.test_email_ids_raw)
       const concurrency = Math.max(1, Math.min(100, Number(form.broadcast_concurrency) || 30))
       await api.auth.updateMe({
         name: form.name,
@@ -94,6 +96,7 @@ export default function SettingsPage() {
         test_telegram_ids: testIds,
         test_vk_ids: testVkIds,
         test_max_ids: testMaxIds,
+        test_email_ids: testEmailIds,
         work_tg_username: form.work_tg_username || null,
         work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
         broadcast_concurrency: concurrency,
@@ -339,6 +342,33 @@ export default function SettingsPage() {
               <div className="mt-2 flex flex-wrap gap-2">
                 {form.test_max_ids_raw.split(/[,\s]+/).filter(Boolean).map((id: string) => (
                   <span key={id} className="text-xs bg-amber-50 text-amber-700 border border-amber-100 rounded-lg px-2 py-0.5 font-mono">
+                    {id.trim()}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Email
+            </label>
+            <input
+              type="text"
+              value={form.test_email_ids_raw}
+              onChange={set('test_email_ids_raw')}
+              placeholder="test@example.com, you@gmail.com"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Адреса для тестовых email-рассылок (через запятую или пробел). Адрес должен быть в вашей
+              базе контактов и подписан на email-канал — иначе письмо не отправится.
+            </p>
+            {form.test_email_ids_raw && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {form.test_email_ids_raw.split(/[,\s]+/).filter(Boolean).map((id: string) => (
+                  <span key={id} className="text-xs bg-purple-50 text-purple-700 border border-purple-100 rounded-lg px-2 py-0.5 font-mono">
                     {id.trim()}
                   </span>
                 ))}

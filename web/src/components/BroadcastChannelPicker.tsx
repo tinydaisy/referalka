@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 
 type Channel = {
@@ -34,8 +35,8 @@ type Props = {
    */
   value: number[] | null
   /**
-   * Возвращает массив всех channel_id если выбраны все, либо подмножество.
-   * null не возвращаем — фронт всегда явно отдаёт массив.
+   * Возвращает массив channel_id. Если выбраны все каналы — вернёт полный
+   * список (фронт всегда отдаёт массив).
    */
   onChange: (next: number[]) => void
 }
@@ -43,6 +44,8 @@ type Props = {
 export default function BroadcastChannelPicker({ value, onChange }: Props) {
   const [channels, setChannels] = useState<Channel[] | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -50,9 +53,7 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
       if (cancelled) return
       const items: Channel[] = res?.items || []
       setChannels(items)
-      // Первая инициализация: если value === null (вообще ничего не выбрано
-      // от пользователя), выставляем «все каналы» — таково поведение по
-      // умолчанию по требованию. Если value уже массив — оставляем.
+      // Первая инициализация: NULL → выбрать все каналы (поведение по умолчанию).
       if (value === null) {
         onChange(items.map(c => c.id))
       }
@@ -64,6 +65,16 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Закрытие по клику вне dropdown.
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (!wrapperRef.current) return
+      if (!wrapperRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    if (open) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
   if (loadErr) {
     return (
       <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -72,7 +83,12 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
     )
   }
   if (channels === null) {
-    return <div className="text-xs text-gray-400">Загружаю каналы…</div>
+    return (
+      <div>
+        <label className="text-xs text-gray-500 mb-1 block">Каналы для отправки</label>
+        <div className="text-xs text-gray-400 px-3 py-2">Загружаю каналы…</div>
+      </div>
+    )
   }
   if (channels.length === 0) {
     return (
@@ -84,6 +100,7 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
 
   const selected = new Set<number>(value || channels.map(c => c.id))
   const allSelected = channels.every(c => selected.has(c.id))
+  const noneSelected = selected.size === 0
 
   function toggle(id: number) {
     const next = new Set(selected)
@@ -107,52 +124,88 @@ export default function BroadcastChannelPicker({ value, onChange }: Props) {
     Object.keys(grouped).filter(p => !platformOrder.includes(p))
   )
 
+  // Краткое описание в свёрнутом виде
+  let summary: string
+  if (allSelected) {
+    summary = `Все каналы (${channels.length})`
+  } else if (noneSelected) {
+    summary = 'Ни один канал не выбран'
+  } else {
+    // Если внутри платформы выбраны все — пишем название платформы, иначе «N из M»
+    const parts: string[] = []
+    for (const p of platforms) {
+      const all = grouped[p]
+      const inSel = all.filter(c => selected.has(c.id)).length
+      if (inSel === 0) continue
+      if (inSel === all.length) parts.push(PLATFORM_TITLE[p] || p)
+      else parts.push(`${PLATFORM_TITLE[p] || p} (${inSel}/${all.length})`)
+    }
+    summary = parts.join(', ')
+  }
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-xs text-gray-500">Каналы для отправки</label>
-        <button type="button" onClick={toggleAll}
-          className="text-[11px] text-indigo-600 hover:text-indigo-800">
-          {allSelected ? 'Снять всё' : 'Выбрать все'}
-        </button>
-      </div>
-      <div className="border border-gray-200 rounded-xl divide-y divide-gray-100">
-        {platforms.map(platform => (
-          <div key={platform} className="px-3 py-2">
-            <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">
-              {PLATFORM_EMOJI[platform] || ''} {PLATFORM_TITLE[platform] || platform}
-            </div>
-            <div className="space-y-1.5">
+    <div ref={wrapperRef} className="relative">
+      <label className="text-xs text-gray-500 mb-1 block">Каналы для отправки</label>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2 border rounded-lg text-sm bg-white text-left
+          ${noneSelected ? 'border-red-300 text-red-600' : 'border-gray-200 text-gray-700'}
+          hover:border-gray-300`}>
+        <span className="truncate">{summary}</span>
+        <ChevronDown
+          size={16}
+          className={`text-gray-400 transition-transform shrink-0 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-80 overflow-y-auto">
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="w-full text-left px-3 py-2 border-b border-gray-100 hover:bg-gray-50 text-xs text-indigo-600 font-medium">
+            {allSelected ? 'Снять все галочки' : 'Выбрать все каналы'}
+          </button>
+          {platforms.map(platform => (
+            <div key={platform} className="px-2 py-1.5 border-b border-gray-100 last:border-b-0">
+              <div className="text-[11px] uppercase tracking-wide text-gray-400 px-2 py-1">
+                {PLATFORM_EMOJI[platform] || ''} {PLATFORM_TITLE[platform] || platform}
+              </div>
               {grouped[platform].map(ch => {
                 const checked = selected.has(ch.id)
                 const subs = typeof ch.subscribers === 'string' ? parseInt(ch.subscribers) : ch.subscribers
                 return (
-                  <label key={ch.id}
-                    className="flex items-center gap-2 cursor-pointer text-sm py-0.5 group">
+                  <label
+                    key={ch.id}
+                    className="flex items-center gap-2 cursor-pointer text-sm px-2 py-1.5 rounded-lg hover:bg-gray-50">
+                    <span className={`w-4 h-4 flex items-center justify-center rounded border ${checked ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300 bg-white'}`}>
+                      {checked && <Check size={11} className="text-white" strokeWidth={3} />}
+                    </span>
                     <input
                       type="checkbox"
+                      className="sr-only"
                       checked={checked}
                       onChange={() => toggle(ch.id)}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <span className={checked ? 'text-gray-800' : 'text-gray-400'}>
+                    <span className={`flex-1 truncate ${checked ? 'text-gray-800' : 'text-gray-400'}`}>
                       {ch.display_name || ch.handle || `Канал #${ch.id}`}
                       {ch.is_system && (
                         <span className="ml-1.5 text-[10px] uppercase tracking-wide text-gray-400">сист.</span>
                       )}
                     </span>
-                    <span className="ml-auto text-[11px] text-gray-400">
+                    <span className="text-[11px] text-gray-400 shrink-0">
                       {Number.isFinite(subs) ? `${subs} подп.` : ''}
                     </span>
                   </label>
                 )
               })}
             </div>
-          </div>
-        ))}
-      </div>
-      <p className="text-[11px] text-gray-400">
-        По умолчанию рассылка уходит по всем каналам. Снимите галочку — этот канал будет пропущен.
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-gray-400 mt-1">
+        По умолчанию — все каналы. Снимите галочку, чтобы пропустить канал.
       </p>
     </div>
   )
