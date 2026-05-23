@@ -604,7 +604,14 @@ async def _send_broadcast_vk_part(
         except Exception as e:
             logger.warning(f"VK photo upload failed for {photo_url}: {e}")
         if not photo_attachment:
-            logger.warning(f"VK photo upload returned None — отправим как ссылку: {photo_url}")
+            # Жёсткое правило: НЕ ВСТАВЛЯЕМ голую R2-ссылку в текст сообщения —
+            # это выглядит уродливо и сбивает читателя. Если VK upload-сервер
+            # упал (504/502 — встречается под нагрузкой), просто отправляем
+            # сообщение без фото. Клиент увидит текст и кнопку, фото пропустим.
+            logger.warning(
+                f"VK photo upload failed после всех retries — шлём БЕЗ фото, "
+                f"R2-ссылку в текст вшивать НЕ будем: {photo_url}"
+            )
 
     sent = 0
     for r in rows:
@@ -613,10 +620,10 @@ async def _send_broadcast_vk_part(
         except (TypeError, ValueError):
             continue
         message_text = text or ""
-        # Fallback: если загрузить фото не получилось — вшиваем URL в текст,
-        # VK развернёт превью по Open Graph (хуже превью, но лучше чем ничего).
-        if photo_url and not photo_attachment:
-            message_text = f"{photo_url}\n\n{message_text}".strip()
+        # Раньше тут был fallback «если фото не залилось → вшиваем URL в текст».
+        # Убрано: пользователь увидит уродливую R2-ссылку, и это выглядит как
+        # спам. Лучше отправить только текст — фото потеряется, но сообщение
+        # будет читаемым.
         ok = False
         err: str | None = None
         vk_message_id: int | None = None
@@ -776,10 +783,11 @@ async def _send_broadcast_max_part(
         except (TypeError, ValueError):
             continue
         message_text = text or ""
-        # photo_url пока шлём как ссылку в начале текста; нативную загрузку через
-        # /uploads добавим в следующей итерации (как у VK)
-        if photo_url:
-            message_text = f"{photo_url}\n\n{message_text}".strip()
+        # MAX пока без нативной загрузки картинки. Раньше вшивали R2-URL в начало
+        # текста — убрали по тому же правилу что для VK: голая R2-ссылка
+        # выглядит как спам. Лучше шлём без фото; нативную загрузку в MAX
+        # добавим отдельно. TODO: max_api.upload_photo + attachment.
+        # if photo_url: ...  # не добавляем URL в текст
         ok = False
         err: str | None = None
         try:
