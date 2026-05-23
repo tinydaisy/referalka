@@ -584,8 +584,10 @@ async def _send_broadcast_vk_part(
 
     keyboard = None
     if buttons:
-        # Конвертация массива кнопок [{label, url}, ...] в VK keyboard
-        keyboard_rows = [[{"text": b.get("label", "Открыть"), "url": b.get("url", "")}] for b in buttons]
+        # Конвертация массива кнопок [{text|label, url}, ...] в VK keyboard.
+        # snapshot_buttons из broadcasts/general хранит поле text;
+        # шаблоны конференций могут хранить label.
+        keyboard_rows = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b.get("url", "")}] for b in buttons]
         keyboard = tg_inline_to_vk_keyboard(keyboard_rows)
     elif button_text and button_url:
         keyboard = tg_inline_to_vk_keyboard([[{"text": button_text, "url": button_url}]])
@@ -762,7 +764,7 @@ async def _send_broadcast_max_part(
 
     max_buttons = None
     if buttons:
-        rows_btn = [[{"text": b.get("label", "Открыть"), "url": b.get("url", "")}] for b in buttons]
+        rows_btn = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b.get("url", "")}] for b in buttons]
         max_buttons = tg_inline_to_max_keyboard(rows_btn)
     elif button_text and button_url:
         max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
@@ -1012,7 +1014,10 @@ async def _send_broadcast_email_part(
     if button_text and button_url:
         html_button = _html_button(button_text, button_url)
     elif buttons:
-        html_button = "".join(_html_button(b.get("label", "Открыть"), b.get("url", "")) for b in buttons)
+        html_button = "".join(
+            _html_button((b.get("text") or b.get("label") or "Открыть"), b.get("url", ""))
+            for b in buttons
+        )
 
     # Собираем полное HTML-тело (с оборачивающим контейнером).
     html_body = (
@@ -1030,7 +1035,7 @@ async def _send_broadcast_email_part(
         body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
     elif buttons:
         body_text = body_text.rstrip() + "\n\n" + "\n".join(
-            f"{b.get('label','Открыть')}: {b.get('url','')}" for b in buttons
+            f"{(b.get('text') or b.get('label') or 'Открыть')}: {b.get('url','')}" for b in buttons
         )
 
     sender = EmailSender()
