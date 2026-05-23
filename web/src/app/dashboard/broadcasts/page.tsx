@@ -708,6 +708,7 @@ function CustomBroadcastModal(props: {
     props.initial?.target_channel_ids ?? null
   )
   const [saving, setSaving] = useState(false)
+  const [formErrors, setFormErrors] = useState<string[]>([])
   const isEdit = typeof props.editId === 'number'
   const editorRef = useRef<RichTextEditorHandle>(null)
 
@@ -722,30 +723,33 @@ function CustomBroadcastModal(props: {
     const liveText = editorRef.current?.getValue() ?? text
     if (liveText !== text) setText(liveText)
 
-    // Валидация показывается через alert() — блокирующее окно, которое
-    // нельзя не заметить (toast наверху страницы скрывается за модалкой).
-    if (!fireAt) { alert('Укажите дату и время'); return }
-    // Проверяем на пустоту по тексту без HTML-тегов
+    // Собираем все ошибки списком (показываем над кнопкой красным блоком).
+    const errs: string[] = []
+    if (!fireAt) errs.push('Не указана дата и время рассылки')
+    // Проверка «пусто» по plain-text (без тегов и &nbsp;)
     const plain = liveText.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
-    if (!plain) { alert('Пустой текст'); return }
+    // Диагностика: пишем в Console сколько символов в каждом поле.
+    // eslint-disable-next-line no-console
+    console.log('[broadcasts.save] subject=', JSON.stringify(subject), 'liveText.length=', liveText.length, 'plain.length=', plain.length, 'plain.first40=', plain.slice(0, 40))
+    if (!plain) {
+      // Если есть subject — рассылка осмысленна (subject пойдёт в TG/email),
+      // но мы всё равно требуем body, чтобы не слать пустые письма.
+      errs.push(subject
+        ? `Тело сообщения пустое (введён только заголовок «${subject.slice(0, 40)}»). Заполните основной текст под заголовком.`
+        : 'Тело сообщения пустое. Введите текст рассылки в редакторе.'
+      )
+    }
     if (htmlErrors.length > 0) {
-      alert(
-        'Telegram не примет такое сообщение:\n\n' +
-        htmlErrors.map(e => '• ' + e).join('\n') +
-        '\n\nЛибо переоткрой редактор — встроенный конвертер уберёт лишние теги при следующем вводе.'
-      )
-      return
+      errs.push('Telegram не примет такие HTML-теги: ' + htmlErrors.map(e => '«' + e + '»').join(', '))
     }
-    if (buttons.length > 3) { alert('Максимум 3 кнопки'); return }
+    if (buttons.length > 3) errs.push('Максимум 3 кнопки')
     if (hasButtonErrors) {
-      alert(
-        'Ошибки в кнопках:\n\n' +
-        buttonErrors.flatMap((errs, i) =>
-          errs.length ? errs.map(e => `• Кнопка ${i + 1}: ${e}`) : []
-        ).join('\n')
-      )
-      return
+      buttonErrors.forEach((bErrs, i) => {
+        bErrs.forEach(e => errs.push(`Кнопка ${i + 1}: ${e}`))
+      })
     }
+    setFormErrors(errs)
+    if (errs.length > 0) return
     setSaving(true)
     try {
       const payload: any = {
@@ -882,6 +886,14 @@ function CustomBroadcastModal(props: {
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX / Email из настроек)</span>
           </label>
         </div>
+        {formErrors.length > 0 && (
+          <div className="mt-4 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+            <div className="font-semibold mb-1">Не получается поставить в очередь:</div>
+            <ul className="list-disc pl-5 space-y-1">
+              {formErrors.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          </div>
+        )}
         <div className="flex gap-2 mt-5">
           <button onClick={save} disabled={saving}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"

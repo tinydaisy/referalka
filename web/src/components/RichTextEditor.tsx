@@ -253,12 +253,15 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
         />
       )}
 
-      {/* Подсказка-плейсхолдер через CSS-псевдо */}
+      {/* Подсказка-плейсхолдер через CSS-псевдо. Курсив + светло-серый —
+          чтобы пользователь не путал с реальным введённым текстом. */}
       <style jsx>{`
         [contenteditable]:empty::before {
           content: attr(data-placeholder);
-          color: #9ca3af;
+          color: #cbd5e1;
+          font-style: italic;
           pointer-events: none;
+          opacity: 0.8;
         }
         [contenteditable] a {
           color: #2563eb;

@@ -40,11 +40,34 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
   async function save() {
     setSaving(true); setError(null); setSaved(false)
     try {
-      // Берём актуальное значение прямо из редактора — даже если user
-      // не успел потерять фокус и onChange не сработал, getValue() прочитает
-      // innerHTML и прогонит через sanitize.
-      const liveBody = editorRef.current?.getValue() ?? body
-      setBody(liveBody) // синхронизируем стейт
+      // Принудительный blur — заставит редактор сделать flush onChange.
+      try { (document.activeElement as HTMLElement)?.blur?.() } catch {}
+      // Микропауза, чтобы React успел обработать setState от flush.
+      await new Promise(r => setTimeout(r, 50))
+
+      // Берём актуальное значение прямо из редактора через ref.
+      const refExists = !!editorRef.current
+      const refValue = editorRef.current?.getValue() ?? ''
+      const liveBody = refValue || body
+
+      // Полная диагностика — видно всё что есть.
+      // eslint-disable-next-line no-console
+      console.log('[WelcomeTab.save]', {
+        refExists, refValueLen: refValue.length, refValueFirst: refValue.slice(0, 40),
+        bodyLen: (body || '').length, bodyFirst: (body || '').slice(0, 40),
+        liveBodyLen: liveBody.length, liveBodyFirst: liveBody.slice(0, 40),
+        enabled, subject,
+      })
+      setBody(liveBody)
+
+      // Если приветствие включено — требуем непустой текст. Иначе письмо
+      // не будет отправляться и пользователь не поймёт почему.
+      const plain = (liveBody || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+      if (enabled && !plain) {
+        setError('Заполните «Текст приветствия» — без него письмо не уйдёт. То, что вы видите серым курсивом — это подсказка-пример, не реальный текст.')
+        setSaving(false)
+        return
+      }
 
       const payload = {
         welcome_enabled: enabled,
@@ -53,7 +76,7 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
       }
       // Диагностика: логируем что реально шлём (видно в DevTools → Console)
       // eslint-disable-next-line no-console
-      console.log('[WelcomeTab.save] payload:', payload)
+      console.log('[WelcomeTab.save] payload:', payload, 'plain.length=', plain.length)
       await api.events.update(eventId, payload)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -130,9 +153,12 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
             ref={editorRef}
             value={body}
             onChange={setBody}
-            placeholder="Привет, {name}!&#10;&#10;Спасибо за регистрацию на «{event_title}»..."
+            placeholder="(пример) Привет, {name}! Спасибо за регистрацию на «{event_title}»..."
             rows={12}
           />
+          <div className="text-xs text-gray-500 mt-1">
+            Длина: {(body || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().length} символов
+          </div>
         </div>
 
         {/* Плейсхолдеры */}
