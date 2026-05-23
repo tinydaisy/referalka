@@ -130,22 +130,39 @@ async def _do_unsubscribe(token: str, request: Request, db) -> bool:
         visited.add(target_contact_id)
         contact_row = next_row
 
-    # Находим email-идентичность контакта и подписку на этот канал
-    pu_id = await db.fetchval(
-        """SELECT id FROM platform_users
+    # Резолвим email-адрес: сначала пробуем найти у master-контакта запись
+    # в platform_users (там platform_user_id хранит email-адрес). Если нет —
+    # берём напрямую из contacts.email_normalized.
+    email_addr = await db.fetchval(
+        """SELECT platform_user_id FROM platform_users
             WHERE contact_id = $1 AND platform_slug = 'email'
             LIMIT 1""",
         target_contact_id,
     )
-    if pu_id:
+    if not email_addr:
+        email_addr = await db.fetchval(
+            "SELECT email_normalized FROM contacts WHERE id = $1",
+            target_contact_id,
+        )
+    if email_addr:
+        # У одного и того же клиента может быть несколько активных контактов
+        # с одинаковым email (например, человек пришёл и через TG, и через
+        # VK — мы создали 2 отдельных contacts). Отписываемся СРАЗУ ВО ВСЕХ —
+        # чтобы человек один раз нажал и больше не получал писем ни от какой
+        # из его «личностей» в БД клиента.
         await db.execute(
-            """UPDATE platform_user_channels
+            """UPDATE platform_user_channels puc
                   SET is_unsubscribed = TRUE,
                       unsubscribed_at = NOW()
-                WHERE platform_user_id = $1
-                  AND client_channel_id = $2
-                  AND is_unsubscribed = FALSE""",
-            pu_id, client_channel_id,
+                FROM platform_users pu
+                JOIN contacts c ON c.id = pu.contact_id
+               WHERE puc.platform_user_id = pu.id
+                 AND pu.platform_slug = 'email'
+                 AND pu.platform_user_id = $1
+                 AND c.client_id = $2
+                 AND puc.client_channel_id = $3
+                 AND puc.is_unsubscribed = FALSE""",
+            str(email_addr).strip().lower(), client_id, client_channel_id,
         )
 
     # Лог отписки — пригодится для метрик качества и аудита.
