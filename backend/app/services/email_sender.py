@@ -177,20 +177,22 @@ class EmailSender:
             alternative.attach(MIMEText(plain_body, "plain", "utf-8"))
             alternative.attach(MIMEText(html_body_full, "html", "utf-8"))
             related.attach(alternative)
-            for img in inline_images:
+            for i, img in enumerate(inline_images, start=1):
                 try:
-                    image_part = MIMEImage(
-                        img["data"],
-                        _subtype=img.get("subtype", "jpeg"),
-                    )
+                    subtype = img.get("subtype", "jpeg")
+                    image_part = MIMEImage(img["data"], _subtype=subtype)
                     cid = img["content_id"]
                     image_part.add_header("Content-ID", f"<{cid}>")
-                    # filename=… помогает почтовикам правильно классифицировать
-                    # картинку как «inline media» (а не как «attachment»).
+                    # filename — нормальное «человеческое» имя файла, чтобы
+                    # Gmail/Outlook видели обычную картинку (а не «cid-токен»)
+                    # и не помечали её как подозрительное приложение.
+                    # Расширение совпадает с реальным subtype: jpeg→.jpg, png→.png и т.п.
+                    ext = "jpg" if subtype == "jpeg" else subtype
+                    pretty_name = "photo.jpg" if i == 1 and ext == "jpg" else f"photo-{i}.{ext}"
                     image_part.add_header(
                         "Content-Disposition",
                         "inline",
-                        filename=f"{cid}.{img.get('subtype', 'jpg')}",
+                        filename=pretty_name,
                     )
                     # MIMEImage по умолчанию ставит Content-Transfer-Encoding: base64
                     # уже сам — дополнительно ничего не нужно.
