@@ -836,6 +836,9 @@ async def _send_broadcast_email_part(
     """
     from app.services.email_sender import EmailSender, EmailSendError
     from app.services.unsubscribe_token import make_email_unsubscribe_token
+    from app.api.email_tracking import make_open_token, make_click_token
+    import re as _re_tracking
+    import urllib.parse as _urlparse
 
     client_id = schedule["client_id"]
     aud_include = schedule.get("audience_include") or "all_event"
@@ -1094,6 +1097,55 @@ async def _send_broadcast_email_part(
             f"{(b.get('text') or b.get('label') or 'Открыть')}: {b.get('url','')}" for b in buttons
         )
 
+    frontend_url = settings.frontend_url.rstrip("/")
+    pixel_base = f"{frontend_url}/api/v1/email/pixel"
+    click_base = f"{frontend_url}/api/v1/email/click"
+    unsub_base = f"{frontend_url}/api/v1/email/unsubscribe"
+
+    def _inject_tracking(html: str, open_token: str, click_token: str) -> str:
+        """Вшивает в HTML письма:
+        1) Перед </body> — <img> 1×1 пиксель открытия (cid:open-token).
+        2) Все <a href="…"> (кроме ссылок на /api/v1/email/unsubscribe и cid:/mailto:)
+           переписывает на click-redirect /api/v1/email/click?token=…&u=…
+        """
+        # 1. Пиксель открытия — добавляем перед </body> (или в конец если </body> нет).
+        pixel = (
+            f'<img src="{pixel_base}/{open_token}.gif" '
+            f'width="1" height="1" alt="" '
+            f'style="display:block;width:1px;height:1px;border:0;outline:none;"/>'
+        )
+        if "</body>" in html:
+            html = html.replace("</body>", pixel + "</body>", 1)
+        else:
+            html = html + pixel
+
+        # 2. Click rewriting. Регулярка ловит href="…" и href='…'. Пропускаем:
+        #    - ссылки на /api/v1/email/unsubscribe (наш собственный unsub)
+        #    - cid:, mailto:, tel:, data: — это не для трекинга
+        def _rewrite(match):
+            full = match.group(0)        # вся href="…" часть
+            quote = match.group(1)       # " или '
+            url = match.group(2)         # содержимое
+            low = url.lower()
+            if (
+                "/api/v1/email/unsubscribe" in low
+                or low.startswith(("cid:", "mailto:", "tel:", "data:", "#"))
+            ):
+                return full
+            if not low.startswith(("http://", "https://")):
+                return full
+            encoded = _urlparse.quote(url, safe="")
+            new_url = f"{click_base}?token={click_token}&u={encoded}"
+            return f'href={quote}{new_url}{quote}'
+
+        html = _re_tracking.sub(
+            r'href\s*=\s*(["\'])([^"\']+)\1',
+            _rewrite,
+            html,
+            flags=_re_tracking.IGNORECASE,
+        )
+        return html
+
     sender = EmailSender()
     sent = 0
     for r in rows:
@@ -1116,6 +1168,27 @@ async def _send_broadcast_email_part(
             else html_body
         )
 
+        # 1) Вставляем broadcast_log со статусом 'sending' — нужен для трек-токенов.
+        #    Полноценный sent/failed/error/external_message_id допишем после отправки.
+        try:
+            blid = await conn.fetchval(
+                """INSERT INTO broadcast_log
+                       (schedule_id, platform_user_id, channel_id, status, sent_at)
+                   VALUES ($1, $2, $3, 'sending', NOW())
+                   RETURNING id""",
+                schedule["id"], r["pu_id"], channel_dict["channel_id"],
+            )
+        except Exception as e:
+            logger.warning(f"Email broadcast_log insert (sending) failed for pu_id={r['pu_id']}: {e}")
+            blid = None
+
+        # 2) Если есть blid — вшиваем open-пиксель и click-rewriting в HTML.
+        msg_html_final = msg_html
+        if blid and msg_html_final:
+            open_tok = make_open_token(blid, r["contact_id"])
+            click_tok = make_click_token(blid, r["contact_id"])
+            msg_html_final = _inject_tracking(msg_html_final, open_tok, click_tok)
+
         ok = False
         err: str | None = None
         msg_id: str | None = None
@@ -1137,25 +1210,40 @@ async def _send_broadcast_email_part(
                 subject=subject,
                 body_text=msg_text,
                 unsubscribe_token=unsub_token,
-                body_html=msg_html,
+                body_html=msg_html_final,
                 inline_images=inline_images_arg,
             )
             ok = True
         except EmailSendError as e:
             err = str(e)
 
-        # Лог отправки — модалка «Получатели рассылки» читает отсюда
-        try:
-            await conn.execute(
-                """INSERT INTO broadcast_log
-                       (schedule_id, platform_user_id, channel_id, status, error,
-                        external_message_id, sent_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, NOW())""",
-                schedule["id"], r["pu_id"], channel_dict["channel_id"],
-                "sent" if ok else "failed", err, msg_id,
-            )
-        except Exception as e:
-            logger.warning(f"Email broadcast_log insert failed for pu_id={r['pu_id']}: {e}")
+        # 3) Обновляем broadcast_log финальным статусом.
+        if blid:
+            try:
+                await conn.execute(
+                    """UPDATE broadcast_log
+                          SET status = $2, error = $3, external_message_id = $4
+                        WHERE id = $1""",
+                    blid,
+                    "sent" if ok else "failed",
+                    err,
+                    msg_id,
+                )
+            except Exception as e:
+                logger.warning(f"Email broadcast_log update failed for blid={blid}: {e}")
+        else:
+            # Fallback на случай если первый INSERT не прошёл — пишем после отправки.
+            try:
+                await conn.execute(
+                    """INSERT INTO broadcast_log
+                           (schedule_id, platform_user_id, channel_id, status, error,
+                            external_message_id, sent_at)
+                       VALUES ($1, $2, $3, $4, $5, $6, NOW())""",
+                    schedule["id"], r["pu_id"], channel_dict["channel_id"],
+                    "sent" if ok else "failed", err, msg_id,
+                )
+            except Exception as e:
+                logger.warning(f"Email broadcast_log insert (fallback) failed for pu_id={r['pu_id']}: {e}")
 
         if ok:
             sent += 1

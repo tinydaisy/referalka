@@ -184,7 +184,15 @@ async def list_schedules(
                CASE WHEN finished_at IS NOT NULL AND started_at IS NOT NULL
                     THEN EXTRACT(EPOCH FROM (finished_at - started_at))::int
                     ELSE NULL END as duration_seconds,
-               (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = broadcast_schedules.id AND bl.status = 'failed') as recipients_failed
+               (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = broadcast_schedules.id AND bl.status = 'failed') as recipients_failed,
+               (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = broadcast_schedules.id AND bl.status = 'bounced') as recipients_bounced,
+               -- агрегаты по email-аналитике: уникальные получатели, открывшие/кликнувшие
+               (SELECT COUNT(DISTINCT eo.broadcast_log_id)
+                  FROM email_open_log eo JOIN broadcast_log bl ON bl.id = eo.broadcast_log_id
+                 WHERE bl.schedule_id = broadcast_schedules.id) AS email_opens_total,
+               (SELECT COUNT(DISTINCT ec.broadcast_log_id)
+                  FROM email_click_log ec JOIN broadcast_log bl ON bl.id = ec.broadcast_log_id
+                 WHERE bl.schedule_id = broadcast_schedules.id) AS email_clicks_total
         FROM broadcast_schedules
         WHERE client_id=$1 AND event_id IS NULL
         ORDER BY fire_at NULLS LAST
@@ -353,11 +361,16 @@ async def log(
     await _check_owner(db, schedule_id, client_id)
     rows = await db.fetch(
         """
-        SELECT bl.platform_user_id, bl.status, bl.error, bl.sent_at, bl.read_at,
+        SELECT bl.id AS broadcast_log_id,
+               bl.platform_user_id, bl.status, bl.error, bl.sent_at, bl.read_at,
                pu.first_name, pu.last_name, pu.username, pu.platform_user_id as tg_id,
                pu.platform_slug AS user_platform,
                bl.channel_id, ch.handle AS channel_handle, ch.display_name AS channel_name,
-               ch.platform_slug AS channel_platform
+               ch.platform_slug AS channel_platform,
+               -- email-аналитика (для каналов platform='email' покажется счётчик
+               -- открытий и кликов; для прочих платформ останется 0)
+               (SELECT COUNT(*) FROM email_open_log eo  WHERE eo.broadcast_log_id = bl.id) AS email_opens,
+               (SELECT COUNT(*) FROM email_click_log ec WHERE ec.broadcast_log_id = bl.id) AS email_clicks
         FROM broadcast_log bl
         LEFT JOIN platform_users pu ON pu.id = bl.platform_user_id
         LEFT JOIN channels ch ON ch.id = bl.channel_id

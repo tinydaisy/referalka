@@ -524,7 +524,16 @@ export default function GeneralBroadcastsPage() {
       {logModal && (() => {
         const sentCount = logModal.rows.filter((r: any) => r.status === 'sent').length
         const readCount = logModal.rows.filter((r: any) => r.status === 'sent' && r.read_at).length
-        const failed = logModal.rows.filter((r: any) => r.status !== 'sent')
+        const bouncedCount = logModal.rows.filter((r: any) => r.status === 'bounced').length
+        // Email-аналитика: открытий и кликов хотя бы 1 (по unique получателям)
+        const emailOpenedCount = logModal.rows.filter((r: any) =>
+          (r.channel_platform === 'email') && Number(r.email_opens) > 0
+        ).length
+        const emailClickedCount = logModal.rows.filter((r: any) =>
+          (r.channel_platform === 'email') && Number(r.email_clicks) > 0
+        ).length
+        const hasEmailRows = logModal.rows.some((r: any) => r.channel_platform === 'email')
+        const failed = logModal.rows.filter((r: any) => r.status !== 'sent' && r.status !== 'bounced')
         const reasonMap: Record<string, number> = {}
         for (const r of failed) {
           const reason = humanReason(r.error || 'Неизвестная ошибка')
@@ -559,8 +568,16 @@ export default function GeneralBroadcastsPage() {
                   <p className="text-xs text-gray-400">
                     Всего: {logModal.rows.length} · <span className="text-green-600">доставлено {sentCount}</span>
                     {readCount > 0 && <> · <span className="text-blue-600" title="Прочтения отслеживаются только в VK (Telegram Bot API не даёт read receipts)">прочитано {readCount}</span></>}
+                    {bouncedCount > 0 && <> · <span className="text-orange-600" title="Bounced: получатель отверг (Gmail/mail.ru написали что доставить нельзя)">отбито {bouncedCount}</span></>}
                     {failed.length > 0 && <> · <span className="text-red-500">не дошло {failed.length}</span></>}
                   </p>
+                  {hasEmailRows && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Email: <span className="text-blue-600" title="Открытий учитывается через 1×1 пиксель в письме; Apple Mail Privacy завышает на 30-50%">👁 открыли {emailOpenedCount}</span>
+                      {' · '}
+                      <span className="text-purple-600" title="Клики по ссылкам в письме (отслеживается через rewrite ссылок)">🖱 кликнули {emailClickedCount}</span>
+                    </p>
+                  )}
                 </div>
                 <button onClick={() => setLogModal(null)}><X size={18} /></button>
               </div>
@@ -621,6 +638,12 @@ export default function GeneralBroadcastsPage() {
                         {bot && <span className="text-blue-500 shrink-0 text-[10px] bg-blue-50 px-1.5 py-0.5 rounded">{bot}</span>}
                         {ok && r.read_at && (
                           <span className="text-blue-600 shrink-0 text-[10px] bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded" title={`Прочитано ${new Date(r.read_at).toLocaleString('ru-RU')}`}>👁 прочитано</span>
+                        )}
+                        {Number(r.email_opens) > 0 && (
+                          <span className="text-blue-600 shrink-0 text-[10px] bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded" title={`Открыто ${r.email_opens} раз`}>👁 {r.email_opens}</span>
+                        )}
+                        {Number(r.email_clicks) > 0 && (
+                          <span className="text-purple-700 shrink-0 text-[10px] bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded" title={`Кликнул(а) ${r.email_clicks} раз`}>🖱 {r.email_clicks}</span>
                         )}
                       </div>
                       {!ok && r.error && (

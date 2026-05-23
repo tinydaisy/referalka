@@ -1544,9 +1544,14 @@ async def get_schedule_log(
 
     rows = await db.fetch(
         """
-        SELECT bl.status, bl.error, bl.sent_at,
+        SELECT bl.id AS broadcast_log_id,
+               bl.status, bl.error, bl.sent_at,
                pu.first_name, pu.last_name, pu.username, pu.platform_user_id as tg_id,
-               bl.channel_id, ch.handle AS channel_handle, ch.display_name AS channel_name
+               pu.platform_slug AS user_platform,
+               bl.channel_id, ch.handle AS channel_handle, ch.display_name AS channel_name,
+               ch.platform_slug AS channel_platform,
+               (SELECT COUNT(*) FROM email_open_log eo  WHERE eo.broadcast_log_id = bl.id) AS email_opens,
+               (SELECT COUNT(*) FROM email_click_log ec WHERE ec.broadcast_log_id = bl.id) AS email_clicks
         FROM broadcast_log bl
         JOIN platform_users pu ON pu.id = bl.platform_user_id
         LEFT JOIN channels ch ON ch.id = bl.channel_id
