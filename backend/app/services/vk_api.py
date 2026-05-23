@@ -240,12 +240,23 @@ async def upload_video_to_messages(
     тот же attachment можно слать многим получателям (нужно для broadcast).
     """
     try:
-        srv_params: dict[str, Any] = {}
+        # docs.getMessagesUploadServer требует peer_id для документов в сообщения.
+        # Если peer_id не задан — fallback на docs.getWallUploadServer (общая загрузка).
+        srv = None
         if peer_id is not None:
-            srv_params["peer_id"] = peer_id
-        srv = await vk_call("docs.getMessagesUploadServer", srv_params, token=token)
-        if not isinstance(srv, dict):
-            return None
+            try:
+                srv = await vk_call(
+                    "docs.getMessagesUploadServer",
+                    {"peer_id": peer_id, "type": "doc"},
+                    token=token,
+                )
+            except Exception as e:
+                logger.warning(f"docs.getMessagesUploadServer failed: {e}, trying wall server")
+        if not isinstance(srv, dict) or not srv.get("upload_url"):
+            # Fallback: загрузка как общий документ (без привязки к диалогу)
+            srv = await vk_call("docs.getWallUploadServer", {}, token=token)
+            if not isinstance(srv, dict):
+                return None
         upload_url = srv.get("upload_url")
         if not upload_url:
             return None
