@@ -31,7 +31,6 @@ class CollaboratorCreate(BaseModel):
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
-    external_ref_param: Optional[str] = None
 
 
 class CollaboratorUpdate(BaseModel):
@@ -49,7 +48,6 @@ class CollaboratorUpdate(BaseModel):
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
-    external_ref_param: Optional[str] = None
     contact_id: Optional[int] = None
 
 
@@ -110,14 +108,12 @@ async def create_collaborator(
             photo_url, poster_url, photo_folder_url, video_folder_url,
             tg_channel_url, instagram_url, website_url,
             tg_channel_id, personal_tg_id, personal_tg_username, assistant_tg_username,
-            external_ref_param,
             created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *""",
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *""",
         data.contact_id, name, data.title, data.achievements,
         data.photo_url, data.poster_url, data.photo_folder_url, data.video_folder_url,
         data.tg_channel_url, data.instagram_url, data.website_url,
         data.tg_channel_id, data.personal_tg_id, data.personal_tg_username, data.assistant_tg_username,
-        data.external_ref_param,
         client_id
     )
     d = row_to_dict(row)
@@ -198,7 +194,6 @@ class CollaboratorQuickCreate(BaseModel):
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
     assistant_tg_username: Optional[str] = None
-    external_ref_param: Optional[str] = None
     force_create: bool = False
     existing_contact_id: Optional[int] = None
 
@@ -269,14 +264,14 @@ async def create_collaborator_quick(
                 photo_url, poster_url,
                 tg_channel_url, tg_channel_id,
                 instagram_url, website_url,
-                assistant_tg_username, external_ref_param,
+                assistant_tg_username,
                 created_by_client_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
             contact_id, name, data.title, data.achievements,
             data.photo_url, data.poster_url,
             data.tg_channel_url, data.tg_channel_id,
             data.instagram_url, data.website_url,
-            data.assistant_tg_username, data.external_ref_param,
+            data.assistant_tg_username,
             client_id
         )
 
@@ -298,7 +293,6 @@ class CollaboratorImportItem(BaseModel):
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
-    external_ref_param: Optional[str] = None
 
 
 class CollaboratorImportRequest(BaseModel):
@@ -349,15 +343,13 @@ async def import_collaborators(
                    (contact_id, name, title, achievements, photo_url, photo_folder_url, video_folder_url,
                     tg_channel_url, instagram_url, website_url,
                     tg_channel_id, personal_tg_id, personal_tg_username, assistant_tg_username,
-                    external_ref_param,
                     created_by_client_id)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id, name""",
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, name""",
                 contact_id, item.name, item.title, item.achievements,
                 item.photo_url, item.photo_folder_url, item.video_folder_url,
                 item.tg_channel_url or None, item.instagram_url or None, item.website_url or None,
                 item.tg_channel_id or None, item.personal_tg_id or None,
                 item.personal_tg_username or None, item.assistant_tg_username or None,
-                item.external_ref_param or None,
                 client_id
             )
             created.append({"id": row["id"], "name": row["name"]})

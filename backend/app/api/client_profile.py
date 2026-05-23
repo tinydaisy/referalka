@@ -381,10 +381,10 @@ async def public_event_external_ref(
     pid: Optional[str] = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Резолвит pid → collaborators.external_ref_param. Используется в SSR /l/[slug]
+    """Резолвит pid → contacts.external_ref_param. Используется в SSR /l/[slug]
     и в Mini App SPA-навигации (когда landing-redirect ДО React не сработал —
     например, для draft-событий или при внутренней навигации внутри Mini App).
-    Работает независимо от status события. Если pid не привязан к коллаборатору
+    Работает независимо от status события. Если pid не привязан к контакту
     с external_ref_param — возвращает {external_ref_param: null}."""
     if not pid:
         return {"external_ref_param": None}

@@ -588,6 +588,7 @@ async def get_contact(
           c.utm_source,
           c.tags,
           c.ref_code,
+          c.external_ref_param,
           c.salebot_id,
           c.last_contact_at,
           c.created_at,
@@ -791,6 +792,9 @@ class ContactUpdateRequest(BaseModel):
     name:  Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    # Партнёрский параметр во внешней платформе клиента (GetCourse, Bizon360 и т.п.).
+    # Опаковая строка "key=value" (например "gcpc=fdd97"). Пустая строка = очистить.
+    external_ref_param: Optional[str] = None
 
 
 @router.patch("/contacts/{contact_id}")
@@ -829,6 +833,11 @@ async def update_contact(
         ph = (data.phone or "").strip() or None
         args.append(ph); sets.append(f"phone = ${len(args)}")
         args.append(_normalize_phone(ph) if ph else None); sets.append(f"phone_normalized = ${len(args)}")
+    if data.external_ref_param is not None:
+        erp = (data.external_ref_param or "").strip() or None
+        if erp and len(erp) > 500:
+            raise HTTPException(status_code=400, detail="Партнёрский параметр слишком длинный (>500 симв.)")
+        args.append(erp); sets.append(f"external_ref_param = ${len(args)}")
 
     if not sets:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
@@ -836,7 +845,7 @@ async def update_contact(
     args.append(contact_id)
     row = await db.fetchrow(
         f"UPDATE contacts SET {', '.join(sets)}, updated_at = NOW() "
-        f"WHERE id = ${len(args)} RETURNING id, name, email, phone",
+        f"WHERE id = ${len(args)} RETURNING id, name, email, phone, external_ref_param",
         *args
     )
 

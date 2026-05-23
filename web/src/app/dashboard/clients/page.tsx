@@ -21,6 +21,7 @@ interface Contact {
   utm_source: string | null
   tags: string[] | null
   ref_code: string | null
+  external_ref_param: string | null
   is_unsubscribed: boolean
   last_contact_at: string | null
   created_at: string | null
@@ -577,8 +578,9 @@ export default function ContactsPage() {
               </div>
             )}
 
-            {/* Реф-код и реферер */}
+            {/* Контактные поля и метаданные — фиксированный порядок строк */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-6">
+              {/* Строка 1: Email | Телефон */}
               <ContactFieldEditor
                 contactId={selected.id}
                 field="email"
@@ -604,15 +606,46 @@ export default function ContactsPage() {
                   setContacts((cs: any[]) => cs.map(c => c.id === selected.id ? { ...c, phone: v } : c))
                 }}
               />
-              {selected.ref_code && (
-                <div className="flex items-start gap-2">
-                  <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-400">Реф-код</p>
-                    <p className="text-sm text-gray-800 font-mono break-all">{selected.ref_code}</p>
-                  </div>
+
+              {/* Строка 2: Реф-код | Партнёрский параметр (внешняя платформа) */}
+              <div className="flex items-start gap-2">
+                <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-400">Реф-код</p>
+                  <p className="text-sm text-gray-800 font-mono break-all">{selected.ref_code || '—'}</p>
                 </div>
-              )}
+              </div>
+              <ContactFieldEditor
+                contactId={selected.id}
+                field="external_ref_param"
+                label="Партнёрский параметр"
+                icon={<Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />}
+                value={selected.external_ref_param}
+                inputType="text"
+                placeholder="например, gcpc=08cea"
+                hint="key=value из вашей внешней платформы (GetCourse, Bizon360 и т.п.). Будет приписан к URL стороннего лендинга, чтобы клиент видел этого партнёра у себя."
+                onSaved={(v) => {
+                  setSelected((s: any) => s ? { ...s, external_ref_param: v } : s)
+                }}
+              />
+
+              {/* Строка 3: Первый контакт | Последний контакт */}
+              <div className="flex items-start gap-2">
+                <Calendar size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-gray-400">Первый контакт</p>
+                  <p className="text-sm text-gray-800">{formatDate(selected.created_at)}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Calendar size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-gray-400">Последний контакт</p>
+                  <p className="text-sm text-gray-800">{selected.last_contact_at ? formatDate(selected.last_contact_at) : '—'}</p>
+                </div>
+              </div>
+
+              {/* Доп. строки — реферер и UTM, если заполнены */}
               {selected.referrer && (
                 <div className="flex items-start gap-2">
                   <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
@@ -628,22 +661,6 @@ export default function ContactsPage() {
                   <div className="min-w-0">
                     <p className="text-xs text-gray-400">Источник (UTM)</p>
                     <p className="text-sm text-gray-800">{selected.utm_source}</p>
-                  </div>
-                </div>
-              )}
-              <div className="flex items-start gap-2">
-                <Calendar size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400">Первый контакт</p>
-                  <p className="text-sm text-gray-800">{formatDate(selected.created_at)}</p>
-                </div>
-              </div>
-              {selected.last_contact_at && (
-                <div className="flex items-start gap-2">
-                  <Calendar size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-xs text-gray-400">Последний контакт</p>
-                    <p className="text-sm text-gray-800">{formatDate(selected.last_contact_at)}</p>
                   </div>
                 </div>
               )}
@@ -1178,15 +1195,17 @@ function ContactFieldEditor({
   value,
   inputType,
   placeholder,
+  hint,
   onSaved,
 }: {
   contactId: number
-  field: 'email' | 'phone'
+  field: 'email' | 'phone' | 'external_ref_param'
   label: string
   icon: React.ReactNode
   value: string | null
-  inputType: 'email' | 'tel'
+  inputType: 'email' | 'tel' | 'text'
   placeholder?: string
+  hint?: string
   onSaved: (newValue: string | null) => void
 }) {
   const [editing, setEditing] = useState(false)
@@ -1266,6 +1285,7 @@ function ContactFieldEditor({
             <Pencil size={11} className="text-gray-300 group-hover:text-gray-600 shrink-0 transition-colors" />
           </button>
         )}
+        {hint && !editing && <p className="text-[11px] text-gray-400 mt-0.5 leading-tight">{hint}</p>}
       </div>
     </div>
   )

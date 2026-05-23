@@ -314,7 +314,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // (а не внутри Mini App webview) — у платёжных страниц webview иногда
   // ломает CSS, кнопки оплаты и колл-беки. Если у участника есть pid
   // (его привёл партнёр), к URL дописывается партнёрский параметр клиента
-  // (collaborators.external_ref_param) — как у стороннего лендинга.
+  // (contacts.external_ref_param) — как у стороннего лендинга.
   async function redirectToVip(vipUrl: string) {
     let fullUrl = vipUrl
     if (partnerId) {
