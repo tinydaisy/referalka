@@ -411,13 +411,13 @@ async def copy(
         INSERT INTO broadcast_schedules
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
-           snapshot_text, snapshot_photo, snapshot_buttons, target_channel_ids)
+           snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids)
         VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'draft', $3, 'all_client', 'none',
-                $4, $5, $6::jsonb, $7)
+                $4, $5, $6, $7::jsonb, $8)
         RETURNING id
         """,
         client_id, full["fire_at"], full["is_test"],
-        full["snapshot_text"], full["snapshot_photo"],
+        full["snapshot_text"], full["snapshot_subject"], full["snapshot_photo"],
         full["snapshot_buttons"] if isinstance(full["snapshot_buttons"], str) else _json.dumps(full["snapshot_buttons"] or []),
         full["target_channel_ids"],
     )
