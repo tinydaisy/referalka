@@ -985,17 +985,58 @@ async def _send_broadcast_email_part(
                    .replace("\n", "<br>\n"))
         html_inner = _linkify(escaped)
 
-    # Фото в начале HTML (если задано). max-width 600px чтобы хорошо
-    # рендерилось на мобильных и десктопе.
+    # Фото в начале HTML — встраиваем как inline-attachment (multipart/related)
+    # с Content-ID. Это надёжнее remote URL:
+    # 1) Письмо автономно — R2 может удалить файл, картинка всё равно
+    #    останется в письме у получателя.
+    # 2) Gmail в спам-папке не блокирует inline-картинки так, как remote.
+    # 3) Outlook/Apple Mail без «Show images» сразу показывают inline.
+    # Скачиваем картинку один раз перед циклом получателей.
     html_image = ""
+    inline_image_data: bytes | None = None
+    inline_image_subtype: str = "jpeg"
+    inline_image_cid: str = "broadcast_image"
     if photo_url:
-        html_image = (
-            f'<div style="margin-bottom:20px;">'
-            f'<img src="{photo_url}" alt="" '
-            f'style="display:block;max-width:100%;width:600px;height:auto;'
-            f'border-radius:12px;border:0;outline:none;"/>'
-            f'</div>'
-        )
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as fetcher:
+                resp = await fetcher.get(photo_url)
+                if resp.status_code == 200:
+                    inline_image_data = resp.content
+                    ct = (resp.headers.get("content-type") or "").lower()
+                    if "png" in ct:
+                        inline_image_subtype = "png"
+                    elif "gif" in ct:
+                        inline_image_subtype = "gif"
+                    elif "webp" in ct:
+                        inline_image_subtype = "webp"
+                    else:
+                        inline_image_subtype = "jpeg"
+                else:
+                    logger.warning(
+                        f"Email broadcast: фото {photo_url} вернуло HTTP {resp.status_code} — "
+                        f"вкладывать в письмо не будем, оставим как ссылку"
+                    )
+        except Exception as e:
+            logger.warning(f"Email broadcast: не смог скачать фото {photo_url}: {e}")
+
+        if inline_image_data:
+            # Получилось скачать — встраиваем по CID.
+            html_image = (
+                f'<div style="margin-bottom:20px;">'
+                f'<img src="cid:{inline_image_cid}" alt="" '
+                f'style="display:block;max-width:100%;width:600px;height:auto;'
+                f'border-radius:12px;border:0;outline:none;"/>'
+                f'</div>'
+            )
+        else:
+            # Не получилось — fallback на прямую ссылку (как раньше).
+            html_image = (
+                f'<div style="margin-bottom:20px;">'
+                f'<img src="{photo_url}" alt="" '
+                f'style="display:block;max-width:100%;width:600px;height:auto;'
+                f'border-radius:12px;border:0;outline:none;"/>'
+                f'</div>'
+            )
 
     # HTML-кнопка: простой <a> с inline-стилем. Без <table> — Gmail
     # надёжнее рендерит и сохраняет href кликабельным.
@@ -1070,6 +1111,16 @@ async def _send_broadcast_email_part(
         ok = False
         err: str | None = None
         msg_id: str | None = None
+        # Если фото удалось скачать — передаём байты как inline-attachment,
+        # на который ссылается <img src="cid:broadcast_image"> в html_body.
+        inline_images_arg = None
+        if inline_image_data:
+            inline_images_arg = [{
+                "content_id": inline_image_cid,
+                "data": inline_image_data,
+                "subtype": inline_image_subtype,
+            }]
+
         try:
             msg_id = sender.send(
                 channel=channel_dict,
@@ -1079,6 +1130,7 @@ async def _send_broadcast_email_part(
                 body_text=msg_text,
                 unsubscribe_token=unsub_token,
                 body_html=msg_html,
+                inline_images=inline_images_arg,
             )
             ok = True
         except EmailSendError as e:
@@ -1194,8 +1246,15 @@ async def _build_audience(conn, schedule) -> set:
 # ─────────────────────────────────────────
 # Произвольная рассылка может прикреплять фото, загруженное прямо в этой сессии
 # (kind='broadcast_photo' в client_files). Чтобы не засорять хранилище после
-# отправки — удаляем такие фото из R2 + БД через 10 минут после завершения
-# рассылки. Орфаны (загрузили и не использовали) — через час.
+# отправки — удаляем такие фото из R2 + БД через 24 ЧАСА после завершения
+# рассылки. 24 часа — это запас на:
+#   - превью «Получатели рассылки» в первые часы после отправки,
+#   - повторную отправку, если клиент тут же дублирует рассылку.
+# Раньше было 10 минут — слишком агрессивно: email-получатели открывают
+# письмо не сразу, и встроенный <img src="https://r2.dev/..."> отдавал 404.
+# Сейчас в email мы делаем inline-картинку через CID, поэтому пожизненно
+# хранить фото не нужно — 24 часа достаточно.
+# Орфаны (загрузили в форме рассылки, но не отправили) — через час.
 @celery.task(name="app.tasks.broadcast.cleanup_broadcast_photos")
 def cleanup_broadcast_photos():
     run_async(_cleanup_broadcast_photos())
@@ -1215,7 +1274,7 @@ async def _cleanup_broadcast_photos():
              WHERE cf.kind = 'broadcast_photo'
                AND bs.status IN ('done', 'cancelled', 'paused_subscription_expired')
                AND bs.finished_at IS NOT NULL
-               AND bs.finished_at < NOW() - INTERVAL '10 minutes'
+               AND bs.finished_at < NOW() - INTERVAL '24 hours'
             """
         )
 

@@ -59,6 +59,8 @@ export default function LeadMagnetsPage() {
     return (t === 'packages' || t === 'template') ? t as Tab : 'magnets'
   })
   const [tgChannel, setTgChannel] = useState<string | null | undefined>(undefined)
+  // Сводные счётчики по всем лид-магнитам + всем пакетам (есть contact_id / получили)
+  const [totals, setTotals] = useState<{ reached: number; received: number } | null>(null)
 
   useEffect(() => {
     api.miniApp.profile.get()
@@ -66,15 +68,44 @@ export default function LeadMagnetsPage() {
       .catch(() => setTgChannel(null))
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      api.leadMagnets.counts().catch(() => ({ items: [] })),
+      api.leadMagnetPackages.counts().catch(() => ({ items: [] })),
+    ]).then(([m, p]: any) => {
+      if (cancelled) return
+      const sum = (arr: any[], k: string) => arr.reduce((acc, r) => acc + (r?.[k] || 0), 0)
+      setTotals({
+        reached:  sum(m.items || [], 'started')   + sum(p.items || [], 'started'),
+        received: sum(m.items || [], 'delivered') + sum(p.items || [], 'delivered'),
+      })
+    })
+    return () => { cancelled = true }
+  }, [])
+
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: DARK }}>
-          <Gift size={24} /> Лид-магниты
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Общая база материалов клиента + воронка их выдачи через бот.
-        </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: DARK }}>
+            <Gift size={24} /> Лид-магниты
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Общая база материалов клиента + воронка их выдачи через бот.
+          </p>
+        </div>
+        {totals && (
+          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5">
+            <Users size={16} className="text-[#25455D] shrink-0" />
+            <div className="text-sm">
+              <span className="text-[#25455D] font-bold">{totals.reached}</span>
+              <span className="text-gray-400 mx-1">/</span>
+              <span className="text-[#25455D] font-bold">{totals.received}</span>
+              <span className="ml-2 text-xs text-gray-500">перешли / получили</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {tgChannel === null && (
@@ -130,18 +161,22 @@ export default function LeadMagnetsPage() {
 
 interface CountRow { id: number; landed: number; known: number; started: number; delivered: number }
 
-function LandedCounter({ count, href }: { count: number; href: string }) {
+function LandedCounter({ reached, received, href }: { reached: number; received: number; href: string }) {
+  // reached — кто дошёл до бота (есть contact_id); received — кто получил материалы
+  // Формат: "перешли/получили" (например 32/10). Клик ведёт на список контактов,
+  // у которых есть запись по этому магниту.
+  const empty = reached === 0
   return (
     <a href={href}
-       title={count > 0 ? 'Перейти к контактам, зашедшим по ссылке' : 'Никто ещё не переходил'}
+       title={empty ? 'Никто ещё не дошёл до бота' : `${reached} перешли, ${received} получили материалы`}
        className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-         count > 0
-           ? 'bg-[#FFCFA4] text-[#25455D] hover:opacity-80'
-           : 'bg-gray-100 text-gray-400 pointer-events-none'
+         empty
+           ? 'bg-gray-100 text-gray-400 pointer-events-none'
+           : 'bg-[#FFCFA4] text-[#25455D] hover:opacity-80'
        }`}
-       onClick={(e) => { if (count === 0) e.preventDefault() }}
+       onClick={(e) => { if (empty) e.preventDefault() }}
     >
-      <Users size={12} /> {count}
+      <Users size={12} /> {reached}/{received}
     </a>
   )
 }
@@ -220,7 +255,8 @@ function MagnetsList() {
               </div>
               <div className="flex gap-1 items-center">
                 <LandedCounter
-                  count={counts[lm.id]?.known || 0}
+                  reached={counts[lm.id]?.started || 0}
+                  received={counts[lm.id]?.delivered || 0}
                   href={`/dashboard/clients?lead_magnet_ids=${lm.id}`}
                 />
                 <button onClick={() => setAnalyticsOpen(lm)} title="Аналитика"
@@ -377,7 +413,8 @@ function PackagesList() {
               </div>
               <div className="flex gap-1 items-center">
                 <LandedCounter
-                  count={counts[pkg.id]?.known || 0}
+                  reached={counts[pkg.id]?.started || 0}
+                  received={counts[pkg.id]?.delivered || 0}
                   href={`/dashboard/clients?package_ids=${pkg.id}`}
                 />
                 <button onClick={() => setAnalyticsOpen(pkg)} title="Аналитика"
@@ -689,19 +726,25 @@ function AnalyticsModal({ kind, item, onClose }: {
 }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'started' | 'delivered'>('all')
+  // Только два состояния: «Перешли» (все с contact_id) или «Получили» (delivered)
+  const [filter, setFilter] = useState<'all' | 'delivered'>('all')
 
   useEffect(() => {
     const fn = kind === 'm' ? api.leadMagnets.analytics : api.leadMagnetPackages.analytics
     fn(item.id).then(setData).catch(e => alert(e.message)).finally(() => setLoading(false))
   }, [kind, item.id])
 
+  // Показываем только тех, у кого есть contact_id — без него имя/платформа неизвестны
+  // и строка бесполезна. Анонимные landed только в счётчике (если бы хотели — но мы их тоже отключили).
   const runs = (data?.runs || []).filter((r: any) => {
-    if (filter === 'all') return true
-    if (filter === 'started') return ['started', 'subscribed', 'delivered'].includes(r.stage)
+    if (!r.contact_id) return false
     if (filter === 'delivered') return r.stage === 'delivered'
     return true
   })
+
+  // counts.started в API = записи с contact_id (stage IN started/subscribed/delivered)
+  const reached = data?.counts?.started || 0
+  const received = data?.counts?.delivered || 0
 
   return (
     <Modal title={`Аналитика: ${item.name}`} onClose={onClose} large>
@@ -709,10 +752,9 @@ function AnalyticsModal({ kind, item, onClose }: {
         <div className="text-gray-400 text-sm">Загрузка…</div>
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            <Counter label="Перешли по ссылке" value={data.counts.landed} active={filter === 'all'} onClick={() => setFilter('all')} />
-            <Counter label="Запустили воронку" value={data.counts.started} active={filter === 'started'} onClick={() => setFilter('started')} />
-            <Counter label="Получили материалы" value={data.counts.delivered} active={filter === 'delivered'} onClick={() => setFilter('delivered')} />
+          <div className="grid grid-cols-2 gap-3">
+            <Counter label="Перешли по ссылке" value={reached} active={filter === 'all'} onClick={() => setFilter('all')} />
+            <Counter label="Получили материалы" value={received} active={filter === 'delivered'} onClick={() => setFilter('delivered')} />
           </div>
 
           {runs.length === 0 ? (
@@ -734,11 +776,10 @@ function AnalyticsModal({ kind, item, onClose }: {
                     <tr key={r.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 text-xs text-gray-500">{formatDt(r.landed_at)}</td>
                       <td className="px-3 py-2">
-                        {r.contact_id ? (
-                          <a href={`/dashboard/clients?contact=${r.contact_id}`} className="text-[#25455D] hover:underline">
-                            {r.contact_username ? `@${r.contact_username}` : (r.contact_name || `#${r.contact_id}`)}
-                          </a>
-                        ) : <span className="text-gray-400">—</span>}
+                        <a href={`/dashboard/clients?contact=${r.contact_id}`} className="text-[#25455D] hover:underline inline-flex items-center gap-1.5">
+                          <PlatformBadge slug={r.platform_slug} />
+                          <span>{r.contact_username ? `@${r.contact_username}` : (r.contact_name || `#${r.contact_id}`)}</span>
+                        </a>
                       </td>
                       <td className="px-3 py-2"><StageBadge stage={r.stage} /></td>
                       <td className="px-3 py-2 text-xs text-gray-500">{(r.utm && r.utm.utm_source) || '—'}</td>
@@ -774,14 +815,23 @@ function Counter({ label, value, active, onClick }: { label: string; value: numb
 }
 
 function StageBadge({ stage }: { stage: string }) {
-  const map: Record<string, { label: string; color: string }> = {
-    landed: { label: 'Перешёл', color: 'bg-gray-100 text-gray-600' },
-    started: { label: 'Запустил', color: 'bg-blue-50 text-blue-700' },
-    subscribed: { label: 'Подписан', color: 'bg-amber-50 text-amber-700' },
-    delivered: { label: 'Получил', color: 'bg-green-50 text-green-700' },
+  // После того как мы скрыли строки без contact_id, остаются только started/subscribed/delivered.
+  // started/subscribed — это люди, которые дошли до бота (= «Перешёл» в новой терминологии).
+  if (stage === 'delivered') {
+    return <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Получил</span>
   }
-  const m = map[stage] || map.landed
-  return <span className={`text-xs px-2 py-0.5 rounded ${m.color}`}>{m.label}</span>
+  return <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700">Перешёл</span>
+}
+
+function PlatformBadge({ slug }: { slug: string | null | undefined }) {
+  const map: Record<string, { label: string; color: string }> = {
+    telegram: { label: 'TG', color: 'bg-[#2AABEE]/10 text-[#2AABEE]' },
+    vk:       { label: 'VK', color: 'bg-[#0077FF]/10 text-[#0077FF]' },
+    max:      { label: 'MAX', color: 'bg-[#FFCFA4]/30 text-[#25455D]' },
+  }
+  const m = slug ? map[slug] : null
+  if (!m) return null
+  return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${m.color}`}>{m.label}</span>
 }
 
 // ============== Утилиты ==============

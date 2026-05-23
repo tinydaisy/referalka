@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2 } from 'lucide-react'
+import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 
@@ -223,6 +223,9 @@ export default function ContactsPage() {
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [offset, setOffset] = useState(0)
   const [merging, setMerging] = useState(false)
+  // Свёрнутость секций «События» и «Лид-магниты» в карточке (по умолчанию свёрнуты для компактности)
+  const [eventsOpen, setEventsOpen] = useState(false)
+  const [magnetsOpen, setMagnetsOpen] = useState(false)
   const LIMIT = 50
   const activeFilterCount = countActiveFilters(filters)
 

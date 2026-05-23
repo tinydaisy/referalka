@@ -41,6 +41,11 @@ from typing import Optional
 
 from app.config import settings
 
+# Тип одного inline-вложения для встроенных картинок в письма.
+# bytes — сами байты картинки, content_id — без угловых скобок ("img1"),
+# subtype — "jpeg" / "png" / "gif".
+InlineImage = dict  # {"content_id": str, "data": bytes, "subtype": str}
+
 logger = logging.getLogger(__name__)
 
 
@@ -133,6 +138,7 @@ class EmailSender:
         body_text: str,
         unsubscribe_token: str,
         body_html: Optional[str] = None,
+        inline_images: Optional[list] = None,
     ) -> str:
         """
         Отправляет одно письмо. Возвращает Message-ID при успехе.
@@ -167,6 +173,23 @@ class EmailSender:
         if body_html:
             html_body = body_html + _build_html_footer(unsub_url)
             msg.add_alternative(html_body, subtype="html")
+
+            # Inline-картинки — вкладываем внутрь HTML-части как related-attachments.
+            # В HTML на них ссылаемся через src="cid:<content_id>". Картинки уезжают
+            # внутри письма, поэтому R2 может удалить файл, и Gmail-«блокировка
+            # внешних картинок» (особенно в спам-папке) перестаёт мешать.
+            if inline_images:
+                html_part = msg.get_payload()[-1]  # последняя alternative — это html
+                for img in inline_images:
+                    try:
+                        html_part.add_related(
+                            img["data"],
+                            maintype="image",
+                            subtype=img.get("subtype", "jpeg"),
+                            cid=f"<{img['content_id']}>",
+                        )
+                    except Exception as e:
+                        logger.warning(f"Не удалось вложить inline-картинку cid={img.get('content_id')}: {e}")
 
         try:
             with smtplib.SMTP(self.host, self.port, timeout=self.timeout) as smtp:
