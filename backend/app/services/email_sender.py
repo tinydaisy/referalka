@@ -103,23 +103,63 @@ def _unsubscribe_url(token: str) -> str:
 
 
 def _build_plain_footer(unsub_url: str) -> str:
+    # В plain-варианте гипер-ссылку не сделаешь, поэтому пишем URL открытым.
+    # Большинство клиентов автоматически превращают такие URL в кликабельные.
     return (
         "\n\n"
         "---\n"
-        "Это письмо отправлено в рамках вашей подписки. "
         "Если вы больше не хотите получать письма — отпишитесь по ссылке:\n"
         f"{unsub_url}"
     )
 
 
 def _build_html_footer(unsub_url: str) -> str:
+    # В HTML «отписаться» — гипер-ссылка, URL не показывается явно.
     return (
         '<hr style="margin-top:32px;border:none;border-top:1px solid #eee;">'
-        '<p style="color:#999;font-size:12px;line-height:1.4;margin:16px 0;">'
-        "Это письмо отправлено в рамках вашей подписки. "
-        f'Если вы больше не хотите получать письма — <a href="{unsub_url}" '
-        'style="color:#3D8CB6;text-decoration:underline;">отпишитесь по ссылке</a>.'
+        '<p style="color:#999;font-size:12px;line-height:1.5;margin:16px 0;text-align:center;">'
+        f'Если вы больше не хотите получать письма — '
+        f'<a href="{unsub_url}" style="color:#3D8CB6;text-decoration:underline;">отписаться</a>.'
         "</p>"
+    )
+
+
+def _plain_to_html(text: str) -> str:
+    """Превращает plain-текст в простой HTML:
+    - экранирует <, >, &
+    - переносы строк → <br>
+    - URL http(s)://… → <a href="…">…</a>
+    Используется когда у нас нет готовой HTML-версии тела письма, но мы
+    всё равно хотим отправить multipart/alternative с красивой HTML-частью
+    (где гипер-ссылка «отписаться» — это слово, а не голый URL).
+    """
+    import re as _re
+    if not text:
+        return ""
+    escaped = (text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;"))
+    linked = _re.sub(
+        r'(https?://[^\s<]+)',
+        r'<a href="\1" style="color:#3D8CB6;text-decoration:underline;">\1</a>',
+        escaped,
+    )
+    return linked.replace("\n", "<br>\n")
+
+
+def _wrap_html_body(inner_html: str) -> str:
+    """Оборачивает «голый» HTML в полный документ с шапкой и centered-контейнером.
+    Применяется когда у нас был только plain-text → автогенерируем HTML."""
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '</head><body style="margin:0;padding:20px;background:#f6f8fa;">'
+        '<div style="font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;'
+        'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;'
+        'background:#fff;padding:24px;border-radius:16px;">'
+        f'{inner_html}'
+        '</div></body></html>'
     )
 
 
@@ -165,7 +205,16 @@ class EmailSender:
         msg_id = make_msgid(domain=from_address.split("@", 1)[1])
 
         plain_body = (body_text or "") + _build_plain_footer(unsub_url)
-        html_body_full = (body_html + _build_html_footer(unsub_url)) if body_html else None
+
+        # HTML-версия — есть ВСЕГДА, даже если caller передал только plain-text.
+        # Это нужно чтобы подвал «отписаться» в письме был гипер-ссылкой, а не
+        # голым уродливым URL. Если body_html уже задан — используем его как есть;
+        # иначе автогенерируем из body_text (linkify, переносы, html-doc обёртка).
+        if body_html:
+            html_body_full = body_html + _build_html_footer(unsub_url)
+        else:
+            auto_html_inner = _plain_to_html(body_text or "")
+            html_body_full = _wrap_html_body(auto_html_inner) + _build_html_footer(unsub_url)
 
         # MIME-структура (RFC 2387 — самая совместимая для Gmail/Outlook/Apple Mail):
         #   multipart/related
@@ -207,14 +256,13 @@ class EmailSender:
                 except Exception as e:
                     logger.warning(f"Не удалось вложить inline-картинку cid={img.get('content_id')}: {e}")
             msg = related
-        elif html_body_full:
+        else:
             # Без inline-картинок — простой multipart/alternative.
+            # HTML-версия есть всегда (см. выше): либо из body_html, либо
+            # автогенерированная из body_text.
             msg = MIMEMultipart("alternative")
             msg.attach(MIMEText(plain_body, "plain", "utf-8"))
             msg.attach(MIMEText(html_body_full, "html", "utf-8"))
-        else:
-            # Без HTML вовсе — plain-only.
-            msg = MIMEText(plain_body, "plain", "utf-8")
 
         msg["From"] = from_header
         msg["To"] = to_email
