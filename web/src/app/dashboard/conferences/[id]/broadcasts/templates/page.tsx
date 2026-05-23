@@ -560,22 +560,32 @@ export default function TemplatesPage() {
     const dayOrdinal = ORDINALS[d] || `${d}-м`
     const realRaffleUrl = confData?.raffle_url || ''
 
-    // Подарки спикеров дня для превью
+    // Подарки спикеров дня для превью.
+    // Должно совпадать с backend/app/services/collaborator_sort.py — то же группирование.
+    // Внутри группы здесь сортируем по priority — данных о реальных «приведённых» в
+    // превью нет (это статичный мок), поэтому отдельный ключ referrals не учитывается.
     const roleOrder = (s: any) => {
       const r = s.speaker_role, c = s.is_commercial
-      if (r === 'organizer') return 1
-      if (r === 'jury') return 1.5
-      if (c && r === 'headliner') return 2
-      if (c && r === 'speaker')   return 3
-      if (c && r === 'partner')   return 4
-      if (!c && r === 'headliner') return 5
-      if (!c && r === 'speaker')  return 6
-      if (!c && r === 'partner')  return 7
-      return 8
+      if (r === 'organizer')                       return 1
+      if (c && r === 'jury')                       return 2
+      if (c && r === 'headliner')                  return 3
+      if (c && r === 'speaker')                    return 4
+      if (c && r === 'general_partner')            return 5
+      if (c && r === 'partner')                    return 6
+      if (r === 'jury')                            return 7
+      if (r === 'headliner')                       return 8
+      if (r === 'speaker')                         return 9
+      if (r === 'general_partner')                 return 10
+      if (r === 'partner')                         return 11
+      return 12
     }
     const speakerGiftBlocks = [...daySessions]
       .filter((s: any) => s.speaker_name && !s.exclude_gift_from_broadcast)
-      .sort((a: any, b: any) => roleOrder(a) - roleOrder(b))
+      .sort((a: any, b: any) => {
+        const g = roleOrder(a) - roleOrder(b)
+        if (g !== 0) return g
+        return (a.priority ?? 60) - (b.priority ?? 60)
+      })
       .map((s: any) => {
         const title = (s.gift_after_speech_title || '').trim()
         const url = (s.gift_after_speech_url || '').trim()

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
+from app.services import collaborator_sort
 import asyncpg
 import re
 import json
@@ -566,7 +567,7 @@ async def list_event_speakers(
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
            WHERE cse.event_id = $1
-           ORDER BY cse.sort_order, cse.id""",
+           ORDER BY """ + collaborator_sort.order_by_sql("cse"),
         event_id
     )
     topics_map = await _load_topics([r["id"] for r in rows], db)
@@ -590,7 +591,7 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
-           ORDER BY cse.priority NULLS LAST, cse.sort_order, cse.id""",
+           ORDER BY """ + collaborator_sort.order_by_sql("cse"),
         event_id
     )
     topics_map = await _load_topics([r["id"] for r in rows], db)

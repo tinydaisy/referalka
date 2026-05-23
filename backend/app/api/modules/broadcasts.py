@@ -31,6 +31,7 @@ from app.services.message_builder import (
     build_message_content,
     send_telegram_message,
 )
+from app.services import collaborator_sort
 
 RU_MONTHS = {
     1: "января", 2: "февраля", 3: "марта", 4: "апреля",
@@ -824,9 +825,9 @@ async def generate_schedules(
         days_before = tmpl["intro_days_before"] or 1
 
         speakers_list = await db.fetch(
-            """SELECT id FROM event_collaborators
-               WHERE event_id=$1 AND is_visible=true
-               ORDER BY priority, sort_order, id""",
+            """SELECT cse.id FROM event_collaborators cse
+               WHERE cse.event_id=$1 AND cse.is_visible=true
+               ORDER BY """ + collaborator_sort.order_by_sql("cse"),
             event_id
         )
 

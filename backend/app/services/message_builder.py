@@ -15,6 +15,8 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from app.services import collaborator_sort
+
 
 # Telegram parse_mode=HTML понимает только узкий набор тегов:
 # <b>/<strong>, <i>/<em>, <u>/<ins>, <s>/<strike>/<del>, <a>, <code>,
@@ -382,7 +384,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 JOIN collaborators c ON c.id = cse.speaker_id
                 WHERE cs.event_id=$1 AND cs.day=$2
                   AND cse.exclude_gift_from_broadcast = FALSE
-                ORDER BY cse.priority, cs.sort_order
+                ORDER BY """ + collaborator_sort.order_by_sql("cse") + """, cs.sort_order
                 """,
                 event_id, day
             )

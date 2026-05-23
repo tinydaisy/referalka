@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from app.auth import get_current_client
 from app.database import get_db
+from app.services import collaborator_sort
 import asyncpg
 import re
 import secrets
@@ -977,7 +978,7 @@ async def list_event_collaborators(
     if role:
         args.append(role)
         sql += f" AND ec.role = ${len(args)}"
-    sql += " ORDER BY COALESCE(ec.priority, 60), ec.sort_order, ec.id"
+    sql += " ORDER BY " + collaborator_sort.order_by_sql("ec")
     rows = await db.fetch(sql, *args)
 
     # Бэкфилл реф-кодов для коллаба, у которого ещё нет contact_id (легаси).
