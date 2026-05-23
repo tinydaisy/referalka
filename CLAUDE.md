@@ -342,6 +342,38 @@ API:
 
 **В превью рассылок** ([`broadcasts/templates/page.tsx`](web/src/app/dashboard/conferences/[id]/broadcasts/templates/page.tsx)) спикерская афиша подставляется только для шаблонов со спикером (`speaker_intro`, `5min_before`, `gift`). Дневные/событийные шаблоны (`day_*`, `pre_conf`, `2h_before_*`, `30min_before`) подставляют горизонтальную афишу события из `event_posters`, а не первого попавшегося спикера.
 
+### Сортировка спикеров/жюри/организаторов — единая логика (с 2026-05-23)
+
+Один порядок везде: Mini App (`ProgramTab` — лента вверху и список внизу), Celery (выдача подарков `day_end`, рассылка знакомства `speaker_intro`), дашборд (`SpeakersTab`, список соорганизаторов мероприятий).
+
+**Группы** (`group_rank`, меньше = выше):
+1. organizer
+2. commercial jury
+3. commercial headliner
+4. commercial speaker
+5. commercial general_partner
+6. commercial partner
+7. jury
+8. headliner
+9. speaker
+10. general_partner
+11. partner
+
+**Внутри группы:**
+- `referrals DESC` — все, кто перешёл по личной реф-ссылке этого человека для текущего события (`event_participants.referrer_ref_code = contacts.ref_code` коллаба, независимо от `is_registered`).
+- `priority ASC` — меньше число = выше (как в `calcPriority` дашборда: `organizer=10`, `jury=15`, …, `partner=70`). Просто тай-брейкер.
+- `id ASC` — финальный тай-брейкер.
+
+Источник истины — [`backend/app/services/collaborator_sort.py`](backend/app/services/collaborator_sort.py) (`order_by_sql(tbl)`). Подставляется в `ORDER BY` четырёх SQL-запросов:
+- `GET /events/{id}/conference/speakers` и `/speakers/public` ([conference.py](backend/app/api/modules/conference.py))
+- `GET /events/{id}/collaborators` ([events.py](backend/app/api/events.py))
+- `day_end` подарки спикеров ([message_builder.py](backend/app/services/message_builder.py))
+- `speaker_intro` `generate_schedules` — порядок `fire_at` для рассылки знакомства ([broadcasts.py](backend/app/api/modules/broadcasts.py))
+
+TS-копия группировки — `roleOrder` в [`broadcasts/templates/page.tsx`](web/src/app/dashboard/conferences/[id]/broadcasts/templates/page.tsx) (только для UI-превью, без `referrals`). При добавлении новой роли — править оба места.
+
+⚠️ Поля `is_commercial BOOL DEFAULT FALSE` и `priority INT DEFAULT 60` живут в `event_collaborators` на dev/проде, но в репо нет миграции, которая их создаёт (применены прямой ALTER TABLE до фиксации). Если поднимаете БД с нуля — нужны вручную.
+
 ### Описание события — единое поле `events.description` для всех типов (миграция 092 от 2026-05-21)
 
 У события два независимых поля описания, оба живут на уровне `events` (не в `conf_conferences`):
