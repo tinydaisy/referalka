@@ -148,7 +148,7 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
               <p style={{ color: '#f87171', fontSize: 13, marginBottom: 12 }}>{error}</p>
             )}
 
-            <button className="btn btn-primary" disabled={submitting || !consentPd || !consentMkt} onClick={next}>
+            <button className="btn btn-primary" disabled={submitting} onClick={next}>
               {submitting ? 'Регистрируем...' : 'Зарегистрироваться'}
             </button>
             <button onClick={onClose} disabled={submitting}
