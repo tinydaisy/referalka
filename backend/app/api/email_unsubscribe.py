@@ -102,20 +102,40 @@ async def _do_unsubscribe(token: str, request: Request, db) -> bool:
     contact_id = payload["contact_id"]
     client_channel_id = payload["client_channel_id"]
 
-    # Проверка что контакт принадлежит указанному клиенту — защита от подмены
-    contact_ok = await db.fetchval(
-        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+    # Проверка что контакт принадлежит указанному клиенту — защита от подмены.
+    # Заодно тянем merged_into: если контакт был слит — все его platform_users
+    # переехали в master-контакт, и отписку нужно делать там.
+    contact_row = await db.fetchrow(
+        "SELECT id, merged_into FROM contacts WHERE id = $1 AND client_id = $2",
         contact_id, client_id,
     )
-    if not contact_ok:
+    if not contact_row:
         return False
+
+    # Следуем по цепочке merged_into до активного контакта (макс 5 шагов
+    # против петель — на практике глубина 1).
+    target_contact_id = contact_row["id"]
+    visited = {target_contact_id}
+    for _ in range(5):
+        merged_to = contact_row["merged_into"]
+        if not merged_to or merged_to in visited:
+            break
+        next_row = await db.fetchrow(
+            "SELECT id, merged_into FROM contacts WHERE id = $1 AND client_id = $2",
+            merged_to, client_id,
+        )
+        if not next_row:
+            break
+        target_contact_id = next_row["id"]
+        visited.add(target_contact_id)
+        contact_row = next_row
 
     # Находим email-идентичность контакта и подписку на этот канал
     pu_id = await db.fetchval(
         """SELECT id FROM platform_users
             WHERE contact_id = $1 AND platform_slug = 'email'
             LIMIT 1""",
-        contact_id,
+        target_contact_id,
     )
     if pu_id:
         await db.execute(

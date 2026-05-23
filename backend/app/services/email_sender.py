@@ -108,7 +108,7 @@ def _build_plain_footer(unsub_url: str, brand_name: Optional[str] = None) -> str
     return (
         "\n\n\n"  # ≈ 3 пустые строки отступа
         "---\n"
-        f"Вы получили это письмо, потому что регистрировались в проектах {brand}. "
+        f"Вы получили это письмо, потому что регистрировались в событиях или проектах {brand}. "
         "Если вы не хотите получать письма от нас, вы можете отписаться:\n"
         f"{unsub_url}"
     )
@@ -122,7 +122,7 @@ def _build_html_footer(unsub_url: str, brand_name: Optional[str] = None) -> str:
         '<hr style="border:none;border-top:1px solid #d0d7de;margin:0 0 12px 0;">'
         '<p style="color:#7d8c9c;font-size:11px;line-height:1.55;margin:0;padding:0 4px;'
         'font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;">'
-        f'Вы получили это письмо, потому что регистрировались в проектах {brand}.<br>'
+        f'Вы получили это письмо, потому что регистрировались в событиях или проектах {brand}.<br>'
         f'Если вы не хотите получать письма от нас, вы можете '
         f'<a href="{unsub_url}" style="color:#3D8CB6;text-decoration:underline;">отписаться</a>.'
         '</p>'
