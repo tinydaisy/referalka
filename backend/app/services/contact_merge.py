@@ -531,6 +531,28 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
                   )""",
             primary_id, secondary_id
         )
+        # Перед DELETE secondary's event_participants нужно разрулить FK
+        # event_participants.referrer_participant_id, который ссылается на
+        # удаляемые записи. Если у primary есть participant в том же событии —
+        # переключаем FK на primary's participant; иначе обнуляем.
+        await db.execute(
+            """UPDATE event_participants child
+                  SET referrer_participant_id = (
+                    SELECT ep_primary.id
+                      FROM event_participants ep_secondary
+                      JOIN event_participants ep_primary
+                        ON ep_primary.event_id = ep_secondary.event_id
+                       AND ep_primary.contact_id = $1
+                     WHERE ep_secondary.id = child.referrer_participant_id
+                     LIMIT 1
+                  )
+                WHERE child.referrer_participant_id IN (
+                  SELECT id FROM event_participants WHERE contact_id = $2
+                )""",
+            primary_id, secondary_id,
+        )
+        # Если выше подзапрос вернул NULL (у primary нет участия в этом событии) —
+        # FK просто становится NULL (а не невалидным), и DELETE проходит.
         await db.execute("DELETE FROM event_participants WHERE contact_id = $1", secondary_id)
 
         # Коллабы (если есть)
