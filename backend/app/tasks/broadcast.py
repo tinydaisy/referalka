@@ -636,13 +636,15 @@ async def _send_broadcast_vk_part(
         # external_message_id = vk message_id из messages.send — нужен чтобы
         # потом при event'е message_read сопоставить запись и поставить read_at.
         try:
+            # external_message_id колонка TEXT — конвертируем int message_id из VK в str
             await conn.execute(
                 """INSERT INTO broadcast_log
                        (schedule_id, platform_user_id, channel_id, status, error,
                         external_message_id, sent_at)
                    VALUES ($1, $2, $3, $4, $5, $6, NOW())""",
                 schedule["id"], r["pu_id"], vk_channel_id,
-                "sent" if ok else "failed", err, vk_message_id,
+                "sent" if ok else "failed", err,
+                str(vk_message_id) if vk_message_id is not None else None,
             )
         except Exception as e:
             logger.warning(f"VK broadcast_log insert failed for pu_id={r['pu_id']}: {e}")
