@@ -158,6 +158,25 @@ export default function LegalTab() {
     if (!confirm('Опубликовать новую версию политики? Существующие согласия пользователей останутся связаны со старой версией.')) return
     setPublishing(true); setError(null)
     try {
+      // 1) Сначала сохраняем текущий текст и юр-данные (черновик).
+      //    Без этого publish использует старый текст из БД.
+      const saveResp = await fetch(`${API_BASE}/api/v1/clients/me/legal-and-policy`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...auth() },
+        body: JSON.stringify({
+          legal_form: data.legal_form || null,
+          legal_name: data.legal_name || null,
+          legal_inn: data.legal_inn || null,
+          legal_ogrn: data.legal_ogrn || null,
+          legal_address: data.legal_address || null,
+          legal_operator_email: data.legal_operator_email || null,
+          legal_operator_phone: data.legal_operator_phone || null,
+          privacy_policy_text: data.privacy_policy_text || null,
+        }),
+      })
+      if (!saveResp.ok) throw new Error((await saveResp.json()).detail || 'Не удалось сохранить перед публикацией')
+
+      // 2) Публикуем актуальный текст
       const r = await fetch(`${API_BASE}/api/v1/clients/me/policy/publish`, {
         method: 'POST',
         headers: { ...auth() },
