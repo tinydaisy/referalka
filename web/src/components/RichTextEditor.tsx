@@ -142,6 +142,23 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, Props>(function RichText
     if (el.innerHTML !== value) el.innerHTML = value || ''
   }, [value])
 
+  // Native DOM listener — onInput от React в contentEditable срабатывает
+  // ненадёжно (известный баг). Цепляем addEventListener напрямую.
+  useEffect(() => {
+    const el = editorRef.current
+    if (!el) return
+    const handler = () => {
+      const cleaned = sanitize(el.innerHTML)
+      onChange(cleaned)
+    }
+    el.addEventListener('input', handler)
+    el.addEventListener('blur', handler)
+    return () => {
+      el.removeEventListener('input', handler)
+      el.removeEventListener('blur', handler)
+    }
+  }, [onChange])
+
   // Заставляем contentEditable вставлять <br> при Enter, а не <div> или <p>
   // (Telegram parse_mode=HTML отвергает div/p — см. sanitize).
   useEffect(() => {
