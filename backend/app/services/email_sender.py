@@ -104,10 +104,9 @@ def _unsubscribe_url(token: str) -> str:
 
 def _build_plain_footer(unsub_url: str, brand_name: Optional[str] = None) -> str:
     # В plain-варианте гипер-ссылку не сделаешь, поэтому пишем URL открытым.
-    # Большинство клиентов автоматически превращают такие URL в кликабельные.
     brand = (brand_name or "").strip() or "наших проектах"
     return (
-        "\n\n\n\n\n\n\n\n\n\n"
+        "\n\n\n"  # ≈ 3 пустые строки отступа
         "---\n"
         f"Вы получили это письмо, потому что регистрировались в проектах {brand}. "
         "Если вы не хотите получать письма от нас, вы можете отписаться:\n"
@@ -116,12 +115,10 @@ def _build_plain_footer(unsub_url: str, brand_name: Optional[str] = None) -> str
 
 
 def _build_html_footer(unsub_url: str, brand_name: Optional[str] = None) -> str:
-    # В HTML «отписаться» — гипер-ссылка. Подвал отделяется от тела письма
-    # большим вертикальным отступом (имитация 10 пустых строк) и горизонтальной
-    # чертой. Текст мелкий, серый — чтобы не отвлекал от основного содержимого.
+    # Подвал: отступ ~3 строки + черта + мелкий серый текст с гипер-ссылкой.
     brand = (brand_name or "").strip() or "наших проектах"
     return (
-        '<div style="height:160px;"></div>'  # ≈ 10 пустых строк вертикального отступа
+        '<div style="height:50px;"></div>'  # ≈ 3 пустые строки вертикального отступа
         '<hr style="border:none;border-top:1px solid #d0d7de;margin:0 0 12px 0;">'
         '<p style="color:#7d8c9c;font-size:11px;line-height:1.55;margin:0;padding:0 4px;'
         'font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;">'
@@ -200,6 +197,7 @@ class EmailSender:
         unsubscribe_token: str,
         body_html: Optional[str] = None,
         inline_images: Optional[list] = None,
+        footer_brand_label: Optional[str] = None,
     ) -> str:
         """
         Отправляет одно письмо. Возвращает Message-ID при успехе.
@@ -215,12 +213,15 @@ class EmailSender:
         unsub_url = _unsubscribe_url(unsubscribe_token)
         msg_id = make_msgid(domain=from_address.split("@", 1)[1])
 
-        plain_body = (body_text or "") + _build_plain_footer(unsub_url, client_brand_name)
+        # В подвале используем footer_brand_label если он задан (это «{Имя} и
+        # {Бренд}»), иначе fallback на client_brand_name (только бренд).
+        footer_label = (footer_brand_label or client_brand_name or "").strip() or None
+        plain_body = (body_text or "") + _build_plain_footer(unsub_url, footer_label)
 
         # HTML-версия — есть ВСЕГДА, даже если caller передал только plain-text.
         # Подвал отписки вставляется ВНУТРИ <body>, перед </body> — иначе
         # некоторые клиенты игнорируют HTML после </html>.
-        html_footer = _build_html_footer(unsub_url, client_brand_name)
+        html_footer = _build_html_footer(unsub_url, footer_label)
 
         if body_html:
             html_outer = body_html

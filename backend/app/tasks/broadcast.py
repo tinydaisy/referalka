@@ -866,7 +866,20 @@ async def _send_broadcast_email_part(
         return 0
 
     channel_dict = dict(channel)
+    # Имя для From-заголовка и subject — короткий вариант (бренд если есть, иначе имя).
     client_brand_name = channel_dict.get("brand_name") or channel_dict.get("client_name") or "ПЛЮСОН"
+    # Полное имя для подвала отписки — «{ИмяФамилия} и {Бренд}»; если бренд
+    # не задан — только имя; если нет имени — только бренд; иначе ПЛЮСОН.
+    _owner = (channel_dict.get("client_name") or "").strip()
+    _brand = (channel_dict.get("brand_name") or "").strip()
+    if _owner and _brand:
+        footer_brand_label = f"{_owner} и {_brand}"
+    elif _owner:
+        footer_brand_label = _owner
+    elif _brand:
+        footer_brand_label = _brand
+    else:
+        footer_brand_label = "ПЛЮСОН"
 
     # Получатели — email-identity с активной подпиской на ЭТОТ канал
     # и не помеченные как битые (email_is_dead).
@@ -1216,6 +1229,7 @@ async def _send_broadcast_email_part(
                 unsubscribe_token=unsub_token,
                 body_html=msg_html_final,
                 inline_images=inline_images_arg,
+                footer_brand_label=footer_brand_label,
             )
             ok = True
         except EmailSendError as e:
