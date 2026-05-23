@@ -824,13 +824,17 @@ function CustomBroadcastModal(props: {
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Текст (можно {'{first_name}'} — подставится имя)</label>
-            <RichTextEditor
-              ref={editorRef}
+            <textarea
               value={text}
-              onChange={setText}
+              onChange={e => setText(e.target.value)}
               placeholder="Привет, {first_name}! ..."
-              rows={8}
+              rows={10}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm leading-relaxed font-sans"
+              style={{ resize: 'vertical', minHeight: '200px' }}
             />
+            <div className="text-xs text-gray-500 mt-1">
+              Длина: {(text || '').trim().length} символов. HTML-теги Telegram: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;a href&gt;
+            </div>
             <p className="text-xs text-gray-400 mt-1">Жирный, курсив, подчёркивание и ссылки. Telegram примет это форматирование как есть. Для VK теги срежутся, останется только текст и ссылки.</p>
             {htmlErrors.length > 0 && (
               <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-0.5">

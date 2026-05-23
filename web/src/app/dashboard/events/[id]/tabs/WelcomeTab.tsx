@@ -144,20 +144,23 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
           </div>
         </div>
 
-        {/* Тело */}
+        {/* Тело — обычная textarea, чтобы текст 100% сохранялся.
+            Визуальное форматирование (B/I/U) для welcome не критично —
+            это короткое письмо с плейсхолдерами + ссылками. */}
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Текст приветствия
           </label>
-          <RichTextEditor
-            ref={editorRef}
+          <textarea
             value={body}
-            onChange={setBody}
-            placeholder="(пример) Привет, {name}! Спасибо за регистрацию на «{event_title}»..."
+            onChange={e => setBody(e.target.value)}
+            placeholder="Привет, {name}! Спасибо за регистрацию на «{event_title}». Доступ к программе и материалам — по ссылке: {tg_url}"
             rows={12}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm leading-relaxed font-sans"
+            style={{ resize: 'vertical', minHeight: '240px' }}
           />
           <div className="text-xs text-gray-500 mt-1">
-            Длина: {(body || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().length} символов
+            Длина: {(body || '').trim().length} символов. Поддерживаются ссылки https://...
           </div>
         </div>
 
