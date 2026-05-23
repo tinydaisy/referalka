@@ -376,11 +376,6 @@ export const api = {
       }),
     vkOauthUrl: (channel_id: number) =>
       request(`/api/v1/channels/vk/oauth-url?channel_id=${channel_id}`),
-    vkSaveAdminToken: (data: { channel_id: number; redirect_url: string }) =>
-      request('/api/v1/channels/vk/admin-token', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
     vkDeleteAdminToken: (channel_id: number) =>
       request(`/api/v1/channels/vk/admin-token?channel_id=${channel_id}`, { method: 'DELETE' }),
     importCsv: async (id: number, file: File) => {

@@ -611,25 +611,55 @@ async def connect_vk_community(
     }
 
 
-# ─── VK OAuth: токен админа для нативного видео ───────────────────────
+# ─── VK OAuth: токен админа для нативного видео (VK ID 2.0 Code Flow + PKCE) ─
 #
 # Community-токен VK не имеет прав на video.save (error 27 «method is unavailable
-# with group auth»). Чтобы воронки/рассылки могли слать видео нативным плеером,
-# нужен user-токен админа сообщества со scope=video,offline.
+# with group auth»). Нужен user-токен админа со scope=video.
 #
-# Поток (Implicit Flow):
-#   1. Клиент жмёт «Подключить VK для видео» — фронт получает oauth_url отсюда.
-#   2. Открывается окно VK с правами scope=video,offline,messages.
-#   3. VK редиректит на https://oauth.vk.com/blank.html#access_token=...&user_id=...
-#      Это страница VK, мы её не контролируем — клиент копирует ВЕСЬ URL и пастит
-#      обратно в дашборд.
-#   4. POST /vk/admin-token парсит #access_token=... → проверяет через users.get →
-#      пишет в channels.platform_meta.vk_admin_user_token.
-#   5. upload_video_to_messages при наличии user-токена использует video.save +
-#      messages.send с video-attachment вместо docs.save (см. vk_api.py).
-#
-# OAuth Implicit Flow VK помечен deprecated, но пока работает. Альтернатива
-# (VK ID 2.0 с PKCE+refresh) на отдельную итерацию.
+# Поток (VK ID 2.0):
+#   1. GET /vk/oauth-url?channel_id → бэк генерит PKCE (code_verifier + challenge)
+#      и подписанный state (JWT с channel_id+client_id+code_verifier). Возвращает
+#      URL на id.vk.com/authorize.
+#   2. Клиент жмёт «Подключить VK для видео» → новая вкладка с VK ID авторизацией.
+#   3. После подтверждения VK редиректит на наш callback:
+#      GET /vk/oauth-callback?code=...&state=...&device_id=...
+#   4. Callback декодирует state JWT → достаёт code_verifier → POST на id.vk.com/oauth2/auth
+#      обменивает code на access_token. Проверяет через users.get → пишет в
+#      channels.platform_meta.vk_admin_user_token + show success HTML.
+
+import secrets as _secrets
+import hashlib as _hashlib
+import base64 as _base64
+
+
+def _pkce_pair() -> tuple[str, str]:
+    """Генерирует (code_verifier, code_challenge) для PKCE S256."""
+    verifier = _base64.urlsafe_b64encode(_secrets.token_bytes(32)).rstrip(b"=").decode()
+    challenge = _base64.urlsafe_b64encode(
+        _hashlib.sha256(verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+def _encode_state(channel_id: int, client_id: int, code_verifier: str) -> str:
+    """Подписанный state — содержит channel_id (куда сохранить токен) +
+    client_id (для проверки авторизации) + code_verifier (для token exchange).
+    TTL 10 минут — больше не нужно, OAuth flow быстрый."""
+    from jose import jwt as _jose_jwt
+    import time as _time
+    payload = {
+        "ch": channel_id,
+        "cl": client_id,
+        "cv": code_verifier,
+        "exp": int(_time.time()) + 600,
+    }
+    return _jose_jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+
+def _decode_state(state: str) -> dict:
+    from jose import jwt as _jose_jwt
+    return _jose_jwt.decode(state, settings.secret_key, algorithms=["HS256"])
+
 
 @router.get("/vk/oauth-url", summary="OAuth URL для получения user-токена с правами video")
 async def vk_oauth_url(
@@ -637,13 +667,10 @@ async def vk_oauth_url(
     client=Depends(get_current_client),
     db=Depends(get_db),
 ):
-    """Возвращает URL VK OAuth Implicit Flow для подключённого VK-канала клиента.
+    """Возвращает URL VK ID 2.0 (Code Flow + PKCE) для авторизации админа сообщества.
 
-    Используется app_id из channel.platform_meta — токен будет выдан этому
-    конкретному приложению клиента (не общему ПЛЮСОНа). scope=video,messages,offline:
-    - video — для video.save (нативная загрузка)
-    - messages — на случай если будем слать через user-токен
-    - offline — бессрочный токен (без expires_in)
+    Требуется settings.vk_oauth_standalone_app_id — отдельное Web-приложение
+    в VK ID Console (не Mini App). scope=video,offline.
     """
     client_id = int(client["sub"])
     ch = await db.fetchrow(
@@ -657,89 +684,132 @@ async def vk_oauth_url(
         raise HTTPException(status_code=404, detail="VK-канал не найден")
     if ch["is_system"]:
         raise HTTPException(status_code=403, detail="Системный канал, нативное видео не настраивается")
-    import json as _json
-    meta = ch["platform_meta"] or {}
-    if isinstance(meta, str):
-        try:
-            meta = _json.loads(meta)
-        except Exception:
-            meta = {}
-    # Приоритет: общий standalone-app ПЛЮСОНа (тот что в env) →
-    # fallback на vk_app_id Mini App клиента (но scope=video у Mini App запрещён).
-    vk_app_id = settings.vk_oauth_standalone_app_id or meta.get("vk_app_id") or settings.vk_app_id
-    if not vk_app_id:
+    if not settings.vk_oauth_standalone_app_id:
         raise HTTPException(
             status_code=400,
-            detail="Не настроен VK_OAUTH_STANDALONE_APP_ID. Свяжитесь с поддержкой ПЛЮСОНа.",
+            detail="VK_OAUTH_STANDALONE_APP_ID не настроен в .env. Свяжитесь с поддержкой ПЛЮСОНа.",
         )
+    verifier, challenge = _pkce_pair()
+    state = _encode_state(channel_id, client_id, verifier)
     oauth_url = (
-        f"https://oauth.vk.com/authorize"
-        f"?client_id={vk_app_id}"
-        f"&display=page"
-        f"&redirect_uri=https://oauth.vk.com/blank.html"
-        f"&scope=video,offline"
-        f"&response_type=token"
-        f"&v=5.199"
+        f"https://id.vk.com/authorize"
+        f"?response_type=code"
+        f"&client_id={settings.vk_oauth_standalone_app_id}"
+        f"&redirect_uri={settings.vk_oauth_redirect_uri}"
+        f"&state={state}"
+        f"&code_challenge={challenge}"
+        f"&code_challenge_method=S256"
+        f"&scope=video+offline"
     )
-    return {"oauth_url": oauth_url, "vk_app_id": int(vk_app_id)}
+    return {"oauth_url": oauth_url}
 
 
-class VkAdminTokenSaveRequest(BaseModel):
-    channel_id: int
-    redirect_url: str  # весь URL который VK дал после redirect (с #access_token=...)
-
-
-@router.post("/vk/admin-token", summary="Сохранить user-токен админа VK для нативного видео")
-async def vk_save_admin_token(
-    body: VkAdminTokenSaveRequest,
-    client=Depends(get_current_client),
+@router.get("/vk/oauth-callback", include_in_schema=False)
+async def vk_oauth_callback(
+    code: str = "",
+    state: str = "",
+    device_id: str = "",
+    error: str = "",
+    error_description: str = "",
     db=Depends(get_db),
 ):
-    """Парсит access_token из URL который VK выдал после OAuth, проверяет его через
-    users.get и сохраняет в channels.platform_meta.vk_admin_user_token.
+    """Callback от VK ID 2.0 после авторизации.
+
+    VK редиректит сюда GET-запросом с code+state+device_id. Бэк:
+    1. Декодирует state JWT → channel_id, client_id, code_verifier.
+    2. POST на id.vk.com/oauth2/auth с code+verifier → access_token+user_id.
+    3. Проверяет токен через users.get.
+    4. Сохраняет в channels.platform_meta.vk_admin_user_token.
+    5. Возвращает HTML-страницу «Готово, закройте вкладку».
+
+    Этот endpoint НЕ требует JWT клиента — VK не пересылает наши куки.
+    Авторизация через подпись state.
     """
-    client_id = int(client["sub"])
+    from fastapi.responses import HTMLResponse
+    import json as _json
+
+    def html_response(title: str, message: str, ok: bool = True) -> HTMLResponse:
+        color = "#16a34a" if ok else "#dc2626"
+        return HTMLResponse(f"""<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>{title}</title>
+<style>body{{font-family:system-ui,-apple-system,sans-serif;max-width:480px;margin:60px auto;padding:24px;text-align:center}}
+h1{{color:{color};font-size:20px;margin-bottom:12px}}p{{color:#475569;line-height:1.5}}</style></head>
+<body><h1>{title}</h1><p>{message}</p><p style="margin-top:32px;color:#94a3b8;font-size:13px">
+Эту вкладку можно закрыть. Вернитесь в дашборд ПЛЮСОНа — настройка применится.</p></body></html>""", status_code=200 if ok else 400)
+
+    if error:
+        return html_response(
+            "Ошибка VK", f"VK вернул: {error_description or error}", ok=False
+        )
+    if not code or not state:
+        return html_response("Ошибка", "VK не вернул code или state", ok=False)
+
+    try:
+        st = _decode_state(state)
+    except Exception as e:
+        return html_response("Ошибка", f"state подпись не прошла: {e}", ok=False)
+
+    channel_id = st.get("ch")
+    client_id_owner = st.get("cl")
+    code_verifier = st.get("cv")
+    if not (channel_id and client_id_owner and code_verifier):
+        return html_response("Ошибка", "state без нужных полей", ok=False)
+
     ch = await db.fetchrow(
         """SELECT ch.id, ch.platform_meta, ch.is_system
              FROM channels ch
              JOIN client_channels cc ON cc.channel_id = ch.id
             WHERE ch.id = $1 AND cc.client_id = $2 AND ch.platform_slug = 'vk'""",
-        body.channel_id, client_id,
+        int(channel_id), int(client_id_owner),
     )
-    if not ch:
-        raise HTTPException(status_code=404, detail="VK-канал не найден")
-    if ch["is_system"]:
-        raise HTTPException(status_code=403, detail="Системный канал")
+    if not ch or ch["is_system"]:
+        return html_response("Ошибка", "VK-канал клиента не найден", ok=False)
 
-    # Парсим access_token и user_id из URL (формат: ?...#access_token=X&user_id=Y&expires_in=Z)
-    import re as _re
-    token_match = _re.search(r"[#&?]access_token=([^&]+)", body.redirect_url)
-    if not token_match:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "В URL не найден access_token. Скопируйте полный URL из адресной строки "
-                "VK после подтверждения прав (там должно быть `#access_token=…`)."
-            ),
+    # Token exchange — VK ID 2.0 endpoint
+    try:
+        async with httpx.AsyncClient(timeout=30) as cli:
+            r = await cli.post(
+                "https://id.vk.com/oauth2/auth",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "client_id": settings.vk_oauth_standalone_app_id,
+                    "device_id": device_id,
+                    "code_verifier": code_verifier,
+                    "redirect_uri": settings.vk_oauth_redirect_uri,
+                },
+            )
+            data = r.json()
+    except Exception as e:
+        return html_response("Ошибка", f"Не удалось обменять code на token: {e}", ok=False)
+
+    if "error" in data:
+        return html_response(
+            "Ошибка обмена токеном",
+            f"VK: {data.get('error_description') or data.get('error')}",
+            ok=False,
         )
-    access_token = token_match.group(1)
-    uid_match = _re.search(r"[#&?]user_id=(\d+)", body.redirect_url)
-    user_id = int(uid_match.group(1)) if uid_match else None
 
-    # Проверяем токен через users.get
+    access_token = data.get("access_token")
+    refresh_token = data.get("refresh_token") or ""
+    expires_in = data.get("expires_in") or 0
+    user_id = data.get("user_id")
+    if not access_token:
+        return html_response("Ошибка", f"В ответе VK нет access_token: {data}", ok=False)
+
+    # Проверка токена через users.get
     from app.services.vk_api import vk_call
     try:
         info = await vk_call("users.get", {"fields": "screen_name"}, token=access_token)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"VK API не принял токен: {e}")
+        return html_response("Ошибка", f"users.get отверг токен: {e}", ok=False)
     if not isinstance(info, list) or not info:
-        raise HTTPException(status_code=400, detail="users.get вернул пустой ответ — токен невалиден")
+        return html_response("Ошибка", "users.get вернул пустой ответ", ok=False)
     me = info[0]
     user_id = user_id or me.get("id")
     full_name = f"{me.get('first_name', '')} {me.get('last_name', '')}".strip()
     screen_name = me.get("screen_name", "")
 
-    import json as _json
     meta = ch["platform_meta"] or {}
     if isinstance(meta, str):
         try:
@@ -748,6 +818,8 @@ async def vk_save_admin_token(
             meta = {}
     meta = dict(meta)
     meta["vk_admin_user_token"] = access_token
+    meta["vk_admin_refresh_token"] = refresh_token
+    meta["vk_admin_token_expires_in"] = expires_in
     meta["vk_admin_user_id"] = user_id
     meta["vk_admin_user_name"] = full_name
     meta["vk_admin_user_screen"] = screen_name
@@ -755,12 +827,11 @@ async def vk_save_admin_token(
         "UPDATE channels SET platform_meta = $1::jsonb WHERE id = $2",
         _json.dumps(meta), ch["id"],
     )
-    return {
-        "ok": True,
-        "user_id": user_id,
-        "name": full_name,
-        "screen_name": screen_name,
-    }
+    return html_response(
+        "Готово",
+        f"VK-токен админа сохранён: {full_name}" + (f" (vk.com/{screen_name})" if screen_name else ""),
+        ok=True,
+    )
 
 
 @router.delete("/vk/admin-token", summary="Удалить user-токен админа VK")

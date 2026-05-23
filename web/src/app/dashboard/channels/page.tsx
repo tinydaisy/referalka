@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
   Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
-  Upload, Download, FileText, HelpCircle, Sparkles,
+  Upload, Download, FileText, HelpCircle, Sparkles, Loader2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -452,9 +452,7 @@ function ConnectInvite({ title, description, buttonText, badge, badgeColor, onCl
  * и пастит редирект-URL сюда. Бэк парсит #access_token и пишет в platform_meta.
  */
 function VkVideoTokenBlock({ channel }: { channel: Channel }) {
-  const [pasteOpen, setPasteOpen] = useState(false)
-  const [redirectUrl, setRedirectUrl] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const connected = !!(channel as any).vk_admin_token_connected
   const adminName = (channel as any).vk_admin_user_name || ''
@@ -465,23 +463,27 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
     try {
       const r = await api.channels.vkOauthUrl(channel.id) as { oauth_url: string }
       window.open(r.oauth_url, '_blank', 'noopener')
-      setPasteOpen(true)
+      setWaiting(true)
+      // Poll: каждые 3 сек запрашиваем list channels, если у нашего канала
+      // появился флаг vk_admin_token_connected — обновляем страницу.
+      const started = Date.now()
+      const interval = setInterval(async () => {
+        try {
+          const res = await api.channels.list() as { items: any[] }
+          const updated = res.items?.find(c => c.id === channel.id)
+          if (updated?.vk_admin_token_connected) {
+            clearInterval(interval)
+            window.location.reload()
+          }
+          // через 5 минут — стоп polling, юзер видимо забил или произошла ошибка
+          if (Date.now() - started > 5 * 60 * 1000) {
+            clearInterval(interval)
+            setWaiting(false)
+          }
+        } catch {}
+      }, 3000)
     } catch (e: any) {
       setError(e.message || 'Не удалось получить OAuth URL')
-    }
-  }
-
-  async function saveToken() {
-    setSaving(true); setError(null)
-    try {
-      await api.channels.vkSaveAdminToken({ channel_id: channel.id, redirect_url: redirectUrl })
-      setPasteOpen(false)
-      setRedirectUrl('')
-      window.location.reload()  // перечитываем list_channels чтобы обновить connected flag
-    } catch (e: any) {
-      setError(e.message || 'Не удалось сохранить токен')
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -522,42 +524,23 @@ function VkVideoTokenBlock({ channel }: { channel: Channel }) {
             </div>
           ) : (
             <>
-              {!pasteOpen ? (
+              {!waiting ? (
                 <button onClick={startOauth}
                   className="mt-3 px-3 py-1.5 rounded-lg text-white text-xs font-medium"
                   style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
                   Подключить VK для нативного видео →
                 </button>
               ) : (
-                <div className="mt-3 space-y-2">
-                  <div className="text-xs text-gray-700 bg-white border border-blue-200 rounded-lg p-3 space-y-1.5">
-                    <p><b>Что делать:</b></p>
-                    <ol className="list-decimal ml-4 space-y-1">
-                      <li>Откройте вкладку VK (она уже открыта рядом).</li>
-                      <li>Подтвердите права доступа к видео и сообщениям.</li>
-                      <li>VK редиректит на страницу <code>oauth.vk.com/blank.html</code> — она почти пустая.</li>
-                      <li>Скопируйте <b>весь URL</b> из адресной строки браузера (он содержит <code>#access_token=…</code>).</li>
-                      <li>Вставьте сюда и нажмите «Сохранить».</li>
-                    </ol>
-                  </div>
-                  <textarea
-                    value={redirectUrl}
-                    onChange={e => setRedirectUrl(e.target.value)}
-                    placeholder="https://oauth.vk.com/blank.html#access_token=…&expires_in=0&user_id=…"
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:outline-none focus:border-blue-400"
-                  />
-                  <div className="flex gap-2">
-                    <button onClick={saveToken} disabled={saving || !redirectUrl.trim()}
-                      className="px-3 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
-                      style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-                      {saving ? 'Сохраняю…' : 'Сохранить'}
-                    </button>
-                    <button onClick={() => { setPasteOpen(false); setRedirectUrl(''); setError(null) }}
-                      className="px-3 py-1.5 rounded-lg text-gray-600 text-xs hover:bg-gray-100">
-                      Отмена
-                    </button>
-                  </div>
+                <div className="mt-3 bg-white border border-blue-200 rounded-lg p-3 text-xs text-gray-700 space-y-1.5">
+                  <p>
+                    <Loader2 size={12} className="inline animate-spin mr-1" />
+                    Открыли VK-вкладку. Подтвердите права <code>video</code> и нажмите «Разрешить».
+                  </p>
+                  <p className="text-gray-500">
+                    После подтверждения вкладка покажет «Готово». Эта страница автоматически обновится.
+                  </p>
+                  <button onClick={() => setWaiting(false)}
+                    className="text-blue-600 hover:underline">Отменить ожидание</button>
                 </div>
               )}
             </>

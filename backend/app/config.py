@@ -30,11 +30,14 @@ class Settings(BaseSettings):
     vk_app_id: str = ""
     vk_app_secure_key: str = ""
     vk_app_service_token: str = ""
-    # Отдельный standalone-app ПЛЮСОНа для OAuth (scope=video). Mini App-тип
-    # приложений в OAuth не пускает scope=video — нужен Standalone. Если не
-    # задан — fallback на channel.platform_meta.vk_app_id (Mini App клиента),
-    # OAuth даст «invalid scope».
+    # Отдельный VK-app ПЛЮСОНа для OAuth (VK ID 2.0, Code Flow + PKCE).
+    # Используется чтобы запросить у админа VK-сообщества клиента user-токен
+    # со scope=video для нативной загрузки видео в воронках лид-магнитов.
+    # Создаётся в VK ID Console как Web-приложение.
     vk_oauth_standalone_app_id: str = ""
+    vk_oauth_client_secret: str = ""
+    # Redirect URI должен быть точно прописан в настройках VK ID приложения
+    vk_oauth_redirect_uri: str = "https://pluson.ru/api/v1/channels/vk/oauth-callback"
     vk_system_channel_id: int = 0
     vk_system_group_id: int = 0
     vk_system_group_token: str = ""
