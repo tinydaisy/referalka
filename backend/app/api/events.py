@@ -336,6 +336,12 @@ async def update_event(
     if not updates:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
 
+    # Диагностика welcome — что приходит в PATCH (для отладки welcome-полей)
+    if any(k.startswith("welcome_") for k in updates.keys()):
+        import logging as _l
+        wlog = {k: (v if k != "welcome_text" else f"len={len(v or '')}") for k, v in updates.items() if k.startswith("welcome_")}
+        _l.getLogger(__name__).info("PATCH /events/%s welcome fields: %s", event_id, wlog)
+
     # Slug: валидация формата + проверка уникальности (если меняется)
     if "slug" in updates:
         new_slug = _validate_custom_slug(updates["slug"])

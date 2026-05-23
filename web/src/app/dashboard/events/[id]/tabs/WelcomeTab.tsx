@@ -45,11 +45,16 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
       // innerHTML и прогонит через sanitize.
       const liveBody = editorRef.current?.getValue() ?? body
       setBody(liveBody) // синхронизируем стейт
-      await api.events.update(eventId, {
+
+      const payload = {
         welcome_enabled: enabled,
         welcome_email_subject: subject || null,
         welcome_text: liveBody || null,
-      })
+      }
+      // Диагностика: логируем что реально шлём (видно в DevTools → Console)
+      // eslint-disable-next-line no-console
+      console.log('[WelcomeTab.save] payload:', payload)
+      await api.events.update(eventId, payload)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
       onReload()
