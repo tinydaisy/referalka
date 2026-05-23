@@ -641,16 +641,15 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-def _encode_state(channel_id: int, client_id: int, code_verifier: str) -> str:
-    """Подписанный state — содержит channel_id (куда сохранить токен) +
-    client_id (для проверки авторизации) + code_verifier (для token exchange).
-    TTL 10 минут — больше не нужно, OAuth flow быстрый."""
+def _encode_state(channel_id: int, client_id: int) -> str:
+    """Подписанный state — короткий JWT с channel_id+client_id, без code_verifier.
+    VK ID 2.0 ограничивает state ~256 chars, поэтому verifier храним отдельно в
+    channels.platform_meta.pending_oauth_verifier."""
     from jose import jwt as _jose_jwt
     import time as _time
     payload = {
         "ch": channel_id,
         "cl": client_id,
-        "cv": code_verifier,
         "exp": int(_time.time()) + 600,
     }
     return _jose_jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
@@ -690,13 +689,29 @@ async def vk_oauth_url(
             detail="VK_OAUTH_STANDALONE_APP_ID не настроен в .env. Свяжитесь с поддержкой ПЛЮСОНа.",
         )
     verifier, challenge = _pkce_pair()
-    state = _encode_state(channel_id, client_id, verifier)
+    state = _encode_state(channel_id, client_id)
+    # Verifier хранится в platform_meta (как pending) до callback'а.
+    # В callback читаем + удаляем. TTL = 10 мин (тот же что у JWT exp).
+    import json as _json
+    import time as _time
+    meta = ch["platform_meta"] or {}
+    if isinstance(meta, str):
+        try: meta = _json.loads(meta)
+        except Exception: meta = {}
+    meta = dict(meta)
+    meta["pending_oauth_verifier"] = verifier
+    meta["pending_oauth_exp"] = int(_time.time()) + 600
+    await db.execute(
+        "UPDATE channels SET platform_meta = $1::jsonb WHERE id = $2",
+        _json.dumps(meta), ch["id"],
+    )
+    import urllib.parse as _urlparse
     oauth_url = (
         f"https://id.vk.com/authorize"
         f"?response_type=code"
         f"&client_id={settings.vk_oauth_standalone_app_id}"
-        f"&redirect_uri={settings.vk_oauth_redirect_uri}"
-        f"&state={state}"
+        f"&redirect_uri={_urlparse.quote(settings.vk_oauth_redirect_uri, safe='')}"
+        f"&state={_urlparse.quote(state, safe='')}"
         f"&code_challenge={challenge}"
         f"&code_challenge_method=S256"
         f"&scope=video+offline"
@@ -737,6 +752,16 @@ h1{{color:{color};font-size:20px;margin-bottom:12px}}p{{color:#475569;line-heigh
 <body><h1>{title}</h1><p>{message}</p><p style="margin-top:32px;color:#94a3b8;font-size:13px">
 Эту вкладку можно закрыть. Вернитесь в дашборд ПЛЮСОНа — настройка применится.</p></body></html>""", status_code=200 if ok else 400)
 
+    import logging
+    _log = logging.getLogger(__name__)
+    _log.warning(
+        "VK OAuth callback: code=%r state=%r device_id=%r error=%r",
+        code[:20] if code else None,
+        state[:80] if state else None,
+        device_id[:20] if device_id else None,
+        error,
+    )
+
     if error:
         return html_response(
             "Ошибка VK", f"VK вернул: {error_description or error}", ok=False
@@ -747,12 +772,12 @@ h1{{color:{color};font-size:20px;margin-bottom:12px}}p{{color:#475569;line-heigh
     try:
         st = _decode_state(state)
     except Exception as e:
+        _log.warning("VK OAuth state decode failed (len=%d): %r", len(state), e)
         return html_response("Ошибка", f"state подпись не прошла: {e}", ok=False)
 
     channel_id = st.get("ch")
     client_id_owner = st.get("cl")
-    code_verifier = st.get("cv")
-    if not (channel_id and client_id_owner and code_verifier):
+    if not (channel_id and client_id_owner):
         return html_response("Ошибка", "state без нужных полей", ok=False)
 
     ch = await db.fetchrow(
@@ -764,6 +789,15 @@ h1{{color:{color};font-size:20px;margin-bottom:12px}}p{{color:#475569;line-heigh
     )
     if not ch or ch["is_system"]:
         return html_response("Ошибка", "VK-канал клиента не найден", ok=False)
+
+    # Читаем PKCE verifier из БД (мы сохранили его в /vk/oauth-url шаге)
+    meta_pre = ch["platform_meta"] or {}
+    if isinstance(meta_pre, str):
+        try: meta_pre = _json.loads(meta_pre)
+        except Exception: meta_pre = {}
+    code_verifier = meta_pre.get("pending_oauth_verifier")
+    if not code_verifier:
+        return html_response("Ошибка", "Не найден pending_oauth_verifier — начните авторизацию заново", ok=False)
 
     # Token exchange — VK ID 2.0 endpoint
     try:
@@ -823,6 +857,9 @@ h1{{color:{color};font-size:20px;margin-bottom:12px}}p{{color:#475569;line-heigh
     meta["vk_admin_user_id"] = user_id
     meta["vk_admin_user_name"] = full_name
     meta["vk_admin_user_screen"] = screen_name
+    # Очищаем pending fields — verifier больше не нужен
+    meta.pop("pending_oauth_verifier", None)
+    meta.pop("pending_oauth_exp", None)
     await db.execute(
         "UPDATE channels SET platform_meta = $1::jsonb WHERE id = $2",
         _json.dumps(meta), ch["id"],
