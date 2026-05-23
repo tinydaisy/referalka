@@ -35,7 +35,10 @@ Postfix настроен с loopback-only inet_interfaces — поэтому п�
 import logging
 import smtplib
 import socket
-from email.message import EmailMessage
+from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
 from typing import Optional
 
@@ -154,42 +157,64 @@ class EmailSender:
         unsub_url = _unsubscribe_url(unsubscribe_token)
         msg_id = make_msgid(domain=from_address.split("@", 1)[1])
 
-        msg = EmailMessage()
+        plain_body = (body_text or "") + _build_plain_footer(unsub_url)
+        html_body_full = (body_html + _build_html_footer(unsub_url)) if body_html else None
+
+        # MIME-структура (RFC 2387 — самая совместимая для Gmail/Outlook/Apple Mail):
+        #   multipart/related
+        #     ├── multipart/alternative
+        #     │     ├── text/plain
+        #     │     └── text/html       (ссылается на cid:<image_id>)
+        #     └── image/...              (Content-Disposition: inline; filename=…)
+        #
+        # Это «внешний related, внутренний alternative» — обратное к тому, что
+        # делает EmailMessage.add_alternative + .add_related автоматически.
+        # Внутренний alternative некоторые мобильные клиенты Gmail отрисовывают
+        # как «прикреплённый файл», поэтому собираем вручную через MIMEMultipart.
+        if html_body_full and inline_images:
+            related = MIMEMultipart("related")
+            alternative = MIMEMultipart("alternative")
+            alternative.attach(MIMEText(plain_body, "plain", "utf-8"))
+            alternative.attach(MIMEText(html_body_full, "html", "utf-8"))
+            related.attach(alternative)
+            for img in inline_images:
+                try:
+                    image_part = MIMEImage(
+                        img["data"],
+                        _subtype=img.get("subtype", "jpeg"),
+                    )
+                    cid = img["content_id"]
+                    image_part.add_header("Content-ID", f"<{cid}>")
+                    # filename=… помогает почтовикам правильно классифицировать
+                    # картинку как «inline media» (а не как «attachment»).
+                    image_part.add_header(
+                        "Content-Disposition",
+                        "inline",
+                        filename=f"{cid}.{img.get('subtype', 'jpg')}",
+                    )
+                    # MIMEImage по умолчанию ставит Content-Transfer-Encoding: base64
+                    # уже сам — дополнительно ничего не нужно.
+                    related.attach(image_part)
+                except Exception as e:
+                    logger.warning(f"Не удалось вложить inline-картинку cid={img.get('content_id')}: {e}")
+            msg = related
+        elif html_body_full:
+            # Без inline-картинок — простой multipart/alternative.
+            msg = MIMEMultipart("alternative")
+            msg.attach(MIMEText(plain_body, "plain", "utf-8"))
+            msg.attach(MIMEText(html_body_full, "html", "utf-8"))
+        else:
+            # Без HTML вовсе — plain-only.
+            msg = MIMEText(plain_body, "plain", "utf-8")
+
         msg["From"] = from_header
         msg["To"] = to_email
         msg["Subject"] = subject
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = msg_id
-
         # Gmail one-click отписка (RFC 8058)
         msg["List-Unsubscribe"] = f"<{unsub_url}>"
         msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
-
-        # Plain-text часть (всегда)
-        plain_body = (body_text or "") + _build_plain_footer(unsub_url)
-        msg.set_content(plain_body)
-
-        # HTML-альтернатива (опционально)
-        if body_html:
-            html_body = body_html + _build_html_footer(unsub_url)
-            msg.add_alternative(html_body, subtype="html")
-
-            # Inline-картинки — вкладываем внутрь HTML-части как related-attachments.
-            # В HTML на них ссылаемся через src="cid:<content_id>". Картинки уезжают
-            # внутри письма, поэтому R2 может удалить файл, и Gmail-«блокировка
-            # внешних картинок» (особенно в спам-папке) перестаёт мешать.
-            if inline_images:
-                html_part = msg.get_payload()[-1]  # последняя alternative — это html
-                for img in inline_images:
-                    try:
-                        html_part.add_related(
-                            img["data"],
-                            maintype="image",
-                            subtype=img.get("subtype", "jpeg"),
-                            cid=f"<{img['content_id']}>",
-                        )
-                    except Exception as e:
-                        logger.warning(f"Не удалось вложить inline-картинку cid={img.get('content_id')}: {e}")
 
         try:
             with smtplib.SMTP(self.host, self.port, timeout=self.timeout) as smtp:

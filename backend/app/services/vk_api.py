@@ -127,42 +127,92 @@ async def upload_photo_to_messages(
     image_url: str, *, peer_id: int | None = None, token: str
 ) -> str | None:
     """Загружает фото из URL в VK и возвращает attachment-строку `photo{owner_id}_{id}`
-    для использования в messages.send. Возвращает None при любой ошибке.
+    для использования в messages.send. Возвращает None если все 3 попытки провалились.
+
+    Делает **3 попытки** с экспоненциальной задержкой (1с, 2с, 4с) для каждого
+    из 4 этапов (getMessagesUploadServer, download, upload, saveMessagesPhoto)
+    с понятным логированием. Если хотя бы один шаг проваливается на всех 3
+    попытках — возвращает None, и caller сам решает что делать (fallback на
+    URL в тексте — но это хуже превью). Такое поведение требует правило в
+    памяти: «никогда не отвечать что это сетевая флуктуация — добавлять retry».
 
     Если `peer_id` не задан — фото грузится без привязки к конкретному диалогу,
     один и тот же attachment можно прислать многим получателям (для рассылок).
     """
-    try:
-        # 1. Получаем upload-сервер для сообщений
+    import asyncio as _asyncio
+
+    async def _retry(label: str, coro_factory, attempts: int = 3):
+        last_err: Exception | None = None
+        for i in range(attempts):
+            try:
+                return await coro_factory()
+            except Exception as e:
+                last_err = e
+                delay = 2 ** i  # 1с, 2с, 4с
+                logger.warning(
+                    f"VK upload step '{label}' попытка {i+1}/{attempts} failed: {e}. "
+                    f"Ждём {delay}с перед повтором."
+                )
+                if i + 1 < attempts:
+                    await _asyncio.sleep(delay)
+        if last_err:
+            logger.warning(f"VK upload step '{label}' исчерпал все {attempts} попытки: {last_err}")
+        return None
+
+    # Шаг 1: получить upload-сервер
+    async def _get_server():
         srv_params = {"peer_id": peer_id} if peer_id is not None else {}
         srv = await vk_call("photos.getMessagesUploadServer", srv_params, token=token)
         upload_url = (srv or {}).get("upload_url")
         if not upload_url:
-            return None
-        # 2. Скачиваем фото из R2 / любого URL
+            raise RuntimeError("photos.getMessagesUploadServer вернул пусто (нет upload_url)")
+        return upload_url
+
+    upload_url = await _retry("getMessagesUploadServer", _get_server)
+    if not upload_url:
+        return None
+
+    # Шаг 2: скачать картинку из R2 / любого URL
+    async def _download():
         async with httpx.AsyncClient(timeout=30.0) as cli:
             r = await cli.get(image_url)
             r.raise_for_status()
-            content = r.content
-            content_type = r.headers.get("content-type", "image/jpeg")
-        # 3. Загружаем на VK upload-сервер
+            return r.content, r.headers.get("content-type", "image/jpeg")
+
+    download_res = await _retry("download_image", _download)
+    if not download_res:
+        return None
+    content, content_type = download_res
+
+    # Шаг 3: залить на VK upload-сервер
+    async def _upload():
         async with httpx.AsyncClient(timeout=60.0) as cli:
             up = await cli.post(upload_url, files={"photo": ("photo.jpg", content, content_type)})
             up_data = up.json()
         if not up_data.get("photo"):
-            return None
-        # 4. Сохраняем загруженное фото — получаем owner_id + id для attachment
+            raise RuntimeError(f"VK upload вернул пустой photo: {up_data!r}")
+        return up_data
+
+    up_data = await _retry("upload_to_vk", _upload)
+    if not up_data:
+        return None
+
+    # Шаг 4: сохранить → получить attachment-строку
+    async def _save():
         saved = await vk_call("photos.saveMessagesPhoto", {
             "server": up_data["server"],
             "photo": up_data["photo"],
             "hash": up_data["hash"],
         }, token=token)
-        if isinstance(saved, list) and saved:
-            ph = saved[0]
-            return f"photo{ph['owner_id']}_{ph['id']}"
-    except Exception as e:
-        logger.warning(f"VK upload_photo_to_messages failed for {image_url}: {e}")
-    return None
+        if not (isinstance(saved, list) and saved):
+            raise RuntimeError(f"photos.saveMessagesPhoto вернул не-список: {saved!r}")
+        return saved[0]
+
+    saved_photo = await _retry("saveMessagesPhoto", _save)
+    if not saved_photo:
+        return None
+
+    return f"photo{saved_photo['owner_id']}_{saved_photo['id']}"
 
 
 async def upload_video_via_user_token(

@@ -64,6 +64,20 @@ export function validateTelegramHtml(text: string): string[] {
     errors.push(`Тег <${t.name}> открыт, но не закрыт. Добавьте </${t.name}>.`)
   }
 
+  // Одинокие < без полноценного тега: <bэто, <b, < и т.п. Регулярка тегов
+  // выше требует закрывающую >, поэтому такие конструкции остаются молча
+  // в тексте. Telegram parse_mode=HTML на них падает с "can't parse entities",
+  // плюс в email/VK это выглядит как сломанный кусок.
+  // Сначала вырезаем нормальные теги — то что осталось с < явно бракованное.
+  const withoutTags = text.replace(tagRe, '')
+  const lones = withoutTags.match(/<[^\s<]*/g)
+  if (lones) {
+    for (const fragment of lones) {
+      const sample = fragment.length > 20 ? fragment.slice(0, 20) + '…' : fragment
+      errors.push(`Кусок «${sample}» похож на сломанный тег (нет закрывающей «>»). Уберите «<» или допишите тег целиком, например <b>…</b>.`)
+    }
+  }
+
   return errors
 }
 
