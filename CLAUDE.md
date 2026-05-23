@@ -688,6 +688,14 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
   Без `pid` или без коллаборатора с непустым параметром — поведение не меняется. Любая ошибка резолва — тихо игнорируется (основной редирект работает).
 
+  **Обратная связь от лендинга через webhook (2026-05-23).** В URL стороннего лендинга Mini App добавляет `&platform_user_id={id}&platform={tg|vk|max}` (+ legacy `tg_id` / `vk_id` для совместимости). GetCourse/Tilda через стандартную фичу «Сохранять GET-параметры в форме» кладёт их в скрытые поля и шлёт в webhook [`POST/GET /api/v1/integrations/salebot/register`](backend/app/api/integrations.py). Webhook расширен:
+  - **`platform_user_id`** теперь опционален — для веб-форм без TG/VK-айди работаем через `find_or_create_contact` (поиск по email/phone/`telegram_username`).
+  - **`telegram_username`** — fallback-поиск контакта по TG-нику, если email/phone не дали результата (новый параметр `lookup_telegram_username` в `find_or_create_contact` / `upsert_contact_with_identity`).
+  - **`pid`** — резолвится в `ref_code` партнёра через `resolve_ref_code` (с учётом `merged_ref_codes`), пишется в `event_participants.referrer_ref_code` (приоритет над `partner_tg_id`).
+  - **`external_ref_param`** — UPSERT в `contacts.external_ref_param` (свежее значение из GetCourse перезатирает старое — клиент стал партнёром во внешней системе, мы фиксируем его код).
+
+  Так замыкается круг «гость → партнёр»: человек кликает чью-то ссылку → попадает в Mini App → редирект на лендинг клиента с его `platform_user_id` → заполняет форму → GetCourse выдаёт ему свой партнёрский код → webhook обновляет `contacts.external_ref_param` → его собственная ссылка `pluson.ru/l/{slug}?pid={его_ref_code}` дописывает к лендингу клиента его GetCourse-партнёрский код → GetCourse начисляет ему награду.
+
   **UI-защита от draft.** При `events.status='draft'` партнёрские ссылки и сторонний лендинг не открываются у участников (`/landing-redirect` отдаёт `{}`). Чтобы клиент случайно не разослал партнёрам мёртвые ссылки:
   - Жёлтый баннер «⚠️ Это черновик…» в шапке `/dashboard/events/[id]` и `/dashboard/conferences/[id]`.
   - В `<PublicLinks>` (вкладка «Основное» события) и `<RefLinkInline>` (карточка соорганизатора/спикера) при `eventStatus='draft'` URL **затуманен** через CSS `filter: blur(...)` + `userSelect: none`, кнопка «Копировать» дисейблена + tooltip «Сначала опубликуйте событие». При попытке клика — `alert()` с пояснением.
