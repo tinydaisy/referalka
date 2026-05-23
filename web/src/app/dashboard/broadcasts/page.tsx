@@ -710,20 +710,21 @@ function CustomBroadcastModal(props: {
   const hasButtonErrors = buttonErrors.some(errs => errs.length > 0)
 
   async function save() {
-    if (!fireAt) { props.onError('Укажите дату и время'); return }
-    if (!text.trim()) { props.onError('Пустой текст'); return }
+    // Валидация показывается через alert() — блокирующее окно, которое
+    // нельзя не заметить (toast наверху страницы скрывается за модалкой).
+    if (!fireAt) { alert('Укажите дату и время'); return }
+    if (!text.trim()) { alert('Пустой текст'); return }
     if (htmlErrors.length > 0) {
-      // Подробный список ошибок в alert — чтобы юзер видел причину, а не молчаливый дисейбл
-      props.onError(
+      alert(
         'Telegram не примет такое сообщение:\n\n' +
         htmlErrors.map(e => '• ' + e).join('\n') +
         '\n\nЛибо переоткрой редактор — встроенный конвертер уберёт лишние теги при следующем вводе.'
       )
       return
     }
-    if (buttons.length > 3) { props.onError('Максимум 3 кнопки'); return }
+    if (buttons.length > 3) { alert('Максимум 3 кнопки'); return }
     if (hasButtonErrors) {
-      props.onError(
+      alert(
         'Ошибки в кнопках:\n\n' +
         buttonErrors.flatMap((errs, i) =>
           errs.length ? errs.map(e => `• Кнопка ${i + 1}: ${e}`) : []

@@ -84,51 +84,60 @@ export default function WelcomeTab({ event, eventId, onReload }: Props) {
         </div>
       </label>
 
-      {enabled && (
-        <>
-          {/* Subject (email only) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Тема письма (только для email)
-            </label>
-            <input type="text" value={subject}
-              onChange={e => setSubject(e.target.value)}
-              placeholder="Добро пожаловать на «Название события» 🎉"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
-            <div className="text-xs text-gray-500 mt-1">
-              В TG/VK/MAX заголовок становится первой строкой жирным. В email — темой письма.
-            </div>
-          </div>
-
-          {/* Тело */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Текст приветствия
-            </label>
-            <RichTextEditor
-              value={body}
-              onChange={setBody}
-              placeholder="Привет, {name}!&#10;&#10;Спасибо за регистрацию на «{event_title}»..."
-              rows={12}
-            />
-          </div>
-
-          {/* Плейсхолдеры */}
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-            <div className="text-sm font-semibold text-gray-700 mb-2">Плейсхолдеры</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-xs">
-              {placeholders.map(p => (
-                <div key={p.code} className="flex items-baseline gap-2">
-                  <code className="px-1.5 py-0.5 bg-white border border-gray-200 rounded text-gray-800">
-                    {p.code}
-                  </code>
-                  <span className="text-gray-500">— {p.hint}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
+      {/* Поля subject и body показываются ВСЕГДА (даже когда enabled=false),
+          чтобы введённый текст не пропадал из виду при случайном снятии галочки.
+          Когда выключено — просто помечаем поля как opacity-50 + подсказку. */}
+      {!enabled && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">
+          Приветствие выключено — никто не получит письмо при регистрации.
+          Текст и тема ниже <b>не удалены</b>, они сохранятся в БД. Включите галочку,
+          чтобы рассылка возобновилась.
+        </div>
       )}
+
+      <div className={enabled ? '' : 'opacity-60'}>
+        {/* Subject (email only) */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Тема письма (только для email)
+          </label>
+          <input type="text" value={subject}
+            onChange={e => setSubject(e.target.value)}
+            placeholder="Добро пожаловать на «Название события» 🎉"
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
+          <div className="text-xs text-gray-500 mt-1">
+            В TG/VK/MAX заголовок становится первой строкой жирным. В email — темой письма.
+          </div>
+        </div>
+
+        {/* Тело */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Текст приветствия
+          </label>
+          <RichTextEditor
+            value={body}
+            onChange={setBody}
+            placeholder="Привет, {name}!&#10;&#10;Спасибо за регистрацию на «{event_title}»..."
+            rows={12}
+          />
+        </div>
+
+        {/* Плейсхолдеры */}
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+          <div className="text-sm font-semibold text-gray-700 mb-2">Плейсхолдеры</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            {placeholders.map(p => (
+              <div key={p.code} className="flex items-baseline gap-2">
+                <code className="px-1.5 py-0.5 bg-white border border-gray-200 rounded text-gray-800">
+                  {p.code}
+                </code>
+                <span className="text-gray-500">— {p.hint}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">
