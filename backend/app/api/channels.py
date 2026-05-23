@@ -664,18 +664,20 @@ async def vk_oauth_url(
             meta = _json.loads(meta)
         except Exception:
             meta = {}
-    vk_app_id = meta.get("vk_app_id") or settings.vk_app_id
+    # Приоритет: общий standalone-app ПЛЮСОНа (тот что в env) →
+    # fallback на vk_app_id Mini App клиента (но scope=video у Mini App запрещён).
+    vk_app_id = settings.vk_oauth_standalone_app_id or meta.get("vk_app_id") or settings.vk_app_id
     if not vk_app_id:
         raise HTTPException(
             status_code=400,
-            detail="У канала не указан vk_app_id в platform_meta. Подключите Mini App клиента сначала.",
+            detail="Не настроен VK_OAUTH_STANDALONE_APP_ID. Свяжитесь с поддержкой ПЛЮСОНа.",
         )
     oauth_url = (
         f"https://oauth.vk.com/authorize"
         f"?client_id={vk_app_id}"
         f"&display=page"
         f"&redirect_uri=https://oauth.vk.com/blank.html"
-        f"&scope=video,messages,offline"
+        f"&scope=video,offline"
         f"&response_type=token"
         f"&v=5.199"
     )

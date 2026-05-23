@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     vk_app_id: str = ""
     vk_app_secure_key: str = ""
     vk_app_service_token: str = ""
+    # Отдельный standalone-app ПЛЮСОНа для OAuth (scope=video). Mini App-тип
+    # приложений в OAuth не пускает scope=video — нужен Standalone. Если не
+    # задан — fallback на channel.platform_meta.vk_app_id (Mini App клиента),
+    # OAuth даст «invalid scope».
+    vk_oauth_standalone_app_id: str = ""
     vk_system_channel_id: int = 0
     vk_system_group_id: int = 0
     vk_system_group_token: str = ""
