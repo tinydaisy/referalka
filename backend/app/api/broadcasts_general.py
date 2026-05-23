@@ -30,6 +30,7 @@ class ButtonItem(BaseModel):
 class AddCustomRequest(BaseModel):
     fire_at: str
     text: str
+    subject: Optional[str] = None  # Email Subject + жирная первая строка для TG/VK/MAX
     photo_url: Optional[str] = None
     buttons: List[ButtonItem] = []
     is_test: bool = False
@@ -41,6 +42,7 @@ class AddCustomRequest(BaseModel):
 class BulkItem(BaseModel):
     fire_at: str
     text: str
+    subject: Optional[str] = None
     photo_url: Optional[str] = None
     buttons: List[ButtonItem] = []
     target_channel_ids: Optional[List[int]] = None
@@ -177,7 +179,7 @@ async def list_schedules(
         """
         SELECT id, type, fire_at, status, recipients_sent, is_test,
                audience_include, audience_exclude, started_at, finished_at,
-               error_log, snapshot_text, snapshot_photo, snapshot_buttons,
+               error_log, snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons,
                target_channel_ids,
                CASE WHEN finished_at IS NOT NULL AND started_at IS NOT NULL
                     THEN EXTRACT(EPOCH FROM (finished_at - started_at))::int
@@ -241,12 +243,13 @@ async def add_custom(
         INSERT INTO broadcast_schedules
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
-           snapshot_text, snapshot_photo, snapshot_buttons, target_channel_ids)
+           snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids)
         VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                $4, $5, $6::jsonb, $7)
+                $4, $5, $6, $7::jsonb, $8)
         RETURNING id, fire_at, status
         """,
-        client_id, dt_utc, data.is_test, data.text, data.photo_url, _json.dumps(buttons),
+        client_id, dt_utc, data.is_test, data.text,
+        (data.subject or None), data.photo_url, _json.dumps(buttons),
         data.target_channel_ids,
     )
     return dict(row)
@@ -276,6 +279,7 @@ async def bulk_add(
         parsed.append({
             "dt_utc": dt_utc,
             "text": it.text,
+            "subject": it.subject,
             "photo_url": it.photo_url,
             "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in it.buttons if b.text.strip() and b.url.strip()],
             "target_channel_ids": it.target_channel_ids,
@@ -292,12 +296,13 @@ async def bulk_add(
                 INSERT INTO broadcast_schedules
                   (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
-                   snapshot_text, snapshot_photo, snapshot_buttons, target_channel_ids)
+                   snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids)
                 VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                        $4, $5, $6::jsonb, $7)
+                        $4, $5, $6, $7::jsonb, $8)
                 RETURNING id
                 """,
-                client_id, p["dt_utc"], data.is_test, p["text"], p["photo_url"],
+                client_id, p["dt_utc"], data.is_test, p["text"],
+                (p["subject"] or None), p["photo_url"],
                 _json.dumps(p["buttons"]), p["target_channel_ids"],
             )
             created_ids.append(row["id"])
@@ -457,6 +462,7 @@ class UpdateScheduleRequest(BaseModel):
     fire_at: Optional[str] = None
     is_test: Optional[bool] = None
     text: Optional[str] = None
+    subject: Optional[str] = None
     photo_url: Optional[str] = None
     buttons: Optional[List[ButtonItem]] = None
     target_channel_ids: Optional[List[int]] = None
@@ -499,6 +505,10 @@ async def update_schedule(
         if html_errs:
             raise HTTPException(400, "Ошибки в HTML: " + "; ".join(html_errs))
         sets.append(f"snapshot_text=${idx}"); args.append(data.text); idx += 1
+
+    if data.subject is not None:
+        sets.append(f"snapshot_subject=${idx}")
+        args.append((data.subject or None) if data.subject is not None else None); idx += 1
 
     if data.photo_url is not None:
         sets.append(f"snapshot_photo=${idx}")

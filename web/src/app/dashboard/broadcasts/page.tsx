@@ -71,6 +71,7 @@ export default function GeneralBroadcastsPage() {
     fire_at: string
     is_test: boolean
     text: string
+    subject: string
     photo_url: string
     buttons: { text: string; url: string }[]
     target_channel_ids: number[] | null
@@ -447,6 +448,7 @@ export default function GeneralBroadcastsPage() {
                               fire_at: local,
                               is_test: !!s.is_test,
                               text: s.snapshot_text || '',
+                              subject: s.snapshot_subject || '',
                               photo_url: s.snapshot_photo || '',
                               buttons: btns.map(b => ({ text: b.text || '', url: b.url || '' })),
                               target_channel_ids: Array.isArray(s.target_channel_ids) ? s.target_channel_ids : null,
@@ -506,6 +508,7 @@ export default function GeneralBroadcastsPage() {
           initial={{
             fire_at: editModal.fire_at,
             text: editModal.text,
+            subject: editModal.subject,
             photo_url: editModal.photo_url,
             buttons: editModal.buttons,
             is_test: editModal.is_test,
@@ -686,6 +689,7 @@ function CustomBroadcastModal(props: {
   initial?: {
     fire_at?: string
     text?: string
+    subject?: string
     photo_url?: string
     buttons?: { text: string; url: string }[]
     is_test?: boolean
@@ -693,6 +697,7 @@ function CustomBroadcastModal(props: {
   }
 }) {
   const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
+  const [subject, setSubject] = useState(props.initial?.subject || '')
   const [text, setText] = useState(props.initial?.text || '')
   const [photoUrl, setPhotoUrl] = useState(props.initial?.photo_url || '')
   const [buttons, setButtons] = useState<{text: string; url: string}[]>(props.initial?.buttons || [])
@@ -746,6 +751,7 @@ function CustomBroadcastModal(props: {
       const payload: any = {
         fire_at: fireAt,
         text: liveText,
+        subject: subject || null,
         photo_url: photoUrl || null,
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
@@ -798,6 +804,18 @@ function CustomBroadcastModal(props: {
             />
             <p className="text-[11px] text-gray-400 mt-1">
               Фото авто-удалится через 10 минут после отправки рассылки — хранилище не засоряется.
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Заголовок (опционально)</label>
+            <input
+              value={subject}
+              onChange={e => setSubject(e.target.value)}
+              placeholder="Тема для email + жирная первая строка для TG/VK/MAX"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
+            />
+            <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+              В email становится темой письма. В Telegram/VK/MAX — первая жирная строка перед основным текстом.
             </p>
           </div>
           <div>

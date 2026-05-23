@@ -207,6 +207,10 @@ async def _send_broadcast(schedule_id: int):
                 "photo": schedule.get("snapshot_photo"),
                 "buttons": snap_buttons or [],
             }
+            # snapshot_subject имеет приоритет над template.subject для custom-рассылок
+            snap_subject = schedule.get("snapshot_subject")
+            if snap_subject:
+                tmpl_subject_val = snap_subject
 
         # Формируем сообщение — единая функция, та же что в превью
         content = await build_message_content(
