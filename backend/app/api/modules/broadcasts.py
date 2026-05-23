@@ -51,6 +51,7 @@ router = APIRouter(prefix="/events/{event_id}/broadcasts", tags=["Рассылк
 class TemplateCreate(BaseModel):
     name: str
     type: str
+    subject: Optional[str] = None               # email Subject + жирная первая строка в TG/VK/MAX
     text: Optional[str] = None
     photo_url: Optional[str] = None
     button_text: Optional[str] = None
@@ -67,6 +68,7 @@ class TemplateCreate(BaseModel):
 class TemplateUpdate(BaseModel):
     name: str
     type: str
+    subject: Optional[str] = None
     text: Optional[str] = None
     photo_url: Optional[str] = None
     button_text: Optional[str] = None
@@ -366,7 +368,7 @@ async def list_templates(
 
     rows = await db.fetch(
         """
-        SELECT id, name, type, text, photo_url, button_text, button_url,
+        SELECT id, name, type, subject, text, photo_url, button_text, button_url,
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
@@ -459,18 +461,18 @@ async def create_template(
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_templates
-          (client_id, event_id, name, type, text, photo_url, button_text, button_url,
+          (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
            audience_include, audience_exclude, custom_day_ref, custom_time,
            schedule_mode, allow_custom_datetime, target_channel_ids)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-                COALESCE($9, 'all_event'), COALESCE($10, 'none'),
-                $11, $12,
-                COALESCE($13, schedule_mode), COALESCE($14, allow_custom_datetime), $15)
-        RETURNING id, name, type, text, photo_url, button_text, button_url,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+                COALESCE($10, 'all_event'), COALESCE($11, 'none'),
+                $12, $13,
+                COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16)
+        RETURNING id, name, type, subject, text, photo_url, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   custom_day_ref, custom_time, target_channel_ids, created_at
         """,
-        client_id, event_id, data.name, data.type,
+        client_id, event_id, data.name, data.type, data.subject,
         data.text, data.photo_url, data.button_text, data.button_url,
         data.audience_include, data.audience_exclude,
         data.custom_day_ref, data.custom_time,
@@ -494,27 +496,27 @@ async def update_template(
     row = await db.fetchrow(
         """
         UPDATE broadcast_templates SET
-            name = $1, type = $2, text = $3,
-            photo_url = $4, button_text = $5, button_url = $6,
-            schedule_mode = COALESCE($7, schedule_mode),
-            offset_minutes = COALESCE($8, offset_minutes),
-            audience_include = COALESCE($9, audience_include),
-            audience_exclude = COALESCE($10, audience_exclude),
-            allow_custom_datetime = COALESCE($11, allow_custom_datetime),
-            intro_start_time = COALESCE($12, intro_start_time),
-            intro_interval_min = COALESCE($13, intro_interval_min),
-            intro_days_before = COALESCE($14, intro_days_before),
-            custom_day_ref = COALESCE($15, custom_day_ref),
-            custom_time = COALESCE($16, custom_time),
-            target_channel_ids = COALESCE($17::int[], target_channel_ids),
+            name = $1, type = $2, subject = $3, text = $4,
+            photo_url = $5, button_text = $6, button_url = $7,
+            schedule_mode = COALESCE($8, schedule_mode),
+            offset_minutes = COALESCE($9, offset_minutes),
+            audience_include = COALESCE($10, audience_include),
+            audience_exclude = COALESCE($11, audience_exclude),
+            allow_custom_datetime = COALESCE($12, allow_custom_datetime),
+            intro_start_time = COALESCE($13, intro_start_time),
+            intro_interval_min = COALESCE($14, intro_interval_min),
+            intro_days_before = COALESCE($15, intro_days_before),
+            custom_day_ref = COALESCE($16, custom_day_ref),
+            custom_time = COALESCE($17, custom_time),
+            target_channel_ids = COALESCE($18::int[], target_channel_ids),
             updated_at = NOW()
-        WHERE id = $18 AND event_id = $19
-        RETURNING id, name, type, text, photo_url, button_text, button_url,
+        WHERE id = $19 AND event_id = $20
+        RETURNING id, name, type, subject, text, photo_url, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
                   custom_day_ref, custom_time, target_channel_ids
         """,
-        data.name, data.type, data.text,
+        data.name, data.type, data.subject, data.text,
         data.photo_url, data.button_text, data.button_url,
         data.schedule_mode, data.offset_minutes,
         data.audience_include, data.audience_exclude, data.allow_custom_datetime,

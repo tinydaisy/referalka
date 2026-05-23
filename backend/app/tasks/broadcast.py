@@ -126,10 +126,11 @@ async def _send_broadcast(schedule_id: int):
         # Читаем шаблон отдельным свежим запросом — максимально близко к отправке,
         # чтобы правки шаблона применились даже если очередь уже активирована
         tmpl = await conn.fetchrow(
-            "SELECT text, photo_url, button_text, button_url, target_channel_ids "
+            "SELECT subject, text, photo_url, button_text, button_url, target_channel_ids "
             "FROM broadcast_templates WHERE id=$1",
             schedule["template_id"]
         ) if schedule["template_id"] else None
+        tmpl_subject_val  = tmpl["subject"]      if tmpl else None
         tmpl_text_val  = tmpl["text"]         if tmpl else ""
         tmpl_photo_val = tmpl["photo_url"]    if tmpl else None
         tmpl_btn_text_val = tmpl["button_text"] if tmpl else None
@@ -228,6 +229,15 @@ async def _send_broadcast(schedule_id: int):
         button_text = content.get("button_text")
         button_url = content.get("button_url")
         buttons = content.get("buttons") or None
+
+        # Заголовок шаблона (subject) — для TG/VK/MAX добавляем первой жирной строкой,
+        # для email — становится темой письма (передаётся в _send_broadcast_email_part).
+        subject_val = (tmpl_subject_val or "").strip() if tmpl_subject_val else ""
+        text_for_email = text or ""        # чистый body без subject-префикса
+        if subject_val:
+            # Telegram parse_mode=HTML понимает <b>; VK strip-ит и оставляет текст;
+            # MAX тоже принимает <b>. Просто префикс жирной строкой + пустая строка.
+            text = f"<b>{subject_val}</b>\n\n{text or ''}"
 
         # Аудитория
         final_ids = await _build_audience(conn, schedule)
@@ -432,8 +442,9 @@ async def _send_broadcast(schedule_id: int):
         # с главного email-канала клиента. Один человек = один email = одно письмо.
         try:
             email_sent = await _send_broadcast_email_part(
-                conn, schedule, event_id, text, photo_url, button_text, button_url,
+                conn, schedule, event_id, text_for_email, photo_url, button_text, button_url,
                 buttons=buttons, target_channel_set=target_channel_set,
+                subject_override=subject_val or None,
             )
             sent += email_sent
             logger.info(f"Email-часть рассылки {schedule_id}: отправлено {email_sent}")
@@ -792,6 +803,7 @@ async def _send_broadcast_email_part(
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
     buttons: list | None = None,
     target_channel_set: set[int] | None = None,
+    subject_override: str | None = None,
 ) -> int:
     """Отправляет рассылку email-подписчикам клиента через локальный Postfix.
 
@@ -928,10 +940,15 @@ async def _send_broadcast_email_part(
         s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#39;", "'")
         return s
 
-    # Subject — ВСЕГДА без HTML-тегов (иначе Gmail воспримет «<b>...» как
-    # спам-сигнал и положит письмо в Promo/Spam, а возможно и тихо удалит).
-    plain_first_line = _strip_html(raw_text).split("\n", 1)[0].strip()
-    subject = plain_first_line if (0 < len(plain_first_line) <= 120) else "Новое сообщение от ПЛЮСОН"
+    # Subject — приоритет на subject_override (поле из шаблона рассылки/
+    # welcome-письма). Если не задан — fallback на первую строку текста.
+    # Всегда без HTML-тегов (иначе Gmail воспримет «<b>...» как
+    # спам-сигнал и положит письмо в Promo/Spam).
+    if subject_override and subject_override.strip():
+        subject = _strip_html(subject_override).strip()[:200]
+    else:
+        plain_first_line = _strip_html(raw_text).split("\n", 1)[0].strip()
+        subject = plain_first_line if (0 < len(plain_first_line) <= 120) else "Новое сообщение от ПЛЮСОН"
 
     # Решаем, есть ли в исходном тексте HTML-разметка. Если есть — шлём
     # multipart (HTML + plain-fallback), чтобы Gmail рендерил <b>/<i>/<a>

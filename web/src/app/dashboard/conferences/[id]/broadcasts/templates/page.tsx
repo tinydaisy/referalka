@@ -155,7 +155,7 @@ function audienceLabel(inc: string, exc: string): string {
 }
 
 const emptyForm = {
-  name: '', type: '5min_before', text: '', photo_url: '',
+  name: '', type: '5min_before', subject: '', text: '', photo_url: '',
   button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
   intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
   custom_day_ref: '', custom_time: '12:00',
@@ -303,6 +303,7 @@ export default function TemplatesPage() {
       const payload: any = {
         name: f.name,
         type: 'custom',
+        subject: f.subject || null,
         text: f.text || '',
         photo_url: f.photo_url || null,
         button_text: f.button_text || null,
@@ -338,6 +339,7 @@ export default function TemplatesPage() {
     setForm({
       name: t.name,
       type: t.type,
+      subject: t.subject || '',
       text: (t.text || '').replace(/\\n/g, '\n'),
       photo_url: t.photo_url || '',
       button_text: t.button_text || '',
@@ -852,6 +854,20 @@ export default function TemplatesPage() {
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400" />
               </div>
               <div>
+                <label className="text-xs text-gray-500 mb-1 block">
+                  Заголовок (опционально)
+                </label>
+                <input
+                  value={(form as any).subject || ''}
+                  onChange={e => setForm({ ...form, subject: e.target.value } as any)}
+                  placeholder="Тема для email + жирная первая строка для TG/VK/MAX"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
+                />
+                <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+                  В email становится темой письма. В Telegram/VK/MAX — первая жирная строка перед основным текстом.
+                </p>
+              </div>
+              <div>
                 <label className="text-xs text-gray-500 mb-1 block">Текст сообщения</label>
                 <RichTextEditor
                   value={form.text || ''}
@@ -1064,6 +1080,20 @@ export default function TemplatesPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">
+                  Заголовок (опционально)
+                </label>
+                <input
+                  value={(form as any).subject || ''}
+                  onChange={e => setForm({ ...form, subject: e.target.value } as any)}
+                  placeholder="Тема для email + жирная первая строка для TG/VK/MAX"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
+                />
+                <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+                  В email становится темой письма. В Telegram/VK/MAX — первая жирная строка перед основным текстом.
+                </p>
+              </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Текст сообщения</label>
                 <RichTextEditor

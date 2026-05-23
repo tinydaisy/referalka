@@ -29,9 +29,16 @@ interface Props {
   className?: string
 }
 
+// Совместимо с Telegram-парсером (parse_mode=HTML): b/strong, i/em, u, s, a, br, code, pre.
+// Никаких div/p/span/ul/ol/li — Telegram такие теги отвергает.
 const ALLOWED_TAGS = new Set([
-  'b', 'strong', 'i', 'em', 'u', 'a', 'br', 'p', 'ul', 'ol', 'li', 'div', 'span',
+  'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'a', 'br', 'code', 'pre',
 ])
+// Блочные теги, которые браузер вставляет в contentEditable вместо переносов.
+// Заменяем содержимое на текст+<br> вместо тупого удаления — чтобы не терялись
+// разрывы строк, которые пользователь видел в редакторе.
+const BLOCK_TAGS_TO_BR = new Set(['div', 'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
 const ALLOWED_ATTRS_PER_TAG: Record<string, string[]> = {
   a: ['href', 'target', 'rel'],
 }
@@ -48,6 +55,24 @@ function sanitize(html: string): string {
       walk(child)
     }
     const tag = node.tagName.toLowerCase()
+    if (BLOCK_TAGS_TO_BR.has(tag)) {
+      // Разворачиваем содержимое наружу + добавляем перенос строки <br>
+      // перед следующим элементом (если это не первая обёртка).
+      const parent = node.parentNode
+      if (!parent) return
+      const isLast = !node.nextSibling
+      // Переносим всех детей наружу
+      while (node.firstChild) {
+        parent.insertBefore(node.firstChild, node)
+      }
+      // Вставляем <br> между блоками (не после последнего)
+      if (!isLast) {
+        const br = doc.createElement('br')
+        parent.insertBefore(br, node)
+      }
+      parent.removeChild(node)
+      return
+    }
     if (!ALLOWED_TAGS.has(tag)) {
       // Заменяем на текст-контент (сохраняем содержимое, но без обёртки)
       const text = node.textContent || ''
@@ -96,6 +121,26 @@ export default function RichTextEditor({
     if (document.activeElement === el) return
     if (el.innerHTML !== value) el.innerHTML = value || ''
   }, [value])
+
+  // Заставляем contentEditable вставлять <br> при Enter, а не <div> или <p>
+  // (Telegram parse_mode=HTML отвергает div/p — см. sanitize).
+  useEffect(() => {
+    try {
+      document.execCommand('defaultParagraphSeparator', false, 'br')
+    } catch {
+      /* not supported on some browsers */
+    }
+  }, [])
+
+  // Перехватываем Enter и вставляем <br> вручную — самый надёжный способ
+  // не получить <div> от движка contentEditable.
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      document.execCommand('insertLineBreak')
+      flush()
+    }
+  }
 
   function exec(command: string, arg?: string) {
     document.execCommand(command, false, arg)
@@ -175,6 +220,7 @@ export default function RichTextEditor({
           suppressContentEditableWarning
           onInput={flush}
           onBlur={flush}
+          onKeyDown={handleKeyDown}
           onPaste={(e) => {
             // Запрет на богатый paste — берём только текст
             e.preventDefault()
