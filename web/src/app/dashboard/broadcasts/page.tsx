@@ -713,11 +713,24 @@ function CustomBroadcastModal(props: {
     if (!fireAt) { props.onError('Укажите дату и время'); return }
     if (!text.trim()) { props.onError('Пустой текст'); return }
     if (htmlErrors.length > 0) {
-      props.onError('Исправьте HTML-ошибки в тексте перед отправкой')
+      // Подробный список ошибок в alert — чтобы юзер видел причину, а не молчаливый дисейбл
+      props.onError(
+        'Telegram не примет такое сообщение:\n\n' +
+        htmlErrors.map(e => '• ' + e).join('\n') +
+        '\n\nЛибо переоткрой редактор — встроенный конвертер уберёт лишние теги при следующем вводе.'
+      )
       return
     }
     if (buttons.length > 3) { props.onError('Максимум 3 кнопки'); return }
-    if (hasButtonErrors) { props.onError('Исправьте ошибки в кнопках'); return }
+    if (hasButtonErrors) {
+      props.onError(
+        'Ошибки в кнопках:\n\n' +
+        buttonErrors.flatMap((errs, i) =>
+          errs.length ? errs.map(e => `• Кнопка ${i + 1}: ${e}`) : []
+        ).join('\n')
+      )
+      return
+    }
     setSaving(true)
     try {
       const payload: any = {
@@ -841,10 +854,18 @@ function CustomBroadcastModal(props: {
           </label>
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={save} disabled={saving || htmlErrors.length > 0 || hasButtonErrors}
+          <button onClick={save} disabled={saving}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
-            style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-            {saving ? 'Сохраняю...' : htmlErrors.length > 0 ? 'Исправьте HTML' : hasButtonErrors ? 'Исправьте кнопки' : (isEdit ? 'Сохранить изменения' : 'Поставить в очередь')}
+            style={{
+              background: htmlErrors.length > 0 || hasButtonErrors
+                ? 'linear-gradient(45deg,#c0392b,#7d1f15)'   // красный — при проблемах
+                : 'linear-gradient(45deg,#25455D,#0a1520)',
+            }}>
+            {saving
+              ? 'Сохраняю...'
+              : htmlErrors.length > 0 ? `Исправьте HTML (${htmlErrors.length})`
+              : hasButtonErrors ? 'Исправьте кнопки'
+              : (isEdit ? 'Сохранить изменения' : 'Поставить в очередь')}
           </button>
           <button onClick={props.onClose}
             className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">Отмена</button>

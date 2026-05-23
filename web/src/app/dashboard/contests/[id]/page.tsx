@@ -5,12 +5,13 @@ import Link from 'next/link'
 import { api } from '@/lib/api'
 import PostersTab from '../../events/[id]/tabs/PostersTab'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
+import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 import ContestOverviewTab from './tabs/ContestOverviewTab'
 import ContestReportTab from './tabs/ContestReportTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'voters' | 'report'
+type TabKey = 'overview' | 'posters' | 'referral' | 'voters' | 'welcome' | 'report'
 
 export default function ContestPage() {
   const { id } = useParams()
@@ -52,6 +53,7 @@ export default function ContestPage() {
     { key: 'posters',   label: 'Афиши' },
     { key: 'referral',  label: 'Реф-программа' },
     { key: 'voters',    label: 'Голосующие' },
+    { key: 'welcome',   label: 'Приветствие' },
     { key: 'report',    label: 'Отчёт' },
   ]
 
@@ -114,6 +116,7 @@ export default function ContestPage() {
       {activeTab === 'posters'  && <PostersTab eventId={eventId} />}
       {activeTab === 'referral' && <ReferralProgramTab eventId={eventId} moduleSlug="contest" />}
       {activeTab === 'voters'   && <EventParticipants eventId={eventId} moduleSlug="contest" />}
+      {activeTab === 'welcome'  && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'report'   && <ContestReportTab eventId={eventId} />}
     </div>
   )

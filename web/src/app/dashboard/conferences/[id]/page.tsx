@@ -17,11 +17,12 @@ import PostersTab from './tabs/PostersTab'
 import ReportTab from './tabs/ReportTab'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import NurtureTab from '../../events/[id]/tabs/NurtureTab'
+import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters' | 'referral' | 'nurture' | 'report'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters', 'referral', 'nurture', 'report']
+type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters' | 'referral' | 'nurture' | 'welcome' | 'report'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters', 'referral', 'nurture', 'welcome', 'report']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -72,6 +73,7 @@ export default function ConferencePage() {
     { id: 'raffle',       label: t.conferences.tabs.raffle },
     { id: 'referral',     label: 'Реф-программа' },
     { id: 'nurture',      label: 'Воронка догрева' },
+    { id: 'welcome',      label: 'Приветствие' },
     { id: 'report',       label: 'Отчёт' },
   ]
 
@@ -155,6 +157,7 @@ export default function ConferencePage() {
       {tab === 'posters'      && <PostersTab      eventId={eventId} />}
       {tab === 'referral'     && <ReferralProgramTab eventId={eventId} moduleSlug="conference" />}
       {tab === 'nurture'      && <NurtureTab       eventId={eventId} />}
+      {tab === 'welcome'      && <WelcomeTab       event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} />}
     </div>
   )
