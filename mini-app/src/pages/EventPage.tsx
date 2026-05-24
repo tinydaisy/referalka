@@ -309,17 +309,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
 
   // Партнёрский параметр клиента + полный набор полей контакта — берём
   // готовый URL с бэка (/landing-redirect), не собираем его на фронте.
-  //
-  // `external=false` (default) — навигация webview через redirectTo. Используется
-  // в useEffect auto-redirect (когда Mini App открывается и нужно сразу увезти
-  // юзера на лендинг внутри Telegram webview, без user-gesture).
-  //
-  // `external=true` — открыть в системном браузере через openExternal (Safari/
-  // Chrome). Используется по клику «Хочу участвовать» (user-gesture есть, iOS
-  // не блокирует). Так на success-странице лендинга кнопка возврата
-  // `t.me/{bot}/pluson?startapp=...` работает как universal link → Mini App
-  // открывается полноценно + requestWriteAccess.
-  async function redirectToExternalLanding(landingUrl: string, external: boolean = false) {
+  async function redirectToExternalLanding(landingUrl: string) {
     const { getPlatform } = await import('../platform')
     let fullUrl = landingUrl
     try {
@@ -333,11 +323,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
         if (data?.redirect_url) fullUrl = data.redirect_url
       }
     } catch { /* fallback — открываем как есть */ }
-    if (external) {
-      getPlatform().openExternal(fullUrl)
-    } else {
-      getPlatform().redirectTo(fullUrl)
-    }
+    getPlatform().redirectTo(fullUrl)
   }
 
   // VIP-тариф — открывается во ВНЕШНЕМ браузере (платёжные страницы плохо
@@ -376,14 +362,12 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // Клик по «Хочу участвовать»: если контакты этого человека уже есть
   // в базе клиента (email+phone) — регистрируем без формы, иначе показываем форму.
   async function handleWantParticipate() {
-    // Если у события заполнен сторонний лендинг — открываем его во ВНЕШНЕМ
-    // браузере (Safari/Chrome) через openExternal. Это user-gesture (клик),
-    // iOS не блокирует. На success-странице лендинга кнопка возврата
-    // `t.me/{bot}/pluson?startapp=ref_pg{slug}_reg` работает как universal
-    // link → Mini App открывается полноценно + requestWriteAccess + _reg-флаг.
+    // Если у события заполнен сторонний лендинг — переходим на него навигацией
+    // webview (как в auto-useEffect выше). На iOS это работает без user-gesture
+    // ограничений и согласуется с авто-открытием.
     const landingUrl: string = (event?.landing_url || '').trim()
     if (landingUrl) {
-      await redirectToExternalLanding(landingUrl, /* external */ true)
+      await redirectToExternalLanding(landingUrl)
       return
     }
 
