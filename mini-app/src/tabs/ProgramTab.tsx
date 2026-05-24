@@ -153,6 +153,41 @@ function tgLink(url?: string | null, username?: string | null): string | null {
   return null
 }
 
+// Открыть внешний URL через нативный для платформы способ:
+//  - Telegram WebApp.openLink (открывает в браузере, не отправляет ссылку в чат)
+//  - VK: window.open (VK Bridge тоже допускает обычные ссылки)
+function openExternalLink(url: string) {
+  if (typeof window === 'undefined' || !url) return
+  const tg = (window as any).Telegram?.WebApp
+  if (tg?.openLink) {
+    try { tg.openLink(url); return } catch {}
+  }
+  try { window.open(url, '_blank') } catch { window.location.href = url }
+}
+
+// Трекинг кликов: fire-and-forget POST на бэк перед открытием.
+async function trackSpeakerClick(
+  eventId: number,
+  ecId: number,
+  kind: 'tg_channel' | 'vk' | 'max' | 'instagram' | 'website' | 'knowledge_base',
+  user?: { id?: number | string } | null,
+) {
+  try {
+    const tgId = user?.id ? String(user.id) : ''
+    const platform = (await import('../platform')).getPlatformName()
+    const body: any = { kind }
+    if (platform === 'telegram' && tgId) body.tg_id = tgId
+    if (platform === 'vk' && tgId) body.vk_user_id = tgId
+    if (platform === 'max' && tgId) body.max_user_id = tgId
+    await fetch(`${import.meta.env.VITE_API_URL}/api/v1/public/events/${eventId}/speakers/${ecId}/click-track`, {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (_) { /* fire-and-forget */ }
+}
+
 // Блок стрима показывается ТОЛЬКО в дни события.
 // Для конференций — если сегодня = одна из дат `conf_days.day_date`
 // (поддерживает любые конфигурации, в т.ч. дни с пропусками).
@@ -929,23 +964,38 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Pr
 
                   {/* Соцсети — 4 кнопки 2×2 */}
                   {(() => {
-                    const socials: Array<{ label: string, url: string, primary: boolean }> = []
-                    if (tg) socials.push({ label: 'Тг-канал →', url: tg, primary: true })
-                    if (sp.vk_url) socials.push({ label: 'ВКонтакте →', url: sp.vk_url, primary: false })
-                    if (sp.max_url) socials.push({ label: 'MAX →', url: sp.max_url, primary: false })
-                    if (insta) socials.push({ label: 'Нельзяграм →', url: insta, primary: false })
+                    const socials: Array<{ label: string, url: string, primary: boolean, kind: 'tg_channel' | 'vk' | 'max' | 'instagram' }> = []
+                    if (tg) socials.push({ label: 'Тг-канал', url: tg, primary: true, kind: 'tg_channel' })
+                    if (sp.vk_url) socials.push({ label: 'ВКонтакте', url: sp.vk_url, primary: false, kind: 'vk' })
+                    if (sp.max_url) socials.push({ label: 'MAX', url: sp.max_url, primary: false, kind: 'max' })
+                    if (insta) socials.push({ label: 'Нельзяграм', url: insta, primary: false, kind: 'instagram' })
                     if (socials.length === 0) return null
                     return (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-                        {socials.map((s, i) => (
-                          <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{
-                            textDecoration: 'none',
-                            background: s.primary ? DARK : 'white',
-                            color: s.primary ? 'white' : DARK,
-                            border: s.primary ? 'none' : `1px solid ${DARK}`,
-                            padding: '7px 10px', borderRadius: 10,
-                            fontSize: 11, fontWeight: 600, textAlign: 'center',
-                          }}>{s.label}</a>
+                        {socials.map((s) => (
+                          <button
+                            key={s.kind}
+                            type="button"
+                            onClick={() => {
+                              trackSpeakerClick(event.id, sp.id, s.kind, tgUser)
+                              openExternalLink(s.url)
+                            }}
+                            style={{
+                              background: s.primary ? DARK : 'white',
+                              color: s.primary ? 'white' : DARK,
+                              border: s.primary ? 'none' : `1px solid ${DARK}`,
+                              padding: '7px 8px', borderRadius: 10,
+                              fontSize: 11, fontWeight: 600, textAlign: 'center', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                            }}
+                          >
+                            <span>{s.label}</span>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 16, height: 16, borderRadius: '50%', background: PEACH,
+                              color: DARK, fontWeight: 800, fontSize: 11, lineHeight: 1,
+                            }}>→</span>
+                          </button>
                         ))}
                       </div>
                     )
@@ -953,12 +1003,19 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Pr
 
                   {/* Материал в базу знаний */}
                   {sp.knowledge_base_title && sp.knowledge_base_url && (
-                    <a href={sp.knowledge_base_url} target="_blank" rel="noreferrer" style={{
-                      display: 'flex', alignItems: 'center', gap: 10, marginTop: 10,
-                      padding: '10px 12px', borderRadius: 10,
-                      background: 'rgba(37,69,93,0.06)', border: '1px solid rgba(37,69,93,0.15)',
-                      textDecoration: 'none', color: DARK,
-                    }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        trackSpeakerClick(event.id, sp.id, 'knowledge_base', tgUser)
+                        openExternalLink(sp.knowledge_base_url!)
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, marginTop: 10,
+                        padding: '10px 12px', borderRadius: 10,
+                        background: 'rgba(37,69,93,0.06)', border: '1px solid rgba(37,69,93,0.15)',
+                        color: DARK, cursor: 'pointer', textAlign: 'left', width: '100%',
+                      }}
+                    >
                       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                         <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                         <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
@@ -966,10 +1023,15 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Pr
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 10, color: '#6b7c8e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700 }}>База знаний</div>
                         <div style={{ fontSize: 12, fontWeight: 600, color: DARK, lineHeight: 1.3 }}>
-                          {sp.knowledge_base_title} →
+                          {sp.knowledge_base_title}
                         </div>
                       </div>
-                    </a>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 20, height: 20, borderRadius: '50%', background: PEACH,
+                        color: DARK, fontWeight: 800, fontSize: 13, lineHeight: 1, flexShrink: 0,
+                      }}>→</span>
+                    </button>
                   )}
                 </div>
               )

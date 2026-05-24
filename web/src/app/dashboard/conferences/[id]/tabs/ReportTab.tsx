@@ -51,6 +51,78 @@ function pct(num: number, den: number): string {
   return `${(num / den * 100).toFixed(1)}%`
 }
 
+// Подвкладка отчёта: статистика интереса к каждому коллабу события.
+// Считает сколько участников нажали на TG-канал / VK / MAX / Insta / сайт /
+// материал в базу знаний в карточке этого спикера в Mini App.
+function ClickReportBlock({ eventId }: { eventId: number }) {
+  const [rows, setRows] = useState<any[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [open, setOpen] = useState(true)
+  useEffect(() => {
+    setLoading(true)
+    api.conference.speakers.clickReport(eventId)
+      .then((r: any) => setRows(r.rows || []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false))
+  }, [eventId])
+  if (loading) return null
+  const items = (rows || []).filter(r =>
+    (Number(r.tg_channel) + Number(r.vk) + Number(r.max_clicks) + Number(r.instagram) + Number(r.website) + Number(r.knowledge_base)) > 0
+  )
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-5 py-3 bg-gradient-to-r from-[#25455D] to-[#1a3348] text-[#FFCFA4]"
+      >
+        <span className="font-bold text-sm">КЛИКИ ПО КАРТОЧКАМ СПИКЕРОВ В Mini App</span>
+        <ChevronDown size={16} className={`transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+      {open && (
+        items.length === 0 ? (
+          <div className="p-6 text-sm text-gray-500">Пока ни одного клика. Когда участники начнут пользоваться Mini App — здесь будет статистика.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium">Имя</th>
+                  <th className="text-center px-3 py-2 font-medium">ТГ-канал</th>
+                  <th className="text-center px-3 py-2 font-medium">ВК</th>
+                  <th className="text-center px-3 py-2 font-medium">MAX</th>
+                  <th className="text-center px-3 py-2 font-medium">Нельзяграм</th>
+                  <th className="text-center px-3 py-2 font-medium">Сайт</th>
+                  <th className="text-center px-3 py-2 font-medium">Материал</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((r: any) => (
+                  <tr key={r.ec_id} className="border-b border-gray-50 last:border-0">
+                    <td className="px-4 py-2">
+                      <Link href={`/dashboard/conferences/${eventId}/speakers/${r.ec_id}`}
+                            className="font-medium text-gray-800 hover:text-brand">
+                        {r.speaker_name}
+                      </Link>
+                      <span className="ml-2 text-xs text-gray-400">{r.role}</span>
+                    </td>
+                    <td className="px-3 py-2 text-center tabular-nums font-semibold">{Number(r.tg_channel) || ''}</td>
+                    <td className="px-3 py-2 text-center tabular-nums font-semibold">{Number(r.vk) || ''}</td>
+                    <td className="px-3 py-2 text-center tabular-nums font-semibold">{Number(r.max_clicks) || ''}</td>
+                    <td className="px-3 py-2 text-center tabular-nums font-semibold">{Number(r.instagram) || ''}</td>
+                    <td className="px-3 py-2 text-center tabular-nums font-semibold">{Number(r.website) || ''}</td>
+                    <td className="px-3 py-2 text-center tabular-nums font-semibold">{Number(r.knowledge_base) || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+
 function formatDate(iso: string) {
   const d = new Date(iso)
   return d.toLocaleString('ru-RU', {
@@ -553,6 +625,9 @@ export default function ReportTab({ eventId }: { eventId: number }) {
           ) : null}
         </>
       )}
+
+      {/* Отдельная подвкладка: клики участников по карточкам спикеров (миграция 109) */}
+      <ClickReportBlock eventId={eventId} />
 
       {/* Модалка */}
       {showCreateModal && (

@@ -3288,3 +3288,66 @@ async def delete_report(
     return {"ok": True}
 
     return {"ok": True, "ticket": dict(ticket)}
+
+
+@router.get("/speakers/{speaker_event_id}/click-stats",
+            summary="Статистика кликов по карточке спикера в Mini App (миграция 109)")
+async def speaker_click_stats(
+    event_id: int,
+    speaker_event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Возвращает счётчики кликов по платформам + список контактов, кто кликнул."""
+    await check_conference_access(event_id, int(client["sub"]), db)
+    counts = await db.fetch(
+        """SELECT click_kind, COUNT(*) AS cnt
+             FROM event_collaborator_clicks
+            WHERE event_collaborator_id = $1
+            GROUP BY click_kind""",
+        speaker_event_id,
+    )
+    by_kind = {r["click_kind"]: int(r["cnt"]) for r in counts}
+    recent = await db.fetch(
+        """SELECT c.id, c.name, c.email, c.phone, cl.click_kind, cl.clicked_at
+             FROM event_collaborator_clicks cl
+             LEFT JOIN contacts c ON c.id = cl.contact_id
+            WHERE cl.event_collaborator_id = $1
+            ORDER BY cl.clicked_at DESC
+            LIMIT 200""",
+        speaker_event_id,
+    )
+    return {
+        "by_kind": by_kind,
+        "total": sum(by_kind.values()),
+        "recent": [dict(r) for r in recent],
+    }
+
+
+@router.get("/click-report",
+            summary="Сводный отчёт кликов по всем спикерам конференции")
+async def conference_click_report(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Для отдельной подвкладки в Отчёте: имя спикера + counts по платформам."""
+    await check_conference_access(event_id, int(client["sub"]), db)
+    rows = await db.fetch(
+        """SELECT cse.id AS ec_id, cse.role, c.name AS speaker_name,
+                  SUM(CASE WHEN cl.click_kind = 'tg_channel'     THEN 1 ELSE 0 END) AS tg_channel,
+                  SUM(CASE WHEN cl.click_kind = 'vk'             THEN 1 ELSE 0 END) AS vk,
+                  SUM(CASE WHEN cl.click_kind = 'max'            THEN 1 ELSE 0 END) AS max_clicks,
+                  SUM(CASE WHEN cl.click_kind = 'instagram'      THEN 1 ELSE 0 END) AS instagram,
+                  SUM(CASE WHEN cl.click_kind = 'website'        THEN 1 ELSE 0 END) AS website,
+                  SUM(CASE WHEN cl.click_kind = 'knowledge_base' THEN 1 ELSE 0 END) AS knowledge_base
+             FROM event_collaborators cse
+             JOIN collaborators c ON c.id = cse.speaker_id
+             LEFT JOIN event_collaborator_clicks cl ON cl.event_collaborator_id = cse.id
+            WHERE cse.event_id = $1
+            GROUP BY cse.id, cse.role, c.name, cse.sort_order
+            ORDER BY cse.sort_order, c.name""",
+        event_id,
+    )
+    return {"rows": [dict(r) for r in rows]}
+

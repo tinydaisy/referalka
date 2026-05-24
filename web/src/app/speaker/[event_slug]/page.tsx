@@ -483,6 +483,9 @@ export default function SpeakerCabinetPage() {
 
           <label style={labelCss}>Ссылка на папку с фото (Я.Диск / Google Drive)</label>
           <input style={inputCss} value={me.photo_folder_url || ''} onChange={(e) => update({ photo_folder_url: e.target.value })} placeholder="https://…" />
+          <div style={{ fontSize: 11, color: '#7a8c9c', marginTop: 4, lineHeight: 1.5 }}>
+            Заполняйте, если хотите предоставить несколько вариантов фото на выбор.
+          </div>
 
           <label style={labelCss}>Ссылка на папку с видео (Я.Диск / Google Drive / YouTube)</label>
           <input style={inputCss} value={me.video_folder_url || ''} onChange={(e) => update({ video_folder_url: e.target.value })} placeholder="https://…" />

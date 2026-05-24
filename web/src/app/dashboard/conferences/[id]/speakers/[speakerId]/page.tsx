@@ -868,6 +868,78 @@ export default function ConferenceSpeakerPage() {
           )}
         </div>
       </form>
+
+      {/* Статистика кликов по карточке спикера в Mini App (миграция 109) */}
+      <SpeakerClickStats confId={confId} speakerEventId={speakerEventId} />
+    </div>
+  )
+}
+
+
+const CLICK_KIND_LABELS: Record<string, string> = {
+  tg_channel:     'TG-канал',
+  vk:             'ВКонтакте',
+  max:            'MAX',
+  instagram:      'Нельзяграм',
+  website:        'Сайт',
+  knowledge_base: 'Материал в базу знаний',
+}
+
+function SpeakerClickStats({ confId, speakerEventId }: { confId: number; speakerEventId: number }) {
+  const [stats, setStats] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    setLoading(true)
+    api.conference.speakers.clickStats(confId, speakerEventId)
+      .then(setStats)
+      .catch(() => setStats(null))
+      .finally(() => setLoading(false))
+  }, [confId, speakerEventId])
+  if (loading) return null
+  if (!stats || (stats.total ?? 0) === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mt-8 text-sm text-gray-500">
+        <h2 className="font-bold text-gray-900 text-lg mb-2">Статистика интереса</h2>
+        Пока никто не нажимал на ссылки в карточке этого спикера в Mini App.
+      </div>
+    )
+  }
+  const items = Object.entries(stats.by_kind || {})
+    .map(([k, v]) => ({ kind: k, label: CLICK_KIND_LABELS[k] || k, count: v as number }))
+    .sort((a, b) => b.count - a.count)
+  return (
+    <div className="mt-8 space-y-4">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h2 className="font-bold text-gray-900 text-lg mb-3">Статистика интереса</h2>
+        <p className="text-xs text-gray-500 mb-4">Сколько участников нажали на ссылки в карточке этого спикера в Mini App.</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {items.map(it => (
+            <div key={it.kind} className="bg-gray-50 rounded-xl p-3">
+              <div className="text-xs text-gray-500 uppercase tracking-wide">{it.label}</div>
+              <div className="text-2xl font-bold text-gray-900 mt-1">{it.count}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {stats.recent && stats.recent.length > 0 && (
+        <details className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <summary className="font-semibold text-gray-900 text-sm cursor-pointer">
+            Последние клики ({stats.recent.length}) — подробно
+          </summary>
+          <div className="mt-3 space-y-2">
+            {stats.recent.map((r: any, i: number) => (
+              <div key={i} className="flex justify-between gap-3 text-xs text-gray-700 border-b border-gray-100 pb-2 last:border-0">
+                <span className="flex-1">
+                  {r.name ? <span className="font-medium">{r.name}</span> : <span className="text-gray-400 italic">аноним</span>}
+                  {r.email && <span className="text-gray-500"> · {r.email}</span>}
+                </span>
+                <span className="text-gray-500 whitespace-nowrap">{CLICK_KIND_LABELS[r.click_kind] || r.click_kind}</span>
+                <span className="text-gray-400 whitespace-nowrap">{new Date(r.clicked_at).toLocaleString('ru-RU')}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   )
 }

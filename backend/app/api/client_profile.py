@@ -44,6 +44,75 @@ from app.config import settings
 public = APIRouter(prefix="/public", tags=["Публичный профиль клиента"])
 
 
+# ─── Трекинг кликов по карточке спикера в Mini App (миграция 109) ──────────
+class SpeakerClickIn(BaseModel):
+    kind: str  # 'tg_channel' | 'vk' | 'max' | 'instagram' | 'website' | 'knowledge_base'
+    tg_id: Optional[str] = None
+    vk_user_id: Optional[str] = None
+    max_user_id: Optional[str] = None
+
+
+_ALLOWED_CLICK_KINDS = {'tg_channel', 'vk', 'max', 'instagram', 'website', 'knowledge_base'}
+
+
+@public.post("/events/{event_id}/speakers/{ec_id}/click-track",
+             summary="Записать клик участника по ссылке в карточке спикера в Mini App")
+async def track_speaker_click(
+    event_id: int,
+    ec_id: int,
+    body: SpeakerClickIn,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Mini App вызывает перед openLink. Резолвит contact_id по платформенной
+    идентичности (если передана), пишет строку в event_collaborator_clicks.
+    Анонимные клики (без tg_id/vk_id) тоже записываются — contact_id NULL."""
+    kind = (body.kind or "").strip().lower()
+    if kind not in _ALLOWED_CLICK_KINDS:
+        raise HTTPException(status_code=400, detail=f"Неверный kind: {kind}")
+
+    # Проверяем что коллаб реально привязан к этому событию
+    coll = await db.fetchrow(
+        """SELECT cse.id, e.client_id
+             FROM event_collaborators cse
+             JOIN events e ON e.id = cse.event_id
+            WHERE cse.id = $1 AND cse.event_id = $2""",
+        ec_id, event_id,
+    )
+    if not coll:
+        raise HTTPException(status_code=404, detail="Спикер не найден")
+
+    # Резолвим contact_id по любой платформе
+    contact_id: Optional[int] = None
+    if body.tg_id:
+        contact_id = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'telegram' AND platform_user_id = $2
+                LIMIT 1""",
+            coll["client_id"], str(body.tg_id),
+        )
+    if not contact_id and body.vk_user_id:
+        contact_id = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'vk' AND platform_user_id = $2
+                LIMIT 1""",
+            coll["client_id"], str(body.vk_user_id),
+        )
+    if not contact_id and body.max_user_id:
+        contact_id = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'max' AND platform_user_id = $2
+                LIMIT 1""",
+            coll["client_id"], str(body.max_user_id),
+        )
+
+    await db.execute(
+        """INSERT INTO event_collaborator_clicks (event_collaborator_id, contact_id, click_kind)
+           VALUES ($1, $2, $3)""",
+        ec_id, contact_id, kind,
+    )
+    return {"ok": True}
+
+
 def _parse_jsonb(v: Any, default):
     if v is None:
         return default
