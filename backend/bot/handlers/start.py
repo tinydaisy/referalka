@@ -147,7 +147,33 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
-    # Регистрация партнёра (через pluson.ru/partner/{client_id}?to=tg → 302 → /start prt_<id>)
+    # Регистрация партнёра — прямые ссылки (миграция 105, рефакторинг 24.05.2026):
+    #   prtc_<client_id>   — корневая ссылка клиента (без рефовода)
+    #   prtp_<contact_id>  — личная ссылка партнёра (рефовод = этот контакт)
+    # Старый prt_<run_id> (через /partner/{cid}-прокси) сохранён для совместимости.
+    if args.startswith("prtc_") or args.startswith("prtp_"):
+        pool = await get_pool()
+        from app.services.partner_service import start_partner_flow
+        try:
+            bot_id = message.bot.id if message.bot else None
+            async with pool.acquire() as db:
+                handled = await start_partner_flow(
+                    args,
+                    str(user.id),
+                    user.username or "",
+                    user.first_name or "",
+                    user.last_name or "",
+                    db,
+                    bot_id=bot_id,
+                )
+                if handled:
+                    return
+        except Exception as e:
+            log.exception("start_partner_flow failed: %s", e)
+            await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
+            return
+
+    # Старый формат через прокси (deprecated, оставлено для уже разосланных ссылок)
     if args.startswith("prt_"):
         try:
             run_id = int(args.removeprefix("prt_"))

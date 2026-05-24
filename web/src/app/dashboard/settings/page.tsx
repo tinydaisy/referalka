@@ -964,6 +964,8 @@ function SubscriptionTab() {
 
 // ─── Блок «Регистрация партнёров» (миграция 105) ────────────────────────────
 const PLUSON_BOT_HANDLE = 'pluson_bot'
+// Партнёрка живёт ТОЛЬКО в TG/VK/MAX. Email не показываем (нет интерактивности).
+const PARTNER_PLATFORMS = ['telegram', 'vk', 'max']
 
 function PartnerRegistrationBlock({
   form, set, clientId, availablePlatforms, botHandles,
@@ -982,11 +984,11 @@ function PartnerRegistrationBlock({
       setTimeout(() => setCopied(null), 1500)
     })
   }
-  const HOST = 'https://pluson.ru'
   const isConfigured = !!(form.partner_landing_url || '').trim()
-  const platforms = (availablePlatforms && availablePlatforms.length > 0)
-    ? availablePlatforms
-    : ['telegram']
+  // Только TG/VK/MAX, в порядке: TG, VK, MAX. Из подключённых платформ.
+  const platforms = PARTNER_PLATFORMS.filter(p => (availablePlatforms || []).includes(p))
+  // TG всегда показываем (fallback на @pluson_bot если своего бота нет)
+  if (!platforms.includes('telegram')) platforms.unshift('telegram')
 
   const platformLabel: Record<string, string> = {
     telegram: 'Telegram',
@@ -994,8 +996,27 @@ function PartnerRegistrationBlock({
     max: 'MAX',
   }
 
-  // Возврат после сабмита формы — t.me/{bot}?start=partner_done_{cid} (для TG),
-  // vk.me/{group}?ref=partner_done_{cid} (для VK), max.ru/{handle}?start=... (MAX)
+  // Прямая ссылка платформы — корневая (без рефовода)
+  function rootUrlFor(p: string): string | null {
+    if (!clientId) return null
+    if (p === 'telegram') {
+      const handle = (botHandles?.telegram || PLUSON_BOT_HANDLE).replace(/^@/, '')
+      return `https://t.me/${handle}?start=prtc_${clientId}`
+    }
+    if (p === 'vk') {
+      const handle = (botHandles?.vk || '').replace(/^@/, '')
+      if (!handle) return null
+      return `https://vk.me/${handle}?ref=prtc_${clientId}`
+    }
+    if (p === 'max') {
+      const handle = (botHandles?.max || '').replace(/^@/, '')
+      if (!handle) return null
+      return `https://max.ru/${handle}?start=prtc_${clientId}`
+    }
+    return null
+  }
+
+  // Прямая ссылка возврата после сабмита формы
   function returnUrlFor(p: string): string | null {
     if (!clientId) return null
     if (p === 'telegram') {
@@ -1095,34 +1116,35 @@ function PartnerRegistrationBlock({
         </p>
       </div>
 
-      {/* Платформенные корневые ссылки */}
+      {/* Платформенные корневые ссылки — прямые на TG/VK/MAX */}
       <div>
         <label className="block text-xs font-semibold text-gray-700 mb-2">
           Корневые ссылки (для распространения)
         </label>
         <div className="space-y-2">
           {platforms.map((p) => {
-            const url = clientId ? `${HOST}/partner/${clientId}?to=${p === 'telegram' ? 'tg' : p}` : ''
+            const url = rootUrlFor(p)
+            const disabled = !isConfigured || !url
             return (
-              <div key={p} className="flex gap-2 items-center">
+              <div key={`root-${p}`} className="flex gap-2 items-center">
                 <span className="w-20 shrink-0 text-xs font-semibold text-gray-500">{platformLabel[p] || p}</span>
                 <input
                   type="text"
-                  value={isConfigured ? url : ''}
+                  value={isConfigured && url ? url : ''}
                   readOnly
-                  placeholder={isConfigured ? '' : '— настройте URL выше'}
+                  placeholder={!url ? '— у вас не подключён канал этой платформы' : (!isConfigured ? '— настройте URL выше' : '')}
                   className={`flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono ${
-                    isConfigured ? 'bg-gray-50 text-gray-700' : 'bg-gray-100 text-gray-400'
+                    disabled ? 'bg-gray-100 text-gray-400' : 'bg-gray-50 text-gray-700'
                   }`}
                 />
                 <button
                   type="button"
-                  onClick={() => copy(p, url)}
-                  disabled={!isConfigured}
+                  onClick={() => url && copy(`root-${p}`, url)}
+                  disabled={disabled}
                   className="px-2.5 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                   title="Скопировать"
                 >
-                  {copied === p ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                  {copied === `root-${p}` ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
                 </button>
               </div>
             )

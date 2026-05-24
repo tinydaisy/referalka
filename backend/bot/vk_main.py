@@ -130,8 +130,35 @@ def _extract_funnel_run_id(message_or_event: dict) -> int | None:
 
 
 def _extract_partner_run_id(message_or_event: dict) -> int | None:
-    """Ищет `ref=prt_<int>` — регистрация партнёра, начало (миграция 105)."""
+    """Ищет `ref=prt_<int>` — старый прокси-формат партнёрки (deprecated)."""
     return _extract_ref_with_prefix(message_or_event, "prt_")
+
+
+def _extract_partner_direct_ref(message_or_event: dict) -> str | None:
+    """Ищет `ref=prtc_<n>` или `ref=prtp_<n>` — прямые партнёрские ссылки (рефакторинг 24.05.2026).
+
+    Возвращает полную строку ref (включая префикс) или None.
+    """
+    candidates = []
+    msg = message_or_event.get("message") if isinstance(message_or_event, dict) else None
+    if isinstance(msg, dict):
+        candidates.extend([msg.get("ref"), msg.get("ref_source")])
+        payload_raw = msg.get("payload")
+        if payload_raw:
+            try:
+                payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
+                if isinstance(payload, dict):
+                    candidates.append(payload.get("ref"))
+            except Exception:
+                pass
+    candidates.extend([message_or_event.get("ref"), message_or_event.get("ref_source")])
+    for c in candidates:
+        if not c:
+            continue
+        s = str(c).strip()
+        if s.startswith("prtc_") or s.startswith("prtp_"):
+            return s
+    return None
 
 
 def _extract_partner_done_client_id(message_or_event: dict) -> int | None:
@@ -288,8 +315,27 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
         except Exception as e:
             logger.warning("VK message_allow funnel start failed: %s", e)
 
-    # Регистрация партнёра (prt_<run_id> — миграция 105). Аналог funnel-флоу,
-    # но шлёт другое сообщение (без проверки подписки, c web-кнопкой на лендинг).
+    # Регистрация партнёра — прямые ссылки (рефакторинг 24.05.2026)
+    partner_direct_ref = _extract_partner_direct_ref(event)
+    if partner_direct_ref:
+        try:
+            user_info = await get_user_info(int(user_id))
+            from app.services.partner_service import start_partner_flow_vk
+            handled = await start_partner_flow_vk(
+                partner_direct_ref, str(user_id),
+                username=(user_info or {}).get("screen_name", "") if user_info else "",
+                first_name=(user_info or {}).get("first_name", "") if user_info else "",
+                last_name=(user_info or {}).get("last_name", "") if user_info else "",
+                db=db,
+                channel_id=ctx.channel_id,
+                token=ctx.token,
+            )
+            if handled:
+                return
+        except Exception as e:
+            logger.warning("VK message_allow partner direct start failed: %s", e)
+
+    # Старый прокси-формат prt_<run_id> (deprecated, для совместимости)
     partner_run_id = _extract_partner_run_id(event)
     if partner_run_id:
         try:
@@ -510,7 +556,27 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
         except Exception as e:
             logger.warning("VK message_new funnel start failed: %s", e)
 
-    # Регистрация партнёра (prt_<run_id>, миграция 105) — аналог funnel
+    # Прямые партнёрские ссылки prtc_/prtp_ (рефакторинг 24.05.2026)
+    partner_direct_ref = _extract_partner_direct_ref(event_obj)
+    if partner_direct_ref:
+        try:
+            user_info = await get_user_info(int(from_id))
+            from app.services.partner_service import start_partner_flow_vk
+            handled = await start_partner_flow_vk(
+                partner_direct_ref, str(from_id),
+                username=(user_info or {}).get("screen_name", "") if user_info else "",
+                first_name=(user_info or {}).get("first_name", "") if user_info else "",
+                last_name=(user_info or {}).get("last_name", "") if user_info else "",
+                db=db,
+                channel_id=ctx.channel_id,
+                token=ctx.token,
+            )
+            if handled:
+                return
+        except Exception as e:
+            logger.warning("VK message_new partner direct start failed: %s", e)
+
+    # Старый прокси-формат (deprecated)
     partner_run_id = _extract_partner_run_id(event_obj)
     if partner_run_id:
         try:

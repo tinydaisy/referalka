@@ -156,19 +156,88 @@ async def _tg_send(token: str, chat_id, text: str,
         log.warning("partner _tg_send failed: %s", e)
 
 
-# ─── Outgoing flow (/start prt_<run_id>) ────────────────────────────────────
+# ─── Outgoing flow ──────────────────────────────────────────────────────────
+
+async def resolve_partner_entry(start_arg: str, platform_slug: str, db
+                                ) -> Optional[tuple[int, Optional[int], str]]:
+    """Разбирает start-параметр прямой партнёрской ссылки.
+
+    Форматы:
+      `prtc_<client_id>` — корневая ссылка клиента (без рефовода).
+      `prtp_<contact_id>` — личная ссылка партнёра (рефовод по contact_id).
+
+    Возвращает `(client_id, referrer_contact_id_or_None, referrer_query)`
+    либо None если start_arg невалиден.
+
+    Создаёт новый `partner_runs` забег как побочный эффект — нужен для
+    аналитики и для общей точки входа `run_started_partner(run_id)`.
+    """
+    if start_arg.startswith("prtc_"):
+        try:
+            client_id = int(start_arg.removeprefix("prtc_"))
+        except ValueError:
+            return None
+        referrer_contact_id: Optional[int] = None
+        referrer_query = ""
+    elif start_arg.startswith("prtp_"):
+        try:
+            referrer_contact_id_val = int(start_arg.removeprefix("prtp_"))
+        except ValueError:
+            return None
+        row = await db.fetchrow(
+            "SELECT id, client_id, external_ref_param FROM contacts WHERE id = $1 AND is_active = TRUE",
+            referrer_contact_id_val,
+        )
+        if not row:
+            return None
+        client_id = row["client_id"]
+        referrer_contact_id = row["id"]
+        erp = (row["external_ref_param"] or "").strip()
+        referrer_query = erp if erp else ""
+    else:
+        return None
+
+    return client_id, referrer_contact_id, referrer_query
+
+
+async def create_partner_run(client_id: int, platform_slug: str,
+                             referrer_contact_id: Optional[int],
+                             referrer_query: str, db) -> int:
+    """Создаёт partner_runs запись. Возвращает run_id."""
+    return await db.fetchval(
+        """INSERT INTO partner_runs
+              (client_id, platform_slug, referrer_contact_id, referrer_query, stage)
+           VALUES ($1, $2, $3, $4, 'landed')
+           RETURNING id""",
+        client_id, platform_slug, referrer_contact_id, referrer_query,
+    )
+
+
+async def start_partner_flow(start_arg: str, tg_id: str, username: Optional[str],
+                             first_name: Optional[str], last_name: Optional[str],
+                             db, bot_id: Optional[int] = None) -> bool:
+    """Полный флоу для TG: парсит prtc_/prtp_ → создаёт run → запускает run_started_partner.
+
+    Возвращает True если start_arg распознан и обработан (включая ошибки внутри),
+    False если start_arg не партнёрский (передать дальше другим обработчикам).
+    """
+    resolved = await resolve_partner_entry(start_arg, "telegram", db)
+    if not resolved:
+        return False
+    client_id, referrer_contact_id, referrer_query = resolved
+    run_id = await create_partner_run(
+        client_id, "telegram", referrer_contact_id, referrer_query, db,
+    )
+    await run_started_partner(
+        run_id, tg_id, username, first_name, last_name, db, bot_id=bot_id,
+    )
+    return True
+
 
 async def run_started_partner(run_id: int, tg_id: str, username: Optional[str],
                               first_name: Optional[str], last_name: Optional[str],
                               db, bot_id: Optional[int] = None) -> None:
-    """Бот получил /start prt_<run_id>. Идемпотентно.
-
-    1. Создаёт/находит контакт у клиента (через upsert_contact_with_identity).
-    2. Привязывает contact_id к partner_runs.
-    3. Регистрирует подписку на канал бота в контексте клиента.
-    4. Шлёт сообщение «уже партнёр» (с кодом) ИЛИ «регистрируетесь партнёром»
-       + url-кнопкой на сторонний лендинг с готовыми query-параметрами.
-    """
+    """Внутренний вызов: contact + сообщение в TG. Используется из start_partner_flow."""
     run = await db.fetchrow(
         """SELECT id, client_id, platform_slug, contact_id, stage, referrer_query
              FROM partner_runs WHERE id = $1""",
@@ -249,6 +318,24 @@ async def run_started_partner(run_id: int, tg_id: str, username: Optional[str],
         }
 
     await _tg_send(token, tg_id, text, reply_markup)
+
+
+async def start_partner_flow_vk(start_arg: str, vk_id: str, username: Optional[str],
+                                first_name: Optional[str], last_name: Optional[str],
+                                db, channel_id: int, token: str) -> bool:
+    """VK-аналог start_partner_flow. Возвращает True если start_arg партнёрский и обработан."""
+    resolved = await resolve_partner_entry(start_arg, "vk", db)
+    if not resolved:
+        return False
+    client_id, referrer_contact_id, referrer_query = resolved
+    run_id = await create_partner_run(
+        client_id, "vk", referrer_contact_id, referrer_query, db,
+    )
+    await run_started_partner_vk(
+        run_id, vk_id, username, first_name, last_name, db,
+        channel_id=channel_id, token=token,
+    )
+    return True
 
 
 async def run_started_partner_vk(run_id: int, vk_id: str, username: Optional[str],

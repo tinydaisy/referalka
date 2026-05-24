@@ -287,6 +287,30 @@ async def send_event_open_message(
                     tg_id=str(tg_id),
                 )
 
+            # Регистрируем подписку на главный TG-канал клиента. Раз бот сейчас
+            # реально шлёт человеку register_cta — значит он подписан (Mini App
+            # может открываться минуя /start, тогда _record_subscription не
+            # срабатывает, и в platform_user_channels пусто).
+            try:
+                from app.services.channels import (
+                    get_client_telegram_channel_id,
+                    register_telegram_subscription,
+                )
+                ch_id = await get_client_telegram_channel_id(client_id, conn)
+                if ch_id:
+                    await register_telegram_subscription(
+                        client_id, ch_id, str(tg_id),
+                        username=username or "",
+                        first_name=first_name or "",
+                        last_name=last_name or "",
+                        db=conn,
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"event_start register_telegram_subscription failed "
+                    f"client={client_id} tg={tg_id}: {e}"
+                )
+
             part = await conn.fetchrow(
                 """SELECT id, is_registered, last_open_msg_kind, last_open_msg_at
                      FROM event_participants

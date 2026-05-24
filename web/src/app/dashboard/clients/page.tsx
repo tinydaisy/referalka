@@ -1321,18 +1321,21 @@ function ContactFieldEditor({
 
 
 /* ─────── Партнёрская ссылка контакта (миграция 105) ─────── */
+// Партнёрка живёт ТОЛЬКО в TG/VK/MAX. Email сюда не входит (нет интерактивности).
+const PARTNER_PLATFORMS = ['telegram', 'vk', 'max']
+const PLUSON_BOT_HANDLE = 'pluson_bot'
+
 function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
   const { me } = useMe()
   const [copied, setCopied] = useState<string | null>(null)
   const landingConfigured = !!(me?.partner_landing_url || '').trim()
-  const clientId = me?.id || null
-  // У контакта может быть несколько идентичностей; для генерации ссылки нужен сам ID контакта
   const contactId = contact.id
-  const erp = (contact.external_ref_param || '').trim()
-  const platforms: string[] = (me?.available_platforms && me.available_platforms.length > 0)
-    ? me.available_platforms
-    : ['telegram']
-  const HOST = 'https://pluson.ru'
+  const botHandles: { telegram?: string | null; vk?: string | null; max?: string | null } | null = me?.bot_handles || null
+
+  // Только TG/VK/MAX, из подключённых клиентом. TG показываем всегда (fallback на @pluson_bot).
+  const available: string[] = me?.available_platforms || []
+  const platforms = PARTNER_PLATFORMS.filter(p => available.includes(p))
+  if (!platforms.includes('telegram')) platforms.unshift('telegram')
 
   function copy(label: string, text: string) {
     if (!text) return
@@ -1346,6 +1349,25 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
     telegram: 'Telegram',
     vk: 'VK',
     max: 'MAX',
+  }
+
+  // Прямая личная ссылка: t.me/{bot}?start=prtp_{contact_id} (бот резолвит client_id + external_ref_param из contacts).
+  function personalUrlFor(p: string): string | null {
+    if (p === 'telegram') {
+      const handle = (botHandles?.telegram || PLUSON_BOT_HANDLE).replace(/^@/, '')
+      return `https://t.me/${handle}?start=prtp_${contactId}`
+    }
+    if (p === 'vk') {
+      const handle = (botHandles?.vk || '').replace(/^@/, '')
+      if (!handle) return null
+      return `https://vk.me/${handle}?ref=prtp_${contactId}`
+    }
+    if (p === 'max') {
+      const handle = (botHandles?.max || '').replace(/^@/, '')
+      if (!handle) return null
+      return `https://max.ru/${handle}?start=prtp_${contactId}`
+    }
+    return null
   }
 
   return (
@@ -1365,37 +1387,40 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
             </Link>{' '}
             — после этого здесь появятся персональные ссылки этого контакта.
           </p>
-          {/* Замыленный превью — даём почувствовать как будет выглядеть */}
           <div className="mt-3 space-y-1.5 select-none" style={{ filter: 'blur(3px)', pointerEvents: 'none' }}>
-            {platforms.map(p => (
-              <div key={p} className="flex items-center gap-2">
-                <span className="w-16 text-[11px] font-semibold text-gray-500">{platformLabel[p] || p}</span>
-                <span className="text-xs font-mono text-gray-600">
-                  {HOST}/partner/{clientId || '••'}?to={p === 'telegram' ? 'tg' : p}&amp;pluson_cid={contactId}{erp ? '&' + erp : ''}
-                </span>
-              </div>
-            ))}
+            {platforms.map(p => {
+              const url = personalUrlFor(p) || '—'
+              return (
+                <div key={p} className="flex items-center gap-2">
+                  <span className="w-16 text-[11px] font-semibold text-gray-500">{platformLabel[p] || p}</span>
+                  <span className="text-xs font-mono text-gray-600 truncate">{url}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
       ) : (
         <div className="space-y-1.5">
           {platforms.map(p => {
-            const to = p === 'telegram' ? 'tg' : p
-            const tail = `&pluson_cid=${contactId}${erp ? `&${erp}` : ''}`
-            const url = clientId ? `${HOST}/partner/${clientId}?to=${to}${tail}` : ''
+            const url = personalUrlFor(p)
+            const disabled = !url
             return (
               <div key={p} className="flex items-center gap-2">
                 <span className="w-16 shrink-0 text-[11px] font-semibold text-gray-500">{platformLabel[p] || p}</span>
                 <input
                   type="text"
-                  value={url}
+                  value={url || ''}
                   readOnly
-                  className="flex-1 min-w-0 px-3 py-1.5 text-xs font-mono bg-gray-50 border border-gray-200 rounded-lg text-gray-700"
+                  placeholder={!url ? '— у клиента не подключён канал этой платформы' : ''}
+                  className={`flex-1 min-w-0 px-3 py-1.5 text-xs font-mono border border-gray-200 rounded-lg ${
+                    disabled ? 'bg-gray-100 text-gray-400' : 'bg-gray-50 text-gray-700'
+                  }`}
                 />
                 <button
                   type="button"
-                  onClick={() => copy(p, url)}
-                  className="px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 shrink-0"
+                  onClick={() => url && copy(p, url)}
+                  disabled={disabled}
+                  className="px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                   title="Скопировать"
                 >
                   {copied === p ? (
@@ -1410,13 +1435,6 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
               </div>
             )
           })}
-          {!erp && (
-            <p className="text-[11px] text-gray-500 mt-1.5 leading-tight">
-              У контакта пока не заполнен сторонний партнёрский код — ссылка работает,
-              но без приклеенного кода рефовода. Код появится автоматически когда контакт
-              сам зарегистрируется партнёром через эту ссылку.
-            </p>
-          )}
         </div>
       )}
     </div>
