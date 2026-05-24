@@ -294,6 +294,14 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
     user_id = event.get("user_id")
     if not user_id:
         return
+
+    try:
+        logger.info(
+            "VK message_allow group=%s user=%s ref=%r",
+            ctx.group_id, user_id, event.get("ref") or event.get("ref_source"),
+        )
+    except Exception:
+        pass
     await upsert_contact_with_identity(
         db,
         client_id=ctx.client_id,
@@ -525,6 +533,18 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     from_id = message.get("from_id")
     if not from_id or from_id < 0:  # отрицательные = от сообщества
         return
+
+    # Диагностика для spkinv: логируем что VK прислал в ref-полях.
+    try:
+        diag_ref = message.get("ref") or message.get("ref_source") or event_obj.get("ref")
+        diag_payload = message.get("payload")
+        logger.info(
+            "VK message_new group=%s from=%s ref=%r payload=%r text=%r",
+            ctx.group_id, from_id, diag_ref, diag_payload,
+            (message.get("text") or "")[:50],
+        )
+    except Exception:
+        pass
 
     await upsert_contact_with_identity(
         db, client_id=ctx.client_id, platform_slug="vk",
