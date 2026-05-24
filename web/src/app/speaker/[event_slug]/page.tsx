@@ -57,6 +57,8 @@ type SpeakerMe = {
   tg_locked: boolean
   vk_locked: boolean
   max_locked: boolean
+  needs_channel_check: boolean
+  bot_in_channel: boolean | null
   topics: string[]
   gift_after_speech_title: string | null
   gift_after_speech_url: string | null
@@ -87,6 +89,8 @@ export default function SpeakerCabinetPage() {
   const [achText, setAchText] = useState<string>('')
   const [uploading, setUploading] = useState<'speaker_photo' | 'speaker_poster' | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
+  const [verifyResult, setVerifyResult] = useState<{ ok: boolean; text: string; bot_handle?: string } | null>(null)
+  const [verifying, setVerifying] = useState(false)
 
   // Восстановить токен из localStorage
   useEffect(() => {
@@ -213,6 +217,31 @@ export default function SpeakerCabinetPage() {
       setError(String(e.message || e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const onVerifyChannel = async () => {
+    if (!token) return
+    setVerifying(true); setVerifyResult(null); setError(null)
+    try {
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/verify-channel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const d = await r.json()
+      if (r.ok && d.ok) {
+        setVerifyResult({ ok: true, text: 'Бот видит вас в канале. Проверка подписки на ваш канал будет работать.', bot_handle: d.bot_handle })
+        update({ bot_in_channel: true })
+        if (d.channel_id) update({ tg_channel_id: d.channel_id })
+      } else if (r.ok && !d.ok) {
+        setVerifyResult({ ok: false, text: d.detail || 'Не получилось проверить', bot_handle: d.bot_handle })
+      } else {
+        setVerifyResult({ ok: false, text: d.detail || 'Ошибка проверки' })
+      }
+    } catch (e: any) {
+      setVerifyResult({ ok: false, text: String(e.message || e) })
+    } finally {
+      setVerifying(false)
     }
   }
 
@@ -477,6 +506,62 @@ export default function SpeakerCabinetPage() {
             inputCss={inputCss} labelCss={labelCss}
           />
         </Section>
+
+        {me.needs_channel_check && (
+          <Section title="Подписка на ваш Telegram-канал">
+            <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 10 }}>
+              Участники события должны быть подписаны на ваш Telegram-канал, чтобы попасть в чат / получить подарки.
+              Чтобы автопроверка работала, добавьте нашего бота администратором в ваш канал и нажмите кнопку ниже.
+            </div>
+            <label style={labelCss}>Ссылка на ваш Telegram-канал</label>
+            <input
+              style={inputCss}
+              value={me.tg_channel_url || ''}
+              onChange={(e) => update({ tg_channel_url: e.target.value })}
+              placeholder="https://t.me/your_channel"
+            />
+            {me.tg_channel_id && (
+              <div style={{ fontSize: 11, color: '#7a8c9c', marginTop: 4 }}>ID канала: <code>{me.tg_channel_id}</code> (определяется автоматически)</div>
+            )}
+            <button
+              type="button"
+              onClick={onVerifyChannel}
+              disabled={verifying}
+              style={{
+                marginTop: 12, padding: '10px 16px',
+                background: me.bot_in_channel ? '#e6f4ea' : DARK,
+                color: me.bot_in_channel ? '#2e6e3f' : '#fff',
+                fontWeight: 700, border: 'none', borderRadius: 10,
+                cursor: verifying ? 'wait' : 'pointer', fontSize: 13,
+              }}
+            >
+              {verifying
+                ? 'Проверяем…'
+                : (me.bot_in_channel ? '✓ Бот в канале — проверить ещё раз' : 'Проверить, что бот в канале')}
+            </button>
+            {verifyResult && (
+              <div style={{
+                marginTop: 10, padding: '10px 12px', borderRadius: 8,
+                background: verifyResult.ok ? '#e6f4ea' : '#ffe9e0',
+                color: verifyResult.ok ? '#2e6e3f' : '#a83e1c',
+                fontSize: 12, lineHeight: 1.5,
+              }}>
+                {verifyResult.ok ? '✓ ' : '⚠️ '}{verifyResult.text}
+              </div>
+            )}
+            {!me.bot_in_channel && (
+              <details style={{ marginTop: 10, fontSize: 12, color: '#5c7589' }}>
+                <summary style={{ cursor: 'pointer' }}>Как добавить бота</summary>
+                <ol style={{ marginTop: 8, paddingLeft: 18, lineHeight: 1.6 }}>
+                  <li>Откройте ваш Telegram-канал.</li>
+                  <li>Управление → Администраторы → Добавить администратора.</li>
+                  <li>Найдите бота {verifyResult?.bot_handle ? <b>@{verifyResult.bot_handle}</b> : 'клиента (имя бота вам сообщит организатор)'} и добавьте без особых прав — достаточно стандартных.</li>
+                  <li>Вернитесь сюда и нажмите «Проверить».</li>
+                </ol>
+              </details>
+            )}
+          </Section>
+        )}
 
         {me.show_topic_field && (
           <Section title="Темы выступления">

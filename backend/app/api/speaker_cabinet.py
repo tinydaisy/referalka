@@ -139,6 +139,7 @@ async def get_me(
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
                   cse.show_knowledge_base_field,
+                  cse.bot_in_channel,
                   c.id AS collaborator_id, c.name, c.title, c.achievements,
                   c.photo_url, c.poster_url, c.photo_folder_url, c.video_folder_url,
                   c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url,
@@ -154,7 +155,8 @@ async def get_me(
                   (pu_max.id IS NOT NULL) AS max_locked,
                   ctc.email, ctc.phone,
                   e.title AS event_title, e.slug AS event_slug,
-                  ers.is_enabled AS raffle_enabled
+                  ers.is_enabled AS raffle_enabled,
+                  cc.subscription_mode
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
              JOIN events e ON e.id = cse.event_id
@@ -166,6 +168,7 @@ async def get_me(
              LEFT JOIN platform_users pu_max
                ON pu_max.contact_id = c.contact_id AND pu_max.platform_slug = 'max'
              LEFT JOIN event_raffle_settings ers ON ers.event_id = cse.event_id
+             LEFT JOIN conf_conferences cc ON cc.event_id = cse.event_id
             WHERE cse.id = $1""",
         se_id
     )
@@ -177,6 +180,14 @@ async def get_me(
     )
     d = dict(row)
     d["topics"] = [t["topic"] for t in topics if t["topic"]]
+    # Нужна ли проверка подписки на канал этого спикера в Mini App.
+    # all_speakers — у всех; organizer — только организаторам; none — никому.
+    mode = (d.get("subscription_mode") or "none").lower()
+    role = (d.get("role") or "").lower()
+    d["needs_channel_check"] = (
+        mode == "all_speakers"
+        or (mode == "organizer" and role == "organizer")
+    )
     return d
 
 
@@ -328,6 +339,117 @@ async def patch_me(
         )
 
     return await get_me(session, db)
+
+
+@router.post("/me/verify-channel", summary="Проверить, что бот в канале спикера + резолвить tg_channel_id")
+async def verify_channel(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """
+    Используется на форме спикера для самопроверки канала. Если у коллаба
+    заполнен tg_channel_url, но tg_channel_id пуст — резолвит через getChat.
+    Затем getChatMember(channel, личный_tg_id) — если бот в канале админом
+    и видит спикера, ставит event_collaborators.bot_in_channel = TRUE и
+    возвращает {ok: true}. Иначе — разъяснение что не так.
+    """
+    import httpx
+    from app.services.channels import get_client_telegram_token
+
+    se_id = int(session["se_id"])
+    row = await db.fetchrow(
+        """SELECT cse.id AS se_id, cse.event_id, c.id AS c_id,
+                  c.tg_channel_url, c.tg_channel_id,
+                  pu_tg.platform_user_id AS personal_tg_id,
+                  c.created_by_client_id, c.name AS speaker_name
+             FROM event_collaborators cse
+             JOIN collaborators c ON c.id = cse.speaker_id
+             LEFT JOIN platform_users pu_tg
+               ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
+            WHERE cse.id = $1""",
+        se_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Профиль не найден")
+
+    channel_url = (row["tg_channel_url"] or "").strip()
+    channel_id = (row["tg_channel_id"] or "").strip()
+    if not channel_url and not channel_id:
+        raise HTTPException(status_code=400, detail="Сначала укажите ссылку на ваш Telegram-канал и сохраните")
+    speaker_tg_id = row["personal_tg_id"]
+    if not speaker_tg_id:
+        raise HTTPException(status_code=400, detail="Ваш Telegram-аккаунт ещё не привязан. Откройте invite-ссылку через бота и попробуйте ещё раз")
+
+    client_id = int(row["created_by_client_id"])
+    token = (await get_client_telegram_token(client_id, db)) or settings.telegram_bot_token
+    if not token:
+        raise HTTPException(status_code=400, detail="У клиента не подключён бот для проверки канала")
+
+    bot_handle = ""
+    try:
+        async with httpx.AsyncClient(timeout=5) as http:
+            br = await http.get(f"https://api.telegram.org/bot{token}/getMe")
+        bot_handle = ((br.json() or {}).get("result") or {}).get("username", "") or ""
+    except Exception:
+        pass
+    bot_ref = f"@{bot_handle}" if bot_handle else "бот клиента"
+
+    # Если ID канала ещё не сохранён — резолвим через getChat по @username из url
+    if not channel_id and channel_url:
+        m = channel_url.replace("https://t.me/", "").replace("http://t.me/", "").lstrip("@/").split("/")[0].split("?")[0]
+        if m and not m.startswith("+"):
+            try:
+                async with httpx.AsyncClient(timeout=6) as http:
+                    cr = await http.get(
+                        f"https://api.telegram.org/bot{token}/getChat",
+                        params={"chat_id": f"@{m}"},
+                    )
+                cd = cr.json()
+                if cd.get("ok") and cd.get("result", {}).get("id"):
+                    channel_id = str(cd["result"]["id"])
+                    await db.execute(
+                        "UPDATE collaborators SET tg_channel_id = $1, updated_at = NOW() WHERE id = $2",
+                        channel_id, row["c_id"],
+                    )
+            except Exception:
+                pass
+
+    if not channel_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Не удалось определить ID канала по ссылке. Добавьте {bot_ref} администратором в канал и попробуйте снова."
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as http:
+            r = await http.get(
+                f"https://api.telegram.org/bot{token}/getChatMember",
+                params={"chat_id": channel_id, "user_id": speaker_tg_id},
+            )
+        data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ошибка Telegram API: {e}")
+
+    if not data.get("ok"):
+        desc = (data.get("description") or "").lower()
+        if "member list is inaccessible" in desc or "not enough rights" in desc or "no rights" in desc:
+            detail = f"Бот не админ канала. Добавьте {bot_ref} в администраторы вашего канала (без прав публикации) и нажмите «Проверить» ещё раз."
+        elif "chat not found" in desc:
+            detail = f"Канал не найден. Возможно {bot_ref} ещё не добавлен в ваш канал. Добавьте и нажмите «Проверить»."
+        elif "user not found" in desc:
+            detail = "Telegram не видит вас в канале. Зайдите в свой канал и попробуйте ещё раз."
+        elif "bot was kicked" in desc or "kicked" in desc:
+            detail = f"Бот удалён из канала. Добавьте {bot_ref} обратно в администраторы."
+        else:
+            detail = f"Не удалось проверить. Telegram ответил: {data.get('description') or 'неизвестная ошибка'}"
+        return {"ok": False, "detail": detail, "bot_handle": bot_handle, "channel_id": channel_id}
+
+    # Успех — ставим bot_in_channel
+    await db.execute(
+        "UPDATE event_collaborators SET bot_in_channel = TRUE WHERE id = $1",
+        se_id,
+    )
+    return {"ok": True, "channel_id": channel_id, "bot_handle": bot_handle}
 
 
 @router.post("/me/upload", summary="Загрузить фото/афишу спикера (cabinet-сессия)")
