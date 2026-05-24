@@ -445,6 +445,16 @@ async def public_event_landing_redirect(
             platform_slug='vk', platform_user_id=str(vk_id),
         )
 
+    # Подтягиваем поля контакта (name/email/phone/external_ref_param самого контакта)
+    # и платформенные идентичности (tg_id/vk_id/tg_nickname) — для полного набора
+    # GET-параметров в URL стороннего лендинга.
+    from app.services.external_landing import get_contact_landing_params
+    contact_params = await get_contact_landing_params(db, contact_id_out) if contact_id_out else {}
+
+    # external_ref_param для URL — приоритет: переданный pid → resolve, иначе свой код контакта
+    erp_to_use = external_ref_param or contact_params.pop("_external_ref_param_raw", None)
+    contact_params.pop("_external_ref_param_raw", None)
+
     redirect_url = build_external_landing_url(
         landing_url,
         event_slug=slug,
@@ -452,7 +462,8 @@ async def public_event_landing_redirect(
         contact_id=contact_id_out,
         pid=pid,
         utm_source=utm_source,
-        external_ref_param=external_ref_param,
+        external_ref_param=erp_to_use,
+        **contact_params,  # name/email/phone/tg_id/vk_id/tg_nickname (только непустые)
     )
 
     # При редиректе на сторонний лендинг React-bundle Mini App не запустится →
@@ -474,8 +485,75 @@ async def public_event_landing_redirect(
 
 
 @public.get(
+    "/events/{slug}/vip-redirect",
+    summary="Обогащённый URL VIP-тарифа с GET-параметрами контакта (миграция 105+)",
+)
+async def public_event_vip_redirect(
+    slug: str,
+    tg_id: Optional[int] = None,
+    vk_id: Optional[int] = None,
+    pid: Optional[str] = None,
+    utm_source: Optional[str] = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Возвращает {redirect_url: ...} — событийный VIP URL с приписанными
+    GET-параметрами контакта (pluson_contact_id, pluson_participant_id,
+    tg_id/vk_id, email, phone, name, tg_nickname, external_ref_param).
+    Mini App кнопка «VIP-тариф» открывает window.location.href = redirect_url.
+    Если у события нет vip_url или vip-тариф выключен — {redirect_url: null}.
+    """
+    row = await db.fetchrow(
+        """SELECT id, client_id, vip_url, has_vip_tariff
+             FROM events WHERE slug = $1 LIMIT 1""",
+        slug,
+    )
+    if not row:
+        return {"redirect_url": None}
+    vip_url = (row["vip_url"] or "").strip()
+    if not vip_url or not row["has_vip_tariff"]:
+        return {"redirect_url": None}
+
+    from app.services.external_landing import (
+        get_contact_landing_params,
+        enrich_external_url,
+        resolve_external_ref_param,
+    )
+
+    # Контакт + participant_id из tg_id/vk_id (если переданы)
+    participant_id_out: Optional[int] = None
+    contact_id_out: Optional[int] = None
+    if tg_id is not None:
+        participant_id_out, contact_id_out = await resolve_or_create_participant(
+            db, client_id=row["client_id"], event_id=row["id"],
+            platform_slug='telegram', platform_user_id=str(tg_id),
+        )
+    elif vk_id is not None:
+        participant_id_out, contact_id_out = await resolve_or_create_participant(
+            db, client_id=row["client_id"], event_id=row["id"],
+            platform_slug='vk', platform_user_id=str(vk_id),
+        )
+
+    contact_params = await get_contact_landing_params(db, contact_id_out) if contact_id_out else {}
+    erp_from_pid = await resolve_external_ref_param(db, row["client_id"], pid) if pid else None
+    erp_to_use = erp_from_pid or contact_params.pop("_external_ref_param_raw", None)
+    contact_params.pop("_external_ref_param_raw", None)
+
+    enriched = enrich_external_url(
+        vip_url,
+        pluson_contact_id=contact_id_out,
+        pluson_participant_id=participant_id_out,
+        pid=pid,
+        utm_source=utm_source,
+        event_slug=slug,
+        external_ref_param=erp_to_use,
+        **contact_params,
+    )
+    return {"redirect_url": enriched}
+
+
+@public.get(
     "/events/{slug}/external-ref",
-    summary="Партнёрский параметр внешней платформы клиента по pid (gcpc=fdd97 и т.п.)",
+    summary="Партнёрский параметр внешней платформы клиента по pid (gcpc=fdd97 и т.p.)",
 )
 async def public_event_external_ref(
     slug: str,

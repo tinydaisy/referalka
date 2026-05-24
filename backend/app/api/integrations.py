@@ -71,8 +71,10 @@ class SalebotRegisterRequest(BaseModel):
     platform: str = "telegram"             # 'telegram' | 'vk' | 'max' (legacy, для Salebot)
     platform_user_id: Optional[str] = None # tg_id / vk_id / max_id (legacy, для Salebot). Опционально.
     participant_id: Optional[int] = None   # ID записи event_participants. Самый приоритетный способ идентификации для GetCourse/Tilda — содержит и контакт и событие. Mini App подсовывает в URL стороннего лендинга, форма возвращает через скрытое поле.
-    contact_id: Optional[int] = None       # ID контакта в ПЛЮСОНе (legacy после рефакторинга — без события). Используется если participant_id не передан.
-    pluson_cid: Optional[int] = None       # Алиас для contact_id (в URL стороннего лендинга через миграцию 105 контакт передаётся под этим именем). Если pluson_cid передан, а contact_id нет — pluson_cid используется как contact_id.
+    contact_id: Optional[int] = None       # ID контакта в ПЛЮСОНе. Используется если participant_id не передан.
+    pluson_contact_id: Optional[int] = None # Стандартное имя в URL стороннего лендинга (с 24.05.2026). Алиас для contact_id.
+    pluson_cid: Optional[int] = None       # Legacy-алиас (короткое имя до 24.05.2026). Тоже мапится в contact_id.
+    pluson_participant_id: Optional[int] = None  # Стандартное имя для participant_id (с 24.05.2026). Алиас для participant_id.
     username: Optional[str] = None
     telegram_username: Optional[str] = None # TG-ник из формы (fallback-поиск контакта когда нет ни contact_id, ни platform_user_id)
     first_name: Optional[str] = None
@@ -138,10 +140,16 @@ async def salebot_register(
     auto_event_id: Optional[int] = None  # event_id извлечённый из participant_id
     auto_event_marked: bool = False      # пометили is_registered через participant_id
 
-    # pluson_cid — алиас contact_id для партнёрских лендингов (миграция 105).
-    # Если оба переданы — приоритет contact_id (явный); иначе берём pluson_cid.
-    if data.contact_id is None and data.pluson_cid is not None:
-        data.contact_id = data.pluson_cid
+    # pluson_contact_id / pluson_cid — алиасы для contact_id (миграция 105).
+    # Если явный contact_id не передан — берём первый непустой алиас.
+    if data.contact_id is None:
+        if data.pluson_contact_id is not None:
+            data.contact_id = data.pluson_contact_id
+        elif data.pluson_cid is not None:
+            data.contact_id = data.pluson_cid
+    # pluson_participant_id — алиас participant_id.
+    if data.participant_id is None and data.pluson_participant_id is not None:
+        data.participant_id = data.pluson_participant_id
 
     if data.participant_id is not None:
         # Прямой путь: participant уже создан Mini App'ом. Содержит и event_id

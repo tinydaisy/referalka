@@ -2,6 +2,7 @@ interface Props {
   event: any
   participant: any
   onOpenEvent?: (slug: string) => void   // переход на следующее событие через App.tsx::openEvent
+  onVipClick?: (vipUrl: string) => void | Promise<void>  // открытие VIP-ссылки с обогащёнными GET-параметрами
 }
 
 const PEACH = '#FFCFA4'
@@ -15,7 +16,7 @@ function formatEndDate(d: string | Date | null | undefined): string {
   return `${date.getDate()} ${months[date.getMonth()]}`
 }
 
-export default function ResultsTab({ event, participant, onOpenEvent }: Props) {
+export default function ResultsTab({ event, participant, onOpenEvent, onVipClick }: Props) {
   const successor = event?.successor
   const isConference = ['conference','turnir'].includes(event?.module_slug)
   const hasVip = !!event?.vip_url
@@ -113,19 +114,29 @@ export default function ResultsTab({ event, participant, onOpenEvent }: Props) {
         )}
       </div>
 
-      {/* ВИП с записями — только для конференции с заданным vip_url */}
+      {/* ВИП с записями — только для конференции с заданным vip_url.
+          Открываем через onVipClick (если передан) — он обогащает URL
+          GET-параметрами контакта через /api/v1/public/events/{slug}/vip-redirect.
+          Fallback: открываем как есть. */}
       {isConference && hasVip && (
-        <a href={event.vip_url} target="_blank" rel="noreferrer" style={{
-          display: 'block', textDecoration: 'none',
-          background: PEACH, color: DARK,
-          borderRadius: 14, padding: '16px 16px', marginBottom: 14,
-          textAlign: 'center', fontWeight: 900, fontSize: 15,
-          letterSpacing: 1.2, textTransform: 'uppercase',
-          boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
-          border: `1px solid rgba(37,69,93,0.08)`,
-        }}>
+        <button
+          type="button"
+          onClick={() => {
+            if (onVipClick) onVipClick(event.vip_url)
+            else window.open(event.vip_url, '_blank', 'noopener,noreferrer')
+          }}
+          style={{
+            display: 'block', width: '100%', textDecoration: 'none', cursor: 'pointer',
+            background: PEACH, color: DARK,
+            borderRadius: 14, padding: '16px 16px', marginBottom: 14,
+            textAlign: 'center', fontWeight: 900, fontSize: 15,
+            letterSpacing: 1.2, textTransform: 'uppercase',
+            boxShadow: '0 4px 14px rgba(255,207,164,0.55)',
+            border: `1px solid rgba(37,69,93,0.08)`,
+          }}
+        >
           Купить VIP-тариф с записями
-        </a>
+        </button>
       )}
 
       {/* Большая цифра охвата (если есть) */}

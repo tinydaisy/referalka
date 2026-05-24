@@ -1,18 +1,31 @@
 """
 Резолв партнёрского параметра внешней платформы клиента (contacts.external_ref_param)
-и склейка URL стороннего лендинга с этим параметром.
+и склейка любого внешнего URL клиента с полным набором GET-параметров о контакте.
 
-Используется во ВСЕХ точках, где открывается events.landing_url с пробросом pid:
-  - GET /api/v1/public/events/{slug}/landing-redirect (Mini App index.html, ДО React)
-  - GET /api/v1/public/events/{slug}/external-ref     (вспомогательный — для SSR /l/[slug] и Mini App SPA)
-  - SSR Next.js /l/[slug]/page.tsx (301-редирект веб-входа)
-  - mini-app/src/pages/EventPage.tsx (useEffect и handleWantParticipate)
+**Где используется** (единый список параметров на всех точках):
+  - events.landing_url    — лендинг события (Mini App, SSR /l/[slug], landing-redirect)
+  - events.vip_url        — кнопка VIP-тарифа в Mini App (ProgramTab, ResultsTab и т.п.)
+  - clients.partner_landing_url — партнёрский сервис клиента (миграция 105)
 
-Связывает партнёра ПЛЮСОН (по ref_code контакта) с партнёром во внешней системе клиента
-(GetCourse / Bizon360 / Tilda) — клиент видит реферал в своей платформе.
-Партнёром может быть ЛЮБОЙ контакт, не только коллаборатор.
+**Стандартный набор GET-параметров** (только непустые значения):
+  - pluson_contact_id      — contacts.id
+  - pluson_participant_id  — event_participants.id (только для событий)
+  - tg_id, vk_id           — ID контакта на платформе
+  - email, phone, name     — поля contacts
+  - tg_nickname            — username из platform_users
+  - external_ref_param контакта (партнёрский код во внешней системе клиента) —
+    приклеивается как есть, например `&gcpc=fdd97`
+  - utm_source, pid        — для совместимости со старыми формами клиентов
+  - event_slug             — только для events.landing_url, для маркировки источника
+
+Клиент в GetCourse/Tilda/Bizon360 настраивает скрытые поля под нужные имена и
+получает webhook /integrations/salebot/register с этими значениями — связь
+формы со своим контактом в ПЛЮСОНе устанавливается автоматически.
+
+Связывает партнёра ПЛЮСОН (по ref_code контакта) с партнёром во внешней системе
+клиента — клиент видит реферал в своей платформе.
 """
-from typing import Optional
+from typing import Optional, Any
 from urllib.parse import urlencode
 import asyncpg
 
@@ -25,8 +38,7 @@ async def resolve_external_ref_param(
     """Возвращает строку-параметр (например "gcpc=fdd97") контакта по pid, либо None.
 
     Ищет contact с ref_code=pid (или в merged_ref_codes) у того же клиента с
-    непустым external_ref_param.
-    Любые ошибки → None (основной редирект не должен ломаться).
+    непустым external_ref_param. Любые ошибки → None (основной редирект не должен ломаться).
     """
     if not pid:
         return None
@@ -45,6 +57,129 @@ async def resolve_external_ref_param(
         return None
 
 
+async def get_contact_landing_params(
+    db: asyncpg.Connection,
+    contact_id: int,
+) -> dict[str, Any]:
+    """Подтягивает поля контакта + платформенные идентичности (TG/VK) для подстановки
+    в URL стороннего лендинга. Возвращает словарь {имя_параметра → значение}, в
+    котором уже отфильтрованы пустые значения.
+
+    Поля контакта: name, email, phone, external_ref_param.
+    Платформенные: tg_id, tg_nickname, vk_id (берём первую найденную идентичность каждой платформы).
+    Любые ошибки → возвращает то, что успело собраться (или пустой dict).
+    """
+    out: dict[str, Any] = {}
+    if not contact_id:
+        return out
+    try:
+        c = await db.fetchrow(
+            """SELECT name, email, phone, external_ref_param
+                 FROM contacts WHERE id = $1""",
+            contact_id,
+        )
+        if c:
+            for fld in ("name", "email", "phone"):
+                v = (c[fld] or "").strip() if c[fld] else ""
+                if v:
+                    out[fld] = v
+            erp = (c["external_ref_param"] or "").strip()
+            if erp:
+                # Кладём в служебный ключ — `enrich_external_url` приклеит его сырым
+                out["_external_ref_param_raw"] = erp
+    except Exception:
+        pass
+
+    try:
+        ids = await db.fetch(
+            """SELECT platform_slug, platform_user_id, username
+                 FROM platform_users
+                WHERE contact_id = $1
+                  AND platform_slug IN ('telegram', 'vk')""",
+            contact_id,
+        )
+        # Берём первое значение для каждой платформы (если несколько идентичностей)
+        seen: set[str] = set()
+        for r in ids:
+            ps = r["platform_slug"]
+            if ps in seen:
+                continue
+            seen.add(ps)
+            pu_id = (r["platform_user_id"] or "").strip()
+            if ps == "telegram":
+                if pu_id:
+                    out["tg_id"] = pu_id
+                un = (r["username"] or "").strip().lstrip("@")
+                if un:
+                    out["tg_nickname"] = un
+            elif ps == "vk":
+                if pu_id:
+                    out["vk_id"] = pu_id
+    except Exception:
+        pass
+
+    return out
+
+
+def enrich_external_url(
+    url: str,
+    *,
+    pluson_contact_id: Optional[int] = None,
+    pluson_participant_id: Optional[int] = None,
+    tg_id: Optional[str] = None,
+    vk_id: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    name: Optional[str] = None,
+    tg_nickname: Optional[str] = None,
+    external_ref_param: Optional[str] = None,
+    # Совместимость со старыми эндпоинтами и формами клиентов:
+    pid: Optional[str] = None,
+    utm_source: Optional[str] = None,
+    event_slug: Optional[str] = None,
+    extra: Optional[dict] = None,
+) -> str:
+    """Склеивает любой URL клиента (events.landing_url, vip_url, partner_landing_url)
+    со стандартным набором GET-параметров. Пустые значения не приписываются.
+
+    `external_ref_param` — это уже строка `key=value` (например `gcpc=fdd97`),
+    приклеивается в самом конце как есть.
+    """
+    qs: dict[str, str] = {}
+
+    def _put(k: str, v: Any) -> None:
+        if v is None:
+            return
+        s = str(v).strip()
+        if not s:
+            return
+        qs[k] = s
+
+    _put("pluson_contact_id", pluson_contact_id)
+    _put("pluson_participant_id", pluson_participant_id)
+    _put("tg_id", tg_id)
+    _put("vk_id", vk_id)
+    _put("email", email)
+    _put("phone", phone)
+    _put("name", name)
+    _put("tg_nickname", tg_nickname)
+    _put("pid", pid)
+    _put("utm_source", utm_source)
+    _put("event_slug", event_slug)
+    if extra:
+        for k, v in extra.items():
+            _put(k, v)
+
+    sep = "&" if "?" in url else "?"
+    out_url = url
+    if qs:
+        out_url = url + sep + urlencode(qs)
+        sep = "&"
+    if external_ref_param:
+        out_url += sep + external_ref_param.lstrip("?&")
+    return out_url
+
+
 def build_external_landing_url(
     landing_url: str,
     *,
@@ -54,35 +189,31 @@ def build_external_landing_url(
     pid: Optional[str] = None,
     utm_source: Optional[str] = None,
     external_ref_param: Optional[str] = None,
+    # Дополнительные поля контакта (загружены асинхронно через get_contact_landing_params).
+    name: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    tg_id: Optional[str] = None,
+    vk_id: Optional[str] = None,
+    tg_nickname: Optional[str] = None,
 ) -> str:
-    """Склеивает URL стороннего лендинга со стандартными query-параметрами и
-    в самом конце дописывает партнёрский параметр клиента (например &gcpc=fdd97).
+    """Совместимость со старой сигнатурой. Внутри использует `enrich_external_url`.
 
-    Идентификаторы для GetCourse-webhook (клиент сохраняет в скрытые поля
-    через «Сохранять GET-параметры в форме»):
-      - participant_id — ID записи event_participants. Содержит и контакт, и
-        событие. Используется в webhook /integrations/getcourse/register —
-        пометить регистрацию + обновить email/phone.
-      - contact_id — ID контакта. Используется в отдельном webhook
-        /integrations/getcourse/external-ref — обновить партнёрский код
-        внешней системы клиента (contacts.external_ref_param). Это
-        семантически другое событие (присвоение партнёрского кода) — может
-        срабатывать независимо от регистрации.
+    Имена контакт/участник в URL — `pluson_contact_id` / `pluson_participant_id`
+    (стандарт миграции 105+). Старые имена `contact_id` / `participant_id`
+    БОЛЬШЕ НЕ ПИШУТСЯ — webhook принимает оба варианта через алиасы.
     """
-    qs = {"event_slug": event_slug}
-    if participant_id is not None:
-        qs["participant_id"] = str(participant_id)
-    if contact_id is not None:
-        qs["contact_id"] = str(contact_id)
-    if pid:
-        qs["pid"] = pid
-    if utm_source:
-        qs["utm_source"] = utm_source
-    sep = "&" if "?" in landing_url else "?"
-    url = landing_url + sep + urlencode(qs)
-    if external_ref_param:
-        url += "&" + external_ref_param.lstrip("?&")
-    return url
+    return enrich_external_url(
+        landing_url,
+        pluson_contact_id=contact_id,
+        pluson_participant_id=participant_id,
+        pid=pid,
+        utm_source=utm_source,
+        event_slug=event_slug,
+        external_ref_param=external_ref_param,
+        name=name, email=email, phone=phone,
+        tg_id=tg_id, vk_id=vk_id, tg_nickname=tg_nickname,
+    )
 
 
 async def resolve_or_create_participant(
@@ -95,10 +226,6 @@ async def resolve_or_create_participant(
 ) -> tuple[Optional[int], Optional[int]]:
     """Находит (или создаёт) event_participants.id для пары
     (платформенный пользователь, событие). Возвращает (participant_id, contact_id).
-
-    Используется в /landing-redirect, чтобы подсунуть в URL стороннего лендинга
-    готовые participant_id (для /getcourse/register) и contact_id (для
-    /getcourse/external-ref).
 
     Любые ошибки или отсутствие контакта → (None, None).
     """
@@ -119,7 +246,6 @@ async def resolve_or_create_participant(
             return None, None
         contact_id = row["merged_into"] or row["id"]
 
-        # UPSERT participant. ON CONFLICT — берём существующего.
         pid = await db.fetchval(
             """INSERT INTO event_participants (event_id, contact_id, is_registered)
                VALUES ($1, $2, FALSE)

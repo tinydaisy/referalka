@@ -62,16 +62,28 @@ def _esc(s: str) -> str:
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _build_landing_url_with_params(landing_url: str, pluson_cid: int,
-                                   referrer_query: str) -> str:
-    """К URL лендинга приклеивает pluson_cid + хвост рефовода через нужный
-    разделитель (? или &)."""
-    sep = '&' if '?' in landing_url else '?'
-    parts = [f"pluson_cid={pluson_cid}"]
-    rq = (referrer_query or "").strip().lstrip("?&")
-    if rq:
-        parts.append(rq)
-    return landing_url + sep + "&".join(parts)
+async def _build_partner_landing_url(landing_url: str, contact_id: int,
+                                     referrer_query: str, db) -> str:
+    """К URL партнёрского лендинга приклеивает полный набор GET-параметров
+    нового контакта (pluson_contact_id + tg_id/email/phone/name/tg_nickname/vk_id)
+    + хвост рефовода (external_ref_param партнёра).
+
+    Стандарт миграции 105+ — единый список параметров со всеми внешними URL.
+    """
+    from app.services.external_landing import (
+        enrich_external_url, get_contact_landing_params,
+    )
+    contact_params = await get_contact_landing_params(db, contact_id)
+    # На партнёрский лендинг шлём external_ref_param РЕФОВОДА (это его код),
+    # не свой — у нового контакта ещё нет своего кода.
+    contact_params.pop("_external_ref_param_raw", None)
+
+    return enrich_external_url(
+        landing_url,
+        pluson_contact_id=contact_id,
+        external_ref_param=referrer_query if referrer_query else None,
+        **contact_params,
+    )
 
 
 def _build_already_partner_text(brand: str, code: str, work_tg: str) -> str:
@@ -309,7 +321,7 @@ async def run_started_partner(run_id: int, tg_id: str, username: Optional[str],
             log.warning("run_started_partner: client %s has no partner_landing_url", client_id)
             await _tg_send(token, tg_id, "Что-то пошло не так. Попробуйте позже.")
             return
-        button_url = _build_landing_url_with_params(landing_url, contact_id, referrer_query)
+        button_url = await _build_partner_landing_url(landing_url, contact_id, referrer_query, db)
         reply_markup = {
             "inline_keyboard": [[{
                 "text": "Открыть форму регистрации",
@@ -431,7 +443,7 @@ async def run_started_partner_vk(run_id: int, vk_id: str, username: Optional[str
             except Exception:
                 pass
             return
-        button_url = _build_landing_url_with_params(landing_url, contact_id, referrer_query)
+        button_url = await _build_partner_landing_url(landing_url, contact_id, referrer_query, db)
         keyboard = tg_inline_to_vk_keyboard([[
             {"text": "Открыть форму регистрации", "url": button_url},
         ]])

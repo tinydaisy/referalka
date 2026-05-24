@@ -283,65 +283,56 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event, loading, registered, ended])
 
-  // Резолвит партнёрский параметр внешней платформы клиента (например, gcpc=fdd97)
-  // по pid, склеивает финальный URL и делает webview-навигацию.
-  // Дублирует логику бэка из app/services/external_landing.py для случаев,
-  // когда /landing-redirect ДО React не сработал (status='draft' / SPA-навигация).
+  // Стандартный набор GET-параметров для ЛЮБОГО внешнего URL клиента
+  // (events.landing_url, events.vip_url, partner_landing_url):
+  //   pluson_contact_id, pluson_participant_id, tg_id/vk_id, email, phone,
+  //   name, tg_nickname, external_ref_param контакта/рефовода, pid, utm_source,
+  //   event_slug.
+  // Сборку делает бэк (/landing-redirect и /vip-redirect), фронт только
+  // прокидывает контекст пользователя.
+  function platformQuery(): string {
+    const tgId = tgUser?.id ? String(tgUser.id) : ''
+    const qs = new URLSearchParams()
+    if (tgId) qs.set(getPlatformName() === 'vk' ? 'vk_id' : 'tg_id', tgId)
+    if (partnerId) qs.set('pid', partnerId)
+    if (utmSource) qs.set('utm_source', utmSource)
+    return qs.toString()
+  }
+
+  // Партнёрский параметр клиента + полный набор полей контакта — берём
+  // готовый URL с бэка (/landing-redirect), не собираем его на фронте.
   async function redirectToExternalLanding(landingUrl: string) {
     const { getPlatform } = await import('../platform')
-    const params = new URLSearchParams()
-    // Два идентификатора для GetCourse-webhook (см. backend/app/services/
-    // external_landing.py): participant_id — для /getcourse/register (регистрация
-    // + email/phone), contact_id — для /getcourse/external-ref (партнёрский код).
-    if (participant?.id) params.set('participant_id', String(participant.id))
-    if (participant?.contact_id) params.set('contact_id', String(participant.contact_id))
-    if (partnerId) params.set('pid', partnerId)
-    if (utmSource) params.set('utm_source', utmSource)
-    params.set('event_slug', slug)
-    const sep = landingUrl.includes('?') ? '&' : '?'
-    let fullUrl = landingUrl + sep + params.toString()
-
-    if (partnerId) {
-      try {
-        const apiBase = import.meta.env.VITE_API_URL || ''
-        const r = await fetch(
-          `${apiBase}/api/v1/public/events/${encodeURIComponent(slug)}/external-ref?pid=${encodeURIComponent(partnerId)}`,
-        )
-        if (r.ok) {
-          const data = await r.json()
-          const extra = (data?.external_ref_param as string) || ''
-          if (extra) fullUrl += '&' + extra.replace(/^[?&]+/, '')
-        }
-      } catch { /* тихо игнорим, основной редирект не ломаем */ }
-    }
-    // platform.redirectTo: для VK на Android навигирует window.top вместо
-    // window.location (которое выкидывало в Chrome вне приложения).
+    let fullUrl = landingUrl
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || ''
+      const qs = platformQuery()
+      const r = await fetch(
+        `${apiBase}/api/v1/public/events/${encodeURIComponent(slug)}/landing-redirect${qs ? `?${qs}` : ''}`,
+      )
+      if (r.ok) {
+        const data = await r.json()
+        if (data?.redirect_url) fullUrl = data.redirect_url
+      }
+    } catch { /* fallback — открываем как есть */ }
     getPlatform().redirectTo(fullUrl)
   }
 
-  // Открытие ссылки на оплату VIP-тарифа. Открываем во ВНЕШНЕМ браузере
-  // (а не внутри Mini App webview) — у платёжных страниц webview иногда
-  // ломает CSS, кнопки оплаты и колл-беки. Если у участника есть pid
-  // (его привёл партнёр), к URL дописывается партнёрский параметр клиента
-  // (contacts.external_ref_param) — как у стороннего лендинга.
+  // VIP-тариф — открывается во ВНЕШНЕМ браузере (платёжные страницы плохо
+  // работают в webview). URL обогащается на бэке через /vip-redirect.
   async function redirectToVip(vipUrl: string) {
     let fullUrl = vipUrl
-    if (partnerId) {
-      try {
-        const apiBase = import.meta.env.VITE_API_URL || ''
-        const r = await fetch(
-          `${apiBase}/api/v1/public/events/${encodeURIComponent(slug)}/external-ref?pid=${encodeURIComponent(partnerId)}`,
-        )
-        if (r.ok) {
-          const data = await r.json()
-          const extra = (data?.external_ref_param as string) || ''
-          if (extra) {
-            const sep = fullUrl.includes('?') ? '&' : '?'
-            fullUrl += sep + extra.replace(/^[?&]+/, '')
-          }
-        }
-      } catch { /* тихо игнорим — основной редирект не ломаем */ }
-    }
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || ''
+      const qs = platformQuery()
+      const r = await fetch(
+        `${apiBase}/api/v1/public/events/${encodeURIComponent(slug)}/vip-redirect${qs ? `?${qs}` : ''}`,
+      )
+      if (r.ok) {
+        const data = await r.json()
+        if (data?.redirect_url) fullUrl = data.redirect_url
+      }
+    } catch { /* fallback — открываем как есть */ }
     const { getPlatform } = await import('../platform')
     getPlatform().openExternal(fullUrl)
   }

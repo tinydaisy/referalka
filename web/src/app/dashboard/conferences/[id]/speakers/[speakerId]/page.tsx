@@ -930,7 +930,18 @@ function SpeakerClickStats({ confId, speakerEventId }: { confId: number; speaker
             {stats.recent.map((r: any, i: number) => (
               <div key={i} className="flex justify-between gap-3 text-xs text-gray-700 border-b border-gray-100 pb-2 last:border-0">
                 <span className="flex-1">
-                  {r.name ? <span className="font-medium">{r.name}</span> : <span className="text-gray-400 italic">аноним</span>}
+                  {r.id && r.name ? (
+                    <Link
+                      href={`/dashboard/clients?contact=${r.id}`}
+                      className="font-medium text-blue-700 hover:underline"
+                    >
+                      {r.name}
+                    </Link>
+                  ) : r.name ? (
+                    <span className="font-medium">{r.name}</span>
+                  ) : (
+                    <span className="text-gray-400 italic">аноним</span>
+                  )}
                   {r.email && <span className="text-gray-500"> · {r.email}</span>}
                 </span>
                 <span className="text-gray-500 whitespace-nowrap">{CLICK_KIND_LABELS[r.click_kind] || r.click_kind}</span>
