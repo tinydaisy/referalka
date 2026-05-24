@@ -182,6 +182,44 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 **nginx.** На dev добавлен location `^/(m|p)/[a-z0-9]+$` → FastAPI 8000 (см. `memory/dev_server.md`).
 
+### Регистрация партнёра клиента через сторонний лендинг (миграция 105 от 2026-05-24)
+
+**Суть.** Самостоятельная фича — не привязана к событию или лид-магниту. Клиент в Настройках → Технические вписывает URL стороннего партнёрского сервиса (Tilda/GetCourse/Bizon360/любой), получает 3 платформенные ссылки + ссылку возврата. Человек кликает ссылку → попадает в бот платформы → бот шлёт сообщение + web_app кнопку → Mini App делает `window.location.replace` на лендинг клиента с пробросом `pluson_cid` (наш `contact_id`) и хвостом query-строки рефовода (его `external_ref_param`). После сабмита формы webhook `/integrations/salebot/register` обновляет `contacts.external_ref_param` новому контакту — он сам становится партнёром. У каждого зарегистрированного партнёра в карточке контакта появляются персональные ссылки для распространения с приклеенным его `external_ref_param`.
+
+**БД (миграция 105):**
+- `clients.partner_landing_url TEXT NULL` — URL стороннего лендинга. NULL = фича выключена (ссылки в карточках контактов замылены).
+- `partner_runs (id, client_id, platform_slug, referrer_contact_id NULL, referrer_query TEXT DEFAULT '', contact_id NULL, stage, landed_at, opened_in_bot_at, opened_landing_at, completed_at)` — стадии: `landed → opened_in_bot → opened_landing → completed`.
+
+**Endpoints (публичные, под `/`):**
+- `GET /partner/{client_id}?to=tg|vk|max[&pluson_cid={referrer_contact_id}][&{external_ref_param_part}]` — landing-редирект в бот платформы клиента. `pluson_cid` режется (это рефовод, не часть кода), всё остальное → `partner_runs.referrer_query`. 302 на `t.me/{bot}?start=prt_{run_id}` / `vk.com/app{vk_app_id}#prt_{run_id}` / `max.ru/{handle}?start=prt_{run_id}`. Для TG — fallback на `@pluson_bot` (мультиклиентный через payload). Для VK/MAX — только собственный канал клиента.
+- `GET /r/partner/{run_id}` — возврат с лендинга после сабмита формы. 302 на Mini App страницу с флагом `?done=1` (TG) или хешем `#prt_{id}_done` (VK).
+
+**Endpoints (API, под `/api/v1`):**
+- `GET /api/v1/partner/runs/{run_id}` — данные забега для Mini App (landing_url + referrer_query + work_tg_username + brand_name).
+- `GET /api/v1/partner/runs/{run_id}/contact-status` — poll: пришёл ли `external_ref_param` контакту. Автоматически помечает `partner_runs.stage='completed'` когда код появился.
+
+**Сообщения в боте** ([backend/app/services/partner_service.py](backend/app/services/partner_service.py) — `run_started_partner` для TG, `run_started_partner_vk` для VK):
+- Контакт **ЕЩЁ НЕ** партнёр (`contacts.external_ref_param` пуст) → «Вы регистрируетесь Партнёром у {owner_name} ({brand_name})» + web_app кнопка «Открыть форму регистрации» → Mini App → `window.location.replace(partner_landing_url + ?pluson_cid={new_id}&{referrer_query})`.
+- Контакт **УЖЕ** партнёр → «Вы уже зарегистрированы партнёром у {brand_name}. Ваш код: `XXX`. По вопросам отслеживания состояния партнёрского кабинета — @{work_tg_username}». Без кнопки.
+
+**Mini App** ([mini-app/src/pages/PartnerPage.tsx](mini-app/src/pages/PartnerPage.tsx)) — два режима:
+- Без `?done=1` → редирект на сторонний лендинг через `window.location.replace`.
+- С `?done=1` → poll-ит `/contact-status` раз в секунду до 15 раз. При получении кода → «✅ Вы зарегистрированы. Ваш партнёрский код: XXX. Чтобы отслеживать — @{work_tg}». При таймауте → «😕 Упс. Напишите Основателю и пришлите скрин: @{work_tg}».
+
+**Webhook** ([backend/app/api/integrations.py](backend/app/api/integrations.py)) — приняли алиас `pluson_cid` для `contact_id` (формы партнёрских лендингов передают наш ID контакта под именем `pluson_cid`).
+
+**TG bot** ([backend/bot/handlers/start.py](backend/bot/handlers/start.py)) — обработчик `/start prt_<run_id>` вызывает `run_started_partner`.
+
+**VK consumer** ([backend/bot/vk_main.py](backend/bot/vk_main.py)) — общий хелпер `_extract_ref_with_prefix(event, prefix)` извлекает `prt_<n>` из `ref` любого источника (`message.ref`, `payload.ref`, `event.ref`, `ref_source`). Подхватывается в `handle_message_allow` (первое сообщение от подписчика) и `handle_message_new` (если уже подписан).
+
+**UI:**
+- `/dashboard/settings` → вкладка «Технические» → блок **«Регистрация партнёров»**: поле URL + ссылка возврата для копирования + 3 платформенные корневые ссылки. Платформы берутся из `me.available_platforms` — MAX появляется автоматически когда у клиента подключён MAX-канал.
+- `/dashboard/clients` → карточка контакта → блок **«Партнёрская ссылка»**: если `clients.partner_landing_url` пуст → замыленные ссылки + «Сторонняя партнёрская ссылка не настроена». Иначе — 3 личные ссылки с приклеенным `&pluson_cid={contact.id}` и (если у контакта есть `external_ref_param`) `&{external_ref_param}`.
+
+**nginx (dev и прод).** Добавлены 2 location: `^/partner/[0-9]+$` → FastAPI 8000 и `^/r/partner/[0-9]+$` → FastAPI 8000 (перед более общим `location /r/` который ведёт на Next.js для `/r/{event_slug}`).
+
+**Поток «гость → партнёр» в круг.** Через webhook замыкается полный круг: гость кликнул ссылку Маши (контакт #42, `external_ref_param='gcpc=fdd97'`) → форма открылась с `pluson_cid={новый_id}&gcpc=fdd97` → юзер заполнил → GetCourse привязал свой партнёрский код к новому контакту → шлёт webhook с `pluson_cid={новый_id}&external_ref_param=gcpc=abcde` → бэк находит контакт по `pluson_cid` и обновляет ему `external_ref_param`. Теперь у него своя ссылка для распространения в карточке.
+
 ### Приветствие при открытии события (миграция 064 от 05.05.2026)
 
 При каждом `event_start` из Mini App ([backend/app/api/event.py](backend/app/api/event.py)) бот клиента (или fallback `@pluson_bot`) шлёт пользователю **контекстное** сообщение с inline-кнопкой. Тип сообщения определяется автоматически:
