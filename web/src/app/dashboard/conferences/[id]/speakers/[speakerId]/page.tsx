@@ -927,27 +927,43 @@ function SpeakerClickStats({ confId, speakerEventId }: { confId: number; speaker
             Последние клики ({stats.recent.length}) — подробно
           </summary>
           <div className="mt-3 space-y-2">
-            {stats.recent.map((r: any, i: number) => (
-              <div key={i} className="flex justify-between gap-3 text-xs text-gray-700 border-b border-gray-100 pb-2 last:border-0">
-                <span className="flex-1">
-                  {r.id && r.name ? (
-                    <Link
-                      href={`/dashboard/clients?contact=${r.id}`}
-                      className="font-medium text-blue-700 hover:underline"
-                    >
-                      {r.name}
-                    </Link>
-                  ) : r.name ? (
-                    <span className="font-medium">{r.name}</span>
-                  ) : (
-                    <span className="text-gray-400 italic">аноним</span>
-                  )}
-                  {r.email && <span className="text-gray-500"> · {r.email}</span>}
-                </span>
-                <span className="text-gray-500 whitespace-nowrap">{CLICK_KIND_LABELS[r.click_kind] || r.click_kind}</span>
-                <span className="text-gray-400 whitespace-nowrap">{new Date(r.clicked_at).toLocaleString('ru-RU')}</span>
-              </div>
-            ))}
+            {stats.recent.map((r: any, i: number) => {
+              // Идентификаторы платформ — actual (если контакт жив) ИЛИ snapshot (миграция 110).
+              // Бэк уже отдаёт эффективные tg_id/vk_id/max_id/tg_nickname/name.
+              const ids: string[] = []
+              if (r.tg_id) ids.push(`TG ${r.tg_id}${r.tg_nickname ? ` (@${r.tg_nickname})` : ''}`)
+              if (r.vk_id) ids.push(`VK ${r.vk_id}`)
+              if (r.max_id) ids.push(`MAX ${r.max_id}`)
+              return (
+                <div key={i} className="flex justify-between gap-3 text-xs text-gray-700 border-b border-gray-100 pb-2 last:border-0">
+                  <span className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {r.id && r.name ? (
+                        <Link
+                          href={`/dashboard/clients?contact=${r.id}`}
+                          className="font-medium text-blue-700 hover:underline"
+                        >
+                          {r.name}
+                        </Link>
+                      ) : r.name ? (
+                        <span className="font-medium" title="Контакт удалён — данные из снапшота клика">{r.name}</span>
+                      ) : (
+                        <span className="text-gray-400 italic">аноним</span>
+                      )}
+                      {r.email && <span className="text-gray-500"> · {r.email}</span>}
+                    </div>
+                    {(ids.length > 0 || r.phone) && (
+                      <div className="text-[11px] text-gray-500 font-mono mt-0.5">
+                        {ids.join(' · ')}
+                        {r.phone && (ids.length > 0 ? ' · ' : '') + r.phone}
+                      </div>
+                    )}
+                  </span>
+                  <span className="text-gray-500 whitespace-nowrap">{CLICK_KIND_LABELS[r.click_kind] || r.click_kind}</span>
+                  <span className="text-gray-400 whitespace-nowrap">{new Date(r.clicked_at).toLocaleString('ru-RU')}</span>
+                </div>
+              )
+            })}
           </div>
         </details>
       )}

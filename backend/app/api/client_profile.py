@@ -105,10 +105,43 @@ async def track_speaker_click(
             coll["client_id"], str(body.max_user_id),
         )
 
+    # Снапшот идентичностей контакта (миграция 110): чтобы клик пережил
+    # удаление контакта (152-ФЗ) и в статистике остался виден кто кликнул.
+    snap_name: Optional[str] = None
+    snap_tg_id: Optional[str] = str(body.tg_id) if body.tg_id else None
+    snap_tg_nickname: Optional[str] = None
+    snap_vk_id: Optional[str] = str(body.vk_user_id) if body.vk_user_id else None
+    snap_max_id: Optional[str] = str(body.max_user_id) if body.max_user_id else None
+
+    if contact_id:
+        # Берём имя из contacts, ники из platform_users (если контакт известен).
+        snap_row = await db.fetchrow(
+            """SELECT c.name AS name,
+                      (SELECT pu.platform_user_id FROM platform_users pu
+                        WHERE pu.contact_id=c.id AND pu.platform_slug='telegram' LIMIT 1) AS tg_id,
+                      (SELECT pu.username FROM platform_users pu
+                        WHERE pu.contact_id=c.id AND pu.platform_slug='telegram' LIMIT 1) AS tg_nickname,
+                      (SELECT pu.platform_user_id FROM platform_users pu
+                        WHERE pu.contact_id=c.id AND pu.platform_slug='vk' LIMIT 1) AS vk_id,
+                      (SELECT pu.platform_user_id FROM platform_users pu
+                        WHERE pu.contact_id=c.id AND pu.platform_slug='max' LIMIT 1) AS max_id
+                 FROM contacts c WHERE c.id = $1""",
+            contact_id,
+        )
+        if snap_row:
+            snap_name = (snap_row["name"] or "").strip() or None
+            snap_tg_id = snap_tg_id or snap_row["tg_id"]
+            snap_tg_nickname = (snap_row["tg_nickname"] or "").strip() or None
+            snap_vk_id = snap_vk_id or snap_row["vk_id"]
+            snap_max_id = snap_max_id or snap_row["max_id"]
+
     await db.execute(
-        """INSERT INTO event_collaborator_clicks (event_collaborator_id, contact_id, click_kind)
-           VALUES ($1, $2, $3)""",
+        """INSERT INTO event_collaborator_clicks
+              (event_collaborator_id, contact_id, click_kind,
+               contact_name, tg_id, tg_nickname, vk_id, max_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
         ec_id, contact_id, kind,
+        snap_name, snap_tg_id, snap_tg_nickname, snap_vk_id, snap_max_id,
     )
     return {"ok": True}
 

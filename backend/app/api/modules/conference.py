@@ -3309,7 +3309,23 @@ async def speaker_click_stats(
     )
     by_kind = {r["click_kind"]: int(r["cnt"]) for r in counts}
     recent = await db.fetch(
-        """SELECT c.id, c.name, c.email, c.phone, cl.click_kind, cl.clicked_at
+        """SELECT c.id, c.name, c.email, c.phone, cl.click_kind, cl.clicked_at,
+                  cl.contact_name AS snapshot_name,
+                  cl.tg_id        AS snapshot_tg_id,
+                  cl.tg_nickname  AS snapshot_tg_nickname,
+                  cl.vk_id        AS snapshot_vk_id,
+                  cl.max_id       AS snapshot_max_id,
+                  -- COALESCE: используем актуальные данные контакта (если жив),
+                  -- иначе fallback на снапшот при клике (миграция 110).
+                  COALESCE(c.name, cl.contact_name) AS display_name,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram' LIMIT 1) AS contact_tg_id,
+                  (SELECT pu.username        FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram' LIMIT 1) AS contact_tg_nickname,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk' LIMIT 1) AS contact_vk_id,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'max' LIMIT 1) AS contact_max_id
              FROM event_collaborator_clicks cl
              LEFT JOIN contacts c ON c.id = cl.contact_id
             WHERE cl.event_collaborator_id = $1
@@ -3317,10 +3333,21 @@ async def speaker_click_stats(
             LIMIT 200""",
         speaker_event_id,
     )
+    # Финальные поля для фронта: эффективные tg_id/vk_id/max_id (актуальные → снапшот)
+    out_recent = []
+    for r in recent:
+        d = dict(r)
+        d["tg_id"]       = d.pop("contact_tg_id")       or d.pop("snapshot_tg_id")
+        d["tg_nickname"] = d.pop("contact_tg_nickname") or d.pop("snapshot_tg_nickname")
+        d["vk_id"]       = d.pop("contact_vk_id")       or d.pop("snapshot_vk_id")
+        d["max_id"]      = d.pop("contact_max_id")      or d.pop("snapshot_max_id")
+        d["name"]        = d.pop("display_name") or d.get("name")
+        d.pop("snapshot_name", None)
+        out_recent.append(d)
     return {
         "by_kind": by_kind,
         "total": sum(by_kind.values()),
-        "recent": [dict(r) for r in recent],
+        "recent": out_recent,
     }
 
 
