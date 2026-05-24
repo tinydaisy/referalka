@@ -564,16 +564,7 @@ export default function ConferenceSpeakerPage() {
 
         {/* Материал в базу знаний */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="font-semibold text-gray-900 text-sm">Материал в базу знаний</h3>
-            <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
-              <input type="checkbox"
-                checked={eventForm.show_knowledge_base_field}
-                onChange={e => setEventForm(f => ({ ...f, show_knowledge_base_field: e.target.checked }))}
-                className="w-4 h-4 rounded border-gray-300 text-brand" />
-              <span>Запросить у спикера</span>
-            </label>
-          </div>
+          <h3 className="font-semibold text-gray-900 text-sm">Материал в базу знаний</h3>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Название материала</label>
             <textarea value={eventForm.knowledge_base_title} onChange={setEF('knowledge_base_title')}
