@@ -50,6 +50,7 @@ def build_external_landing_url(
     *,
     event_slug: str,
     participant_id: Optional[int] = None,
+    contact_id: Optional[int] = None,
     pid: Optional[str] = None,
     utm_source: Optional[str] = None,
     external_ref_param: Optional[str] = None,
@@ -57,17 +58,22 @@ def build_external_landing_url(
     """Склеивает URL стороннего лендинга со стандартными query-параметрами и
     в самом конце дописывает партнёрский параметр клиента (например &gcpc=fdd97).
 
-    Параметр идентификации участника:
-      - participant_id — ID записи event_participants в ПЛЮСОНе. Содержит
-        и контакт, и событие одновременно. Клиент в GetCourse/Tilda настраивает
-        «Сохранять GET-параметры в форме» → скрытое поле формы → webhook
-        регистрации сразу знает кого пометить как зарегистрированного и
-        на какое событие. Одно скрытое поле работает для всех событий клиента —
-        не нужно вписывать event_id в URL Процесса.
+    Идентификаторы для GetCourse-webhook (клиент сохраняет в скрытые поля
+    через «Сохранять GET-параметры в форме»):
+      - participant_id — ID записи event_participants. Содержит и контакт, и
+        событие. Используется в webhook /integrations/getcourse/register —
+        пометить регистрацию + обновить email/phone.
+      - contact_id — ID контакта. Используется в отдельном webhook
+        /integrations/getcourse/external-ref — обновить партнёрский код
+        внешней системы клиента (contacts.external_ref_param). Это
+        семантически другое событие (присвоение партнёрского кода) — может
+        срабатывать независимо от регистрации.
     """
     qs = {"event_slug": event_slug}
     if participant_id is not None:
         qs["participant_id"] = str(participant_id)
+    if contact_id is not None:
+        qs["contact_id"] = str(contact_id)
     if pid:
         qs["pid"] = pid
     if utm_source:
@@ -86,24 +92,18 @@ async def resolve_or_create_participant(
     event_id: int,
     platform_slug: str,
     platform_user_id: str,
-) -> Optional[int]:
+) -> tuple[Optional[int], Optional[int]]:
     """Находит (или создаёт) event_participants.id для пары
-    (платформенный пользователь, событие). Используется в /landing-redirect,
-    чтобы подсунуть в URL стороннего лендинга готовый participant_id —
-    одно скрытое поле содержит и контакт и событие.
+    (платформенный пользователь, событие). Возвращает (participant_id, contact_id).
 
-    Логика:
-    1. Находим contact_id по platform_users (с учётом merged_into).
-    2. Если контакта нет — возвращаем None (новый человек, participant_id
-       нечем создать без email/phone; webhook сделает fallback по email/phone
-       из формы и создаст participant сам через event_id, если он передан).
-    3. Если есть — UPSERT event_participants ON CONFLICT (event_id, contact_id)
-       DO NOTHING RETURNING id (если нет — создаём, если есть — берём существующий).
+    Используется в /landing-redirect, чтобы подсунуть в URL стороннего лендинга
+    готовые participant_id (для /getcourse/register) и contact_id (для
+    /getcourse/external-ref).
 
-    Любые ошибки → None (основной редирект не должен ломаться).
+    Любые ошибки или отсутствие контакта → (None, None).
     """
     if not platform_user_id:
-        return None
+        return None, None
     try:
         row = await db.fetchrow(
             """SELECT c.id, c.merged_into
@@ -116,7 +116,7 @@ async def resolve_or_create_participant(
             client_id, platform_slug, str(platform_user_id),
         )
         if not row:
-            return None
+            return None, None
         contact_id = row["merged_into"] or row["id"]
 
         # UPSERT participant. ON CONFLICT — берём существующего.
@@ -127,6 +127,6 @@ async def resolve_or_create_participant(
                RETURNING id""",
             event_id, contact_id,
         )
-        return pid
+        return pid, contact_id
     except Exception:
-        return None
+        return None, None

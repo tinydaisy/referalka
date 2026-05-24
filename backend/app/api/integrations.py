@@ -612,3 +612,216 @@ async def salebot_get_user(
         raise HTTPException(status_code=404, detail="Участник не найден")
 
     return dict(user)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# GetCourse webhooks — два разделённых эндпоинта (с 2026-05-24).
+#
+# 1) /integrations/getcourse/register — по participant_id ставит регистрацию
+#    + обновляет email/phone.
+# 2) /integrations/getcourse/external-ref — по contact_id обновляет
+#    contacts.external_ref_param (партнёрский код внешней системы клиента).
+#
+# Семантически это два разных события в GetCourse:
+#   - регистрация на лендинге события (срабатывает один раз)
+#   - присвоение партнёрского кода (отдельное действие в GetCourse-партнёрке)
+# Клиент в GetCourse настраивает их разными Процессами.
+#
+# Авторизация — тот же _authorize(client_id, secret). Для каждого эндпоинта
+# проверяется что сущность (participant/contact) принадлежит client_id.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class GetCourseRegisterRequest(BaseModel):
+    client_id: int
+    secret: Optional[str] = None
+    participant_id: int       # ID записи event_participants — содержит и контакт, и событие
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+
+async def _register_by_participant(
+    data: GetCourseRegisterRequest,
+    db: asyncpg.Connection,
+) -> dict:
+    # 1. Авторизация
+    await _authorize(data.secret, data.client_id, db)
+
+    # 2. Резолв participant — берём contact_id и event_id, проверяем клиента
+    prow = await db.fetchrow(
+        """SELECT ep.id, ep.event_id, ep.contact_id, e.client_id
+             FROM event_participants ep
+             JOIN events e ON e.id = ep.event_id
+            WHERE ep.id = $1""",
+        data.participant_id,
+    )
+    if not prow:
+        raise HTTPException(status_code=404, detail=f"Участник {data.participant_id} не найден")
+    if prow["client_id"] != data.client_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Участник {data.participant_id} принадлежит другому клиенту",
+        )
+
+    contact_id = prow["contact_id"]
+
+    # 3. Обновляем поля контакта. Email/phone перезатираем (свежее значение
+    # из формы важнее). Остальное — только заполняем пустое (COALESCE).
+    await db.execute(
+        """UPDATE contacts SET
+             name             = COALESCE(name, $2),
+             email            = COALESCE($3, email),
+             email_normalized = COALESCE($4, email_normalized),
+             phone            = COALESCE($5, phone),
+             phone_normalized = COALESCE($6, phone_normalized),
+             last_contact_at  = NOW(),
+             updated_at       = NOW()
+           WHERE id = $1""",
+        contact_id,
+        name_from_parts(data.first_name, data.last_name),
+        data.email, (data.email or '').strip().lower() or None,
+        data.phone, _normalize_phone_for_update(data.phone),
+    )
+
+    # 4. Помечаем регистрацию (только в сторону TRUE, назад не откатываем)
+    await db.execute(
+        "UPDATE event_participants SET is_registered = TRUE WHERE id = $1",
+        data.participant_id,
+    )
+
+    return {
+        "ok": True,
+        "participant_id": data.participant_id,
+        "contact_id": contact_id,
+        "event_id": prow["event_id"],
+        "is_registered": True,
+    }
+
+
+@router.post(
+    "/getcourse/register",
+    summary="GetCourse: пометить регистрацию по participant_id + обновить email/phone",
+)
+async def getcourse_register_post(
+    data: GetCourseRegisterRequest,
+    x_salebot_secret: Optional[str] = Header(None),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if x_salebot_secret and not data.secret:
+        data.secret = x_salebot_secret
+    return await _register_by_participant(data, db)
+
+
+@router.get(
+    "/getcourse/register",
+    summary="GetCourse: то же через GET (для конструкторов без заголовков)",
+)
+async def getcourse_register_get(
+    client_id: int,
+    secret: str,
+    participant_id: int,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    data = GetCourseRegisterRequest(
+        client_id=client_id,
+        secret=secret,
+        participant_id=participant_id,
+        email=email,
+        phone=phone,
+        first_name=first_name,
+        last_name=last_name,
+    )
+    return await _register_by_participant(data, db)
+
+
+class GetCourseExternalRefRequest(BaseModel):
+    client_id: int
+    secret: Optional[str] = None
+    contact_id: int                          # ID контакта в ПЛЮСОНе
+    external_ref_param: Optional[str] = None # партнёрский код типа "gcpc=08cea"
+
+
+async def _update_external_ref(
+    data: GetCourseExternalRefRequest,
+    db: asyncpg.Connection,
+) -> dict:
+    # 1. Авторизация
+    await _authorize(data.secret, data.client_id, db)
+
+    # 2. Резолв контакта с проверкой клиента + merged_into
+    row = await db.fetchrow(
+        "SELECT id, client_id, merged_into FROM contacts WHERE id = $1",
+        data.contact_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Контакт {data.contact_id} не найден")
+    if row["client_id"] != data.client_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Контакт {data.contact_id} принадлежит другому клиенту",
+        )
+    target_id = row["merged_into"] or row["id"]
+
+    # 3. Пишем external_ref_param ТОЛЬКО непустое валидное "ключ=значение".
+    # Пустая строка или "gcpc=" без хвоста — пропускаем, существующее в БД
+    # НЕ обнуляем (повторная отправка формы без партнёрского кода не должна
+    # терять уже сохранённый).
+    erp = (data.external_ref_param or "").strip()
+    updated = False
+    if erp and '=' in erp and erp.split('=', 1)[1].strip():
+        await db.execute(
+            "UPDATE contacts SET external_ref_param = $1, updated_at = NOW() WHERE id = $2",
+            erp, target_id,
+        )
+        updated = True
+
+    current = await db.fetchval(
+        "SELECT external_ref_param FROM contacts WHERE id = $1", target_id
+    )
+
+    return {
+        "ok": True,
+        "contact_id": target_id,
+        "updated": updated,
+        "external_ref_param": current,
+    }
+
+
+@router.post(
+    "/getcourse/external-ref",
+    summary="GetCourse: обновить contacts.external_ref_param по contact_id",
+)
+async def getcourse_external_ref_post(
+    data: GetCourseExternalRefRequest,
+    x_salebot_secret: Optional[str] = Header(None),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if x_salebot_secret and not data.secret:
+        data.secret = x_salebot_secret
+    return await _update_external_ref(data, db)
+
+
+@router.get(
+    "/getcourse/external-ref",
+    summary="GetCourse: то же через GET",
+)
+async def getcourse_external_ref_get(
+    client_id: int,
+    secret: str,
+    contact_id: int,
+    external_ref_param: Optional[str] = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    data = GetCourseExternalRefRequest(
+        client_id=client_id,
+        secret=secret,
+        contact_id=contact_id,
+        external_ref_param=external_ref_param,
+    )
+    return await _update_external_ref(data, db)

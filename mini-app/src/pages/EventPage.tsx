@@ -290,12 +290,11 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   async function redirectToExternalLanding(landingUrl: string) {
     const { getPlatform } = await import('../platform')
     const params = new URLSearchParams()
-    // ID participant в ПЛЮСОНе — содержит и контакт и событие, единственный
-    // идентификатор для webhook (см. backend/app/services/external_landing.py).
-    // Берётся из participant.id (загружен при монтировании EventPage).
-    // Если participant ещё нет (новый человек на первом заходе) — параметр
-    // не отправляется, webhook сделает fallback по email/phone из формы.
+    // Два идентификатора для GetCourse-webhook (см. backend/app/services/
+    // external_landing.py): participant_id — для /getcourse/register (регистрация
+    // + email/phone), contact_id — для /getcourse/external-ref (партнёрский код).
     if (participant?.id) params.set('participant_id', String(participant.id))
+    if (participant?.contact_id) params.set('contact_id', String(participant.contact_id))
     if (partnerId) params.set('pid', partnerId)
     if (utmSource) params.set('utm_source', utmSource)
     params.set('event_slug', slug)

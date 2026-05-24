@@ -352,19 +352,23 @@ async def public_event_landing_redirect(
 
     external_ref_param = await resolve_external_ref_param(db, row["client_id"], pid)
 
-    # Резолвим (или UPSERT-им) participant_id из tg_id/vk_id, чтобы подсунуть
-    # в URL стороннего лендинга одно универсальное поле, содержащее и контакт
-    # и событие. Для нового человека без contact (ещё не было event_start)
-    # participant_id будет None — параметр просто не попадёт в URL, webhook
-    # сделает fallback по email/phone из формы.
+    # Резолвим (или UPSERT-им) participant_id + contact_id из tg_id/vk_id,
+    # чтобы подсунуть в URL стороннего лендинга оба идентификатора:
+    #   - participant_id — для webhook /integrations/getcourse/register
+    #     (пометить регистрацию + обновить email/phone)
+    #   - contact_id — для webhook /integrations/getcourse/external-ref
+    #     (обновить партнёрский код внешней системы клиента)
+    # Для нового человека без contact (ещё не было event_start) оба будут None
+    # и параметры просто не попадут в URL.
     participant_id_out: Optional[int] = None
+    contact_id_out: Optional[int] = None
     if tg_id is not None:
-        participant_id_out = await resolve_or_create_participant(
+        participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='telegram', platform_user_id=str(tg_id),
         )
     elif vk_id is not None:
-        participant_id_out = await resolve_or_create_participant(
+        participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='vk', platform_user_id=str(vk_id),
         )
@@ -373,6 +377,7 @@ async def public_event_landing_redirect(
         landing_url,
         event_slug=slug,
         participant_id=participant_id_out,
+        contact_id=contact_id_out,
         pid=pid,
         utm_source=utm_source,
         external_ref_param=external_ref_param,
