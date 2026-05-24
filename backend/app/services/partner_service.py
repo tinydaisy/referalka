@@ -185,10 +185,11 @@ async def run_started_partner(run_id: int, tg_id: str, username: Optional[str],
         # Ветка «регистрируетесь партнёром» — web_app кнопка
         text = _build_register_text(brand_info["brand_name"], brand_info["owner_name"])
         is_vip = await _has_vip_bot(client_id, db)
+        host = (settings.frontend_url or "https://pluson.ru").rstrip("/")
         mini_app_url = (
-            f"https://pluson.ru/c/{client_id}/tg/partner/{run_id}"
+            f"{host}/c/{client_id}/tg/partner/{run_id}"
             if is_vip else
-            f"https://pluson.ru/tg/partner/{run_id}"
+            f"{host}/tg/partner/{run_id}"
         )
         reply_markup = {
             "inline_keyboard": [[{

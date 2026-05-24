@@ -217,10 +217,13 @@ async def partner_return(run_id: int) -> RedirectResponse:
         if not run:
             raise HTTPException(status_code=404, detail="Партнёрский забег не найден")
 
+        # Базовый хост Mini App (dev/прод определяется через settings.frontend_url)
+        host = (settings.frontend_url or "https://pluson.ru").rstrip("/")
+
         # Для TG: в том же webview грузим Mini App страницу `/c/{N}/tg/partner/{run_id}?done=1`
         # — Telegram.WebApp уже инжектирован в webview лендинга.
         if run["platform_slug"] == 'telegram':
-            url = f"https://pluson.ru/c/{run['client_id']}/tg/partner/{run_id}?done=1"
+            url = f"{host}/c/{run['client_id']}/tg/partner/{run_id}?done=1"
             return RedirectResponse(url=url, status_code=302)
         if run["platform_slug"] == 'vk':
             # VK Mini App открывается из чата сообщества — для возврата мы
