@@ -74,9 +74,8 @@ async def _build_partner_landing_url(landing_url: str, contact_id: int,
         enrich_external_url, get_contact_landing_params,
     )
     contact_params = await get_contact_landing_params(db, contact_id)
-    # На партнёрский лендинг шлём external_ref_param РЕФОВОДА (это его код),
-    # не свой — у нового контакта ещё нет своего кода.
-    contact_params.pop("_external_ref_param_raw", None)
+    # На партнёрский лендинг шлём external_ref_param РЕФОВОДА (это referrer_query —
+    # код того, по чьей ссылке пришёл новый контакт).
 
     return enrich_external_url(
         landing_url,

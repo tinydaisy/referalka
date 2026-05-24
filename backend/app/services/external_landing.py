@@ -57,6 +57,68 @@ async def resolve_external_ref_param(
         return None
 
 
+async def resolve_referrer_external_ref_param(
+    db: asyncpg.Connection,
+    client_id: int,
+    *,
+    pid: Optional[str] = None,
+    participant_id: Optional[int] = None,
+    contact_id: Optional[int] = None,
+) -> Optional[str]:
+    """Резолвит partнёрский код **РЕФОВОДА** для подстановки в URL внешнего лендинга.
+
+    Приоритет источников (первый непустой выигрывает):
+    1. `pid` (передан в URL) — реф-код того, кто привёл (Mini App / лендинг).
+    2. `event_participants.referrer_ref_code` — кто привёл на ЭТО событие.
+    3. `contacts.first_referrer_contact_id` — кто впервые привёл в базу клиента.
+
+    НЕ возвращает external_ref_param САМОГО контакта — это код самого контакта,
+    а для events-landing нужен код рефовода (чтобы GetCourse атрибутировал
+    регистрацию тому, кто привёл).
+    """
+    # 1. По pid
+    if pid:
+        v = await resolve_external_ref_param(db, client_id, pid)
+        if v:
+            return v
+    # 2. По participant.referrer_ref_code
+    if participant_id:
+        try:
+            v = await db.fetchval(
+                """SELECT c.external_ref_param
+                     FROM event_participants ep
+                     JOIN contacts c
+                       ON (c.ref_code = ep.referrer_ref_code OR c.merged_ref_codes ? ep.referrer_ref_code)
+                    WHERE ep.id = $1
+                      AND ep.referrer_ref_code IS NOT NULL AND ep.referrer_ref_code <> ''
+                      AND c.client_id = $2
+                      AND c.external_ref_param IS NOT NULL AND c.external_ref_param <> ''
+                    LIMIT 1""",
+                participant_id, client_id,
+            )
+            if v:
+                return v
+        except Exception:
+            pass
+    # 3. По contacts.first_referrer_contact_id
+    if contact_id:
+        try:
+            v = await db.fetchval(
+                """SELECT c2.external_ref_param
+                     FROM contacts c1
+                     JOIN contacts c2 ON c2.id = c1.first_referrer_contact_id
+                    WHERE c1.id = $1
+                      AND c2.external_ref_param IS NOT NULL AND c2.external_ref_param <> ''
+                    LIMIT 1""",
+                contact_id,
+            )
+            if v:
+                return v
+        except Exception:
+            pass
+    return None
+
+
 async def get_contact_landing_params(
     db: asyncpg.Connection,
     contact_id: int,
@@ -65,7 +127,9 @@ async def get_contact_landing_params(
     в URL стороннего лендинга. Возвращает словарь {имя_параметра → значение}, в
     котором уже отфильтрованы пустые значения.
 
-    Поля контакта: name, email, phone, external_ref_param.
+    Поля контакта: name, email, phone (НЕ external_ref_param — это код самого
+    контакта, не относится к URL лендинга; для лендинга нужен код РЕФОВОДА —
+    см. `resolve_referrer_external_ref_param`).
     Платформенные: tg_id, tg_nickname, vk_id (берём первую найденную идентичность каждой платформы).
     Любые ошибки → возвращает то, что успело собраться (или пустой dict).
     """
@@ -74,7 +138,7 @@ async def get_contact_landing_params(
         return out
     try:
         c = await db.fetchrow(
-            """SELECT name, email, phone, external_ref_param
+            """SELECT name, email, phone
                  FROM contacts WHERE id = $1""",
             contact_id,
         )
@@ -83,10 +147,6 @@ async def get_contact_landing_params(
                 v = (c[fld] or "").strip() if c[fld] else ""
                 if v:
                     out[fld] = v
-            erp = (c["external_ref_param"] or "").strip()
-            if erp:
-                # Кладём в служебный ключ — `enrich_external_url` приклеит его сырым
-                out["_external_ref_param_raw"] = erp
     except Exception:
         pass
 

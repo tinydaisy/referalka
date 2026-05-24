@@ -32,6 +32,7 @@ from app.services.event_welcome import send_event_open_message
 from app.services.social_links import normalize_social_links, normalize_telegram_link, telegram_api_id
 from app.services.external_landing import (
     resolve_external_ref_param,
+    resolve_referrer_external_ref_param,
     build_external_landing_url,
     resolve_or_create_participant,
 )
@@ -455,8 +456,6 @@ async def public_event_landing_redirect(
         if is_reg:
             return {}
 
-    external_ref_param = await resolve_external_ref_param(db, row["client_id"], pid)
-
     # Резолвим (или UPSERT-им) participant_id + contact_id из tg_id/vk_id,
     # чтобы подсунуть в URL стороннего лендинга оба идентификатора:
     #   - participant_id — для webhook /integrations/getcourse/register
@@ -478,15 +477,18 @@ async def public_event_landing_redirect(
             platform_slug='vk', platform_user_id=str(vk_id),
         )
 
-    # Подтягиваем поля контакта (name/email/phone/external_ref_param самого контакта)
-    # и платформенные идентичности (tg_id/vk_id/tg_nickname) — для полного набора
-    # GET-параметров в URL стороннего лендинга.
+    # Поля контакта (name/email/phone) + платформенные идентичности (tg/vk/tg_nickname)
     from app.services.external_landing import get_contact_landing_params
     contact_params = await get_contact_landing_params(db, contact_id_out) if contact_id_out else {}
 
-    # external_ref_param для URL — приоритет: переданный pid → resolve, иначе свой код контакта
-    erp_to_use = external_ref_param or contact_params.pop("_external_ref_param_raw", None)
-    contact_params.pop("_external_ref_param_raw", None)
+    # external_ref_param для URL — код РЕФОВОДА (не самого контакта):
+    # приоритет pid → event_participants.referrer_ref_code → first_referrer_contact_id.
+    erp_to_use = await resolve_referrer_external_ref_param(
+        db, row["client_id"],
+        pid=pid,
+        participant_id=participant_id_out,
+        contact_id=contact_id_out,
+    )
 
     redirect_url = build_external_landing_url(
         landing_url,
@@ -549,7 +551,6 @@ async def public_event_vip_redirect(
     from app.services.external_landing import (
         get_contact_landing_params,
         enrich_external_url,
-        resolve_external_ref_param,
     )
 
     # Контакт + participant_id из tg_id/vk_id (если переданы)
@@ -567,9 +568,12 @@ async def public_event_vip_redirect(
         )
 
     contact_params = await get_contact_landing_params(db, contact_id_out) if contact_id_out else {}
-    erp_from_pid = await resolve_external_ref_param(db, row["client_id"], pid) if pid else None
-    erp_to_use = erp_from_pid or contact_params.pop("_external_ref_param_raw", None)
-    contact_params.pop("_external_ref_param_raw", None)
+    erp_to_use = await resolve_referrer_external_ref_param(
+        db, row["client_id"],
+        pid=pid,
+        participant_id=participant_id_out,
+        contact_id=contact_id_out,
+    )
 
     enriched = enrich_external_url(
         vip_url,
