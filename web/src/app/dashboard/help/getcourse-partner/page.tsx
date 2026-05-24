@@ -70,7 +70,7 @@ export default function GetCoursePartnerHelpPage() {
     `${baseHost}/api/v1/integrations/getcourse/register` +
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
-    `&participant_id={object.participant_id}` +
+    `&participant_id={object.pluson_participant_id}` +
     `&email={object.email}` +
     `&phone={object.phone}`
 
@@ -78,7 +78,7 @@ export default function GetCoursePartnerHelpPage() {
     `${baseHost}/api/v1/integrations/getcourse/external-ref` +
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
-    `&contact_id={object.contact_id}` +
+    `&contact_id={object.pluson_contact_id}` +
     `&external_ref_param=gcpc={create_session.gcpc}`
 
   return (
@@ -129,15 +129,15 @@ export default function GetCoursePartnerHelpPage() {
         </div>
       </Step>
 
-      <Step n={2} title="В форме GetCourse — создайте два скрытых поля">
-        <p>Скрытые поля = это «дополнительные поля пользователя» в терминологии GetCourse. Создайте их с такими названиями (точно, буква-в-букву):</p>
+      <Step n={2} title="В форме GetCourse — создайте два скрытых (дополнительных) поля">
+        <p>В GetCourse: <b>«Пользователи» → «Дополнительные поля» → «Добавить поле»</b>, тип <b>Строка</b>. Создайте два поля с такими заголовками (точно, буква-в-букву, с префиксом <code className="bg-gray-100 px-1 rounded">pluson_</code> чтобы не конфликтовать с другими полями):</p>
         <ul className="list-disc list-inside space-y-1">
-          <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">participant_id</code></li>
-          <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">contact_id</code></li>
+          <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">pluson_participant_id</code></li>
+          <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">pluson_contact_id</code></li>
         </ul>
-        <p>В свойствах формы включите галку <b>«Сохранять GET-параметры в форме»</b> — GetCourse подхватит значения из URL автоматически. Также форма должна собирать <b>email</b> и <b>телефон</b> (обновим в карточке контакта).</p>
+        <p>Эти поля добавьте в форму как <b>скрытые</b>, и в свойствах формы включите галку <b>«Сохранять GET-параметры в форме»</b> — GetCourse подхватит значения из URL автоматически. Также форма должна собирать <b>email</b> и <b>телефон</b> (обновим в карточке контакта).</p>
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
-          <b>Имена полей критичны</b> — в URL процессов ниже мы обращаемся через <code className="bg-white px-1 rounded">{`{object.participant_id}`}</code> и <code className="bg-white px-1 rounded">{`{object.contact_id}`}</code>. Если в GetCourse поле названо иначе (например, «Plusson Participant Id») — соответственно нужно вписать в URL <code className="bg-white px-1 rounded">{`{object.Plusson Participant Id}`}</code> (с пробелами и регистром буква-в-букву, как заголовок поля). Синтаксис из <a href="https://getcourse.ru/blog/276215#variables" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальной документации GetCourse</a>.
+          <b>Если у вас другие имена полей</b> — поменяйте соответствующим образом в URL ниже. Доступ к доп. полю в GetCourse — через <code className="bg-white px-1 rounded">{`{object.заголовок_поля}`}</code> (с пробелами и регистром буква-в-букву). Синтаксис из <a href="https://getcourse.ru/blog/276215#variables" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальной документации GetCourse</a>.
         </div>
       </Step>
 
