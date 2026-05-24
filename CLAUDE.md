@@ -184,41 +184,42 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 ### Регистрация партнёра клиента через сторонний лендинг (миграция 105 от 2026-05-24)
 
-**Суть.** Самостоятельная фича — не привязана к событию или лид-магниту. Клиент в Настройках → Технические вписывает URL стороннего партнёрского сервиса (Tilda/GetCourse/Bizon360/любой), получает 3 платформенные ссылки + ссылку возврата. Человек кликает ссылку → попадает в бот платформы → бот шлёт сообщение + web_app кнопку → Mini App делает `window.location.replace` на лендинг клиента с пробросом `pluson_cid` (наш `contact_id`) и хвостом query-строки рефовода (его `external_ref_param`). После сабмита формы webhook `/integrations/salebot/register` обновляет `contacts.external_ref_param` новому контакту — он сам становится партнёром. У каждого зарегистрированного партнёра в карточке контакта появляются персональные ссылки для распространения с приклеенным его `external_ref_param`.
+**Суть.** Самостоятельная фича — не привязана к событию или лид-магниту. Клиент в Настройках → Технические вписывает URL стороннего партнёрского сервиса (Tilda/GetCourse/Bizon360/любой), получает 3 «корневые» ссылки + 3 «ссылки возврата». Человек кликает корневую ссылку → попадает в бот платформы → бот шлёт сообщение с **обычной url-кнопкой** → лендинг открывается в браузере с уже подставленными `pluson_cid` (наш `contact_id`) и хвостом query-строки рефовода (его `external_ref_param`). После сабмита формы партнёрский сервис редиректит на «ссылку возврата» — простой `t.me/{bot}?start=partner_done_{client_id}` / `vk.me/{group}?ref=partner_done_{client_id}` / `max.ru/{handle}?start=partner_done_{client_id}` (без плейсхолдеров). Бот по своему `tg_id` / `vk_id` находит контакт у клиента, проверяет `contacts.external_ref_param` и шлёт сообщение «✅ Вы зарегистрированы, ваш код XXX» или «😕 Упс, что-то не так». У каждого зарегистрированного партнёра в карточке контакта появляются персональные ссылки для распространения с приклеенным его `external_ref_param`.
+
+**Mini App не используется** — ни для открытия лендинга, ни для экрана успеха. Всё происходит через сообщения бота + обычный браузер.
 
 **БД (миграция 105):**
 - `clients.partner_landing_url TEXT NULL` — URL стороннего лендинга. NULL = фича выключена (ссылки в карточках контактов замылены).
-- `partner_runs (id, client_id, platform_slug, referrer_contact_id NULL, referrer_query TEXT DEFAULT '', contact_id NULL, stage, landed_at, opened_in_bot_at, opened_landing_at, completed_at)` — стадии: `landed → opened_in_bot → opened_landing → completed`.
+- `partner_runs (id, client_id, platform_slug, referrer_contact_id NULL, referrer_query TEXT DEFAULT '', contact_id NULL, stage, landed_at, opened_in_bot_at, opened_landing_at, completed_at)` — трекинг для аналитики. Стадии: `landed → opened_in_bot → completed`.
 
 **Endpoints (публичные, под `/`):**
-- `GET /partner/{client_id}?to=tg|vk|max[&pluson_cid={referrer_contact_id}][&{external_ref_param_part}]` — landing-редирект в бот платформы клиента. `pluson_cid` режется (это рефовод, не часть кода), всё остальное → `partner_runs.referrer_query`. 302 на `t.me/{bot}?start=prt_{run_id}` / `vk.com/app{vk_app_id}#prt_{run_id}` / `max.ru/{handle}?start=prt_{run_id}`. Для TG — fallback на `@pluson_bot` (мультиклиентный через payload). Для VK/MAX — только собственный канал клиента.
-- `GET /r/partner/{run_id}` — возврат с лендинга после сабмита формы. 302 на Mini App страницу с флагом `?done=1` (TG) или хешем `#prt_{id}_done` (VK).
+- `GET /partner/{client_id}?to=tg|vk|max[&pluson_cid={referrer_contact_id}][&{external_ref_param_part}]` — landing-редирект в бот платформы. `pluson_cid` режется (это рефовод, не часть кода), всё остальное идёт в `partner_runs.referrer_query`. 302 на `t.me/{bot}?start=prt_{run_id}` / `vk.me/{group}?ref=prt_{run_id}` / `max.ru/{handle}?start=prt_{run_id}`. Для TG — fallback на `@pluson_bot`. Для VK/MAX — только собственный канал клиента.
 
-**Endpoints (API, под `/api/v1`):**
-- `GET /api/v1/partner/runs/{run_id}` — данные забега для Mini App (landing_url + referrer_query + work_tg_username + brand_name).
-- `GET /api/v1/partner/runs/{run_id}/contact-status` — poll: пришёл ли `external_ref_param` контакту. Автоматически помечает `partner_runs.stage='completed'` когда код появился.
+**Сообщения в боте** ([backend/app/services/partner_service.py](backend/app/services/partner_service.py)):
 
-**Сообщения в боте** ([backend/app/services/partner_service.py](backend/app/services/partner_service.py) — `run_started_partner` для TG, `run_started_partner_vk` для VK):
-- Контакт **ЕЩЁ НЕ** партнёр (`contacts.external_ref_param` пуст) → «Вы регистрируетесь Партнёром у {owner_name} ({brand_name})» + web_app кнопка «Открыть форму регистрации» → Mini App → `window.location.replace(partner_landing_url + ?pluson_cid={new_id}&{referrer_query})`.
-- Контакт **УЖЕ** партнёр → «Вы уже зарегистрированы партнёром у {brand_name}. Ваш код: `XXX`. По вопросам отслеживания состояния партнёрского кабинета — @{work_tg_username}». Без кнопки.
+| Когда | Функция | Сообщение |
+|---|---|---|
+| /start prt_<run_id> (TG), новый партнёр | `run_started_partner` | «Вы регистрируетесь Партнёром у {owner} ({brand}) 🎉» + **url-кнопка** «Открыть форму регистрации» (URL = `partner_landing_url + ?pluson_cid={new_id}&{referrer_query}`, полностью собран на сервере) |
+| /start prt_<run_id> (TG), уже партнёр | `run_started_partner` | «Вы уже партнёр у {brand}. Ваш код: XXX. По вопросам — @{work_tg}» (без кнопки) |
+| /start partner_done_<cid> (TG) | `send_partner_done_tg` | «✅ Вы зарегистрированы, ваш код: XXX. Чтобы отслеживать — @{work_tg}» если код есть; «😕 Упс, наша система не получила ваш партнёрский код. Напишите @{work_tg}» если нет |
+| ref=prt_<run_id> (VK) | `run_started_partner_vk` | VK-аналог TG |
+| ref=partner_done_<cid> (VK) | `send_partner_done_vk` | VK-аналог TG |
 
-**Mini App** ([mini-app/src/pages/PartnerPage.tsx](mini-app/src/pages/PartnerPage.tsx)) — два режима:
-- Без `?done=1` → редирект на сторонний лендинг через `window.location.replace`.
-- С `?done=1` → poll-ит `/contact-status` раз в секунду до 15 раз. При получении кода → «✅ Вы зарегистрированы. Ваш партнёрский код: XXX. Чтобы отслеживать — @{work_tg}». При таймауте → «😕 Упс. Напишите Основателю и пришлите скрин: @{work_tg}».
+**Webhook** ([backend/app/api/integrations.py](backend/app/api/integrations.py)) — принимает `pluson_cid` как алиас `contact_id`. Когда форма заполнена, GetCourse/Bizon360 шлёт нам `{pluson_cid, external_ref_param}` → мы обновляем `contacts.external_ref_param` нужного контакта.
 
-**Webhook** ([backend/app/api/integrations.py](backend/app/api/integrations.py)) — приняли алиас `pluson_cid` для `contact_id` (формы партнёрских лендингов передают наш ID контакта под именем `pluson_cid`).
+**TG bot** ([backend/bot/handlers/start.py](backend/bot/handlers/start.py)): обработчики `/start prt_<run_id>` и `/start partner_done_<client_id>`.
 
-**TG bot** ([backend/bot/handlers/start.py](backend/bot/handlers/start.py)) — обработчик `/start prt_<run_id>` вызывает `run_started_partner`.
+**VK consumer** ([backend/bot/vk_main.py](backend/bot/vk_main.py)) — общий хелпер `_extract_ref_with_prefix(event, prefix)` извлекает `prt_<n>` или `partner_done_<n>` из `ref` любого источника (`message.ref`, `payload.ref`, `event.ref`, `ref_source`). Подхватывается в `handle_message_allow` (первое сообщение от подписчика) и `handle_message_new` (если уже подписан).
 
-**VK consumer** ([backend/bot/vk_main.py](backend/bot/vk_main.py)) — общий хелпер `_extract_ref_with_prefix(event, prefix)` извлекает `prt_<n>` из `ref` любого источника (`message.ref`, `payload.ref`, `event.ref`, `ref_source`). Подхватывается в `handle_message_allow` (первое сообщение от подписчика) и `handle_message_new` (если уже подписан).
+**Auth /me** отдаёт `bot_handles: {telegram, vk, max}` (никнеймы клиентского бота/сообщества, или null если у клиента нет своего канала на платформе). UI использует это для построения «ссылок возврата» — на TG fallback на `@pluson_bot`, на VK/MAX без своего канала ссылка не показывается.
 
 **UI:**
-- `/dashboard/settings` → вкладка «Технические» → блок **«Регистрация партнёров»**: поле URL + ссылка возврата для копирования + 3 платформенные корневые ссылки. Платформы берутся из `me.available_platforms` — MAX появляется автоматически когда у клиента подключён MAX-канал.
+- `/dashboard/settings` → вкладка «Технические» → блок **«Регистрация партнёров»**: поле URL + **3 ссылки возврата** (TG/VK/MAX, без плейсхолдеров) + **3 корневые ссылки** для распространения. Платформы берутся из `me.available_platforms` — MAX появляется автоматически когда у клиента подключён MAX-канал.
 - `/dashboard/clients` → карточка контакта → блок **«Партнёрская ссылка»**: если `clients.partner_landing_url` пуст → замыленные ссылки + «Сторонняя партнёрская ссылка не настроена». Иначе — 3 личные ссылки с приклеенным `&pluson_cid={contact.id}` и (если у контакта есть `external_ref_param`) `&{external_ref_param}`.
 
-**nginx (dev и прод).** Добавлены 2 location: `^/partner/[0-9]+$` → FastAPI 8000 и `^/r/partner/[0-9]+$` → FastAPI 8000 (перед более общим `location /r/` который ведёт на Next.js для `/r/{event_slug}`).
+**nginx (dev и прод).** Добавлен 1 location: `^/partner/[0-9]+$` → FastAPI 8000.
 
-**Поток «гость → партнёр» в круг.** Через webhook замыкается полный круг: гость кликнул ссылку Маши (контакт #42, `external_ref_param='gcpc=fdd97'`) → форма открылась с `pluson_cid={новый_id}&gcpc=fdd97` → юзер заполнил → GetCourse привязал свой партнёрский код к новому контакту → шлёт webhook с `pluson_cid={новый_id}&external_ref_param=gcpc=abcde` → бэк находит контакт по `pluson_cid` и обновляет ему `external_ref_param`. Теперь у него своя ссылка для распространения в карточке.
+**Поток «гость → партнёр» в круг.** Гость кликнул ссылку Маши (контакт #42, `external_ref_param='gcpc=fdd97'`) → бот создал гостю contact_id=N, сообщил «Вы регистрируетесь…» + кнопка на лендинг с `?pluson_cid=N&gcpc=fdd97` → юзер заполнил форму → GetCourse привязал свой партнёрский код к новому контакту → шлёт webhook с `pluson_cid=N&external_ref_param=gcpc=newcode` → бэк обновляет `contact[N].external_ref_param='gcpc=newcode'` → юзер вернулся в бот через `t.me/{bot}?start=partner_done_{client_id}` → бот по tg_id+client_id нашёл contact #N → увидел свежий код → ответил «✅ Вы зарегистрированы, ваш код gcpc=newcode». Теперь у Контакта N в его карточке появилась своя ссылка для распространения.
 
 ### Приветствие при открытии события (миграция 064 от 05.05.2026)
 
