@@ -494,6 +494,11 @@ class SpeakerEventUpdate(BaseModel):
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
+    knowledge_base_title: Optional[str] = None
+    knowledge_base_url: Optional[str] = None
+    show_topic_field: Optional[bool] = None
+    show_gift_after_speech_field: Optional[bool] = None
+    show_knowledge_base_field: Optional[bool] = None
     poster_url: Optional[str] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
