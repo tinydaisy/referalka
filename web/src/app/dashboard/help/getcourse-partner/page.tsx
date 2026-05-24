@@ -79,7 +79,7 @@ export default function GetCoursePartnerHelpPage() {
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
     `&contact_id={object.pluson_contact_id}` +
-    `&external_ref_param=gcpc={partner.uid}`
+    `&external_ref_param=gcpc=ВАШ_ПЛЕЙСХОЛДЕР_GETCOURSE`
 
   return (
     <div className="pb-24 max-w-3xl">
