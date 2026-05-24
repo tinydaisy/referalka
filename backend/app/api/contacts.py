@@ -83,10 +83,13 @@ def _build_contacts_filter(
         where += f"""
           AND (
             c.name ILIKE ${idx} OR c.email ILIKE ${idx} OR c.phone ILIKE ${idx}
+            OR c.ref_code ILIKE ${idx}
+            OR c.external_ref_param ILIKE ${idx}
             OR EXISTS (
                 SELECT 1 FROM platform_users pu
                  WHERE pu.contact_id = c.id
-                   AND (pu.username ILIKE ${idx} OR pu.first_name ILIKE ${idx} OR pu.last_name ILIKE ${idx})
+                   AND (pu.username ILIKE ${idx} OR pu.first_name ILIKE ${idx}
+                        OR pu.last_name ILIKE ${idx} OR pu.platform_user_id ILIKE ${idx})
             )
           )
         """
