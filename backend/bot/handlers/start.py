@@ -246,8 +246,9 @@ async def handle_start(message: Message, command: CommandObject):
 
                     # Привязываем личный TG спикера к contact (если ещё не привязан).
                     from app.api.collaborators import _upsert_personal_identity
+                    foreign_owner = False
                     if coll["contact_id"] and coll["created_by_client_id"]:
-                        await _upsert_personal_identity(
+                        res = await _upsert_personal_identity(
                             db,
                             coll["created_by_client_id"],
                             coll["contact_id"],
@@ -255,6 +256,19 @@ async def handle_start(message: Message, command: CommandObject):
                             str(user.id),
                             user.username or None,
                         )
+                        if isinstance(res, dict) and res.get("status") == "foreign_owner":
+                            foreign_owner = True
+
+                    if foreign_owner:
+                        sp_name = (coll["name"] or "").strip() or "спикер"
+                        await message.answer(
+                            f"⚠️ Вы зашли не с того аккаунта.\n\n"
+                            f"Эта ссылка выдана спикеру «{sp_name}». Ваш Telegram-аккаунт уже привязан к другому контакту у этого клиента, "
+                            f"поэтому я не могу записать вас как спикера.\n\n"
+                            f"Попросите самого спикера открыть ссылку со своего личного Telegram, "
+                            f"либо передайте ссылку его ассистенту."
+                        )
+                        return
 
                     # Берём первое event_collaborators этого коллаба, чтобы знать slug.
                     ev = await db.fetchrow(

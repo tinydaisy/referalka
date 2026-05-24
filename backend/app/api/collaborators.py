@@ -198,6 +198,18 @@ async def _upsert_personal_identity(
     if existing:
         new_id = uid_clean or existing["platform_user_id"]
         new_uname = uname_clean if uname_clean is not None else existing["username"]
+        # Если новый platform_user_id уже занят ДРУГИМ contact у того же клиента —
+        # не переписываем (это перетёрло бы чужую запись и нарушило бы UNIQUE).
+        if new_id and new_id != existing["platform_user_id"]:
+            collision = await db.fetchval(
+                """SELECT contact_id FROM platform_users
+                    WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3
+                      AND id <> $4
+                    LIMIT 1""",
+                client_id, platform_slug, new_id, existing["id"],
+            )
+            if collision is not None:
+                return {"status": "foreign_owner", "other_contact_id": collision}
         await db.execute(
             """UPDATE platform_users
                   SET platform_user_id = $1,
@@ -206,6 +218,19 @@ async def _upsert_personal_identity(
             new_id, new_uname, existing["id"]
         )
     elif uid_clean:
+        # Защита от конфликта с другим contact_id: если platform_user_id
+        # уже привязан к ДРУГОМУ contact у этого клиента — не вставляем
+        # (это значит что код спикера открыл не тот человек, например, сам
+        # клиент со своего личного аккаунта). Возвращаем "foreign", чтобы
+        # вызывающий код мог отдать вменяемое сообщение.
+        existing_other = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3
+                LIMIT 1""",
+            client_id, platform_slug, uid_clean,
+        )
+        if existing_other is not None and existing_other != contact_id:
+            return {"status": "foreign_owner", "other_contact_id": existing_other}
         await db.execute(
             """INSERT INTO platform_users
                  (client_id, contact_id, platform_slug, platform_user_id, username, created_at)
@@ -213,6 +238,7 @@ async def _upsert_personal_identity(
                ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
             client_id, contact_id, platform_slug, uid_clean, uname_clean
         )
+    return {"status": "ok"}
 
 
 async def _upsert_personal_identities(

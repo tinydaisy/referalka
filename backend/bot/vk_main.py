@@ -213,14 +213,38 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
         return False
 
     from app.api.collaborators import _upsert_personal_identity
+    foreign_owner = False
     if coll["contact_id"] and coll["created_by_client_id"]:
         try:
-            await _upsert_personal_identity(
+            res = await _upsert_personal_identity(
                 db, coll["created_by_client_id"], coll["contact_id"],
                 'vk', str(user_id), None,
             )
+            if isinstance(res, dict) and res.get("status") == "foreign_owner":
+                foreign_owner = True
         except Exception as e:
             logger.warning("VK spkinv upsert identity failed: %s", e)
+
+    if foreign_owner:
+        sp_name = (coll["name"] or "").strip() or "спикер"
+        try:
+            await vk_call(
+                "messages.send",
+                {
+                    "user_id": int(user_id),
+                    "message": (
+                        f"⚠️ Вы зашли не с того аккаунта.\n\n"
+                        f"Эта ссылка выдана спикеру «{sp_name}». Ваш VK-аккаунт уже привязан к другому контакту у этого клиента, "
+                        f"поэтому я не могу записать вас как спикера.\n\n"
+                        f"Попросите самого спикера открыть ссылку со своего личного VK, либо передайте ссылку его ассистенту."
+                    ),
+                    "random_id": 0,
+                },
+                token=ctx.token,
+            )
+        except Exception as e:
+            logger.warning("VK spkinv foreign-owner message failed: %s", e)
+        return True
 
     ev = await db.fetchrow(
         """SELECT e.slug, e.title
