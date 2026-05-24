@@ -763,8 +763,13 @@ export default function ContactsPage() {
 
             {/* События */}
             {selected.events && selected.events.length > 0 && (
-              <div className="mb-6">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">Участие в событиях</p>
+              <details className="mb-6 group">
+                <summary className="flex items-center justify-between cursor-pointer list-none mb-2 select-none">
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">
+                    Участие в событиях <span className="text-gray-500 normal-case">· {selected.events.length}</span>
+                  </p>
+                  <ChevronDown size={14} className="text-gray-400 transition-transform group-open:rotate-180" />
+                </summary>
                 <div className="space-y-2">
                   {selected.events.map((ev, i) => (
                     <div key={i} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
@@ -781,12 +786,17 @@ export default function ContactsPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </details>
             )}
 
             {(selected as any).lead_magnet_runs && (selected as any).lead_magnet_runs.length > 0 && (
-              <div className="mb-6">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">Лид-магниты</p>
+              <details className="mb-6 group">
+                <summary className="flex items-center justify-between cursor-pointer list-none mb-2 select-none">
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">
+                    Лид-магниты <span className="text-gray-500 normal-case">· {(selected as any).lead_magnet_runs.length}</span>
+                  </p>
+                  <ChevronDown size={14} className="text-gray-400 transition-transform group-open:rotate-180" />
+                </summary>
                 <div className="space-y-2">
                   {(selected as any).lead_magnet_runs.map((r: any) => {
                     const stages: Record<string, { label: string; color: string }> = {
@@ -812,7 +822,7 @@ export default function ContactsPage() {
                     )
                   })}
                 </div>
-              </div>
+              </details>
             )}
 
             {/* Возможные дубли */}
