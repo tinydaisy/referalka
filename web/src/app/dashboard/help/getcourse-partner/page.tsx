@@ -70,7 +70,7 @@ export default function GetCoursePartnerHelpPage() {
     `${baseHost}/api/v1/integrations/getcourse/register` +
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
-    `&participant_id={participant_id}` +
+    `&participant_id={object.participant_id}` +
     `&email={object.email}` +
     `&phone={object.phone}`
 
@@ -78,8 +78,8 @@ export default function GetCoursePartnerHelpPage() {
     `${baseHost}/api/v1/integrations/getcourse/external-ref` +
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
-    `&contact_id={contact_id}` +
-    `&external_ref_param=gcpc={партнёрский_код_GetCourse}`
+    `&contact_id={object.contact_id}` +
+    `&external_ref_param=gcpc={object.НАЗВАНИЕ_ВАШЕГО_ПОЛЯ_С_КОДОМ}`
 
   return (
     <div className="pb-24 max-w-3xl">
@@ -130,11 +130,15 @@ export default function GetCoursePartnerHelpPage() {
       </Step>
 
       <Step n={2} title="В форме GetCourse — создайте два скрытых поля">
+        <p>Скрытые поля = это «дополнительные поля пользователя» в терминологии GetCourse. Создайте их с такими названиями (точно, буква-в-букву):</p>
         <ul className="list-disc list-inside space-y-1">
           <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">participant_id</code></li>
           <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">contact_id</code></li>
         </ul>
         <p>В свойствах формы включите галку <b>«Сохранять GET-параметры в форме»</b> — GetCourse подхватит значения из URL автоматически. Также форма должна собирать <b>email</b> и <b>телефон</b> (обновим в карточке контакта).</p>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
+          <b>Имена полей критичны</b> — в URL процессов ниже мы обращаемся через <code className="bg-white px-1 rounded">{`{object.participant_id}`}</code> и <code className="bg-white px-1 rounded">{`{object.contact_id}`}</code>. Если в GetCourse поле названо иначе (например, «Plusson Participant Id») — соответственно нужно вписать в URL <code className="bg-white px-1 rounded">{`{object.Plusson Participant Id}`}</code> (с пробелами и регистром буква-в-букву, как заголовок поля). Синтаксис из <a href="https://getcourse.ru/blog/276215#variables" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальной документации GetCourse</a>.
+        </div>
       </Step>
 
       <div className="bg-white border-2 border-emerald-200 rounded-2xl p-5 mb-4">
@@ -157,7 +161,7 @@ export default function GetCoursePartnerHelpPage() {
         <CopyBox text={urlExternalRef} />
 
         <div className="mt-3 space-y-2">
-          <p className="text-xs text-gray-600">Замените <code className="bg-gray-100 px-1 rounded">{`{партнёрский_код_GetCourse}`}</code> на переменную GetCourse, в которой лежит партнёрский код этого человека. Имя переменной зависит от вашей настройки партнёрки.</p>
+          <p className="text-xs text-gray-600">Замените <code className="bg-gray-100 px-1 rounded">{`{object.НАЗВАНИЕ_ВАШЕГО_ПОЛЯ_С_КОДОМ}`}</code> на правильное имя дополнительного поля GetCourse, в котором хранится партнёрский код этого человека (зависит от вашей партнёрки — может быть, например, <code className="bg-gray-100 px-1 rounded">{`{object.gcpc}`}</code> или <code className="bg-gray-100 px-1 rounded">{`{object.partner_code}`}</code>).</p>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
             <b>Если код ещё не присвоен</b> (пустое значение типа <code className="bg-white px-1 rounded">gcpc=</code>) — мы НЕ обнуляем существующий код в ПЛЮСОНе, просто пропускаем. Безопасно вешать на любой триггер.
           </div>
