@@ -294,10 +294,14 @@ async def handle_start(message: Message, command: CommandObject):
                         "",
                         "На странице выберите свою фамилию из списка и введите этот код. Сессия живёт 24 часа. Можно передать ссылку и код ассистенту — он заполнит за вас.",
                     ]
+                    kb = InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(text="📝 Открыть мой кабинет", url=cabinet_url)
+                    ]]) if event_slug else None
                     await message.answer(
                         "\n".join(text_lines),
                         parse_mode="HTML",
                         disable_web_page_preview=True,
+                        reply_markup=kb,
                     )
                 return
             except Exception as e:

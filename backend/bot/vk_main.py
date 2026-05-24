@@ -268,16 +268,19 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
         f"Сессия живёт 24 часа. Можно передать ссылку и код ассистенту."
     )
     try:
-        await vk_call(
-            "messages.send",
-            {
-                "user_id": int(user_id),
-                "message": text,
-                "dont_parse_links": 0,
-                "random_id": 0,
-            },
-            token=ctx.token,
-        )
+        params = {
+            "user_id": int(user_id),
+            "message": text,
+            "dont_parse_links": 0,
+            "random_id": 0,
+        }
+        if event_slug:
+            keyboard = tg_inline_to_vk_keyboard([[
+                {"text": "📝 Открыть мой кабинет", "url": cabinet_url},
+            ]])
+            if keyboard:
+                params["keyboard"] = keyboard
+        await vk_call("messages.send", params, token=ctx.token)
     except Exception as e:
         logger.warning("VK spkinv messages.send failed: %s", e)
     return True

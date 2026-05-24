@@ -292,6 +292,11 @@ async def _process_start(
                         event_title = ev["title"] if ev else "событие"
                         sp_name = (coll["name"] or "").strip() or "спикер"
                         cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+                        spk_buttons = None
+                        if event_slug:
+                            spk_buttons = tg_inline_to_max_keyboard([[
+                                {"text": "📝 Открыть мой кабинет", "url": cabinet_url},
+                            ]])
                         await max_send_message(
                             chat_id,
                             (
@@ -303,6 +308,7 @@ async def _process_start(
                                 "Сессия живёт 24 часа. Можно передать ссылку и код ассистенту."
                             ),
                             token=bot_token,
+                            buttons=spk_buttons,
                         )
             except Exception as e:
                 logger.exception(f"MAX spkinv handler failed: {e}")
