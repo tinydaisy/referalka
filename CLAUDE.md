@@ -374,6 +374,46 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 ⚠️ Поля `is_commercial BOOL DEFAULT FALSE` и `priority INT DEFAULT 60` живут в `event_collaborators` на dev/проде, но в репо нет миграции, которая их создаёт (применены прямой ALTER TABLE до фиксации). Если поднимаете БД с нуля — нужны вручную.
 
+### Мини-кабинет спикера на pluson.ru — самообслуживание (миграция 104 от 2026-05-24, в разработке)
+
+**Суть.** Спикер сам правит свои данные (фото, контакты, соцсети, тема, подарки, материал в базу знаний) на отдельном веб-лендинге `pluson.ru/speaker/<event_slug>`. **Это НЕ Mini App** — обычная веб-страница в Next.js, потому что спикер может передать ссылку+код **ассистенту**, и потому что в будущем тут же появится кабинет жюри (оценки участников).
+
+**Поток:**
+1. Margo в дашборде заводит коллаба + добавляет в событие. Минимум: Имя, Фамилия, один из личных никнеймов (TG/VK/MAX — хотя бы один обязателен).
+2. Бэк резолвит ID платформы по никнейму через её API → ищет/создаёт `contacts` + `platform_users` → создаёт `collaborators` с `contact_id` → генерит `access_code` (8 симв, безопасный алфавит).
+3. В дашборде на странице спикера: `access_code` под «глазиком» + кнопка «📋 Скопировать сообщение для спикера» (готовый текст с 3 invite-ссылками TG/VK/MAX + инструкцией).
+4. **Margo шлёт это сообщение спикеру сама**, любым способом — спикера ещё нет в боте, поэтому автоотправки от нас нет.
+5. Спикер кликает любую invite-ссылку → попадает в бот соответствующей платформы → бот определяет `platform_user_id` из update → парсит `spkinv_<access_code>` → апсертит `platform_users` если её ещё не было → шлёт в личку: код доступа + ссылку `https://pluson.ru/speaker/<event_slug>`.
+6. Спикер открывает лендинг → выбирает свою фамилию из списка → вводит код → JWT-сессия 24ч → форма правки.
+
+**БД (миграция 104):**
+- `collaborators.access_code TEXT NOT NULL UNIQUE` (8 симв, авто-gen при INSERT, backfill для существующих).
+- `collaborators.vk_url`, `collaborators.max_url` — публичные каналы спикера (по аналогии с `tg_channel_url`, `instagram_url`).
+- `event_collaborators.knowledge_base_title`, `knowledge_base_url` — один материал в базу знаний на событие.
+- `event_collaborators.show_topic_field` BOOL DEFAULT TRUE, `show_gift_after_speech_field` BOOL DEFAULT TRUE, `show_knowledge_base_field` BOOL DEFAULT FALSE.
+
+**⚠️ ЖЁСТКИЕ ПРАВИЛА — не плодить дубли:**
+
+1. **НИКАКИХ** `personal_vk_id`, `personal_vk_username`, `personal_max_id`, `personal_max_username` в `collaborators`. Личные аккаунты спикера на платформах = **ТОЛЬКО через `platform_users`** (через `collaborators.contact_id → contacts.id → platform_users(contact_id, platform_slug, platform_user_id, username)`).
+2. Старые поля `collaborators.personal_tg_id`, `personal_tg_username`, `assistant_tg_username` — **рудимент**. Не использовать в новой логике, читать личный TG через `platform_users(platform_slug='telegram')`.
+3. `collaborators.vk_url` / `max_url` — это **публичные каналы спикера** (его VK-сообщество, его MAX-канал). НЕ путать с личным VK/MAX.
+4. **Тоггла `show_gift_raffle_field` НЕТ.** Видимость поля «Подарок для розыгрыша» определяется глобально через `event_raffle_settings.is_enabled`.
+5. **Margo не может завести коллаба без личного никнейма** хотя бы на одной платформе — валидация на бэке.
+6. **`collaborators.contact_id` остаётся NOT NULL.** Контакт создаётся одновременно с коллабом, никогда не позже.
+7. **Код доступа общий на коллаба** (один `access_code` на все его события у клиента). Invite-ссылки **per-event** (в URL зашит `event_slug`).
+8. **Бот** — клиентский VIP если есть подключённый канал на платформе, иначе системный (по аналогии с лид-магнитами).
+
+**Связанные фичи того же запроса (миграция 104):**
+- **4 кнопки соцсетей** в карточке спикера в Mini App — 2×2 с полным текстом (TG-канал / VK / MAX / Нельзяграм). Показываются только заполненные.
+- **Отдельная вкладка «Спикеры»** в Mini App для конференций и турниров (станет 4-й вкладкой: Программа / Спикеры / Подарки / Экосистема [+ Розыгрыш]). Клик на сессию в Программе → переход на «Спикеры» + скролл к карточке (deeplink).
+- **Иконка книжки** (SVG в нашем стиле, не эмодзи) для блока «Материал в базу знаний» под кнопками соцсетей в карточке спикера в Mini App.
+
+**Будущее (не сейчас).** Тот же кабинет (`/speaker/<event_slug>/...`) расширится до:
+- `/speaker/<event_slug>/grades` — оценки участников для жюри.
+- `/speaker/<event_slug>/materials` — общая база знаний события глазами спикера.
+
+Общий wrapper-layout с auth (JWT 24ч), внутри подстраницы. Архитектурно — это **мини-личный-кабинет спикера**, не одноразовая форма правки.
+
 ### Описание события — единое поле `events.description` для всех типов (миграция 092 от 2026-05-21)
 
 У события два независимых поля описания, оба живут на уровне `events` (не в `conf_conferences`):
@@ -423,36 +463,55 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 **`GET /auth/me`** возвращает дополнительное поле `role: 'owner'|'assistant'`. Для ассистента подменяется `email` на email самого ассистента (чтобы в шапке отображался он, а не владелец) и добавляется `assistant_id`. Поле `name` остаётся именем клиента-владельца.
 
-**Матрица прав ассистента:**
+**Матрица прав ассистента — финальная (2026-05-24):**
 
 | Раздел | Что может |
 |---|---|
-| Контакты, коллабораторы, события, участники, реф-программа, рассылки, Mini App (визитка/основатель/продукты) | Полный доступ кроме DELETE |
-| Лид-магниты, пакеты | Только GET + копирование ссылок (без create/update/delete) |
-| Каналы (боты), Настройки, Подписка, Юр.данные | **Нет доступа вообще** (UI скрыт, бэк 403) |
-| Любой DELETE | 403 |
-| Будущие `/api/v1/billing/*`, `/api/v1/payments/*` | 403 (middleware заложен на эти префиксы) |
+| **Контакты, коллабораторы** | GET + PATCH (правка имени/email/телефона). DELETE — 403. |
+| **События** | GET, PATCH, POST (создание/редактирование). DELETE самого события — 403. |
+| **Участники события** | GET, PATCH (галка регистрации). DELETE — 403. |
+| **Соорганизаторы события + спикеры конференции** | GET, PATCH (флаги/порядок). DELETE привязки к событию — 403. |
+| **Подарки события (`event_gifts`)** | GET + PATCH/POST. DELETE — 403. |
+| **Реф-программа (пороги, материалы, тексты шеринга, афиши)** | **Полный доступ включая DELETE** — это редактирование контента, не «человеческое» удаление. |
+| **Рассылки (шаблоны, расписания, общие + в событиях)** | **Полный доступ включая DELETE.** |
+| **Шаги nurture (приветствия)** | **Полный доступ включая DELETE.** |
+| **Программа конференции (этапы, дни, сессии, треки)** | **Полный доступ включая DELETE.** |
+| **Розыгрыш (призы, кодовые слова, билеты, победители)** | **Полный доступ включая DELETE.** |
+| **Mini App: визитка бренда, основатель, продукты** | **Полный доступ включая DELETE продуктов.** |
+| **Лид-магниты + пакеты** | Только GET + копирование ссылок (create/update/delete — 403). |
+| **Каналы (боты)** | **Нет доступа** (UI скрыт, бэк 403 на любой метод). |
+| **Настройки клиента + Подписка + Юр.данные** | **Нет доступа** (UI скрыт, бэк 403 на PATCH/POST). |
+| **Управление ассистентами (`/clients/me/assistant`)** | 403 (ассистент не управляет сам собой). |
+| **Будущие `/api/v1/billing`, `/api/v1/payments`** | 403 (middleware заложен на эти префиксы). |
 
 **Middleware** [`assistant_permission_guard.py`](backend/app/middleware/assistant_permission_guard.py) — добавлен в `main.py` ПОСЛЕ `subscription_guard` (Starlette стек: последний добавленный исполняется первым → права отрабатывают до проверки подписки). Логика: декодит JWT, если `role != 'assistant'` → пропуск. Иначе:
-1. `FORBIDDEN_PREFIXES` (любой метод) — `/channels`, `/clients/me/assistant`, `/billing`, `/payments`, `/admin`
-2. `READONLY_PREFIXES` (только write блокируется) — `/lead-magnets`, `/lead-magnet-packages`
-3. `FORBIDDEN_WRITE_PATHS` — `/auth/me` (PATCH), `/auth/change-password`, `/auth/regenerate-integration-token`; `FORBIDDEN_WRITE_PREFIXES` — `/clients/me/legal`
-4. `DELETE` на любой URL — глобально 403
+1. **`FORBIDDEN_PREFIXES`** (любой метод) — `/channels`, `/clients/me/assistant`, `/billing`, `/payments`, `/admin`
+2. **`READONLY_PREFIXES`** (только write блокируется) — `/lead-magnets`, `/lead-magnet-packages`
+3. **`FORBIDDEN_WRITE_PATHS`** (точечно для write) — `/auth/me` (PATCH), `/auth/change-password`, `/auth/regenerate-integration-token`; **`FORBIDDEN_WRITE_PREFIXES`** — `/clients/me/legal`
+4. **`FORBIDDEN_DELETE_PATTERNS`** (точечно для DELETE, регэкспы) — `/contacts/{id}`, `/collaborators/{id}`, `/events/{id}`, `/events/{id}/participants/{id}`, `/events/{id}/collaborators/{ec_id}`, `/events/{id}/gifts/{id}`, `/events/{id}/conference/speakers/{id}`
 
-**Фронт.** Хук [`useMe()`](web/src/hooks/useMe.ts) — кеширует `/auth/me` в памяти модуля, отдаёт `{me, isAssistant, isOwner}`. Используется в:
-- [Sidebar.tsx](web/src/components/Sidebar.tsx) — скрывает «Каналы» и «Настройки» из меню, добавляет бейдж «· ассистент» под именем
-- [/dashboard/settings](web/src/app/dashboard/settings/page.tsx) — новая вкладка «Ассистент» ([AssistantTab.tsx](web/src/components/settings/AssistantTab.tsx)) с UI: подключение по email, иконка-глазик для пароля, кнопки «Сбросить пароль» / «Отключить»
-- [/dashboard/clients](web/src/app/dashboard/clients/page.tsx) — скрыта корзинка удаления контакта
-- [/dashboard/collaborations](web/src/app/dashboard/collaborations/page.tsx) — скрыта корзинка коллаборатора
-- [/dashboard/lead-magnets](web/src/app/dashboard/lead-magnets/page.tsx) — скрыты «Добавить», «Редактировать», «Удалить» у лид-магнитов и пакетов (только аналитика и копирование ссылок)
+⚠️ Все остальные DELETE (внутри реф-программы, рассылок, программы конференции, розыгрыша, продуктов Mini App) — **разрешены**.
 
-Остальные UI-кнопки удаления (события, участники события, соорганизаторы) не скрыты — бэк всё равно вернёт 403. UX можно подкрутить позже.
+**Фронт.** Хук [`useMe()`](web/src/hooks/useMe.ts) — кеширует `/auth/me` в памяти модуля, отдаёт `{me, isAssistant, isOwner}`. Скрытые UI-элементы при `isAssistant=true`:
+- [Sidebar.tsx](web/src/components/Sidebar.tsx) — пункты «Каналы» и «Настройки» убраны; добавлен бейдж «· ассистент» под именем
+- [/dashboard/clients](web/src/app/dashboard/clients/page.tsx) — корзинка удаления контакта
+- [/dashboard/collaborations](web/src/app/dashboard/collaborations/page.tsx) — корзинка коллаборатора
+- [/dashboard/events](web/src/app/dashboard/events/page.tsx) — корзинки удаления события в обоих видах (list + grid)
+- [/dashboard/events/[id]/tabs/CoOrganizersTab.tsx](web/src/app/dashboard/events/%5Bid%5D/tabs/CoOrganizersTab.tsx) — крестик отвязки соорганизатора
+- [/dashboard/conferences/[id]/tabs/SpeakersTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/SpeakersTab.tsx) — корзинка удаления спикера
+- [EventParticipants.tsx](web/src/components/EventParticipants.tsx) — корзинка удаления участника
+- [/dashboard/lead-magnets](web/src/app/dashboard/lead-magnets/page.tsx) — кнопки «Добавить», «Редактировать», «Удалить» (read-only с копированием ссылок)
+- В [/dashboard/settings](web/src/app/dashboard/settings/page.tsx) есть отдельная вкладка «Ассистент» ([AssistantTab.tsx](web/src/components/settings/AssistantTab.tsx)) — но она для owner; страница `/settings` целиком скрыта из сайдбара ассистента
+
+**Глобальный UX-фоллбек на 403** в [api.ts](web/src/lib/api.ts) — если бэк вернул 403 с detail, начинающимся на «Ассистент» или равным «Этот раздел доступен только владельцу кабинета.», `request()` ПОМИМО throw показывает `window.alert(detail)` через setTimeout. Это страхует случаи когда вызывающий код не обернул запрос в try/catch — кнопка не «тихо» ничего не делает, а сразу объясняет почему.
 
 ⚠️ **GRANTы на проде и dev** после миграции 106: роль БД = `plusson` (не `plusson_user`). Команда:
 ```sql
 GRANT SELECT, INSERT, UPDATE, DELETE ON client_assistants TO plusson;
 GRANT USAGE, SELECT ON client_assistants_id_seq TO plusson;
 ```
+
+**Тестирование (e2e на dev, 2026-05-24):** create → пароль ✓; login as assistant → JWT role='assistant' ✓; DELETE /contacts/N → 403 ✓; GET /channels → 403 ✓; PATCH /auth/me → 403 ✓; POST /lead-magnets → 403 ✓; GET /lead-magnets → 200 ✓; GET /contacts → 200 ✓; GET /clients/me/assistant как assistant → 403 ✓; reset-password / get-password / delete — все ✓.
 
 ### Подписочная архитектура G (миграция 066 от 2026-05-07)
 
