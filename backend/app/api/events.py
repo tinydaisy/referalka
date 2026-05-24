@@ -973,11 +973,14 @@ async def list_event_collaborators(
                ec.bot_in_channel, ec.exclude_channel_from_subscription,
                co.id AS collaborator_id, co.name, co.title, co.photo_url,
                co.achievements, co.tg_channel_url, co.tg_channel_id,
-               co.personal_tg_id, co.personal_tg_username,
+               pu_tg.platform_user_id AS personal_tg_id,
+               pu_tg.username         AS personal_tg_username,
                co.instagram_url, co.website_url, ct.ref_code
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
           LEFT JOIN contacts ct ON ct.id = co.contact_id
+          LEFT JOIN platform_users pu_tg
+            ON pu_tg.contact_id = co.contact_id AND pu_tg.platform_slug = 'telegram'
          WHERE ec.event_id = $1
     """
     args = [event_id]
@@ -1172,10 +1175,14 @@ async def verify_event_collaborator_channel(
 
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        """SELECT co.tg_channel_id, co.personal_tg_id, co.name
+        """SELECT co.tg_channel_id,
+                  pu_tg.platform_user_id AS personal_tg_id,
+                  co.name
              FROM event_collaborators ec
              JOIN events e ON e.id = ec.event_id
              JOIN collaborators co ON co.id = ec.speaker_id
+             LEFT JOIN platform_users pu_tg
+               ON pu_tg.contact_id = co.contact_id AND pu_tg.platform_slug = 'telegram'
             WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
         ec_id, event_id, client_id
     )

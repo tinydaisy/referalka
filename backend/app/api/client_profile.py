@@ -264,9 +264,12 @@ async def public_event_collaborators(
         SELECT ec.id, ec.role, ec.sort_order,
                co.id AS collaborator_id, co.name, co.title, co.photo_url,
                co.achievements, co.tg_channel_url, co.instagram_url,
-               co.website_url, co.personal_tg_username
+               co.website_url,
+               pu_tg.username AS personal_tg_username
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
+          LEFT JOIN platform_users pu_tg
+            ON pu_tg.contact_id = co.contact_id AND pu_tg.platform_slug = 'telegram'
          WHERE ec.event_id = $1 AND ec.is_visible = TRUE
     """
     args: list[Any] = [event_id]

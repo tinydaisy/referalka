@@ -384,7 +384,9 @@ async def list_winners(
             cse.gift_raffle_title,
             cse.gift_raffle_url,
             col.name                   AS speaker_name,
-            col.personal_tg_username   AS speaker_tg_username,
+            (SELECT pu.username FROM platform_users pu
+              WHERE pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
+              ORDER BY pu.id LIMIT 1) AS speaker_tg_username,
             c.id                       AS contact_id,
             c.name                     AS winner_name,
             (SELECT pu.username FROM platform_users pu
@@ -481,7 +483,9 @@ async def draw_winner(
             cse.gift_raffle_title,
             cse.gift_raffle_url,
             col.name                  AS speaker_name,
-            col.personal_tg_username  AS speaker_tg_username,
+            (SELECT pu.username FROM platform_users pu
+              WHERE pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
+              ORDER BY pu.id LIMIT 1) AS speaker_tg_username,
             e.client_id
           FROM event_raffle_winners w
           JOIN event_raffle_tickets t ON t.id = w.ticket_id

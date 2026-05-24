@@ -279,7 +279,9 @@ async def get_my_raffle(slug: str, tg_id: int):
                 cse.gift_raffle_title       AS prize_title,
                 cse.gift_raffle_url         AS prize_url,
                 col.name                    AS speaker_name,
-                col.personal_tg_username    AS speaker_tg_username,
+                (SELECT pu.username FROM platform_users pu
+                  WHERE pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
+                  ORDER BY pu.id LIMIT 1) AS speaker_tg_username,
                 w.won_at,
                 t.id                        AS ticket_id
               FROM event_raffle_winners w

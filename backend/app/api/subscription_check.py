@@ -124,9 +124,12 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     # потом sort_order, потом id для устойчивости.
     rows = await db.fetch(
         f"""SELECT sp.id AS speaker_id, sp.name, sp.tg_channel_id, sp.tg_channel_url,
-                   sp.personal_tg_id, cse.priority, cse.sort_order
+                   pu_tg.platform_user_id AS personal_tg_id,
+                   cse.priority, cse.sort_order
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.event_id = $1
              AND cse.exclude_channel_from_subscription = FALSE
              AND sp.tg_channel_id IS NOT NULL

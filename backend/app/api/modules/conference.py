@@ -67,15 +67,16 @@ async def ensure_collaborator_contact(collaborator_id: int, db: asyncpg.Connecti
 
     Логика:
     - Если у collaborators.contact_id уже стоит FK → вернём contacts.ref_code
-      (генерим если NULL — но в новой схеме ref_code обязателен при создании contacts)
-    - Иначе создаём contact (с уникальным ref_code) и привязываем его к collaborator
-    - Если у коллаба есть personal_tg_id — также создаём/находим platform_users
-      (platform_slug='telegram') с привязкой к этому contact_id
+      (генерим если NULL — но в новой схеме ref_code обязателен при создании contacts).
+    - Иначе создаём contact (с уникальным ref_code) и привязываем его к collaborator.
+
+    Личный TG спикера живёт в platform_users (миграция 107) — апсертится отдельно
+    через CollaboratorCreate/Update + _upsert_personal_tg в collaborators.py.
     """
-    from app.services.contact_merge import _generate_unique_ref_code, upsert_platform_user
+    from app.services.contact_merge import _generate_unique_ref_code
 
     coll = await db.fetchrow(
-        "SELECT id, created_by_client_id, personal_tg_id, personal_tg_username, contact_id, name FROM collaborators WHERE id = $1",
+        "SELECT id, created_by_client_id, contact_id, name FROM collaborators WHERE id = $1",
         collaborator_id
     )
     if not coll:
@@ -83,7 +84,6 @@ async def ensure_collaborator_contact(collaborator_id: int, db: asyncpg.Connecti
 
     contact_id = coll["contact_id"]
 
-    # 1. Если контакта ещё нет — создаём
     if not contact_id:
         ref_code = await _generate_unique_ref_code(db)
         contact_id = await db.fetchval(
@@ -92,7 +92,6 @@ async def ensure_collaborator_contact(collaborator_id: int, db: asyncpg.Connecti
                RETURNING id""",
             coll["created_by_client_id"], coll["name"], ref_code
         )
-        # Запишем FK в коллаб
         await db.execute(
             "UPDATE collaborators SET contact_id = $1 WHERE id = $2",
             contact_id, coll["id"]
@@ -102,18 +101,6 @@ async def ensure_collaborator_contact(collaborator_id: int, db: asyncpg.Connecti
         if not ref_code:
             ref_code = await _generate_unique_ref_code(db)
             await db.execute("UPDATE contacts SET ref_code = $1 WHERE id = $2", ref_code, contact_id)
-
-    # 2. Если есть personal_tg_id — создаём/обновляем platform_users (telegram)
-    if coll["personal_tg_id"]:
-        await upsert_platform_user(
-            db,
-            contact_id=contact_id,
-            client_id=coll["created_by_client_id"],
-            platform_slug="telegram",
-            platform_user_id=str(coll["personal_tg_id"]),
-            username=coll["personal_tg_username"],
-            first_name=coll["name"],
-        )
 
     return ref_code
 
@@ -562,10 +549,12 @@ async def list_event_speakers(
                   sp.poster_url AS speaker_poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
-                  sp.personal_tg_username
+                  pu_tg.username AS personal_tg_username
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.event_id = $1
            ORDER BY """ + collaborator_sort.order_by_sql("cse"),
         event_id
@@ -587,9 +576,12 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
                   sp.name, sp.title, sp.photo_url, sp.tg_channel_url, sp.instagram_url,
-                  sp.achievements, sp.personal_tg_username
+                  sp.achievements,
+                  pu_tg.username AS personal_tg_username
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
            ORDER BY """ + collaborator_sort.order_by_sql("cse"),
         event_id
@@ -620,9 +612,14 @@ async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: a
                   sp.photo_url, sp.poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
-                  sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
+                  sp.tg_channel_id,
+                  pu_tg.platform_user_id AS personal_tg_id,
+                  pu_tg.username         AS personal_tg_username,
+                  sp.assistant_tg_username
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.id = $1 AND cse.event_id = $2""",
         speaker_event_id, event_id
     )
@@ -876,9 +873,14 @@ async def verify_speaker_channel(
     bot_ref = f"@{bot_handle}" if bot_handle else "главный бот"
 
     row = await db.fetchrow(
-        """SELECT c.tg_channel_id, c.personal_tg_id, c.personal_tg_username, c.name
+        """SELECT c.tg_channel_id,
+                  pu_tg.platform_user_id AS personal_tg_id,
+                  pu_tg.username         AS personal_tg_username,
+                  c.name
            FROM event_collaborators cse
            JOIN collaborators c ON c.id = cse.speaker_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.id = $1 AND cse.event_id = $2""",
         speaker_event_id, event_id
     )
@@ -1252,13 +1254,16 @@ async def list_sessions(
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
         """SELECT s.*, col.name as speaker_name, col.title as speaker_title,
-                  col.photo_url, col.personal_tg_username,
+                  col.photo_url,
+                  pu_tg.username AS personal_tg_username,
                   cse.role as speaker_role, cse.is_commercial,
                   cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.exclude_gift_from_broadcast
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = col.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE s.event_id = $1
            ORDER BY s.day, s.sort_order, s.start_time""",
         event_id
@@ -1828,10 +1833,15 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
                   sp.photo_url, sp.poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
-                  sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
+                  sp.tg_channel_id,
+                  pu_tg.platform_user_id AS personal_tg_id,
+                  pu_tg.username         AS personal_tg_username,
+                  sp.assistant_tg_username
            FROM contacts c
            JOIN collaborators sp ON sp.contact_id = c.id
            JOIN event_collaborators cse ON cse.speaker_id = sp.id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = c.id AND pu_tg.platform_slug = 'telegram'
            WHERE c.ref_code = $1 AND cse.event_id = $2""",
         ref_code, event_id
     )
@@ -1869,11 +1879,12 @@ async def update_speaker_by_ref_code(
     speaker_event_id = cse["id"]
     speaker_id = cse["speaker_id"]
 
-    # Обновляем глобальный профиль спикера (collaborators)
+    # Обновляем глобальный профиль спикера (collaborators).
+    # Личный TG (personal_tg_id/username) живёт в platform_users — апсертим отдельно.
     profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
                       "photo_folder_url", "video_folder_url", "tg_channel_url",
                       "instagram_url", "website_url", "tg_channel_id",
-                      "personal_tg_id", "personal_tg_username", "assistant_tg_username"]
+                      "assistant_tg_username"]
     profile_updates = {}
     for k in profile_fields:
         v = getattr(data, k)
@@ -1887,6 +1898,18 @@ async def update_speaker_by_ref_code(
             f"UPDATE collaborators SET {', '.join(set_parts)} WHERE id = $1",
             speaker_id, *profile_updates.values()
         )
+
+    if data.personal_tg_id is not None or data.personal_tg_username is not None:
+        from app.api.collaborators import _upsert_personal_tg
+        coll_info = await db.fetchrow(
+            "SELECT contact_id, created_by_client_id FROM collaborators WHERE id = $1",
+            speaker_id
+        )
+        if coll_info and coll_info["contact_id"]:
+            await _upsert_personal_tg(
+                db, coll_info["created_by_client_id"], coll_info["contact_id"],
+                data.personal_tg_id, data.personal_tg_username
+            )
 
     # Обновляем данные выступления (event_collaborators)
     event_updates: dict = {}
@@ -1947,10 +1970,15 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
                   sp.photo_url, sp.poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
-                  sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
+                  sp.tg_channel_id,
+                  pu_tg.platform_user_id AS personal_tg_id,
+                  pu_tg.username         AS personal_tg_username,
+                  sp.assistant_tg_username
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.event_id = $1
            ORDER BY cse.sort_order, cse.id""",
         event_id
@@ -1991,11 +2019,11 @@ async def update_speaker_as_editor(
 
     speaker_id = cse["speaker_id"]
 
-    # Профиль
+    # Профиль (без personal_tg_* — они живут в platform_users, миграция 107)
     profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
                       "photo_folder_url", "video_folder_url", "tg_channel_url",
                       "instagram_url", "website_url", "tg_channel_id",
-                      "personal_tg_id", "personal_tg_username", "assistant_tg_username"]
+                      "assistant_tg_username"]
     profile_updates = {k: getattr(data, k) for k in profile_fields if getattr(data, k) is not None}
     if profile_updates:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(profile_updates.keys())]
@@ -2004,6 +2032,18 @@ async def update_speaker_as_editor(
             f"UPDATE collaborators SET {', '.join(set_parts)} WHERE id = $1",
             speaker_id, *profile_updates.values()
         )
+
+    if data.personal_tg_id is not None or data.personal_tg_username is not None:
+        from app.api.collaborators import _upsert_personal_tg
+        coll_info = await db.fetchrow(
+            "SELECT contact_id, created_by_client_id FROM collaborators WHERE id = $1",
+            speaker_id
+        )
+        if coll_info and coll_info["contact_id"]:
+            await _upsert_personal_tg(
+                db, coll_info["created_by_client_id"], coll_info["contact_id"],
+                data.personal_tg_id, data.personal_tg_username
+            )
 
     # Выступление
     event_updates: dict = {}
@@ -2042,10 +2082,15 @@ async def update_speaker_as_editor(
                   sp.photo_url, sp.poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
-                  sp.tg_channel_id, sp.personal_tg_id, sp.personal_tg_username, sp.assistant_tg_username
+                  sp.tg_channel_id,
+                  pu_tg.platform_user_id AS personal_tg_id,
+                  pu_tg.username         AS personal_tg_username,
+                  sp.assistant_tg_username
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.id = $1""",
         speaker_event_id
     )
@@ -2898,17 +2943,20 @@ async def create_report(
     speakers_rows = await db.fetch(
         """SELECT cse.id AS speaker_event_id, cse.speaker_id, c.ref_code,
                   cse.role, cse.is_commercial, cse.sort_order,
-                  col.name, col.personal_tg_username AS username,
+                  col.name,
+                  pu_tg.username AS username,
                   COUNT(ep.id) FILTER (WHERE ep.id IS NOT NULL) AS entered,
                   COUNT(ep.id) FILTER (WHERE ep.is_registered = TRUE) AS registered
            FROM event_collaborators cse
            JOIN collaborators col ON col.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = col.contact_id
+           LEFT JOIN platform_users pu_tg
+             ON pu_tg.contact_id = col.contact_id AND pu_tg.platform_slug = 'telegram'
            LEFT JOIN event_participants ep ON ep.event_id = $1
                AND ep.referrer_ref_code = c.ref_code
            WHERE cse.event_id = $1
            GROUP BY cse.id, cse.speaker_id, c.ref_code, cse.role,
-                    cse.is_commercial, cse.sort_order, col.name, col.personal_tg_username
+                    cse.is_commercial, cse.sort_order, col.name, pu_tg.username
            ORDER BY cse.sort_order, cse.id""",
         event_id
     )

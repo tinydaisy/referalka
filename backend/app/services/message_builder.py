@@ -377,11 +377,14 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if tpl_type == "day_end":
             gift_sessions = await conn.fetch(
                 """
-                SELECT c.name as speaker_name, c.personal_tg_username,
+                SELECT c.name as speaker_name,
+                       pu_tg.username AS personal_tg_username,
                        cse.gift_after_speech_title, cse.gift_after_speech_url, cse.role, cse.is_commercial
                 FROM conf_sessions cs
                 JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 JOIN collaborators c ON c.id = cse.speaker_id
+                LEFT JOIN platform_users pu_tg
+                  ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
                 WHERE cs.event_id=$1 AND cs.day=$2
                   AND cse.exclude_gift_from_broadcast = FALSE
                 ORDER BY """ + collaborator_sort.order_by_sql("cse") + """, cs.sort_order
@@ -442,7 +445,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 """
                 SELECT c.name as speaker_name,
                        COALESCE(cse.poster_url, c.poster_url) as speaker_poster,
-                       c.personal_tg_username, c.tg_channel_url, c.instagram_url,
+                       pu_tg.username AS personal_tg_username,
+                       c.tg_channel_url, c.instagram_url,
                        c.achievements,
                        cse.role, cse.gift_after_speech_title, cse.gift_after_speech_url,
                        cse.gift_raffle_title,
@@ -450,6 +454,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 FROM event_collaborators cse
                 JOIN collaborators c ON c.id = cse.speaker_id
                 JOIN events e ON e.id = cse.event_id
+                LEFT JOIN platform_users pu_tg
+                  ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
                 WHERE cse.id=$1
                 """,
                 session_id
@@ -484,7 +490,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 SELECT cs.title as session_title, cs.start_time, cs.end_time, cs.day,
                        c.name as speaker_name,
                        COALESCE(cse.poster_url, c.poster_url) as speaker_poster,
-                       c.personal_tg_username as speaker_personal_tg,
+                       pu_tg.username as speaker_personal_tg,
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
@@ -493,6 +499,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 LEFT JOIN events e ON e.id = cs.event_id
                 LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
+                LEFT JOIN platform_users pu_tg
+                  ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
                 LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
                 WHERE cs.id=$1
                 """,

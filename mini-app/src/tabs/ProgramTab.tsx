@@ -786,7 +786,8 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Pr
               const topicsList: string[] = Array.isArray(sp.topics) && sp.topics.length > 0
                 ? sp.topics.map(t => t.topic).filter(Boolean)
                 : (sp.speaker_topic ? [sp.speaker_topic] : [])
-              const tg = tgLink(sp.tg_channel_url, sp.personal_tg_username)
+              // В карточке спикера показываем только публичный TG-канал, без личного аккаунта.
+              const tg = tgLink(sp.tg_channel_url, null)
               const insta = sp.instagram_url
                 ? (sp.instagram_url.startsWith('http') ? sp.instagram_url : `https://instagram.com/${sp.instagram_url.replace(/^@/, '')}`)
                 : null
