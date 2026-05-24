@@ -117,18 +117,14 @@ def _build_plain_footer(unsub_url: str, brand_name: Optional[str] = None) -> str
 def _build_html_footer(unsub_url: str, brand_name: Optional[str] = None) -> str:
     # Подвал: отступ ~3 строки + черта + мелкий серый текст с гипер-ссылкой.
     brand = (brand_name or "").strip() or "наших проектах"
-    # Шрифт мелкий (12px) — но сама ссылка-отписка крупнее и ярче (синяя
-    # #1d6fb3, bold, увеличенное touch-target padding), чтобы её было
-    # реально нажать пальцем на мобиле.
     return (
         '<div style="height:50px;"></div>'  # ≈ 3 пустые строки вертикального отступа
         '<hr style="border:none;border-top:1px solid #d0d7de;margin:0 0 12px 0;">'
-        '<p style="color:#7d8c9c;font-size:12px;line-height:1.6;margin:0;padding:0 4px;'
+        '<p style="color:#7d8c9c;font-size:12px;line-height:1.5;margin:0;padding:0 4px;'
         'font-family:Roboto,-apple-system,BlinkMacSystemFont,sans-serif;">'
         f'Вы получили это письмо, потому что регистрировались в событиях или проектах {brand}.<br>'
         f'Если вы не хотите получать письма от нас, вы можете '
-        f'<a href="{unsub_url}" style="color:#1d6fb3;text-decoration:underline;font-weight:600;'
-        f'font-size:13px;padding:4px 2px;display:inline-block;">отписаться</a>.'
+        f'<a href="{unsub_url}" style="color:#3D8CB6;text-decoration:underline;">отписаться</a>.'
         '</p>'
     )
 
