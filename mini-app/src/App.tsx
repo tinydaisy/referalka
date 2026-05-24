@@ -445,15 +445,35 @@ export default function App() {
     return () => window.removeEventListener('popstate', handler)
   }, [])
 
-  // Открытие события через SPA-навигацию (клик из Хаба).
-  // Auto-redirect на сторонний лендинг ОТКЛЮЧЁН (2026-05-25) — раньше здесь
-  // фетчился /landing-redirect и если у события заполнен events.landing_url,
-  // webview сразу уезжал на лендинг клиента. Теперь Mini App всегда показывает
-  // наш встроенный LandingTab. Сторонний лендинг открывается ТОЛЬКО по клику
-  // «Хочу участвовать» — handleWantParticipate → openExternal (Safari/Chrome).
+  // Перед открытием события через SPA-навигацию (клик из Хаба) — проверяем
+  // у бэка нет ли редиректа на сторонний лендинг клиента.
   async function openEvent(slug: string) {
+    setPendingOpen(true)
+    try {
+      const tgId = tgUser?.id ? String(tgUser.id) : ''
+      const qs = new URLSearchParams()
+      if (tgId) {
+        // На бэке landing-redirect принимает И tg_id, И vk_id.
+        qs.set(getPlatformName() === 'vk' ? 'vk_id' : 'tg_id', tgId)
+      }
+      if (partnerId) qs.set('pid', partnerId)
+      if (utmSource) qs.set('utm_source', utmSource)
+      const url = `${import.meta.env.VITE_API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/landing-redirect${qs.toString() ? `?${qs}` : ''}`
+      const res = await fetch(url)
+      if (res.ok) {
+        const data = await res.json()
+        if (data && data.redirect_url) {
+          // На VK iframe window.location.replace на Android выкидывает в
+          // системный Chrome — используем platform.redirectTo (navigate
+          // window.top) для одинакового поведения на iOS и Android.
+          getPlatform().redirectTo(data.redirect_url)
+          return  // webview уплывает
+        }
+      }
+    } catch (_) { /* offline / 5xx → обычный flow */ }
     window.history.pushState({}, '', eventPath(clientId, slug))
     setEventSlug(slug)
+    setPendingOpen(false)
   }
 
   function backToHub() {
