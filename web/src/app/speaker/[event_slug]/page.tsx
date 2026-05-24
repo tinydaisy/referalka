@@ -279,18 +279,7 @@ export default function SpeakerCabinetPage() {
           {eventTitle && <div style={{ fontSize: 15, color: '#5c7589', marginBottom: 20 }}>«{eventTitle}»</div>}
 
           <label style={{ display: 'block', fontSize: 13, color: '#5c7589', marginBottom: 6 }}>Найдите свою фамилию</label>
-          <select
-            value={chosenId || ''}
-            onChange={(e) => setChosenId(e.target.value ? Number(e.target.value) : null)}
-            style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1px solid #d4dee5', fontSize: 15, marginBottom: 14, background: '#fff' }}
-          >
-            <option value="">— выберите —</option>
-            {(list || []).map((sp) => (
-              <option key={sp.speaker_event_id} value={sp.speaker_event_id}>
-                {sp.full_name}
-              </option>
-            ))}
-          </select>
+          <SpeakerPicker list={list || []} chosenId={chosenId} setChosenId={setChosenId} />
 
           <label style={{ display: 'block', fontSize: 13, color: '#5c7589', marginBottom: 6 }}>Код доступа (из сообщения от организатора)</label>
           <input
@@ -514,6 +503,9 @@ export default function SpeakerCabinetPage() {
         </Section>
 
         <Section title="Соцсети и каналы">
+          <div style={{ fontSize: 12, color: '#7a8c9c', marginTop: -2, marginBottom: 6, lineHeight: 1.5 }}>
+            Эти ссылки отображаются в Mini App события в вашей карточке — участники увидят их и смогут перейти прямо на ваш канал / сообщество / сайт.
+          </div>
           <label style={labelCss}>Telegram-канал (ссылка)</label>
           <input style={inputCss} value={me.tg_channel_url || ''} onChange={(e) => update({ tg_channel_url: e.target.value })} placeholder="https://t.me/…" />
           <label style={labelCss}>VK-сообщество (ссылка)</label>
@@ -722,6 +714,73 @@ export default function SpeakerCabinetPage() {
               Закрыть
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SpeakerPicker({ list, chosenId, setChosenId }: {
+  list: SpeakerListItem[]
+  chosenId: number | null
+  setChosenId: (n: number | null) => void
+}) {
+  const [query, setQuery] = useState<string>('')
+  const [open, setOpen] = useState<boolean>(false)
+  const chosen = list.find(sp => sp.speaker_event_id === chosenId) || null
+  const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').trim()
+  const filtered = norm(query)
+    ? list.filter(sp => norm(sp.full_name).includes(norm(query)))
+    : list
+  return (
+    <div style={{ position: 'relative', marginBottom: 14 }}>
+      <input
+        type="text"
+        value={chosen && !open ? chosen.full_name : query}
+        onChange={(e) => {
+          setQuery(e.target.value)
+          setOpen(true)
+          if (chosen) setChosenId(null)
+        }}
+        onFocus={() => { setOpen(true); if (chosen) setQuery(''); }}
+        onBlur={() => setTimeout(() => setOpen(false), 180)}
+        placeholder="Начните вводить фамилию…"
+        style={{
+          width: '100%', padding: '12px 14px', borderRadius: 10,
+          border: '1px solid #d4dee5', fontSize: 15, background: '#fff', boxSizing: 'border-box',
+        }}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0,
+          background: '#fff', border: '1px solid #d4dee5', borderRadius: 10,
+          marginTop: 4, maxHeight: 240, overflowY: 'auto', zIndex: 10,
+          boxShadow: '0 4px 14px rgba(37,69,93,0.15)',
+        }}>
+          {filtered.map(sp => (
+            <button
+              key={sp.speaker_event_id}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setChosenId(sp.speaker_event_id); setQuery(''); setOpen(false); }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                padding: '10px 14px', border: 'none', background: 'transparent',
+                fontSize: 14, cursor: 'pointer', borderBottom: '1px solid #f0f3f6',
+              }}
+            >
+              {sp.full_name}
+            </button>
+          ))}
+        </div>
+      )}
+      {open && filtered.length === 0 && query.trim() && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0,
+          background: '#fff', border: '1px solid #d4dee5', borderRadius: 10,
+          marginTop: 4, padding: '12px 14px', fontSize: 13, color: '#7a8c9c',
+          zIndex: 10, boxShadow: '0 4px 14px rgba(37,69,93,0.15)',
+        }}>
+          Никого не нашли с такой фамилией. Уточните у организатора, что вы добавлены спикером.
         </div>
       )}
     </div>
