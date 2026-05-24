@@ -119,52 +119,30 @@
       } catch (e) {}
     }
 
-    // Ранний редирект на сторонний лендинг клиента (миграция 057).
-    // Срабатывает ДО React-bundle: пока React грузится, запрос летит,
-    // и при заполненном events.landing_url window сразу уходит на лендинг —
-    // пользователь не видит наш встроенный лендинг-заглушку.
-    // При флаге `_reg` (возврат с лендинга) — редирект НЕ делаем, нужно
-    // прокрутить React и пометить is_registered=true.
+    // Auto-redirect на сторонний лендинг ОТКЛЮЧЁН (2026-05-25).
+    // Раньше bridge-скрипт ДО React делал window.location.replace на
+    // events.landing_url → webview уезжал на лендинг клиента ВНУТРИ webview
+    // Telegram. Проблема: на success-странице лендинга кнопка возврата
+    // t.me/{bot}/pluson?startapp=ref_pg{slug}_reg не работала — Telegram
+    // изнутри webview перехватывает universal link и открывает чат, а НЕ
+    // Mini App.
     //
-    // window.__redirectPending — флаг для синхронизации с App.tsx.
-    // Пока флаг true, React не рендерит контент (видит LoadingScreen).
-    // Когда fetch завершается — либо window.location.replace (Mini App
-    // уплывает), либо флаг снимается и React продолжает обычный flow.
-    if (eventSlug && !regFlag) {
-      window.__redirectPending = true;
-      // Safety: даже если бэк завис — через 3 сек разблокируем React.
-      setTimeout(function () { window.__redirectPending = false; }, 3000);
-    }
-    function maybeRedirectToLanding() {
-      if (!eventSlug || regFlag) return;
-      try {
-        // Шлём только tg_id — бэк сам зарезолвит contact_id и подсунет его
-        // в URL стороннего лендинга. tg_id в URL лендинга НЕ попадёт.
-        var uid = String(u.id || '');
-        var qs = '?tg_id=' + encodeURIComponent(uid);
-        if (partnerId) qs += '&pid=' + encodeURIComponent(partnerId);
-        if (utmSource) qs += '&utm_source=' + encodeURIComponent(utmSource);
-        fetch('/api/v1/public/events/' + encodeURIComponent(eventSlug) + '/landing-redirect' + qs)
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (data) {
-            if (data && data.redirect_url) {
-              window.location.replace(data.redirect_url);
-              // Не снимаем флаг — webview уже уходит на лендинг клиента.
-            } else {
-              window.__redirectPending = false;
-            }
-          })
-          .catch(function () { window.__redirectPending = false; });
-      } catch (e) { window.__redirectPending = false; }
-    }
+    // Теперь Mini App показывает наш встроенный LandingTab. Юзер кликает
+    // «Хочу участвовать» (user-gesture) → EventPage.tsx вызывает
+    // getPlatform().openExternal(landingUrl) → лендинг открывается в Safari/
+    // Chrome (вне Telegram). На success-странице кнопка возврата уже работает
+    // как universal link → Mini App открывается полноценно + requestWriteAccess
+    // (подписка на бот) + _reg-флаг (авто-регистрация) + welcome.
+    //
+    // window.__redirectPending не устанавливаем — App.tsx через 600мс сам
+    // снимет loading (см. tick() в App.tsx, проверка pending === true → false).
 
     if (typeof twa.requestWriteAccess === 'function') {
       try {
-        twa.requestWriteAccess(function () { fireStart(); maybeRedirectToLanding(); });
-      } catch (e) { fireStart(); maybeRedirectToLanding(); }
+        twa.requestWriteAccess(function () { fireStart(); });
+      } catch (e) { fireStart(); }
     } else {
       fireStart();
-      maybeRedirectToLanding();
     }
   })();
   </script>

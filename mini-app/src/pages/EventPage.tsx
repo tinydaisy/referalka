@@ -274,22 +274,14 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refOn, raffleOn, state, event])
 
-  // Авто-редирект на сторонний лендинг клиента (миграция 057).
-  // Inline-скрипт в mini-app/index.html делает редирект ДО React при прямом
-  // заходе по ссылке `?startapp=ref_pgSLUG`. Но при ВНУТРЕННЕЙ навигации SPA
-  // (клик по событию в Хабе организатора) index.html заново не загружается,
-  // поэтому здесь дублируем логику. Используется window.location.href
-  // (а не Telegram.WebApp.openLink), чтобы iOS не блокировал как popup.
-  // См. documentation/MINI-APP-WEBVIEW-REDIRECT.md
-  useEffect(() => {
-    if (!event) return
-    if (loading) return
-    if (registered || ended) return
-    const landingUrl: string = (event.landing_url || '').trim()
-    if (!landingUrl) return
-    redirectToExternalLanding(landingUrl)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event, loading, registered, ended])
+  // Auto-redirect на сторонний лендинг ОТКЛЮЧЁН (2026-05-25).
+  // Теперь Mini App ВСЕГДА показывает наш встроенный LandingTab. Юзер сам
+  // кликает «Хочу участвовать» (user-gesture), что вызывает
+  // handleWantParticipate → redirectToExternalLanding(url, /* external */ true)
+  // → openExternal в Safari/Chrome. Так на success-странице лендинга кнопка
+  // возврата t.me/{bot}/pluson?startapp=ref_pg{slug}_reg работает корректно
+  // как universal link (внутри webview Telegram universal link перехватывает
+  // и открывает чат, а не Mini App — отсюда баг «кнопка не нажимается»).
 
   // Стандартный набор GET-параметров для ЛЮБОГО внешнего URL клиента
   // (events.landing_url, events.vip_url, partner_landing_url):
