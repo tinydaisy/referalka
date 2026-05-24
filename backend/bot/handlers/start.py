@@ -195,6 +195,76 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
+    # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>.
+    # Спикер кликнул invite-ссылку из сообщения, которое организатор скопировал
+    # и отправил ему в личку. Опознаём коллаба по access_code → шлём в чат
+    # код доступа и ссылку на лендинг pluson.ru/speaker/<event_slug>.
+    if args.startswith("spkinv_"):
+        access_code = args.removeprefix("spkinv_").strip()
+        if access_code:
+            pool = await get_pool()
+            try:
+                async with pool.acquire() as db:
+                    coll = await db.fetchrow(
+                        """SELECT c.id AS collaborator_id, c.name, c.contact_id,
+                                  c.created_by_client_id
+                             FROM collaborators c
+                            WHERE LOWER(c.access_code) = LOWER($1)""",
+                        access_code,
+                    )
+                    if not coll:
+                        await message.answer(
+                            "😕 Ссылка устарела или код доступа изменился. Попросите организатора прислать актуальное сообщение."
+                        )
+                        return
+
+                    # Привязываем личный TG спикера к contact (если ещё не привязан).
+                    from app.api.collaborators import _upsert_personal_identity
+                    if coll["contact_id"] and coll["created_by_client_id"]:
+                        await _upsert_personal_identity(
+                            db,
+                            coll["created_by_client_id"],
+                            coll["contact_id"],
+                            'telegram',
+                            str(user.id),
+                            user.username or None,
+                        )
+
+                    # Берём первое event_collaborators этого коллаба, чтобы знать slug.
+                    ev = await db.fetchrow(
+                        """SELECT e.slug, e.title
+                             FROM event_collaborators ec
+                             JOIN events e ON e.id = ec.event_id
+                            WHERE ec.speaker_id = $1
+                            ORDER BY ec.id DESC LIMIT 1""",
+                        coll["collaborator_id"],
+                    )
+                    event_slug = ev["slug"] if ev else ""
+                    event_title = ev["title"] if ev else "событие"
+
+                    name = (coll["name"] or "").strip() or "спикер"
+                    cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+                    text_lines = [
+                        f"Здравствуйте, {name}!",
+                        "",
+                        f"Вы — спикер «{event_title}». Чтобы заполнить свои данные для участников события, откройте свой кабинет:",
+                        f"<b>{cabinet_url}</b>",
+                        "",
+                        f"Код доступа: <code>{access_code}</code>",
+                        "",
+                        "На странице выберите свою фамилию из списка и введите этот код. Сессия живёт 24 часа. Можно передать ссылку и код ассистенту — он заполнит за вас.",
+                    ]
+                    await message.answer(
+                        "\n".join(text_lines),
+                        parse_mode="HTML",
+                        disable_web_page_preview=True,
+                    )
+                return
+            except Exception as e:
+                log.exception("spkinv_ handler failed: %s", e)
+                await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
+                return
+
     # Воронка лид-магнита (старый формат, через pluson.ru/m/{slug}?to=tg → 302 → /start fnl_<id>)
     if args.startswith("fnl_"):
         try:

@@ -98,7 +98,10 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
   const [modal, setModal] = useState<'new' | 'base' | 'edit' | null>(null)
   const [editSpeaker, setEditSpeaker] = useState<any>(null)
   const [editForm, setEditForm] = useState({ role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
-  const [form, setForm] = useState({ name: '', role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
+  const [form, setForm] = useState({
+    name: '', role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false,
+    personal_tg_username: '', personal_vk_username: '', personal_max_username: '',
+  })
   const [baseQuery, setBaseQuery] = useState('')
   const [baseList, setBaseList] = useState<any[]>([])
   const [baseLoading, setBaseLoading] = useState(false)
@@ -142,7 +145,10 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
       }
       setModal(null)
       setNameChoice(null)
-      setForm({ name: '', role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
+      setForm({
+        name: '', role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false,
+        personal_tg_username: '', personal_vk_username: '', personal_max_username: '',
+      })
       load()
     } catch (err: any) { alert(err.message) } finally { setSaving(false) }
   }
@@ -307,6 +313,18 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
               <label className="label">{ts.newModal.nameLabel}</label>
               <input type="text" value={form.name} onChange={setF('name')} autoFocus className="input" placeholder={ts.newModal.namePlaceholder} />
             </div>
+
+            {/* Личный контакт спикера (одна из платформ обязательна) — миграция 108 */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+              <div className="text-xs text-amber-900 font-medium">Личный аккаунт спикера — нужен минимум один (для отправки инструкции по самозаполнению)</div>
+              <input type="text" value={form.personal_tg_username} onChange={setF('personal_tg_username')}
+                className="input" placeholder="Telegram username (без @)" />
+              <input type="text" value={form.personal_vk_username} onChange={setF('personal_vk_username')}
+                className="input" placeholder="VK username (id123456 или nickname)" />
+              <input type="text" value={form.personal_max_username} onChange={setF('personal_max_username')}
+                className="input" placeholder="MAX username" />
+            </div>
+
             <div>
               <label className="label">{ts.newModal.role}</label>
               {roleSelect(form.role, setF('role'))}

@@ -48,6 +48,8 @@ interface Speaker {
   role?: string
   achievements?: string[] | null
   tg_channel_url?: string | null
+  vk_url?: string | null
+  max_url?: string | null
   instagram_url?: string | null
   personal_tg_username?: string | null
   speaker_topic?: string | null
@@ -55,6 +57,8 @@ interface Speaker {
   gift_after_speech_url?: string | null
   gift_raffle_title?: string | null
   gift_raffle_url?: string | null
+  knowledge_base_title?: string | null
+  knowledge_base_url?: string | null
   topics?: { topic: string }[]
 }
 
@@ -237,7 +241,11 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
           photo_url: c.photo_url,
           achievements: c.achievements,
           tg_channel_url: c.tg_channel_url,
+          vk_url: c.vk_url,
+          max_url: c.max_url,
           instagram_url: c.instagram_url,
+          knowledge_base_title: c.knowledge_base_title,
+          knowledge_base_url: c.knowledge_base_url,
           personal_tg_username: c.personal_tg_username,
         }))
         setCoOrganizers(items)
@@ -1042,26 +1050,49 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                     </div>
                   )}
 
-                  {/* Соцсети */}
-                  {(tg || insta) && (
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                      {tg && (
-                        <a href={tg} target="_blank" rel="noreferrer" style={{
-                          flex: 1, textDecoration: 'none',
-                          background: DARK, color: 'white',
-                          padding: '7px 10px', borderRadius: 10,
-                          fontSize: 11, fontWeight: 600, textAlign: 'center',
-                        }}>Тг-канал →</a>
-                      )}
-                      {insta && (
-                        <a href={insta} target="_blank" rel="noreferrer" style={{
-                          flex: 1, textDecoration: 'none',
-                          background: 'white', color: DARK, border: `1px solid ${DARK}`,
-                          padding: '6px 10px', borderRadius: 10,
-                          fontSize: 11, fontWeight: 600, textAlign: 'center',
-                        }}>Нельзяграм →</a>
-                      )}
-                    </div>
+                  {/* Соцсети — 4 кнопки 2×2 */}
+                  {(() => {
+                    const socials: Array<{ label: string, url: string, primary: boolean }> = []
+                    if (tg) socials.push({ label: 'Тг-канал →', url: tg, primary: true })
+                    if (sp.vk_url) socials.push({ label: 'ВКонтакте →', url: sp.vk_url, primary: false })
+                    if (sp.max_url) socials.push({ label: 'MAX →', url: sp.max_url, primary: false })
+                    if (insta) socials.push({ label: 'Нельзяграм →', url: insta, primary: false })
+                    if (socials.length === 0) return null
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                        {socials.map((s, i) => (
+                          <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{
+                            textDecoration: 'none',
+                            background: s.primary ? DARK : 'white',
+                            color: s.primary ? 'white' : DARK,
+                            border: s.primary ? 'none' : `1px solid ${DARK}`,
+                            padding: '7px 10px', borderRadius: 10,
+                            fontSize: 11, fontWeight: 600, textAlign: 'center',
+                          }}>{s.label}</a>
+                        ))}
+                      </div>
+                    )
+                  })()}
+
+                  {/* Материал в базу знаний */}
+                  {sp.knowledge_base_title && sp.knowledge_base_url && (
+                    <a href={sp.knowledge_base_url} target="_blank" rel="noreferrer" style={{
+                      display: 'flex', alignItems: 'center', gap: 10, marginTop: 10,
+                      padding: '10px 12px', borderRadius: 10,
+                      background: 'rgba(37,69,93,0.06)', border: '1px solid rgba(37,69,93,0.15)',
+                      textDecoration: 'none', color: DARK,
+                    }}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                      </svg>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 10, color: '#6b7c8e', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700 }}>База знаний</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: DARK, lineHeight: 1.3 }}>
+                          {sp.knowledge_base_title} →
+                        </div>
+                      </div>
+                    </a>
                   )}
                 </div>
               )

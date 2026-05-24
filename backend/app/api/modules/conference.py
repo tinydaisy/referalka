@@ -451,8 +451,18 @@ class SpeakerCreateAndAdd(BaseModel):
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
+    vk_url: Optional[str] = None
+    max_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
+    # Личные идентичности — пишутся в platform_users (миграции 107/108).
+    # Обязательна минимум одна из платформ — валидация в обработчике.
+    personal_tg_id: Optional[str] = None
+    personal_tg_username: Optional[str] = None
+    personal_vk_id: Optional[str] = None
+    personal_vk_username: Optional[str] = None
+    personal_max_id: Optional[str] = None
+    personal_max_username: Optional[str] = None
     # Данные участия в этом событии
     role: str = "speaker"
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
@@ -729,6 +739,22 @@ async def create_and_add_speaker(
         )
         if not own:
             raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
+    else:
+        # При создании нового контакта обязательна минимум одна личная идентичность —
+        # иначе мы не сможем отправить спикеру invite-сообщение для самообслуживания.
+        has_personal = any([
+            (data.personal_tg_id or "").strip(),
+            (data.personal_tg_username or "").strip(),
+            (data.personal_vk_id or "").strip(),
+            (data.personal_vk_username or "").strip(),
+            (data.personal_max_id or "").strip(),
+            (data.personal_max_username or "").strip(),
+        ])
+        if not has_personal:
+            raise HTTPException(
+                status_code=422,
+                detail="Укажите хотя бы один личный аккаунт спикера: Telegram, VK или MAX. Без этого ему не получится отправить инструкцию для редактирования профиля."
+            )
 
     # Если existing_contact_id не дали и не force_create — ищем похожие по имени.
     # Возвращаем клиенту выбор (UI: «Использовать существующего» / «Создать нового»).
@@ -779,13 +805,16 @@ async def create_and_add_speaker(
             """INSERT INTO collaborators
                (contact_id, name, title, achievements,
                 photo_url, photo_folder_url, video_folder_url,
-                tg_channel_url, instagram_url, website_url, created_by_client_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *""",
+                tg_channel_url, vk_url, max_url, instagram_url, website_url, created_by_client_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
             contact_id, name, data.title, data.achievements,
             data.photo_url, data.photo_folder_url, data.video_folder_url,
-            data.tg_channel_url, data.instagram_url, data.website_url,
+            data.tg_channel_url, data.vk_url, data.max_url, data.instagram_url, data.website_url,
             client_id
         )
+        # Личные идентичности — пишем в platform_users (миграции 107/108).
+        from app.api.collaborators import _upsert_personal_identities
+        await _upsert_personal_identities(db, client_id, contact_id, data)
 
         # 3. Участие в событии
         topics_list = data.topics if data.topics is not None else (

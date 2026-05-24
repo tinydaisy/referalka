@@ -143,6 +143,95 @@ def _extract_partner_done_client_id(message_or_event: dict) -> int | None:
     return _extract_ref_with_prefix(message_or_event, "partner_done_")
 
 
+def _extract_speaker_invite_code(message_or_event: dict) -> str | None:
+    """Ищет `ref=spkinv_<access_code>` — invite-ссылка кабинета спикера (миграция 108).
+
+    Access_code — 8 симв строка из безопасного алфавита, не int. Поэтому свой
+    мини-экстрактор: тот же поиск кандидатов, но без try-int.
+    """
+    candidates = []
+    msg = message_or_event.get("message") or {}
+    if isinstance(msg, dict):
+        candidates.extend([msg.get("ref"), msg.get("ref_source")])
+        payload_raw = msg.get("payload")
+        if payload_raw:
+            try:
+                import json as _json
+                payload = _json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
+                if isinstance(payload, dict):
+                    candidates.append(payload.get("ref"))
+            except Exception:
+                pass
+    candidates.extend([message_or_event.get("ref"), message_or_event.get("ref_source")])
+    for c in candidates:
+        if not c:
+            continue
+        s = str(c).strip()
+        if s.startswith("spkinv_"):
+            return s.removeprefix("spkinv_") or None
+    return None
+
+
+async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "GroupCtx") -> bool:
+    """Если код доступа коллаба совпал — шлём в личку код + ссылку на лендинг.
+    Возвращает True если обработка произошла (и дальнейшие хендлеры пропускаются).
+    """
+    coll = await db.fetchrow(
+        """SELECT c.id AS collaborator_id, c.name, c.contact_id, c.created_by_client_id
+             FROM collaborators c
+            WHERE LOWER(c.access_code) = LOWER($1)""",
+        access_code,
+    )
+    if not coll:
+        return False
+
+    from app.api.collaborators import _upsert_personal_identity
+    if coll["contact_id"] and coll["created_by_client_id"]:
+        try:
+            await _upsert_personal_identity(
+                db, coll["created_by_client_id"], coll["contact_id"],
+                'vk', str(user_id), None,
+            )
+        except Exception as e:
+            logger.warning("VK spkinv upsert identity failed: %s", e)
+
+    ev = await db.fetchrow(
+        """SELECT e.slug, e.title
+             FROM event_collaborators ec
+             JOIN events e ON e.id = ec.event_id
+            WHERE ec.speaker_id = $1
+            ORDER BY ec.id DESC LIMIT 1""",
+        coll["collaborator_id"],
+    )
+    event_slug = ev["slug"] if ev else ""
+    event_title = ev["title"] if ev else "событие"
+    name = (coll["name"] or "").strip() or "спикер"
+    cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+
+    text = (
+        f"Здравствуйте, {name}!\n\n"
+        f"Вы — спикер «{event_title}». Чтобы заполнить свои данные для участников события, "
+        f"откройте свой кабинет:\n{cabinet_url}\n\n"
+        f"Код доступа: {access_code}\n\n"
+        f"На странице выберите свою фамилию из списка и введите этот код. "
+        f"Сессия живёт 24 часа. Можно передать ссылку и код ассистенту."
+    )
+    try:
+        await vk_call(
+            "messages.send",
+            {
+                "user_id": int(user_id),
+                "message": text,
+                "dont_parse_links": 0,
+                "random_id": 0,
+            },
+            token=ctx.token,
+        )
+    except Exception as e:
+        logger.warning("VK spkinv messages.send failed: %s", e)
+    return True
+
+
 async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
     """message_allow: пользователь разрешил сообществу писать ему в личку.
     Регистрируем контакт + платформу + канал ЭТОГО клиента.
@@ -229,6 +318,16 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_allow partner_done failed: %s", e)
+
+    # Самообслуживание спикера: ref=spkinv_<access_code> (миграция 108).
+    spk_code = _extract_speaker_invite_code(event)
+    if spk_code:
+        try:
+            handled = await _handle_speaker_invite_vk(spk_code, int(user_id), db, ctx)
+            if handled:
+                return
+        except Exception as e:
+            logger.warning("VK message_allow spkinv failed: %s", e)
 
     # Generic welcome шлём только если не пришёл с event-контекстом (60-сек защита от дубля)
     recent_event_ctx = await db.fetchval(
@@ -439,6 +538,16 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_new partner_done failed: %s", e)
+
+    # Самообслуживание спикера (миграция 108).
+    spk_code = _extract_speaker_invite_code(event_obj)
+    if spk_code:
+        try:
+            handled = await _handle_speaker_invite_vk(spk_code, int(from_id), db, ctx)
+            if handled:
+                return
+        except Exception as e:
+            logger.warning("VK message_new spkinv failed: %s", e)
 
     # Проверяем payload — может быть нажата кнопка с payload
     payload_raw = message.get("payload")

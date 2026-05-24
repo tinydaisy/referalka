@@ -229,6 +229,68 @@ async def _process_start(
     last_name = " ".join(name.split()[1:]) if len(name.split()) > 1 else ""
     username = sender.get("username", "") or ""
 
+    # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>
+    if payload and payload.startswith("spkinv_"):
+        access_code = payload.removeprefix("spkinv_").strip()
+        if access_code:
+            try:
+                pool0 = await get_pool()
+                if pool0:
+                    async with pool0.acquire() as conn0:
+                        coll = await conn0.fetchrow(
+                            """SELECT c.id AS collaborator_id, c.name, c.contact_id,
+                                      c.created_by_client_id
+                                 FROM collaborators c
+                                WHERE LOWER(c.access_code) = LOWER($1)""",
+                            access_code,
+                        )
+                        if not coll:
+                            await max_send_message(
+                                chat_id,
+                                "😕 Ссылка устарела или код доступа изменился. Попросите организатора прислать актуальное сообщение.",
+                                token=bot_token,
+                            )
+                            return
+
+                        from app.api.collaborators import _upsert_personal_identity
+                        if coll["contact_id"] and coll["created_by_client_id"]:
+                            try:
+                                await _upsert_personal_identity(
+                                    conn0,
+                                    coll["created_by_client_id"], coll["contact_id"],
+                                    'max', str(user_id), username or None,
+                                )
+                            except Exception as e:
+                                logger.warning("MAX spkinv upsert identity failed: %s", e)
+
+                        ev = await conn0.fetchrow(
+                            """SELECT e.slug, e.title
+                                 FROM event_collaborators ec
+                                 JOIN events e ON e.id = ec.event_id
+                                WHERE ec.speaker_id = $1
+                                ORDER BY ec.id DESC LIMIT 1""",
+                            coll["collaborator_id"],
+                        )
+                        event_slug = ev["slug"] if ev else ""
+                        event_title = ev["title"] if ev else "событие"
+                        sp_name = (coll["name"] or "").strip() or "спикер"
+                        cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+                        await max_send_message(
+                            chat_id,
+                            (
+                                f"Здравствуйте, {sp_name}!\n\n"
+                                f"Вы — спикер «{event_title}». Чтобы заполнить свои данные, откройте свой кабинет:\n"
+                                f"{cabinet_url}\n\n"
+                                f"Код доступа: {access_code}\n\n"
+                                "На странице выберите свою фамилию и введите этот код. "
+                                "Сессия живёт 24 часа. Можно передать ссылку и код ассистенту."
+                            ),
+                            token=bot_token,
+                        )
+            except Exception as e:
+                logger.exception(f"MAX spkinv handler failed: {e}")
+            return
+
     # Парсим payload: ref_pg{slug}_pid{partner_id}_src{utm}_tab{tab}_reg
     parsed = parse_startapp_ref_payload(payload) if payload else {
         "event_slug": "", "partner_ref_code": "", "utm_source": "", "tab": "", "reg_from_landing": False,
