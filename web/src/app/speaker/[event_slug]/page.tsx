@@ -38,6 +38,8 @@ type SpeakerMe = {
   achievements: string[] | null
   photo_url: string | null
   poster_url: string | null
+  photo_folder_url: string | null
+  video_folder_url: string | null
   tg_channel_url: string | null
   vk_url: string | null
   max_url: string | null
@@ -79,6 +81,9 @@ export default function SpeakerCabinetPage() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<Date | null>(null)
+  const [achText, setAchText] = useState<string>('')
+  const [uploading, setUploading] = useState<'speaker_photo' | 'speaker_poster' | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
 
   // Восстановить токен из localStorage
   useEffect(() => {
@@ -116,7 +121,9 @@ export default function SpeakerCabinetPage() {
         return
       }
       if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка')
-      setMe(await r.json())
+      const data = await r.json()
+      setMe(data)
+      setAchText((data.achievements || []).join('\n'))
     } catch (e: any) {
       setError(String(e.message || e))
     }
@@ -157,9 +164,14 @@ export default function SpeakerCabinetPage() {
     if (!me || !token) return
     setSaving(true); setError(null)
     try {
+      // Регалии: парсим текстарею в массив. Сносим маркеры списков (•, *, –, и т.п.)
+      const achievements = achText.split('\n')
+        .map(line => line.replace(/^\s*[•●∙·*\-—–▶►▸✓✔]+\s*/, '').trim())
+        .filter(Boolean)
       const payload: any = {
-        name: me.name, title: me.title, achievements: me.achievements,
+        name: me.name, title: me.title, achievements,
         photo_url: me.photo_url, poster_url: me.poster_url,
+        photo_folder_url: me.photo_folder_url, video_folder_url: me.video_folder_url,
         tg_channel_url: me.tg_channel_url, tg_channel_id: me.tg_channel_id,
         vk_url: me.vk_url, max_url: me.max_url,
         instagram_url: me.instagram_url, website_url: me.website_url,
@@ -192,11 +204,34 @@ export default function SpeakerCabinetPage() {
       const d = await r.json()
       if (!r.ok) { setError(d.detail || 'Ошибка'); return }
       setMe(d)
+      setAchText((d.achievements || []).join('\n'))
       setSavedAt(new Date())
     } catch (e: any) {
       setError(String(e.message || e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const onUpload = async (kind: 'speaker_photo' | 'speaker_poster', file: File) => {
+    if (!token) return
+    setUploading(kind); setError(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('kind', kind)
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const d = await r.json()
+      if (!r.ok) { setError(d.detail || 'Ошибка загрузки'); return }
+      update(kind === 'speaker_photo' ? { photo_url: d.url } : { poster_url: d.url })
+    } catch (e: any) {
+      setError(String(e.message || e))
+    } finally {
+      setUploading(null)
     }
   }
 
@@ -252,6 +287,16 @@ export default function SpeakerCabinetPage() {
     width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, background: '#fff'
   }
   const labelCss: React.CSSProperties = { display: 'block', fontSize: 12, color: '#5c7589', marginBottom: 4, marginTop: 14 }
+  const buttonSmall: React.CSSProperties = {
+    padding: '6px 12px',
+    background: '#fff',
+    border: '1px solid #d4dee5',
+    borderRadius: 8,
+    fontSize: 12,
+    color: DARK,
+    cursor: 'pointer',
+    fontWeight: 500,
+  }
 
   const update = (patch: Partial<SpeakerMe>) => setMe((m) => m ? ({ ...m, ...patch }) : m)
   const updTopics = (i: number, v: string) => {
@@ -261,13 +306,81 @@ export default function SpeakerCabinetPage() {
   }
   const addTopic = () => update({ topics: [...(me?.topics || []), ''] })
   const removeTopic = (i: number) => update({ topics: (me?.topics || []).filter((_, idx) => idx !== i) })
-  const updAch = (i: number, v: string) => {
-    const arr = [...(me?.achievements || [])]
-    arr[i] = v
-    update({ achievements: arr })
+
+  // Карточка для фото/афиши: превью + кнопки «Раскрыть», «Скачать», «Загрузить новое»
+  function ImageCard({ url, kind, label }: { url: string | null, kind: 'speaker_photo' | 'speaker_poster', label: string }) {
+    const fileInputId = `up-${kind}`
+    return (
+      <div>
+        <label style={labelCss}>{label}</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+          {url ? (
+            <img
+              src={url}
+              alt={label}
+              onClick={() => setLightbox(url)}
+              style={{
+                width: kind === 'speaker_photo' ? 90 : 120,
+                height: kind === 'speaker_photo' ? 90 : 160,
+                objectFit: 'cover',
+                borderRadius: 12,
+                border: '1px solid #d4dee5',
+                cursor: 'zoom-in',
+              }}
+            />
+          ) : (
+            <div style={{
+              width: kind === 'speaker_photo' ? 90 : 120,
+              height: kind === 'speaker_photo' ? 90 : 160,
+              borderRadius: 12,
+              border: '1px dashed #c4d1dc',
+              background: '#f5f7fa',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#9ab', fontSize: 11,
+            }}>
+              нет файла
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <input
+              id={fileInputId}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) onUpload(kind, f)
+                e.target.value = ''
+              }}
+            />
+            <label htmlFor={fileInputId} style={{
+              ...buttonSmall,
+              cursor: uploading === kind ? 'wait' : 'pointer',
+              opacity: uploading === kind ? 0.6 : 1,
+            }}>
+              {uploading === kind ? 'Загружаем…' : (url ? '📤 Заменить' : '📤 Загрузить')}
+            </label>
+            {url && (
+              <>
+                <button type="button" onClick={() => setLightbox(url)} style={buttonSmall}>
+                  🔍 Раскрыть
+                </button>
+                <a
+                  href={url}
+                  download
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ ...buttonSmall, textAlign: 'center', textDecoration: 'none' }}
+                >
+                  ⬇ Скачать
+                </a>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    )
   }
-  const addAch = () => update({ achievements: [...(me?.achievements || []), ''] })
-  const removeAch = (i: number) => update({ achievements: (me?.achievements || []).filter((_, idx) => idx !== i) })
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa', padding: 16, fontFamily: 'Roboto, sans-serif' }}>
@@ -293,21 +406,29 @@ export default function SpeakerCabinetPage() {
           <label style={labelCss}>Телефон</label>
           <input style={inputCss} type="tel" value={me.phone || ''} onChange={(e) => update({ phone: e.target.value })} />
 
-          <label style={labelCss}>Фото профиля (URL)</label>
-          <input style={inputCss} value={me.photo_url || ''} onChange={(e) => update({ photo_url: e.target.value })} placeholder="https://…" />
-          {me.photo_url && <img src={me.photo_url} alt="" style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 12, marginTop: 8 }} />}
+          <div style={{ marginTop: 14 }}>
+            <ImageCard url={me.photo_url} kind="speaker_photo" label="Фото профиля" />
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <ImageCard url={me.poster_url} kind="speaker_poster" label="Личная афиша" />
+          </div>
 
-          <label style={labelCss}>Афиша (URL)</label>
-          <input style={inputCss} value={me.poster_url || ''} onChange={(e) => update({ poster_url: e.target.value })} placeholder="https://…" />
+          <label style={labelCss}>Ссылка на папку с фото (Я.Диск / Google Drive)</label>
+          <input style={inputCss} value={me.photo_folder_url || ''} onChange={(e) => update({ photo_folder_url: e.target.value })} placeholder="https://…" />
 
-          <div style={labelCss}>Регалии (по одной на строку)</div>
-          {(me.achievements || []).map((a, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-              <input style={{ ...inputCss }} value={a} onChange={(e) => updAch(i, e.target.value)} />
-              <button onClick={() => removeAch(i)} style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5', borderRadius: 8, cursor: 'pointer' }}>×</button>
-            </div>
-          ))}
-          <button onClick={addAch} style={{ padding: '8px 14px', background: '#fff', border: `1px dashed ${PEACH}`, color: DARK, borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>+ добавить регалию</button>
+          <label style={labelCss}>Ссылка на папку с видео (Я.Диск / Google Drive / YouTube)</label>
+          <input style={inputCss} value={me.video_folder_url || ''} onChange={(e) => update({ video_folder_url: e.target.value })} placeholder="https://…" />
+
+          <label style={labelCss}>Регалии — каждая на отдельной строке</label>
+          <textarea
+            style={{ ...inputCss, minHeight: 130, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+            value={achText}
+            onChange={(e) => setAchText(e.target.value)}
+            placeholder={'Спикер ТЕД\nЧемпион мира по дебатам\nАвтор 3 книг…'}
+          />
+          <div style={{ fontSize: 11, color: '#9ab', marginTop: 4 }}>
+            Маркеры (•, *, —) можно не ставить — мы их сами уберём при сохранении.
+          </div>
         </Section>
 
         <Section title="Соцсети и каналы">
@@ -385,6 +506,50 @@ export default function SpeakerCabinetPage() {
         </button>
         {savedAt && <div style={{ textAlign: 'center', fontSize: 12, color: '#5a8b5a', marginBottom: 24 }}>Сохранено в {savedAt.toLocaleTimeString('ru-RU').slice(0, 5)}</div>}
       </div>
+
+      {/* Lightbox — раскрытие фото/афиши на весь экран */}
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.92)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 20, cursor: 'zoom-out',
+          }}
+        >
+          <img
+            src={lightbox}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '95vw', maxHeight: '85vh', objectFit: 'contain', borderRadius: 10, cursor: 'default' }}
+          />
+          <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8 }}>
+            <a
+              href={lightbox}
+              download
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                padding: '8px 14px', background: PEACH, color: DARK, fontWeight: 700,
+                borderRadius: 8, fontSize: 13, textDecoration: 'none',
+              }}
+            >
+              ⬇ Скачать
+            </a>
+            <button
+              type="button"
+              onClick={() => setLightbox(null)}
+              style={{
+                padding: '8px 14px', background: '#fff', color: DARK, fontWeight: 700,
+                borderRadius: 8, fontSize: 13, border: 'none', cursor: 'pointer',
+              }}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

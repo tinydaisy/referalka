@@ -76,6 +76,11 @@ def build_key(
             raise ValueError("speaker_photo требует collaborator_id")
         return f"{base}/speakers/{collaborator_id}/{fname}"
 
+    if kind == "speaker_poster":
+        if not collaborator_id:
+            raise ValueError("speaker_poster требует collaborator_id")
+        return f"{base}/speakers/{collaborator_id}/posters/{fname}"
+
     if kind in ("brand_photo", "brand_logo", "owner_photo"):
         return f"{base}/profile/{kind}/{fname}"
 

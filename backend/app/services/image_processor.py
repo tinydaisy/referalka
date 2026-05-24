@@ -27,6 +27,7 @@ MAX_DIM_BY_KIND = {
     "certificate":       1600,
     "lead_magnet":       1920,
     "speaker_photo":     800,
+    "speaker_poster":   1920,
     "brand_photo":       1200,
     "brand_logo":         600,
     "owner_photo":       1200,

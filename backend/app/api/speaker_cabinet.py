@@ -13,7 +13,7 @@ Endpoints:
 - POST /api/v1/public/speaker-cabinet/me/photo              — заглушка для upload (через основной /uploads)
 """
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional, List
 import asyncpg
@@ -21,6 +21,8 @@ import jwt
 
 from app.config import settings
 from app.database import get_db
+from app.services import r2_storage
+from app.services.image_processor import process_image, is_image
 
 router = APIRouter(prefix="/api/v1/public/speaker-cabinet", tags=["Кабинет спикера"])
 
@@ -182,6 +184,8 @@ class CabinetUpdate(BaseModel):
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
     poster_url: Optional[str] = None
+    photo_folder_url: Optional[str] = None
+    video_folder_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
     vk_url: Optional[str] = None
     max_url: Optional[str] = None
@@ -230,6 +234,7 @@ async def patch_me(
 
     # 1. Профиль (collaborators)
     profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
+                      "photo_folder_url", "video_folder_url",
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]
     upd = {f: getattr(data, f) for f in profile_fields if getattr(data, f) is not None}
@@ -300,3 +305,65 @@ async def patch_me(
         )
 
     return await get_me(session, db)
+
+
+@router.post("/me/upload", summary="Загрузить фото/афишу спикера (cabinet-сессия)")
+async def upload_me(
+    file: UploadFile = File(...),
+    kind: str = Form(...),  # 'speaker_photo' | 'speaker_poster'
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Загрузка фото профиля и афиши через cabinet-JWT (без client-JWT).
+    Файл проходит через тот же image_processor (ресайз) и пишется в R2 по
+    путь `clients/{client_id}/speakers/{collaborator_id}/{photo|poster}/`.
+    """
+    if kind not in ("speaker_photo", "speaker_poster"):
+        raise HTTPException(400, detail="kind must be 'speaker_photo' or 'speaker_poster'")
+    c_id = int(session["c_id"])
+    coll = await db.fetchrow(
+        "SELECT created_by_client_id FROM collaborators WHERE id = $1",
+        c_id,
+    )
+    if not coll or not coll["created_by_client_id"]:
+        raise HTTPException(404, detail="Профиль спикера не найден")
+    client_id = int(coll["created_by_client_id"])
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, detail="Пустой файл")
+    MAX = 50 * 1024 * 1024
+    if len(raw) > MAX:
+        raise HTTPException(413, detail="Файл больше 50 МБ")
+
+    content_type = file.content_type or "application/octet-stream"
+    if not is_image(content_type):
+        raise HTTPException(400, detail="Можно загружать только картинки (jpg/png/webp)")
+    processed, new_ct, new_ext = process_image(raw, kind, content_type)
+    size = len(processed)
+
+    key = r2_storage.build_key(
+        client_id, kind, new_ext,
+        event_id=None, collaborator_id=c_id, poster_type=None,
+    )
+    url = await r2_storage.upload_bytes(key, processed, new_ct)
+
+    async with db.transaction():
+        await db.fetchrow(
+            """INSERT INTO client_files
+                 (client_id, kind, r2_key, url, size_bytes, content_type, collaborator_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id""",
+            client_id, kind, key, url, size, new_ct, c_id,
+        )
+        await db.execute(
+            "UPDATE clients SET storage_used_bytes = storage_used_bytes + $1 WHERE id = $2",
+            size, client_id,
+        )
+
+    # Сразу проставляем url в collaborators.photo_url / poster_url
+    if kind == "speaker_photo":
+        await db.execute("UPDATE collaborators SET photo_url = $1, updated_at = NOW() WHERE id = $2", url, c_id)
+    else:
+        await db.execute("UPDATE collaborators SET poster_url = $1, updated_at = NOW() WHERE id = $2", url, c_id)
+
+    return {"url": url, "kind": kind}
