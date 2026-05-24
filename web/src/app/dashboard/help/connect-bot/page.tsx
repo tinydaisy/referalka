@@ -118,21 +118,61 @@ export default function ConnectBotInstructionPage() {
           </li>
         </ol>
 
+        <p className="text-sm text-gray-700">
+          Шаг 3 настроил Main Mini App — это нужно для коротких ссылок
+          <code className="mx-1">t.me/ваш_бот?startapp=…</code>
+          (например реф-ссылки участников). Также понадобится <strong>short-name <code>pluson</code></strong>
+          через <code>/newapp</code> — это для другого формата ссылок, см. шаг 4 ниже.
+        </p>
+      </Section>
+
+      <Section step="4" title={(<><code>/newapp</code> — short-name <code>pluson</code></>) as any}>
+        <p className="text-sm text-gray-700 mb-3">
+          Регистрируем short-name <code>pluson</code> у бота — это нужно для ссылок вида
+          <code className="mx-1">t.me/ваш_бот/pluson?startapp=…</code>
+          (используются в «Подключение стороннего лендинга» в карточке события: возврат
+          юзера с лендинга GetCourse/Tilda обратно в Mini App). <strong>Без этого шага</strong>
+          такие ссылки откроют пустой чат бота, а не Mini App.
+        </p>
+
+        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
+          <li>В @BotFather отправьте команду <code>/newapp</code></li>
+          <li>Выберите вашего бота из списка</li>
+          <li>
+            <strong>Title</strong> — название Mini App (пример: <code>iViSiON: ПЛЮСОН</code>)
+          </li>
+          <li>
+            <strong>Description</strong> — короткое описание (1–2 строки)
+          </li>
+          <li>
+            <strong>Photo (640×360)</strong> — иконка или <code>/empty</code> чтобы пропустить
+          </li>
+          <li>
+            <strong>GIF demo</strong> — <code>/empty</code> (пропустить)
+          </li>
+          <li>
+            <strong>Web App URL</strong> — вставьте ту же ссылку Mini App:
+            <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
+          </li>
+          <li>
+            <strong>Short name</strong> — введите ровно <code>pluson</code> (одна «с», всё строчными)
+          </li>
+        </ol>
+
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900 mb-3">
-          💡 Не путать с <code>/newapp</code> — это старый путь, он создаёт <strong>short-named</strong> Mini App
-          (URL типа <code>t.me/bot/myapp</code>) и там как раз есть title/description/photo.
-          Для iViSiON: ПЛЮСОНа short-name не нужен — используем <strong>Main Mini App</strong> через Bot Settings.
+          💡 BotFather подтвердит <em>«Done! Web app …»</em> и выдаст готовую ссылку
+          <code className="mx-1">https://t.me/ваш_бот/pluson</code>. После этого ссылки возврата
+          в дашборде (карточка события → «Подключение стороннего лендинга») заработают —
+          юзер с success-страницы лендинга вернётся напрямую в Mini App, а не в чат бота.
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
-          🧹 <strong>Если</strong> в @BotFather <code>/myapps</code> у вас есть старые Mini App —
-          удалите их (они были созданы через <code>/newapp</code> и могут конфликтовать с Main Mini App):
-          выбрать старый Mini App → <strong>«Delete App»</strong> → подтвердить именем приложения.
-          Если в <code>/myapps</code> пусто — ничего делать не нужно.
+          🧹 Если в <code>/myapps</code> у вас уже есть <strong>другой</strong> Mini App с short-name —
+          удалите его, чтобы не было конфликта (<strong>«Delete App»</strong> → подтвердить именем приложения).
         </div>
       </Section>
 
-      <Section step="4" title="Настроить Menu Button">
+      <Section step="5" title="Настроить Menu Button">
         <p className="text-sm text-gray-700 mb-3">
           Чтобы внизу чата с ботом появилась большая кнопка-вход вместо обычного <code>/</code>:
         </p>
@@ -147,7 +187,7 @@ export default function ConnectBotInstructionPage() {
         </ol>
       </Section>
 
-      <Section step="5" title="Прописать домен бота">
+      <Section step="6" title="Прописать домен бота">
         <p className="text-sm text-gray-700 mb-3">
           Это нужно для безопасной работы Mini App и Telegram Login:
         </p>
