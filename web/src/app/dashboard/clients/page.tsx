@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
+import { useMe } from '@/hooks/useMe'
 
 interface Identity {
   platform_slug: string
@@ -205,6 +206,7 @@ function syncFiltersToUrl(filters: ContactFilters, search: string, showUnsubscri
 }
 
 export default function ContactsPage() {
+  const { isAssistant } = useMe()
   // Инициализируем из URL — для deep-link с лид-магнитов и для возврата к фильтру.
   const initial = typeof window !== 'undefined' ? parseFiltersFromUrl() : { filters: EMPTY_FILTERS, search: '', showUnsubscribed: false }
   const [search, setSearch] = useState(initial.search)
@@ -486,6 +488,7 @@ export default function ContactsPage() {
               {selected.is_unsubscribed && (
                 <span className="ml-auto text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full shrink-0">Отписан</span>
               )}
+              {!isAssistant && (
               <button
                 onClick={async () => {
                   if (selected.collaborator) {
@@ -507,6 +510,7 @@ export default function ContactsPage() {
               >
                 <Trash2 size={16} />
               </button>
+              )}
             </div>
 
             {/* Если контакт — также коллаборатор, показываем ссылку */}

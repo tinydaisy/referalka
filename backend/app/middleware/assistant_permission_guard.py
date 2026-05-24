@@ -1,0 +1,108 @@
+"""
+Middleware: ограничивает действия пользователя с role='assistant'.
+
+Семантика прав ассистента (фиксировано 2026-05-24):
+  ✅ Контакты, коллабораторы, события, участники — читать + править (PATCH/POST), не удалять
+  ✅ Рассылки (общие и в событиях) — полный доступ
+  ✅ Mini App (визитка, бренд, основатель, продукты) — полный доступ
+  ✅ Реф-программа событий — полный доступ
+  ❌ Любые DELETE — запрещены (всё удаление только владельцем)
+  ❌ Каналы (/api/v1/channels/*) — нет доступа даже на чтение
+  ❌ Настройки клиента (/api/v1/auth/me, change-password, regenerate-integration-token,
+     ассистенты, лимиты, биллинг) — нет доступа
+  ❌ Лид-магниты — только GET (без правки/создания/удаления)
+  ❌ Будущие денежные модули (/api/v1/billing/*, /api/v1/payments/*) — нет доступа
+
+Что пропускается без проверки:
+  - GET, OPTIONS, HEAD везде кроме явных «закрытых» путей (channels, settings-эндпоинты)
+  - /api/v1/auth/login, /auth/me (читать профиль владельца можно — фронт нужен)
+  - /api/v1/public/*, /api/v1/integrations/* — публичные webhook'и
+"""
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from jose import JWTError, jwt
+from app.config import settings
+
+
+# Полностью закрытые префиксы — ни GET, ни write.
+FORBIDDEN_PREFIXES = (
+    "/api/v1/channels",                       # боты-каналы клиента
+    "/api/v1/clients/me/assistant",           # ассистент не управляет сам собой
+    "/api/v1/billing",                        # будущие платежи
+    "/api/v1/payments",                       # будущие платежи
+    "/api/v1/admin",                          # админка отдельно
+)
+
+# Только GET разрешён, write-методы → 403.
+READONLY_PREFIXES = (
+    "/api/v1/lead-magnets",                   # ассистент только смотрит и копирует ссылки
+    "/api/v1/lead-magnet-packages",
+)
+
+# Write-эндпоинты «настроек» — ассистенту запрещены полностью.
+FORBIDDEN_WRITE_PATHS = (
+    "/api/v1/auth/me",                              # PATCH профиля владельца
+    "/api/v1/auth/change-password",                # смена пароля владельца
+    "/api/v1/auth/me/regenerate-integration-token",
+    "/api/v1/auth/regenerate-integration-token",
+)
+FORBIDDEN_WRITE_PREFIXES = (
+    "/api/v1/clients/me/legal",                    # юр-данные клиента (миграция 099)
+)
+
+WRITE_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
+
+
+async def assistant_permission_guard_middleware(request: Request, call_next):
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        return await call_next(request)
+
+    token = auth_header.split(" ", 1)[1].strip()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except JWTError:
+        return await call_next(request)
+
+    if payload.get("role") != "assistant":
+        return await call_next(request)
+
+    path = request.url.path
+    method = request.method.upper()
+
+    # OPTIONS — пропустим для CORS preflight всегда.
+    if method == "OPTIONS":
+        return await call_next(request)
+
+    # 1) Полный запрет по префиксу (любой метод).
+    if any(path.startswith(p) for p in FORBIDDEN_PREFIXES):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Этот раздел доступен только владельцу кабинета."},
+        )
+
+    # 2) Read-only префиксы — запрещаем только write-методы.
+    if any(path.startswith(p) for p in READONLY_PREFIXES) and method in WRITE_METHODS:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Ассистент может только смотреть этот раздел."},
+        )
+
+    # 3) Точечные запрещённые write-эндпоинты.
+    if method in WRITE_METHODS:
+        if path in FORBIDDEN_WRITE_PATHS or any(
+            path.startswith(p) for p in FORBIDDEN_WRITE_PREFIXES
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Этот раздел доступен только владельцу кабинета."},
+            )
+
+    # 4) Общий запрет на DELETE.
+    if method == "DELETE":
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Ассистент не может удалять данные."},
+        )
+
+    return await call_next(request)

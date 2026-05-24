@@ -560,6 +560,16 @@ export const api = {
     deleteWinner: (eventId: number, winnerId: number) =>
       request(`/api/v1/events/${eventId}/raffle/winners/${winnerId}`, { method: 'DELETE' }),
   },
+  assistant: {
+    get:           () => request('/api/v1/clients/me/assistant'),
+    getPassword:   () => request('/api/v1/clients/me/assistant/password'),
+    create:        (email: string) =>
+      request('/api/v1/clients/me/assistant', { method: 'POST', body: JSON.stringify({ email }) }),
+    resetPassword: () =>
+      request('/api/v1/clients/me/assistant/reset-password', { method: 'POST' }),
+    delete:        () =>
+      request('/api/v1/clients/me/assistant', { method: 'DELETE' }),
+  },
   admin: {
     stats: () => request('/api/v1/admin/stats'),
     clients: (params?: string) => request(`/api/v1/admin/clients${params ? '?' + params : ''}`),

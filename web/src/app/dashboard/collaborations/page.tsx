@@ -6,6 +6,7 @@ import { Plus, Search, Users, ChevronRight, Trash2, Upload, X, FileJson, CheckCi
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import { Spinner } from '@/components/Spinner'
+import { useMe } from '@/hooks/useMe'
 
 const JSON_EXAMPLE = `{
   "collaborations": [
@@ -315,6 +316,7 @@ function AddFromContactModal({
 
 export default function CollaborationsPage() {
   const { t } = useLang()
+  const { isAssistant } = useMe()
   const tc = t.collaborations
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -429,13 +431,15 @@ export default function CollaborationsPage() {
                   <Link href={`/dashboard/collaborations/${item.id}`} className="font-semibold text-gray-900 truncate hover:text-brand transition-colors block">{item.name}</Link>
                   {item.title && <p className="text-sm text-gray-500 truncate">{item.title}</p>}
                 </div>
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => handleDelete(item.id, item.name)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                    title={t.common.delete}>
-                    <Trash2 size={15} />
-                  </button>
-                </div>
+                {!isAssistant && (
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => handleDelete(item.id, item.name)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      title={t.common.delete}>
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                )}
                 <Link href={`/dashboard/collaborations/${item.id}`} className="flex items-center text-gray-400 hover:text-brand transition-colors">
                   <ChevronRight size={18} />
                 </Link>

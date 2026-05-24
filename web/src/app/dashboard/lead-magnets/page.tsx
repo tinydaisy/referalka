@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users } from 'lucide-react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
+import { useMe } from '@/hooks/useMe'
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i
 function inferMediaType(url: string | null | undefined): 'photo' | 'video' | null {
@@ -182,6 +183,7 @@ function LandedCounter({ reached, received, href }: { reached: number; received:
 }
 
 function MagnetsList() {
+  const { isAssistant } = useMe()
   const [items, setItems] = useState<LeadMagnet[]>([])
   const [counts, setCounts] = useState<Record<number, CountRow>>({})
   const [loading, setLoading] = useState(true)
@@ -218,22 +220,26 @@ function MagnetsList() {
 
   return (
     <div>
-      <div className="flex justify-end mb-4">
-        <button
-          onClick={() => setCreating(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
-          style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
-        >
-          <Plus size={18} /> Добавить
-        </button>
-      </div>
+      {!isAssistant && (
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+          >
+            <Plus size={18} /> Добавить
+          </button>
+        </div>
+      )}
 
       {error && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
 
       {loading ? (
         <div className="text-gray-400 text-sm">Загрузка…</div>
       ) : items.length === 0 ? (
-        <EmptyState icon={Gift} text="У вас пока нет лид-магнитов" onCreate={() => setCreating(true)} />
+        isAssistant
+          ? <div className="text-gray-400 text-sm">Лид-магнитов пока нет.</div>
+          : <EmptyState icon={Gift} text="У вас пока нет лид-магнитов" onCreate={() => setCreating(true)} />
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
           {items.map(lm => (
@@ -263,14 +269,18 @@ function MagnetsList() {
                         className="p-2 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
                   <BarChart3 size={16} />
                 </button>
-                <button onClick={() => setEditing(lm)} title="Редактировать"
-                        className="p-2 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100">
-                  <Pencil size={16} />
-                </button>
-                <button onClick={() => handleDelete(lm.id)} title="Удалить"
-                        className="p-2 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
-                  <Trash2 size={16} />
-                </button>
+                {!isAssistant && (
+                  <>
+                    <button onClick={() => setEditing(lm)} title="Редактировать"
+                            className="p-2 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100">
+                      <Pencil size={16} />
+                    </button>
+                    <button onClick={() => handleDelete(lm.id)} title="Удалить"
+                            className="p-2 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
+                      <Trash2 size={16} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -339,6 +349,7 @@ function LeadMagnetForm({ initial, onClose, onSaved }: {
 // ============== Пакеты ==============
 
 function PackagesList() {
+  const { isAssistant } = useMe()
   const [items, setItems] = useState<Package[]>([])
   const [magnets, setMagnets] = useState<LeadMagnet[]>([])
   const [counts, setCounts] = useState<Record<number, CountRow>>({})
@@ -372,22 +383,26 @@ function PackagesList() {
 
   return (
     <div>
-      <div className="flex justify-end mb-4">
-        <button
-          onClick={() => setCreating(true)}
-          disabled={magnets.length === 0}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium disabled:opacity-50"
-          style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
-          title={magnets.length === 0 ? 'Сначала создайте хотя бы один лид-магнит' : ''}
-        >
-          <Plus size={18} /> Создать пакет
-        </button>
-      </div>
+      {!isAssistant && (
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={() => setCreating(true)}
+            disabled={magnets.length === 0}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium disabled:opacity-50"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+            title={magnets.length === 0 ? 'Сначала создайте хотя бы один лид-магнит' : ''}
+          >
+            <Plus size={18} /> Создать пакет
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-gray-400 text-sm">Загрузка…</div>
       ) : items.length === 0 ? (
-        <EmptyState icon={Package} text="У вас пока нет пакетов" onCreate={() => setCreating(true)} />
+        isAssistant
+          ? <div className="text-gray-400 text-sm">Пакетов пока нет.</div>
+          : <EmptyState icon={Package} text="У вас пока нет пакетов" onCreate={() => setCreating(true)} />
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 divide-y">
           {items.map(pkg => (
@@ -421,14 +436,18 @@ function PackagesList() {
                         className="p-2 rounded text-gray-400 hover:text-[#25455D] hover:bg-gray-100">
                   <BarChart3 size={16} />
                 </button>
-                <button onClick={() => setEditing(pkg)} title="Редактировать"
-                        className="p-2 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100">
-                  <Pencil size={16} />
-                </button>
-                <button onClick={() => handleDelete(pkg.id)} title="Удалить"
-                        className="p-2 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
-                  <Trash2 size={16} />
-                </button>
+                {!isAssistant && (
+                  <>
+                    <button onClick={() => setEditing(pkg)} title="Редактировать"
+                            className="p-2 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100">
+                      <Pencil size={16} />
+                    </button>
+                    <button onClick={() => handleDelete(pkg.id)} title="Удалить"
+                            className="p-2 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
+                      <Trash2 size={16} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}

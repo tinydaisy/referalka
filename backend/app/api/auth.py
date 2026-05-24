@@ -128,6 +128,40 @@ async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
             }
         }
 
+    # Пробуем залогинить как ассистента клиента (миграция 105).
+    # JWT для ассистента: sub = client_id владельца, role = 'assistant'.
+    asst = await db.fetchrow(
+        """SELECT a.id, a.client_id, a.email, a.password_hash,
+                  c.name AS client_name, c.email AS owner_email, c.is_active AS client_active
+             FROM client_assistants a
+             JOIN clients c ON c.id = a.client_id
+            WHERE LOWER(a.email) = LOWER($1)""",
+        data.email
+    )
+    if asst and verify_password(data.password, asst["password_hash"]):
+        if not asst["client_active"]:
+            raise HTTPException(status_code=403, detail="Кабинет клиента заблокирован. Напишите в поддержку.")
+        await db.execute(
+            "UPDATE client_assistants SET last_login_at = NOW() WHERE id = $1",
+            asst["id"]
+        )
+        token = create_token({
+            "sub":          str(asst["client_id"]),
+            "email":        asst["email"],
+            "role":         "assistant",
+            "assistant_id": asst["id"],
+        })
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "client": {
+                "id":    asst["client_id"],
+                "name":  asst["client_name"],
+                "email": asst["owner_email"],
+                "role":  "assistant",
+            }
+        }
+
     # Пробуем залогинить как администратора
     admin = await db.fetchrow(
         "SELECT id, name, email, password_hash, is_superadmin FROM admins WHERE email = $1",
@@ -213,6 +247,14 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     out = dict(client)
     out["features"] = features
     out["subscription"] = subscription
+    # Роль текущего токена: 'owner' для самого клиента, 'assistant' для ассистента
+    # (миграция 105). Используется фронтом для скрытия пунктов меню и DELETE-кнопок.
+    out["role"] = "assistant" if payload.get("role") == "assistant" else "owner"
+    if out["role"] == "assistant":
+        # Подменяем email/имя на email самого ассистента, чтобы в шапке
+        # отображался он, а не владелец кабинета.
+        out["email"] = payload.get("email") or out.get("email")
+        out["assistant_id"] = payload.get("assistant_id")
     # VK App ID подключённого Mini App (если есть) — фронт PublicLinks
     # подставляет его в реф-ссылку https://vk.com/app{ID}#ref_pg{slug}.
     # Без него ссылка вела бы на системный 54592404, а не на клиентский.
