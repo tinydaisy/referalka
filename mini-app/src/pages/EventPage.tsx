@@ -281,15 +281,23 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // поэтому здесь дублируем логику. Используется window.location.href
   // (а не Telegram.WebApp.openLink), чтобы iOS не блокировал как popup.
   // См. documentation/MINI-APP-WEBVIEW-REDIRECT.md
+  //
+  // ⚠️ Если юзер пришёл с `_reg`-флагом (возврат с лендинга после регистрации),
+  // редирект НЕ делаем — Mini App в параллельном useEffect выше вызывает
+  // registerParticipant. Без этой проверки была race condition: пока
+  // registerParticipant летит, второй useEffect видит registered=false и
+  // уносит юзера обратно на сторонний лендинг. Юзер видит «кольцо» и статус
+  // регистрации не успевает закрепиться.
   useEffect(() => {
     if (!event) return
     if (loading) return
     if (registered || ended) return
+    if (regFromLanding) return  // ← возврат с лендинга: ждём registerParticipant
     const landingUrl: string = (event.landing_url || '').trim()
     if (!landingUrl) return
     redirectToExternalLanding(landingUrl)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event, loading, registered, ended])
+  }, [event, loading, registered, ended, regFromLanding])
 
   // Стандартный набор GET-параметров для ЛЮБОГО внешнего URL клиента
   // (events.landing_url, events.vip_url, partner_landing_url):
