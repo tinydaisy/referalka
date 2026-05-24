@@ -58,22 +58,28 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
 
   // Прямая ссылка возврата для платформы. `null` — платформа недоступна для
   // этого клиента (нет своего канала, и системного нет/не используется).
+  //
+  // ⚠️ БЕЗ суффикса `_reg` (2026-05-25). Раньше мы добавляли его, чтобы Mini App
+  // знал что юзер вернулся с лендинга и сам зарегистрировал. Но `_reg` ломал
+  // ссылку в Telegram-клиенте (открывал чат вместо Mini App). Регистрацию
+  // делает webhook GetCourse → бэк создаёт participant до возврата юзера.
+  // Mini App просто откроется и увидит is_registered=true в БД.
   function urlFor(p: Platform): string | null {
     if (!slugStr) return null
     if (p === 'telegram') {
       const handle = (handles.telegram || PLUSON_TG_HANDLE).replace(/^@/, '')
-      return `https://t.me/${handle}/${TG_SHORT_NAME}?startapp=ref_pg${encodeURIComponent(slugStr)}_reg`
+      return `https://t.me/${handle}/${TG_SHORT_NAME}?startapp=ref_pg${encodeURIComponent(slugStr)}`
     }
     if (p === 'vk') {
       // VK работает только при собственном Mini App клиента — системный
       // ПЛЮСОНовский VK не используется для чужих клиентов (нет права писать).
       if (!handles.vk || !vkAppId) return null
-      return `https://vk.com/app${vkAppId}#ref_pg${encodeURIComponent(slugStr)}_reg`
+      return `https://vk.com/app${vkAppId}#ref_pg${encodeURIComponent(slugStr)}`
     }
     if (p === 'max') {
       const handle = (handles.max || '').replace(/^@/, '')
       if (!handle) return null
-      return `https://max.ru/${handle}?startapp=ref_pg${encodeURIComponent(slugStr)}_reg`
+      return `https://max.ru/${handle}?startapp=ref_pg${encodeURIComponent(slugStr)}`
     }
     return null
   }
