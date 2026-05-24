@@ -59,6 +59,7 @@ type SpeakerMe = {
   max_locked: boolean
   needs_channel_check: boolean
   bot_in_channel: boolean | null
+  ref_code: string | null
   topics: string[]
   gift_after_speech_title: string | null
   gift_after_speech_url: string | null
@@ -91,6 +92,7 @@ export default function SpeakerCabinetPage() {
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; text: string; bot_handle?: string } | null>(null)
   const [verifying, setVerifying] = useState(false)
+  const [refCopied, setRefCopied] = useState(false)
 
   // Восстановить токен из localStorage
   useEffect(() => {
@@ -417,12 +419,53 @@ export default function SpeakerCabinetPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa', padding: 16, fontFamily: 'Roboto, sans-serif' }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        <div style={{ background: `linear-gradient(45deg, ${DARK}, #0a1520)`, color: '#fff', padding: 20, borderRadius: 14, marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 13, opacity: 0.7 }}>«{me.event_title}»</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{me.name || 'Спикер'}</div>
+        <div style={{ background: `linear-gradient(45deg, ${DARK}, #0a1520)`, color: '#fff', padding: 20, borderRadius: 14, marginBottom: 18 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: me.ref_code ? 14 : 0 }}>
+            <div>
+              <div style={{ fontSize: 13, opacity: 0.7 }}>«{me.event_title}»</div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{me.name || 'Спикер'}</div>
+            </div>
+            <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Выйти</button>
           </div>
-          <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Выйти</button>
+
+          {me.ref_code && (() => {
+            const refUrl = `https://pluson.ru/l/${me.event_slug}?pid=${me.ref_code}`
+            return (
+              <div style={{ background: 'rgba(255,255,255,0.08)', padding: 12, borderRadius: 10 }}>
+                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                  Ваша партнёрская ссылка
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <code style={{
+                    flex: 1, fontSize: 13, color: PEACH, background: 'transparent',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    fontFamily: 'monospace',
+                  }}>{refUrl}</code>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(refUrl)
+                        setRefCopied(true)
+                        setTimeout(() => setRefCopied(false), 2500)
+                      } catch {}
+                    }}
+                    title="Скопировать ссылку"
+                    style={{
+                      background: PEACH, color: DARK, fontWeight: 700,
+                      padding: '6px 12px', borderRadius: 8, border: 'none',
+                      cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {refCopied ? '✓ Скопировано' : '📋 Копировать'}
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.6, marginTop: 6, lineHeight: 1.4 }}>
+                  Делитесь этой ссылкой — все, кто перешёл по ней и зарегистрировался, засчитаются как ваши приглашённые.
+                </div>
+              </div>
+            )
+          })()}
         </div>
 
         <Section title="Профиль">

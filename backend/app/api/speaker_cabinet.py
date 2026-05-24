@@ -153,7 +153,7 @@ async def get_me(
                   (pu_tg.id IS NOT NULL)  AS tg_locked,
                   (pu_vk.id IS NOT NULL)  AS vk_locked,
                   (pu_max.id IS NOT NULL) AS max_locked,
-                  ctc.email, ctc.phone,
+                  ctc.email, ctc.phone, ctc.ref_code,
                   e.title AS event_title, e.slug AS event_slug,
                   ers.is_enabled AS raffle_enabled,
                   cc.subscription_mode
