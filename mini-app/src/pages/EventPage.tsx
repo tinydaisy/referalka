@@ -274,21 +274,22 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refOn, raffleOn, state, event])
 
-  // Auto-redirect на сторонний лендинг ОТКЛЮЧЁН (2026-05-25).
-  // Раньше Mini App автоматически уводил юзера на events.landing_url ВНУТРИ
-  // webview — но тогда кнопка возврата (t.me/.../pluson?startapp=...) на
-  // success-странице лендинга не работала: Telegram перехватывает universal
-  // link изнутри webview и открывает чат, а не Mini App.
-  //
-  // Теперь поведение:
-  // 1. Mini App показывает наш встроенный LandingTab.
-  // 2. Юзер кликает «Хочу участвовать» (это user-gesture).
-  // 3. handleWantParticipate → redirectToExternalLanding → getPlatform().openExternal
-  //    → сторонний лендинг открывается в Safari/Chrome, ВНЕ Telegram.
-  // 4. Юзер регится в Safari, success-страница, кнопка «Телеграм» →
-  //    t.me/{bot}/pluson?startapp=ref_pg{slug}_reg → Mini App открывается
-  //    полноценно (universal link работает в Safari) + requestWriteAccess
-  //    (подписка на бот) + _reg-флаг (авто-регистрация) + welcome.
+  // Авто-редирект на сторонний лендинг клиента (миграция 057).
+  // Inline-скрипт в mini-app/index.html делает редирект ДО React при прямом
+  // заходе по ссылке `?startapp=ref_pgSLUG`. Но при ВНУТРЕННЕЙ навигации SPA
+  // (клик по событию в Хабе организатора) index.html заново не загружается,
+  // поэтому здесь дублируем логику. Используется window.location.href
+  // (а не Telegram.WebApp.openLink), чтобы iOS не блокировал как popup.
+  // См. documentation/MINI-APP-WEBVIEW-REDIRECT.md
+  useEffect(() => {
+    if (!event) return
+    if (loading) return
+    if (registered || ended) return
+    const landingUrl: string = (event.landing_url || '').trim()
+    if (!landingUrl) return
+    redirectToExternalLanding(landingUrl)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event, loading, registered, ended])
 
   // Стандартный набор GET-параметров для ЛЮБОГО внешнего URL клиента
   // (events.landing_url, events.vip_url, partner_landing_url):
@@ -308,10 +309,6 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
 
   // Партнёрский параметр клиента + полный набор полей контакта — берём
   // готовый URL с бэка (/landing-redirect), не собираем его на фронте.
-  // Открываем ВО ВНЕШНЕМ браузере (Safari/Chrome), не в webview Telegram,
-  // чтобы кнопка возврата `t.me/.../pluson?startapp=...` на success-странице
-  // лендинга работала как universal link. Вызов идёт из handleWantParticipate
-  // (клик «Хочу участвовать») — это user-gesture, iOS не блокирует.
   async function redirectToExternalLanding(landingUrl: string) {
     const { getPlatform } = await import('../platform')
     let fullUrl = landingUrl
@@ -326,7 +323,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
         if (data?.redirect_url) fullUrl = data.redirect_url
       }
     } catch { /* fallback — открываем как есть */ }
-    getPlatform().openExternal(fullUrl)
+    getPlatform().redirectTo(fullUrl)
   }
 
   // VIP-тариф — открывается во ВНЕШНЕМ браузере (платёжные страницы плохо
