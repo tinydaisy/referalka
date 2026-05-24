@@ -9,25 +9,24 @@ interface Props {
   onChange: (v: string) => void
 }
 
-// Возврат после регистрации на стороннем лендинге — по-платформенно.
-//
-// ⚠️ TG идёт ТОЛЬКО через pluson.ru/r/{slug}, не через прямой t.me/.../pluson?startapp=.
-// Причина — типовой сценарий: участник открыл лендинг ИЗНУТРИ Mini App webview
-// (через events.landing_url), зарегался, кликнул кнопку возврата. Если кнопка
-// прямой t.me — Telegram перехватывает universal link и открывает ЧАТ, не Mini
-// App (нельзя открыть второй Mini App поверх текущего webview). Промежуточная
-// страница /r/{slug} делает window.location.replace в ТОМ ЖЕ webview → Mini App
-// продолжается, юзер не выпадает в чат. Если SDK недоступен (обычный браузер) —
-// /r/{slug} сама фолбэчится на t.me/.../pluson?startapp=..._reg.
-// (См. memory: feedback_landing_return_dont_break.md.)
-//
-// VK / MAX — прямые ссылки. Промежуточной страницы под них нет, и сценарий
-// «лендинг внутри Mini App» решается по-другому (VK Bridge / MAX SDK).
-//
-//   TG  → pluson.ru/r/{slug}               (universal — работает в обоих контекстах)
+// Возврат после регистрации на стороннем лендинге — теперь по-платформенно.
+// Клиент копирует ту ссылку, через которую привлекает участников:
+//   TG  → t.me/{bot}/pluson?startapp=ref_pg{slug}_reg
+//         (для VIP — свой бот, для остальных — @pluson_bot; в обоих случаях
+//          short-name «pluson» уникален per-бот). Промежуточная страница
+//          /r/{slug} больше как универсал не нужна — её можно оставить как
+//          legacy fallback, но в UI выводим прямые ссылки на платформу.
 //   VK  → vk.com/app{vk_app_id}#ref_pg{slug}_reg
+//         (только если у клиента подключено собственное VK-сообщество с
+//          Mini App — системный VK ПЛЮСОНа для чужих клиентов не используется).
 //   MAX → max.ru/{handle}?startapp=ref_pg{slug}_reg
+//         (только если у клиента свой MAX-бот).
+//
+// Mini App при загрузке парсит `ref_pg{slug}_reg` → ставит is_registered=true и
+// открывает «Интро» (welcomed_at IS NULL). Идентично потоку TG, что был раньше.
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
+const PLUSON_TG_HANDLE = 'pluson_bot'
+const TG_SHORT_NAME = 'pluson'
 
 type Platform = 'telegram' | 'vk' | 'max'
 const PLATFORM_LABEL: Record<Platform, string> = {
@@ -57,15 +56,13 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
   }
   const vkAppId = me?.vk_app_id ? Number(me.vk_app_id) : null
 
-  // Ссылка возврата для платформы. `null` — платформа недоступна для
+  // Прямая ссылка возврата для платформы. `null` — платформа недоступна для
   // этого клиента (нет своего канала, и системного нет/не используется).
   function urlFor(p: Platform): string | null {
     if (!slugStr) return null
     if (p === 'telegram') {
-      // ВАЖНО: через нашу промежуточную /r/{slug}, не через прямой t.me.
-      // /r/{slug} остаётся в том же webview (если лендинг открыт внутри Mini App)
-      // и фолбэчится на t.me/.../pluson?startapp=..._reg в обычном браузере.
-      return `${APP_URL}/r/${encodeURIComponent(slugStr)}`
+      const handle = (handles.telegram || PLUSON_TG_HANDLE).replace(/^@/, '')
+      return `https://t.me/${handle}/${TG_SHORT_NAME}?startapp=ref_pg${encodeURIComponent(slugStr)}_reg`
     }
     if (p === 'vk') {
       // VK работает только при собственном Mini App клиента — системный
@@ -185,6 +182,17 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
             </div>
           )}
 
+          <details className="mt-3 group">
+            <summary className="text-[11px] text-amber-900/70 cursor-pointer hover:text-amber-900 select-none">
+              Старая универсальная ссылка ({APP_URL}/r/{slug || '...'})
+            </summary>
+            <p className="text-[10px] text-amber-800/80 mt-1.5 leading-relaxed">
+              Раньше клиенты ставили в редирект единственную ссылку
+              <code className="bg-white px-1 rounded mx-0.5">{APP_URL}/r/{slug || '...'}</code>
+              — она работала только в Telegram. Если у вас уже настроен этот URL —
+              он продолжит работать. Для VK и MAX используйте прямые ссылки выше.
+            </p>
+          </details>
         </div>
       )}
     </div>
