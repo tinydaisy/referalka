@@ -810,7 +810,7 @@ async def get_participant_in_event(
     prefill_dict = dict(prefill) if prefill else None
 
     row = await db.fetchrow(
-        """SELECT ep.id, ep.event_id, c.ref_code, ep.is_registered, ep.is_in_chat,
+        """SELECT ep.id, ep.event_id, ep.contact_id, c.ref_code, ep.is_registered, ep.is_in_chat,
                   ep.registered_at, ep.activated_at, ep.welcomed_at,
                   e.title AS event_title, e.module_slug
              FROM event_participants ep

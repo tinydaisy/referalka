@@ -30,7 +30,11 @@ from app.database import get_db, get_pool
 from app.auth import get_current_client
 from app.services.event_welcome import send_event_open_message
 from app.services.social_links import normalize_social_links, normalize_telegram_link, telegram_api_id
-from app.services.external_landing import resolve_external_ref_param, build_external_landing_url
+from app.services.external_landing import (
+    resolve_external_ref_param,
+    build_external_landing_url,
+    resolve_contact_id_by_platform_user,
+)
 from app.config import settings
 
 
@@ -309,7 +313,7 @@ async def public_event_landing_redirect(
     background_tasks: BackgroundTasks,
     tg_id: Optional[int] = None,
     vk_id: Optional[int] = None,
-    platform: Optional[str] = None,
+    platform: Optional[str] = None,  # неиспользуется, оставлен для совместимости со старыми клиентами
     pid: Optional[str] = None,
     utm_source: Optional[str] = None,
     db: asyncpg.Connection = Depends(get_db),
@@ -347,12 +351,25 @@ async def public_event_landing_redirect(
             return {}
 
     external_ref_param = await resolve_external_ref_param(db, row["client_id"], pid)
+
+    # Резолвим contact_id из tg_id/vk_id, чтобы подсунуть в URL стороннего лендинга
+    # одно универсальное поле (контакт уже создан при event_start; для нового
+    # человека contact_id будет None и параметр просто не попадёт в URL — webhook
+    # сделает fallback по email/phone).
+    contact_id_out: Optional[int] = None
+    if tg_id is not None:
+        contact_id_out = await resolve_contact_id_by_platform_user(
+            db, client_id=row["client_id"], platform_slug='telegram', platform_user_id=str(tg_id),
+        )
+    elif vk_id is not None:
+        contact_id_out = await resolve_contact_id_by_platform_user(
+            db, client_id=row["client_id"], platform_slug='vk', platform_user_id=str(vk_id),
+        )
+
     redirect_url = build_external_landing_url(
         landing_url,
         event_slug=slug,
-        tg_id=tg_id,
-        vk_id=vk_id,
-        platform=platform,
+        contact_id=contact_id_out,
         pid=pid,
         utm_source=utm_source,
         external_ref_param=external_ref_param,

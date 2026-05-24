@@ -16,7 +16,13 @@ from app.services.contact_merge import (
     find_or_create_contact,
     name_from_parts,
     resolve_ref_code,
+    normalize_phone,
 )
+
+
+def _normalize_phone_for_update(phone: Optional[str]) -> Optional[str]:
+    """Возвращает нормализованный phone или None для пустых значений."""
+    return normalize_phone(phone)
 
 router = APIRouter(prefix="/integrations", tags=["Интеграции"])
 
@@ -62,21 +68,22 @@ async def _authorize(
 
 class SalebotRegisterRequest(BaseModel):
     client_id: int                          # зашит в настройках Salebot
-    platform: str = "telegram"             # 'telegram' | 'vk' | 'max'
-    platform_user_id: Optional[str] = None # tg_id / vk_id / max_id — строкой. Опционально для веб-интеграций (GetCourse), где известен только email/phone
+    platform: str = "telegram"             # 'telegram' | 'vk' | 'max' (legacy, для Salebot)
+    platform_user_id: Optional[str] = None # tg_id / vk_id / max_id (legacy, для Salebot). Опционально.
+    contact_id: Optional[int] = None       # ID контакта в ПЛЮСОНе. Приоритетный способ идентификации для GetCourse/Tilda — Mini App подсовывает в URL стороннего лендинга, форма возвращает через скрытое поле.
     username: Optional[str] = None
-    telegram_username: Optional[str] = None # TG-ник из формы (для поиска существующего контакта когда tg_id нет)
+    telegram_username: Optional[str] = None # TG-ник из формы (fallback-поиск контакта когда нет ни contact_id, ни platform_user_id)
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     salebot_id: Optional[str] = None
-    event_id: Optional[str] = None         # зашит в настройках Salebot (опционально, строка или число)
+    event_id: Optional[str] = None
     is_registered: Union[str, int, bool] = False
     is_in_chat: Union[str, int, bool] = False
     partner_tg_id: Optional[str] = None    # tg_id рефовода — fallback (старая логика)
     pid: Optional[str] = None              # ref_code партнёра (приоритетнее partner_tg_id)
-    external_ref_param: Optional[str] = None # партнёрский параметр внешней платформы клиента (например "gcpc=fdd97") — обновляет contacts.external_ref_param
+    external_ref_param: Optional[str] = None # партнёрский код внешней платформы клиента (например "gcpc=fdd97") — обновляет contacts.external_ref_param
 
     @validator('is_registered', 'is_in_chat', pre=True)
     def parse_bool(cls, v):
@@ -117,9 +124,47 @@ async def salebot_register(
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
 
-    # Создаём/находим контакт + идентичность (автомердж по email/phone/tg_username)
+    # Создаём/находим контакт. Приоритет идентификации:
+    # 1) contact_id (GetCourse/Tilda — Mini App подсунул ID в URL → скрытое поле формы)
+    # 2) platform_user_id + platform (Salebot — старая логика)
+    # 3) email / phone / telegram_username (fallback — find_or_create)
     pluson_id: Optional[int] = None
-    if data.platform_user_id:
+    is_new_user = False
+    if data.contact_id is not None:
+        # Прямой путь: контакт уже известен. Проверяем что он принадлежит этому
+        # клиенту, разруливаем merged_into (если контакт мержнут — берём главного).
+        row = await db.fetchrow(
+            "SELECT id, client_id, merged_into FROM contacts WHERE id = $1",
+            data.contact_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Контакт {data.contact_id} не найден")
+        if row["client_id"] != data.client_id:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Контакт {data.contact_id} принадлежит другому клиенту",
+            )
+        contact_id = row["merged_into"] or row["id"]
+        # Обновляем поля контакта (только заполняем пустое + email/phone могут
+        # быть обновлены, остальное — COALESCE).
+        await db.execute(
+            """UPDATE contacts SET
+                 name             = COALESCE(name, $2),
+                 email            = COALESCE($3, email),
+                 email_normalized = COALESCE($4, email_normalized),
+                 phone            = COALESCE($5, phone),
+                 phone_normalized = COALESCE($6, phone_normalized),
+                 salebot_id       = COALESCE(salebot_id, $7),
+                 last_contact_at  = NOW(),
+                 updated_at       = NOW()
+               WHERE id = $1""",
+            contact_id,
+            name_from_parts(data.first_name, data.last_name),
+            data.email, (data.email or '').strip().lower() or None,
+            data.phone, _normalize_phone_for_update(data.phone),
+            data.salebot_id,
+        )
+    elif data.platform_user_id:
         # Полный путь: с привязкой к платформенной идентичности
         contact_id, pluson_id, is_new_user = await upsert_contact_with_identity(
             db,
@@ -252,6 +297,7 @@ async def salebot_register(
 async def salebot_register_get(
     client_id: int,
     secret: str,
+    contact_id: Optional[int] = None,
     event_id: Optional[int] = None,
     platform_user_id: Optional[str] = None,
     salebot_id: Optional[str] = None,
@@ -275,6 +321,7 @@ async def salebot_register_get(
         client_id=client_id,
         platform=platform,
         platform_user_id=platform_user_id,
+        contact_id=contact_id,
         username=username,
         telegram_username=telegram_username,
         first_name=first_name,

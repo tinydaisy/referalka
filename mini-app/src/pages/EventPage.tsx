@@ -288,28 +288,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   // Дублирует логику бэка из app/services/external_landing.py для случаев,
   // когда /landing-redirect ДО React не сработал (status='draft' / SPA-навигация).
   async function redirectToExternalLanding(landingUrl: string) {
-    const { getPlatform, getPlatformName } = await import('../platform')
-    const rawName = getPlatformName()              // 'telegram' | 'vk' | 'max' | 'web'
-    // Нормализуем к короткой форме — конвенция платформы (см. CLAUDE.md /
-    // backend external_landing.py: всегда tg|vk|max в URL).
-    const shortPlatform = rawName === 'telegram' ? 'tg' : rawName
-    const platformUser = getPlatform().user
-    const platformUserId = platformUser?.id ? String(platformUser.id) : ''
-
+    const { getPlatform } = await import('../platform')
     const params = new URLSearchParams()
-    // Legacy-имена (для существующих лендингов клиентов, где скрытые поля
-    // уже привязаны к tg_id).
-    if (tgUser?.id) params.set('tg_id', String(tgUser.id))
-    if (shortPlatform === 'vk' && platformUserId) params.set('vk_id', platformUserId)
-    // Универсальная пара platform_user_id + platform — для новых интеграций
-    // (GetCourse, Tilda и т.п.) где webhook принимает одно поле независимо
-    // от платформы.
-    if (platformUserId) {
-      params.set('platform_user_id', platformUserId)
-      params.set('platform', shortPlatform)
-    }
-    if (partnerId)  params.set('pid', partnerId)
-    if (utmSource)  params.set('utm_source', utmSource)
+    // ID контакта в ПЛЮСОНе — единственный идентификатор для webhook
+    // (см. backend/app/services/external_landing.py). Берётся из participant
+    // (загружен при монтировании EventPage). Если контакта ещё нет (новый
+    // человек на первом заходе) — параметр не отправляется, webhook сам
+    // создаст контакт по email/phone из формы.
+    if (participant?.contact_id) params.set('contact_id', String(participant.contact_id))
+    if (partnerId) params.set('pid', partnerId)
+    if (utmSource) params.set('utm_source', utmSource)
     params.set('event_slug', slug)
     const sep = landingUrl.includes('?') ? '&' : '?'
     let fullUrl = landingUrl + sep + params.toString()

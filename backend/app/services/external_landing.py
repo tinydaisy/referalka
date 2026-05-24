@@ -49,9 +49,7 @@ def build_external_landing_url(
     landing_url: str,
     *,
     event_slug: str,
-    tg_id: Optional[int] = None,
-    vk_id: Optional[int] = None,
-    platform: Optional[str] = None,
+    contact_id: Optional[int] = None,
     pid: Optional[str] = None,
     utm_source: Optional[str] = None,
     external_ref_param: Optional[str] = None,
@@ -59,25 +57,15 @@ def build_external_landing_url(
     """Склеивает URL стороннего лендинга со стандартными query-параметрами и
     в самом конце дописывает партнёрский параметр клиента (например &gcpc=fdd97).
 
-    Параметры идентификации участника:
-      - tg_id / vk_id — конкретный ID на платформе (legacy-имена для совместимости)
-      - platform_user_id + platform — универсальная пара (новый формат). Если
-        переданы tg_id или vk_id — также кладём их в platform_user_id+platform.
-
-    Клиент в GetCourse/Tilda настраивает «Сохранять GET-параметры в форме» —
-    скрытые поля platform_user_id и platform приходят в webhook регистрации.
+    Параметр идентификации участника:
+      - contact_id — ID контакта в ПЛЮСОНе. Клиент в GetCourse/Tilda настраивает
+        «Сохранять GET-параметры в форме» → скрытое поле формы → webhook
+        регистрации находит контакта по этому id (никаких tg_id/vk_id не нужно —
+        одно поле работает для всех платформ).
     """
     qs = {"event_slug": event_slug}
-    if tg_id is not None:
-        qs["tg_id"] = str(tg_id)
-        qs.setdefault("platform_user_id", str(tg_id))
-        qs.setdefault("platform", "tg")
-    if vk_id is not None:
-        qs["vk_id"] = str(vk_id)
-        qs.setdefault("platform_user_id", str(vk_id))
-        qs.setdefault("platform", "vk")
-    if platform and "platform" not in qs:
-        qs["platform"] = platform
+    if contact_id is not None:
+        qs["contact_id"] = str(contact_id)
     if pid:
         qs["pid"] = pid
     if utm_source:
@@ -87,3 +75,33 @@ def build_external_landing_url(
     if external_ref_param:
         url += "&" + external_ref_param.lstrip("?&")
     return url
+
+
+async def resolve_contact_id_by_platform_user(
+    db,
+    *,
+    client_id: int,
+    platform_slug: str,
+    platform_user_id: str,
+) -> Optional[int]:
+    """Находит contact_id (главного, с учётом merged_into) по идентичности
+    на платформе. Используется в /landing-redirect, чтобы подсунуть в URL
+    стороннего лендинга готовый ID без участия фронта."""
+    if not platform_user_id:
+        return None
+    try:
+        row = await db.fetchrow(
+            """SELECT c.id, c.merged_into
+                 FROM platform_users pu
+                 JOIN contacts c ON c.id = pu.contact_id
+                WHERE pu.client_id = $1
+                  AND pu.platform_slug = $2
+                  AND pu.platform_user_id = $3
+                LIMIT 1""",
+            client_id, platform_slug, str(platform_user_id),
+        )
+        if not row:
+            return None
+        return row["merged_into"] or row["id"]
+    except Exception:
+        return None
