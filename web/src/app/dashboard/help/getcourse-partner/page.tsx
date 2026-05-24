@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { BookOpen, Copy, Check, ArrowRight } from 'lucide-react'
+import { BookOpen, Copy, Check, ArrowRight, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
@@ -29,6 +29,27 @@ function CopyBox({ text }: { text: string }) {
         style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
       >
         {copied ? <><Check size={14}/> Скопировано</> : <><Copy size={14}/> Копировать</>}
+      </button>
+    </div>
+  )
+}
+
+function CopyBlock({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="relative">
+      <pre className="bg-gray-900 text-gray-100 rounded-lg px-3 py-2 text-xs font-mono overflow-x-auto leading-relaxed whitespace-pre">
+        {text}
+      </pre>
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(text)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        }}
+        className="absolute top-2 right-2 px-2 py-1 rounded text-white text-[10px] font-semibold flex items-center gap-1 bg-gray-700 hover:bg-gray-600"
+      >
+        {copied ? <><Check size={10}/> ОК</> : <><Copy size={10}/> Копировать</>}
       </button>
     </div>
   )
@@ -66,20 +87,50 @@ export default function GetCoursePartnerHelpPage() {
   const secret = me?.integration_token ?? 'ВАШ_ТОКЕН'
   const baseHost = origin.replace(/\/$/, '')
 
-  const urlRegister =
-    `${baseHost}/api/v1/integrations/getcourse/register` +
-    `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
-    `&secret=${secret}` +
-    `&participant_id={object.pluson_participant_id}` +
-    `&email={object.email}` +
-    `&phone={object.phone}`
-
   const urlExternalRef =
     `${baseHost}/api/v1/integrations/getcourse/external-ref` +
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
     `&contact_id={object.pluson_contact_id}` +
-    `&external_ref_param=gcpc=ВАШ_ПЛЕЙСХОЛДЕР_GETCOURSE`
+    `&external_ref_param=gcpc={partner.uid}`
+
+  const widgetScript = `<script>
+$(document).ready(function(){
+    // === Доп. поля пользователя — адресуем по ID input'а ===
+    // ID берутся из GetCourse: /pl/logic/context/custom-fields?contextName=UserContext
+    var CUSTOM = {
+        'pluson_contact_id':     13740684,
+        'pluson_participant_id': 13740683,
+        'tg_id':                 11132047,
+        'tg_nickname':           11224895
+    };
+    Object.keys(CUSTOM).forEach(function(urlParam){
+        var v = getQueryParam(urlParam);
+        if (v !== false) {
+            $('#field-input-' + CUSTOM[urlParam]).val(v).trigger('change');
+        }
+    });
+
+    // === Стандартные поля — адресуем по атрибуту name ===
+    var STD = {
+        'email': 'formParams[email]',
+        'name':  'formParams[full_name]',
+        'phone': 'formParams[phone]'
+    };
+    Object.keys(STD).forEach(function(urlParam){
+        var v = getQueryParam(urlParam);
+        if (v !== false) {
+            if (urlParam === 'phone' && v.charAt(0) !== '+') v = '+' + v;
+            $('input[name="' + STD[urlParam] + '"]').val(v).trigger('change');
+        }
+    });
+});
+
+function getQueryParam(name) {
+    var m = window.location.search.match(new RegExp('[?&]' + name + '=([^&]+)'));
+    return m ? decodeURIComponent(m[1]) : false;
+}
+</script>`
 
   return (
     <div className="pb-24 max-w-3xl">
@@ -88,7 +139,7 @@ export default function GetCoursePartnerHelpPage() {
         <span className="text-gray-300">/</span>
         <Link href="/dashboard/help" className="text-sm text-gray-400 hover:text-gray-700">Инструкции</Link>
         <span className="text-gray-300">/</span>
-        <span className="text-sm text-gray-700">GetCourse: регистрация и партнёрский код</span>
+        <span className="text-sm text-gray-700">GetCourse: партнёрский код</span>
       </div>
 
       <div className="flex items-start gap-3 mb-6">
@@ -96,23 +147,42 @@ export default function GetCoursePartnerHelpPage() {
           <BookOpen size={22} />
         </div>
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: BRAND }}>GetCourse: регистрация и партнёрский код</h1>
+          <h1 className="text-2xl font-bold" style={{ color: BRAND }}>GetCourse: партнёрский код</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Два независимых Процесса в GetCourse, которые отправляют данные в ПЛЮСОН по webhook'у:
-            один — отметить регистрацию на событии и обновить email/телефон,
-            второй — записать партнёрский код, который GetCourse выдал человеку в своей партнёрке.
+            Как замкнуть круг «гость → партнёр»: когда GetCourse выдаёт пользователю партнёрский код,
+            мы сохраняем его в ПЛЮСОНе. После этого все его ссылки в ПЛЮСОНе автоматически дописывают
+            этот код к лендингу, и GetCourse начисляет ему награду за приведённых.
           </p>
+        </div>
+      </div>
+
+      <div className="bg-rose-50 border-2 border-rose-200 rounded-2xl p-5 mb-6">
+        <div className="flex items-start gap-3">
+          <AlertTriangle size={20} className="text-rose-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-bold text-rose-900 mb-1">Эта инструкция пока экспериментальная</div>
+            <p className="text-sm text-rose-800">
+              Механизм работает, но в GetCourse есть нюансы (особенно с виджетами оплаты — где галка «Сохранять GET-параметры»
+              работает по-другому, и нужен дополнительный JS-скрипт). Если что-то не получится — напишите нам, разберёмся вместе.
+            </p>
+          </div>
         </div>
       </div>
 
       <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-5 mb-6">
         <div className="text-sm font-bold mb-3" style={{ color: BRAND }}>Что мы вам подсовываем в URL лендинга</div>
-        <p className="text-sm text-gray-700 mb-2">При открытии события в Mini App мы редиректим человека на ваш лендинг GetCourse и дописываем в URL два скрытых параметра:</p>
+        <p className="text-sm text-gray-700 mb-2">
+          При открытии события в Mini App мы редиректим человека на ваш лендинг GetCourse и дописываем в URL все
+          параметры (полный список — в <Link href="/dashboard/help/getcourse-register" className="text-blue-600 hover:underline">инструкции про регистрацию</Link>).
+          Для партнёрского кода нам нужен только один:
+        </p>
         <ul className="text-sm text-gray-700 list-disc list-inside space-y-1">
-          <li><code className="bg-white px-1.5 py-0.5 rounded text-xs">participant_id</code> — ID участия в этом событии (содержит и человека, и событие).</li>
-          <li><code className="bg-white px-1.5 py-0.5 rounded text-xs">contact_id</code> — ID контакта в ПЛЮСОНе (без привязки к событию).</li>
+          <li><code className="bg-white px-1.5 py-0.5 rounded text-xs">pluson_contact_id</code> — ID контакта в ПЛЮСОНе (без привязки к событию).</li>
         </ul>
-        <p className="text-sm text-gray-700 mt-3">GetCourse через стандартную фичу <b>«Сохранять GET-параметры в форме»</b> сохраняет их в скрытые поля. Один Процесс использует <code className="bg-white px-1 rounded">participant_id</code>, другой — <code className="bg-white px-1 rounded">contact_id</code>.</p>
+        <p className="text-sm text-gray-700 mt-3">
+          GetCourse через стандартную фичу <b>«Сохранять GET-параметры в форме»</b> сохраняет его в скрытое поле.
+          Процесс при заполнении формы дёргает наш webhook и передаёт нам этот <code className="bg-white px-1 rounded">pluson_contact_id</code> и собственный партнёрский код пользователя.
+        </p>
       </div>
 
       <Step n={1} title="Возьмите свои client_id и токен">
@@ -129,120 +199,48 @@ export default function GetCoursePartnerHelpPage() {
         </div>
       </Step>
 
-      <Step n={2} title="В форме GetCourse — создайте два скрытых (дополнительных) поля">
-        <p>В GetCourse: <b>«Пользователи» → «Дополнительные поля» → «Добавить поле»</b>, тип <b>Строка</b>. Создайте два поля с такими заголовками (точно, буква-в-букву, с префиксом <code className="bg-gray-100 px-1 rounded">pluson_</code> чтобы не конфликтовать с другими полями):</p>
+      <Step n={2} title="В GetCourse создайте дополнительное поле «pluson_contact_id»">
+        <p>В GetCourse: <b>«Пользователи» → «Дополнительные поля» → «Добавить поле»</b>.</p>
         <ul className="list-disc list-inside space-y-1">
-          <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">pluson_participant_id</code></li>
-          <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">pluson_contact_id</code></li>
+          <li><b>Тип</b> — Строка</li>
+          <li><b>Заголовок</b> — <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">pluson_contact_id</code></li>
+          <li><b>Видимость поля</b> — <b>«Показывать всегда»</b> (а НЕ «Скрыть поле»)</li>
         </ul>
-        <p>Эти поля добавьте в форму как <b>скрытые</b>, и в свойствах формы включите галку <b>«Сохранять GET-параметры в форме»</b> — GetCourse подхватит значения из URL автоматически. Также форма должна собирать <b>email</b> и <b>телефон</b> (обновим в карточке контакта).</p>
+        <p>Добавьте это поле в форму регистрации/оплаты как <b>скрытое</b>, в свойствах формы включите галку <b>«Сохранять GET-параметры в форме»</b>.</p>
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
-          <b>Если у вас другие имена полей</b> — поменяйте соответствующим образом в URL ниже. Доступ к доп. полю в GetCourse — через <code className="bg-white px-1 rounded">{`{object.заголовок_поля}`}</code> (с пробелами и регистром буква-в-букву). Синтаксис из <a href="https://getcourse.ru/blog/276215#variables" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальной документации GetCourse</a>.
+          Подробно про создание дополнительных полей и их видимость — в{' '}
+          <Link href="/dashboard/help/getcourse-register" className="text-blue-700 underline font-medium">
+            инструкции про регистрацию участника
+          </Link>{' '} (там же — про ловушку «Скрыть поле»).
         </div>
       </Step>
 
-      <Step n={3} title="Как создать Процесс в GetCourse (общий шаблон для обоих процессов)">
-        <p>Этот шаблон работает и для Процесса №1 (Регистрация), и для Процесса №2 (Партнёрский код) — отличаются только название и URL.</p>
-
-        <div className="bg-gray-50 rounded-lg p-3 mt-2">
-          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.1 — Создать процесс</div>
-          <ol className="list-decimal list-inside text-sm space-y-1">
-            <li>В GetCourse: <b>Разделы → Процессы → «Создать процесс»</b>.</li>
-            <li><b>Название</b> — например, «Плюсон-регистрация» или «Плюсон-передача партнёрского кода».</li>
-            <li><b>Тип объекта</b> — выберите <b>«Пользователи»</b>.</li>
-            <li>Поставьте галку <b>«Не добавлять исполнителей и супервайзеров»</b> — процесс автоматический.</li>
-            <li><b>Шаблон процесса</b> — оставьте «без шаблона». Нажмите <b>«Создать»</b>.</li>
-          </ol>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.2 — Настройки на вкладке «Общее»</div>
-          <ul className="list-disc list-inside text-sm space-y-1">
-            <li><b>Суть задачи</b> — впишите что-то (например, «Отправить в ПЛЮСОН»). Это для логов.</li>
-            <li><b>Массовое создание задач</b> — оставьте <b>«Отключено»</b> (задачи будут создаваться триггером из формы).</li>
-            <li>Остальное по дефолту. Нажмите <b>«Сохранить»</b>.</li>
-          </ul>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.3 — Добавить блок «Вызвать url» на вкладке «Процесс»</div>
-          <ol className="list-decimal list-inside text-sm space-y-1">
-            <li>Перейдите на вкладку <b>«Процесс»</b> — увидите блок «Начало работы».</li>
-            <li>Кнопка <b>«+ Добавить блок»</b> (правый верхний угол) → выберите <b>«Операция»</b>.</li>
-            <li>В появившемся окне настройки в списке <b>«Тип операции»</b> выберите <b>«Вызвать url»</b>.</li>
-            <li>Заполните поля:
-              <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5">
-                <li><b>Метод</b> — <b>GET</b>.</li>
-                <li><b>Url</b> — вставьте URL для нужного Процесса (см. карточки ниже).</li>
-                <li><b>Время на ожидание/соединение</b> — оставьте по 10 секунд (дефолт).</li>
-                <li><b>SSL верификация</b> — Да.</li>
-                <li><b>Записать результат в доп. поле</b> (опционально) — создайте доп. поле типа «Текст» (например, <code className="bg-white px-1 rounded">pluson_response</code>) и выберите его. В карточке пользователя будет виден ответ нашего сервера — полезно для отладки.</li>
-                <li><b>Менеджер должен подтвердить запуск</b> — НЕ ставьте галку.</li>
-              </ul>
-            </li>
-            <li>Нажмите <b>«Сохранить»</b>.</li>
-          </ol>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.4 — Соединить блоки</div>
-          <ol className="list-decimal list-inside text-sm space-y-1">
-            <li>Стрелка от <b>«Начало работы»</b> → к <b>«Вызвать url»</b> (потяните от правого края блока).</li>
-            <li>Добавьте через <b>«+ Добавить блок» → «Завершение процесса»</b>.</li>
-            <li>Стрелка от <b>«Вызвать url» → «Завершение процесса»</b>.</li>
-          </ol>
-          <p className="text-xs text-gray-500 mt-1">Должна получиться цепочка: <b>Начало работы → Вызвать url → Завершение процесса</b>.</p>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.5 — Одобрить (активировать) процесс</div>
-          <p className="text-sm">Свежесозданный процесс в GetCourse <b>«неодобрен»</b> и потому неактивен — задачи по триггерам не создаются, пока процесс не одобрен.</p>
-          <ol className="list-decimal list-inside text-sm space-y-1 mt-1">
-            <li>Откройте процесс → вкладка <b>«Общее»</b>.</li>
-            <li>Внизу слева поставьте галку <b>«Одобрено»</b> (рядом с ней знак вопроса с пояснением от GetCourse).</li>
-            <li>Нажмите <b>«Сохранить»</b>.</li>
-          </ol>
-          <div className="bg-rose-50 border border-rose-200 rounded p-2 mt-2 text-xs text-rose-900">
-            ⚠️ Без галки «Одобрено» процесс висит в статусе «Неактивен» — отправка формы триггерит процесс, но задачи не создаются и наш webhook не вызывается.
-          </div>
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.6 — Привязать триггер запуска (это делается ВНЕ процесса!)</div>
-          <p className="text-sm">Триггер настраивается в источнике события — в самой форме регистрации:</p>
-          <ol className="list-decimal list-inside text-sm space-y-1 mt-1">
-            <li>Откройте свою форму регистрации в GetCourse.</li>
-            <li><b>Настройки формы → раздел «Процессы»</b> (или «Действия после отправки»).</li>
-            <li>Кнопка <b>«Добавить процесс»</b> → выберите ваш только что созданный процесс (например, «Плюсон-регистрация»).</li>
-            <li>Условия запуска — оставьте пустыми (для всех отправок).</li>
-            <li>Сохраните форму.</li>
-          </ol>
-          <p className="text-xs text-gray-500 mt-1">К одной форме можно привязать <b>оба процесса одновременно</b> — Процесс №1 пометит регистрацию, Процесс №2 запишет партнёрский код. Если кода ещё нет — webhook просто пропустит обновление (см. ниже).</p>
+      <Step n={3} title="Создайте Процесс «Плюсон-партнёрский код»">
+        <p>Шаги создания процесса в GetCourse — точно такие же, как для регистрации участника
+          (подробно описано в <Link href="/dashboard/help/getcourse-register" className="text-blue-600 hover:underline">инструкции про регистрацию</Link>, Шаг 4).</p>
+        <p>Кратко:</p>
+        <ol className="list-decimal list-inside text-sm space-y-1">
+          <li><b>Разделы → Процессы → Создать процесс</b>. Название — «Плюсон-партнёрский код». Тип объекта — «Пользователи». Галка «Не добавлять исполнителей и супервайзеров».</li>
+          <li>На вкладке «Процесс» → <b>+ Добавить блок → Операция → Тип: Вызвать url</b>.</li>
+          <li>Метод: <b>GET</b>. URL — см. ниже (Шаг 4).</li>
+          <li>Соедините блоки: <b>Начало работы → Вызвать url → Завершение процесса</b>.</li>
+          <li>На вкладке «Общее» поставьте галку <b>«Одобрено»</b>.</li>
+          <li>В настройках формы регистрации/оплаты привяжите этот процесс через <b>«Добавить процесс»</b>.</li>
+        </ol>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-900">
+          <b>К одной форме можно привязать оба процесса одновременно</b> — Процесс «Регистрация» пометит участие в событии,
+          Процесс «Партнёрский код» запишет код. Если кода ещё нет — webhook просто пропустит обновление.
         </div>
       </Step>
 
-      <div className="bg-white border-2 border-emerald-200 rounded-2xl p-5 mb-4">
-        <h2 className="text-lg font-bold mb-3" style={{ color: BRAND }}>Процесс №1 — Регистрация на событии</h2>
-        <p className="text-sm text-gray-600 mb-3">Срабатывает на отправку формы регистрации. Помечает <code className="bg-gray-100 px-1 rounded text-xs">event_participants.is_registered=true</code>, обновляет email и телефон контакта.</p>
-
-        <div className="text-xs font-semibold text-gray-500 mb-1">URL для блока «Вызвать url» (Метод: GET)</div>
-        <CopyBox text={urlRegister} />
-
-        <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-900">
-          <b>Один Процесс на все события.</b> ID события зашит внутрь <code className="bg-white px-1 rounded">participant_id</code> — один и тот же URL работает для любого вашего события.
-        </div>
-      </div>
-
-      <div className="bg-white border-2 border-amber-200 rounded-2xl p-5 mb-4">
-        <h2 className="text-lg font-bold mb-3" style={{ color: BRAND }}>Процесс №2 — Партнёрский код GetCourse</h2>
-        <p className="text-sm text-gray-600 mb-3">Срабатывает когда GetCourse присваивает человеку партнёрский код в своей партнёрке (например, <code className="bg-gray-100 px-1 rounded text-xs">gcpc=08cea</code>). Записывает этот код в карточку контакта в ПЛЮСОНе.</p>
-
-        <div className="text-xs font-semibold text-gray-500 mb-1">URL для блока «Вызвать url» (Метод: GET)</div>
+      <Step n={4} title="URL для блока «Вызвать url»">
+        <p>Вставьте этот URL в поле <b>Url</b> блока «Вызвать url» (Метод: <b>GET</b>):</p>
         <CopyBox text={urlExternalRef} />
-
         <div className="mt-3 space-y-2">
           <p className="text-xs text-gray-600">
-            <code className="bg-gray-100 px-1 rounded">{`{partner.uid}`}</code> — это <b>числовой идентификатор пользователя как партнёра</b> в вашей GetCourse-партнёрке (например, <code className="bg-gray-100 px-1 rounded">48922</code>). Виден в карточке партнёра в разделе «Источники → Основной партнёрский код» (там показано <code>?gcpc=48922</code>, нам нужно само число). Источник — <a href="https://getcourse.ru/blog/276215#variables" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальная документация GetCourse</a>.
+            <code className="bg-gray-100 px-1 rounded">{`{partner.uid}`}</code> — это <b>числовой идентификатор пользователя как партнёра</b> в вашей GetCourse-партнёрке (например, <code className="bg-gray-100 px-1 rounded">48922</code>).
+            Виден в карточке партнёра в разделе «Источники → Основной партнёрский код» (там показано <code>?gcpc=48922</code>, нам нужно само число).
+            Источник синтаксиса — <a href="https://getcourse.ru/blog/276215#variables" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальная документация GetCourse</a>.
           </p>
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
             ⚠️ <b>Не путать с <code className="bg-white px-1 rounded">{`{create_session.gcpc}`}</code></b> — это код <b>того, кто привёл</b> пользователя (входящий партнёрский трафик), а не его собственный.
@@ -251,45 +249,112 @@ export default function GetCoursePartnerHelpPage() {
             <b>Если код ещё не присвоен</b> (пользователь ещё не партнёр, переменная пустая) — мы НЕ обнуляем существующий код в ПЛЮСОНе, просто пропускаем. Безопасно вешать на любой триггер.
           </div>
         </div>
-      </div>
-
-      <Step n={4} title="Где брать партнёрский код в GetCourse">
-        <p>Партнёрский код — это идентификатор, под которым GetCourse засчитывает реферала во <b>вашей</b> партнёрке. В URL партнёрской ссылки GetCourse приписывает его как <code className="bg-gray-100 px-1 rounded">?gcpc=08cea</code>.</p>
-        <p>В ПЛЮСОН передавайте <b>полную строку «ключ=значение»</b>:</p>
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
-          <code className="text-amber-900 font-mono">external_ref_param=gcpc=08cea</code>
-        </div>
-        <p>Префикс <code className="bg-gray-100 px-1 rounded">gcpc</code> (или другой) должен совпадать с тем, что GetCourse читает на лендинге для атрибуции реферала.</p>
       </Step>
 
-      <Step n={5} title="Куда параметры попадают в ПЛЮСОНе">
-        <p>После Процесса №1 (регистрация):</p>
-        <ul className="space-y-1 list-disc list-inside">
-          <li><code className="bg-gray-100 px-1 rounded text-xs">event_participants.is_registered = true</code> для события из <code className="bg-gray-100 px-1 rounded text-xs">participant_id</code>.</li>
-          <li><code className="bg-gray-100 px-1 rounded text-xs">contacts.email</code> и <code className="bg-gray-100 px-1 rounded text-xs">contacts.phone</code> — обновляются из формы.</li>
-        </ul>
-        <p>После Процесса №2 (партнёрский код):</p>
+      <Step n={5} title="Где брать партнёрский код в GetCourse">
+        <p>Партнёрский код — это идентификатор, под которым GetCourse засчитывает реферала во <b>вашей</b> партнёрке.
+          В URL партнёрской ссылки GetCourse приписывает его как <code className="bg-gray-100 px-1 rounded">?gcpc=48922</code>.</p>
+        <p>В ПЛЮСОН передавайте <b>полную строку «ключ=значение»</b>:</p>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
+          <code className="text-amber-900 font-mono">external_ref_param=gcpc=48922</code>
+        </div>
+        <p>Префикс <code className="bg-gray-100 px-1 rounded">gcpc</code> должен совпадать с тем, что GetCourse читает на лендинге для атрибуции реферала. Если вы переименовали параметр в GetCourse — поменяйте и здесь.</p>
+      </Step>
+
+      <Step n={6} title="Куда параметры попадают в ПЛЮСОНе">
         <ul className="space-y-1 list-disc list-inside">
           <li><code className="bg-gray-100 px-1 rounded text-xs">contacts.external_ref_param</code> — записывается партнёрский код целиком. Свежий код перезатирает старый. Пустое значение не обнуляет существующее.</li>
         </ul>
         <p>Карточка контакта на странице <Link href="/dashboard/clients" className="text-blue-600 hover:underline">Контакты</Link> покажет это значение в поле «Партнёрский код внешней платформы».</p>
       </Step>
 
-      <Step n={6} title="Где это используется автоматически">
+      <Step n={7} title="Где это используется автоматически">
         <p>Как только у контакта есть <code className="bg-gray-100 px-1 rounded text-xs">external_ref_param</code> — все его ссылки в ПЛЮСОНе работают как партнёрские в обе стороны:</p>
         <div className="bg-gray-50 rounded-lg p-3 text-xs font-mono space-y-1">
           <div><span className="text-gray-500">его ссылка в ПЛЮСОНе:</span> pluson.ru/l/event-slug?<span className="text-amber-700 font-bold">pid={`{его_ref_code}`}</span></div>
           <div className="flex items-center gap-2"><ArrowRight size={12} className="text-gray-400" /> мы автоматически редиректим на ваш лендинг с приписанным:</div>
-          <div className="pl-4"><span className="text-gray-500">your-landing.ru/?...&</span><span className="text-amber-700 font-bold">gcpc=08cea</span></div>
-          <div className="flex items-center gap-2"><ArrowRight size={12} className="text-gray-400" /> GetCourse видит свой <code className="bg-white px-1 rounded">gcpc=08cea</code> и засчитывает реферала.</div>
+          <div className="pl-4"><span className="text-gray-500">your-landing.ru/?...&</span><span className="text-amber-700 font-bold">gcpc=48922</span></div>
+          <div className="flex items-center gap-2"><ArrowRight size={12} className="text-gray-400" /> GetCourse видит свой <code className="bg-white px-1 rounded">gcpc=48922</code> и засчитывает реферала.</div>
         </div>
       </Step>
+
+      <div className="bg-white rounded-2xl border-2 border-amber-300 p-5 mb-4">
+        <h2 className="text-lg font-bold mb-3" style={{ color: BRAND }}>Особый случай: виджеты оплаты в iframe</h2>
+
+        <p className="text-sm text-gray-700 mb-3">
+          Если у вас на лендинге не обычная форма GetCourse, а <b>платёжный виджет</b> (он загружается в iframe и открывается в модалке) —
+          галка «Сохранять GET-параметры в форме» подхватывает только стандартные поля (email/телефон),
+          а ваши скрытые доп. поля типа <code className="bg-gray-100 px-1 rounded">pluson_contact_id</code> остаются пустыми.
+          Это особенность виджетов: GetCourse передаёт URL-параметры внутрь iframe, но в input'ы формы их не записывает.
+        </p>
+
+        <p className="text-sm text-gray-700 mb-3">
+          Решение — добавить в каждый виджет блок <b>«HTML»</b> с маленьким JS-скриптом. Скрипт читает <code className="bg-gray-100 px-1 rounded">window.location.search</code> и сам записывает значения в нужные поля.
+        </p>
+
+        <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 mb-3 text-xs text-rose-900">
+          <div className="font-semibold mb-1">⚠️ Грабли — на которые легко наступить</div>
+          <ul className="list-disc list-inside space-y-0.5">
+            <li><b>Не делайте lazy-load виджета.</b> Скрипт виджета GetCourse подписан на <code className="bg-white px-1 rounded">DOMContentLoaded</code> — если вставить его динамически после загрузки страницы, форма никогда не отрисуется. Виджет должен быть встроен сразу в HTML.</li>
+            <li><b>Не добавляйте параметры в URL скрипта виджета</b> (<code className="bg-white px-1 rounded">widget/script?id=...&tg_id=...</code>) — GetCourse игнорирует доп. параметры. Он строит iframe.src из <code className="bg-white px-1 rounded">window.location.search</code> страницы.</li>
+            <li><b>Видимость поля</b> в GetCourse должна быть «Показывать всегда». При «Скрыть поле» GetCourse рендерит input в DOM, но не сохраняет значение в карточку.</li>
+            <li><b>Виджеты изолированы.</b> Скрипт, добавленный в один виджет, не влияет на другие. Если у вас 4 тарифа = 4 виджета — вставьте HTML-блок в каждый.</li>
+          </ul>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3 mb-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 1 — Найти числовые ID доп. полей в GetCourse</div>
+          <p className="text-sm text-gray-700 mb-2">GetCourse использует числовые внутренние ID для адресации полей формы (например, <code className="bg-white px-1 rounded">pluson_contact_id</code> в DOM это <code className="bg-white px-1 rounded">{`<input id="field-input-13740684">`}</code>). Без этого ID скрипт ничего не найдёт.</p>
+          <ol className="list-decimal list-inside text-sm space-y-1">
+            <li>Откройте URL <code className="bg-white px-1 rounded">https://ВАШ_АККАУНТ.getcourse.ru/pl/logic/context/custom-fields?contextName=UserContext</code></li>
+            <li>В Chrome нажмите Cmd+U (View Source)</li>
+            <li>Найдите в JS-конфиге участок <code className="bg-white px-1 rounded">fields: [...]</code> — там массив всех доп. полей с <code className="bg-white px-1 rounded">id</code> и <code className="bg-white px-1 rounded">label</code></li>
+            <li>Выпишите пары URL-параметр → ID поля (например, <code className="bg-white px-1 rounded">pluson_contact_id → 13740684</code>)</li>
+          </ol>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3 mb-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 2 — Добавить поля в форму виджета + класс «hide»</div>
+          <ol className="list-decimal list-inside text-sm space-y-1">
+            <li>В редакторе виджета (<code className="bg-white px-1 rounded">/pl/lite/widget/editor?id=ВАШ_ID</code>) кликните на любое существующее поле формы.</li>
+            <li>В нижнем меню → <b>«+ Поле пользователя»</b> → выберите нужное доп. поле (<code className="bg-white px-1 rounded">pluson_contact_id</code>, и т.д.).</li>
+            <li>Кликните на блок поля → откройте <b>Style settings</b> → в поле <b>«CSS-класс блока»</b> впишите <code className="bg-white px-1 rounded">hide</code> (или другой класс, который у вас скрывает блок через <code className="bg-white px-1 rounded">display:none</code>).</li>
+          </ol>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3 mb-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3 — Вставить HTML-блок со скриптом</div>
+          <ol className="list-decimal list-inside text-sm space-y-1 mb-3">
+            <li>В редакторе виджета: <b>«+ Добавить блок» → «HTML»</b>.</li>
+            <li>Внутрь блока вставьте код ниже (отредактируйте массив <code className="bg-white px-1 rounded">CUSTOM</code> — поставьте свои числовые ID из Шага 1).</li>
+            <li>Поставьте блок в самом низу формы виджета.</li>
+            <li>Сохраните виджет.</li>
+          </ol>
+          <CopyBlock text={widgetScript} />
+          <p className="text-xs text-gray-500 mt-2">
+            jQuery в виджетах GetCourse доступен по умолчанию.
+            <code className="bg-white px-1 rounded">.trigger(&apos;change&apos;)</code> — нужен, чтобы GetCourse «увидел» изменение значения программно.
+          </p>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 4 — Распространить на все виджеты</div>
+          <p className="text-sm text-gray-700">Если у вас несколько виджетов (например, 4 тарифа = 4 виджета) — повторите Шаги 2 и 3 для каждого. HTML-блок со скриптом одинаковый, доп. поля те же.</p>
+        </div>
+
+        <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-900">
+          <b>Проверка:</b> откройте лендинг с тестовым URL → нажмите кнопку, открывающую модалку виджета →
+          DevTools → Elements → войдите в iframe → найдите input <code className="bg-white px-1 rounded">#field-input-ВАШ_ID</code> → убедитесь, что <code className="bg-white px-1 rounded">value</code> заполнено.
+          Затем сделайте тестовую регистрацию → в GetCourse откройте карточку юзера → доп. поле должно быть заполнено.
+        </div>
+      </div>
 
       <div className="mt-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
         <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
         <p className="text-sm text-gray-600">
-          Проверьте в карточке контакта на странице <Link href="/dashboard/clients" className="text-blue-600 hover:underline">Контакты</Link> — заполнилось ли поле <code className="bg-white px-1 rounded text-xs">external_ref_param</code> и помечена ли регистрация. Если пусто — посмотрите ответ webhook в логах Процесса GetCourse.{' '}
-          <a href="https://t.me/margo_forbs?text=Вопрос_по_GetCourse_webhook"
+          Проверьте в карточке контакта на странице <Link href="/dashboard/clients" className="text-blue-600 hover:underline">Контакты</Link> — заполнилось ли поле <code className="bg-white px-1 rounded text-xs">external_ref_param</code>.
+          Если пусто — посмотрите ответ webhook в логах Процесса GetCourse.{' '}
+          <a href="https://t.me/margo_forbs?text=Вопрос_по_GetCourse_партнёрке"
              target="_blank" rel="noopener noreferrer"
              className="text-blue-600 hover:underline">
             Написать разработчику
