@@ -67,23 +67,63 @@ _PIXEL_BYTES = base64.b64decode(
 )
 
 
+def _is_email_proxy_or_bot(ua: str, ip: str) -> bool:
+    """Распознаём почтовые прокси/сканеры, которые сами загружают пиксель,
+    ещё до того как письмо открыл пользователь.
+
+    Без этого фильтра Gmail (через GoogleImageProxy, диапазон 66.249.x.x)
+    и Apple Mail Privacy Protection (всегда подгружают картинки) дают
+    «фейковые открытия» — счётчик ползёт, хотя человек письмо не видел.
+    """
+    if not ua and not ip:
+        return False
+    ua_low = (ua or "").lower()
+    # Прямые маркеры в UA
+    if any(t in ua_low for t in (
+        "googleimageproxy",
+        "yahoomailproxy",
+        "outlook-imageproxy",
+        "yandexbot",
+        "yandeximages",
+        "bingpreview",
+        "facebookexternalhit",
+        "telegrambot",
+        "vkshare",
+    )):
+        return True
+    # Google IP-диапазоны для image proxy: 66.102.x.x, 66.249.x.x, 64.233.x.x,
+    # 72.14.x.x. Этого достаточно для основной массы Gmail-пред-загрузок.
+    if ip:
+        first_two = ".".join(ip.split(".")[:2])
+        if first_two in {"66.249", "66.102", "64.233", "72.14", "209.85"}:
+            return True
+    return False
+
+
 @router.get("/api/v1/email/pixel/{token}.gif")
 async def email_open_pixel(token: str, request: Request, db=Depends(get_db)):
-    """Tracking pixel — открытие письма. Всегда отдаёт 1x1 gif (даже если токен битый)."""
+    """Tracking pixel — открытие письма. Всегда отдаёт 1x1 gif (даже если токен битый).
+    Прокси-загрузки от Gmail/Yandex/Outlook/Apple НЕ записываются в open_log,
+    чтобы не накручивать счётчик «открытий»."""
     payload = _decode(token, _KIND_OPEN)
     if payload:
         try:
-            blid = int(payload.get("blid", 0))
-            co = int(payload.get("co", 0))
-            client_id = await db.fetchval("SELECT client_id FROM contacts WHERE id = $1", co)
             ip = (request.client.host if request and request.client else "")[:64]
             ua = (request.headers.get("user-agent") or "")[:500]
-            await db.execute(
-                """INSERT INTO email_open_log
-                       (broadcast_log_id, contact_id, client_id, ip_address, user_agent)
-                    VALUES ($1, $2, $3, $4, $5)""",
-                blid or None, co or None, client_id, ip, ua,
-            )
+            if _is_email_proxy_or_bot(ua, ip):
+                # Картинку отдадим (иначе картинка не закешируется и реальный
+                # open пользователя тоже не залогируется), но в БД НЕ пишем.
+                logger.info(f"email open SKIP (proxy/bot): ua={ua[:80]} ip={ip}")
+            else:
+                blid = int(payload.get("blid", 0))
+                co = int(payload.get("co", 0))
+                client_id = await db.fetchval("SELECT client_id FROM contacts WHERE id = $1", co)
+                await db.execute(
+                    """INSERT INTO email_open_log
+                           (broadcast_log_id, contact_id, client_id, ip_address, user_agent)
+                        VALUES ($1, $2, $3, $4, $5)""",
+                    blid or None, co or None, client_id, ip, ua,
+                )
         except Exception as e:
             logger.warning(f"email_open log failed: {e}")
     return Response(
@@ -108,19 +148,24 @@ async def email_click_redirect(
     payload = _decode(token, _KIND_CLICK)
     if payload:
         try:
-            blid = int(payload.get("blid", 0))
-            co = int(payload.get("co", 0))
-            client_id = await db.fetchval("SELECT client_id FROM contacts WHERE id = $1", co)
             ip = (request.client.host if request and request.client else "")[:64]
             ua = (request.headers.get("user-agent") or "")[:500]
-            await db.execute(
-                """INSERT INTO email_click_log
-                       (broadcast_log_id, contact_id, client_id,
-                        target_url, ip_address, user_agent)
-                    VALUES ($1, $2, $3, $4, $5, $6)""",
-                blid or None, co or None, client_id,
-                target_url[:2000], ip, ua,
-            )
+            # Telegram/Slack/etc разворачивают ссылки превью — это не реальный
+            # клик пользователя. Фильтруем те же UA/IP что и для пикселя.
+            if _is_email_proxy_or_bot(ua, ip):
+                logger.info(f"email click SKIP (proxy/bot): ua={ua[:80]} ip={ip}")
+            else:
+                blid = int(payload.get("blid", 0))
+                co = int(payload.get("co", 0))
+                client_id = await db.fetchval("SELECT client_id FROM contacts WHERE id = $1", co)
+                await db.execute(
+                    """INSERT INTO email_click_log
+                           (broadcast_log_id, contact_id, client_id,
+                            target_url, ip_address, user_agent)
+                        VALUES ($1, $2, $3, $4, $5, $6)""",
+                    blid or None, co or None, client_id,
+                    target_url[:2000], ip, ua,
+                )
         except Exception as e:
             logger.warning(f"email_click log failed: {e}")
     # Если URL невалидный — возвращаем на главную ПЛЮСОНа
