@@ -184,7 +184,9 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 ### Регистрация партнёра клиента через сторонний лендинг (миграция 105 от 2026-05-24)
 
-**Суть.** Самостоятельная фича — не привязана к событию или лид-магниту. Клиент в Настройках → Технические вписывает URL стороннего партнёрского сервиса (Tilda/GetCourse/Bizon360/любой), получает 3 «корневые» ссылки + 3 «ссылки возврата». Человек кликает корневую ссылку → попадает в бот платформы → бот шлёт сообщение с **обычной url-кнопкой** → лендинг открывается в браузере с уже подставленными `pluson_cid` (наш `contact_id`) и хвостом query-строки рефовода (его `external_ref_param`). После сабмита формы партнёрский сервис редиректит на «ссылку возврата» — простой `t.me/{bot}?start=partner_done_{client_id}` / `vk.me/{group}?ref=partner_done_{client_id}` / `max.ru/{handle}?start=partner_done_{client_id}` (без плейсхолдеров). Бот по своему `tg_id` / `vk_id` находит контакт у клиента, проверяет `contacts.external_ref_param` и шлёт сообщение «✅ Вы зарегистрированы, ваш код XXX» или «😕 Упс, что-то не так». У каждого зарегистрированного партнёра в карточке контакта появляются персональные ссылки для распространения с приклеенным его `external_ref_param`.
+**Суть.** Самостоятельная фича — не привязана к событию или лид-магниту. Клиент в Настройках → Технические вписывает URL стороннего партнёрского сервиса (Tilda/GetCourse/Bizon360/любой), получает 3 **прямые** «корневые» ссылки + 3 **прямые** «ссылки возврата» (только TG/VK/MAX — email сюда не входит, нет интерактивности бота). Человек кликает корневую ссылку → попадает в бот платформы → бот шлёт сообщение с **обычной url-кнопкой** → лендинг открывается в браузере с уже подставленными `pluson_cid` (наш `contact_id`) и хвостом query-строки рефовода (его `external_ref_param`). После сабмита формы партнёрский сервис редиректит на «ссылку возврата» — `t.me/{bot}?start=partner_done_{client_id}` / `vk.me/{group}?ref=partner_done_{client_id}` / `max.ru/{handle}?start=partner_done_{client_id}` (без плейсхолдеров). Бот по своему `tg_id` / `vk_id` находит контакт у клиента, проверяет `contacts.external_ref_param` и шлёт сообщение «✅ Вы зарегистрированы, ваш код XXX» или «😕 Упс, что-то не так». У каждого зарегистрированного партнёра в карточке контакта появляются персональные **прямые** ссылки для распространения, в которых закодирован его `contact_id`.
+
+**⚠️ Только прямые ссылки на платформы — никогда через прокси `pluson.ru/partner/...`** (см. [memory/project_direct_platform_links.md](memory/project_direct_platform_links.md) — общее правило для всех share-ссылок проекта).
 
 **Mini App не используется** — ни для открытия лендинга, ни для экрана успеха. Всё происходит через сообщения бота + обычный браузер.
 
@@ -192,18 +194,28 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 - `clients.partner_landing_url TEXT NULL` — URL стороннего лендинга. NULL = фича выключена (ссылки в карточках контактов замылены).
 - `partner_runs (id, client_id, platform_slug, referrer_contact_id NULL, referrer_query TEXT DEFAULT '', contact_id NULL, stage, landed_at, opened_in_bot_at, opened_landing_at, completed_at)` — трекинг для аналитики. Стадии: `landed → opened_in_bot → completed`.
 
-**Endpoints (публичные, под `/`):**
-- `GET /partner/{client_id}?to=tg|vk|max[&pluson_cid={referrer_contact_id}][&{external_ref_param_part}]` — landing-редирект в бот платформы. `pluson_cid` режется (это рефовод, не часть кода), всё остальное идёт в `partner_runs.referrer_query`. 302 на `t.me/{bot}?start=prt_{run_id}` / `vk.me/{group}?ref=prt_{run_id}` / `max.ru/{handle}?start=prt_{run_id}`. Для TG — fallback на `@pluson_bot`. Для VK/MAX — только собственный канал клиента.
+**Прямые ссылки клиента — формат start/ref:**
+
+| Сценарий | Где формируется | Формат (TG: start, VK/MAX: ref) |
+|---|---|---|
+| Корневая ссылка клиента (без рефовода) | UI: Настройки → Технические | `prtc_{client_id}` |
+| Личная ссылка партнёра | UI: карточка контакта | `prtp_{contact_id}` (бот резолвит client_id + external_ref_param через `contacts`) |
+| Возврат после сабмита формы | UI: Настройки → Технические (ссылка возврата) | `partner_done_{client_id}` |
+
+Бот по start-параметру / ref создаёт `partner_run` записи сам (`partner_service.start_partner_flow` / `start_partner_flow_vk`).
+
+**Legacy endpoint (deprecated, для уже разосланных старых ссылок):** `GET /partner/{client_id}?to=tg|vk|max[&pluson_cid][&{erp_part}]` — 302 в бот со start=`prt_{run_id}`. Боты понимают `prt_<run_id>` параллельно с новыми `prtc_/prtp_`.
 
 **Сообщения в боте** ([backend/app/services/partner_service.py](backend/app/services/partner_service.py)):
 
 | Когда | Функция | Сообщение |
 |---|---|---|
-| /start prt_<run_id> (TG), новый партнёр | `run_started_partner` | «Вы регистрируетесь Партнёром у {owner} ({brand}) 🎉» + **url-кнопка** «Открыть форму регистрации» (URL = `partner_landing_url + ?pluson_cid={new_id}&{referrer_query}`, полностью собран на сервере) |
-| /start prt_<run_id> (TG), уже партнёр | `run_started_partner` | «Вы уже партнёр у {brand}. Ваш код: XXX. По вопросам — @{work_tg}» (без кнопки) |
+| /start prtc_<cid> / prtp_<contact_id> (TG), новый партнёр | `start_partner_flow` → `run_started_partner` | «Вы регистрируетесь Партнёром у {owner} ({brand}) 🎉» + **url-кнопка** «Открыть форму регистрации» (URL = `partner_landing_url + ?pluson_cid={new_id}&{referrer_query}`, полностью собран на сервере) |
+| то же, уже партнёр | то же | «Вы уже партнёр у {brand}. Ваш код: XXX. По вопросам — @{work_tg}» (без кнопки) |
 | /start partner_done_<cid> (TG) | `send_partner_done_tg` | «✅ Вы зарегистрированы, ваш код: XXX. Чтобы отслеживать — @{work_tg}» если код есть; «😕 Упс, наша система не получила ваш партнёрский код. Напишите @{work_tg}» если нет |
-| ref=prt_<run_id> (VK) | `run_started_partner_vk` | VK-аналог TG |
+| ref=prtc_/prtp_ (VK) | `start_partner_flow_vk` → `run_started_partner_vk` | VK-аналог TG |
 | ref=partner_done_<cid> (VK) | `send_partner_done_vk` | VK-аналог TG |
+| /start prt_<run_id> (TG/VK, legacy) | `run_started_partner` / `_vk` | Для уже разосланных ссылок старого формата |
 
 **Webhook** ([backend/app/api/integrations.py](backend/app/api/integrations.py)) — принимает `pluson_cid` как алиас `contact_id`. Когда форма заполнена, GetCourse/Bizon360 шлёт нам `{pluson_cid, external_ref_param}` → мы обновляем `contacts.external_ref_param` нужного контакта.
 
@@ -213,9 +225,10 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 **Auth /me** отдаёт `bot_handles: {telegram, vk, max}` (никнеймы клиентского бота/сообщества, или null если у клиента нет своего канала на платформе). UI использует это для построения «ссылок возврата» — на TG fallback на `@pluson_bot`, на VK/MAX без своего канала ссылка не показывается.
 
-**UI:**
-- `/dashboard/settings` → вкладка «Технические» → блок **«Регистрация партнёров»**: поле URL + **3 ссылки возврата** (TG/VK/MAX, без плейсхолдеров) + **3 корневые ссылки** для распространения. Платформы берутся из `me.available_platforms` — MAX появляется автоматически когда у клиента подключён MAX-канал.
-- `/dashboard/clients` → карточка контакта → блок **«Партнёрская ссылка»**: если `clients.partner_landing_url` пуст → замыленные ссылки + «Сторонняя партнёрская ссылка не настроена». Иначе — 3 личные ссылки с приклеенным `&pluson_cid={contact.id}` и (если у контакта есть `external_ref_param`) `&{external_ref_param}`.
+**UI** (только TG/VK/MAX — email сюда не входит, нет интерактивности бота):
+- `/dashboard/settings` → вкладка «Технические» → блок **«Регистрация партнёров»**: поле URL + **3 прямые ссылки возврата** + **3 прямые корневые ссылки** для распространения. UI берёт `me.bot_handles` (TG handle для VIP-бота или fallback на `pluson_bot`, VK group handle, MAX handle) и собирает прямые URL.
+- `/dashboard/clients` → карточка контакта → блок **«Партнёрская ссылка»**: если `clients.partner_landing_url` пуст → замыленные ссылки + «Сторонняя партнёрская ссылка не настроена». Иначе — 3 личные прямые ссылки `t.me/{bot}?start=prtp_{contact_id}` и аналогичные для VK/MAX. Бот по `contact_id` находит контакт → берёт его `client_id` и `external_ref_param` (партнёрский код этого контакта).
+- Константа `PARTNER_PLATFORMS = ['telegram', 'vk', 'max']` в обоих компонентах. Email не показывается в партнёрке.
 
 **nginx (dev и прод).** Добавлен 1 location: `^/partner/[0-9]+$` → FastAPI 8000.
 
