@@ -75,6 +75,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTabState] = useState<string>('landing')
+  const [pendingSpeakerHighlight, setPendingSpeakerHighlight] = useState<number | null>(null)
   const [showReg, setShowReg] = useState(false)
   const [prefill, setPrefill] = useState<{ name?: string; email?: string; phone?: string } | null>(null)
   const [autoRegToast, setAutoRegToast] = useState<{ email: string; phone: string } | null>(null)
@@ -511,10 +512,19 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
             // разойдётся: у турниров будут этапы (Этап 1 / Этап 2) с
             // диапазонами дат и вложенными внутри днями, у конференций
             // останутся «дни». См. memory/project_mini_app_unification_plan.md.
-            <TurnirProgramTab   event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip} /> :
-            <ProgramTab         event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip} />
+            <TurnirProgramTab   event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip}
+              onOpenSpeaker={(id) => { setPendingSpeakerHighlight(id); setTab('speakers') }} /> :
+            <ProgramTab         event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip}
+              onOpenSpeaker={(id) => { setPendingSpeakerHighlight(id); setTab('speakers') }} />
         )}
-        {tab === 'speakers'  && <SpeakersTab event={event} tgUser={tgUser} />}
+        {tab === 'speakers'  && (
+          <SpeakersTab
+            event={event}
+            tgUser={tgUser}
+            highlightSpeakerEventId={pendingSpeakerHighlight}
+            onHighlightConsumed={() => setPendingSpeakerHighlight(null)}
+          />
+        )}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} onVipClick={redirectToVip} />}

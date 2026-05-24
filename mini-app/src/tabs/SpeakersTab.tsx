@@ -1,7 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getEventCollaborators, getSpeakers } from '../api'
 
-interface Props { event: any; tgUser?: any }
+interface Props {
+  event: any
+  tgUser?: any
+  /** Если передан — после загрузки скроллим к этой карточке и подсвечиваем. */
+  highlightSpeakerEventId?: number | null
+  onHighlightConsumed?: () => void
+}
 
 interface Speaker {
   id: number
@@ -85,9 +91,25 @@ async function trackSpeakerClick(
   } catch (_) {}
 }
 
-export default function SpeakersTab({ event, tgUser }: Props) {
+export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, onHighlightConsumed }: Props) {
   const [speakers, setSpeakers] = useState<Speaker[]>([])
   const [loading, setLoading] = useState(true)
+  const [highlightId, setHighlightId] = useState<number | null>(null)
+  const cardRefs = useRef<Record<number, HTMLDivElement | null>>({})
+
+  // Если родитель попросил подсветить конкретного спикера (deeplink из
+  // карусели/слота программы) — после загрузки скроллим к карточке.
+  useEffect(() => {
+    if (!highlightSpeakerEventId || loading) return
+    const el = cardRefs.current[highlightSpeakerEventId]
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightId(highlightSpeakerEventId)
+    setTimeout(() => {
+      setHighlightId(null)
+      onHighlightConsumed?.()
+    }, 1800)
+  }, [highlightSpeakerEventId, loading])
 
   useEffect(() => {
     let cancelled = false
@@ -162,11 +184,18 @@ export default function SpeakersTab({ event, tgUser }: Props) {
           if (insta) socials.push({ label: 'Нельзяграм', url: insta, primary: false, kind: 'instagram' })
 
           return (
-            <div key={sp.id} style={{
-              background: PASTELS[idx % PASTELS.length],
-              borderRadius: 14, padding: 14,
-              boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
-            }}>
+            <div
+              key={sp.id}
+              ref={el => { cardRefs.current[sp.id] = el }}
+              style={{
+                background: PASTELS[idx % PASTELS.length],
+                borderRadius: 14, padding: 14,
+                boxShadow: highlightId === sp.id
+                  ? '0 4px 16px rgba(255,207,164,0.5)'
+                  : '0 2px 8px rgba(37,69,93,0.05)',
+                border: highlightId === sp.id ? `2px solid ${PEACH}` : '2px solid transparent',
+                transition: 'border-color 0.3s, box-shadow 0.3s',
+              }}>
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
                 <div style={{
                   width: 56, height: 56, borderRadius: '50%', flexShrink: 0,

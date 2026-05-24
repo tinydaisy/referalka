@@ -62,7 +62,13 @@ interface Speaker {
   topics?: { topic: string }[]
 }
 
-interface Props { event: any; tgUser?: any; refreshKey?: number; onVipClick?: (vipUrl: string) => void | Promise<void> }
+interface Props {
+  event: any;
+  tgUser?: any;
+  refreshKey?: number;
+  onVipClick?: (vipUrl: string) => void | Promise<void>;
+  onOpenSpeaker?: (speakerEventId: number) => void;
+}
 
 // Сейчас в Москве — "YYYY-MM-DD" и "HH:MM" (24ч), без зависимости от
 // часового пояса устройства. Используется для выделения активной сессии.
@@ -214,7 +220,7 @@ function isStreamDay(event: any, days: Day[]): boolean {
   return now >= startDay && now <= endDay
 }
 
-export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick }: Props) {
+export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick, onOpenSpeaker }: Props) {
   const isTurnir = event?.module_slug === 'turnir'
   // Кнопка VIP появляется если у события вписан vip_url
   // (единый источник истины в events.vip_url).
@@ -397,6 +403,10 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
 
   const goToSpeaker = (speakerEventId?: number) => {
     if (!speakerEventId) return
+    if (onOpenSpeaker) {
+      onOpenSpeaker(speakerEventId)
+      return
+    }
     const card = speakerCardRefs.current[speakerEventId]
     if (!card) return
     card.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -937,10 +947,12 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
             borderBottom: `2px solid ${PEACH}`,
             boxShadow: '0 4px 12px rgba(37,69,93,0.15)',
           }}>
-            Жюри и спикеры
+            Организаторы
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 16 }}>
-            {speakers.map((sp, idx) => {
+            {/* В Программе показываем ТОЛЬКО организаторов. Жюри и спикеры —
+                на отдельной вкладке «Спикеры». */}
+            {speakers.filter(sp => sp.role === 'organizer').map((sp, idx) => {
               const roleLabel = sp.role && ROLE_LABELS[sp.role]
               const roleColors = (sp.role && ROLE_COLORS[sp.role]) || ROLE_COLORS.speaker
               // Берём ВСЕ темы (у Марго их две, например по дням)

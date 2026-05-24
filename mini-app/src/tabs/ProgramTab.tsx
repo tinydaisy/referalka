@@ -50,7 +50,13 @@ interface Speaker {
   topics?: { topic: string }[]
 }
 
-interface Props { event: any; tgUser?: any; refreshKey?: number; onVipClick?: (vipUrl: string) => void | Promise<void> }
+interface Props {
+  event: any;
+  tgUser?: any;
+  refreshKey?: number;
+  onVipClick?: (vipUrl: string) => void | Promise<void>;
+  onOpenSpeaker?: (speakerEventId: number) => void;
+}
 
 // Сейчас в Москве — "YYYY-MM-DD" и "HH:MM" (24ч), без зависимости от
 // часового пояса устройства. Используется для выделения активной сессии.
@@ -207,7 +213,7 @@ function isStreamDay(event: any, days: Day[]): boolean {
   return now >= startDay && now <= endDay
 }
 
-export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Props) {
+export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOpenSpeaker }: Props) {
   const isConference = event?.module_slug === 'conference'
   // Кнопка VIP появляется если у события вписан vip_url
   // (единый источник истины в events.vip_url).
@@ -384,6 +390,13 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Pr
 
   const goToSpeaker = (speakerEventId?: number) => {
     if (!speakerEventId) return
+    // Если EventPage передал callback — переключаемся на вкладку «Спикеры»
+    // с указанным speakerEventId (SpeakersTab сам скроллит и подсвечивает).
+    if (onOpenSpeaker) {
+      onOpenSpeaker(speakerEventId)
+      return
+    }
+    // Fallback (легаси): скролл к карточке в этой же вкладке.
     const card = speakerCardRefs.current[speakerEventId]
     if (!card) return
     card.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -819,10 +832,12 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick }: Pr
             borderBottom: `2px solid ${PEACH}`,
             boxShadow: '0 4px 12px rgba(37,69,93,0.15)',
           }}>
-            Спикеры
+            Организаторы
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 16 }}>
-            {speakers.map((sp, idx) => {
+            {/* В Программе показываем ТОЛЬКО организаторов. Спикеры, жюри,
+                хедлайнеры и партнёры — на отдельной вкладке «Спикеры». */}
+            {speakers.filter(sp => sp.role === 'organizer').map((sp, idx) => {
               const roleLabel = sp.role && ROLE_LABELS[sp.role]
               const roleColors = (sp.role && ROLE_COLORS[sp.role]) || ROLE_COLORS.speaker
               // Берём ВСЕ темы (у Марго их две, например по дням)
