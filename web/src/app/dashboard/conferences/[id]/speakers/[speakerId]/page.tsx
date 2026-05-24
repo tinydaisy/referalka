@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X } from 'lucide-react'
+import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -380,6 +380,20 @@ export default function ConferenceSpeakerPage() {
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">{error}</div>
+      )}
+
+      {/* Быстрый переход в карточку контакта в общей базе */}
+      {profile.contact_id && (
+        <div className="mb-4">
+          <Link
+            href={`/dashboard/clients?contact=${profile.contact_id}`}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-sm text-blue-800 hover:bg-blue-100 transition-colors"
+          >
+            <UserIcon size={14} className="text-blue-600" />
+            <span>Открыть карточку контакта</span>
+            <ExternalLink size={12} />
+          </Link>
+        </div>
       )}
 
       {/* Партнёрская ссылка спикера на это событие */}

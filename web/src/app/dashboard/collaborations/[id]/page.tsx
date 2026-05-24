@@ -141,6 +141,16 @@ export default function CollaborationPage({ params }: { params: { id: string } }
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{form.name}</h1>
             {form.title && <p className="text-gray-500 text-sm">{form.title}</p>}
+            {form.contact_id && (
+              <Link
+                href={`/dashboard/clients?contact=${form.contact_id}`}
+                className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline mt-1"
+              >
+                <UserIcon size={11} />
+                <span>Карточка контакта</span>
+                <ExternalLink size={10} />
+              </Link>
+            )}
           </div>
         </div>
         {(() => {
