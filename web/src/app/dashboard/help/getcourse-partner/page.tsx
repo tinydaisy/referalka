@@ -79,7 +79,7 @@ export default function GetCoursePartnerHelpPage() {
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
     `&contact_id={object.pluson_contact_id}` +
-    `&external_ref_param={participant_code}`
+    `&external_ref_param=gcpc={partner.uid}`
 
   return (
     <div className="pb-24 max-w-3xl">
@@ -242,8 +242,11 @@ export default function GetCoursePartnerHelpPage() {
 
         <div className="mt-3 space-y-2">
           <p className="text-xs text-gray-600">
-            <code className="bg-gray-100 px-1 rounded">{`{participant_code}`}</code> — это <b>собственный партнёрский код пользователя</b> в вашей GetCourse-партнёрке (вид «gcpc=48922»). GetCourse подставляет сразу <b>полный ключ=значение</b>, поэтому в URL пишем без префикса <code className="bg-gray-100 px-1 rounded">gcpc=</code>. Виден в карточке партнёра в разделе «Источники → Основной партнёрский код». Источник — <a href="https://getcourse.ru/blog/733095" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальный гайд GetCourse</a>.
+            <code className="bg-gray-100 px-1 rounded">{`{partner.uid}`}</code> — это <b>числовой идентификатор пользователя как партнёра</b> в вашей GetCourse-партнёрке (например, <code className="bg-gray-100 px-1 rounded">48922</code>). Виден в карточке партнёра в разделе «Источники → Основной партнёрский код» (там показано <code>?gcpc=48922</code>, нам нужно само число). Источник — <a href="https://getcourse.ru/blog/276215#variables" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальная документация GetCourse</a>.
           </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+            ⚠️ <b>Не путать с <code className="bg-white px-1 rounded">{`{create_session.gcpc}`}</code></b> — это код <b>того, кто привёл</b> пользователя (входящий партнёрский трафик), а не его собственный.
+          </div>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
             <b>Если код ещё не присвоен</b> (пользователь ещё не партнёр, переменная пустая) — мы НЕ обнуляем существующий код в ПЛЮСОНе, просто пропускаем. Безопасно вешать на любой триггер.
           </div>
