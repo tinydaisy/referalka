@@ -152,6 +152,14 @@ function ContactCard({
           <div className="min-w-0 flex-1">
             <p className="font-medium text-gray-900 text-sm truncate">{name}</p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(p.id)) }}
+                title="Скопировать participant_id (для интеграции с GetCourse/Salebot)"
+                className="text-[10px] text-gray-400 hover:text-gray-700 font-mono"
+              >
+                #{p.id}
+              </button>
               {p.tg_id || p.tg_username ? (
                 <PlatformBadge platform="telegram" userId={p.tg_id} username={p.tg_username} />
               ) : null}
@@ -274,6 +282,8 @@ function ContactCard({
       {open && (
         <div className="px-5 pb-4 bg-gray-50 border-t border-gray-100">
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 pt-3 text-xs">
+            <Field label="participant_id (для GetCourse-webhook)" value={String(p.id)} mono />
+            <Field label="contact_id (для GetCourse-webhook)" value={String(p.contact_id)} mono />
             <Field label="Свой реф-код (его ссылка)" value={p.ref_code || '—'} mono />
             <Field
               label="От кого пришёл"

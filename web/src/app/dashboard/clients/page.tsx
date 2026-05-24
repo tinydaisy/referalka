@@ -484,6 +484,14 @@ export default function ContactsPage() {
                     setContacts((cs: any[]) => cs.map(c => c.id === selected.id ? { ...c, name: newName } : c))
                   }}
                 />
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(String(selected.id)) }}
+                  title="Скопировать contact_id (нужен для интеграции с GetCourse/Salebot)"
+                  className="mt-1 text-xs text-gray-400 hover:text-gray-700 font-mono"
+                >
+                  contact_id: #{selected.id} ⧉
+                </button>
               </div>
               {selected.is_unsubscribed && (
                 <span className="ml-auto text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full shrink-0">Отписан</span>
