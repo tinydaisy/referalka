@@ -1038,6 +1038,35 @@ async def _send_broadcast_email_part(
                         inline_image_subtype = "webp"
                     else:
                         inline_image_subtype = "jpeg"
+                    # Gmail mobile/iOS Mail рендерят inline-картинку > ~100KB
+                    # как «прикрепление снизу» вместо внутрь тела. Сжимаем
+                    # JPEG'ом до ~80-90KB чтобы всегда показывалось inline.
+                    # PNG/GIF не трогаем — у них прозрачность.
+                    if inline_image_subtype in ("jpeg", "webp") and len(inline_image_data) > 90_000:
+                        try:
+                            from PIL import Image
+                            import io as _io
+                            with Image.open(_io.BytesIO(inline_image_data)) as im:
+                                im = im.convert("RGB")
+                                w, h = im.size
+                                # Ресайз по большей стороне до 1200px (для email хватает с запасом).
+                                max_dim = 1200
+                                if max(w, h) > max_dim:
+                                    scale = max_dim / max(w, h)
+                                    im = im.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+                                # Понижаем quality пока не уложимся в 90KB или quality<55.
+                                for q in (78, 70, 62, 55):
+                                    buf = _io.BytesIO()
+                                    im.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
+                                    if buf.tell() <= 90_000 or q == 55:
+                                        inline_image_data = buf.getvalue()
+                                        inline_image_subtype = "jpeg"
+                                        logger.info(
+                                            f"Email broadcast: фото сжато до {len(inline_image_data)} байт (q={q})"
+                                        )
+                                        break
+                        except Exception as e:
+                            logger.warning(f"Email broadcast: ресайз фото не удался ({e}) — шлём как есть")
                 else:
                     logger.warning(
                         f"Email broadcast: фото {photo_url} вернуло HTTP {resp.status_code} — "
