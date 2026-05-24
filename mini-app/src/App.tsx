@@ -68,6 +68,7 @@ async function handleVkFunnelIfNeeded(
   setFunnelStatus: (s: 'ok' | 'fail' | null) => void,
   setFunnelGroupId: (n: number) => void,
   setLoading: (b: boolean) => void,
+  setFunnelKind: (k: 'leadmagnet' | 'speaker' | 'partner') => void,
 ): Promise<boolean> {
   if (adapter.name !== 'vk') return false
   const sp = adapter.startParam
@@ -126,6 +127,7 @@ async function handleVkFunnelIfNeeded(
   // сообщение с кодом доступа и кнопкой «📝 Открыть мой кабинет».
   if (sp.startsWith('spkinv_')) {
     const accessCode = sp.slice(7)
+    setFunnelKind('speaker')
     let ok = false
     let groupId = 0
     if (accessCode && lp.vk_user_id) {
@@ -152,6 +154,45 @@ async function handleVkFunnelIfNeeded(
           groupId = Number(r.group_id || gid || 0)
         }
       } catch (e) { console.warn('vk speaker-invite failed', e) }
+    }
+    setFunnelStatus(ok ? 'ok' : 'fail')
+    setFunnelGroupId(groupId)
+    setLoading(false)
+    return true
+  }
+
+  // Регистрация партнёра (миграция 105): `prt_<run_id>` — Mini App клиента
+  // открывается по vk.com/app{vk_app_id}#prt_<run_id>. Бэк находит partner_run
+  // и запускает run_started_partner_vk → шлёт сообщение с url-кнопкой на лендинг.
+  if (sp.startsWith('prt_')) {
+    const runId = Number(sp.slice(4))
+    setFunnelKind('partner')
+    let ok = false
+    let groupId = 0
+    if (runId && lp.vk_user_id) {
+      let gid = Number(lp.vk_group_id || 0)
+      if (!gid && lp.vk_app_id) {
+        try {
+          const g: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+            .then(x => x.ok ? x.json() : null)
+          if (g?.group_id) gid = Number(g.group_id)
+        } catch (_) {}
+      }
+      await new Promise<void>((resolve) => {
+        if (!gid) return resolve()
+        adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
+      })
+      try {
+        const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/partner-run-start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ launch_params: lp, run_id: runId }),
+        }).then(x => x.ok ? x.json() : null)
+        if (r?.ok) {
+          ok = true
+          groupId = Number(r.group_id || gid || 0)
+        }
+      } catch (e) { console.warn('vk partner-run-start failed', e) }
     }
     setFunnelStatus(ok ? 'ok' : 'fail')
     setFunnelGroupId(groupId)
@@ -273,9 +314,10 @@ export default function App() {
   const [regFromLanding, setRegFromLanding] = useState<boolean>(false)
   const [initialTab, setInitialTab] = useState<string | undefined>()
   const [pendingOpen, setPendingOpen] = useState<boolean>(false)
-  // VK-only: экран статуса воронки лид-магнита после m_/p_/fnl_ landing
+  // VK-only: экран статуса после m_/p_/fnl_/spkinv_/prt_ landing
   const [funnelStatus, setFunnelStatus] = useState<'ok' | 'fail' | null>(null)
   const [funnelGroupId, setFunnelGroupId] = useState<number>(0)
+  const [funnelKind, setFunnelKind] = useState<'leadmagnet' | 'speaker' | 'partner'>('leadmagnet')
 
   useEffect(() => {
     (async () => {
@@ -300,7 +342,7 @@ export default function App() {
 
       // VK-only: воронка лид-магнита по startparam (m_/p_/fnl_).
       // Если сработала — показываем FunnelStatusScreen и прерываем стандартный flow.
-      const handled = await handleVkFunnelIfNeeded(adapter, setFunnelStatus, setFunnelGroupId, setLoading)
+      const handled = await handleVkFunnelIfNeeded(adapter, setFunnelStatus, setFunnelGroupId, setLoading, setFunnelKind)
       if (handled) return
 
       // Флаг ?_reg=1 — пришли с /r/{slug} в fallback-режиме.
@@ -406,7 +448,7 @@ export default function App() {
 
   // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку)
   if (funnelStatus) {
-    return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} />
+    return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} kind={funnelKind} />
   }
 
   if (eventSlug) {
@@ -445,13 +487,33 @@ export default function App() {
 
 // VK-only экран: после успешного запуска воронки лид-магнита (или после фейла).
 // Текст 1 уехал в личку сообщества — пользователю остаётся открыть чат.
-function FunnelStatusScreen({ status, groupId }: { status: 'ok' | 'fail'; groupId: number }) {
+function FunnelStatusScreen({ status, groupId, kind }: {
+  status: 'ok' | 'fail';
+  groupId: number;
+  kind?: 'leadmagnet' | 'speaker' | 'partner';
+}) {
   const chatUrl = groupId ? `https://vk.com/im?sel=-${groupId}` : ''
   function close() {
     getPlatform().close()
     if (chatUrl) {
       try { window.top!.location.href = chatUrl } catch { window.location.href = chatUrl }
     }
+  }
+  const variant = kind || 'leadmagnet'
+  const TITLE: Record<string, string> = {
+    leadmagnet: 'Подарки уже в чате',
+    speaker:    'Код доступа уже в чате',
+    partner:    'Инструкция уже в чате',
+  }
+  const BODY: Record<string, string> = {
+    leadmagnet: 'Откройте диалог с сообществом — там лежит сообщение со списком ваших подарков и кнопкой «ГОТОВО».',
+    speaker:    'Откройте диалог с сообществом — там сообщение с кодом доступа и кнопкой «Открыть мой кабинет», чтобы заполнить информацию о себе.',
+    partner:    'Откройте диалог с сообществом — там сообщение с кнопкой для регистрации вас как партнёра.',
+  }
+  const BTN: Record<string, string> = {
+    leadmagnet: 'Открыть чат',
+    speaker:    'Открыть чат',
+    partner:    'Открыть чат',
   }
   if (status === 'ok') {
     return (
@@ -473,11 +535,10 @@ function FunnelStatusScreen({ status, groupId }: { status: 'ok' | 'fail'; groupI
             </svg>
           </div>
           <h1 style={{ color: '#FFCFA4', fontSize: 24, margin: '0 0 12px', fontWeight: 700 }}>
-            Подарки уже в чате
+            {TITLE[variant]}
           </h1>
           <p style={{ lineHeight: 1.5, opacity: 0.9, fontSize: 15, margin: '0 0 28px' }}>
-            Откройте диалог с сообществом — там лежит сообщение со списком ваших подарков
-            и кнопкой «ГОТОВО» для их получения.
+            {BODY[variant]}
           </p>
           {chatUrl && (
             <a href={chatUrl} target="_top" style={{
@@ -485,7 +546,7 @@ function FunnelStatusScreen({ status, groupId }: { status: 'ok' | 'fail'; groupI
               fontWeight: 700, padding: '14px 32px', borderRadius: 12, fontSize: 16,
               textDecoration: 'none', boxShadow: '0 4px 14px rgba(255,207,164,0.4)',
               marginBottom: 12,
-            }}>Открыть чат</a>
+            }}>{BTN[variant]}</a>
           )}
           <div>
             <button onClick={close} style={{

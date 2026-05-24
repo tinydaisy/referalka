@@ -60,6 +60,7 @@ type SpeakerMe = {
   needs_channel_check: boolean
   bot_in_channel: boolean | null
   ref_code: string | null
+  ref_links: { telegram?: string; vk?: string; max?: string }
   topics: string[]
   gift_after_speech_title: string | null
   gift_after_speech_url: string | null
@@ -92,7 +93,7 @@ export default function SpeakerCabinetPage() {
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; text: string; bot_handle?: string } | null>(null)
   const [verifying, setVerifying] = useState(false)
-  const [refCopied, setRefCopied] = useState(false)
+  const [refCopied, setRefCopied] = useState<string>('')
 
   // Восстановить токен из localStorage
   useEffect(() => {
@@ -428,44 +429,47 @@ export default function SpeakerCabinetPage() {
             <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Выйти</button>
           </div>
 
-          {me.ref_code && (() => {
-            const refUrl = `https://pluson.ru/l/${me.event_slug}?pid=${me.ref_code}`
-            return (
-              <div style={{ background: 'rgba(255,255,255,0.08)', padding: 12, borderRadius: 10 }}>
-                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                  Ваша партнёрская ссылка
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {me.ref_code && me.ref_links && Object.keys(me.ref_links).length > 0 && (
+            <div style={{ background: 'rgba(255,255,255,0.08)', padding: 12, borderRadius: 10 }}>
+              <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                Ваши партнёрские ссылки
+              </div>
+              {([
+                { key: 'telegram' as const, label: 'Telegram', url: me.ref_links.telegram },
+                { key: 'vk' as const,       label: 'VK',       url: me.ref_links.vk },
+                { key: 'max' as const,      label: 'MAX',      url: me.ref_links.max },
+              ]).filter(x => !!x.url).map(({ key, label, url }) => (
+                <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: PEACH, width: 70, flexShrink: 0 }}>{label}</span>
                   <code style={{
-                    flex: 1, fontSize: 13, color: PEACH, background: 'transparent',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    fontFamily: 'monospace',
-                  }}>{refUrl}</code>
+                    flex: 1, fontSize: 12, color: '#fff', background: 'transparent',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace',
+                  }}>{url}</code>
                   <button
                     type="button"
                     onClick={async () => {
                       try {
-                        await navigator.clipboard.writeText(refUrl)
-                        setRefCopied(true)
-                        setTimeout(() => setRefCopied(false), 2500)
+                        await navigator.clipboard.writeText(url!)
+                        setRefCopied(`${key}:${url}`)
+                        setTimeout(() => setRefCopied(''), 2200)
                       } catch {}
                     }}
-                    title="Скопировать ссылку"
+                    title="Скопировать"
                     style={{
                       background: PEACH, color: DARK, fontWeight: 700,
-                      padding: '6px 12px', borderRadius: 8, border: 'none',
-                      cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap',
+                      padding: '4px 10px', borderRadius: 6, border: 'none',
+                      cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap',
                     }}
                   >
-                    {refCopied ? '✓ Скопировано' : '📋 Копировать'}
+                    {refCopied === `${key}:${url}` ? '✓' : '📋'}
                   </button>
                 </div>
-                <div style={{ fontSize: 11, opacity: 0.6, marginTop: 6, lineHeight: 1.4 }}>
-                  Делитесь этой ссылкой — все, кто перешёл по ней и зарегистрировался, засчитаются как ваши приглашённые.
-                </div>
+              ))}
+              <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4, lineHeight: 1.4 }}>
+                Делитесь любой из этих ссылок — все, кто перейдёт и зарегистрируется, засчитаются как ваши приглашённые.
               </div>
-            )
-          })()}
+            </div>
+          )}
         </div>
 
         <Section title="Профиль">

@@ -87,14 +87,16 @@ async def _platform_redirect_url(client_id: int, platform: str, run_id: int,
         bot_username = await _client_bot_username(client_id, db)
         return f"https://t.me/{bot_username}?start=prt_{run_id}"
     if platform == 'vk':
-        # Только собственное VK-сообщество клиента. Открываем чат с сообществом
-        # с ref-меткой — VK кладёт её в message.ref первого сообщения, наш
-        # consumer ловит и запускает run_started_partner_vk.
-        handles = await get_client_bot_handles(db, client_id)
-        handle = (handles.get('vk') or '').lstrip('@')
-        if not handle:
-            raise HTTPException(status_code=404, detail="У клиента не подключено VK-сообщество")
-        return f"https://vk.me/{handle}?ref=prt_{run_id}"
+        # VK через Mini App клиента — `vk.com/app{vk_app_id}#prt_<run_id>`.
+        # Mini App при открытии шлёт POST /api/v1/vk/partner-run-start → бэк
+        # запускает run_started_partner_vk и отдаёт сообщение в личку через
+        # сообщество. Это надёжнее, чем vk.me/group?ref=..., который требует
+        # чтобы пользователь сам написал сообщение боту.
+        from app.services.share_links import get_client_vk_app_id
+        vk_app_id = await get_client_vk_app_id(db, client_id)
+        if not vk_app_id:
+            raise HTTPException(status_code=404, detail="У клиента не подключено VK-сообщество с Mini App")
+        return f"https://vk.com/app{vk_app_id}#prt_{run_id}"
     if platform == 'max':
         handles = await get_client_bot_handles(db, client_id)
         handle = (handles.get('max') or '').lstrip('@')

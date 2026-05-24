@@ -181,13 +181,35 @@ async def get_me(
     d = dict(row)
     d["topics"] = [t["topic"] for t in topics if t["topic"]]
     # Нужна ли проверка подписки на канал этого спикера в Mini App.
-    # all_speakers — у всех; organizer — только организаторам; none — никому.
     mode = (d.get("subscription_mode") or "none").lower()
     role = (d.get("role") or "").lower()
     d["needs_channel_check"] = (
         mode == "all_speakers"
         or (mode == "organizer" and role == "organizer")
     )
+    # Партнёрские реф-ссылки на 3 платформы (если у клиента подключены) —
+    # формат прямых ссылок per platform (как для лид-магнитов и шеринга события):
+    # TG: t.me/{bot}?start=ref_pg{slug}_pid{ref_code}
+    # VK: vk.com/app{vk_app_id}#ref_pg{slug}_pid{ref_code}  (через Mini App)
+    # MAX: max.ru/{handle}?startapp=ref_pg{slug}_pid{ref_code}
+    try:
+        from app.services.share_links import build_share_links
+        # Узнаём client_id коллаба
+        coll_client_id = await db.fetchval(
+            "SELECT created_by_client_id FROM collaborators WHERE id = $1",
+            d.get("collaborator_id"),
+        )
+        if coll_client_id and d.get("event_slug") and d.get("ref_code"):
+            d["ref_links"] = await build_share_links(
+                db,
+                client_id=int(coll_client_id),
+                event_slug=d["event_slug"],
+                partner_id=d["ref_code"],
+            )
+        else:
+            d["ref_links"] = {}
+    except Exception:
+        d["ref_links"] = {}
     return d
 
 
