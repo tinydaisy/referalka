@@ -377,6 +377,42 @@ async def public_raffle_settings(event_id: int, db: asyncpg.Connection = Depends
 
 
 @public.get(
+    "/events/{slug}/bot-handle",
+    summary="Handle главного TG-бота клиента, ответственного за событие (для Mini App openTelegramLink)",
+)
+async def public_event_bot_handle(
+    slug: str,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Возвращает {bot_handle: 'pluson_bot' | 'ivision_conf_bot' | ...} —
+    handle главного активного TG-канала клиента, под которым опубликовано
+    событие. Используется inline-скриптом Mini App для вызова
+    `Telegram.WebApp.openTelegramLink('https://t.me/<handle>')` — это
+    переключает Telegram-клиент на чат с ботом «под» Mini App, чтобы при
+    сворачивании Mini App юзер оказывался в чате с ботом, а не на главном
+    экране (как делает прямая `t.me/{bot}?startapp=...` ссылка).
+    """
+    row = await db.fetchrow(
+        "SELECT client_id FROM events WHERE slug = $1 LIMIT 1", slug,
+    )
+    if not row:
+        return {"bot_handle": None}
+    handle = await db.fetchval(
+        """SELECT REGEXP_REPLACE(ch.handle, '^@', '')
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = 'telegram'
+              AND cc.is_active = TRUE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY ch.is_system ASC, ch.id ASC
+            LIMIT 1""",
+        row["client_id"],
+    )
+    return {"bot_handle": handle or "pluson_bot"}
+
+
+@public.get(
     "/events/{slug}/landing-redirect",
     summary="Узкий endpoint для inline-скрипта Mini App: куда редиректить ДО React",
 )

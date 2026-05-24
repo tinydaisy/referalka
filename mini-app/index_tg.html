@@ -152,10 +152,38 @@
               // Не снимаем флаг — webview уже уходит на лендинг клиента.
             } else {
               window.__redirectPending = false;
+              maybeOpenBotChat();
             }
           })
-          .catch(function () { window.__redirectPending = false; });
-      } catch (e) { window.__redirectPending = false; }
+          .catch(function () { window.__redirectPending = false; maybeOpenBotChat(); });
+      } catch (e) { window.__redirectPending = false; maybeOpenBotChat(); }
+    }
+
+    // Хак для возврата «в чат с ботом» после сворачивания Mini App.
+    // Прямая ссылка `t.me/{bot}?startapp=...` открывает Mini App минуя чат →
+    // сворачивание возвращает на главный экран TG, а не в чат бота.
+    // Старая схема через `pluson.ru/l/?app=tg` + window.location.replace на
+    // t.me/ давала Telegram сигнал «открой чат + Mini App» — после сворачивания
+    // юзер был в чате. Здесь повторяем тот же приём через openTelegramLink:
+    // вызываем переход на t.me/{bot} ИЗ уже открытого Mini App webview.
+    // Поведение по платформам:
+    //   - Desktop: переключает chat-pane «под» Mini App, ок
+    //   - iOS WKWebView: может выбросить в чат (тогда Mini App закрывается)
+    //   - Android: лотерея
+    // Если выбросит — откатим только эту функцию, остальная логика не пострадает.
+    function maybeOpenBotChat() {
+      if (!eventSlug) return;
+      if (!twa || typeof twa.openTelegramLink !== 'function') return;
+      try {
+        fetch('/api/v1/public/events/' + encodeURIComponent(eventSlug) + '/bot-handle')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data && data.bot_handle) {
+              try { twa.openTelegramLink('https://t.me/' + data.bot_handle); } catch (e) {}
+            }
+          })
+          .catch(function () {});
+      } catch (e) {}
     }
 
     if (typeof twa.requestWriteAccess === 'function') {
