@@ -40,6 +40,7 @@ export default function SettingsPage() {
   const [clientId, setClientId] = useState<number | null>(null)
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [botHandles, setBotHandles] = useState<{ telegram?: string | null; vk?: string | null; max?: string | null } | null>(null)
+  const [vkAppId, setVkAppId] = useState<number | null>(null)
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -72,6 +73,7 @@ export default function SettingsPage() {
       setClientId(c.id || null)
       setAvailablePlatforms(Array.isArray(c.available_platforms) ? c.available_platforms : ['telegram'])
       setBotHandles(c.bot_handles || null)
+      setVkAppId(c.vk_app_id ? Number(c.vk_app_id) : null)
     }).catch(() => {})
     // fetch storage usage
     const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
@@ -526,6 +528,7 @@ export default function SettingsPage() {
           clientId={clientId}
           availablePlatforms={availablePlatforms}
           botHandles={botHandles}
+          vkAppId={vkAppId}
         />
 
         {/* Storage usage */}
@@ -968,13 +971,14 @@ const PLUSON_BOT_HANDLE = 'pluson_bot'
 const PARTNER_PLATFORMS = ['telegram', 'vk', 'max']
 
 function PartnerRegistrationBlock({
-  form, set, clientId, availablePlatforms, botHandles,
+  form, set, clientId, availablePlatforms, botHandles, vkAppId,
 }: {
   form: any
   set: (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void
   clientId: number | null
   availablePlatforms: string[]
   botHandles: { telegram?: string | null; vk?: string | null; max?: string | null } | null
+  vkAppId: number | null
 }) {
   const [copied, setCopied] = useState<string | null>(null)
   function copy(label: string, text: string) {
@@ -1004,9 +1008,11 @@ function PartnerRegistrationBlock({
       return `https://t.me/${handle}?start=prtc_${clientId}`
     }
     if (p === 'vk') {
-      const handle = (botHandles?.vk || '').replace(/^@/, '')
-      if (!handle) return null
-      return `https://vk.me/${handle}?ref=prtc_${clientId}`
+      // Партнёрская корневая ссылка через VK Mini App клиента
+      // (vk.com/app{aid}#prtc_<client_id>). Без своего VK Mini App не работает —
+      // нужен токен сообщества для отправки в личку, а он есть только у клиентского VK канала.
+      if (!vkAppId) return null
+      return `https://vk.com/app${vkAppId}#prtc_${clientId}`
     }
     if (p === 'max') {
       const handle = (botHandles?.max || '').replace(/^@/, '')

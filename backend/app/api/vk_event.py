@@ -500,6 +500,120 @@ async def vk_partner_run_start(body: VkPartnerRunStartRequest):
     return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id}
 
 
+class VkPartnerInviteRequest(BaseModel):
+    """Mini App открыт по `vk.com/app{aid}#prtc_<client_id>` или `#prtp_<contact_id>`.
+
+    Аналог `/start prtc_X` / `/start prtp_X` в TG — резолвит entry через
+    `resolve_partner_entry`, создаёт partner_run, запускает run_started_partner_vk,
+    который шлёт партнёру в личку сообщество приветствие + url-кнопку на лендинг.
+    """
+    launch_params: dict[str, str]
+    start_arg: str
+
+
+@router.post("/vk/partner-invite", summary="Открытие prtc_/prtp_ ссылки из VK Mini App")
+async def vk_partner_invite(body: VkPartnerInviteRequest):
+    """VK-аналог `/start prtc_<client_id>` / `prtp_<contact_id>` в TG.
+
+    Открывается через Mini App клиента (vk.com/app{aid}#prtc_X или #prtp_X).
+    Бэк находит клиента по vk_app_id, парсит start_arg, создаёт partner_run
+    и шлёт партнёру в личку приветствие + кнопку на лендинг."""
+    vk_app_id_raw = body.launch_params.get("vk_app_id")
+    secure_key: str | None = settings.vk_app_secure_key
+    try:
+        if vk_app_id_raw and int(vk_app_id_raw) != int(getattr(settings, "vk_app_id", "0") or 0):
+            pool = await get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """SELECT platform_meta->>'vk_secure_key' AS sk
+                             FROM channels
+                            WHERE platform_slug = 'vk'
+                              AND (platform_meta->>'vk_app_id')::int = $1
+                            LIMIT 1""",
+                        int(vk_app_id_raw),
+                    )
+                    if row and row["sk"]:
+                        secure_key = row["sk"]
+    except Exception as e:
+        logger.warning(f"VK partner-invite secure_key lookup failed: {e}")
+
+    if not secure_key or not validate_vk_launch_params(body.launch_params, secure_key):
+        raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
+
+    vk_user_id_raw = body.launch_params.get("vk_user_id")
+    if not vk_user_id_raw:
+        raise HTTPException(status_code=400, detail="vk_user_id required")
+    try:
+        vk_user_id = int(vk_user_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="vk_user_id must be int")
+
+    start_arg = (body.start_arg or "").strip()
+    if not start_arg or not (start_arg.startswith("prtc_") or start_arg.startswith("prtp_")):
+        raise HTTPException(status_code=400, detail="start_arg must be prtc_<id> or prtp_<id>")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="db not available")
+
+    async with pool.acquire() as conn:
+        # Канал клиента по vk_app_id Mini App — через него шлём сообщение в личку.
+        chan = await conn.fetchrow(
+            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id,
+                      (ch.platform_meta->>'vk_group_id')::int AS vk_group_id
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                  AND cc.is_active = TRUE
+                  AND (ch.platform_meta->>'vk_app_id')::int = $1
+                LIMIT 1""",
+            int(vk_app_id_raw or 0),
+        )
+        if not chan or not chan["bot_token"]:
+            raise HTTPException(status_code=404, detail="VK-сообщество клиента не подключено")
+
+        # Парсим start_arg → (client_id, referrer_contact_id, referrer_query)
+        from app.services.partner_service import (
+            resolve_partner_entry, create_partner_run, run_started_partner_vk,
+        )
+        resolved = await resolve_partner_entry(start_arg, "vk", conn)
+        if not resolved:
+            raise HTTPException(status_code=404, detail="Партнёрская ссылка не найдена")
+        client_id, referrer_contact_id, referrer_query = resolved
+
+        # Защита от подмены: client_id из start_arg должен совпасть с владельцем VK Mini App
+        if client_id != chan["client_id"]:
+            raise HTTPException(status_code=403, detail="Ссылка выдана другим клиентом")
+
+        run_id = await create_partner_run(
+            client_id, "vk", referrer_contact_id, referrer_query, conn,
+        )
+
+        # Подтягиваем ФИО партнёра по vk_user_id (опционально)
+        user_info = None
+        try:
+            from app.services.vk_api import get_user_info as vk_get_user_info
+            user_info = await vk_get_user_info(vk_user_id)
+        except Exception:
+            pass
+
+        await run_started_partner_vk(
+            run_id, str(vk_user_id),
+            username=(user_info or {}).get("screen_name", "") if user_info else "",
+            first_name=(user_info or {}).get("first_name", "") if user_info else "",
+            last_name=(user_info or {}).get("last_name", "") if user_info else "",
+            db=conn,
+            channel_id=chan["channel_id"],
+            token=chan["bot_token"],
+        )
+
+        group_id = int(body.launch_params.get("vk_group_id") or 0) or int(chan["vk_group_id"] or 0)
+
+    return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id, "run_id": run_id}
+
+
 @router.get("/vk/group-for-app", summary="Резолв vk_app_id → vk_group_id")
 async def vk_group_for_app(app_id: int):
     """Возвращает group_id сообщества, к которому привязан VK Mini App.

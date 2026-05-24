@@ -1351,6 +1351,7 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
   const landingConfigured = !!(me?.partner_landing_url || '').trim()
   const contactId = contact.id
   const botHandles: { telegram?: string | null; vk?: string | null; max?: string | null } | null = me?.bot_handles || null
+  const vkAppId: number | null = (me as any)?.vk_app_id ? Number((me as any).vk_app_id) : null
 
   // Только TG/VK/MAX, из подключённых клиентом. TG показываем всегда (fallback на @pluson_bot).
   const available: string[] = me?.available_platforms || []
@@ -1378,9 +1379,11 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
       return `https://t.me/${handle}?start=prtp_${contactId}`
     }
     if (p === 'vk') {
-      const handle = (botHandles?.vk || '').replace(/^@/, '')
-      if (!handle) return null
-      return `https://vk.me/${handle}?ref=prtp_${contactId}`
+      // Партнёрская ссылка через VK Mini App клиента
+      // (vk.com/app{aid}#prtp_<contact_id>). Без своего VK Mini App не работает —
+      // нужен токен сообщества для отправки в личку.
+      if (!vkAppId) return null
+      return `https://vk.com/app${vkAppId}#prtp_${contactId}`
     }
     if (p === 'max') {
       const handle = (botHandles?.max || '').replace(/^@/, '')

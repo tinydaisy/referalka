@@ -161,9 +161,49 @@ async function handleVkFunnelIfNeeded(
     return true
   }
 
-  // Регистрация партнёра (миграция 105): `prt_<run_id>` — Mini App клиента
-  // открывается по vk.com/app{vk_app_id}#prt_<run_id>. Бэк находит partner_run
-  // и запускает run_started_partner_vk → шлёт сообщение с url-кнопкой на лендинг.
+  // Регистрация партнёра — новые форматы (миграция 105+):
+  //   `prtc_<client_id>`  — корневая ссылка клиента
+  //   `prtp_<contact_id>` — личная ссылка партнёра (рефовод по contact_id)
+  // Mini App открывается по vk.com/app{vk_app_id}#prtc_X или #prtp_X.
+  // Бэк парсит start_arg, создаёт partner_run, шлёт партнёру в личку
+  // приветствие + url-кнопку на лендинг.
+  if (sp.startsWith('prtc_') || sp.startsWith('prtp_')) {
+    setFunnelKind('partner')
+    let ok = false
+    let groupId = 0
+    if (lp.vk_user_id) {
+      let gid = Number(lp.vk_group_id || 0)
+      if (!gid && lp.vk_app_id) {
+        try {
+          const g: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+            .then(x => x.ok ? x.json() : null)
+          if (g?.group_id) gid = Number(g.group_id)
+        } catch (_) {}
+      }
+      await new Promise<void>((resolve) => {
+        if (!gid) return resolve()
+        adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
+      })
+      try {
+        const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/partner-invite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ launch_params: lp, start_arg: sp }),
+        }).then(x => x.ok ? x.json() : null)
+        if (r?.ok) {
+          ok = true
+          groupId = Number(r.group_id || gid || 0)
+        }
+      } catch (e) { console.warn('vk partner-invite failed', e) }
+    }
+    setFunnelStatus(ok ? 'ok' : 'fail')
+    setFunnelGroupId(groupId)
+    setLoading(false)
+    return true
+  }
+
+  // Legacy формат (миграция 105 первая версия): `prt_<run_id>` для уже разосланных
+  // старых ссылок. Используется /api/v1/vk/partner-run-start с уже созданным run_id.
   if (sp.startsWith('prt_')) {
     const runId = Number(sp.slice(4))
     setFunnelKind('partner')
