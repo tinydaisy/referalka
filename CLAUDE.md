@@ -406,6 +406,54 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 При копировании события (`POST /events/{id}/copy`) `start_at`/`end_at` копии = `NULL`, статус = `draft`.
 
+### Ассистент клиента — один помощник на клиента (миграция 106 от 2026-05-24)
+
+Клиент может подключить **одного** ассистента с урезанным доступом в свой кабинет. Ассистент входит на общий `/login` через свой email+пароль, в JWT получает `role='assistant'` и `sub=client_id` владельца — работает в том же кабинете, но middleware блокирует опасные действия.
+
+**Таблица `client_assistants`** (id, client_id UNIQUE, email UNIQUE, password_hash, **password_plain**, last_login_at, created_at, updated_at). `password_plain` хранится в открытом виде специально — клиент в `/dashboard/settings` → вкладка «Ассистент» видит пароль под иконкой-глазиком и может переслать ассистенту повторно. Сознательный trade-off безопасности ради UX.
+
+**API ассистента** ([backend/app/api/assistants.py](backend/app/api/assistants.py)) — все только для роли `owner` (не для `assistant`):
+- `GET /api/v1/clients/me/assistant` — текущий ассистент (без пароля)
+- `GET /api/v1/clients/me/assistant/password` — открытый пароль (для глазика)
+- `POST /api/v1/clients/me/assistant {email}` — генерит 12-символьный пароль (алфавит без 0/o/1/l/I), шлёт ассистенту письмо через системный email-канал ПЛЮСОНа, возвращает `{email, password}`. Защита от коллизии email с clients/admins/другими assistants.
+- `POST /api/v1/clients/me/assistant/reset-password` — генерит новый пароль и шлёт письмо
+- `DELETE /api/v1/clients/me/assistant` — полное отключение
+
+**Логин ассистента** ([auth.py:login](backend/app/api/auth.py)) — поиск идёт в порядке `clients → client_assistants → admins`. JWT при успехе: `{sub: str(client_id), email: assistant_email, role: 'assistant', assistant_id}`.
+
+**`GET /auth/me`** возвращает дополнительное поле `role: 'owner'|'assistant'`. Для ассистента подменяется `email` на email самого ассистента (чтобы в шапке отображался он, а не владелец) и добавляется `assistant_id`. Поле `name` остаётся именем клиента-владельца.
+
+**Матрица прав ассистента:**
+
+| Раздел | Что может |
+|---|---|
+| Контакты, коллабораторы, события, участники, реф-программа, рассылки, Mini App (визитка/основатель/продукты) | Полный доступ кроме DELETE |
+| Лид-магниты, пакеты | Только GET + копирование ссылок (без create/update/delete) |
+| Каналы (боты), Настройки, Подписка, Юр.данные | **Нет доступа вообще** (UI скрыт, бэк 403) |
+| Любой DELETE | 403 |
+| Будущие `/api/v1/billing/*`, `/api/v1/payments/*` | 403 (middleware заложен на эти префиксы) |
+
+**Middleware** [`assistant_permission_guard.py`](backend/app/middleware/assistant_permission_guard.py) — добавлен в `main.py` ПОСЛЕ `subscription_guard` (Starlette стек: последний добавленный исполняется первым → права отрабатывают до проверки подписки). Логика: декодит JWT, если `role != 'assistant'` → пропуск. Иначе:
+1. `FORBIDDEN_PREFIXES` (любой метод) — `/channels`, `/clients/me/assistant`, `/billing`, `/payments`, `/admin`
+2. `READONLY_PREFIXES` (только write блокируется) — `/lead-magnets`, `/lead-magnet-packages`
+3. `FORBIDDEN_WRITE_PATHS` — `/auth/me` (PATCH), `/auth/change-password`, `/auth/regenerate-integration-token`; `FORBIDDEN_WRITE_PREFIXES` — `/clients/me/legal`
+4. `DELETE` на любой URL — глобально 403
+
+**Фронт.** Хук [`useMe()`](web/src/hooks/useMe.ts) — кеширует `/auth/me` в памяти модуля, отдаёт `{me, isAssistant, isOwner}`. Используется в:
+- [Sidebar.tsx](web/src/components/Sidebar.tsx) — скрывает «Каналы» и «Настройки» из меню, добавляет бейдж «· ассистент» под именем
+- [/dashboard/settings](web/src/app/dashboard/settings/page.tsx) — новая вкладка «Ассистент» ([AssistantTab.tsx](web/src/components/settings/AssistantTab.tsx)) с UI: подключение по email, иконка-глазик для пароля, кнопки «Сбросить пароль» / «Отключить»
+- [/dashboard/clients](web/src/app/dashboard/clients/page.tsx) — скрыта корзинка удаления контакта
+- [/dashboard/collaborations](web/src/app/dashboard/collaborations/page.tsx) — скрыта корзинка коллаборатора
+- [/dashboard/lead-magnets](web/src/app/dashboard/lead-magnets/page.tsx) — скрыты «Добавить», «Редактировать», «Удалить» у лид-магнитов и пакетов (только аналитика и копирование ссылок)
+
+Остальные UI-кнопки удаления (события, участники события, соорганизаторы) не скрыты — бэк всё равно вернёт 403. UX можно подкрутить позже.
+
+⚠️ **GRANTы на проде и dev** после миграции 106: роль БД = `plusson` (не `plusson_user`). Команда:
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON client_assistants TO plusson;
+GRANT USAGE, SELECT ON client_assistants_id_seq TO plusson;
+```
+
 ### Подписочная архитектура G (миграция 066 от 2026-05-07)
 
 **Ключевое:** канал и привязка к клиенту — **разные сущности**. Один канал может обслуживать несколько клиентов (системные общие боты).
