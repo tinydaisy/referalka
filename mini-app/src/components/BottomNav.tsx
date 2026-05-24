@@ -3,7 +3,7 @@ import { useState } from 'react'
 export interface NavItem {
   id: string
   label: string
-  icon: 'calendar' | 'ecosystem' | 'landing' | 'program' | 'game' | 'raffle' | 'services' | 'results' | 'plus' | 'welcome' | 'leaders'
+  icon: 'calendar' | 'ecosystem' | 'landing' | 'program' | 'game' | 'raffle' | 'services' | 'results' | 'plus' | 'welcome' | 'leaders' | 'speakers'
   locked?: boolean
 }
 
@@ -84,10 +84,19 @@ const Leaders = () => (
     <path d="M16 3.13a4 4 0 010 7.75"/>
   </svg>
 )
+const Speakers = () => (
+  // Иконка «спикера» — микрофон, для отдельной вкладки «Спикеры» (миграция 109+)
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+    <path d="M19 10v2a7 7 0 01-14 0v-2" />
+    <line x1="12" y1="19" x2="12" y2="23" />
+    <line x1="8" y1="23" x2="16" y2="23" />
+  </svg>
+)
 const ICONS = {
   calendar: Calendar, ecosystem: Ecosystem, landing: Landing,
   program: Program, game: Game, raffle: Raffle, services: Services, results: Results, plus: Plus,
-  welcome: Welcome, leaders: Leaders,
+  welcome: Welcome, leaders: Leaders, speakers: Speakers,
 }
 
 export default function BottomNav({ items, active, onTab }: Props) {

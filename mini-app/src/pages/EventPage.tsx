@@ -4,6 +4,7 @@ import LandingTab from '../tabs/LandingTab'
 import ProgramTab from '../tabs/ProgramTab'
 import TurnirProgramTab from '../tabs/TurnirProgramTab'
 import ContestProgramTab from '../tabs/ContestProgramTab'
+import SpeakersTab from '../tabs/SpeakersTab'
 import GameTab from '../tabs/GameTab'
 import RaffleTab from '../tabs/RaffleTab'
 import ResultsTab from '../tabs/ResultsTab'
@@ -37,6 +38,7 @@ const NAV_NOT_REG: NavItem[] = [
 const NAV_REGISTERED: NavItem[] = [
   { id: 'welcome',   label: 'Интро',      icon: 'welcome'   },
   { id: 'program',   label: 'Программа',  icon: 'program'   },
+  { id: 'speakers',  label: 'Спикеры',    icon: 'speakers'  },
   { id: 'game',      label: 'Подарки',       icon: 'game'      },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle'    },
   { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
@@ -242,11 +244,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   const hidesWelcome = ['contest', 'turnir'].includes(event?.module_slug)
   const showWelcomeTab = registered && participant?.welcomed_at == null && !hidesWelcome
 
+  // Отдельная вкладка «Спикеры» — только для конференций и турниров.
+  // Для обычных мероприятий, конкурсов и др. — не показываем.
+  const hasSpeakersTab = ['conference', 'turnir'].includes(event?.module_slug)
+
   // Если событие завершено и участника нет — Игру тоже не показываем.
   const filterByEnabled = (items: NavItem[]) => items.filter(n =>
-    (n.id !== 'welcome' || showWelcomeTab) &&
-    (n.id !== 'game'    || refOn)          &&
-    (n.id !== 'raffle'  || raffleOn)
+    (n.id !== 'welcome'  || showWelcomeTab) &&
+    (n.id !== 'speakers' || hasSpeakersTab) &&
+    (n.id !== 'game'     || refOn)          &&
+    (n.id !== 'raffle'   || raffleOn)
   )
 
   const navItemsEnded = participant
@@ -507,6 +514,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
             <TurnirProgramTab   event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip} /> :
             <ProgramTab         event={event} tgUser={tgUser} refreshKey={refreshKey} onVipClick={redirectToVip} />
         )}
+        {tab === 'speakers'  && <SpeakersTab event={event} tgUser={tgUser} />}
         {tab === 'game'      && <GameTab     event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'raffle'    && <RaffleTab   event={event} participant={participant} tgUser={tgUser} />}
         {tab === 'results'   && <ResultsTab  event={event} participant={participant} onOpenEvent={onOpenEvent} onVipClick={redirectToVip} />}

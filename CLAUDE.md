@@ -182,6 +182,43 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 **nginx.** На dev добавлен location `^/(m|p)/[a-z0-9]+$` → FastAPI 8000 (см. `memory/dev_server.md`).
 
+### Единый набор GET-параметров на все внешние URL клиента (миграция 105+, обновлено 2026-05-24)
+
+**Где применяется:** ВСЕ места, где открывается сторонний URL клиента:
+- `events.landing_url` — лендинг события (Mini App `redirectToExternalLanding`, SSR `/l/[slug]`, `/landing-redirect` endpoint)
+- `events.vip_url` — кнопка VIP-тарифа в Mini App (ProgramTab/TurnirProgramTab/WelcomePage/ResultsTab — все через `onVipClick`)
+- `clients.partner_landing_url` — партнёрский сервис клиента (url-кнопка в боте, миграция 105)
+
+**Стандартный набор параметров** (только непустые значения; имена жёстко зафиксированы для GetCourse/Tilda/Bizon360 — клиент один раз настраивает скрытые поля):
+
+| Параметр | Что |
+|---|---|
+| `pluson_contact_id` | `contacts.id` (наш ID контакта в ПЛЮСОНе) |
+| `pluson_participant_id` | `event_participants.id` (только для событий) |
+| `tg_id` | Telegram user ID |
+| `vk_id` | VK user ID |
+| `email` | `contacts.email` |
+| `phone` | `contacts.phone` |
+| `name` | `contacts.name` |
+| `tg_nickname` | username из platform_users (без @) |
+| `pid` | реф-код того, кто привёл (для совместимости) |
+| `utm_source` | UTM-метка источника |
+| `event_slug` | slug события (только для events.landing_url и vip_url) |
+| `{external_ref_param}` | партнёрский код во внешней системе клиента (например `gcpc=fdd97`) — приклеивается как есть, в конец URL |
+
+**Хелперы** ([backend/app/services/external_landing.py](backend/app/services/external_landing.py)):
+- `enrich_external_url(url, *, ...)` — собирает URL с полным набором параметров. Универсальный.
+- `get_contact_landing_params(db, contact_id)` — асинх. подтягивает name/email/phone/tg_id/vk_id/tg_nickname/external_ref_param контакта.
+- `build_external_landing_url(...)` — обратная совместимость для events landing.
+
+**Endpoints для Mini App:**
+- `GET /api/v1/public/events/{slug}/landing-redirect?tg_id=&vk_id=&pid=&utm_source=` → `{redirect_url}`. Используется для events.landing_url.
+- `GET /api/v1/public/events/{slug}/vip-redirect?tg_id=&vk_id=&pid=&utm_source=` → `{redirect_url}`. Используется для events.vip_url.
+
+**Webhook** ([backend/app/api/integrations.py](backend/app/api/integrations.py)) принимает алиасы: `pluson_contact_id` (стандарт), `pluson_cid` (legacy), `contact_id` (явный) — все мапятся в `data.contact_id`. То же для `pluson_participant_id` → `participant_id`.
+
+**Партнёрский сервис** ([backend/app/services/partner_service.py](backend/app/services/partner_service.py) `_build_partner_landing_url`) использует общий `enrich_external_url` — на партнёрский лендинг шлёт `external_ref_param` РЕФОВОДА (это его код), не свой.
+
 ### Регистрация партнёра клиента через сторонний лендинг (миграция 105 от 2026-05-24)
 
 **Суть.** Самостоятельная фича — не привязана к событию или лид-магниту. Клиент в Настройках → Технические вписывает URL стороннего партнёрского сервиса (Tilda/GetCourse/Bizon360/любой), получает 3 **прямые** «корневые» ссылки + 3 **прямые** «ссылки возврата» (только TG/VK/MAX — email сюда не входит, нет интерактивности бота). Человек кликает корневую ссылку → попадает в бот платформы → бот шлёт сообщение с **обычной url-кнопкой** → лендинг открывается в браузере с уже подставленными `pluson_cid` (наш `contact_id`) и хвостом query-строки рефовода (его `external_ref_param`). После сабмита формы партнёрский сервис редиректит на «ссылку возврата» — `t.me/{bot}?start=partner_done_{client_id}` / `vk.me/{group}?ref=partner_done_{client_id}` / `max.ru/{handle}?start=partner_done_{client_id}` (без плейсхолдеров). Бот по своему `tg_id` / `vk_id` находит контакт у клиента, проверяет `contacts.external_ref_param` и шлёт сообщение «✅ Вы зарегистрированы, ваш код XXX» или «😕 Упс, что-то не так». У каждого зарегистрированного партнёра в карточке контакта появляются персональные **прямые** ссылки для распространения, в которых закодирован его `contact_id`.
