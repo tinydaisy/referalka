@@ -79,7 +79,7 @@ export default function GetCoursePartnerHelpPage() {
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
     `&contact_id={object.contact_id}` +
-    `&external_ref_param=gcpc={object.НАЗВАНИЕ_ВАШЕГО_ПОЛЯ_С_КОДОМ}`
+    `&external_ref_param=gcpc={create_session.gcpc}`
 
   return (
     <div className="pb-24 max-w-3xl">
@@ -161,7 +161,9 @@ export default function GetCoursePartnerHelpPage() {
         <CopyBox text={urlExternalRef} />
 
         <div className="mt-3 space-y-2">
-          <p className="text-xs text-gray-600">Замените <code className="bg-gray-100 px-1 rounded">{`{object.НАЗВАНИЕ_ВАШЕГО_ПОЛЯ_С_КОДОМ}`}</code> на правильное имя дополнительного поля GetCourse, в котором хранится партнёрский код этого человека (зависит от вашей партнёрки — может быть, например, <code className="bg-gray-100 px-1 rounded">{`{object.gcpc}`}</code> или <code className="bg-gray-100 px-1 rounded">{`{object.partner_code}`}</code>).</p>
+          <p className="text-xs text-gray-600">
+            <code className="bg-gray-100 px-1 rounded">{`{create_session.gcpc}`}</code> — это партнёрский код из сессии первого захода человека на ваш сайт. GetCourse сохраняет это автоматически — никаких полей создавать не надо. Префикс <code className="bg-gray-100 px-1 rounded">gcpc</code> зависит от вашей партнёрки (Bizon360, Partner Cabinet и т.п.); если у вас другое имя — замените на правильное (например, <code className="bg-gray-100 px-1 rounded">{`{create_session.partner_code}`}</code>).
+          </p>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
             <b>Если код ещё не присвоен</b> (пустое значение типа <code className="bg-white px-1 rounded">gcpc=</code>) — мы НЕ обнуляем существующий код в ПЛЮСОНе, просто пропускаем. Безопасно вешать на любой триггер.
           </div>
