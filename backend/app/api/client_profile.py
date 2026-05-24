@@ -503,14 +503,14 @@ async def public_event_vip_redirect(
     Если у события нет vip_url или vip-тариф выключен — {redirect_url: null}.
     """
     row = await db.fetchrow(
-        """SELECT id, client_id, vip_url, has_vip_tariff
+        """SELECT id, client_id, vip_url
              FROM events WHERE slug = $1 LIMIT 1""",
         slug,
     )
     if not row:
         return {"redirect_url": None}
     vip_url = (row["vip_url"] or "").strip()
-    if not vip_url or not row["has_vip_tariff"]:
+    if not vip_url:
         return {"redirect_url": None}
 
     from app.services.external_landing import (
