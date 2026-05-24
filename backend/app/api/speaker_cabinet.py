@@ -149,6 +149,9 @@ async def get_me(
                   pu_vk.username AS personal_vk_username,
                   pu_max.platform_user_id AS personal_max_id,
                   pu_max.username AS personal_max_username,
+                  (pu_tg.id IS NOT NULL)  AS tg_locked,
+                  (pu_vk.id IS NOT NULL)  AS vk_locked,
+                  (pu_max.id IS NOT NULL) AS max_locked,
                   ctc.email, ctc.phone,
                   e.title AS event_title, e.slug AS event_slug,
                   ers.is_enabled AS raffle_enabled
@@ -266,9 +269,29 @@ async def patch_me(
                 contact_id, *ct_upd.values()
             )
 
-    # 3. Личные идентичности → platform_users
+    # 3. Личные идентичности → platform_users.
+    # ВАЖНО: если у contact_id уже есть запись на платформе (привязана через
+    # бота при первом клике spkinv_) — НЕ перезаписываем её, спикер не имеет
+    # права менять свой ID. Только при первом заполнении (если platform_users
+    # ещё нет) разрешаем ввод.
     if contact_id:
-        await _upsert_personal_identities(db, client_id, contact_id, data)
+        locks = await db.fetchrow(
+            """SELECT
+                 EXISTS(SELECT 1 FROM platform_users WHERE contact_id=$1 AND platform_slug='telegram') AS tg_locked,
+                 EXISTS(SELECT 1 FROM platform_users WHERE contact_id=$1 AND platform_slug='vk')       AS vk_locked,
+                 EXISTS(SELECT 1 FROM platform_users WHERE contact_id=$1 AND platform_slug='max')      AS max_locked""",
+            contact_id,
+        )
+        # Создаём отфильтрованный dataclass-like объект для _upsert_personal_identities.
+        # Если платформа залочена — обнуляем эти поля чтобы хелпер их пропустил.
+        class _Filtered:
+            personal_tg_id = data.personal_tg_id if not locks["tg_locked"] else None
+            personal_tg_username = data.personal_tg_username if not locks["tg_locked"] else None
+            personal_vk_id = data.personal_vk_id if not locks["vk_locked"] else None
+            personal_vk_username = data.personal_vk_username if not locks["vk_locked"] else None
+            personal_max_id = data.personal_max_id if not locks["max_locked"] else None
+            personal_max_username = data.personal_max_username if not locks["max_locked"] else None
+        await _upsert_personal_identities(db, client_id, contact_id, _Filtered())
 
     # 4. Темы выступления — переписываем целиком из массива
     if data.topics is not None:

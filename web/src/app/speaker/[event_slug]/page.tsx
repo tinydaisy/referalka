@@ -54,6 +54,9 @@ type SpeakerMe = {
   personal_vk_username: string | null
   personal_max_id: string | null
   personal_max_username: string | null
+  tg_locked: boolean
+  vk_locked: boolean
+  max_locked: boolean
   topics: string[]
   gift_after_speech_title: string | null
   gift_after_speech_url: string | null
@@ -444,16 +447,35 @@ export default function SpeakerCabinetPage() {
           <input style={inputCss} value={me.website_url || ''} onChange={(e) => update({ website_url: e.target.value })} placeholder="https://…" />
         </Section>
 
-        <Section title="Личные аккаунты (никнейм или ID)">
-          <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8 }}>Используются для связи с вами и для проверки бот-в-канале. Не показываются другим участникам.</div>
-          <label style={labelCss}>Telegram username</label>
-          <input style={inputCss} value={me.personal_tg_username || ''} onChange={(e) => update({ personal_tg_username: e.target.value })} placeholder="username (без @)" />
-          <label style={labelCss}>Telegram ID</label>
-          <input style={inputCss} value={me.personal_tg_id || ''} onChange={(e) => update({ personal_tg_id: e.target.value })} />
-          <label style={labelCss}>VK username</label>
-          <input style={inputCss} value={me.personal_vk_username || ''} onChange={(e) => update({ personal_vk_username: e.target.value })} placeholder="id123456 или nickname" />
-          <label style={labelCss}>MAX username</label>
-          <input style={inputCss} value={me.personal_max_username || ''} onChange={(e) => update({ personal_max_username: e.target.value })} />
+        <Section title="Личные аккаунты на платформах">
+          <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8 }}>
+            Не показываются другим участникам — используются только для связи. Платформы, через которые вы зашли через бота, заблокированы — менять их нельзя.
+          </div>
+
+          <PlatformAccountField
+            label="Telegram"
+            username={me.personal_tg_username}
+            locked={!!me.tg_locked}
+            onChange={(v) => update({ personal_tg_username: v })}
+            placeholder="username (без @)"
+            inputCss={inputCss} labelCss={labelCss}
+          />
+          <PlatformAccountField
+            label="VK"
+            username={me.personal_vk_username}
+            locked={!!me.vk_locked}
+            onChange={(v) => update({ personal_vk_username: v })}
+            placeholder="id123456 или nickname"
+            inputCss={inputCss} labelCss={labelCss}
+          />
+          <PlatformAccountField
+            label="MAX"
+            username={me.personal_max_username}
+            locked={!!me.max_locked}
+            onChange={(v) => update({ personal_max_username: v })}
+            placeholder="username MAX"
+            inputCss={inputCss} labelCss={labelCss}
+          />
         </Section>
 
         {me.show_topic_field && (
@@ -559,6 +581,45 @@ function Section({ title, children }: { title: string, children: React.ReactNode
     <div style={{ background: '#fff', borderRadius: 14, padding: '14px 18px 20px', marginBottom: 14, boxShadow: '0 2px 6px rgba(37,69,93,0.05)' }}>
       <div style={{ fontWeight: 700, color: DARK, fontSize: 15, marginBottom: 4 }}>{title}</div>
       {children}
+    </div>
+  )
+}
+
+function PlatformAccountField({
+  label, username, locked, onChange, placeholder, inputCss, labelCss,
+}: {
+  label: string
+  username: string | null
+  locked: boolean
+  onChange: (v: string) => void
+  placeholder: string
+  inputCss: React.CSSProperties
+  labelCss: React.CSSProperties
+}) {
+  return (
+    <div>
+      <label style={labelCss}>
+        {label}
+        {locked && <span style={{ marginLeft: 6, fontSize: 11, color: '#5a8b5a' }}>✓ привязан</span>}
+      </label>
+      <input
+        style={{
+          ...inputCss,
+          background: locked ? '#f5f7fa' : '#fff',
+          color: locked ? '#7a8c9c' : '#1a2a3a',
+          cursor: locked ? 'not-allowed' : 'text',
+        }}
+        value={username || ''}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        readOnly={locked}
+        disabled={locked}
+      />
+      {locked && (
+        <div style={{ fontSize: 11, color: '#7a8c9c', marginTop: 2 }}>
+          Этот аккаунт привязан автоматически — изменить его нельзя.
+        </div>
+      )}
     </div>
   )
 }
