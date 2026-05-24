@@ -9,8 +9,23 @@ from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
 import asyncpg
+import secrets
 
 router = APIRouter(prefix="/api/v1/collaborators", tags=["Коллаборации (база)"])
+
+
+# Алфавит из миграции 108: без 0/o/1/l/i, 16 символов
+ACCESS_CODE_ALPHABET = "a234bc56de7fgh89"
+
+
+async def _generate_unique_access_code(db: asyncpg.Connection, length: int = 8) -> str:
+    """8-символьный код для входа спикера в мини-кабинет (миграция 108)."""
+    for _ in range(20):
+        code = "".join(secrets.choice(ACCESS_CODE_ALPHABET) for _ in range(length))
+        exists = await db.fetchval("SELECT 1 FROM collaborators WHERE access_code = $1", code)
+        if not exists:
+            return code
+    raise HTTPException(status_code=500, detail="Не удалось сгенерировать access_code")
 
 
 class CollaboratorCreate(BaseModel):
@@ -147,18 +162,21 @@ async def create_collaborator(
             detail=f"У этого контакта уже есть коллаборатор (id={existing}). Откройте его карточку."
         )
     name = (data.name or contact["name"] or "").strip() or "Без имени"
+    access_code = await _generate_unique_access_code(db)
     new_id = await db.fetchval(
         """INSERT INTO collaborators
            (contact_id, name, title, achievements,
             photo_url, poster_url, photo_folder_url, video_folder_url,
             tg_channel_url, vk_url, max_url, instagram_url, website_url,
             tg_channel_id, assistant_tg_username,
+            access_code,
             created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id""",
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id""",
         data.contact_id, name, data.title, data.achievements,
         data.photo_url, data.poster_url, data.photo_folder_url, data.video_folder_url,
         data.tg_channel_url, data.vk_url, data.max_url, data.instagram_url, data.website_url,
         data.tg_channel_id, data.assistant_tg_username,
+        access_code,
         client_id
     )
     # Личные идентичности коллаба живут в platform_users (миграции 107/108)
@@ -455,6 +473,7 @@ async def create_collaborator_quick(
                     detail=f"У этого контакта уже есть коллаборатор (id={existing_coll})."
                 )
 
+        access_code = await _generate_unique_access_code(db)
         new_id = await db.fetchval(
             """INSERT INTO collaborators
                (contact_id, name, title, achievements,
@@ -463,14 +482,16 @@ async def create_collaborator_quick(
                 vk_url, max_url,
                 instagram_url, website_url,
                 assistant_tg_username,
+                access_code,
                 created_by_client_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id""",
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id""",
             contact_id, name, data.title, data.achievements,
             data.photo_url, data.poster_url,
             data.tg_channel_url, data.tg_channel_id,
             data.vk_url, data.max_url,
             data.instagram_url, data.website_url,
             data.assistant_tg_username,
+            access_code,
             client_id
         )
         await _upsert_personal_identities(db, client_id, contact_id, data)
@@ -548,19 +569,22 @@ async def import_collaborators(
                     client_id, item.name
                 )
                 contact_id = new_contact["id"]
+            access_code = await _generate_unique_access_code(db)
             row = await db.fetchrow(
                 """INSERT INTO collaborators
                    (contact_id, name, title, achievements, photo_url, photo_folder_url, video_folder_url,
                     tg_channel_url, vk_url, max_url, instagram_url, website_url,
                     tg_channel_id, assistant_tg_username,
+                    access_code,
                     created_by_client_id)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, name""",
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id, name""",
                 contact_id, item.name, item.title, item.achievements,
                 item.photo_url, item.photo_folder_url, item.video_folder_url,
                 item.tg_channel_url or None,
                 item.vk_url or None, item.max_url or None,
                 item.instagram_url or None, item.website_url or None,
                 item.tg_channel_id or None, item.assistant_tg_username or None,
+                access_code,
                 client_id
             )
             await _upsert_personal_identities(db, client_id, contact_id, item)
