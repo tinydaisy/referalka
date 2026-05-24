@@ -152,6 +152,26 @@ async def create_collaborator(
     )
     if not contact:
         raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
+
+    # Валидация: у коллаба должен быть хотя бы один личный никнейм / ID на одной
+    # из платформ (TG/VK/MAX) — без этого мы не сможем ни автоматически создать
+    # platform_users, ни выдать коллабу invite-ссылку на самообслуживание
+    # (`/speaker/<event_slug>` использует access_code, но коллаб должен прийти
+    # в бот через `spkinv_<code>` deeplink — без личного аккаунта невозможно).
+    def _nonblank(s):  # helper
+        return bool((s or "").strip())
+    has_tg  = _nonblank(data.personal_tg_id)  or _nonblank(data.personal_tg_username)
+    has_vk  = _nonblank(data.personal_vk_id)  or _nonblank(data.personal_vk_username)
+    has_max = _nonblank(data.personal_max_id) or _nonblank(data.personal_max_username)
+    if not (has_tg or has_vk or has_max):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Укажите хотя бы один личный аккаунт коллаборатора — "
+                "Telegram, VK или MAX (никнейм или ID). Без этого мы не сможем "
+                "связать коллаба с платформой."
+            ),
+        )
     # Один коллаб на контакт — повторное добавление запрещаем
     existing = await db.fetchval(
         "SELECT id FROM collaborators WHERE contact_id = $1", data.contact_id
