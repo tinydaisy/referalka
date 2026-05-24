@@ -171,6 +171,8 @@ export const api = {
       request(`/api/v1/collaborators/${id}`, { method: 'DELETE' }),
     import: (data: any) =>
       request('/api/v1/collaborators/import', { method: 'POST', body: JSON.stringify(data) }),
+    inviteMessage: (collabId: number, eventId: number) =>
+      request(`/api/v1/collaborators/${collabId}/invite-message?event_id=${eventId}`),
   },
   gifts: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/gifts/`),

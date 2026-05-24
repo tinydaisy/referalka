@@ -28,8 +28,16 @@ class CollaboratorCreate(BaseModel):
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
     tg_channel_id: Optional[str] = None
+    # Публичные каналы коллаба на VK/MAX (по аналогии с tg_channel_url). Миграция 108.
+    vk_url: Optional[str] = None
+    max_url: Optional[str] = None
+    # Личные идентичности — пишутся в platform_users (миграции 107/108)
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
+    personal_vk_id: Optional[str] = None
+    personal_vk_username: Optional[str] = None
+    personal_max_id: Optional[str] = None
+    personal_max_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
 
 
@@ -45,8 +53,14 @@ class CollaboratorUpdate(BaseModel):
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
     tg_channel_id: Optional[str] = None
+    vk_url: Optional[str] = None
+    max_url: Optional[str] = None
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
+    personal_vk_id: Optional[str] = None
+    personal_vk_username: Optional[str] = None
+    personal_max_id: Optional[str] = None
+    personal_max_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
     contact_id: Optional[int] = None
 
@@ -58,19 +72,32 @@ def row_to_dict(row):
     return d
 
 
+# Идентичности на всех платформах — через JOIN на platform_users. API наружу
+# отдаёт под старыми именами personal_{tg,vk,max}_id / _username, чтобы UI
+# и Mini App не пришлось менять.
 _COLLAB_SELECT = """
     c.id, c.name, c.title, c.achievements,
     c.photo_url, c.poster_url, c.photo_folder_url, c.video_folder_url,
-    c.tg_channel_url, c.instagram_url, c.website_url,
+    c.tg_channel_url, c.vk_url, c.max_url,
+    c.instagram_url, c.website_url,
     c.tg_channel_id, c.assistant_tg_username,
+    c.access_code,
     c.contact_id, c.created_by_client_id, c.created_at, c.updated_at,
-    pu_tg.platform_user_id AS personal_tg_id,
-    pu_tg.username         AS personal_tg_username
+    pu_tg.platform_user_id  AS personal_tg_id,
+    pu_tg.username          AS personal_tg_username,
+    pu_vk.platform_user_id  AS personal_vk_id,
+    pu_vk.username          AS personal_vk_username,
+    pu_max.platform_user_id AS personal_max_id,
+    pu_max.username         AS personal_max_username
 """
 
 _COLLAB_JOIN = """
     LEFT JOIN platform_users pu_tg
       ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
+    LEFT JOIN platform_users pu_vk
+      ON pu_vk.contact_id = c.contact_id AND pu_vk.platform_slug = 'vk'
+    LEFT JOIN platform_users pu_max
+      ON pu_max.contact_id = c.contact_id AND pu_max.platform_slug = 'max'
 """
 
 
@@ -124,20 +151,18 @@ async def create_collaborator(
         """INSERT INTO collaborators
            (contact_id, name, title, achievements,
             photo_url, poster_url, photo_folder_url, video_folder_url,
-            tg_channel_url, instagram_url, website_url,
+            tg_channel_url, vk_url, max_url, instagram_url, website_url,
             tg_channel_id, assistant_tg_username,
             created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id""",
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id""",
         data.contact_id, name, data.title, data.achievements,
         data.photo_url, data.poster_url, data.photo_folder_url, data.video_folder_url,
-        data.tg_channel_url, data.instagram_url, data.website_url,
+        data.tg_channel_url, data.vk_url, data.max_url, data.instagram_url, data.website_url,
         data.tg_channel_id, data.assistant_tg_username,
         client_id
     )
-    # Личный TG-аккаунт спикера живёт в platform_users (миграция 107)
-    if data.personal_tg_id or data.personal_tg_username:
-        await _upsert_personal_tg(db, client_id, data.contact_id,
-                                  data.personal_tg_id, data.personal_tg_username)
+    # Личные идентичности коллаба живут в platform_users (миграции 107/108)
+    await _upsert_personal_identities(db, client_id, data.contact_id, data)
     row = await db.fetchrow(
         f"SELECT {_COLLAB_SELECT} FROM collaborators c {_COLLAB_JOIN} WHERE c.id = $1",
         new_id
@@ -146,30 +171,32 @@ async def create_collaborator(
     return {"speaker": d, "collaborator": d}
 
 
-async def _upsert_personal_tg(
+async def _upsert_personal_identity(
     db: asyncpg.Connection,
     client_id: int,
     contact_id: int,
-    tg_id: Optional[str],
-    tg_username: Optional[str],
+    platform_slug: str,  # 'telegram' | 'vk' | 'max'
+    user_id: Optional[str],
+    username: Optional[str],
 ):
-    """Записать/обновить личный TG-аккаунт коллаба в platform_users (миграция 107).
+    """Записать/обновить личную идентичность коллаба в platform_users.
 
-    Привязка идёт по contact_id. Если у contact уже есть telegram-запись —
-    обновляем (можно поменять id и/или username). Если нет — создаём.
+    Унифицирует логику для всех трёх платформ. Привязка идёт по contact_id +
+    platform_slug. Если запись уже есть — обновляем (можно сменить и id, и
+    username). Если нет — создаём (нужен id, потому что platform_user_id NOT NULL).
     """
-    tg_id_clean = (tg_id or "").strip() or None
-    uname_clean = (tg_username or "").lstrip("@").strip() or None
-    if not tg_id_clean and not uname_clean:
+    uid_clean = (user_id or "").strip() or None
+    uname_clean = (username or "").lstrip("@").strip() or None
+    if not uid_clean and not uname_clean:
         return
     existing = await db.fetchrow(
         """SELECT id, platform_user_id, username FROM platform_users
-            WHERE contact_id = $1 AND platform_slug = 'telegram'
+            WHERE contact_id = $1 AND platform_slug = $2
             LIMIT 1""",
-        contact_id
+        contact_id, platform_slug
     )
     if existing:
-        new_id = tg_id_clean or existing["platform_user_id"]
+        new_id = uid_clean or existing["platform_user_id"]
         new_uname = uname_clean if uname_clean is not None else existing["username"]
         await db.execute(
             """UPDATE platform_users
@@ -178,15 +205,43 @@ async def _upsert_personal_tg(
                 WHERE id = $3""",
             new_id, new_uname, existing["id"]
         )
-    elif tg_id_clean:
-        # Без platform_user_id запись создать нельзя — оно NOT NULL.
+    elif uid_clean:
         await db.execute(
             """INSERT INTO platform_users
                  (client_id, contact_id, platform_slug, platform_user_id, username, created_at)
-               VALUES ($1, $2, 'telegram', $3, $4, NOW())
+               VALUES ($1, $2, $3, $4, $5, NOW())
                ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
-            client_id, contact_id, tg_id_clean, uname_clean
+            client_id, contact_id, platform_slug, uid_clean, uname_clean
         )
+
+
+async def _upsert_personal_identities(
+    db: asyncpg.Connection,
+    client_id: int,
+    contact_id: int,
+    data,
+):
+    """Прокидывает personal_{tg,vk,max}_{id,username} из payload в platform_users."""
+    await _upsert_personal_identity(
+        db, client_id, contact_id, 'telegram',
+        getattr(data, "personal_tg_id", None),
+        getattr(data, "personal_tg_username", None),
+    )
+    await _upsert_personal_identity(
+        db, client_id, contact_id, 'vk',
+        getattr(data, "personal_vk_id", None),
+        getattr(data, "personal_vk_username", None),
+    )
+    await _upsert_personal_identity(
+        db, client_id, contact_id, 'max',
+        getattr(data, "personal_max_id", None),
+        getattr(data, "personal_max_username", None),
+    )
+
+
+# Алиас для обратной совместимости с местами, где зовётся _upsert_personal_tg.
+async def _upsert_personal_tg(db, client_id, contact_id, tg_id, tg_username):
+    await _upsert_personal_identity(db, client_id, contact_id, 'telegram', tg_id, tg_username)
 
 
 @router.get("/{collaborator_id}", summary="Коллаборация по ID")
@@ -279,9 +334,20 @@ class CollaboratorQuickCreate(BaseModel):
     poster_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
     tg_channel_id: Optional[str] = None
+    vk_url: Optional[str] = None
+    max_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
     assistant_tg_username: Optional[str] = None
+    # Минимум одна личная идентичность обязательна — но если контакт уже
+    # существует (existing_contact_id заполнен), валидация снимается:
+    # личные контакты могут быть уже привязаны через предыдущий импорт.
+    personal_tg_id: Optional[str] = None
+    personal_tg_username: Optional[str] = None
+    personal_vk_id: Optional[str] = None
+    personal_vk_username: Optional[str] = None
+    personal_max_id: Optional[str] = None
+    personal_max_username: Optional[str] = None
     force_create: bool = False
     existing_contact_id: Optional[int] = None
 
@@ -305,6 +371,23 @@ async def create_collaborator_quick(
         )
         if not own:
             raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
+    else:
+        # При создании нового контакта (без existing_contact_id) обязательна
+        # минимум одна личная идентичность спикера — иначе мы не сможем ему
+        # отправить инструкцию по самообслуживанию.
+        has_personal = any([
+            (data.personal_tg_id or "").strip(),
+            (data.personal_tg_username or "").strip(),
+            (data.personal_vk_id or "").strip(),
+            (data.personal_vk_username or "").strip(),
+            (data.personal_max_id or "").strip(),
+            (data.personal_max_username or "").strip(),
+        ])
+        if not has_personal:
+            raise HTTPException(
+                status_code=422,
+                detail="Укажите хотя бы один личный аккаунт спикера: Telegram, VK или MAX. Без этого ему не получится отправить инструкцию для редактирования профиля."
+            )
 
     if contact_id is None and not data.force_create:
         matches = await db.fetch(
@@ -346,23 +429,30 @@ async def create_collaborator_quick(
                     detail=f"У этого контакта уже есть коллаборатор (id={existing_coll})."
                 )
 
-        row = await db.fetchrow(
+        new_id = await db.fetchval(
             """INSERT INTO collaborators
                (contact_id, name, title, achievements,
                 photo_url, poster_url,
                 tg_channel_url, tg_channel_id,
+                vk_url, max_url,
                 instagram_url, website_url,
                 assistant_tg_username,
                 created_by_client_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id""",
             contact_id, name, data.title, data.achievements,
             data.photo_url, data.poster_url,
             data.tg_channel_url, data.tg_channel_id,
+            data.vk_url, data.max_url,
             data.instagram_url, data.website_url,
             data.assistant_tg_username,
             client_id
         )
+        await _upsert_personal_identities(db, client_id, contact_id, data)
 
+    row = await db.fetchrow(
+        f"SELECT {_COLLAB_SELECT} FROM collaborators c {_COLLAB_JOIN} WHERE c.id = $1",
+        new_id
+    )
     d = row_to_dict(row)
     return {"collaborator": d, "speaker": d}
 
@@ -375,11 +465,17 @@ class CollaboratorImportItem(BaseModel):
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
+    vk_url: Optional[str] = None
+    max_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
     tg_channel_id: Optional[str] = None
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
+    personal_vk_id: Optional[str] = None
+    personal_vk_username: Optional[str] = None
+    personal_max_id: Optional[str] = None
+    personal_max_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
 
 
@@ -429,19 +525,19 @@ async def import_collaborators(
             row = await db.fetchrow(
                 """INSERT INTO collaborators
                    (contact_id, name, title, achievements, photo_url, photo_folder_url, video_folder_url,
-                    tg_channel_url, instagram_url, website_url,
+                    tg_channel_url, vk_url, max_url, instagram_url, website_url,
                     tg_channel_id, assistant_tg_username,
                     created_by_client_id)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, name""",
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, name""",
                 contact_id, item.name, item.title, item.achievements,
                 item.photo_url, item.photo_folder_url, item.video_folder_url,
-                item.tg_channel_url or None, item.instagram_url or None, item.website_url or None,
+                item.tg_channel_url or None,
+                item.vk_url or None, item.max_url or None,
+                item.instagram_url or None, item.website_url or None,
                 item.tg_channel_id or None, item.assistant_tg_username or None,
                 client_id
             )
-            if item.personal_tg_id or item.personal_tg_username:
-                await _upsert_personal_tg(db, client_id, contact_id,
-                                          item.personal_tg_id, item.personal_tg_username)
+            await _upsert_personal_identities(db, client_id, contact_id, item)
             created.append({"id": row["id"], "name": row["name"]})
         except Exception as e:
             errors.append({"name": item.name, "error": str(e)})
@@ -477,3 +573,67 @@ async def delete_collaborator(
         )
     await db.execute("DELETE FROM collaborators WHERE id = $1", collaborator_id)
     return {"message": "Коллаборация удалена из базы"}
+
+
+@router.get("/{collaborator_id}/invite-message", summary="Готовое сообщение для отправки спикеру (с 3 invite-ссылками)")
+async def collaborator_invite_message(
+    collaborator_id: int,
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """
+    Возвращает {access_code, message, links} — текст для копирования и
+    отправки спикеру вручную (Margo шлёт в личку, потому что спикера ещё нет
+    в боте). Спикер кликает любую из 3 ссылок → бот шлёт ему код + ссылку
+    на лендинг pluson.ru/speaker/<event_slug>.
+
+    Какой бот в ссылке: клиентский VIP-бот если есть подключённый канал
+    на платформе, иначе системный.
+    """
+    from app.services.share_links import build_invite_links_for_collaborator
+    client_id = int(client["sub"])
+    row = await db.fetchrow(
+        """SELECT c.id, c.name, c.access_code, e.slug AS event_slug, e.title AS event_title
+             FROM collaborators c
+             JOIN event_collaborators ec ON ec.speaker_id = c.id
+             JOIN events e ON e.id = ec.event_id
+            WHERE c.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+        collaborator_id, event_id, client_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Спикер не привязан к этому событию")
+
+    access_code = row["access_code"]
+    event_slug = row["event_slug"]
+    event_title = row["event_title"] or "событие"
+    speaker_name = row["name"] or "Спикер"
+
+    links = await build_invite_links_for_collaborator(db, client_id, access_code)
+    landing_url = f"https://pluson.ru/speaker/{event_slug}"
+
+    lines = [
+        f"{speaker_name}, для участия в «{event_title}» нужно заполнить свои данные.",
+        "",
+        "Откройте любую удобную ссылку — бот пришлёт код доступа и ссылку на форму:",
+    ]
+    if links.get("telegram"):
+        lines.append(f"  Telegram: {links['telegram']}")
+    if links.get("vk"):
+        lines.append(f"  VK: {links['vk']}")
+    if links.get("max"):
+        lines.append(f"  MAX: {links['max']}")
+    lines += [
+        "",
+        f"Если ссылки не удобны — откройте напрямую:",
+        f"  {landing_url}",
+        f"  Код доступа: {access_code}",
+        "",
+        "Можно передать ссылку и код своему ассистенту — он заполнит за вас.",
+    ]
+    return {
+        "access_code": access_code,
+        "landing_url": landing_url,
+        "links": links,
+        "message": "\n".join(lines),
+    }

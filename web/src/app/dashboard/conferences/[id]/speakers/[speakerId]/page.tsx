@@ -129,6 +129,11 @@ export default function ConferenceSpeakerPage() {
     gift_after_speech_url: '',
     gift_raffle_title: '',
     gift_raffle_url: '',
+    knowledge_base_title: '',
+    knowledge_base_url: '',
+    show_topic_field: true,
+    show_gift_after_speech_field: true,
+    show_knowledge_base_field: false,
     notes: '',
     is_commercial: false,
     bot_in_channel: false,
@@ -136,6 +141,9 @@ export default function ConferenceSpeakerPage() {
     exclude_gift_from_broadcast: false,
     exclude_channel_from_subscription: false,
   })
+  const [showAccessCode, setShowAccessCode] = useState(false)
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null)
+  const [inviteCopied, setInviteCopied] = useState(false)
 
   const [clientWorkAccount, setClientWorkAccount] = useState<{ username: string; id: string } | null>(null)
   const [mainBotHandle, setMainBotHandle] = useState<string>('')
@@ -187,6 +195,11 @@ export default function ConferenceSpeakerPage() {
           gift_after_speech_url: sp.gift_after_speech_url || '',
           gift_raffle_title: sp.gift_raffle_title || '',
           gift_raffle_url: sp.gift_raffle_url || '',
+          knowledge_base_title: sp.knowledge_base_title || '',
+          knowledge_base_url: sp.knowledge_base_url || '',
+          show_topic_field: sp.show_topic_field !== false,
+          show_gift_after_speech_field: sp.show_gift_after_speech_field !== false,
+          show_knowledge_base_field: !!sp.show_knowledge_base_field,
           notes: sp.notes || '',
           is_commercial: sp.is_commercial || false,
           bot_in_channel: sp.bot_in_channel || false,
@@ -221,11 +234,17 @@ export default function ConferenceSpeakerPage() {
         photo_folder_url: profile.photo_folder_url,
         video_folder_url: profile.video_folder_url,
         tg_channel_url: profile.tg_channel_url,
+        vk_url: profile.vk_url,
+        max_url: profile.max_url,
         instagram_url: profile.instagram_url,
         website_url: profile.website_url,
         tg_channel_id: profile.tg_channel_id,
         personal_tg_id: profile.personal_tg_id,
         personal_tg_username: profile.personal_tg_username,
+        personal_vk_id: profile.personal_vk_id,
+        personal_vk_username: profile.personal_vk_username,
+        personal_max_id: profile.personal_max_id,
+        personal_max_username: profile.personal_max_username,
         assistant_tg_username: profile.assistant_tg_username,
       })
       setProfileSaved(true)
@@ -291,6 +310,11 @@ export default function ConferenceSpeakerPage() {
         gift_after_speech_url: eventForm.gift_after_speech_url,
         gift_raffle_title: eventForm.gift_raffle_title,
         gift_raffle_url: eventForm.gift_raffle_url,
+        knowledge_base_title: eventForm.knowledge_base_title,
+        knowledge_base_url: eventForm.knowledge_base_url,
+        show_topic_field: eventForm.show_topic_field,
+        show_gift_after_speech_field: eventForm.show_gift_after_speech_field,
+        show_knowledge_base_field: eventForm.show_knowledge_base_field,
         notes: eventForm.notes,
         is_commercial: eventForm.is_commercial,
         bot_in_channel: eventForm.bot_in_channel,
@@ -361,6 +385,47 @@ export default function ConferenceSpeakerPage() {
       {/* Партнёрская ссылка спикера на это событие */}
       <div className="mb-6">
         <RefLinkInline slug={eventSlug} refCode={refCode} eventStatus={eventStatus} />
+      </div>
+
+      {/* Код доступа для самообслуживания спикера + готовое сообщение */}
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div>
+            <div className="font-semibold text-gray-900 text-sm">Код доступа для самозаполнения спикера</div>
+            <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <code className="bg-white px-1 rounded">pluson.ru/speaker/{eventSlug || '…'}</code>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mt-3">
+          <input type={showAccessCode ? 'text' : 'password'}
+            value={profile.access_code || ''}
+            readOnly
+            className="flex-1 font-mono tracking-wider text-sm bg-white px-3 py-2 rounded-lg border border-gray-200" />
+          <button type="button" onClick={() => setShowAccessCode(v => !v)}
+            className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
+            {showAccessCode ? 'Скрыть' : 'Показать'}
+          </button>
+          <button type="button"
+            onClick={async () => {
+              try {
+                const r = await api.collaborators.inviteMessage(profile.id, confId)
+                setInviteMsg(r.message)
+                await navigator.clipboard.writeText(r.message)
+                setInviteCopied(true)
+                setTimeout(() => setInviteCopied(false), 3000)
+              } catch (e: any) {
+                setError(e.message || 'Не удалось получить сообщение')
+              }
+            }}
+            className="px-3 py-2 bg-brand text-white rounded-lg text-xs font-semibold hover:opacity-90">
+            {inviteCopied ? '✓ Скопировано' : '📋 Скопировать сообщение спикеру'}
+          </button>
+        </div>
+        {inviteMsg && (
+          <details className="mt-3">
+            <summary className="text-xs text-gray-600 cursor-pointer">Посмотреть что скопировалось</summary>
+            <pre className="mt-2 p-3 bg-white rounded-lg text-xs text-gray-700 whitespace-pre-wrap border border-gray-100">{inviteMsg}</pre>
+          </details>
+        )}
       </div>
 
       {/* ── БЛОК 1: Данные выступления ── */}
@@ -483,6 +548,57 @@ export default function ConferenceSpeakerPage() {
           </div>
         </div>
 
+        {/* Материал в базу знаний */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="font-semibold text-gray-900 text-sm">Материал в базу знаний</h3>
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
+              <input type="checkbox"
+                checked={eventForm.show_knowledge_base_field}
+                onChange={e => setEventForm(f => ({ ...f, show_knowledge_base_field: e.target.checked }))}
+                className="w-4 h-4 rounded border-gray-300 text-brand" />
+              <span>Запросить у спикера</span>
+            </label>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Название материала</label>
+            <textarea value={eventForm.knowledge_base_title} onChange={setEF('knowledge_base_title')}
+              rows={2} placeholder="Например: Презентация выступления / Чек-лист"
+              className="input resize-y text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка</label>
+            <textarea value={eventForm.knowledge_base_url} onChange={setEF('knowledge_base_url')}
+              rows={2} placeholder="https://..."
+              className="input resize-y text-sm" />
+          </div>
+        </div>
+
+        {/* Видимость полей в форме самообслуживания */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+          <h3 className="font-semibold text-gray-900 text-sm">Что спикер видит в своей форме</h3>
+          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются спикеру на странице <code className="bg-gray-50 px-1 rounded">pluson.ru/speaker/{eventSlug || '…'}</code>.</p>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_topic_field}
+              onChange={e => setEventForm(f => ({ ...f, show_topic_field: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Темы выступления — спикер может заполнить сам</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_gift_after_speech_field}
+              onChange={e => setEventForm(f => ({ ...f, show_gift_after_speech_field: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Подарок после эфира — спикер может заполнить сам</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_knowledge_base_field}
+              onChange={e => setEventForm(f => ({ ...f, show_knowledge_base_field: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Материал в базу знаний — спикер может заполнить сам</span>
+          </label>
+          <p className="text-xs text-gray-500 pt-1">Подарок для розыгрыша показывается автоматически, если для события включён модуль розыгрыша.</p>
+        </div>
+
         <div className="flex gap-3 items-center">
           <button type="submit" disabled={savingEvent}
             className={`btn-gold flex-1 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 ${savingEvent ? 'btn-loading' : ''}`}>
@@ -578,6 +694,49 @@ export default function ConferenceSpeakerPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.website}</label>
             <input type="url" value={profile.website_url || ''} onChange={setP('website_url')}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка на VK-сообщество</label>
+            <input type="url" value={profile.vk_url || ''} onChange={setP('vk_url')}
+              placeholder="https://vk.com/..."
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка на MAX-канал</label>
+            <input type="url" value={profile.max_url || ''} onChange={setP('max_url')}
+              placeholder="https://max.ru/..."
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+          </div>
+        </div>
+
+        {/* Личные аккаунты VK и MAX */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+          <h3 className="font-semibold text-gray-900 text-sm">Личный аккаунт VK / MAX</h3>
+          <p className="text-xs text-gray-500 -mt-2">Используется для отправки ссылок и контакта со спикером. Не показывается участникам.</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">VK username</label>
+              <input type="text" value={profile.personal_vk_username || ''} onChange={setP('personal_vk_username')}
+                placeholder="id123456 или nickname"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">VK ID</label>
+              <input type="text" value={profile.personal_vk_id || ''} onChange={setP('personal_vk_id')}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">MAX username</label>
+              <input type="text" value={profile.personal_max_username || ''} onChange={setP('personal_max_username')}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">MAX ID</label>
+              <input type="text" value={profile.personal_max_id || ''} onChange={setP('personal_max_id')}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+            </div>
           </div>
         </div>
 

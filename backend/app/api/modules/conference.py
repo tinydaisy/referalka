@@ -539,6 +539,9 @@ async def list_event_speakers(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
+                  cse.knowledge_base_title, cse.knowledge_base_url,
+                  cse.show_topic_field, cse.show_gift_after_speech_field,
+                  cse.show_knowledge_base_field,
                   cse.poster_url AS cse_poster_url,
                   cse.partner_url, cse.extra_info, cse.notes,
                   c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
@@ -548,13 +551,24 @@ async def list_event_speakers(
                   sp.photo_url,
                   sp.poster_url AS speaker_poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
-                  sp.tg_channel_url, sp.instagram_url, sp.website_url,
-                  pu_tg.username AS personal_tg_username
+                  sp.tg_channel_url, sp.vk_url, sp.max_url,
+                  sp.instagram_url, sp.website_url,
+                  sp.access_code,
+                  pu_tg.username AS personal_tg_username,
+                  pu_tg.platform_user_id AS personal_tg_id,
+                  pu_vk.username AS personal_vk_username,
+                  pu_vk.platform_user_id AS personal_vk_id,
+                  pu_max.username AS personal_max_username,
+                  pu_max.platform_user_id AS personal_max_id
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
            LEFT JOIN platform_users pu_tg
              ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
+           LEFT JOIN platform_users pu_vk
+             ON pu_vk.contact_id = sp.contact_id AND pu_vk.platform_slug = 'vk'
+           LEFT JOIN platform_users pu_max
+             ON pu_max.contact_id = sp.contact_id AND pu_max.platform_slug = 'max'
            WHERE cse.event_id = $1
            ORDER BY """ + collaborator_sort.order_by_sql("cse"),
         event_id
@@ -575,7 +589,9 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
         """SELECT cse.id, cse.speaker_id, cse.role, cse.speaker_topic,
                   cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
-                  sp.name, sp.title, sp.photo_url, sp.tg_channel_url, sp.instagram_url,
+                  cse.knowledge_base_title, cse.knowledge_base_url,
+                  sp.name, sp.title, sp.photo_url,
+                  sp.tg_channel_url, sp.vk_url, sp.max_url, sp.instagram_url,
                   sp.achievements,
                   pu_tg.username AS personal_tg_username
            FROM event_collaborators cse
@@ -1801,11 +1817,17 @@ class SpeakerSelfUpdate(BaseModel):
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
+    vk_url: Optional[str] = None
+    max_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
     tg_channel_id: Optional[str] = None
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
+    personal_vk_id: Optional[str] = None
+    personal_vk_username: Optional[str] = None
+    personal_max_id: Optional[str] = None
+    personal_max_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
     # Данные выступления (таблица event_collaborators)
     topics: Optional[List[str]] = None
@@ -1814,6 +1836,12 @@ class SpeakerSelfUpdate(BaseModel):
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
     keyword_code: Optional[str] = None
+    knowledge_base_title: Optional[str] = None
+    knowledge_base_url: Optional[str] = None
+    # Тогглы видимости полей в self-edit (миграция 108)
+    show_topic_field: Optional[bool] = None
+    show_gift_after_speech_field: Optional[bool] = None
+    show_knowledge_base_field: Optional[bool] = None
 
 
 @router.get("/speakers/by-code/{ref_code}", summary="Профиль спикера по ref_code (без авторизации)")
@@ -1883,6 +1911,7 @@ async def update_speaker_by_ref_code(
     # Личный TG (personal_tg_id/username) живёт в platform_users — апсертим отдельно.
     profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
                       "photo_folder_url", "video_folder_url", "tg_channel_url",
+                      "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id",
                       "assistant_tg_username"]
     profile_updates = {}
@@ -1899,28 +1928,31 @@ async def update_speaker_by_ref_code(
             speaker_id, *profile_updates.values()
         )
 
-    if data.personal_tg_id is not None or data.personal_tg_username is not None:
-        from app.api.collaborators import _upsert_personal_tg
+    if any(getattr(data, fld, None) is not None for fld in (
+        "personal_tg_id", "personal_tg_username",
+        "personal_vk_id", "personal_vk_username",
+        "personal_max_id", "personal_max_username",
+    )):
+        from app.api.collaborators import _upsert_personal_identities
         coll_info = await db.fetchrow(
             "SELECT contact_id, created_by_client_id FROM collaborators WHERE id = $1",
             speaker_id
         )
         if coll_info and coll_info["contact_id"]:
-            await _upsert_personal_tg(
-                db, coll_info["created_by_client_id"], coll_info["contact_id"],
-                data.personal_tg_id, data.personal_tg_username
+            await _upsert_personal_identities(
+                db, coll_info["created_by_client_id"], coll_info["contact_id"], data
             )
 
     # Обновляем данные выступления (event_collaborators)
     event_updates: dict = {}
-    if data.gift_after_speech_title is not None:
-        event_updates["gift_after_speech_title"] = data.gift_after_speech_title
-    if data.gift_after_speech_url is not None:
-        event_updates["gift_after_speech_url"] = data.gift_after_speech_url
-    if data.gift_raffle_title is not None:
-        event_updates["gift_raffle_title"] = data.gift_raffle_title
-    if data.gift_raffle_url is not None:
-        event_updates["gift_raffle_url"] = data.gift_raffle_url
+    for f in ("gift_after_speech_title", "gift_after_speech_url",
+              "gift_raffle_title", "gift_raffle_url",
+              "knowledge_base_title", "knowledge_base_url",
+              "show_topic_field", "show_gift_after_speech_field",
+              "show_knowledge_base_field"):
+        v = getattr(data, f, None)
+        if v is not None:
+            event_updates[f] = v
 
     if event_updates:
         set_parts2 = [f"{k} = ${i+2}" for i, k in enumerate(event_updates.keys())]
@@ -2022,6 +2054,7 @@ async def update_speaker_as_editor(
     # Профиль (без personal_tg_* — они живут в platform_users, миграция 107)
     profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
                       "photo_folder_url", "video_folder_url", "tg_channel_url",
+                      "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id",
                       "assistant_tg_username"]
     profile_updates = {k: getattr(data, k) for k in profile_fields if getattr(data, k) is not None}
@@ -2033,21 +2066,29 @@ async def update_speaker_as_editor(
             speaker_id, *profile_updates.values()
         )
 
-    if data.personal_tg_id is not None or data.personal_tg_username is not None:
-        from app.api.collaborators import _upsert_personal_tg
+    if any(getattr(data, fld, None) is not None for fld in (
+        "personal_tg_id", "personal_tg_username",
+        "personal_vk_id", "personal_vk_username",
+        "personal_max_id", "personal_max_username",
+    )):
+        from app.api.collaborators import _upsert_personal_identities
         coll_info = await db.fetchrow(
             "SELECT contact_id, created_by_client_id FROM collaborators WHERE id = $1",
             speaker_id
         )
         if coll_info and coll_info["contact_id"]:
-            await _upsert_personal_tg(
-                db, coll_info["created_by_client_id"], coll_info["contact_id"],
-                data.personal_tg_id, data.personal_tg_username
+            await _upsert_personal_identities(
+                db, coll_info["created_by_client_id"], coll_info["contact_id"], data
             )
 
     # Выступление
     event_updates: dict = {}
-    for k in ["gift_after_speech_title", "gift_after_speech_url", "gift_raffle_title", "gift_raffle_url", "keyword_code"]:
+    for k in ["gift_after_speech_title", "gift_after_speech_url",
+              "gift_raffle_title", "gift_raffle_url",
+              "keyword_code",
+              "knowledge_base_title", "knowledge_base_url",
+              "show_topic_field", "show_gift_after_speech_field",
+              "show_knowledge_base_field"]:
         v = getattr(data, k, None)
         if v is not None:
             event_updates[k] = v
