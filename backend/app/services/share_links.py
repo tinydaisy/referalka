@@ -248,9 +248,14 @@ async def build_invite_links_for_collaborator(
     if tg_handle:
         result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
 
-    # VK: бот ВК принимает start через ref в vk.me-ссылке.
+    # VK: используем Mini App клиента (как лид-магниты) — `vk.com/app{vk_app_id}#spkinv_<code>`.
+    # Mini App при загрузке парсит hash и шлёт POST /api/v1/vk/speaker-invite — бэк сам
+    # создаёт platform_user и шлёт сообщение в личку через сообщество. Это надёжнее, чем
+    # vk.me/group?ref=..., который требует чтобы пользователь сам написал сообщение боту.
     if handles.get("vk"):
-        result["vk"] = f"https://vk.me/{handles['vk'].lstrip('@')}?ref={payload}"
+        vk_app_id = await get_client_vk_app_id(db, client_id)
+        if vk_app_id:
+            result["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
 
     if handles.get("max"):
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"

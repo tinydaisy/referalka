@@ -58,11 +58,12 @@ export function trackLinkClick(eventSlug: string | undefined | null, tgUser: any
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tg_id: Number(tgUser.id),
+        tg_id: Number(tgUser.id),  // legacy название, фактически id на платформе
         event_slug: eventSlug,
         first_name: tgUser.first_name || '',
         last_name:  tgUser.last_name  || '',
         username:   tgUser.username   || '',
+        platform:   getPlatformName(),
       }),
     }).catch(() => {})
   } catch (_) { /* ignore */ }

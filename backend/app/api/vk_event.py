@@ -270,6 +270,146 @@ async def vk_funnel_start(body: VkFunnelStartRequest):
     return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id}
 
 
+class VkSpeakerInviteRequest(BaseModel):
+    """Запрос на открытие spkinv-ссылки из VK Mini App.
+    Mini App открывается по `vk.com/app{aid}#spkinv_<access_code>`, парсит hash
+    и шлёт сюда вместе с launch_params. Бэк находит коллаба по access_code,
+    апсертит platform_users (vk), шлёт спикеру сообщение в личку через сообщество
+    с кодом доступа и ссылкой на лендинг.
+    """
+    launch_params: dict[str, str]
+    access_code: str
+
+
+@router.post("/vk/speaker-invite", summary="Открытие spkinv-ссылки из VK Mini App")
+async def vk_speaker_invite(body: VkSpeakerInviteRequest):
+    """VK-аналог `/start spkinv_<code>` в Telegram. Открывается через Mini App."""
+    vk_app_id_raw = body.launch_params.get("vk_app_id")
+    secure_key: str | None = settings.vk_app_secure_key
+    try:
+        if vk_app_id_raw and int(vk_app_id_raw) != int(getattr(settings, "vk_app_id", "0") or 0):
+            pool = await get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """SELECT platform_meta->>'vk_secure_key' AS sk
+                             FROM channels
+                            WHERE platform_slug = 'vk'
+                              AND (platform_meta->>'vk_app_id')::int = $1
+                            LIMIT 1""",
+                        int(vk_app_id_raw),
+                    )
+                    if row and row["sk"]:
+                        secure_key = row["sk"]
+    except Exception as e:
+        logger.warning(f"VK speaker-invite secure_key lookup failed: {e}")
+
+    if not secure_key or not validate_vk_launch_params(body.launch_params, secure_key):
+        raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
+
+    vk_user_id_raw = body.launch_params.get("vk_user_id")
+    if not vk_user_id_raw:
+        raise HTTPException(status_code=400, detail="vk_user_id required")
+    try:
+        vk_user_id = int(vk_user_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="vk_user_id must be int")
+
+    access_code = (body.access_code or "").strip()
+    if not access_code:
+        raise HTTPException(status_code=400, detail="access_code required")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="db not available")
+
+    async with pool.acquire() as conn:
+        # Находим клиента-владельца Mini App
+        chan = await conn.fetchrow(
+            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id,
+                      (ch.platform_meta->>'vk_group_id')::int AS vk_group_id
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                  AND cc.is_active = TRUE
+                  AND (ch.platform_meta->>'vk_app_id')::int = $1
+                LIMIT 1""",
+            int(vk_app_id_raw or 0),
+        )
+        if not chan or not chan["bot_token"]:
+            raise HTTPException(status_code=404, detail="VK-сообщество клиента не подключено")
+
+        coll = await conn.fetchrow(
+            """SELECT c.id AS collaborator_id, c.name, c.contact_id, c.created_by_client_id
+                 FROM collaborators c
+                WHERE LOWER(c.access_code) = LOWER($1)""",
+            access_code,
+        )
+        if not coll:
+            raise HTTPException(status_code=404, detail="Код доступа не найден")
+        if coll["created_by_client_id"] != chan["client_id"]:
+            raise HTTPException(status_code=403, detail="Код доступа выдан другому клиенту")
+
+        # Привязываем VK-идентичность спикера к contact (или fall foreign-owner)
+        from app.api.collaborators import _upsert_personal_identity
+        foreign_owner = False
+        if coll["contact_id"] and coll["created_by_client_id"]:
+            try:
+                res = await _upsert_personal_identity(
+                    conn, coll["created_by_client_id"], coll["contact_id"],
+                    'vk', str(vk_user_id), None,
+                )
+                if isinstance(res, dict) and res.get("status") == "foreign_owner":
+                    foreign_owner = True
+            except Exception as e:
+                logger.warning(f"VK speaker-invite upsert identity failed: {e}")
+
+        # Подтягиваем ивент-slug для ссылки на кабинет
+        ev = await conn.fetchrow(
+            """SELECT e.slug, e.title
+                 FROM event_collaborators ec
+                 JOIN events e ON e.id = ec.event_id
+                WHERE ec.speaker_id = $1
+                ORDER BY ec.id DESC LIMIT 1""",
+            coll["collaborator_id"],
+        )
+        event_slug = ev["slug"] if ev else ""
+        event_title = ev["title"] if ev else "событие"
+        sp_name = (coll["name"] or "").strip() or "спикер"
+        cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
+
+        from app.services.vk_api import send_message as vk_send_message, tg_inline_to_vk_keyboard
+        if foreign_owner:
+            text = (
+                f"⚠️ Вы зашли не с того аккаунта.\n\n"
+                f"Эта ссылка выдана спикеру «{sp_name}». Ваш VK-аккаунт уже привязан к другому контакту у этого клиента, "
+                f"поэтому я не могу записать вас как спикера.\n\n"
+                f"Попросите самого спикера открыть ссылку со своего личного VK, либо передайте ссылку его ассистенту."
+            )
+            await vk_send_message(int(vk_user_id), text, token=chan["bot_token"])
+            return {"ok": True, "foreign_owner": True}
+
+        text = (
+            f"Здравствуйте, {sp_name}!\n\n"
+            f"Вы — спикер «{event_title}». Чтобы заполнить свои данные для участников события, "
+            f"откройте свой кабинет:\n{cabinet_url}\n\n"
+            f"Код доступа: {access_code}\n\n"
+            "На странице выберите свою фамилию из списка и введите этот код. "
+            "Сессия живёт 24 часа. Можно передать ссылку и код ассистенту."
+        )
+        keyboard = None
+        if event_slug:
+            keyboard = tg_inline_to_vk_keyboard([[
+                {"text": "📝 Открыть мой кабинет", "url": cabinet_url},
+            ]])
+        await vk_send_message(int(vk_user_id), text, keyboard=keyboard, token=chan["bot_token"])
+
+        group_id = int(body.launch_params.get("vk_group_id") or 0) or int(chan["vk_group_id"] or 0)
+
+    return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id, "cabinet_url": cabinet_url}
+
+
 @router.get("/vk/group-for-app", summary="Резолв vk_app_id → vk_group_id")
 async def vk_group_for_app(app_id: int):
     """Возвращает group_id сообщества, к которому привязан VK Mini App.

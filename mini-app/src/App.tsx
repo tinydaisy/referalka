@@ -120,6 +120,45 @@ async function handleVkFunnelIfNeeded(
     return true
   }
 
+  // Самообслуживание спикера: `spkinv_<access_code>` (миграция 108).
+  // Mini App клиента открывается по `vk.com/app{vk_app_id}#spkinv_<code>` →
+  // бэк находит коллаба по коду, апсертит platform_users (vk), шлёт в личку
+  // сообщение с кодом доступа и кнопкой «📝 Открыть мой кабинет».
+  if (sp.startsWith('spkinv_')) {
+    const accessCode = sp.slice(7)
+    let ok = false
+    let groupId = 0
+    if (accessCode && lp.vk_user_id) {
+      let gid = Number(lp.vk_group_id || 0)
+      if (!gid && lp.vk_app_id) {
+        try {
+          const g: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+            .then(x => x.ok ? x.json() : null)
+          if (g?.group_id) gid = Number(g.group_id)
+        } catch (_) {}
+      }
+      await new Promise<void>((resolve) => {
+        if (!gid) return resolve()
+        adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
+      })
+      try {
+        const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/speaker-invite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ launch_params: lp, access_code: accessCode }),
+        }).then(x => x.ok ? x.json() : null)
+        if (r?.ok) {
+          ok = true
+          groupId = Number(r.group_id || gid || 0)
+        }
+      } catch (e) { console.warn('vk speaker-invite failed', e) }
+    }
+    setFunnelStatus(ok ? 'ok' : 'fail')
+    setFunnelGroupId(groupId)
+    setLoading(false)
+    return true
+  }
+
   // Старый формат `fnl_<run_id>` (через pluson.ru/m/{slug}?to=vk → 302)
   if (sp.startsWith('fnl_')) {
     const runId = Number(sp.slice(4))

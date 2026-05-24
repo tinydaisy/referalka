@@ -197,11 +197,12 @@ async def share_to_bot(body: ShareToBotRequest):
 
 
 class LinkClickRequest(BaseModel):
-    tg_id: int
+    tg_id: int  # legacy название поля; на самом деле — id пользователя на любой платформе
     event_slug: str
     first_name: str = ""
     last_name: str = ""
     username: str = ""
+    platform: str = "telegram"  # telegram | vk | max — Mini App один на все платформы
 
 
 @router.post("/event/link-click")
@@ -218,6 +219,10 @@ async def mark_link_click(body: LinkClickRequest):
         raise HTTPException(status_code=400, detail="event_slug required")
     if not body.tg_id:
         raise HTTPException(status_code=400, detail="tg_id required")
+
+    platform = (body.platform or "telegram").lower().strip()
+    if platform not in ("telegram", "vk", "max"):
+        raise HTTPException(status_code=400, detail="unknown platform")
 
     pool = await get_pool()
     if not pool:
@@ -238,7 +243,7 @@ async def mark_link_click(body: LinkClickRequest):
         contact_id, _pu_id, _new = await upsert_contact_with_identity(
             conn,
             client_id=client_id,
-            platform_slug='telegram',
+            platform_slug=platform,
             platform_user_id=str(body.tg_id),
             username=(body.username.lstrip('@') if body.username else None),
             first_name=body.first_name or None,
