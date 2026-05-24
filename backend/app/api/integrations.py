@@ -70,7 +70,8 @@ class SalebotRegisterRequest(BaseModel):
     client_id: int                          # зашит в настройках Salebot
     platform: str = "telegram"             # 'telegram' | 'vk' | 'max' (legacy, для Salebot)
     platform_user_id: Optional[str] = None # tg_id / vk_id / max_id (legacy, для Salebot). Опционально.
-    contact_id: Optional[int] = None       # ID контакта в ПЛЮСОНе. Приоритетный способ идентификации для GetCourse/Tilda — Mini App подсовывает в URL стороннего лендинга, форма возвращает через скрытое поле.
+    participant_id: Optional[int] = None   # ID записи event_participants. Самый приоритетный способ идентификации для GetCourse/Tilda — содержит и контакт и событие. Mini App подсовывает в URL стороннего лендинга, форма возвращает через скрытое поле.
+    contact_id: Optional[int] = None       # ID контакта в ПЛЮСОНе (legacy после рефакторинга — без события). Используется если participant_id не передан.
     username: Optional[str] = None
     telegram_username: Optional[str] = None # TG-ник из формы (fallback-поиск контакта когда нет ни contact_id, ни platform_user_id)
     first_name: Optional[str] = None
@@ -125,12 +126,65 @@ async def salebot_register(
         raise HTTPException(status_code=404, detail="Клиент не найден")
 
     # Создаём/находим контакт. Приоритет идентификации:
-    # 1) contact_id (GetCourse/Tilda — Mini App подсунул ID в URL → скрытое поле формы)
-    # 2) platform_user_id + platform (Salebot — старая логика)
-    # 3) email / phone / telegram_username (fallback — find_or_create)
+    # 1) participant_id (GetCourse/Tilda — Mini App подсунул ID participant в URL).
+    #    Содержит и contact_id и event_id — самый сильный вариант, дополнительно
+    #    автоматически проставляет is_registered=true.
+    # 2) contact_id (legacy)
+    # 3) platform_user_id + platform (Salebot — старая логика)
+    # 4) email / phone / telegram_username (fallback — find_or_create)
     pluson_id: Optional[int] = None
     is_new_user = False
-    if data.contact_id is not None:
+    auto_event_id: Optional[int] = None  # event_id извлечённый из participant_id
+    auto_event_marked: bool = False      # пометили is_registered через participant_id
+
+    if data.participant_id is not None:
+        # Прямой путь: participant уже создан Mini App'ом. Содержит и event_id
+        # и contact_id — получаем оба + одновременно помечаем is_registered=true.
+        prow = await db.fetchrow(
+            """SELECT ep.id, ep.event_id, ep.contact_id, e.client_id
+                 FROM event_participants ep
+                 JOIN events e ON e.id = ep.event_id
+                WHERE ep.id = $1""",
+            data.participant_id,
+        )
+        if not prow:
+            raise HTTPException(status_code=404, detail=f"Участник {data.participant_id} не найден")
+        if prow["client_id"] != data.client_id:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Участник {data.participant_id} принадлежит другому клиенту",
+            )
+        contact_id = prow["contact_id"]
+        auto_event_id = prow["event_id"]
+
+        # Обновляем поля контакта (как для contact_id-ветки)
+        await db.execute(
+            """UPDATE contacts SET
+                 name             = COALESCE(name, $2),
+                 email            = COALESCE($3, email),
+                 email_normalized = COALESCE($4, email_normalized),
+                 phone            = COALESCE($5, phone),
+                 phone_normalized = COALESCE($6, phone_normalized),
+                 salebot_id       = COALESCE(salebot_id, $7),
+                 last_contact_at  = NOW(),
+                 updated_at       = NOW()
+               WHERE id = $1""",
+            contact_id,
+            name_from_parts(data.first_name, data.last_name),
+            data.email, (data.email or '').strip().lower() or None,
+            data.phone, _normalize_phone_for_update(data.phone),
+            data.salebot_id,
+        )
+        # Помечаем регистрацию — самим фактом заполнения формы. Не откатываем назад.
+        await db.execute(
+            """UPDATE event_participants SET
+                 is_registered = TRUE,
+                 is_in_chat    = is_in_chat OR $2
+               WHERE id = $1""",
+            data.participant_id, bool(data.is_in_chat),
+        )
+        auto_event_marked = True
+    elif data.contact_id is not None:
         # Прямой путь: контакт уже известен. Проверяем что он принадлежит этому
         # клиенту, разруливаем merged_into (если контакт мержнут — берём главного).
         row = await db.fetchrow(
@@ -205,13 +259,18 @@ async def salebot_register(
             erp, contact_id,
         )
 
-    # Если event_id передан — upsert event_participants
-    participant_id = None
+    # Если event_id передан — upsert event_participants.
+    # Если participant_id уже использовался (auto_event_marked) — пропускаем,
+    # is_registered уже выставлен выше.
+    participant_id = data.participant_id
     ref_code = None
     is_new_participant = False
 
-    if data.event_id:
-        event_id_int = int(data.event_id)
+    # event_id для блока ниже: либо передан явно, либо унаследован от participant_id.
+    effective_event_id = data.event_id if data.event_id else (str(auto_event_id) if auto_event_id else None)
+
+    if effective_event_id and not auto_event_marked:
+        event_id_int = int(effective_event_id)
         # Проверяем событие принадлежит этому клиенту
         event = await db.fetchrow(
             "SELECT id FROM events WHERE id = $1 AND client_id = $2",
@@ -300,6 +359,7 @@ async def salebot_register(
 async def salebot_register_get(
     client_id: int,
     secret: str,
+    participant_id: Optional[int] = None,
     contact_id: Optional[int] = None,
     event_id: Optional[int] = None,
     platform_user_id: Optional[str] = None,
@@ -324,6 +384,7 @@ async def salebot_register_get(
         client_id=client_id,
         platform=platform,
         platform_user_id=platform_user_id,
+        participant_id=participant_id,
         contact_id=contact_id,
         username=username,
         telegram_username=telegram_username,

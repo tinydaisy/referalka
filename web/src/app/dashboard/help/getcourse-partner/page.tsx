@@ -69,12 +69,10 @@ export default function GetCoursePartnerHelpPage() {
   const fullUrl =
     `${webhookBase}?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
-    `&event_id=ID_СОБЫТИЯ` +
-    `&contact_id={contact_id}` +
+    `&participant_id={participant_id}` +
     `&email={object.email}` +
     `&phone={object.phone}` +
-    `&external_ref_param=gcpc={партнёрский_код_GetCourse}` +
-    `&is_registered=1`
+    `&external_ref_param=gcpc={партнёрский_код_GetCourse}`
 
   return (
     <div className="pb-24 max-w-3xl">
@@ -101,10 +99,10 @@ export default function GetCoursePartnerHelpPage() {
       <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-5 mb-6">
         <div className="text-sm font-bold mb-3" style={{ color: BRAND }}>Как это работает</div>
         <ol className="text-sm text-gray-700 space-y-2 leading-relaxed">
-          <li><span className="font-bold" style={{ color: BRAND }}>1.</span> Человек открывает Mini App ПЛЮСОН → мы редиректим его на ваш лендинг GetCourse и подсовываем в URL <code className="bg-white px-1.5 py-0.5 rounded text-xs">contact_id</code> — его ID в нашей базе.</li>
-          <li><span className="font-bold" style={{ color: BRAND }}>2.</span> GetCourse через стандартную фичу «Сохранять GET-параметры в форме» кладёт <code className="bg-white px-1.5 py-0.5 rounded text-xs">contact_id</code> в скрытое поле.</li>
-          <li><span className="font-bold" style={{ color: BRAND }}>3.</span> Человек заполняет форму → срабатывает Процесс → блок «Вызвать url» шлёт нам webhook с <code className="bg-white px-1.5 py-0.5 rounded text-xs">contact_id</code> + email + телефон + партнёрский код GetCourse.</li>
-          <li><span className="font-bold" style={{ color: BRAND }}>4.</span> ПЛЮСОН находит контакта по <code className="bg-white px-1.5 py-0.5 rounded text-xs">contact_id</code>, обновляет ему email и телефон, записывает партнёрский код в поле <code className="bg-white px-1.5 py-0.5 rounded text-xs">external_ref_param</code>, отмечает <code className="bg-white px-1.5 py-0.5 rounded text-xs">is_registered=true</code> на событие.</li>
+          <li><span className="font-bold" style={{ color: BRAND }}>1.</span> Человек открывает событие в Mini App ПЛЮСОН → мы редиректим его на ваш лендинг GetCourse и подсовываем в URL <code className="bg-white px-1.5 py-0.5 rounded text-xs">participant_id</code> — ID его участия в этом событии (содержит и человека, и событие — одно поле работает для всех событий).</li>
+          <li><span className="font-bold" style={{ color: BRAND }}>2.</span> GetCourse через стандартную фичу «Сохранять GET-параметры в форме» кладёт <code className="bg-white px-1.5 py-0.5 rounded text-xs">participant_id</code> в скрытое поле.</li>
+          <li><span className="font-bold" style={{ color: BRAND }}>3.</span> Человек заполняет форму → срабатывает Процесс → блок «Вызвать url» шлёт нам webhook с <code className="bg-white px-1.5 py-0.5 rounded text-xs">participant_id</code> + email + телефон + партнёрский код GetCourse.</li>
+          <li><span className="font-bold" style={{ color: BRAND }}>4.</span> ПЛЮСОН по <code className="bg-white px-1.5 py-0.5 rounded text-xs">participant_id</code> сразу знает и контакта и событие — обновляет ему email и телефон, записывает партнёрский код в поле <code className="bg-white px-1.5 py-0.5 rounded text-xs">external_ref_param</code>, отмечает <code className="bg-white px-1.5 py-0.5 rounded text-xs">is_registered=true</code> на это событие.</li>
           <li><span className="font-bold" style={{ color: BRAND }}>5.</span> Когда этот человек шарит свою ссылку <code className="bg-white px-1.5 py-0.5 rounded text-xs">pluson.ru/l/{`{slug}`}?pid={`{его_ref_code}`}</code> — мы автоматически дописываем к URL лендинга его GetCourse-партнёрский код. GetCourse засчитывает ему реферала.</li>
         </ol>
       </div>
@@ -123,8 +121,8 @@ export default function GetCoursePartnerHelpPage() {
         </div>
       </Step>
 
-      <Step n={2} title="В форме GetCourse — создайте скрытое поле contact_id">
-        <p>В редакторе формы добавьте одно <b>скрытое поле</b> с именем <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">contact_id</code>.</p>
+      <Step n={2} title="В форме GetCourse — создайте скрытое поле participant_id">
+        <p>В редакторе формы добавьте одно <b>скрытое поле</b> с именем <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">participant_id</code>.</p>
         <p>В свойствах формы включите галку <b>«Сохранять GET-параметры в форме»</b> — GetCourse сам подхватит значение из URL.</p>
         <p>Также форма должна собирать обычные поля <b>email</b> и <b>телефон</b> (если у клиента в кабинете этих данных ещё нет — мы их допишем; если есть — обновим).</p>
       </Step>
@@ -141,13 +139,15 @@ export default function GetCoursePartnerHelpPage() {
       </Step>
 
       <Step n={4} title="URL для блока «Вызвать url»">
-        <p>Скопируйте URL ниже. В нём уже подставлены <b>ваш client_id и токен</b>. Замените:</p>
+        <p>Скопируйте URL ниже. В нём уже подставлены <b>ваш client_id и токен</b>. Замените только:</p>
         <ul className="list-disc list-inside space-y-1">
-          <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">ID_СОБЫТИЯ</code> — id события из ПЛЮСОНа (видно в URL карточки события в дашборде)</li>
           <li><code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">{`{партнёрский_код_GetCourse}`}</code> — переменная GetCourse, в которой лежит партнёрский код этого человека (например, <code className="bg-gray-100 px-1 rounded">08cea</code>). Какая именно переменная — зависит от вашей партнёрки в GetCourse.</li>
         </ul>
         <CopyBox text={fullUrl} />
-        <p className="text-xs text-gray-500 mt-2">Параметры в фигурных скобках типа <code>{`{object.email}`}</code> и <code>{`{contact_id}`}</code> — это синтаксис GetCourse для подстановки значений из полей пользователя/формы.</p>
+        <p className="text-xs text-gray-500 mt-2">Параметры в фигурных скобках типа <code>{`{object.email}`}</code> и <code>{`{participant_id}`}</code> — это синтаксис GetCourse для подстановки значений из полей пользователя/формы.</p>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mt-2 text-xs text-emerald-900">
+          <b>Один Процесс на все события.</b> ID события зашит внутрь <code className="bg-white px-1 rounded">participant_id</code> — не нужно копировать процесс под каждое событие, один и тот же URL работает для любого вашего события.
+        </div>
       </Step>
 
       <Step n={5} title="Откуда брать партнёрский код в GetCourse">
@@ -164,7 +164,7 @@ export default function GetCoursePartnerHelpPage() {
         <ul className="space-y-1 list-disc list-inside">
           <li><code className="bg-gray-100 px-1 rounded text-xs">contacts.email</code> и <code className="bg-gray-100 px-1 rounded text-xs">contacts.phone</code> — если переданы непустые значения, перезаписываются.</li>
           <li><code className="bg-gray-100 px-1 rounded text-xs">contacts.external_ref_param</code> — записывается партнёрский код целиком (например, <code className="bg-gray-100 px-1 rounded">gcpc=08cea</code>). Свежий код перезатирает старый.</li>
-          <li><code className="bg-gray-100 px-1 rounded text-xs">event_participants.is_registered = true</code> для указанного <code className="bg-gray-100 px-1 rounded text-xs">event_id</code>. Если контакт ещё не был на событии — создаётся запись.</li>
+          <li><code className="bg-gray-100 px-1 rounded text-xs">event_participants.is_registered = true</code> для события, к которому привязан <code className="bg-gray-100 px-1 rounded text-xs">participant_id</code>.</li>
         </ul>
         <p>Карточка контакта на странице <Link href="/dashboard/clients" className="text-blue-600 hover:underline">Контакты</Link> покажет это значение в поле «Партнёрский код внешней платформы».</p>
       </Step>

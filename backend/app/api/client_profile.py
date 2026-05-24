@@ -33,7 +33,7 @@ from app.services.social_links import normalize_social_links, normalize_telegram
 from app.services.external_landing import (
     resolve_external_ref_param,
     build_external_landing_url,
-    resolve_contact_id_by_platform_user,
+    resolve_or_create_participant,
 )
 from app.config import settings
 
@@ -352,24 +352,27 @@ async def public_event_landing_redirect(
 
     external_ref_param = await resolve_external_ref_param(db, row["client_id"], pid)
 
-    # Резолвим contact_id из tg_id/vk_id, чтобы подсунуть в URL стороннего лендинга
-    # одно универсальное поле (контакт уже создан при event_start; для нового
-    # человека contact_id будет None и параметр просто не попадёт в URL — webhook
-    # сделает fallback по email/phone).
-    contact_id_out: Optional[int] = None
+    # Резолвим (или UPSERT-им) participant_id из tg_id/vk_id, чтобы подсунуть
+    # в URL стороннего лендинга одно универсальное поле, содержащее и контакт
+    # и событие. Для нового человека без contact (ещё не было event_start)
+    # participant_id будет None — параметр просто не попадёт в URL, webhook
+    # сделает fallback по email/phone из формы.
+    participant_id_out: Optional[int] = None
     if tg_id is not None:
-        contact_id_out = await resolve_contact_id_by_platform_user(
-            db, client_id=row["client_id"], platform_slug='telegram', platform_user_id=str(tg_id),
+        participant_id_out = await resolve_or_create_participant(
+            db, client_id=row["client_id"], event_id=row["id"],
+            platform_slug='telegram', platform_user_id=str(tg_id),
         )
     elif vk_id is not None:
-        contact_id_out = await resolve_contact_id_by_platform_user(
-            db, client_id=row["client_id"], platform_slug='vk', platform_user_id=str(vk_id),
+        participant_id_out = await resolve_or_create_participant(
+            db, client_id=row["client_id"], event_id=row["id"],
+            platform_slug='vk', platform_user_id=str(vk_id),
         )
 
     redirect_url = build_external_landing_url(
         landing_url,
         event_slug=slug,
-        contact_id=contact_id_out,
+        participant_id=participant_id_out,
         pid=pid,
         utm_source=utm_source,
         external_ref_param=external_ref_param,
