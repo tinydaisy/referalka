@@ -947,12 +947,15 @@ async def _send_broadcast_email_part(
                 client_id, list(test_tg_set),
             )
             allowed_contact_ids = {r["contact_id"] for r in tg_contact_rows}
-        if not test_emails_set and not allowed_contact_ids:
+        # ВАЖНО: для email-тестов используем ТОЛЬКО clients.test_email_ids.
+        # Раньше был OR через allowed_contact_ids (контакты с тестовыми TG-id) —
+        # из-за этого письмо уходило людям, чей TG-аккаунт в тестовых, но email
+        # вовсе НЕ в test_email_ids. Это нарушало смысл «тестовых email».
+        if not test_emails_set:
             return 0
         rows = [
             r for r in rows
-            if (r["email"] and str(r["email"]).strip().lower() in test_emails_set)
-               or (r["contact_id"] in allowed_contact_ids)
+            if r["email"] and str(r["email"]).strip().lower() in test_emails_set
         ]
         if not rows:
             return 0
