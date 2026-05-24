@@ -192,11 +192,14 @@ async def salebot_register(
             lookup_telegram_username=data.telegram_username,
         )
 
-    # UPSERT contacts.external_ref_param (если передан) — партнёрский параметр
-    # внешней платформы клиента типа "gcpc=fdd97". Свежее значение из GetCourse
-    # важнее старого — перезатираем.
-    if data.external_ref_param is not None:
-        erp = (data.external_ref_param or "").strip() or None
+    # UPSERT contacts.external_ref_param — партнёрский параметр внешней
+    # платформы клиента типа "gcpc=fdd97". Пишем ТОЛЬКО непустое валидное
+    # значение (с ключом и непустым значением справа от `=`). Пустое
+    # значение (`""`, `gcpc=`) пропускаем — НЕ обнуляем существующее в БД,
+    # чтобы клиент не терял уже сохранённый код при повторной отправке формы
+    # без партнёрского хвоста.
+    erp = (data.external_ref_param or "").strip()
+    if erp and '=' in erp and erp.split('=', 1)[1].strip():
         await db.execute(
             "UPDATE contacts SET external_ref_param = $1, updated_at = NOW() WHERE id = $2",
             erp, contact_id,
