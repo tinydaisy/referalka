@@ -141,6 +141,73 @@ export default function GetCoursePartnerHelpPage() {
         </div>
       </Step>
 
+      <Step n={3} title="Как создать Процесс в GetCourse (общий шаблон для обоих процессов)">
+        <p>Этот шаблон работает и для Процесса №1 (Регистрация), и для Процесса №2 (Партнёрский код) — отличаются только название и URL.</p>
+
+        <div className="bg-gray-50 rounded-lg p-3 mt-2">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.1 — Создать процесс</div>
+          <ol className="list-decimal list-inside text-sm space-y-1">
+            <li>В GetCourse: <b>Разделы → Процессы → «Создать процесс»</b>.</li>
+            <li><b>Название</b> — например, «Плюсон-регистрация» или «Плюсон-передача партнёрского кода».</li>
+            <li><b>Тип объекта</b> — выберите <b>«Пользователи»</b>.</li>
+            <li>Поставьте галку <b>«Не добавлять исполнителей и супервайзеров»</b> — процесс автоматический.</li>
+            <li><b>Шаблон процесса</b> — оставьте «без шаблона». Нажмите <b>«Создать»</b>.</li>
+          </ol>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.2 — Настройки на вкладке «Общее»</div>
+          <ul className="list-disc list-inside text-sm space-y-1">
+            <li><b>Суть задачи</b> — впишите что-то (например, «Отправить в ПЛЮСОН»). Это для логов.</li>
+            <li><b>Массовое создание задач</b> — оставьте <b>«Отключено»</b> (задачи будут создаваться триггером из формы).</li>
+            <li>Остальное по дефолту. Нажмите <b>«Сохранить»</b>.</li>
+          </ul>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.3 — Добавить блок «Вызвать url» на вкладке «Процесс»</div>
+          <ol className="list-decimal list-inside text-sm space-y-1">
+            <li>Перейдите на вкладку <b>«Процесс»</b> — увидите блок «Начало работы».</li>
+            <li>Кнопка <b>«+ Добавить блок»</b> (правый верхний угол) → выберите <b>«Операция»</b>.</li>
+            <li>В появившемся окне настройки в списке <b>«Тип операции»</b> выберите <b>«Вызвать url»</b>.</li>
+            <li>Заполните поля:
+              <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5">
+                <li><b>Метод</b> — <b>GET</b>.</li>
+                <li><b>Url</b> — вставьте URL для нужного Процесса (см. карточки ниже).</li>
+                <li><b>Время на ожидание/соединение</b> — оставьте по 10 секунд (дефолт).</li>
+                <li><b>SSL верификация</b> — Да.</li>
+                <li><b>Записать результат в доп. поле</b> (опционально) — создайте доп. поле типа «Текст» (например, <code className="bg-white px-1 rounded">pluson_response</code>) и выберите его. В карточке пользователя будет виден ответ нашего сервера — полезно для отладки.</li>
+                <li><b>Менеджер должен подтвердить запуск</b> — НЕ ставьте галку.</li>
+              </ul>
+            </li>
+            <li>Нажмите <b>«Сохранить»</b>.</li>
+          </ol>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.4 — Соединить блоки</div>
+          <ol className="list-decimal list-inside text-sm space-y-1">
+            <li>Стрелка от <b>«Начало работы»</b> → к <b>«Вызвать url»</b> (потяните от правого края блока).</li>
+            <li>Добавьте через <b>«+ Добавить блок» → «Завершение процесса»</b>.</li>
+            <li>Стрелка от <b>«Вызвать url» → «Завершение процесса»</b>.</li>
+          </ol>
+          <p className="text-xs text-gray-500 mt-1">Должна получиться цепочка: <b>Начало работы → Вызвать url → Завершение процесса</b>.</p>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.5 — Привязать триггер запуска (это делается ВНЕ процесса!)</div>
+          <p className="text-sm">Триггер настраивается в источнике события — в самой форме регистрации:</p>
+          <ol className="list-decimal list-inside text-sm space-y-1 mt-1">
+            <li>Откройте свою форму регистрации в GetCourse.</li>
+            <li><b>Настройки формы → раздел «Процессы»</b> (или «Действия после отправки»).</li>
+            <li>Кнопка <b>«Добавить процесс»</b> → выберите ваш только что созданный процесс (например, «Плюсон-регистрация»).</li>
+            <li>Условия запуска — оставьте пустыми (для всех отправок).</li>
+            <li>Сохраните форму.</li>
+          </ol>
+          <p className="text-xs text-gray-500 mt-1">К одной форме можно привязать <b>оба процесса одновременно</b> — Процесс №1 пометит регистрацию, Процесс №2 запишет партнёрский код. Если кода ещё нет — webhook просто пропустит обновление (см. ниже).</p>
+        </div>
+      </Step>
+
       <div className="bg-white border-2 border-emerald-200 rounded-2xl p-5 mb-4">
         <h2 className="text-lg font-bold mb-3" style={{ color: BRAND }}>Процесс №1 — Регистрация на событии</h2>
         <p className="text-sm text-gray-600 mb-3">Срабатывает на отправку формы регистрации. Помечает <code className="bg-gray-100 px-1 rounded text-xs">event_participants.is_registered=true</code>, обновляет email и телефон контакта.</p>
@@ -170,7 +237,7 @@ export default function GetCoursePartnerHelpPage() {
         </div>
       </div>
 
-      <Step n={3} title="Где брать партнёрский код в GetCourse">
+      <Step n={4} title="Где брать партнёрский код в GetCourse">
         <p>Партнёрский код — это идентификатор, под которым GetCourse засчитывает реферала во <b>вашей</b> партнёрке. В URL партнёрской ссылки GetCourse приписывает его как <code className="bg-gray-100 px-1 rounded">?gcpc=08cea</code>.</p>
         <p>В ПЛЮСОН передавайте <b>полную строку «ключ=значение»</b>:</p>
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
@@ -179,7 +246,7 @@ export default function GetCoursePartnerHelpPage() {
         <p>Префикс <code className="bg-gray-100 px-1 rounded">gcpc</code> (или другой) должен совпадать с тем, что GetCourse читает на лендинге для атрибуции реферала.</p>
       </Step>
 
-      <Step n={4} title="Куда параметры попадают в ПЛЮСОНе">
+      <Step n={5} title="Куда параметры попадают в ПЛЮСОНе">
         <p>После Процесса №1 (регистрация):</p>
         <ul className="space-y-1 list-disc list-inside">
           <li><code className="bg-gray-100 px-1 rounded text-xs">event_participants.is_registered = true</code> для события из <code className="bg-gray-100 px-1 rounded text-xs">participant_id</code>.</li>
@@ -192,7 +259,7 @@ export default function GetCoursePartnerHelpPage() {
         <p>Карточка контакта на странице <Link href="/dashboard/clients" className="text-blue-600 hover:underline">Контакты</Link> покажет это значение в поле «Партнёрский код внешней платформы».</p>
       </Step>
 
-      <Step n={5} title="Где это используется автоматически">
+      <Step n={6} title="Где это используется автоматически">
         <p>Как только у контакта есть <code className="bg-gray-100 px-1 rounded text-xs">external_ref_param</code> — все его ссылки в ПЛЮСОНе работают как партнёрские в обе стороны:</p>
         <div className="bg-gray-50 rounded-lg p-3 text-xs font-mono space-y-1">
           <div><span className="text-gray-500">его ссылка в ПЛЮСОНе:</span> pluson.ru/l/event-slug?<span className="text-amber-700 font-bold">pid={`{его_ref_code}`}</span></div>
