@@ -228,18 +228,14 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
     if foreign_owner:
         sp_name = (coll["name"] or "").strip() or "спикер"
         try:
-            await vk_call(
-                "messages.send",
-                {
-                    "user_id": int(user_id),
-                    "message": (
-                        f"⚠️ Вы зашли не с того аккаунта.\n\n"
-                        f"Эта ссылка выдана спикеру «{sp_name}». Ваш VK-аккаунт уже привязан к другому контакту у этого клиента, "
-                        f"поэтому я не могу записать вас как спикера.\n\n"
-                        f"Попросите самого спикера открыть ссылку со своего личного VK, либо передайте ссылку его ассистенту."
-                    ),
-                    "random_id": 0,
-                },
+            await vk_send_message(
+                int(user_id),
+                (
+                    f"⚠️ Вы зашли не с того аккаунта.\n\n"
+                    f"Эта ссылка выдана спикеру «{sp_name}». Ваш VK-аккаунт уже привязан к другому контакту у этого клиента, "
+                    f"поэтому я не могу записать вас как спикера.\n\n"
+                    f"Попросите самого спикера открыть ссылку со своего личного VK, либо передайте ссылку его ассистенту."
+                ),
                 token=ctx.token,
             )
         except Exception as e:
@@ -268,19 +264,12 @@ async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "Gr
         f"Сессия живёт 24 часа. Можно передать ссылку и код ассистенту."
     )
     try:
-        params = {
-            "user_id": int(user_id),
-            "message": text,
-            "dont_parse_links": 0,
-            "random_id": 0,
-        }
+        keyboard = None
         if event_slug:
             keyboard = tg_inline_to_vk_keyboard([[
                 {"text": "📝 Открыть мой кабинет", "url": cabinet_url},
             ]])
-            if keyboard:
-                params["keyboard"] = keyboard
-        await vk_call("messages.send", params, token=ctx.token)
+        await vk_send_message(int(user_id), text, keyboard=keyboard, token=ctx.token)
     except Exception as e:
         logger.warning("VK spkinv messages.send failed: %s", e)
     return True
