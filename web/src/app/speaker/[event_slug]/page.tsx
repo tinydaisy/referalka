@@ -497,6 +497,9 @@ export default function SpeakerCabinetPage() {
 
           <label style={labelCss}>Ссылка на папку с видео (Я.Диск / Google Drive / YouTube)</label>
           <input style={inputCss} value={me.video_folder_url || ''} onChange={(e) => update({ video_folder_url: e.target.value })} placeholder="https://…" />
+          <div style={{ fontSize: 11, color: '#7a8c9c', marginTop: 4, lineHeight: 1.5 }}>
+            Выложите 1–2 видео: одно из <b>личной жизни</b> (отдых, хобби) и одно из <b>профессиональной</b> (выступаете на сцене, общаетесь с клиентами, в рабочей обстановке).
+          </div>
 
           <label style={labelCss}>Регалии — каждая на отдельной строке</label>
           <textarea
@@ -654,10 +657,27 @@ export default function SpeakerCabinetPage() {
         <button
           onClick={onSave}
           disabled={saving}
-          style={{ width: '100%', padding: '16px', background: PEACH, color: DARK, fontWeight: 700, fontSize: 16, border: 'none', borderRadius: 12, cursor: saving ? 'wait' : 'pointer', marginBottom: 24, position: 'sticky', bottom: 12 }}
+          style={{
+            width: '100%', padding: '16px',
+            background: PEACH, color: DARK, fontWeight: 700, fontSize: 16,
+            border: 'none', borderRadius: 12,
+            cursor: saving ? 'wait' : 'pointer', marginBottom: 24,
+            position: 'sticky', bottom: 12,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            opacity: saving ? 0.85 : 1,
+          }}
         >
+          {saving && (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ animation: 'spkSpin 0.8s linear infinite' }}>
+              <circle cx="12" cy="12" r="9" stroke={DARK} strokeOpacity="0.25" strokeWidth="3" />
+              <path d="M21 12a9 9 0 0 0-9-9" stroke={DARK} strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          )}
           {saving ? 'Сохраняем…' : 'Сохранить'}
         </button>
+        <style jsx global>{`
+          @keyframes spkSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        `}</style>
         {savedAt && <div style={{ textAlign: 'center', fontSize: 12, color: '#5a8b5a', marginBottom: 24 }}>Сохранено в {savedAt.toLocaleTimeString('ru-RU').slice(0, 5)}</div>}
       </div>
 
