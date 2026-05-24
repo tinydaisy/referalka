@@ -195,7 +195,19 @@ export default function GetCoursePartnerHelpPage() {
         </div>
 
         <div className="bg-gray-50 rounded-lg p-3">
-          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.5 — Привязать триггер запуска (это делается ВНЕ процесса!)</div>
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.5 — Активировать процесс</div>
+          <p className="text-sm">Свежесозданный процесс в GetCourse <b>неактивен</b> — задачи по триггерам не создаются, пока его не включить.</p>
+          <ol className="list-decimal list-inside text-sm space-y-1 mt-1">
+            <li>На странице процесса найдите переключатель статуса <b>«Активен / Неактивен»</b> — обычно вверху страницы рядом с названием, или на вкладке <b>«Общее»</b>.</li>
+            <li>Переведите в <b>«Активен»</b>.</li>
+          </ol>
+          <div className="bg-rose-50 border border-rose-200 rounded p-2 mt-2 text-xs text-rose-900">
+            ⚠️ Без активации процесс «висит» — отправка формы сработает, но наш webhook не вызовется и контакт не пометится зарегистрированным.
+          </div>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg p-3">
+          <div className="font-semibold text-xs text-gray-700 mb-2">Шаг 3.6 — Привязать триггер запуска (это делается ВНЕ процесса!)</div>
           <p className="text-sm">Триггер настраивается в источнике события — в самой форме регистрации:</p>
           <ol className="list-decimal list-inside text-sm space-y-1 mt-1">
             <li>Откройте свою форму регистрации в GetCourse.</li>
