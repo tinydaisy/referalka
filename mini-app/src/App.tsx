@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import Hub from './pages/Hub'
 import HubSelector from './pages/HubSelector'
 import EventPage from './pages/EventPage'
-import PartnerPage from './pages/PartnerPage'
 import LoadingScreen from './components/LoadingScreen'
 import SpinnerOverlay from './components/SpinnerOverlay'
 import { getPlatform, getPlatformName, type PlatformAdapter } from './platform'
@@ -49,26 +48,6 @@ function parseStartParam(raw: string): {
 function parsePathSlug(): string | null {
   const m = window.location.pathname.match(/event\/([^/]+)/)
   return m ? m[1] : null
-}
-
-// Регистрация партнёра — миграция 105.
-// TG путь:  /tg/partner/{run_id}      → { runId, done = ?done=1 }
-//           /c/{N}/tg/partner/{run_id} → то же самое
-// VK hash:  #prt_{run_id}              → { runId, done=false }
-//           #prt_{run_id}_done         → { runId, done=true  }
-function parsePartner(): { runId: number; done: boolean } | null {
-  const m = window.location.pathname.match(/\/partner\/(\d+)\b/)
-  if (m) {
-    const done = new URLSearchParams(window.location.search).get('done') === '1'
-    return { runId: Number(m[1]), done }
-  }
-  const h = (window.location.hash || '').replace(/^#/, '')
-  if (h.startsWith('prt_')) {
-    const rest = h.slice(4)
-    const m2 = rest.match(/^(\d+)(_done)?$/)
-    if (m2) return { runId: Number(m2[1]), done: !!m2[2] }
-  }
-  return null
 }
 
 // Vite собирает с фиксированным base="/tg/" или "/vk/" — ассеты грузятся с
@@ -258,22 +237,12 @@ export default function App() {
   // VK-only: экран статуса воронки лид-магнита после m_/p_/fnl_ landing
   const [funnelStatus, setFunnelStatus] = useState<'ok' | 'fail' | null>(null)
   const [funnelGroupId, setFunnelGroupId] = useState<number>(0)
-  // Регистрация партнёра (миграция 105) — отдельный режим, без Hub/EventPage
-  const [partnerRoute] = useState<{ runId: number; done: boolean } | null>(() => parsePartner())
 
   useEffect(() => {
     (async () => {
       const adapter = getPlatform()
       adapter.setHeaderColor?.('#0a1520')
       adapter.setBackgroundColor?.('#f7f8fa')
-
-      // Партнёрский маршрут — никаких побочных запросов (event_start, voronka),
-      // сразу снимаем loading и отдаём управление PartnerPage.
-      if (partnerRoute) {
-        setTgUser(adapter.user || MOCK_USER)
-        setLoading(false)
-        return
-      }
 
       const user = adapter.user
       if (user) setTgUser(user)
@@ -399,11 +368,6 @@ export default function App() {
   // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку)
   if (funnelStatus) {
     return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} />
-  }
-
-  // Регистрация партнёра — отдельная страница, миграция 105
-  if (partnerRoute) {
-    return <PartnerPage runId={partnerRoute.runId} done={partnerRoute.done} />
   }
 
   if (eventSlug) {

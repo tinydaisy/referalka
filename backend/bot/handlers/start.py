@@ -174,6 +174,27 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
+    # Возврат после сабмита формы партнёрского лендинга (миграция 105).
+    # Партнёрский сервис в редирект-после-формы ставит t.me/{bot}?start=partner_done_<client_id>.
+    # Мы по tg_id ищем contact у клиента и шлём сообщение «вы зарегистрированы / упс».
+    if args.startswith("partner_done_"):
+        try:
+            client_id = int(args.removeprefix("partner_done_"))
+        except ValueError:
+            client_id = None
+        if client_id:
+            pool = await get_pool()
+            from app.services.partner_service import send_partner_done_tg
+            try:
+                bot_id = message.bot.id if message.bot else None
+                async with pool.acquire() as db:
+                    await send_partner_done_tg(client_id, str(user.id), db, bot_id=bot_id)
+                return
+            except Exception as e:
+                log.exception("send_partner_done_tg failed: %s", e)
+                await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
+                return
+
     # Воронка лид-магнита (старый формат, через pluson.ru/m/{slug}?to=tg → 302 → /start fnl_<id>)
     if args.startswith("fnl_"):
         try:

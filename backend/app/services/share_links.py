@@ -219,3 +219,40 @@ async def build_funnel_landing_links(
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
 
     return result
+
+
+async def build_invite_links_for_collaborator(
+    db,
+    client_id: int,
+    access_code: str,
+) -> dict[str, str]:
+    """Возвращает {platform → deeplink} для invite-ссылок самообслуживания спикера.
+
+    Спикер кликает любую из этих ссылок → попадает в личку нашего бота на
+    соответствующей платформе → бот ловит `spkinv_<access_code>` → шлёт код
+    доступа и ссылку на лендинг pluson.ru/speaker/<event_slug>.
+
+    Бот выбирается так же, как для лид-магнитов:
+      - TG: VIP-бот клиента ИЛИ системный @pluson_bot.
+      - VK / MAX: только собственный канал клиента (системные принадлежат
+        ПЛЮСОНу и не пишут в личку подписчикам чужих клиентов).
+    """
+    payload = f"spkinv_{access_code}"
+    handles = await get_client_bot_handles(db, client_id)
+    result: dict[str, str] = {}
+
+    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
+    if tg_handle == PLUSON_TG_HANDLE:
+        if not await _has_system_channel(db, "telegram", allow_test=False):
+            tg_handle = ""
+    if tg_handle:
+        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+
+    # VK: бот ВК принимает start через ref в vk.me-ссылке.
+    if handles.get("vk"):
+        result["vk"] = f"https://vk.me/{handles['vk'].lstrip('@')}?ref={payload}"
+
+    if handles.get("max"):
+        result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
+
+    return result

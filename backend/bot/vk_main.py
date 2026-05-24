@@ -130,8 +130,17 @@ def _extract_funnel_run_id(message_or_event: dict) -> int | None:
 
 
 def _extract_partner_run_id(message_or_event: dict) -> int | None:
-    """Ищет `ref=prt_<int>` — регистрация партнёра (миграция 105)."""
+    """Ищет `ref=prt_<int>` — регистрация партнёра, начало (миграция 105)."""
     return _extract_ref_with_prefix(message_or_event, "prt_")
+
+
+def _extract_partner_done_client_id(message_or_event: dict) -> int | None:
+    """Ищет `ref=partner_done_<int>` — возврат после сабмита партнёрской формы.
+
+    Партнёрский сервис в редирект-после-формы ставит vk.me/{group}?ref=
+    partner_done_<client_id>. VK кладёт ref в первое сообщение пользователя.
+    """
+    return _extract_ref_with_prefix(message_or_event, "partner_done_")
 
 
 async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
@@ -209,6 +218,17 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_allow partner start failed: %s", e)
+
+    # Возврат после сабмита партнёрской формы (миграция 105).
+    # Партнёрский сервис ставит редирект на vk.me/{group}?ref=partner_done_<cid>.
+    partner_done_cid = _extract_partner_done_client_id(event)
+    if partner_done_cid:
+        try:
+            from app.services.partner_service import send_partner_done_vk
+            await send_partner_done_vk(partner_done_cid, str(user_id), db, token=ctx.token)
+            return
+        except Exception as e:
+            logger.warning("VK message_allow partner_done failed: %s", e)
 
     # Generic welcome шлём только если не пришёл с event-контекстом (60-сек защита от дубля)
     recent_event_ctx = await db.fetchval(
@@ -409,6 +429,16 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_new partner start failed: %s", e)
+
+    # Возврат после сабмита партнёрской формы (миграция 105).
+    partner_done_cid = _extract_partner_done_client_id(event_obj)
+    if partner_done_cid:
+        try:
+            from app.services.partner_service import send_partner_done_vk
+            await send_partner_done_vk(partner_done_cid, str(from_id), db, token=ctx.token)
+            return
+        except Exception as e:
+            logger.warning("VK message_new partner_done failed: %s", e)
 
     # Проверяем payload — может быть нажата кнопка с payload
     payload_raw = message.get("payload")

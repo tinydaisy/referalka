@@ -259,8 +259,12 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     # VK App ID подключённого Mini App (если есть) — фронт PublicLinks
     # подставляет его в реф-ссылку https://vk.com/app{ID}#ref_pg{slug}.
     # Без него ссылка вела бы на системный 54592404, а не на клиентский.
-    from app.services.share_links import get_client_vk_app_id, get_active_platforms, _has_system_channel
+    from app.services.share_links import get_client_vk_app_id, get_active_platforms, _has_system_channel, get_client_bot_handles
     out["vk_app_id"] = await get_client_vk_app_id(db, client_id)
+    # Handles per-platform: ник клиентского бота/сообщества (или None если нет
+    # своего канала — фолбэк на системный). Используется UI для построения
+    # «ссылок возврата партнёра» (миграция 105) — t.me/{bot}?start=partner_done_{id} и т.п.
+    out["bot_handles"] = await get_client_bot_handles(db, client_id)
     # Какие платформы показывать в PublicLinks / RefLinkInline:
     # — те, где у клиента есть свой канал, ИЛИ есть системный НЕ в test-режиме.
     # Test-режим = админ ещё не вывел канал в прод (см. is_test в channels).
