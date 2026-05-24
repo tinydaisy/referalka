@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, X, Search, AlertTriangle, CheckCircle2, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 
 interface Collaborator {
   id: number  // event_collaborators.id (запись связи)
@@ -29,6 +30,7 @@ interface GlobalCollaborator {
 }
 
 export default function CoOrganizersTab({ eventId, requireSubscription = false }: { eventId: number; eventSlug?: string | null; requireSubscription?: boolean }) {
+  const { isAssistant } = useMe()
   const [items, setItems] = useState<Collaborator[]>([])
   const [loading, setLoading] = useState(true)
   const [showPicker, setShowPicker] = useState(false)
@@ -141,14 +143,16 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
                     })()}
                   </div>
                 </Link>
-                <button
-                  onClick={() => handleRemove(c.id)}
-                  disabled={removing === c.id}
-                  className="p-1.5 text-gray-300 hover:text-red-500 transition-colors shrink-0 disabled:opacity-50"
-                  title="Убрать"
-                >
-                  <X size={16} />
-                </button>
+                {!isAssistant && (
+                  <button
+                    onClick={() => handleRemove(c.id)}
+                    disabled={removing === c.id}
+                    className="p-1.5 text-gray-300 hover:text-red-500 transition-colors shrink-0 disabled:opacity-50"
+                    title="Убрать"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
               </div>
             ))}
           </div>

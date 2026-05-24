@@ -2,22 +2,29 @@
 Middleware: ограничивает действия пользователя с role='assistant'.
 
 Семантика прав ассистента (фиксировано 2026-05-24):
-  ✅ Контакты, коллабораторы, события, участники — читать + править (PATCH/POST), не удалять
+  ✅ Контакты, коллабораторы, события, участники — читать + править (PATCH/POST/DELETE
+     внутри контента: пороги реф-программы, материалы шеринга, шаблоны рассылок,
+     шаги nurture, сессии конференции, призы розыгрыша, продукты Mini App, …)
   ✅ Рассылки (общие и в событиях) — полный доступ
   ✅ Mini App (визитка, бренд, основатель, продукты) — полный доступ
   ✅ Реф-программа событий — полный доступ
-  ❌ Любые DELETE — запрещены (всё удаление только владельцем)
+  ❌ Удаление «человеческих» сущностей и привязок людей к событию:
+     · сами контакты, коллабораторы, лид-магниты, подарки события
+     · само событие
+     · участники события, соорганизаторы события, спикеры конференции
   ❌ Каналы (/api/v1/channels/*) — нет доступа даже на чтение
   ❌ Настройки клиента (/api/v1/auth/me, change-password, regenerate-integration-token,
-     ассистенты, лимиты, биллинг) — нет доступа
-  ❌ Лид-магниты — только GET (без правки/создания/удаления)
+     ассистенты, юр.данные) — нет доступа
+  ❌ Лид-магниты и пакеты — только GET (создавать/править/удалять нельзя)
   ❌ Будущие денежные модули (/api/v1/billing/*, /api/v1/payments/*) — нет доступа
 
 Что пропускается без проверки:
   - GET, OPTIONS, HEAD везде кроме явных «закрытых» путей (channels, settings-эндпоинты)
-  - /api/v1/auth/login, /auth/me (читать профиль владельца можно — фронт нужен)
+  - /api/v1/auth/login, /auth/me (GET) — читать профиль владельца можно
   - /api/v1/public/*, /api/v1/integrations/* — публичные webhook'и
 """
+import re
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from jose import JWTError, jwt
@@ -48,6 +55,25 @@ FORBIDDEN_WRITE_PATHS = (
 )
 FORBIDDEN_WRITE_PREFIXES = (
     "/api/v1/clients/me/legal",                    # юр-данные клиента (миграция 099)
+)
+
+# DELETE-эндпоинты которые ассистенту запрещены конкретно (всё прочее DELETE
+# внутри контента — пороги, материалы, шаблоны, сессии, призы — разрешено).
+FORBIDDEN_DELETE_PATTERNS = tuple(
+    re.compile(p) for p in (
+        # Сами «люди» и подарки/лид-магниты в общей базе клиента
+        r"^/api/v1/contacts/\d+(?:/[^/]+)?$",
+        r"^/api/v1/collaborators/\d+(?:/[^/]+)?$",
+        # Само событие
+        r"^/api/v1/events/\d+$",
+        # Привязка человека к событию
+        r"^/api/v1/events/\d+/participants/\d+$",
+        r"^/api/v1/events/\d+/collaborators/\d+$",
+        # Подарки события
+        r"^/api/v1/events/\d+/gifts/\d+$",
+        # Привязка спикера к конференции
+        r"^/api/v1/events/\d+/conference/speakers/\d+$",
+    )
 )
 
 WRITE_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
@@ -98,11 +124,12 @@ async def assistant_permission_guard_middleware(request: Request, call_next):
                 content={"detail": "Этот раздел доступен только владельцу кабинета."},
             )
 
-    # 4) Общий запрет на DELETE.
+    # 4) Точечный запрет на «опасные» DELETE (люди / событие / привязки людей).
     if method == "DELETE":
-        return JSONResponse(
-            status_code=403,
-            content={"detail": "Ассистент не может удалять данные."},
-        )
+        if any(rx.match(path) for rx in FORBIDDEN_DELETE_PATTERNS):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Ассистент не может удалять данные. Это действие доступно только владельцу кабинета."},
+            )
 
     return await call_next(request)

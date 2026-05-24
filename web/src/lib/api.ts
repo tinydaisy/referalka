@@ -24,6 +24,21 @@ async function request(path: string, options?: RequestInit) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
+    // Глобальный UX-фоллбек для ассистента: middleware возвращает 403
+    // с фиксированными detail'ами «Ассистент не может удалять данные.» /
+    // «Этот раздел доступен только владельцу кабинета.» / «Ассистент может
+    // только смотреть этот раздел.». Если вызывающий код не обернул запрос
+    // в try/catch, кнопка-удалить «тихо ничего не делает» — показываем alert,
+    // чтобы пользователь видел причину. Глобально мешать другим 403 не должны —
+    // эти 3 строки приходят ровно от нашего middleware.
+    if (res.status === 403 && typeof window !== 'undefined') {
+      const d = err.detail || ''
+      if (d.startsWith('Ассистент') || d === 'Этот раздел доступен только владельцу кабинета.') {
+        // setTimeout, чтобы alert не блокировал стек throw — текущий вызов
+        // всё равно завершится ошибкой, но пользователь увидит сообщение.
+        setTimeout(() => { try { window.alert(d) } catch {} }, 0)
+      }
+    }
     throw new Error(err.detail || 'Что-то пошло не так')
   }
   return res.json()

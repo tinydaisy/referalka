@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Calendar, Plus, Copy, Trash2, ChevronRight, Users } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import ViewToggle, { ViewMode } from '@/components/ViewToggle'
 
 interface EventItem {
@@ -33,6 +34,7 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 export default function EventsPage() {
+  const { isAssistant } = useMe()
   const router = useRouter()
   const [items, setItems] = useState<EventItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -154,11 +156,13 @@ export default function EventsPage() {
                         title="Скопировать">
                   <Copy size={16} />
                 </button>
-                <button onClick={() => handleDelete(e.id, e.title)} disabled={deletingId === e.id}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
-                        title="Удалить">
-                  <Trash2 size={16} />
-                </button>
+                {!isAssistant && (
+                  <button onClick={() => handleDelete(e.id, e.title)} disabled={deletingId === e.id}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                          title="Удалить">
+                    <Trash2 size={16} />
+                  </button>
+                )}
               </div>
             )
           })}
@@ -206,10 +210,12 @@ export default function EventsPage() {
                           className="p-1.5 rounded-lg bg-white/90 text-gray-600 hover:bg-white shadow-sm disabled:opacity-50" title="Скопировать">
                     <Copy size={14} />
                   </button>
-                  <button onClick={() => handleDelete(e.id, e.title)} disabled={deletingId === e.id}
-                          className="p-1.5 rounded-lg bg-black/30 text-white hover:bg-red-500 disabled:opacity-50" title="Удалить">
-                    <Trash2 size={14} />
-                  </button>
+                  {!isAssistant && (
+                    <button onClick={() => handleDelete(e.id, e.title)} disabled={deletingId === e.id}
+                            className="p-1.5 rounded-lg bg-black/30 text-white hover:bg-red-500 disabled:opacity-50" title="Удалить">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             )

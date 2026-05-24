@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
+import { useMe } from '@/hooks/useMe'
 
 interface Participant {
   id: number
@@ -107,6 +108,7 @@ function ContactCard({
   onDelete: () => void
   clickLabel: string
 }) {
+  const { isAssistant } = useMe()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -249,17 +251,19 @@ function ContactCard({
 
         {/* Кнопка удаления */}
         <div className="w-8 flex justify-center shrink-0">
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleting}
-            title="Удалить из события"
-            className={`w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors ${
-              deleting ? 'opacity-50' : ''
-            }`}
-          >
-            <Trash2 size={14} />
-          </button>
+          {!isAssistant && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Удалить из события"
+              className={`w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors ${
+                deleting ? 'opacity-50' : ''
+              }`}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
 
         <div className="w-4 shrink-0 text-gray-400">

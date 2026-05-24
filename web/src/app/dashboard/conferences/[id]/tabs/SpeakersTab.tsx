@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
+import { useMe } from '@/hooks/useMe'
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
@@ -90,6 +91,7 @@ function getMissingGiftLabels(sp: any): string[] {
 export default function SpeakersTab({ eventId }: { eventId: number }) {
   const router = useRouter()
   const { t } = useLang()
+  const { isAssistant } = useMe()
   const ts = t.conferences.speakers
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -285,10 +287,12 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                     className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">
                     <Pencil size={14} />
                   </button>
-                  <button onClick={(e) => { e.stopPropagation(); remove(sp.id, sp.name) }}
-                    className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                    <Trash2 size={14} />
-                  </button>
+                  {!isAssistant && (
+                    <button onClick={(e) => { e.stopPropagation(); remove(sp.id, sp.name) }}
+                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             )
