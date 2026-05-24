@@ -79,7 +79,7 @@ export default function GetCoursePartnerHelpPage() {
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
     `&contact_id={object.pluson_contact_id}` +
-    `&external_ref_param=gcpc={create_session.gcpc}`
+    `&external_ref_param=gcpc={participant_code}`
 
   return (
     <div className="pb-24 max-w-3xl">
@@ -242,10 +242,10 @@ export default function GetCoursePartnerHelpPage() {
 
         <div className="mt-3 space-y-2">
           <p className="text-xs text-gray-600">
-            <code className="bg-gray-100 px-1 rounded">{`{create_session.gcpc}`}</code> — это партнёрский код из сессии первого захода человека на ваш сайт. GetCourse сохраняет это автоматически — никаких полей создавать не надо. Префикс <code className="bg-gray-100 px-1 rounded">gcpc</code> зависит от вашей партнёрки (Bizon360, Partner Cabinet и т.п.); если у вас другое имя — замените на правильное (например, <code className="bg-gray-100 px-1 rounded">{`{create_session.partner_code}`}</code>).
+            <code className="bg-gray-100 px-1 rounded">{`{participant_code}`}</code> — это <b>собственный партнёрский код пользователя</b> в вашей GetCourse-партнёрке (то, что GetCourse выдаёт человеку после регистрации партнёром, например <code className="bg-gray-100 px-1 rounded">48922</code>). Виден в карточке партнёра в разделе «Источники → Основной партнёрский код». Подробнее — <a href="https://getcourse.ru/blog/733095" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальный гайд GetCourse</a>.
           </p>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
-            <b>Если код ещё не присвоен</b> (пустое значение типа <code className="bg-white px-1 rounded">gcpc=</code>) — мы НЕ обнуляем существующий код в ПЛЮСОНе, просто пропускаем. Безопасно вешать на любой триггер.
+            <b>Если код ещё не присвоен</b> (пользователь ещё не партнёр, переменная пустая) — мы НЕ обнуляем существующий код в ПЛЮСОНе, просто пропускаем. Безопасно вешать на любой триггер.
           </div>
         </div>
       </div>
