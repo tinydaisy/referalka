@@ -114,6 +114,26 @@ function getName(c: Contact): string {
   return c.name || [c.first_name, c.last_name].filter(Boolean).join(' ') || '—'
 }
 
+// Краткая мета-строка под именем: @tg_nick · vk:id · email/phone
+function getMetaLine(c: Contact): string {
+  const parts: string[] = []
+  for (const ident of c.identities || []) {
+    if (ident.platform_slug === 'telegram') {
+      if (ident.username) parts.push(`@${ident.username}`)
+      else if (ident.platform_user_id) parts.push(`tg:${ident.platform_user_id}`)
+    } else if (ident.platform_slug === 'vk') {
+      if (ident.username) parts.push(`vk:@${ident.username}`)
+      else if (ident.platform_user_id) parts.push(`vk:${ident.platform_user_id}`)
+    } else if (ident.platform_slug === 'max') {
+      if (ident.username) parts.push(`mx:@${ident.username}`)
+      else if (ident.platform_user_id) parts.push(`mx:${ident.platform_user_id}`)
+    }
+  }
+  const contactInfo = c.email || c.phone
+  if (contactInfo) parts.push(contactInfo)
+  return parts.join(' · ') || '—'
+}
+
 function getInitials(c: Contact): string {
   const name = getName(c)
   if (name === '—') return '?'
@@ -428,7 +448,7 @@ export default function ContactsPage() {
                     )}
                   </div>
                   <span className="text-xs text-gray-400 truncate block">
-                    {c.email || c.phone || '—'}
+                    {getMetaLine(c)}
                   </span>
                 </div>
               </button>
