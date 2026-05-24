@@ -856,6 +856,9 @@ export default function ContactsPage() {
                 </div>
               </div>
             )}
+
+            {/* Партнёрская ссылка (миграция 105) */}
+            <PartnerLinksBlock contact={selected} />
           </div>
         )}
       </div>
@@ -1294,6 +1297,110 @@ function ContactFieldEditor({
         )}
         {hint && !editing && <p className="text-[11px] text-gray-400 mt-0.5 leading-tight">{hint}</p>}
       </div>
+    </div>
+  )
+}
+
+
+/* ─────── Партнёрская ссылка контакта (миграция 105) ─────── */
+function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
+  const { me } = useMe()
+  const [copied, setCopied] = useState<string | null>(null)
+  const landingConfigured = !!(me?.partner_landing_url || '').trim()
+  const clientId = me?.id || null
+  // У контакта может быть несколько идентичностей; для генерации ссылки нужен сам ID контакта
+  const contactId = contact.id
+  const erp = (contact.external_ref_param || '').trim()
+  const platforms: string[] = (me?.available_platforms && me.available_platforms.length > 0)
+    ? me.available_platforms
+    : ['telegram']
+  const HOST = 'https://pluson.ru'
+
+  function copy(label: string, text: string) {
+    if (!text) return
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(label)
+      setTimeout(() => setCopied(null), 1500)
+    })
+  }
+
+  const platformLabel: Record<string, string> = {
+    telegram: 'Telegram',
+    vk: 'VK',
+    max: 'MAX',
+  }
+
+  return (
+    <div className="mb-2 mt-4 pt-4 border-t border-gray-100">
+      <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">
+        Партнёрская ссылка
+      </p>
+      {!landingConfigured ? (
+        <div className="rounded-xl border border-dashed border-gray-200 px-4 py-3 bg-gray-50">
+          <p className="text-sm text-gray-600 mb-2">
+            Сторонняя партнёрская ссылка не настроена.
+          </p>
+          <p className="text-xs text-gray-500">
+            Настройте URL в{' '}
+            <Link href="/dashboard/settings?tab=tech" className="text-[#25455D] underline">
+              Настройках → Технические
+            </Link>{' '}
+            — после этого здесь появятся персональные ссылки этого контакта.
+          </p>
+          {/* Замыленный превью — даём почувствовать как будет выглядеть */}
+          <div className="mt-3 space-y-1.5 select-none" style={{ filter: 'blur(3px)', pointerEvents: 'none' }}>
+            {platforms.map(p => (
+              <div key={p} className="flex items-center gap-2">
+                <span className="w-16 text-[11px] font-semibold text-gray-500">{platformLabel[p] || p}</span>
+                <span className="text-xs font-mono text-gray-600">
+                  {HOST}/partner/{clientId || '••'}?to={p === 'telegram' ? 'tg' : p}&amp;pluson_cid={contactId}{erp ? '&' + erp : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {platforms.map(p => {
+            const to = p === 'telegram' ? 'tg' : p
+            const tail = `&pluson_cid=${contactId}${erp ? `&${erp}` : ''}`
+            const url = clientId ? `${HOST}/partner/${clientId}?to=${to}${tail}` : ''
+            return (
+              <div key={p} className="flex items-center gap-2">
+                <span className="w-16 shrink-0 text-[11px] font-semibold text-gray-500">{platformLabel[p] || p}</span>
+                <input
+                  type="text"
+                  value={url}
+                  readOnly
+                  className="flex-1 min-w-0 px-3 py-1.5 text-xs font-mono bg-gray-50 border border-gray-200 rounded-lg text-gray-700"
+                />
+                <button
+                  type="button"
+                  onClick={() => copy(p, url)}
+                  className="px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 shrink-0"
+                  title="Скопировать"
+                >
+                  {copied === p ? (
+                    <Check size={13} className="text-green-600" />
+                  ) : (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+            )
+          })}
+          {!erp && (
+            <p className="text-[11px] text-gray-500 mt-1.5 leading-tight">
+              У контакта пока не заполнен сторонний партнёрский код — ссылка работает,
+              но без приклеенного кода рефовода. Код появится автоматически когда контакт
+              сам зарегистрируется партнёром через эту ссылку.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -90,15 +90,14 @@ async def poll_once(server: str, key: str, ts: str) -> dict[str, Any]:
     return r.json()
 
 
-def _extract_funnel_run_id(message_or_event: dict) -> int | None:
-    """Ищет `ref=fnl_<int>` в полях VK события и возвращает run_id.
+def _extract_ref_with_prefix(message_or_event: dict, prefix: str) -> int | None:
+    """Ищет `ref={prefix}<int>` в полях VK события и возвращает int-часть.
 
     Возможные источники (для message_new + message_allow):
       - object.message.ref     — VK кладёт сюда метку из vk.me/group?ref=...
       - object.message.payload — JSON с ключом ref (на случай stub-кнопки «Начать»)
       - object.ref             — поле самого события (message_allow)
       - object.message.ref_source — иногда содержит метку
-    Возвращает int или None если ref не найден / не соответствует формату fnl_<n>.
     """
     candidates: list[Any] = []
     msg = message_or_event.get("message") if isinstance(message_or_event, dict) else None
@@ -117,12 +116,22 @@ def _extract_funnel_run_id(message_or_event: dict) -> int | None:
         if not c:
             continue
         s = str(c).strip()
-        if s.startswith("fnl_"):
+        if s.startswith(prefix):
             try:
-                return int(s[4:])
+                return int(s[len(prefix):])
             except ValueError:
                 continue
     return None
+
+
+def _extract_funnel_run_id(message_or_event: dict) -> int | None:
+    """Ищет `ref=fnl_<int>` — воронка лид-магнита."""
+    return _extract_ref_with_prefix(message_or_event, "fnl_")
+
+
+def _extract_partner_run_id(message_or_event: dict) -> int | None:
+    """Ищет `ref=prt_<int>` — регистрация партнёра (миграция 105)."""
+    return _extract_ref_with_prefix(message_or_event, "prt_")
 
 
 async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
@@ -180,6 +189,26 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_allow funnel start failed: %s", e)
+
+    # Регистрация партнёра (prt_<run_id> — миграция 105). Аналог funnel-флоу,
+    # но шлёт другое сообщение (без проверки подписки, c web-кнопкой на лендинг).
+    partner_run_id = _extract_partner_run_id(event)
+    if partner_run_id:
+        try:
+            user_info = await get_user_info(int(user_id))
+            from app.services.partner_service import run_started_partner_vk
+            await run_started_partner_vk(
+                partner_run_id, str(user_id),
+                username=(user_info or {}).get("screen_name", "") if user_info else "",
+                first_name=(user_info or {}).get("first_name", "") if user_info else "",
+                last_name=(user_info or {}).get("last_name", "") if user_info else "",
+                db=db,
+                channel_id=ctx.channel_id,
+                token=ctx.token,
+            )
+            return
+        except Exception as e:
+            logger.warning("VK message_allow partner start failed: %s", e)
 
     # Generic welcome шлём только если не пришёл с event-контекстом (60-сек защита от дубля)
     recent_event_ctx = await db.fetchval(
@@ -361,6 +390,25 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_new funnel start failed: %s", e)
+
+    # Регистрация партнёра (prt_<run_id>, миграция 105) — аналог funnel
+    partner_run_id = _extract_partner_run_id(event_obj)
+    if partner_run_id:
+        try:
+            user_info = await get_user_info(int(from_id))
+            from app.services.partner_service import run_started_partner_vk
+            await run_started_partner_vk(
+                partner_run_id, str(from_id),
+                username=(user_info or {}).get("screen_name", "") if user_info else "",
+                first_name=(user_info or {}).get("first_name", "") if user_info else "",
+                last_name=(user_info or {}).get("last_name", "") if user_info else "",
+                db=db,
+                channel_id=ctx.channel_id,
+                token=ctx.token,
+            )
+            return
+        except Exception as e:
+            logger.warning("VK message_new partner start failed: %s", e)
 
     # Проверяем payload — может быть нажата кнопка с payload
     payload_raw = message.get("payload")

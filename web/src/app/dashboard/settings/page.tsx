@@ -36,7 +36,9 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', partner_landing_url: '' })
+  const [clientId, setClientId] = useState<number | null>(null)
+  const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [tariff, setTariff] = useState<any>(null)
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -63,8 +65,11 @@ export default function SettingsPage() {
         work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
+        partner_landing_url: c.partner_landing_url || '',
       })
       setTariff(c.subscription || null)
+      setClientId(c.id || null)
+      setAvailablePlatforms(Array.isArray(c.available_platforms) ? c.available_platforms : ['telegram'])
     }).catch(() => {})
     // fetch storage usage
     const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
@@ -102,6 +107,7 @@ export default function SettingsPage() {
         work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
         broadcast_concurrency: concurrency,
         notifications_telegram_chat_id: form.notifications_telegram_chat_id ? Number(form.notifications_telegram_chat_id) : null,
+        partner_landing_url: form.partner_landing_url.trim() || null,
       })
       setTimezone(form.timezone)
       setSaved(true)
@@ -510,6 +516,14 @@ export default function SettingsPage() {
             </ol>
           </details>
         </div>
+
+        {/* Partner registration (миграция 105) */}
+        <PartnerRegistrationBlock
+          form={form}
+          set={set}
+          clientId={clientId}
+          availablePlatforms={availablePlatforms}
+        />
 
         {/* Storage usage */}
         {storage && (
@@ -939,6 +953,151 @@ function SubscriptionTab() {
         >
           Написать в Telegram
         </a>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── Блок «Регистрация партнёров» (миграция 105) ────────────────────────────
+function PartnerRegistrationBlock({
+  form, set, clientId, availablePlatforms,
+}: {
+  form: any
+  set: (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void
+  clientId: number | null
+  availablePlatforms: string[]
+}) {
+  const [copied, setCopied] = useState<string | null>(null)
+  function copy(label: string, text: string) {
+    if (!text) return
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(label)
+      setTimeout(() => setCopied(null), 1500)
+    })
+  }
+  const SITE = typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.host.replace('dashboard.', '')}`.replace(':3000', '')
+    : 'https://pluson.ru'
+  // Используем строгий pluson.ru для копирования — у клиентов dev/прод-домен один и тот же на проде
+  const HOST = 'https://pluson.ru'
+  const isConfigured = !!(form.partner_landing_url || '').trim()
+  const platforms = (availablePlatforms && availablePlatforms.length > 0)
+    ? availablePlatforms
+    : ['telegram']
+
+  const platformLabel: Record<string, string> = {
+    telegram: 'Telegram',
+    vk: 'VK',
+    max: 'MAX',
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="flex items-start gap-3 mb-4">
+        <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+          <UserPlus size={18} className="text-white" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-gray-800">Регистрация партнёров</h3>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Сторонний партнёрский лендинг (GetCourse / Bizon360 / Tilda). Человек открывает
+            одну из ссылок ниже → попадает в бот → авто-редирект на форму с переданными
+            параметрами (наш ID контакта + код того, кто привёл). После сабмита формы
+            наш webhook обновит контакту его сторонний партнёрский код — он сам становится партнёром.
+          </p>
+        </div>
+      </div>
+
+      {/* URL стороннего лендинга */}
+      <div className="mb-4">
+        <label className="block text-xs font-semibold text-gray-700 mb-1">
+          URL стороннего партнёрского лендинга
+        </label>
+        <input
+          type="url"
+          value={form.partner_landing_url}
+          onChange={set('partner_landing_url')}
+          placeholder="https://example.com/partner-form"
+          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Mini App дополнит ваш URL параметрами:{' '}
+          <span className="font-mono">?pluson_cid=&lt;id&gt;&amp;&lt;код_рефовода&gt;</span>.{' '}
+          Настройте в форме скрытые поля {' '}
+          <span className="font-mono">pluson_cid</span> и нужные вам поля под ключи кода
+          (например <span className="font-mono">gcpc</span>), чтобы они отправились в наш webhook.
+        </p>
+      </div>
+
+      {/* Ссылка возврата */}
+      <div className="mb-4">
+        <label className="block text-xs font-semibold text-gray-700 mb-1">
+          Ссылка возврата (вставьте в редирект после сабмита формы)
+        </label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={isConfigured && clientId ? `${HOST}/r/partner/{RUN_ID}` : ''}
+            readOnly
+            placeholder={isConfigured ? '' : '— настройте URL выше'}
+            className="flex-1 px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 text-sm font-mono text-gray-700"
+          />
+          <button
+            type="button"
+            onClick={() => copy('return', `${HOST}/r/partner/{RUN_ID}`)}
+            disabled={!isConfigured}
+            className="px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Скопировать"
+          >
+            {copied === 'return' ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mt-1">
+          В вашем партнёрском сервисе настройте редирект-после-формы на эту ссылку, заменив{' '}
+          <span className="font-mono">{`{RUN_ID}`}</span> на параметр со значением{' '}
+          <span className="font-mono">pluson_cid</span> (или другим, если ваша форма
+          переименовала поле). После возврата Mini App покажет экран успеха с партнёрским кодом.
+        </p>
+      </div>
+
+      {/* Платформенные корневые ссылки */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-700 mb-2">
+          Корневые ссылки (для распространения)
+        </label>
+        <div className="space-y-2">
+          {platforms.map((p) => {
+            const url = clientId ? `${HOST}/partner/${clientId}?to=${p === 'telegram' ? 'tg' : p}` : ''
+            return (
+              <div key={p} className="flex gap-2 items-center">
+                <span className="w-20 shrink-0 text-xs font-semibold text-gray-500">{platformLabel[p] || p}</span>
+                <input
+                  type="text"
+                  value={isConfigured ? url : ''}
+                  readOnly
+                  placeholder={isConfigured ? '' : '— настройте URL выше'}
+                  className={`flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono ${
+                    isConfigured ? 'bg-gray-50 text-gray-700' : 'bg-gray-100 text-gray-400'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => copy(p, url)}
+                  disabled={!isConfigured}
+                  className="px-2.5 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Скопировать"
+                >
+                  {copied === p ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Это «безымянные» ссылки — без указания, кто привёл нового партнёра. Личные ссылки
+          каждого партнёра (с проброшенным код-партнёра) находятся в карточке контакта внизу.
+        </p>
       </div>
     </div>
   )

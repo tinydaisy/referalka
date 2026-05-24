@@ -147,6 +147,33 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
+    # Регистрация партнёра (через pluson.ru/partner/{client_id}?to=tg → 302 → /start prt_<id>)
+    if args.startswith("prt_"):
+        try:
+            run_id = int(args.removeprefix("prt_"))
+        except ValueError:
+            run_id = None
+        if run_id:
+            pool = await get_pool()
+            from app.services.partner_service import run_started_partner
+            try:
+                bot_id = message.bot.id if message.bot else None
+                async with pool.acquire() as db:
+                    await run_started_partner(
+                        run_id,
+                        str(user.id),
+                        user.username or "",
+                        user.first_name or "",
+                        user.last_name or "",
+                        db,
+                        bot_id=bot_id,
+                    )
+                return
+            except Exception as e:
+                log.exception("run_started_partner failed: %s", e)
+                await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
+                return
+
     # Воронка лид-магнита (старый формат, через pluson.ru/m/{slug}?to=tg → 302 → /start fnl_<id>)
     if args.startswith("fnl_"):
         try:
