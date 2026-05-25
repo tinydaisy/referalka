@@ -6,7 +6,7 @@ from app.config import settings
 from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
 from app.api import broadcasts_general
@@ -91,6 +91,7 @@ app.include_router(legal.router)                                               #
 app.include_router(email_tracking.router)                                      # /api/v1/email/pixel/{token}.gif, /api/v1/email/click (миграция 098)
 app.include_router(assistants.router,   prefix="/api/v1")                      # /api/v1/clients/me/assistant — управление ассистентом (миграция 106)
 app.include_router(speaker_cabinet.router)                                     # /api/v1/public/speaker-cabinet — мини-кабинет спикера (миграция 108)
+app.include_router(landing_widget.router)                                      # /api/v1/public/landing-widget — JSON для сторонних лендингов (миграция 111)
 
 
 @app.get("/", tags=["health"])

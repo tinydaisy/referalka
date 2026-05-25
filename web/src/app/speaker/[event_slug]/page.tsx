@@ -72,7 +72,18 @@ type SpeakerMe = {
   show_gift_after_speech_field: boolean
   show_knowledge_base_field: boolean
   raffle_enabled: boolean | null
+  media_assets: { platform: string; subscribers: number }[] | null
 }
+
+const MEDIA_PLATFORMS: { slug: string; label: string }[] = [
+  { slug: 'tg',        label: 'Telegram' },
+  { slug: 'youtube',   label: 'YouTube' },
+  { slug: 'vk',        label: 'VK' },
+  { slug: 'tiktok',    label: 'TikTok' },
+  { slug: 'instagram', label: 'Instagram' },
+  { slug: 'max',       label: 'MAX' },
+  { slug: 'rutube',    label: 'RuTube' },
+]
 
 const TOKEN_KEY = (slug: string) => `speaker_cabinet_token_${slug}`
 
@@ -190,6 +201,7 @@ export default function SpeakerCabinetPage() {
         personal_vk_id: me.personal_vk_id, personal_vk_username: me.personal_vk_username,
         personal_max_id: me.personal_max_id, personal_max_username: me.personal_max_username,
         topics: me.topics,
+        media_assets: Array.isArray(me.media_assets) ? me.media_assets : [],
       }
       if (me.show_gift_after_speech_field) {
         payload.gift_after_speech_title = me.gift_after_speech_title
@@ -330,6 +342,21 @@ export default function SpeakerCabinetPage() {
   }
   const addTopic = () => update({ topics: [...(me?.topics || []), ''] })
   const removeTopic = (i: number) => update({ topics: (me?.topics || []).filter((_, idx) => idx !== i) })
+
+  // Медийные активы — подписчики на платформе (миграция 111)
+  const mediaAssets = (me?.media_assets || []) as { platform: string; subscribers: number }[]
+  const usedPlatforms = new Set(mediaAssets.map(a => a.platform))
+  const availablePlatforms = MEDIA_PLATFORMS.filter(p => !usedPlatforms.has(p.slug))
+  const updMedia = (i: number, patch: Partial<{ platform: string; subscribers: number }>) => {
+    update({ media_assets: mediaAssets.map((a, k) => (k === i ? { ...a, ...patch } : a)) })
+  }
+  const addMedia = () => {
+    if (availablePlatforms.length === 0) return
+    update({ media_assets: [...mediaAssets, { platform: availablePlatforms[0].slug, subscribers: 0 }] })
+  }
+  const removeMedia = (i: number) => {
+    update({ media_assets: mediaAssets.filter((_, k) => k !== i) })
+  }
 
   // Карточка для фото/афиши: превью + кнопки «Раскрыть», «Скачать», «Загрузить новое»
   function ImageCard({ url, kind, label }: { url: string | null, kind: 'speaker_photo' | 'speaker_poster', label: string }) {
@@ -619,6 +646,57 @@ export default function SpeakerCabinetPage() {
             <button onClick={addTopic} style={{ padding: '8px 14px', background: '#fff', border: `1px dashed ${PEACH}`, color: DARK, borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>+ добавить тему</button>
           </Section>
         )}
+
+        <Section title="Медийные активы">
+          {mediaAssets.length === 0 && (
+            <div style={{ fontSize: 12, color: '#5c7589', marginBottom: 8 }}>
+              Подписчики на ваших площадках — лендинг события сможет показать ваш совокупный охват.
+            </div>
+          )}
+          {mediaAssets.map((a, i) => {
+            const usedByOthers = new Set(mediaAssets.filter((_, k) => k !== i).map(x => x.platform))
+            const options = MEDIA_PLATFORMS.filter(p => !usedByOthers.has(p.slug))
+            return (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <select
+                  value={a.platform}
+                  onChange={(e) => updMedia(i, { platform: e.target.value })}
+                  style={{ ...inputCss, width: 130, flex: 'none' }}
+                >
+                  {options.map(p => <option key={p.slug} value={p.slug}>{p.label}</option>)}
+                </select>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={a.subscribers === 0 ? '' : a.subscribers}
+                  placeholder="Подписчики"
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value || '0', 10)
+                    updMedia(i, { subscribers: isNaN(n) || n < 0 ? 0 : n })
+                  }}
+                  style={inputCss}
+                />
+                <button onClick={() => removeMedia(i)} style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5', borderRadius: 8, cursor: 'pointer' }}>×</button>
+              </div>
+            )
+          })}
+          <button
+            onClick={addMedia}
+            disabled={availablePlatforms.length === 0}
+            style={{
+              padding: '8px 14px',
+              background: '#fff',
+              border: `1px dashed ${PEACH}`,
+              color: availablePlatforms.length === 0 ? '#9aaab8' : DARK,
+              borderRadius: 8,
+              cursor: availablePlatforms.length === 0 ? 'not-allowed' : 'pointer',
+              fontSize: 13,
+            }}
+          >
+            {availablePlatforms.length === 0 ? 'Все платформы добавлены' : '+ добавить актив'}
+          </button>
+        </Section>
 
         {me.show_gift_after_speech_field && (
           <Section title="Подарок после эфира">

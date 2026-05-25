@@ -9,6 +9,7 @@ import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
 import { TelegramChannelField } from '@/components/TelegramChannelField'
+import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
 
 const IMPORTANT_FIELDS: { key: string; label: string }[] = [
   { key: 'name', label: 'Имя и фамилия' },
@@ -108,6 +109,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         personal_tg_id: form.personal_tg_id,
         personal_tg_username: form.personal_tg_username,
         assistant_tg_username: form.assistant_tg_username,
+        media_assets: Array.isArray(form.media_assets) ? form.media_assets : [],
       }
       await api.collaborators.update(collaboratorId, updates)
       setSaved(true)
@@ -297,6 +299,14 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             <input type="url" value={form.website_url || ''} onChange={set('website_url')}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+          <h2 className="font-semibold text-gray-900">Медийные активы</h2>
+          <MediaAssetsField
+            value={Array.isArray(form.media_assets) ? form.media_assets as MediaAsset[] : []}
+            onChange={next => setForm((f: any) => ({ ...f, media_assets: next }))}
+          />
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">

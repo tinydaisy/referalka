@@ -5,17 +5,51 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 from app.auth import get_current_client
 from app.database import get_db
 import asyncpg
 import secrets
+import json
 
 router = APIRouter(prefix="/api/v1/collaborators", tags=["Коллаборации (база)"])
 
 
 # Алфавит из миграции 108: без 0/o/1/l/i, 16 символов
 ACCESS_CODE_ALPHABET = "a234bc56de7fgh89"
+
+
+# Медийные активы коллаба (миграция 111). Платформы фиксированы — клиент в UI
+# выбирает из этого списка, посторонние slug-и тихо отфильтровываются.
+ALLOWED_MEDIA_PLATFORMS = {"tg", "youtube", "vk", "tiktok", "instagram", "max", "rutube"}
+
+
+def _normalize_media_assets(value: Any) -> Optional[List[dict]]:
+    """`media_assets` приходит как массив `{platform, subscribers}`.
+    Возвращает нормализованный список (известный platform, неотрицательный int)
+    или None если value=None (то есть поле не передано — не трогать в БД).
+    Пустой [] — валидно: «удалить всё».
+    """
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise HTTPException(status_code=422, detail="media_assets должен быть массивом")
+    out: List[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        platform = str(item.get("platform", "")).strip().lower()
+        if platform not in ALLOWED_MEDIA_PLATFORMS:
+            continue
+        raw = item.get("subscribers")
+        try:
+            subs = int(raw) if raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            continue
+        if subs < 0:
+            subs = 0
+        out.append({"platform": platform, "subscribers": subs})
+    return out
 
 
 async def _generate_unique_access_code(db: asyncpg.Connection, length: int = 8) -> str:
@@ -54,6 +88,8 @@ class CollaboratorCreate(BaseModel):
     personal_max_id: Optional[str] = None
     personal_max_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
+    # Медийные активы (миграция 111) — массив {platform, subscribers}
+    media_assets: Optional[List[dict]] = None
 
 
 class CollaboratorUpdate(BaseModel):
@@ -78,12 +114,22 @@ class CollaboratorUpdate(BaseModel):
     personal_max_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
     contact_id: Optional[int] = None
+    media_assets: Optional[List[dict]] = None
 
 
 def row_to_dict(row):
     d = dict(row)
     if d.get("achievements") is None:
         d["achievements"] = []
+    # JSONB читается из asyncpg как строка — парсим обратно в list
+    ma = d.get("media_assets")
+    if isinstance(ma, str):
+        try:
+            d["media_assets"] = json.loads(ma)
+        except (ValueError, TypeError):
+            d["media_assets"] = []
+    elif ma is None:
+        d["media_assets"] = []
     return d
 
 
@@ -97,6 +143,7 @@ _COLLAB_SELECT = """
     c.instagram_url, c.website_url,
     c.tg_channel_id, c.assistant_tg_username,
     c.access_code,
+    c.media_assets,
     c.contact_id, c.created_by_client_id, c.created_at, c.updated_at,
     pu_tg.platform_user_id  AS personal_tg_id,
     pu_tg.username          AS personal_tg_username,
@@ -183,20 +230,21 @@ async def create_collaborator(
         )
     name = (data.name or contact["name"] or "").strip() or "Без имени"
     access_code = await _generate_unique_access_code(db)
+    media_assets = _normalize_media_assets(data.media_assets) or []
     new_id = await db.fetchval(
         """INSERT INTO collaborators
            (contact_id, name, title, achievements,
             photo_url, poster_url, photo_folder_url, video_folder_url,
             tg_channel_url, vk_url, max_url, instagram_url, website_url,
             tg_channel_id, assistant_tg_username,
-            access_code,
+            access_code, media_assets,
             created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id""",
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18) RETURNING id""",
         data.contact_id, name, data.title, data.achievements,
         data.photo_url, data.poster_url, data.photo_folder_url, data.video_folder_url,
         data.tg_channel_url, data.vk_url, data.max_url, data.instagram_url, data.website_url,
         data.tg_channel_id, data.assistant_tg_username,
-        access_code,
+        access_code, json.dumps(media_assets),
         client_id
     )
     # Личные идентичности коллаба живут в platform_users (миграции 107/108)
@@ -344,6 +392,8 @@ async def update_collaborator(
     # Личный TG живёт в platform_users (миграция 107) — отделяем от UPDATE collaborators
     tg_id_in = updates_full.pop("personal_tg_id", None)
     tg_uname_in = updates_full.pop("personal_tg_username", None)
+    # media_assets — JSONB, нужен явный ::jsonb cast и json.dumps. Обрабатываем отдельно.
+    media_assets_in = _normalize_media_assets(updates_full.pop("media_assets", None))
     if "contact_id" in updates_full:
         own = await db.fetchval(
             "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
@@ -358,12 +408,15 @@ async def update_collaborator(
             "SELECT contact_id FROM collaborators WHERE id = $1 AND created_by_client_id = $2",
             collaborator_id, client_id
         )
-    if updates_full:
+    if updates_full or media_assets_in is not None:
         set_parts = []
         vals = []
         for i, (k, v) in enumerate(updates_full.items()):
             set_parts.append(f"{k} = ${i+2}")
             vals.append(v)
+        if media_assets_in is not None:
+            set_parts.append(f"media_assets = ${len(vals)+2}::jsonb")
+            vals.append(json.dumps(media_assets_in))
         set_parts.append("updated_at = NOW()")
         updated_id = await db.fetchval(
             f"UPDATE collaborators SET {', '.join(set_parts)} "
@@ -412,6 +465,7 @@ class CollaboratorQuickCreate(BaseModel):
     personal_vk_username: Optional[str] = None
     personal_max_id: Optional[str] = None
     personal_max_username: Optional[str] = None
+    media_assets: Optional[List[dict]] = None
     force_create: bool = False
     existing_contact_id: Optional[int] = None
 
@@ -494,6 +548,7 @@ async def create_collaborator_quick(
                 )
 
         access_code = await _generate_unique_access_code(db)
+        media_assets = _normalize_media_assets(data.media_assets) or []
         new_id = await db.fetchval(
             """INSERT INTO collaborators
                (contact_id, name, title, achievements,
@@ -502,16 +557,16 @@ async def create_collaborator_quick(
                 vk_url, max_url,
                 instagram_url, website_url,
                 assistant_tg_username,
-                access_code,
+                access_code, media_assets,
                 created_by_client_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id""",
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16) RETURNING id""",
             contact_id, name, data.title, data.achievements,
             data.photo_url, data.poster_url,
             data.tg_channel_url, data.tg_channel_id,
             data.vk_url, data.max_url,
             data.instagram_url, data.website_url,
             data.assistant_tg_username,
-            access_code,
+            access_code, json.dumps(media_assets),
             client_id
         )
         await _upsert_personal_identities(db, client_id, contact_id, data)
@@ -544,6 +599,7 @@ class CollaboratorImportItem(BaseModel):
     personal_max_id: Optional[str] = None
     personal_max_username: Optional[str] = None
     assistant_tg_username: Optional[str] = None
+    media_assets: Optional[List[dict]] = None
 
 
 class CollaboratorImportRequest(BaseModel):
@@ -590,21 +646,22 @@ async def import_collaborators(
                 )
                 contact_id = new_contact["id"]
             access_code = await _generate_unique_access_code(db)
+            media_assets = _normalize_media_assets(item.media_assets) or []
             row = await db.fetchrow(
                 """INSERT INTO collaborators
                    (contact_id, name, title, achievements, photo_url, photo_folder_url, video_folder_url,
                     tg_channel_url, vk_url, max_url, instagram_url, website_url,
                     tg_channel_id, assistant_tg_username,
-                    access_code,
+                    access_code, media_assets,
                     created_by_client_id)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id, name""",
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17) RETURNING id, name""",
                 contact_id, item.name, item.title, item.achievements,
                 item.photo_url, item.photo_folder_url, item.video_folder_url,
                 item.tg_channel_url or None,
                 item.vk_url or None, item.max_url or None,
                 item.instagram_url or None, item.website_url or None,
                 item.tg_channel_id or None, item.assistant_tg_username or None,
-                access_code,
+                access_code, json.dumps(media_assets),
                 client_id
             )
             await _upsert_personal_identities(db, client_id, contact_id, item)

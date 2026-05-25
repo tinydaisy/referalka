@@ -143,7 +143,7 @@ async def get_me(
                   c.id AS collaborator_id, c.name, c.title, c.achievements,
                   c.photo_url, c.poster_url, c.photo_folder_url, c.video_folder_url,
                   c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url,
-                  c.tg_channel_id,
+                  c.tg_channel_id, c.media_assets,
                   pu_tg.platform_user_id AS personal_tg_id,
                   pu_tg.username AS personal_tg_username,
                   pu_vk.platform_user_id AS personal_vk_id,
@@ -180,6 +180,16 @@ async def get_me(
     )
     d = dict(row)
     d["topics"] = [t["topic"] for t in topics if t["topic"]]
+    # media_assets (JSONB) — asyncpg отдаёт строкой, парсим в list
+    import json as _json
+    ma = d.get("media_assets")
+    if isinstance(ma, str):
+        try:
+            d["media_assets"] = _json.loads(ma)
+        except (ValueError, TypeError):
+            d["media_assets"] = []
+    elif ma is None:
+        d["media_assets"] = []
     # Нужна ли проверка подписки на канал этого спикера в Mini App.
     mode = (d.get("subscription_mode") or "none").lower()
     role = (d.get("role") or "").lower()
@@ -238,6 +248,8 @@ class CabinetUpdate(BaseModel):
     personal_vk_username: Optional[str] = None
     personal_max_id: Optional[str] = None
     personal_max_username: Optional[str] = None
+    # Медийные активы — массив {platform, subscribers} (миграция 111)
+    media_assets: Optional[List[dict]] = None
     # Выступление (event_collaborators)
     topics: Optional[List[str]] = None
     gift_after_speech_title: Optional[str] = None
@@ -254,7 +266,8 @@ async def patch_me(
     session: dict = Depends(_auth_session),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    from app.api.collaborators import _upsert_personal_identities
+    from app.api.collaborators import _upsert_personal_identities, _normalize_media_assets
+    import json as _json
 
     se_id = int(session["se_id"])
     c_id = int(session["c_id"])
@@ -274,12 +287,17 @@ async def patch_me(
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]
     upd = {f: getattr(data, f) for f in profile_fields if getattr(data, f) is not None}
-    if upd:
+    media_assets_in = _normalize_media_assets(data.media_assets)
+    if upd or media_assets_in is not None:
         parts = [f"{k} = ${i+2}" for i, k in enumerate(upd.keys())]
+        vals = list(upd.values())
+        if media_assets_in is not None:
+            parts.append(f"media_assets = ${len(vals)+2}::jsonb")
+            vals.append(_json.dumps(media_assets_in))
         parts.append("updated_at = NOW()")
         await db.execute(
             f"UPDATE collaborators SET {', '.join(parts)} WHERE id = $1",
-            c_id, *upd.values()
+            c_id, *vals
         )
 
     # 2. Контакт (contacts) — email / phone

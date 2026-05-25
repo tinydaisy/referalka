@@ -503,6 +503,32 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 Общий wrapper-layout с auth (JWT 24ч), внутри подстраницы. Архитектурно — это **мини-личный-кабинет спикера**, не одноразовая форма правки.
 
+### Медийные активы коллаборатора + JSON-эндпоинты для сторонних лендингов (миграция 111 от 2026-05-25)
+
+**Зачем.** Клиент верстает свой лендинг события (Tilda, GetCourse, AI-сгенерированный HTML на Vercel и т.п.) и хочет автоматически подтягивать данные коллабораторов и программу из ПЛЮСОНа — фото, регалии, должность, медийные активы, расписание. Это решается двумя публичными JSON-эндпоинтами с открытым CORS.
+
+**Поле `collaborators.media_assets JSONB`** — массив объектов `[{platform, subscribers}]`. Платформы фиксированы (CHECK на тип array): `tg / youtube / vk / tiktok / instagram / max / rutube`. По одной записи на платформу — комбо в UI не даёт выбрать уже использованную. Редактируется в:
+- Дашборде → карточка коллаба `/dashboard/collaborations/[id]` — блок «Медийные активы» (компонент [`MediaAssetsField`](web/src/components/MediaAssetsField.tsx)), сохраняется через `PATCH /api/v1/collaborators/{id} { media_assets }`.
+- Мини-кабинете спикера `/speaker/<event_slug>` — секция «Медийные активы», сохраняется через `PATCH /api/v1/public/speaker-cabinet/me { media_assets }`.
+
+Хелпер нормализации `_normalize_media_assets` в [collaborators.py](backend/app/api/collaborators.py) — фильтрует неизвестные платформы и неотрицательные целые, переиспользуется из self-service.
+
+**Публичные эндпоинты для сторонних лендингов** ([backend/app/api/landing_widget.py](backend/app/api/landing_widget.py)) — префикс `/api/v1/public/landing-widget/`. CORS открыт для `*` через ручные заголовки в Response (не через `CORSMiddleware`, который сконфигурирован с `allow_credentials=True` несовместимо с `*`-origin); preflight-OPTIONS зарегистрирован отдельно.
+
+1. **`GET /events/{slug}/collaborators`** — плоский список всех коллабораторов события, сгруппированный по 4 ключам:
+   - `organizers` — `role=organizer`
+   - `jury` — `role=jury`
+   - `speakers` — `role IN (speaker, headliner)`
+   - `partners` — `role IN (general_partner, partner)`
+
+   Карточка содержит: `id, collaborator_id, name, title, position, photo_url, poster_url` (fallback `cse.poster_url || c.poster_url`), `achievements, role, is_commercial, topic, sort_order, tg_channel_url, vk_url, max_url, instagram_url, website_url, media_assets, knowledge_base_title, knowledge_base_url, ref_code`.
+
+   **Сортировка внутри группы — БЕЗ приоритета `is_commercial`** (по запросу клиента — коммерческие не выносятся вперёд в выдаче для лендингов): `group_rank (organizer < jury < headliner < speaker < general_partner < partner) → referrals DESC → priority ASC → id ASC`. Логика SQL — внутри файла [`landing_widget.py`](backend/app/api/landing_widget.py), не в общем `collaborator_sort.py` (там остаётся версия с коммерческими приоритетами для Mini App / дашборда).
+
+2. **`GET /events/{slug}/program`** — `{ stages, days, sessions }`. В каждой сессии `speaker: { id, name, title, photo_url, achievements, tg_channel_url, vk_url, max_url, instagram_url, website_url, media_assets } | null`. Время — строки `HH:MM` (см. правило «Время программы — строки HH:MM»).
+
+Пример использования на лендинге — `fetch('https://pluson.ru/api/v1/public/landing-widget/events/{slug}/collaborators').then(r => r.json())` → рендер через свою вёрстку. `Cache-Control: 60s` (изменение в дашборде → автообновление лендинга в течение минуты).
+
 ### Описание события — единое поле `events.description` для всех типов (миграция 092 от 2026-05-21)
 
 У события два независимых поля описания, оба живут на уровне `events` (не в `conf_conferences`):
