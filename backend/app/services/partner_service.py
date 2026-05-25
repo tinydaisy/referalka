@@ -85,6 +85,27 @@ async def _build_partner_landing_url(landing_url: str, contact_id: int,
     )
 
 
+def _display_partner_code(raw: Optional[str]) -> str:
+    """Чистое значение партнёрского кода для показа пользователю.
+
+    contacts.external_ref_param хранит полную пару key=value
+    (например "gcpc=34035"), но в сообщении партнёру нужно показать только
+    само значение справа от последнего "=". Также страхует от мусора вида
+    "A.gcpc=1c9ac.B" (остатки старых DEBUG-тестов): берём хвост после
+    последнего "=" и до первого пробела/точки/символа.
+    """
+    s = (raw or '').strip()
+    if not s:
+        return ''
+    if '=' in s:
+        s = s.rsplit('=', 1)[-1].strip()
+    # Срезаем возможный завершающий мусор (точка-маркер, пробел)
+    for stop in ('.', ' ', '&', '?'):
+        if stop in s:
+            s = s.split(stop, 1)[0]
+    return s.strip()
+
+
 def _build_already_partner_text(brand: str, code: str, work_tg: str) -> str:
     brand_disp = _esc(brand) or "клиента"
     parts = [
@@ -300,7 +321,7 @@ async def run_started_partner(run_id: int, tg_id: str, username: Optional[str],
     existing_code = await db.fetchval(
         "SELECT external_ref_param FROM contacts WHERE id = $1", contact_id,
     )
-    existing_code = (existing_code or "").strip()
+    existing_code = _display_partner_code(existing_code)
 
     brand_info = await _get_brand_owner(client_id, db)
     token = await _bot_token_for_client(client_id, db)
@@ -412,7 +433,7 @@ async def run_started_partner_vk(run_id: int, vk_id: str, username: Optional[str
     existing_code = await db.fetchval(
         "SELECT external_ref_param FROM contacts WHERE id = $1", contact_id,
     )
-    existing_code = (existing_code or "").strip()
+    existing_code = _display_partner_code(existing_code)
     brand_info = await _get_brand_owner(client_id, db)
 
     if existing_code:
@@ -478,7 +499,7 @@ async def send_partner_done_tg(client_id: int, tg_id: str, db,
         code_raw = await db.fetchval(
             "SELECT external_ref_param FROM contacts WHERE id = $1", contact_id,
         )
-        code = (code_raw or "").strip()
+        code = _display_partner_code(code_raw)
         # Помечаем все pending-забеги этого контакта как completed
         await db.execute(
             """UPDATE partner_runs
@@ -520,7 +541,7 @@ async def send_partner_done_vk(client_id: int, vk_id: str, db, token: str) -> No
         code_raw = await db.fetchval(
             "SELECT external_ref_param FROM contacts WHERE id = $1", contact_id,
         )
-        code = (code_raw or "").strip()
+        code = _display_partner_code(code_raw)
         await db.execute(
             """UPDATE partner_runs
                   SET stage = 'completed', completed_at = NOW()
