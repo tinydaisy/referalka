@@ -348,10 +348,22 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
             </label>
           </div>
           <div className="flex gap-3 mt-5">
-            <button onClick={() => createNew()} disabled={!form.name.trim() || saving}
-              className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
-              {saving ? <><Spinner /> {t.common.saving}</> : ts.newModal.addBtn}
-            </button>
+            {(() => {
+              // Минимум один личный ник (TG/VK/MAX) обязателен — иначе бэк
+              // вернёт 422 (нельзя отправить спикеру invite на самозаполнение).
+              const hasPersonal =
+                !!form.personal_tg_username?.trim() ||
+                !!form.personal_vk_username?.trim() ||
+                !!form.personal_max_username?.trim()
+              const canSubmit = !!form.name.trim() && hasPersonal && !saving
+              return (
+                <button onClick={() => createNew()} disabled={!canSubmit}
+                  title={!form.name.trim() ? 'Заполните имя' : (!hasPersonal ? 'Заполните хотя бы один личный аккаунт (TG / VK / MAX)' : '')}
+                  className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''} ${!canSubmit ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  {saving ? <><Spinner /> {t.common.saving}</> : ts.newModal.addBtn}
+                </button>
+              )
+            })()}
             <button onClick={() => setModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
           </div>
         </Modal>

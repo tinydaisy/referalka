@@ -491,18 +491,35 @@ function QuickCreateCollabModal({
   const [name, setName] = useState('')
   const [title, setTitle] = useState('')
   const [tgUsername, setTgUsername] = useState('')
+  const [vkUsername, setVkUsername] = useState('')
+  const [maxUsername, setMaxUsername] = useState('')
   const [instagram, setInstagram] = useState('')
   const [saving, setSaving] = useState(false)
   const [choice, setChoice] = useState<{ matches: any[] } | null>(null)
 
+  // На бэке (`/collaborators/quick`) валидация: минимум один личный никнейм
+  // ИЗ ТРЁХ платформ обязателен (без этого нельзя отправить спикеру invite
+  // на самообслуживание профиля). Дублируем на фронте, чтобы кнопка
+  // «Создать» сразу была неактивной — без блокирующего alert от бэка.
+  const tgClean = tgUsername.trim().replace(/^@/, '')
+  const vkClean = vkUsername.trim().replace(/^@/, '')
+  const maxClean = maxUsername.trim().replace(/^@/, '')
+  const hasPersonal = !!(tgClean || vkClean || maxClean)
+  const canSubmit = !!name.trim() && hasPersonal && !saving
+
   async function submit(opts?: { force_create?: boolean; existing_contact_id?: number }) {
     if (!name.trim()) return
+    // Если submit зовётся НЕ из «выбор существующего контакта», заодно
+    // проверяем personal — иначе бэк вернёт 422.
+    if (!opts?.existing_contact_id && !hasPersonal) return
     setSaving(true)
     try {
       const payload: any = {
         name: name.trim(),
         title: title.trim() || null,
-        assistant_tg_username: tgUsername.trim().replace(/^@/, '') || null,
+        personal_tg_username: tgClean || null,
+        personal_vk_username: vkClean || null,
+        personal_max_username: maxClean || null,
         instagram_url: instagram.trim() || null,
         ...(opts || {}),
       }
@@ -547,16 +564,40 @@ function QuickCreateCollabModal({
                   className="input" placeholder="Бизнес-тренер, продюсер, и т.д."
                 />
               </div>
-              <div>
-                <label className="label">Telegram username</label>
-                <input
-                  type="text" value={tgUsername}
-                  onChange={e => setTgUsername(e.target.value)}
-                  className="input" placeholder="ivan_petrov (без @)"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">
-                  tg_id подцепится автоматически когда коллаб напишет в бот клиента.
+              <div className="rounded-xl border border-gray-200 p-3.5 bg-gray-50/50">
+                <p className="text-xs font-semibold text-gray-700 mb-0.5">
+                  Личные аккаунты — хотя бы один <span className="text-red-500">*</span>
                 </p>
+                <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+                  Без этого мы не сможем отправить спикеру invite-ссылку на личный кабинет.
+                  ID подцепится автоматически когда он напишет в бот / сообщество клиента.
+                </p>
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="text-[11px] text-gray-500 font-medium">Telegram username</label>
+                    <input
+                      type="text" value={tgUsername}
+                      onChange={e => setTgUsername(e.target.value)}
+                      className="input mt-0.5" placeholder="ivan_petrov (без @)"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-500 font-medium">VK username</label>
+                    <input
+                      type="text" value={vkUsername}
+                      onChange={e => setVkUsername(e.target.value)}
+                      className="input mt-0.5" placeholder="ivan_petrov (без @, vk.com/ — не нужно)"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-500 font-medium">MAX username</label>
+                    <input
+                      type="text" value={maxUsername}
+                      onChange={e => setMaxUsername(e.target.value)}
+                      className="input mt-0.5" placeholder="ivan_petrov (без @)"
+                    />
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="label">Instagram URL</label>
@@ -568,8 +609,9 @@ function QuickCreateCollabModal({
               </div>
             </div>
             <div className="flex gap-3 mt-5">
-              <button onClick={() => submit()} disabled={!name.trim() || saving}
-                className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
+              <button onClick={() => submit()} disabled={!canSubmit}
+                title={!name.trim() ? 'Заполните имя' : (!hasPersonal ? 'Заполните хотя бы один личный аккаунт (TG / VK / MAX)' : '')}
+                className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''} ${!canSubmit ? 'opacity-50 cursor-not-allowed' : ''}`}>
                 {saving ? 'Создаём...' : 'Создать'}
               </button>
               <button onClick={onClose} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
