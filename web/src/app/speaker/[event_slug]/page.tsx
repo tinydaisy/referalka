@@ -957,13 +957,13 @@ function MaterialsTab({
   }
 
   // Подставить плейсхолдеры в текст-анонс.
+  const placeholders = materials.placeholders
   function fillPlaceholders(raw: string): string {
-    const p = materials.placeholders
     return (raw || '')
-      .replace(/\{link\}/g,  p.link  || '')
-      .replace(/\{event\}/g, p.event || '')
-      .replace(/\{date\}/g,  p.date  || '')
-      .replace(/\{brand\}/g, p.brand || '')
+      .replace(/\{link\}/g,  placeholders.link  || '')
+      .replace(/\{event\}/g, placeholders.event || '')
+      .replace(/\{date\}/g,  placeholders.date  || '')
+      .replace(/\{brand\}/g, placeholders.brand || '')
   }
 
   const refLinkRows = [
