@@ -503,6 +503,27 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 Общий wrapper-layout с auth (JWT 24ч), внутри подстраницы. Архитектурно — это **мини-личный-кабинет спикера**, не одноразовая форма правки.
 
+### Коллаб без личного аккаунта + псевдо-`platform_users` (2026-05-25)
+
+**Личный аккаунт коллаба (TG/VK/MAX) — НЕ обязателен.** Бизнес-партнёры (компании FREEDOM/GRANI и т.п.) — это просто карточки на сайте, без рассылок. Поэтому валидация `has_personal` снята в `POST /collaborators` и `POST /collaborators/quick`. В UI формы создания коллаба — подсказка «Можно оставить пустым если бизнес-компания, рассылка по нему идти не будет».
+
+**Username без числового ID → резолв → fallback на псевдо-запись.** [`_upsert_personal_identity`](backend/app/api/collaborators.py) при получении только `username` (без `user_id`):
+1. Пробует резолвить `username → числовой id`:
+   - **TG:** `getChat(@username)` через бот клиента (или системный @pluson_bot). Работает только если юзер уже писал боту — для незнакомых редко.
+   - **VK:** `users.get?user_ids={screen_name}` через VK API — почти всегда срабатывает.
+   - **MAX:** пока без публичного API — всегда fallback.
+2. **Если резолв успешен:** `INSERT platform_users` с реальным id + проверка подписки (`getChatMember` / `groups.isMember`) → `platform_user_channels.is_unsubscribed = !is_subscribed`.
+3. **Если резолв НЕ удался:** `INSERT platform_users (platform_user_id = '@<username>', username = ...)` — **псевдо-запись**. Префикс `@` гарантирует что не пересечётся с реальными числовыми id (real id — всегда int64). `platform_user_channels.is_unsubscribed=TRUE` — рассылки не идут пока коллаб реально не появился.
+
+**При первом сообщении коллаба в бот — апдейт псевдо-записи** ([`upsert_contact_with_identity`](backend/app/services/contact_merge.py)):
+1. Стандартный поиск по числовому `platform_user_id` → не нашёл.
+2. Если в update есть `username` — поискать псевдо-запись `WHERE client_id=$1 AND platform_slug='telegram' AND platform_user_id='@'||$username`.
+3. Если псевдо нашлась → `UPDATE platform_users SET platform_user_id = реальный_id, username = ...` + `UPDATE platform_user_channels SET is_unsubscribed=FALSE` (юзер подписался реально). Контакт остаётся тот же — коллаб привязан, дублей нет.
+
+**Uniqueness по username:** при INSERT с псевдо-id `@username` — проверка что у клиента нет другой `platform_users` записи с таким же `username` на этой платформе. Если есть — 400 с пояснением.
+
+Подробнее в memory: [project_collaborator_pseudo_platform_users.md](../../.claude/projects/-Users-macbookair-Documents-projects-referalka/memory/project_collaborator_pseudo_platform_users.md).
+
 ### Медийные активы коллаборатора + JSON-эндпоинты для сторонних лендингов (миграция 111 от 2026-05-25)
 
 **Зачем.** Клиент верстает свой лендинг события (Tilda, GetCourse, AI-сгенерированный HTML на Vercel и т.п.) и хочет автоматически подтягивать данные коллабораторов и программу из ПЛЮСОНа — фото, регалии, должность, медийные активы, расписание. Это решается двумя публичными JSON-эндпоинтами с открытым CORS.

@@ -497,21 +497,15 @@ function QuickCreateCollabModal({
   const [saving, setSaving] = useState(false)
   const [choice, setChoice] = useState<{ matches: any[] } | null>(null)
 
-  // На бэке (`/collaborators/quick`) валидация: минимум один личный никнейм
-  // ИЗ ТРЁХ платформ обязателен (без этого нельзя отправить спикеру invite
-  // на самообслуживание профиля). Дублируем на фронте, чтобы кнопка
-  // «Создать» сразу была неактивной — без блокирующего alert от бэка.
+  // Личные ники опциональны (для бизнес-партнёров FREEDOM/GRANI и т.п.).
+  // Кнопка «Создать» дисейблится только если имени нет.
   const tgClean = tgUsername.trim().replace(/^@/, '')
   const vkClean = vkUsername.trim().replace(/^@/, '')
   const maxClean = maxUsername.trim().replace(/^@/, '')
-  const hasPersonal = !!(tgClean || vkClean || maxClean)
-  const canSubmit = !!name.trim() && hasPersonal && !saving
+  const canSubmit = !!name.trim() && !saving
 
   async function submit(opts?: { force_create?: boolean; existing_contact_id?: number }) {
     if (!name.trim()) return
-    // Если submit зовётся НЕ из «выбор существующего контакта», заодно
-    // проверяем personal — иначе бэк вернёт 422.
-    if (!opts?.existing_contact_id && !hasPersonal) return
     setSaving(true)
     try {
       const payload: any = {
@@ -566,11 +560,15 @@ function QuickCreateCollabModal({
               </div>
               <div className="rounded-xl border border-gray-200 p-3.5 bg-gray-50/50">
                 <p className="text-xs font-semibold text-gray-700 mb-0.5">
-                  Личные аккаунты — хотя бы один <span className="text-red-500">*</span>
+                  Личные аккаунты (опционально)
                 </p>
                 <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
-                  Без этого мы не сможем отправить спикеру invite-ссылку на личный кабинет.
-                  ID подцепится автоматически когда он напишет в бот / сообщество клиента.
+                  Если коллаб — реальный человек (спикер, жюри, организатор):
+                  введите хотя бы один ник, чтобы потом отправить ему ссылку
+                  на самозаполнение профиля. Числовой ID подцепим автоматически
+                  при первом сообщении в бот / сообщество.<br />
+                  <span className="text-amber-700">Если коллаб — бизнес-компания / партнёр</span> (бренд без личного аккаунта) —
+                  оставьте все поля пустыми. Рассылки по нему идти не будут.
                 </p>
                 <div className="space-y-2.5">
                   <div>
@@ -610,7 +608,7 @@ function QuickCreateCollabModal({
             </div>
             <div className="flex gap-3 mt-5">
               <button onClick={() => submit()} disabled={!canSubmit}
-                title={!name.trim() ? 'Заполните имя' : (!hasPersonal ? 'Заполните хотя бы один личный аккаунт (TG / VK / MAX)' : '')}
+                title={!name.trim() ? 'Заполните имя' : ''}
                 className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''} ${!canSubmit ? 'opacity-50 cursor-not-allowed' : ''}`}>
                 {saving ? 'Создаём...' : 'Создать'}
               </button>

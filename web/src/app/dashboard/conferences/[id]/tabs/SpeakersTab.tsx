@@ -314,9 +314,16 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
               <input type="text" value={form.name} onChange={setF('name')} autoFocus className="input" placeholder={ts.newModal.namePlaceholder} />
             </div>
 
-            {/* Личный контакт спикера (одна из платформ обязательна) — миграция 108 */}
+            {/* Личные аккаунты — опционально (для бизнес-партнёров можно пусто) */}
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-              <div className="text-xs text-amber-900 font-medium">Личный аккаунт спикера — нужен минимум один (для отправки инструкции по самозаполнению)</div>
+              <div className="text-xs text-amber-900 font-medium">Личные аккаунты (опционально)</div>
+              <div className="text-[11px] text-amber-900/80 leading-relaxed -mt-1">
+                Для реального человека (спикер/жюри/организатор) — введите хотя бы один ник,
+                чтобы отправить ему ссылку на самозаполнение. ID подцепится автоматически
+                при первом сообщении в бот.<br/>
+                <span className="font-semibold">Для бизнес-компании / партнёра</span> (бренд без личного аккаунта) —
+                оставьте пустым. Рассылки не идут.
+              </div>
               <input type="text" value={form.personal_tg_username} onChange={setF('personal_tg_username')}
                 className="input" placeholder="Telegram username (без @)" />
               <input type="text" value={form.personal_vk_username} onChange={setF('personal_vk_username')}
@@ -348,22 +355,10 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
             </label>
           </div>
           <div className="flex gap-3 mt-5">
-            {(() => {
-              // Минимум один личный ник (TG/VK/MAX) обязателен — иначе бэк
-              // вернёт 422 (нельзя отправить спикеру invite на самозаполнение).
-              const hasPersonal =
-                !!form.personal_tg_username?.trim() ||
-                !!form.personal_vk_username?.trim() ||
-                !!form.personal_max_username?.trim()
-              const canSubmit = !!form.name.trim() && hasPersonal && !saving
-              return (
-                <button onClick={() => createNew()} disabled={!canSubmit}
-                  title={!form.name.trim() ? 'Заполните имя' : (!hasPersonal ? 'Заполните хотя бы один личный аккаунт (TG / VK / MAX)' : '')}
-                  className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''} ${!canSubmit ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  {saving ? <><Spinner /> {t.common.saving}</> : ts.newModal.addBtn}
-                </button>
-              )
-            })()}
+            <button onClick={() => createNew()} disabled={!form.name.trim() || saving}
+              className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${saving ? 'btn-loading' : ''}`}>
+              {saving ? <><Spinner /> {t.common.saving}</> : ts.newModal.addBtn}
+            </button>
             <button onClick={() => setModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">{t.common.cancel}</button>
           </div>
         </Modal>

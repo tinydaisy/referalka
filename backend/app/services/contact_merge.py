@@ -415,6 +415,58 @@ async def upsert_contact_with_identity(
         client_id, platform_slug, str(platform_user_id)
     )
 
+    # Псевдо-запись от коллаборатора (project_collaborator_pseudo_platform_users):
+    # организатор создал коллаба с @username без числового id → запись
+    # platform_users существует с placeholder `platform_user_id='@<username>'`.
+    # Когда настоящий юзер с этим ником впервые пишет в бот — находим
+    # псевдо и обновляем её на реальный числовой id. Контакт остаётся тот,
+    # которому организатор привязал коллаба.
+    if not pu_existing and username:
+        uname_clean = username.lstrip('@').strip()
+        if uname_clean:
+            pseudo = await db.fetchrow(
+                """SELECT id, contact_id FROM platform_users
+                    WHERE client_id = $1 AND platform_slug = $2
+                      AND platform_user_id = $3
+                    LIMIT 1""",
+                client_id, platform_slug, f"@{uname_clean}",
+            )
+            if pseudo:
+                # Защита: убедимся что реальный id ещё не занят другим контактом
+                # (если такое — оставляем псевдо как есть и не апгрейдим).
+                conflict = await db.fetchval(
+                    """SELECT contact_id FROM platform_users
+                        WHERE client_id = $1 AND platform_slug = $2
+                          AND platform_user_id = $3 AND id <> $4
+                        LIMIT 1""",
+                    client_id, platform_slug, str(platform_user_id), pseudo["id"],
+                )
+                if conflict is None:
+                    await db.execute(
+                        """UPDATE platform_users
+                              SET platform_user_id = $1,
+                                  username         = $2,
+                                  first_name       = COALESCE($3, first_name),
+                                  last_name        = COALESCE($4, last_name),
+                                  updated_at       = NOW()
+                            WHERE id = $5""",
+                        str(platform_user_id), uname_clean,
+                        first_name, last_name, pseudo["id"],
+                    )
+                    # Снимаем is_unsubscribed=TRUE который был установлен при
+                    # создании псевдо-записи — юзер реально подписался (написал боту).
+                    await db.execute(
+                        """UPDATE platform_user_channels
+                              SET is_unsubscribed = FALSE,
+                                  subscribed_at   = COALESCE(subscribed_at, NOW()),
+                                  unsubscribed_at = NULL
+                            WHERE platform_user_id = $1
+                              AND is_unsubscribed = TRUE""",
+                        pseudo["id"],
+                    )
+                    # Возвращаем как существующую идентичность — это и есть upsert.
+                    pu_existing = pseudo
+
     if pu_existing:
         # Идентичность есть, обновляем данные платформы и контакт
         if username and username.startswith('@'):

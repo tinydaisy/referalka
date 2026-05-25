@@ -200,25 +200,10 @@ async def create_collaborator(
     if not contact:
         raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
 
-    # Валидация: у коллаба должен быть хотя бы один личный никнейм / ID на одной
-    # из платформ (TG/VK/MAX) — без этого мы не сможем ни автоматически создать
-    # platform_users, ни выдать коллабу invite-ссылку на самообслуживание
-    # (`/speaker/<event_slug>` использует access_code, но коллаб должен прийти
-    # в бот через `spkinv_<code>` deeplink — без личного аккаунта невозможно).
-    def _nonblank(s):  # helper
-        return bool((s or "").strip())
-    has_tg  = _nonblank(data.personal_tg_id)  or _nonblank(data.personal_tg_username)
-    has_vk  = _nonblank(data.personal_vk_id)  or _nonblank(data.personal_vk_username)
-    has_max = _nonblank(data.personal_max_id) or _nonblank(data.personal_max_username)
-    if not (has_tg or has_vk or has_max):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Укажите хотя бы один личный аккаунт коллаборатора — "
-                "Telegram, VK или MAX (никнейм или ID). Без этого мы не сможем "
-                "связать коллаба с платформой."
-            ),
-        )
+    # Личный никнейм / ID на платформах НЕ обязателен — бизнес-партнёры
+    # (компании типа FREEDOM/GRANI) могут быть карточками без личного
+    # аккаунта. Рассылки им не идут (см. _upsert_personal_identity:
+    # псевдо-запись создаётся со статусом is_unsubscribed=TRUE).
     # Один коллаб на контакт — повторное добавление запрещаем
     existing = await db.fetchval(
         "SELECT id FROM collaborators WHERE contact_id = $1", data.contact_id
@@ -268,13 +253,43 @@ async def _upsert_personal_identity(
     """Записать/обновить личную идентичность коллаба в platform_users.
 
     Унифицирует логику для всех трёх платформ. Привязка идёт по contact_id +
-    platform_slug. Если запись уже есть — обновляем (можно сменить и id, и
-    username). Если нет — создаём (нужен id, потому что platform_user_id NOT NULL).
+    platform_slug.
+
+    Сценарии:
+    1. Запись platform_users уже есть для (contact_id, platform_slug) → UPDATE
+       (можно сменить и id, и username).
+    2. Записи нет, передан числовой `user_id` → стандартный INSERT.
+    3. Записи нет, передан ТОЛЬКО `username` (без id) → пробуем резолвить
+       username → реальный id через TG getChat / VK users.get:
+       - Удачно → INSERT с реальным id, статус подписки выставляется отдельно.
+       - Не удалось → INSERT с placeholder `platform_user_id='@<username>'`
+         и пометкой `is_unsubscribed=TRUE` на главном канале клиента
+         (рассылки не идут пока коллаб реально не написал боту).
+
+    Подробности: project_collaborator_pseudo_platform_users.md.
+
+    Дополнительно: при сохранении username проверяем uniqueness в рамках клиента
+    на этой платформе — два разных contact не могут иметь один и тот же ник.
     """
     uid_clean = (user_id or "").strip() or None
     uname_clean = (username or "").lstrip("@").strip() or None
     if not uid_clean and not uname_clean:
-        return
+        return {"status": "ok"}
+
+    # Uniqueness по username: если у клиента уже есть запись с таким username
+    # на этой платформе, но привязана к ДРУГОМУ контакту — не разрешаем.
+    if uname_clean:
+        username_collision = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = $2
+                  AND LOWER(username) = LOWER($3)
+                  AND contact_id <> $4
+                LIMIT 1""",
+            client_id, platform_slug, uname_clean, contact_id,
+        )
+        if username_collision is not None:
+            return {"status": "username_taken", "other_contact_id": username_collision}
+
     existing = await db.fetchrow(
         """SELECT id, platform_user_id, username FROM platform_users
             WHERE contact_id = $1 AND platform_slug = $2
@@ -303,12 +318,10 @@ async def _upsert_personal_identity(
                 WHERE id = $3""",
             new_id, new_uname, existing["id"]
         )
-    elif uid_clean:
-        # Защита от конфликта с другим contact_id: если platform_user_id
-        # уже привязан к ДРУГОМУ contact у этого клиента — не вставляем
-        # (это значит что код спикера открыл не тот человек, например, сам
-        # клиент со своего личного аккаунта). Возвращаем "foreign", чтобы
-        # вызывающий код мог отдать вменяемое сообщение.
+        return {"status": "ok"}
+
+    # Записи нет. Если передан числовой id — стандартный путь.
+    if uid_clean:
         existing_other = await db.fetchval(
             """SELECT contact_id FROM platform_users
                 WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3
@@ -324,7 +337,81 @@ async def _upsert_personal_identity(
                ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
             client_id, contact_id, platform_slug, uid_clean, uname_clean
         )
-    return {"status": "ok"}
+        return {"status": "ok"}
+
+    # Только username, без числового id → резолвим (TG getChat / VK users.get).
+    # Если не получилось — создаём псевдо-запись с placeholder-id `@username`.
+    from app.services.identity_resolver import resolve_personal_identity
+    resolved_id, is_subscribed = await resolve_personal_identity(
+        db, client_id=client_id, platform_slug=platform_slug, username=uname_clean,
+    )
+    final_id = resolved_id or f"@{uname_clean}"
+    # Защита от коллизии: если такой platform_user_id уже привязан к другому
+    # контакту у клиента — не пишем (UNIQUE-конфликт).
+    existing_other = await db.fetchval(
+        """SELECT contact_id FROM platform_users
+            WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3
+            LIMIT 1""",
+        client_id, platform_slug, final_id,
+    )
+    if existing_other is not None and existing_other != contact_id:
+        return {"status": "foreign_owner", "other_contact_id": existing_other}
+    await db.execute(
+        """INSERT INTO platform_users
+             (client_id, contact_id, platform_slug, platform_user_id, username, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (client_id, platform_slug, platform_user_id) DO NOTHING""",
+        client_id, contact_id, platform_slug, final_id, uname_clean
+    )
+    # Подписка на главный канал клиента: если резолв удался и юзер подписан →
+    # is_unsubscribed=FALSE. Если резолв не удался ИЛИ юзер не подписан →
+    # is_unsubscribed=TRUE (рассылки не идут пока сам не подпишется).
+    await _set_subscription_state(
+        db, client_id=client_id, contact_id=contact_id,
+        platform_slug=platform_slug, is_subscribed=is_subscribed,
+    )
+    return {"status": "pseudo" if not resolved_id else "ok"}
+
+
+async def _set_subscription_state(
+    db,
+    *,
+    client_id: int,
+    contact_id: int,
+    platform_slug: str,
+    is_subscribed: bool,
+):
+    """Проставить is_unsubscribed на главном канале клиента для personal_users контакта."""
+    # Главный канал клиента на платформе
+    cc_row = await db.fetchrow(
+        """SELECT cc.id AS cc_id
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND ch.platform_slug = $2 AND cc.is_active = TRUE
+            ORDER BY ch.id LIMIT 1""",
+        client_id, platform_slug,
+    )
+    if not cc_row:
+        return
+    pu_row = await db.fetchrow(
+        "SELECT id FROM platform_users WHERE contact_id = $1 AND platform_slug = $2 LIMIT 1",
+        contact_id, platform_slug,
+    )
+    if not pu_row:
+        return
+    unsub = not is_subscribed
+    await db.execute(
+        """INSERT INTO platform_user_channels
+             (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at, unsubscribed_at)
+           VALUES ($1, $2, $3,
+                   CASE WHEN $3 THEN NULL ELSE NOW() END,
+                   CASE WHEN $3 THEN NOW() ELSE NULL END)
+           ON CONFLICT (platform_user_id, client_channel_id) DO UPDATE
+              SET is_unsubscribed = EXCLUDED.is_unsubscribed,
+                  unsubscribed_at = COALESCE(platform_user_channels.unsubscribed_at, EXCLUDED.unsubscribed_at),
+                  subscribed_at   = COALESCE(platform_user_channels.subscribed_at, EXCLUDED.subscribed_at)""",
+        pu_row["id"], cc_row["cc_id"], unsub,
+    )
 
 
 async def _upsert_personal_identities(
@@ -489,23 +576,10 @@ async def create_collaborator_quick(
         )
         if not own:
             raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
-    else:
-        # При создании нового контакта (без existing_contact_id) обязательна
-        # минимум одна личная идентичность спикера — иначе мы не сможем ему
-        # отправить инструкцию по самообслуживанию.
-        has_personal = any([
-            (data.personal_tg_id or "").strip(),
-            (data.personal_tg_username or "").strip(),
-            (data.personal_vk_id or "").strip(),
-            (data.personal_vk_username or "").strip(),
-            (data.personal_max_id or "").strip(),
-            (data.personal_max_username or "").strip(),
-        ])
-        if not has_personal:
-            raise HTTPException(
-                status_code=422,
-                detail="Укажите хотя бы один личный аккаунт спикера: Telegram, VK или MAX. Без этого ему не получится отправить инструкцию для редактирования профиля."
-            )
+    # Личный аккаунт коллаба НЕ обязателен (2026-05-25) — бизнес-партнёры
+    # (FREEDOM/GRANI и т.п.) создаются без личного TG/VK/MAX, рассылок не идёт.
+    # Если username введён, но id не известен — _upsert_personal_identity сам
+    # попробует резолвить → fallback на псевдо-запись с is_unsubscribed=TRUE.
 
     if contact_id is None and not data.force_create:
         matches = await db.fetch(
