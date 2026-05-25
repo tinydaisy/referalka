@@ -589,7 +589,8 @@ async def get_me_materials(
     c_id  = int(session["c_id"])
     e_id  = int(session["e_id"])
 
-    # Базовые поля события + клиента + контакта-спикера
+    # Базовые поля события + клиента + контакта-спикера + личная афиша
+    # (per-event приоритетнее глобальной, как в Mini App / рассылках).
     base = await db.fetchrow(
         """SELECT e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
                   e.start_at,
@@ -597,6 +598,7 @@ async def get_me_materials(
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
                   cl.partner_landing_url,
                   c.contact_id,
+                  COALESCE(ec.poster_url, c.poster_url) AS speaker_poster_url,
                   ctc.ref_code AS speaker_ref_code,
                   ctc.first_referrer_contact_id
              FROM event_collaborators ec
@@ -689,6 +691,7 @@ async def get_me_materials(
         "event_slug":   base["event_slug"],
         "event_title":  base["event_title"],
         "posters":      [dict(r) for r in posters],
+        "speaker_poster_url": base.get("speaker_poster_url"),
         "announcement_texts": [dict(r) for r in texts],
         "ref_links":    ref_links,
         "partner_link": partner_link,

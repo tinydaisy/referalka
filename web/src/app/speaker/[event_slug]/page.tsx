@@ -96,6 +96,7 @@ type SpeakerMaterials = {
   event_slug: string
   event_title: string
   posters: { id: number; url: string; orientation: 'horizontal' | 'vertical' | 'square'; sort: number }[]
+  speaker_poster_url: string | null
   announcement_texts: { id: number; content: string; sort: number }[]
   ref_links: { telegram?: string; vk?: string; max?: string }
   partner_link: { telegram?: string; vk?: string; max?: string }
@@ -174,9 +175,12 @@ export default function SpeakerCabinetPage() {
     loadMe()
   }, [loadMe])
 
-  // Materials — отдельный эндпоинт. Грузим после успешного /me.
+  // Materials — отдельный эндпоинт. Перезагружаем при каждом переключении
+  // на вкладку «Материалы», чтобы спикер сразу видел тексты, которые
+  // организатор только что добавил/изменил в дашборде.
   useEffect(() => {
     if (!token || !me) return
+    if (activeTab !== 'materials') return
     let cancelled = false
     fetch(`${API}/api/v1/public/speaker-cabinet/me/materials`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -188,7 +192,7 @@ export default function SpeakerCabinetPage() {
       .then((d) => { if (!cancelled) setMaterials(d) })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [token, me])
+  }, [token, me, activeTab])
 
   const onAuth = async () => {
     if (!chosenId) { setError('Выберите свою фамилию'); return }
@@ -763,6 +767,9 @@ export default function SpeakerCabinetPage() {
 
         {me.show_knowledge_base_field && (
           <Section title="Материал в базу знаний">
+            <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8, lineHeight: 1.5 }}>
+              Отобразится в мини-апп в вашей карточке спикера рядом с ссылками на соц сети.
+            </div>
             <label style={labelCss}>Название</label>
             <input style={inputCss} value={me.knowledge_base_title || ''} onChange={(e) => update({ knowledge_base_title: e.target.value })} placeholder="Например: Презентация выступления" />
             <label style={labelCss}>Ссылка</label>
@@ -980,6 +987,44 @@ function MaterialsTab({
 
   return (
     <div>
+      {/* Личная афиша спикера */}
+      {materials.speaker_poster_url && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Ваша личная афиша</div>
+          <div style={subCss}>
+            Афиша с вашим фото/именем, подготовленная под это событие. Откройте кликом или скачайте.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            <div style={{
+              border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
+            }}>
+              <img
+                src={materials.speaker_poster_url}
+                alt="Личная афиша"
+                onClick={() => setLightbox(materials.speaker_poster_url!)}
+                style={{
+                  width: '100%', aspectRatio: '9/16',
+                  objectFit: 'cover', cursor: 'zoom-in', display: 'block',
+                }}
+              />
+              <a
+                href={materials.speaker_poster_url}
+                download
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'block', textAlign: 'center', padding: '6px 8px',
+                  fontSize: 11, color: DARK, textDecoration: 'none',
+                  background: '#fff', borderTop: '1px solid #d4dee5',
+                }}
+              >
+                ⬇ Скачать
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Афиши события */}
       <div style={sectionCss}>
         <div style={titleCss}>Афиши события</div>
@@ -1088,9 +1133,9 @@ function MaterialsTab({
       {/* Партнёрская ссылка спикера */}
       {materials.partner_landing_configured && partnerRows.length > 0 && (
         <div style={sectionCss}>
-          <div style={titleCss}>Партнёрская ссылка</div>
+          <div style={titleCss}>Ссылка регистрации на получение % кэшбэка</div>
           <div style={subCss}>
-            Личная ссылка, чтобы стать партнёром организатора в его сервисе. По ней регистрируются ваши приглашённые партнёры — вам идёт партнёрское вознаграждение через рефовода.
+            Пройдите по ссылке, чтобы зарегистрироваться партнёром организатора на получение вознаграждения с привлечённых участников.
           </div>
           {partnerRows.map(({ key, label, url }) => {
             const k = `prt:${key}`
