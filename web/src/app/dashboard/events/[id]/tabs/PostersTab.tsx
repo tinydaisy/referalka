@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
+import AnnouncementTextsBlock from '@/components/AnnouncementTextsBlock'
 
 type Orientation = 'horizontal' | 'vertical' | 'square'
 
@@ -18,7 +19,42 @@ const ORIENTATIONS: { key: Orientation; label: string; ratio: string; aspect: st
   { key: 'square',     label: 'Квадратные',     ratio: '1:1',  aspect: 'aspect-square' },
 ]
 
+type SubTab = 'posters' | 'materials'
+
 export default function PostersTab({ eventId }: { eventId: number }) {
+  const [tab, setTab] = useState<SubTab>('posters')
+
+  return (
+    <div>
+      <SubTabs current={tab} onChange={setTab} />
+      {tab === 'posters' ? <PostersBlock eventId={eventId} /> : <AnnouncementTextsBlock eventId={eventId} />}
+    </div>
+  )
+}
+
+function SubTabs({ current, onChange }: { current: SubTab; onChange: (t: SubTab) => void }) {
+  const items: { key: SubTab; label: string }[] = [
+    { key: 'posters',   label: 'Афиши' },
+    { key: 'materials', label: 'Материалы' },
+  ]
+  return (
+    <div className="border-b border-gray-200 mb-6 flex gap-1 -mt-2">
+      {items.map(it => (
+        <button key={it.key}
+                onClick={() => onChange(it.key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  current === it.key
+                    ? 'border-[#FFCFA4] text-[#25455D]'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}>
+          {it.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function PostersBlock({ eventId }: { eventId: number }) {
   const [items, setItems] = useState<Poster[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -38,7 +74,6 @@ export default function PostersTab({ eventId }: { eventId: number }) {
     const oldItems = items.filter(p => p.orientation === orientation)
     const oldUrls = oldItems.map(p => p.url)
 
-    // 1. Новые URL (есть в new, нет в old) — создаём через api.create
     const added = newUrls.filter(u => !oldUrls.includes(u))
     for (const url of added) {
       try {
@@ -46,7 +81,6 @@ export default function PostersTab({ eventId }: { eventId: number }) {
       } catch (e: any) { setErr(e.message) }
     }
 
-    // 2. Удалённые URL — удаляем через api.delete (R2 уже почищен FileUploader-ом)
     const removed = oldUrls.filter(u => !newUrls.includes(u))
     for (const url of removed) {
       const item = oldItems.find(p => p.url === url)

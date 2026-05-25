@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import FileUploader from '@/components/FileUploader'
+import AnnouncementTextsBlock from '@/components/AnnouncementTextsBlock'
 
 type Orientation = 'horizontal' | 'vertical' | 'square'
 
@@ -19,11 +20,45 @@ const POSTER_TYPES: { key: Orientation; labelRu: string; labelEn: string; ratio:
   { key: 'square',     labelRu: 'Квадратные',      labelEn: 'Square',     ratio: '1:1',  aspect: 'aspect-square' },
 ]
 
+type SubTab = 'posters' | 'materials'
+
 // Афиши конференции лежат в `event_posters` — единый источник истины,
 // общий с обычными мероприятиями. API: /events/{id}/referral/posters.
 // Старые поля conf_conferences.poster_* больше не используются для записи —
 // существующие данные мигрированы в event_posters миграцией 046.
 export default function PostersTab({ eventId }: { eventId: number }) {
+  const { lang } = useLang()
+  const [tab, setTab] = useState<SubTab>('posters')
+
+  const labels: Record<SubTab, string> = {
+    posters:   lang === 'ru' ? 'Афиши'      : 'Posters',
+    materials: lang === 'ru' ? 'Материалы'  : 'Materials',
+  }
+
+  return (
+    <div>
+      <div className="border-b border-gray-200 mb-6 flex gap-1 -mt-2">
+        {(['posters','materials'] as SubTab[]).map(t => (
+          <button key={t}
+                  onClick={() => setTab(t)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    tab === t
+                      ? 'border-[#FFCFA4] text-[#25455D]'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}>
+            {labels[t]}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'posters'
+        ? <PostersBlock eventId={eventId} />
+        : <AnnouncementTextsBlock eventId={eventId} />}
+    </div>
+  )
+}
+
+function PostersBlock({ eventId }: { eventId: number }) {
   const { lang } = useLang()
   const [items, setItems] = useState<Poster[]>([])
   const [loading, setLoading] = useState(true)

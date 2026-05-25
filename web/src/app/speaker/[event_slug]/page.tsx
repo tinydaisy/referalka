@@ -91,6 +91,20 @@ const MEDIA_PLATFORMS: { slug: string; label: string }[] = [
 
 const TOKEN_KEY = (slug: string) => `speaker_cabinet_token_${slug}`
 
+type SpeakerMaterials = {
+  event_id: number
+  event_slug: string
+  event_title: string
+  posters: { id: number; url: string; orientation: 'horizontal' | 'vertical' | 'square'; sort: number }[]
+  announcement_texts: { id: number; content: string; sort: number }[]
+  ref_links: { telegram?: string; vk?: string; max?: string }
+  partner_link: { telegram?: string; vk?: string; max?: string }
+  partner_landing_configured: boolean
+  placeholders: { link: string; event: string; date: string; brand: string }
+}
+
+type CabinetTab = 'profile' | 'materials'
+
 export default function SpeakerCabinetPage() {
   const params = useParams<{ event_slug: string }>()
   const slug = params.event_slug
@@ -109,6 +123,8 @@ export default function SpeakerCabinetPage() {
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; text: string; bot_handle?: string } | null>(null)
   const [verifying, setVerifying] = useState(false)
   const [refCopied, setRefCopied] = useState<string>('')
+  const [activeTab, setActiveTab] = useState<CabinetTab>('profile')
+  const [materials, setMaterials] = useState<SpeakerMaterials | null>(null)
 
   // Восстановить токен из localStorage
   useEffect(() => {
@@ -157,6 +173,22 @@ export default function SpeakerCabinetPage() {
   useEffect(() => {
     loadMe()
   }, [loadMe])
+
+  // Materials — отдельный эндпоинт. Грузим после успешного /me.
+  useEffect(() => {
+    if (!token || !me) return
+    let cancelled = false
+    fetch(`${API}/api/v1/public/speaker-cabinet/me/materials`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка')
+        return r.json()
+      })
+      .then((d) => { if (!cancelled) setMaterials(d) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [token, me])
 
   const onAuth = async () => {
     if (!chosenId) { setError('Выберите свою фамилию'); return }
@@ -440,58 +472,56 @@ export default function SpeakerCabinetPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#f5f7fa', padding: 16, fontFamily: 'Roboto, sans-serif' }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        <div style={{ background: `linear-gradient(45deg, ${DARK}, #0a1520)`, color: '#fff', padding: 20, borderRadius: 14, marginBottom: 18 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: me.ref_code ? 14 : 0 }}>
+        <div style={{ background: `linear-gradient(45deg, ${DARK}, #0a1520)`, color: '#fff', padding: 20, borderRadius: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
             <div>
               <div style={{ fontSize: 13, opacity: 0.7 }}>«{me.event_title}»</div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{me.name || 'Спикер'}</div>
             </div>
             <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Выйти</button>
           </div>
-
-          {me.ref_code && me.ref_links && Object.keys(me.ref_links).length > 0 && (
-            <div style={{ background: 'rgba(255,255,255,0.08)', padding: 12, borderRadius: 10 }}>
-              <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                Ваши партнёрские ссылки
-              </div>
-              {([
-                { key: 'telegram' as const, label: 'Telegram', url: me.ref_links.telegram },
-                { key: 'vk' as const,       label: 'VK',       url: me.ref_links.vk },
-                { key: 'max' as const,      label: 'MAX',      url: me.ref_links.max },
-              ]).filter(x => !!x.url).map(({ key, label, url }) => (
-                <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: PEACH, width: 70, flexShrink: 0 }}>{label}</span>
-                  <code style={{
-                    flex: 1, fontSize: 12, color: '#fff', background: 'transparent',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace',
-                  }}>{url}</code>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(url!)
-                        setRefCopied(`${key}:${url}`)
-                        setTimeout(() => setRefCopied(''), 2200)
-                      } catch {}
-                    }}
-                    title="Скопировать"
-                    style={{
-                      background: PEACH, color: DARK, fontWeight: 700,
-                      padding: '4px 10px', borderRadius: 6, border: 'none',
-                      cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {refCopied === `${key}:${url}` ? '✓' : '📋'}
-                  </button>
-                </div>
-              ))}
-              <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4, lineHeight: 1.4 }}>
-                Делитесь любой из этих ссылок — все, кто перейдёт и зарегистрируется, засчитаются как ваши приглашённые.
-              </div>
-            </div>
-          )}
         </div>
 
+        {/* Вкладки кабинета */}
+        <div style={{
+          display: 'flex', gap: 4, marginBottom: 14,
+          borderBottom: '1px solid #d4dee5',
+        }}>
+          {([
+            { key: 'profile'   as CabinetTab, label: 'Профиль' },
+            { key: 'materials' as CabinetTab, label: 'Материалы' },
+          ]).map(t => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setActiveTab(t.key)}
+              style={{
+                padding: '10px 16px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: activeTab === t.key ? `3px solid ${PEACH}` : '3px solid transparent',
+                color: activeTab === t.key ? DARK : '#7a8c9c',
+                fontWeight: activeTab === t.key ? 700 : 500,
+                fontSize: 14,
+                cursor: 'pointer',
+                marginBottom: -1,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'materials' && (
+          <MaterialsTab
+            materials={materials}
+            refCopied={refCopied}
+            setRefCopied={setRefCopied}
+            setLightbox={setLightbox}
+          />
+        )}
+
+        {activeTab === 'profile' && <>
         <Section title="Профиль">
           <label style={labelCss}>Имя и фамилия</label>
           <input style={inputCss} value={me.name || ''} onChange={(e) => update({ name: e.target.value })} />
@@ -763,10 +793,12 @@ export default function SpeakerCabinetPage() {
           )}
           {saving ? 'Сохраняем…' : 'Сохранить'}
         </button>
+        {savedAt && <div style={{ textAlign: 'center', fontSize: 12, color: '#5a8b5a', marginBottom: 24 }}>Сохранено в {savedAt.toLocaleTimeString('ru-RU').slice(0, 5)}</div>}
+        </>}
+
         <style jsx global>{`
           @keyframes spkSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         `}</style>
-        {savedAt && <div style={{ textAlign: 'center', fontSize: 12, color: '#5a8b5a', marginBottom: 24 }}>Сохранено в {savedAt.toLocaleTimeString('ru-RU').slice(0, 5)}</div>}
       </div>
 
       {/* Lightbox — раскрытие фото/афиши на весь экран */}
@@ -888,6 +920,197 @@ function Section({ title, children }: { title: string, children: React.ReactNode
     <div style={{ background: '#fff', borderRadius: 14, padding: '14px 18px 20px', marginBottom: 14, boxShadow: '0 2px 6px rgba(37,69,93,0.05)' }}>
       <div style={{ fontWeight: 700, color: DARK, fontSize: 15, marginBottom: 4 }}>{title}</div>
       {children}
+    </div>
+  )
+}
+
+function MaterialsTab({
+  materials, refCopied, setRefCopied, setLightbox,
+}: {
+  materials: SpeakerMaterials | null
+  refCopied: string
+  setRefCopied: (s: string) => void
+  setLightbox: (s: string | null) => void
+}) {
+  if (!materials) {
+    return <div style={{ fontSize: 13, color: '#7a8c9c', padding: 20 }}>Загружаем материалы…</div>
+  }
+
+  const sectionCss: React.CSSProperties = {
+    background: '#fff', borderRadius: 14, padding: '14px 18px 20px',
+    marginBottom: 14, boxShadow: '0 2px 6px rgba(37,69,93,0.05)',
+  }
+  const titleCss: React.CSSProperties = { fontWeight: 700, color: DARK, fontSize: 15, marginBottom: 8 }
+  const subCss: React.CSSProperties = { fontSize: 12, color: '#7a8c9c', marginBottom: 12, lineHeight: 1.5 }
+  const copyBtnCss: React.CSSProperties = {
+    background: PEACH, color: DARK, fontWeight: 700,
+    padding: '6px 12px', borderRadius: 8, border: 'none',
+    cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap',
+  }
+
+  function copy(key: string, text: string) {
+    if (!text) return
+    navigator.clipboard.writeText(text).then(() => {
+      setRefCopied(key)
+      setTimeout(() => setRefCopied(''), 2200)
+    })
+  }
+
+  // Подставить плейсхолдеры в текст-анонс.
+  function fillPlaceholders(raw: string): string {
+    const p = materials.placeholders
+    return (raw || '')
+      .replace(/\{link\}/g,  p.link  || '')
+      .replace(/\{event\}/g, p.event || '')
+      .replace(/\{date\}/g,  p.date  || '')
+      .replace(/\{brand\}/g, p.brand || '')
+  }
+
+  const refLinkRows = [
+    { key: 'telegram', label: 'Telegram', url: materials.ref_links.telegram },
+    { key: 'vk',       label: 'VK',       url: materials.ref_links.vk },
+    { key: 'max',      label: 'MAX',      url: materials.ref_links.max },
+  ].filter(x => !!x.url) as { key: string; label: string; url: string }[]
+
+  const partnerRows = [
+    { key: 'telegram', label: 'Telegram', url: materials.partner_link.telegram },
+    { key: 'vk',       label: 'VK',       url: materials.partner_link.vk },
+    { key: 'max',      label: 'MAX',      url: materials.partner_link.max },
+  ].filter(x => !!x.url) as { key: string; label: string; url: string }[]
+
+  return (
+    <div>
+      {/* Афиши события */}
+      <div style={sectionCss}>
+        <div style={titleCss}>Афиши события</div>
+        <div style={subCss}>
+          Картинки для анонса в ваших каналах. Кликните, чтобы открыть на весь экран, или скачайте.
+        </div>
+        {materials.posters.length === 0 ? (
+          <div style={{ fontSize: 13, color: '#9aaab8', padding: '14px 0' }}>Афиш пока нет. Попросите организатора добавить.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            {materials.posters.map(p => (
+              <div key={p.id} style={{
+                border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
+              }}>
+                <img
+                  src={p.url}
+                  alt={p.orientation}
+                  onClick={() => setLightbox(p.url)}
+                  style={{
+                    width: '100%',
+                    aspectRatio: p.orientation === 'horizontal' ? '16/9' : p.orientation === 'vertical' ? '9/16' : '1/1',
+                    objectFit: 'cover', cursor: 'zoom-in', display: 'block',
+                  }}
+                />
+                <a
+                  href={p.url}
+                  download
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: 'block', textAlign: 'center', padding: '6px 8px',
+                    fontSize: 11, color: DARK, textDecoration: 'none',
+                    background: '#fff', borderTop: '1px solid #d4dee5',
+                  }}
+                >
+                  ⬇ Скачать
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Тексты-анонсы */}
+      <div style={sectionCss}>
+        <div style={titleCss}>Тексты для анонса</div>
+        <div style={subCss}>
+          Готовые тексты от организатора. Реф-ссылка, название и дата уже подставлены — просто скопируйте и отправьте своей аудитории.
+        </div>
+        {materials.announcement_texts.length === 0 ? (
+          <div style={{ fontSize: 13, color: '#9aaab8', padding: '14px 0' }}>Текстов пока нет. Попросите организатора добавить.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {materials.announcement_texts.map(t => {
+              const filled = fillPlaceholders(t.content)
+              const k = `txt:${t.id}`
+              return (
+                <div key={t.id} style={{
+                  border: '1px solid #d4dee5', borderRadius: 10, padding: 12,
+                  background: '#f9fbfc',
+                }}>
+                  <pre style={{
+                    fontSize: 13, lineHeight: 1.55, color: '#1a2a3a',
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    margin: 0, fontFamily: 'Roboto, sans-serif',
+                  }}>{filled}</pre>
+                  <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button onClick={() => copy(k, filled)} style={copyBtnCss}>
+                      {refCopied === k ? '✓ Скопировано' : '📋 Скопировать текст'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Реф-ссылки спикера */}
+      {refLinkRows.length > 0 && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Ваши реф-ссылки на событие</div>
+          <div style={subCss}>
+            Делитесь любой из этих ссылок — все, кто перейдёт и зарегистрируется, засчитаются как ваши приглашённые.
+          </div>
+          {refLinkRows.map(({ key, label, url }) => {
+            const k = `ref:${key}`
+            return (
+              <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: DARK, width: 70, flexShrink: 0 }}>{label}</span>
+                <code style={{
+                  flex: 1, fontSize: 12, color: '#1a2a3a', background: '#f5f7fa',
+                  padding: '6px 10px', borderRadius: 6, overflow: 'hidden',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace',
+                  border: '1px solid #e0e7ec',
+                }}>{url}</code>
+                <button onClick={() => copy(k, url)} style={copyBtnCss}>
+                  {refCopied === k ? '✓' : '📋'}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Партнёрская ссылка спикера */}
+      {materials.partner_landing_configured && partnerRows.length > 0 && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Партнёрская ссылка</div>
+          <div style={subCss}>
+            Личная ссылка, чтобы стать партнёром организатора в его сервисе. По ней регистрируются ваши приглашённые партнёры — вам идёт партнёрское вознаграждение через рефовода.
+          </div>
+          {partnerRows.map(({ key, label, url }) => {
+            const k = `prt:${key}`
+            return (
+              <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: DARK, width: 70, flexShrink: 0 }}>{label}</span>
+                <code style={{
+                  flex: 1, fontSize: 12, color: '#1a2a3a', background: '#f5f7fa',
+                  padding: '6px 10px', borderRadius: 6, overflow: 'hidden',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace',
+                  border: '1px solid #e0e7ec',
+                }}>{url}</code>
+                <button onClick={() => copy(k, url)} style={copyBtnCss}>
+                  {refCopied === k ? '✓' : '📋'}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

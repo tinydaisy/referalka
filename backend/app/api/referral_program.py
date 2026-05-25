@@ -8,6 +8,10 @@
 - Материалы для шеринга:
     - картинки (event_referral_materials)
     - тексты-примеры (event_referral_share_texts) — миграция 059
+- Тексты-анонсы события (event_announcement_texts, миграция 112) — для спикеров
+  и партнёров. Отличаются от share_texts: те — «зови друзей за подарки»
+  (аудитория = участник), эти — «анонсируй событие подписчикам»
+  (аудитория = аудитория спикера/партнёра).
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -536,6 +540,93 @@ async def delete_share_text(
     await _check_event_owned(event_id, int(client["sub"]), db)
     result = await db.execute(
         "DELETE FROM event_referral_share_texts WHERE id=$1 AND event_id=$2",
+        text_id, event_id
+    )
+    if result.endswith("0"):
+        raise HTTPException(status_code=404, detail="Текст не найден")
+    return {"ok": True}
+
+
+# ──────────────────────────────────────────────
+# ТЕКСТЫ-АНОНСЫ СОБЫТИЯ (event_announcement_texts) — миграция 112
+# Назначение: готовые тексты, которые СПИКЕР/ПАРТНЁР копирует и шлёт
+# своей аудитории, чтобы анонсировать событие. Отдельная от share_texts
+# сущность — другая аудитория и другие плейсхолдеры.
+# ──────────────────────────────────────────────
+
+class AnnouncementTextIn(BaseModel):
+    content: str
+    sort:    int = 0
+
+
+@router.get("/announcement-texts", summary="Список текстов-анонсов события")
+async def list_announcement_texts(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await _check_event_owned(event_id, int(client["sub"]), db)
+    rows = await db.fetch(
+        """SELECT id, content, sort, created_at, updated_at
+           FROM event_announcement_texts WHERE event_id = $1
+           ORDER BY sort, id""",
+        event_id
+    )
+    return {"items": [dict(r) for r in rows]}
+
+
+@router.post("/announcement-texts", summary="Добавить текст-анонс")
+async def add_announcement_text(
+    event_id: int,
+    data: AnnouncementTextIn,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await _check_event_owned(event_id, int(client["sub"]), db)
+    content = (data.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Текст не может быть пустым")
+    row = await db.fetchrow(
+        """INSERT INTO event_announcement_texts (event_id, content, sort)
+           VALUES ($1, $2, $3)
+           RETURNING id, content, sort, created_at, updated_at""",
+        event_id, content, data.sort
+    )
+    return dict(row)
+
+
+@router.patch("/announcement-texts/{text_id}", summary="Обновить текст-анонс")
+async def update_announcement_text(
+    event_id: int, text_id: int,
+    data: AnnouncementTextIn,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await _check_event_owned(event_id, int(client["sub"]), db)
+    content = (data.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Текст не может быть пустым")
+    row = await db.fetchrow(
+        """UPDATE event_announcement_texts
+              SET content = $1, sort = $2, updated_at = NOW()
+            WHERE id = $3 AND event_id = $4
+            RETURNING id, content, sort, created_at, updated_at""",
+        content, data.sort, text_id, event_id
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Текст не найден")
+    return dict(row)
+
+
+@router.delete("/announcement-texts/{text_id}", summary="Удалить текст-анонс")
+async def delete_announcement_text(
+    event_id: int, text_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    await _check_event_owned(event_id, int(client["sub"]), db)
+    result = await db.execute(
+        "DELETE FROM event_announcement_texts WHERE id=$1 AND event_id=$2",
         text_id, event_id
     )
     if result.endswith("0"):

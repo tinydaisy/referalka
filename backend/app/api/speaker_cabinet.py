@@ -552,3 +552,146 @@ async def upload_me(
         await db.execute("UPDATE collaborators SET poster_url = $1, updated_at = NOW() WHERE id = $2", url, c_id)
 
     return {"url": url, "kind": kind}
+
+
+# ──────────────────────────────────────────────
+# МАТЕРИАЛЫ ДЛЯ ВКЛАДКИ «МАТЕРИАЛЫ» В КАБИНЕТЕ СПИКЕРА
+# (миграция 112 — event_announcement_texts)
+#
+# Возвращает:
+#   - афиши события (event_posters, read-only)
+#   - тексты-анонсы события (event_announcement_texts) + словарь подстановки
+#     плейсхолдеров {link}/{event}/{date}/{brand}
+#   - реф-ссылки спикера на 3 платформы (TG/VK/MAX) — дублируются из get_me,
+#     но логически живут здесь
+#   - партнёрская ссылка на регистрацию: prtp_<first_referrer_contact_id>
+#     если у спикера есть рефовод; иначе корневая prtc_<client_id>.
+#     Только если у клиента настроен partner_landing_url.
+# ──────────────────────────────────────────────
+
+PLUSON_TG_HANDLE = "pluson_bot"
+
+
+def _format_event_date_msk(start_at) -> str:
+    """`start_at` (asyncpg TIMESTAMPTZ) → строка «DD.MM.YYYY HH:MM МСК»."""
+    if not start_at:
+        return ""
+    msk = start_at.astimezone(timezone(timedelta(hours=3)))
+    return msk.strftime("%d.%m.%Y %H:%M") + " МСК"
+
+
+@router.get("/me/materials", summary="Афиши + тексты-анонсы + ссылки для спикера")
+async def get_me_materials(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    se_id = int(session["se_id"])
+    c_id  = int(session["c_id"])
+    e_id  = int(session["e_id"])
+
+    # Базовые поля события + клиента + контакта-спикера
+    base = await db.fetchrow(
+        """SELECT e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
+                  e.start_at,
+                  e.client_id,
+                  COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
+                  cl.partner_landing_url,
+                  c.contact_id,
+                  ctc.ref_code AS speaker_ref_code,
+                  ctc.first_referrer_contact_id
+             FROM event_collaborators ec
+             JOIN collaborators c    ON c.id = ec.speaker_id
+             JOIN events e           ON e.id = ec.event_id
+             JOIN clients cl         ON cl.id = e.client_id
+        LEFT JOIN contacts ctc       ON ctc.id = c.contact_id
+            WHERE ec.id = $1 AND ec.event_id = $2 AND c.id = $3""",
+        se_id, e_id, c_id,
+    )
+    if not base:
+        raise HTTPException(status_code=404, detail="Спикер не найден")
+
+    # Афиши события (упорядочены: horizontal → vertical → square)
+    posters = await db.fetch(
+        """SELECT id, url, orientation, sort
+             FROM event_posters
+            WHERE event_id = $1
+            ORDER BY CASE orientation
+                       WHEN 'horizontal' THEN 1
+                       WHEN 'vertical'   THEN 2
+                       WHEN 'square'     THEN 3
+                       ELSE 4
+                     END, sort, id""",
+        e_id,
+    )
+
+    # Тексты-анонсы
+    texts = await db.fetch(
+        """SELECT id, content, sort
+             FROM event_announcement_texts
+            WHERE event_id = $1
+            ORDER BY sort, id""",
+        e_id,
+    )
+
+    # Реф-ссылки спикера (та же логика, что в get_me)
+    from app.services.share_links import build_share_links
+    try:
+        ref_links = await build_share_links(
+            db,
+            client_id=int(base["client_id"]),
+            event_slug=base["event_slug"],
+            partner_id=base["speaker_ref_code"],
+        ) if base.get("speaker_ref_code") else {}
+    except Exception:
+        ref_links = {}
+
+    # Партнёрская ссылка спикера. Если у спикера есть first_referrer_contact_id
+    # → prtp_<id рефовода>; иначе корневая prtc_<client_id>. Платформы — те,
+    # где у клиента есть подключённый канал (TG fallback на @pluson_bot).
+    partner_landing_configured = bool((base.get("partner_landing_url") or "").strip())
+    partner_link: dict = {}
+    if partner_landing_configured:
+        from app.services.share_links import (
+            get_active_platforms, get_client_bot_handles, get_client_vk_app_id,
+            _has_system_channel,
+        )
+        ref_cid = base.get("first_referrer_contact_id")
+        client_id_int = int(base["client_id"])
+        payload = f"prtp_{int(ref_cid)}" if ref_cid else f"prtc_{client_id_int}"
+
+        platforms = set(await get_active_platforms(db, client_id_int))
+        handles   = await get_client_bot_handles(db, client_id_int)
+        vk_app_id = await get_client_vk_app_id(db, client_id_int)
+        # Системный @pluson_bot — fallback для TG, если у клиента нет своего
+        if await _has_system_channel(db, "telegram", allow_test=False):
+            platforms.add("telegram")
+
+        if "telegram" in platforms:
+            tg_handle = (handles.get("telegram") or PLUSON_TG_HANDLE).lstrip("@")
+            partner_link["telegram"] = f"https://t.me/{tg_handle}?start={payload}"
+        if "vk" in platforms and vk_app_id:
+            partner_link["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
+        if "max" in platforms and handles.get("max"):
+            partner_link["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
+
+    # Словарь подстановок для плейсхолдеров {link}/{event}/{date}/{brand}.
+    # {link} = ref_links.telegram || .vk || .max (берём первый доступный).
+    link_default = ref_links.get("telegram") or ref_links.get("vk") or ref_links.get("max") or ""
+    placeholders = {
+        "link":  link_default,
+        "event": base["event_title"] or "",
+        "date":  _format_event_date_msk(base.get("start_at")),
+        "brand": base["client_brand"] or "",
+    }
+
+    return {
+        "event_id":     base["event_id"],
+        "event_slug":   base["event_slug"],
+        "event_title":  base["event_title"],
+        "posters":      [dict(r) for r in posters],
+        "announcement_texts": [dict(r) for r in texts],
+        "ref_links":    ref_links,
+        "partner_link": partner_link,
+        "partner_landing_configured": partner_landing_configured,
+        "placeholders": placeholders,
+    }
