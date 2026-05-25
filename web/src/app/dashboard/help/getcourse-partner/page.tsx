@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { BookOpen, Copy, Check, ArrowRight, AlertTriangle } from 'lucide-react'
+import { BookOpen, Copy, Check, ArrowRight } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
@@ -92,7 +92,7 @@ export default function GetCoursePartnerHelpPage() {
     `?client_id=${clientId || 'ВАШ_CLIENT_ID'}` +
     `&secret=${secret}` +
     `&contact_id={object.pluson_contact_id}` +
-    `&external_ref_param=gcpc={partner.uid}`
+    `&external_ref_param={object.participant_code}`
 
   const widgetScript = `<script>
 $(document).ready(function(){
@@ -153,19 +153,6 @@ function getQueryParam(name) {
             мы сохраняем его в ПЛЮСОНе. После этого все его ссылки в ПЛЮСОНе автоматически дописывают
             этот код к лендингу, и GetCourse начисляет ему награду за приведённых.
           </p>
-        </div>
-      </div>
-
-      <div className="bg-rose-50 border-2 border-rose-200 rounded-2xl p-5 mb-6">
-        <div className="flex items-start gap-3">
-          <AlertTriangle size={20} className="text-rose-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <div className="text-sm font-bold text-rose-900 mb-1">Эта инструкция пока экспериментальная</div>
-            <p className="text-sm text-rose-800">
-              Механизм работает, но в GetCourse есть нюансы (особенно с виджетами оплаты — где галка «Сохранять GET-параметры»
-              работает по-другому, и нужен дополнительный JS-скрипт). Если что-то не получится — напишите нам, разберёмся вместе.
-            </p>
-          </div>
         </div>
       </div>
 
@@ -238,9 +225,8 @@ function getQueryParam(name) {
         <CopyBox text={urlExternalRef} />
         <div className="mt-3 space-y-2">
           <p className="text-xs text-gray-600">
-            <code className="bg-gray-100 px-1 rounded">{`{partner.uid}`}</code> — это <b>числовой идентификатор пользователя как партнёра</b> в вашей GetCourse-партнёрке (например, <code className="bg-gray-100 px-1 rounded">48922</code>).
-            Виден в карточке партнёра в разделе «Источники → Основной партнёрский код» (там показано <code>?gcpc=48922</code>, нам нужно само число).
-            Источник синтаксиса — <a href="https://getcourse.ru/blog/276215#variables" target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">официальная документация GetCourse</a>.
+            <code className="bg-gray-100 px-1 rounded">{`{object.participant_code}`}</code> — это <b>собственный партнёрский код пользователя</b> в вашей GetCourse-партнёрке. Подставляется как полная строка <code className="bg-gray-100 px-1 rounded">gcpc=48922</code> (с префиксом), поэтому в URL пишем <code className="bg-gray-100 px-1 rounded">external_ref_param={`{object.participant_code}`}</code> <b>без</b> дополнительного <code className="bg-gray-100 px-1 rounded">gcpc=</code>. Код виден в карточке партнёра в разделе «Источники → Основной партнёрский код».
+            Подтверждено техподдержкой GetCourse (тикет от 25.05.2026).
           </p>
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
             ⚠️ <b>Не путать с <code className="bg-white px-1 rounded">{`{create_session.gcpc}`}</code></b> — это код <b>того, кто привёл</b> пользователя (входящий партнёрский трафик), а не его собственный.
