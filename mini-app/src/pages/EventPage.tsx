@@ -74,6 +74,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [tab, setTabState] = useState<string>('landing')
   const [pendingSpeakerHighlight, setPendingSpeakerHighlight] = useState<number | null>(null)
   const [showReg, setShowReg] = useState(false)
@@ -122,12 +124,21 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setLoadError(false)
+
+    // Бэк может зависнуть (CF/Beget ночью), а fetch без таймаута крутится бесконечно
+    // и юзер видит «Загружаем...» вечно. Через 8 сек поднимаем флаг ошибки.
+    const timeoutId = setTimeout(() => {
+      if (!cancelled) setLoadError(true)
+    }, 8000)
 
     Promise.all([
       getEventLanding(slug).catch(() => null),
       tgUser?.id ? getParticipantInEvent(slug, tgUser.id).catch(() => null) : Promise.resolve(null),
     ]).then(async ([landing, part]) => {
       if (cancelled) return
+      clearTimeout(timeoutId)
+      if (!landing) { setLoadError(true); return }
       setEvent(landing)
       setParticipant(part?.participant ? {
         ...part.participant,
@@ -220,8 +231,8 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
       }
     }).finally(() => { if (!cancelled) setLoading(false) })
 
-    return () => { cancelled = true }
-  }, [slug, tgUser?.id])
+    return () => { cancelled = true; clearTimeout(timeoutId) }
+  }, [slug, tgUser?.id, reloadKey])
 
   // Определяем состояние и набор вкладок (вычисляется ДО early return —
   // иначе useEffect ниже сломает порядок хуков React).
@@ -351,6 +362,34 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     } catch { /* fallback — открываем как есть */ }
     const { getPlatform } = await import('../platform')
     getPlatform().openExternal(fullUrl)
+  }
+
+  if (loadError && !event) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24,
+      }}>
+        <div style={{ maxWidth: 360, textAlign: 'center' }}>
+          <h2 style={{ fontSize: 18, margin: '0 0 12px', color: '#25455D', fontWeight: 700 }}>
+            Не удалось загрузить событие
+          </h2>
+          <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--muted)', margin: '0 0 24px' }}>
+            Похоже, связь с сервером прервалась. Попробуйте обновить страницу.
+          </p>
+          <button
+            onClick={() => { setLoadError(false); setReloadKey(k => k + 1) }}
+            style={{
+              background: '#FFCFA4', color: '#25455D',
+              fontWeight: 700, padding: '12px 28px', borderRadius: 12, fontSize: 15,
+              border: 'none', cursor: 'pointer',
+              boxShadow: '0 4px 14px rgba(255,207,164,0.4)',
+            }}
+          >Обновить</button>
+        </div>
+      </div>
+    )
   }
 
   if (loading || !event) {
