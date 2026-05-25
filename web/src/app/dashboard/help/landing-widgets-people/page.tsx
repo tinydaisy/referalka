@@ -72,7 +72,7 @@ const SAMPLE_JSON = `{
 const SAMPLE_HTML = `<div id="speakers" class="grid"></div>
 
 <script>
-const SLUG = 'ВАШ-SLUG-СОБЫТИЯ';
+const SLUG = 'ID-ИЛИ-SLUG-СОБЫТИЯ';
 fetch(\`https://pluson.ru/api/v1/public/landing-widget/events/\${SLUG}/collaborators\`)
   .then(r => r.json())
   .then(({ speakers, jury, organizers, partners }) => {
@@ -96,11 +96,13 @@ fetch(\`https://pluson.ru/api/v1/public/landing-widget/events/\${SLUG}/collabora
 
 const AI_PROMPT = `Я делаю лендинг события на платформе iViSiON: ПЛЮСОН. У ПЛЮСОНа есть публичный JSON-эндпоинт, который отдаёт актуальные данные коллабораторов события — спикеров, жюри, организаторов и партнёров. Тебе нужно встроить его на мой лендинг, чтобы при изменении данных в ПЛЮСОНе лендинг обновлялся автоматически в течение минуты.
 
-Slug события: ВАШ-SLUG-СОБЫТИЯ
+ID события: ID-ИЛИ-SLUG-СОБЫТИЯ
+(подставь сюда число — ID события из URL дашборда, например 24. Эндпоинт также принимает slug, но используй ID — он не меняется при переименовании.)
+
 Стек лендинга: ВАШ-СТЕК (Tilda HTML-блок / GetCourse «Произвольный код» / Next.js на Vercel / статический HTML / другой)
 
 ЭНДПОИНТ
-GET https://pluson.ru/api/v1/public/landing-widget/events/{slug}/collaborators
+GET https://pluson.ru/api/v1/public/landing-widget/events/{ID}/collaborators
 
 Авторизация не нужна, CORS открыт для любого домена, кэш 60 секунд.
 
@@ -158,7 +160,7 @@ EDGE-CASES
 МИНИМАЛЬНЫЙ ПРИМЕР
 <div id="speakers" class="grid"></div>
 <script>
-const SLUG = 'ВАШ-SLUG-СОБЫТИЯ';
+const SLUG = 'ID-ИЛИ-SLUG-СОБЫТИЯ';
 fetch(\`https://pluson.ru/api/v1/public/landing-widget/events/\${SLUG}/collaborators\`)
   .then(r => r.json())
   .then(({ speakers }) => {
@@ -211,7 +213,7 @@ export default function PeopleWidgetHelpPage() {
             <div>
               <h2 className="font-bold text-lg" style={{ color: BRAND }}>Промпт для нейросети</h2>
               <p className="text-sm text-gray-700 mt-1 leading-snug">
-                Скопируйте, замените <code className="bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs">ВАШ-SLUG-СОБЫТИЯ</code> и
+                Скопируйте, замените <code className="bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs">ID-ИЛИ-SLUG-СОБЫТИЯ</code> и
                 {' '}<code className="bg-white border border-gray-200 rounded px-1.5 py-0.5 text-xs">ВАШ-СТЕК</code> на свои значения —
                 и вставьте в Claude / ChatGPT / Cursor. Нейросеть подключит эндпоинт к вашему лендингу.
               </p>
@@ -247,10 +249,19 @@ export default function PeopleWidgetHelpPage() {
               (мероприятия). Установите роль: организатор / жюри / хедлайнер / спикер / партнёр / генеральный партнёр.
             </li>
             <li>
-              Скопируйте <b>slug события</b> из URL. Например, для{' '}
-              <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">pluson.ru/l/ivision-8-n5u2u</code> slug =
-              {' '}<code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">ivision-8-n5u2u</code>. Slug виден на странице
-              события во вкладке «Основное».
+              <b>Возьмите ID или slug события.</b> Эндпоинт принимает оба.
+              <ul className="list-disc pl-5 mt-1.5 space-y-1">
+                <li>
+                  <b>ID</b> (рекомендуется) — число в URL дашборда события:{' '}
+                  <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">pluson.ru/dashboard/events/<b>24</b></code>.
+                  ID не меняется никогда — даже если переименуете slug, лендинг не сломается.
+                </li>
+                <li>
+                  <b>Slug</b> — код в публичной ссылке:{' '}
+                  <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">pluson.ru/l/<b>cygum</b></code>.
+                  Виден во вкладке «Основное». Меняется при правке поля «Код ссылки».
+                </li>
+              </ul>
             </li>
           </ol>
         </section>
@@ -259,7 +270,13 @@ export default function PeopleWidgetHelpPage() {
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h2 className="font-bold text-lg mb-3" style={{ color: BRAND }}>Шаг 2. Эндпоинт</h2>
           <CodeBlock
-            code={`GET https://pluson.ru/api/v1/public/landing-widget/events/{SLUG}/collaborators`}
+            code={`GET https://pluson.ru/api/v1/public/landing-widget/events/{ID-или-SLUG}/collaborators
+
+# по ID (рекомендуется — не сломается при смене slug):
+GET https://pluson.ru/api/v1/public/landing-widget/events/24/collaborators
+
+# по slug (тоже работает):
+GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/collaborators`}
             lang="GET"
           />
           <p className="text-xs text-gray-500 mb-2">Ответ — 4 группы:</p>
@@ -274,7 +291,7 @@ export default function PeopleWidgetHelpPage() {
           </p>
           <CodeBlock code={SAMPLE_HTML} lang="HTML" />
           <p className="text-xs text-gray-500 mt-2">
-            Замените <code className="bg-gray-100 px-1.5 py-0.5 rounded">ВАШ-SLUG-СОБЫТИЯ</code> на slug.
+            Замените <code className="bg-gray-100 px-1.5 py-0.5 rounded">ID-ИЛИ-SLUG-СОБЫТИЯ</code> на slug.
             Дизайн карточек правьте под свой бренд — JSON остаётся тем же.
           </p>
         </section>

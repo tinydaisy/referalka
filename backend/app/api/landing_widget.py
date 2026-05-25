@@ -89,6 +89,22 @@ def _parse_jsonb(value) -> list:
     return []
 
 
+async def _resolve_event(db: asyncpg.Connection, ref: str):
+    """Resolve event by numeric id (if `ref` — только цифры) или по slug.
+
+    Это позволяет владельцу события поменять slug, не ломая интеграции с
+    лендингом — он подставляет ID, который не меняется.
+
+    Если строка из цифр не нашлась как id — fallback на поиск по slug
+    (на случай если у кого-то slug = "12345").
+    """
+    if ref.isdigit():
+        ev = await db.fetchrow("SELECT id, slug FROM events WHERE id = $1", int(ref))
+        if ev:
+            return ev
+    return await db.fetchrow("SELECT id, slug FROM events WHERE slug = $1", ref)
+
+
 def _group_for(role: str) -> str:
     role = (role or "").lower()
     if role == "organizer":
@@ -122,18 +138,16 @@ async def widget_collaborators(
 ):
     """Плоский список коллабораторов события, сгруппированный по 4 ролям.
 
-    Группы:
-      - organizers     — role=organizer
-      - jury           — role=jury
-      - speakers       — role IN (speaker, headliner)
-      - partners       — role IN (partner, general_partner)
+    Path-параметр `slug` принимает И slug, И числовой id события — id
+    стабильный, лендинг можно завести на него и не бояться переименований.
 
-    Внутри группы — наша стандартная сортировка БЕЗ приоритета is_commercial:
-    role > referrals DESC > priority ASC > id ASC. В карточке всё равно
-    есть поля `role` и `is_commercial` — лендинг может сгруппировать иначе.
+    Группы: organizers / jury / speakers (headliner+speaker) /
+    partners (general_partner+partner).
+    Сортировка внутри группы — БЕЗ приоритета is_commercial:
+    role > referrals DESC > priority ASC > id ASC.
     """
     _set_cors(response)
-    event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", slug)
+    event = await _resolve_event(db, slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     event_id = event["id"]
@@ -173,7 +187,8 @@ async def widget_collaborators(
             groups[bucket].append(d)
 
     return {
-        "event_slug": slug,
+        "event_slug": event["slug"],
+        "event_id": event_id,
         "organizers": groups["organizers"],
         "jury": groups["jury"],
         "speakers": groups["speakers"],
@@ -188,6 +203,8 @@ async def widget_program(
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Дерево этапов → дней → сессий с прикреплёнными спикерами.
+
+    Path-параметр `slug` принимает И slug, И числовой id события.
 
     Формат:
       {
@@ -204,7 +221,7 @@ async def widget_program(
       }
     """
     _set_cors(response)
-    event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", slug)
+    event = await _resolve_event(db, slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     event_id = event["id"]
@@ -291,7 +308,8 @@ async def widget_program(
         return d
 
     return {
-        "event_slug": slug,
+        "event_slug": event["slug"],
+        "event_id": event_id,
         "stages":   [_ser_stage(r) for r in stages],
         "days":     [_ser_day(r) for r in days],
         "sessions": [_ser_session(r) for r in sessions],
