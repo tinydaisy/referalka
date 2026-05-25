@@ -88,14 +88,24 @@
       }
     } catch (e) {}
 
-    // Парсим startapp: ref_pg<slug>_pid<id>_src<utm>_cid<id>_reg
+    // Парсим startapp: ref_pg<slug>_pid<id>_src<utm>_cid<id>[_q<flag>…]_reg
+    // Флаги `_q{key}` (до 5 штук, алфавит [a-z0-9-]) — произвольные маркеры,
+    // которые в /landing-redirect превратятся в &{key}=1 на стороннем лендинге.
     var eventSlug = '', partnerId = '', utmSource = '', clientId = 0, regFlag = false;
+    var flagList = [];
+    var FLAG_RE = /^[a-z0-9-]{1,16}$/;
     sp.split('_').forEach(function (p) {
-      if (p.indexOf('pg')  === 0) eventSlug = p.slice(2);
-      if (p.indexOf('pid') === 0) partnerId = p.slice(3);
-      if (p.indexOf('src') === 0) utmSource = p.slice(3);
-      if (p.indexOf('cid') === 0) clientId  = parseInt(p.slice(3), 10) || 0;
-      if (p === 'reg')            regFlag   = true;
+      if (p.indexOf('pg')  === 0) { eventSlug = p.slice(2); return; }
+      if (p.indexOf('pid') === 0) { partnerId = p.slice(3); return; }
+      if (p.indexOf('src') === 0) { utmSource = p.slice(3); return; }
+      if (p.indexOf('cid') === 0) { clientId  = parseInt(p.slice(3), 10) || 0; return; }
+      if (p === 'reg')            { regFlag   = true; return; }
+      if (p.indexOf('q') === 0 && p.length > 1) {
+        var k = p.slice(1).toLowerCase();
+        if (FLAG_RE.test(k) && flagList.indexOf(k) === -1 && flagList.length < 5) {
+          flagList.push(k);
+        }
+      }
     });
 
     function fireStart() {
@@ -144,6 +154,7 @@
         var qs = '?tg_id=' + encodeURIComponent(uid);
         if (partnerId) qs += '&pid=' + encodeURIComponent(partnerId);
         if (utmSource) qs += '&utm_source=' + encodeURIComponent(utmSource);
+        if (flagList.length) qs += '&q=' + encodeURIComponent(flagList.join(','));
         fetch('/api/v1/public/events/' + encodeURIComponent(eventSlug) + '/landing-redirect' + qs)
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (data) {

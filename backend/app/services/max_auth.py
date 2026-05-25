@@ -24,6 +24,8 @@ import logging
 from typing import Any
 from urllib.parse import parse_qsl
 
+from .external_landing import normalize_landing_flags
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,19 +100,21 @@ def validate_max_launch_params(
     }
 
 
-def parse_startapp_ref_payload(start_param: str) -> dict[str, str]:
-    """Разобрать payload из ?startapp=ref_pg{slug}[_pid{ref_code}][_src{utm}][_tab{tab}]_reg.
+def parse_startapp_ref_payload(start_param: str) -> dict:
+    """Разобрать payload из ?startapp=ref_pg{slug}[_pid{ref_code}][_src{utm}][_tab{tab}][_q{flag}…][_reg].
 
-    Возвращает словарь с ключами: event_slug, partner_ref_code, utm_source, tab, reg_from_landing.
+    Возвращает словарь с ключами: event_slug, partner_ref_code, utm_source, tab,
+    reg_from_landing, flags (list[str]).
 
-    Пример входа: "ref_pgivision-7_pidabc123_srcinsta_tabgame"
+    Пример входа: "ref_pgivision-7_pidabc123_srcinsta_qshpw_qvip_tabgame"
     """
-    out = {
+    out: dict = {
         "event_slug": "",
         "partner_ref_code": "",
         "utm_source": "",
         "tab": "",
         "reg_from_landing": False,
+        "flags": [],
     }
     if not start_param or not start_param.startswith("ref"):
         return out
@@ -118,6 +122,7 @@ def parse_startapp_ref_payload(start_param: str) -> dict[str, str]:
     if rest.startswith("_"):
         rest = rest[1:]
     parts = rest.split("_") if rest else []
+    flags_raw: list[str] = []
     for part in parts:
         if part.startswith("pg"):
             out["event_slug"] = part[2:]
@@ -127,6 +132,9 @@ def parse_startapp_ref_payload(start_param: str) -> dict[str, str]:
             out["utm_source"] = part[3:]
         elif part.startswith("tab"):
             out["tab"] = part[3:]
+        elif part.startswith("q") and len(part) > 1:
+            flags_raw.append(part[1:])
         elif part == "reg":
             out["reg_from_landing"] = True
+    out["flags"] = normalize_landing_flags(flags_raw)
     return out

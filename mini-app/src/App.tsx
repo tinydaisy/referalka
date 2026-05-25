@@ -27,21 +27,30 @@ function detectClientIdFromPath(): number | null {
   return cid ? Number(cid) : null
 }
 
-// Парсит startapp: "ref_pg{slug}[_pid{ref}][_src{utm}][_cid{n}][_tab{name}][_live][_reg]"
+// Парсит startapp: "ref_pg{slug}[_pid{ref}][_src{utm}][_cid{n}][_tab{name}][_q{flag}…][_live][_reg]"
+// Флаги `_q{flag}` (повторяемые) — произвольные маркеры для активации блоков на
+// стороннем лендинге клиента (например `_qshpw` → к URL лендинга приклеится `&shpw=1`).
+const FLAG_RE = /^[a-z0-9-]{1,16}$/
 function parseStartParam(raw: string): {
   eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number;
-  live?: boolean; regFromLanding?: boolean; initialTab?: string
+  live?: boolean; regFromLanding?: boolean; initialTab?: string; flags?: string[]
 } {
   const r: any = {}
+  const flags: string[] = []
   raw.split('_').forEach(p => {
     if (p.startsWith('pg'))  r.eventSlug  = p.slice(2)
-    if (p.startsWith('pid')) r.partnerId  = p.slice(3)
-    if (p.startsWith('src')) r.utmSource  = p.slice(3)
-    if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
-    if (p === 'live')        r.live       = true
-    if (p === 'reg')         r.regFromLanding = true
-    if (p.startsWith('tab')) r.initialTab = p.slice(3)
+    else if (p.startsWith('pid')) r.partnerId  = p.slice(3)
+    else if (p.startsWith('src')) r.utmSource  = p.slice(3)
+    else if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
+    else if (p === 'live')        r.live       = true
+    else if (p === 'reg')         r.regFromLanding = true
+    else if (p.startsWith('tab')) r.initialTab = p.slice(3)
+    else if (p.startsWith('q') && p.length > 1) {
+      const k = p.slice(1).toLowerCase()
+      if (FLAG_RE.test(k) && !flags.includes(k) && flags.length < 5) flags.push(k)
+    }
   })
+  if (flags.length) r.flags = flags
   return r
 }
 
@@ -351,6 +360,7 @@ export default function App() {
   const [clientId, setClientId] = useState<number | null>(() => detectClientIdFromPath())
   const [partnerId, setPartnerId] = useState<string | undefined>()
   const [utmSource, setUtmSource] = useState<string | undefined>()
+  const [flags, setFlags] = useState<string[] | undefined>()
   const [regFromLanding, setRegFromLanding] = useState<boolean>(false)
   const [initialTab, setInitialTab] = useState<string | undefined>()
   const [pendingOpen, setPendingOpen] = useState<boolean>(false)
@@ -376,6 +386,7 @@ export default function App() {
         if (parsed.clientId)  setClientId(parsed.clientId)
         setPartnerId(parsed.partnerId)
         setUtmSource(parsed.utmSource)
+        if (parsed.flags && parsed.flags.length) setFlags(parsed.flags)
         if (parsed.regFromLanding) setRegFromLanding(true)
         if (parsed.initialTab) setInitialTab(parsed.initialTab)
       }
@@ -458,6 +469,7 @@ export default function App() {
       }
       if (partnerId) qs.set('pid', partnerId)
       if (utmSource) qs.set('utm_source', utmSource)
+      if (flags && flags.length) qs.set('q', flags.join(','))
       const url = `${import.meta.env.VITE_API_URL}/api/v1/public/events/${encodeURIComponent(slug)}/landing-redirect${qs.toString() ? `?${qs}` : ''}`
       const res = await fetch(url)
       if (res.ok) {
@@ -499,6 +511,7 @@ export default function App() {
           tgUser={tgUser}
           partnerId={partnerId}
           utmSource={utmSource}
+          flags={flags}
           regFromLanding={regFromLanding}
           initialTab={initialTab}
           onBack={backToHub}

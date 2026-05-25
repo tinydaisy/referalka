@@ -25,9 +25,33 @@
 Связывает партнёра ПЛЮСОН (по ref_code контакта) с партнёром во внешней системе
 клиента — клиент видит реферал в своей платформе.
 """
+import re
 from typing import Optional, Any
 from urllib.parse import urlencode
 import asyncpg
+
+
+_LANDING_FLAG_RE = re.compile(r"^[a-z0-9-]{1,16}$")
+_LANDING_FLAGS_MAX = 5
+
+
+def normalize_landing_flags(raw) -> list[str]:
+    """Принимает список строк, CSV или None — возвращает уникальные валидные флаги.
+
+    Алфавит ключа: [a-z0-9-], длина 1..16, не более 5 штук. Лишнее отбрасывается.
+    Используется и в /landing-redirect (?q=shpw,vip), и при разборе startapp `_q…`.
+    """
+    if not raw:
+        return []
+    items = raw.split(",") if isinstance(raw, str) else list(raw)
+    out: list[str] = []
+    for s in items:
+        k = (s or "").strip().lower()
+        if k and _LANDING_FLAG_RE.match(k) and k not in out:
+            out.append(k)
+        if len(out) >= _LANDING_FLAGS_MAX:
+            break
+    return out
 
 
 async def resolve_external_ref_param(
@@ -198,6 +222,11 @@ def enrich_external_url(
     utm_source: Optional[str] = None,
     event_slug: Optional[str] = None,
     extra: Optional[dict] = None,
+    # Произвольные флаги для активации блоков на стороннем лендинге.
+    # Каждый ключ приклеивается как &{key}=1. Алфавит/лимиты — см.
+    # `normalize_landing_flags`. Источник: метки `_q{key}` в startapp/ref
+    # прямой ссылки клиента, либо неизвестные GET-параметры на /l/{slug}.
+    flags: Optional[list[str]] = None,
 ) -> str:
     """Склеивает любой URL клиента (events.landing_url, vip_url, partner_landing_url)
     со стандартным набором GET-параметров. Пустые значения не приписываются.
@@ -229,6 +258,9 @@ def enrich_external_url(
     if extra:
         for k, v in extra.items():
             _put(k, v)
+    if flags:
+        for k in normalize_landing_flags(flags):
+            qs.setdefault(k, "1")  # не перетираем, если клиент уже передал key через extra
 
     sep = "&" if "?" in url else "?"
     out_url = url
@@ -256,6 +288,7 @@ def build_external_landing_url(
     tg_id: Optional[str] = None,
     vk_id: Optional[str] = None,
     tg_nickname: Optional[str] = None,
+    flags=None,
 ) -> str:
     """Совместимость со старой сигнатурой. Внутри использует `enrich_external_url`.
 
@@ -273,6 +306,7 @@ def build_external_landing_url(
         external_ref_param=external_ref_param,
         name=name, email=email, phone=phone,
         tg_id=tg_id, vk_id=vk_id, tg_nickname=tg_nickname,
+        flags=flags,
     )
 
 

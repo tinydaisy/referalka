@@ -61,25 +61,56 @@ function buildTgRedirectUrl(botHandle: string | null): string {
   return `https://t.me/${botHandle}`
 }
 
+// Служебные query-ключи, которые мы НЕ передаём как «флаги тарифа» — они
+// обрабатываются явно (app/pid/utm_source/event_slug/new_partner_id/live).
+const RESERVED_QS_KEYS = new Set([
+  'app', 'pid', 'new_partner_id', 'utm_source', 'event_slug', 'live',
+])
+
+// Из произвольного searchParams отбираем валидные «флаги» вида `?shpw` / `?shpw=1`:
+// латиница+цифры+дефис, длина 1..16, не более 5 штук.
+function extractFlags(sp: Record<string, string | string[] | undefined>): string[] {
+  const out: string[] = []
+  const re = /^[a-z0-9-]{1,16}$/
+  for (const key of Object.keys(sp || {})) {
+    if (RESERVED_QS_KEYS.has(key)) continue
+    const k = key.toLowerCase()
+    if (!re.test(k) || out.includes(k)) continue
+    out.push(k)
+    if (out.length >= 5) break
+  }
+  return out
+}
+
 export default async function EventLandingPage({
   params,
   searchParams,
 }: {
   params: { slug: string }
-  searchParams: { app?: string; pid?: string; new_partner_id?: string; utm_source?: string }
+  searchParams: Record<string, string | string[] | undefined>
 }) {
   const event = await getEvent(params.slug)
+
+  // sp.* для удобства: searchParams приходит как массив или строка — берём первое.
+  const spStr = (k: string): string | undefined => {
+    const v = searchParams?.[k]
+    return Array.isArray(v) ? v[0] : v
+  }
+  const flags = extractFlags(searchParams)
+  const appParam = spStr('app')
 
   // Веб-вход без ?app=tg на лендинг клиента: 301-редирект на сторонний лендинг,
   // если у события заполнено events.landing_url. С ?app=tg — оставляем обычный
   // flow (redirect_web_app.js откроет Telegram, дальше Mini App сам через
   // Telegram.WebApp.openLink покажет лендинг клиента).
-  if (event.landing_url && !searchParams?.app) {
+  if (event.landing_url && !appParam) {
     const url = new URL(event.landing_url)
-    const pid = searchParams?.pid || searchParams?.new_partner_id
-    if (pid)                          url.searchParams.set('pid', pid)
-    if (searchParams?.utm_source)     url.searchParams.set('utm_source', searchParams.utm_source)
+    const pid = spStr('pid') || spStr('new_partner_id')
+    const utmSource = spStr('utm_source')
+    if (pid)        url.searchParams.set('pid', pid)
+    if (utmSource)  url.searchParams.set('utm_source', utmSource)
     url.searchParams.set('event_slug', event.slug)
+    for (const f of flags) url.searchParams.set(f, '1')
     // Партнёрский параметр внешней платформы клиента (например, gcpc=fdd97).
     // Берётся из карточки коллаборатора, привязанного к pid.
     const apiBase =
@@ -123,7 +154,7 @@ export default async function EventLandingPage({
             var CLIENT_ID = ${JSON.stringify(event.client_id)};
             var APP_CONFIG = { tg: ${JSON.stringify(tgUrl)} };`}
         </Script>
-        <Script src="/redirect_web_app/redirect_web_app.js?v=7" strategy="beforeInteractive" />
+        <Script src="/redirect_web_app/redirect_web_app.js?v=8" strategy="beforeInteractive" />
       </head>
       <body
         style={{

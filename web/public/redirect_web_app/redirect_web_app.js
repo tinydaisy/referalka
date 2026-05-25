@@ -17,11 +17,16 @@
  * Формат ссылки для открытия в Telegram:
  *   https://pluson.ru/l/ivision-7?app=tg
  *   https://pluson.ru/l/ivision-7?app=tg&pid=abc123&utm_source=insta
+ *   https://pluson.ru/l/ivision-7?app=tg&shpw    ← произвольный флаг «тариф»
  *   (старое имя `new_partner_id` тоже понимаем — для обратной совместимости)
  *
  * Формат startapp (передаётся в Telegram):
- *   ref_pg{event_slug}[_pid{partner_id}][_src{utm_source}]
- *   Примеры: ref_pgivision-7 · ref_pgivision-7_pidabc123 · ref_pgivision-7_pidabc123_srcinsta
+ *   ref_pg{event_slug}[_pid{partner_id}][_src{utm_source}][_q{flag}…]
+ *   Примеры:
+ *     ref_pgivision-7
+ *     ref_pgivision-7_pidabc123
+ *     ref_pgivision-7_pidabc123_srcinsta
+ *     ref_pgivision-7_qshpw                       ← флаг переходит в &shpw=1 на лендинге
  * ─────────────────────────────────────────────────────────────
  */
 (function(){
@@ -39,6 +44,21 @@
   // получит суффикс _live в startapp и поставит event_participants.live_at=now().
   var live = sp.get('live') === '1';
 
+  // Произвольные «флаги тарифа»: любой неизвестный query-параметр
+  // (?shpw, ?shpw=1) → `_qshpw` в startapp → `&shpw=1` на стороннем лендинге.
+  // Алфавит ключа: [a-z0-9-], длина 1..16, до 5 штук — лишнее отбрасывается.
+  var RESERVED = { app:1, pid:1, new_partner_id:1, utm_source:1, live:1, event_slug:1 };
+  var FLAG_RE = /^[a-z0-9-]{1,16}$/;
+  var flags = [];
+  sp.forEach(function (_v, k) {
+    var kk = (k || '').toLowerCase();
+    if (RESERVED[kk]) return;
+    if (!FLAG_RE.test(kk)) return;
+    if (flags.indexOf(kk) !== -1) return;
+    if (flags.length >= 5) return;
+    flags.push(kk);
+  });
+
   // ── Telegram ──────────────────────────────────────────────
   if(app === 'tg' && APP_CONFIG.tg){
     var parts = ['ref', 'pg' + PAGE_CODE];
@@ -49,6 +69,7 @@
     // (`/tg/` вместо `/c/{N}/tg/`) — иначе откроется HubSelector.
     if(typeof CLIENT_ID !== 'undefined' && CLIENT_ID) parts.push('cid' + CLIENT_ID);
     if(live) parts.push('live');
+    for (var i = 0; i < flags.length; i++) parts.push('q' + flags[i]);
     window.location.replace(APP_CONFIG.tg + '?startapp=' + parts.join('_'));
     return;
   }

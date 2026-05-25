@@ -88,6 +88,34 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Тексты-анонсы + вкладка «Материалы» в кабинете спикера (миграция 112 от 2026-05-25)
+
+**Зачем.** Параллельно с реф-программой («зови друзей за подарки» — аудитория участник) — отдельная сущность для спикеров/партнёров: готовые тексты-анонсы события. Их собирает организатор, а спикер открывает свой self-service кабинет, копирует и шлёт своей аудитории.
+
+**БД (миграция 112):** `event_announcement_texts (id, event_id, content, sort, created_at, updated_at)`. Отдельная от `event_referral_share_texts` — у них разные аудитории и разные плейсхолдеры.
+
+**Плейсхолдеры** (подставляются в момент копирования на фронте кабинета спикера):
+- `{link}` — личная реф-ссылка спикера (TG приоритет, fallback VK→MAX)
+- `{event}` — название события (events.title)
+- `{date}` — `DD.MM.YYYY HH:MM МСК` (из events.start_at)
+- `{brand}` — `clients.brand_name || clients.name`
+
+**API CRUD** ([backend/app/api/referral_program.py](backend/app/api/referral_program.py)) — `/api/v1/events/{id}/announcement-texts` (GET/POST/PATCH/DELETE). UI на фронте — общий компонент [`AnnouncementTextsBlock`](web/src/components/AnnouncementTextsBlock.tsx), используется в обеих `PostersTab.tsx` (events + conferences).
+
+**Дашборд: подвкладки в «Афишах».** Вкладка `PostersTab` (карточка мероприятия + карточка конференции) теперь содержит 2 подвкладки:
+- **Афиши** — текущий UI (3 ориентации, загрузка)
+- **Материалы** — CRUD текстов-анонсов с подсказкой плейсхолдеров
+
+**Кабинет спикера: 2 вкладки.** [/speaker/<event_slug>](web/src/app/speaker/%5Bevent_slug%5D/page.tsx) переведён с одной длинной страницы на табы:
+- **Профиль** — всё что было (поля, фото, темы, регалии, медийные активы, подарки, материал в базу знаний)
+- **Материалы** (новая) — внутренний компонент `MaterialsTab`. Содержит:
+  1. Афиши события (превью + кнопка «Скачать», открытие в lightbox)
+  2. Тексты-анонсы с уже подставленными плейсхолдерами + кнопка «Скопировать»
+  3. Реф-ссылки спикера (TG/VK/MAX) — **перенесены сюда из шапки**
+  4. **Партнёрская ссылка спикера** — новое. Логика: если у `contacts.first_referrer_contact_id` есть значение → `prtp_<first_referrer_contact_id>` (партнёр регистрируется через рефовода спикера); если рефовода нет → корневая `prtc_<client_id>`. Только если `clients.partner_landing_url` заполнен. Платформы — те, где у клиента есть подключённый канал; TG fallback на `@pluson_bot`; email/телефон не показываем.
+
+**Endpoint поставщика данных** — `GET /api/v1/public/speaker-cabinet/me/materials` ([backend/app/api/speaker_cabinet.py](backend/app/api/speaker_cabinet.py)). Отдаёт `{posters, announcement_texts, ref_links, partner_link, partner_landing_configured, placeholders}`. Логика партнёрской ссылки переиспользует `share_links.get_active_platforms / get_client_bot_handles / get_client_vk_app_id / _has_system_channel`.
+
 ### Контакты — фильтры по событиям/лид-магнитам/пакетам + CSV-экспорт (07.05.2026)
 
 В дашборде «Контакты» (`/dashboard/clients`) фильтр-панель переведена на единый стиль выпадающих мульти-селект с поиском по названию ([`MultiSelectDropdown.tsx`](web/src/components/MultiSelectDropdown.tsx)).
@@ -218,6 +246,19 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 **Webhook** ([backend/app/api/integrations.py](backend/app/api/integrations.py)) принимает алиасы: `pluson_contact_id` (стандарт), `pluson_cid` (legacy), `contact_id` (явный) — все мапятся в `data.contact_id`. То же для `pluson_participant_id` → `participant_id`.
 
 **Партнёрский сервис** ([backend/app/services/partner_service.py](backend/app/services/partner_service.py) `_build_partner_landing_url`) использует общий `enrich_external_url` — на партнёрский лендинг шлёт `external_ref_param` РЕФОВОДА (это его код), не свой.
+
+**Произвольные флаги `_q{key}` для активации блоков на стороннем лендинге (2026-05-25).** К стандартному набору можно добавить произвольные «маркеры тарифа» — например, чтобы в Tilda/GetCourse показывался скрытый блок при наличии `?shpw` в URL.
+
+| Откуда приходит флаг | Формат прямой ссылки | Что попадает на лендинг |
+|---|---|---|
+| TG (прямая ссылка) | `t.me/{bot}?start=ref_pg{slug}_qshpw_qvip` | `&shpw=1&vip=1` |
+| VK Mini App | `vk.com/app{aid}#ref_pg{slug}_qshpw` | `&shpw=1` |
+| MAX | `max.ru/{handle}?startapp=ref_pg{slug}_qshpw` | `&shpw=1` |
+| Веб-вход | `pluson.ru/l/{slug}?shpw` (или `?app=tg&shpw`) | `&shpw=1` (либо `_qshpw` в startapp при `?app=tg`) |
+
+Алфавит ключа `[a-z0-9-]`, длина 1..16, до 5 флагов на один URL. Лишнее или несоответствие — тихо игнорируется. Значения не передаются — это всегда `=1`. Если нужно полноценное `key=value` — используйте `utm_source` или `external_ref_param`.
+
+Хелперы и точки кода: `normalize_landing_flags` + параметр `flags=` в `enrich_external_url` ([external_landing.py](backend/app/services/external_landing.py)); CSV-параметр `?q=shpw,vip` на эндпоинтах `/landing-redirect` и `/vip-redirect` ([client_profile.py](backend/app/api/client_profile.py)); парсер `_q…` в [`parseStartParam`](mini-app/src/App.tsx) (Mini App), [`parse_startapp_ref_payload`](backend/app/services/max_auth.py) (MAX-бэк), inline-скрипт [index_tg.html](mini-app/index_tg.html), [redirect_web_app.js](web/public/redirect_web_app/redirect_web_app.js) (веб-вход).
 
 ### Регистрация партнёра клиента через сторонний лендинг (миграция 105 от 2026-05-24)
 

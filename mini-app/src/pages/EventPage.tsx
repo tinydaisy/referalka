@@ -22,6 +22,7 @@ interface Props {
   tgUser: any
   partnerId?: string
   utmSource?: string
+  flags?: string[]           // флаги `_q{key}` в startapp — пробрасываем как `&{key}=1` на сторонний лендинг
   regFromLanding?: boolean   // флаг `_reg` в startapp — вернулись с лендинга клиента
   initialTab?: string        // флаг `_tabXXX` в startapp — открыть на конкретной вкладке (game, raffle, ...)
   onBack: () => void
@@ -70,7 +71,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromLanding, initialTab, onBack, onOpenEvent }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, regFromLanding, initialTab, onBack, onOpenEvent }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -323,6 +324,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, regFromL
     if (tgId) qs.set(getPlatformName() === 'vk' ? 'vk_id' : 'tg_id', tgId)
     if (partnerId) qs.set('pid', partnerId)
     if (utmSource) qs.set('utm_source', utmSource)
+    if (flags && flags.length) qs.set('q', flags.join(','))
     return qs.toString()
   }
 

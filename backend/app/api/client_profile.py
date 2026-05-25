@@ -422,6 +422,7 @@ async def public_event_landing_redirect(
     platform: Optional[str] = None,  # неиспользуется, оставлен для совместимости со старыми клиентами
     pid: Optional[str] = None,
     utm_source: Optional[str] = None,
+    q: Optional[str] = None,  # CSV произвольных флагов: ?q=shpw,vip → &shpw=1&vip=1 на лендинге
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Если событию задан landing_url и пользователь ещё не зарегистрирован
@@ -498,6 +499,7 @@ async def public_event_landing_redirect(
         pid=pid,
         utm_source=utm_source,
         external_ref_param=erp_to_use,
+        flags=q,
         **contact_params,  # name/email/phone/tg_id/vk_id/tg_nickname (только непустые)
     )
 
@@ -529,6 +531,7 @@ async def public_event_vip_redirect(
     vk_id: Optional[int] = None,
     pid: Optional[str] = None,
     utm_source: Optional[str] = None,
+    q: Optional[str] = None,  # CSV произвольных флагов — см. /landing-redirect
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Возвращает {redirect_url: ...} — событийный VIP URL с приписанными
@@ -583,6 +586,7 @@ async def public_event_vip_redirect(
         utm_source=utm_source,
         event_slug=slug,
         external_ref_param=erp_to_use,
+        flags=q,
         **contact_params,
     )
     return {"redirect_url": enriched}
