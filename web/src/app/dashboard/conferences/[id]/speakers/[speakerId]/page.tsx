@@ -9,6 +9,7 @@ import { useLang } from '@/contexts/LangContext'
 import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
 import RefLinkInline from '@/components/RefLinkInline'
+import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
 
 // Поля профиля, которые обязательно нужны
 const PROFILE_FIELDS: { key: string; label: string }[] = [
@@ -247,6 +248,7 @@ export default function ConferenceSpeakerPage() {
         personal_max_id: profile.personal_max_id,
         personal_max_username: profile.personal_max_username,
         assistant_tg_username: profile.assistant_tg_username,
+        media_assets: Array.isArray(profile.media_assets) ? profile.media_assets : [],
       })
       setProfileSaved(true)
       setTimeout(() => setProfileSaved(false), 3000)
@@ -713,6 +715,14 @@ export default function ConferenceSpeakerPage() {
               placeholder="https://max.ru/..."
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+          <h3 className="font-semibold text-gray-900 text-sm">Медийные активы</h3>
+          <MediaAssetsField
+            value={Array.isArray(profile.media_assets) ? profile.media_assets as MediaAsset[] : []}
+            onChange={next => setProfile((p: any) => ({ ...p, media_assets: next }))}
+          />
         </div>
 
         {/* Личные аккаунты VK и MAX */}
