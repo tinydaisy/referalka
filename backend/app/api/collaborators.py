@@ -21,14 +21,27 @@ ACCESS_CODE_ALPHABET = "a234bc56de7fgh89"
 
 # Медийные активы коллаба (миграция 111). Платформы фиксированы — клиент в UI
 # выбирает из этого списка, посторонние slug-и тихо отфильтровываются.
-ALLOWED_MEDIA_PLATFORMS = {"tg", "youtube", "vk", "tiktok", "instagram", "max", "rutube"}
+# `total` — особый «слот» для совокупного охвата (суммарный показатель).
+ALLOWED_MEDIA_PLATFORMS = {
+    "tg", "youtube", "vk", "tiktok", "instagram", "max", "rutube",
+    "chatbots",   # совокупно по всем чат-ботам клиента
+    "database",   # «База» — общий размер базы контактов (email/CRM)
+    "total",      # «Суммарно» — совокупный охват одной цифрой
+}
 
 
 def _normalize_media_assets(value: Any) -> Optional[List[dict]]:
     """`media_assets` приходит как массив `{platform, subscribers}`.
-    Возвращает нормализованный список (известный platform, неотрицательный int)
-    или None если value=None (то есть поле не передано — не трогать в БД).
-    Пустой [] — валидно: «удалить всё».
+
+    Поле `subscribers` хранится в **тысячах подписчиков** — клиент в UI
+    вводит «19.9», бэк хранит 19.9, лендинг отображает «19.9к». Округляем
+    до 1 знака после запятой. Допускаются float и int (JSON).
+
+    Платформа `total` — особый слот для совокупного охвата, если клиент не
+    хочет разбивать по площадкам или хочет показать общую цифру отдельно.
+
+    Возвращает нормализованный список или None если value=None
+    (поле не передано — не трогать в БД). Пустой [] — валидно: «удалить всё».
     """
     if value is None:
         return None
@@ -43,11 +56,15 @@ def _normalize_media_assets(value: Any) -> Optional[List[dict]]:
             continue
         raw = item.get("subscribers")
         try:
-            subs = int(raw) if raw not in (None, "") else 0
+            subs = float(raw) if raw not in (None, "") else 0.0
         except (TypeError, ValueError):
             continue
         if subs < 0:
-            subs = 0
+            subs = 0.0
+        subs = round(subs, 1)
+        # Целое число оставляем int (чтоб JSON не имел "19.0" — только "19" или "19.9")
+        if subs == int(subs):
+            subs = int(subs)
         out.append({"platform": platform, "subscribers": subs})
     return out
 

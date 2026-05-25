@@ -11,6 +11,9 @@ const PLATFORMS: { slug: string; label: string }[] = [
   { slug: 'instagram', label: 'Instagram' },
   { slug: 'max',       label: 'MAX' },
   { slug: 'rutube',    label: 'RuTube' },
+  { slug: 'chatbots',  label: 'Чат-боты' },
+  { slug: 'database',  label: 'База' },
+  { slug: 'total',     label: 'Суммарно' },
 ]
 
 function labelFor(slug: string): string {
@@ -42,8 +45,8 @@ export default function MediaAssetsField({ value, onChange }: Props) {
     <div className="space-y-2">
       {(value || []).length === 0 && (
         <p className="text-xs text-gray-500">
-          Подписчики в соцсетях и медиа. Добавьте каналы и впишите число подписчиков —
-          лендинг события сможет показать ваш совокупный охват.
+          Подписчики в соцсетях и медиа. Вводите цифру в <b>тысячах</b>: «19.9» = 19.9к.
+          Можно ставить десятичные. Лендинг события покажет ваш совокупный охват.
         </p>
       )}
       {(value || []).map((asset, i) => {
@@ -63,18 +66,26 @@ export default function MediaAssetsField({ value, onChange }: Props) {
                 <option key={p.slug} value={p.slug}>{p.label}</option>
               ))}
             </select>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              value={asset.subscribers === 0 && asset.platform ? '' : asset.subscribers}
-              placeholder="Подписчики"
-              onChange={e => {
-                const n = parseInt(e.target.value || '0', 10)
-                update(i, { subscribers: isNaN(n) || n < 0 ? 0 : n })
-              }}
-              className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
-            />
+            <div className="flex-1 relative">
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.1"
+                min={0}
+                value={asset.subscribers === 0 ? '' : asset.subscribers}
+                placeholder="19.9"
+                onChange={e => {
+                  const v = e.target.value
+                  if (v === '') return update(i, { subscribers: 0 })
+                  const n = parseFloat(v)
+                  update(i, { subscribers: isNaN(n) || n < 0 ? 0 : n })
+                }}
+                className="w-full pr-8 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none select-none">
+                к
+              </span>
+            </div>
             <button
               type="button"
               onClick={() => remove(i)}

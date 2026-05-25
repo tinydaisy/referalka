@@ -72,6 +72,7 @@ type SpeakerMe = {
   show_gift_after_speech_field: boolean
   show_knowledge_base_field: boolean
   raffle_enabled: boolean | null
+  // subscribers — число в тысячах (float, например 19.9 = 19.9к)
   media_assets: { platform: string; subscribers: number }[] | null
 }
 
@@ -83,6 +84,9 @@ const MEDIA_PLATFORMS: { slug: string; label: string }[] = [
   { slug: 'instagram', label: 'Instagram' },
   { slug: 'max',       label: 'MAX' },
   { slug: 'rutube',    label: 'RuTube' },
+  { slug: 'chatbots',  label: 'Чат-боты' },
+  { slug: 'database',  label: 'База' },
+  { slug: 'total',     label: 'Суммарно' },
 ]
 
 const TOKEN_KEY = (slug: string) => `speaker_cabinet_token_${slug}`
@@ -650,7 +654,8 @@ export default function SpeakerCabinetPage() {
         <Section title="Медийные активы">
           {mediaAssets.length === 0 && (
             <div style={{ fontSize: 12, color: '#5c7589', marginBottom: 8 }}>
-              Подписчики на ваших площадках — лендинг события сможет показать ваш совокупный охват.
+              Подписчики на ваших площадках. Вводите цифру в <b>тысячах</b>: «19.9» = 19.9к.
+              Лендинг события покажет ваш совокупный охват.
             </div>
           )}
           {mediaAssets.map((a, i) => {
@@ -665,18 +670,28 @@ export default function SpeakerCabinetPage() {
                 >
                   {options.map(p => <option key={p.slug} value={p.slug}>{p.label}</option>)}
                 </select>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  value={a.subscribers === 0 ? '' : a.subscribers}
-                  placeholder="Подписчики"
-                  onChange={(e) => {
-                    const n = parseInt(e.target.value || '0', 10)
-                    updMedia(i, { subscribers: isNaN(n) || n < 0 ? 0 : n })
-                  }}
-                  style={inputCss}
-                />
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.1"
+                    min={0}
+                    value={a.subscribers === 0 ? '' : a.subscribers}
+                    placeholder="19.9"
+                    onChange={(e) => {
+                      const v = e.target.value
+                      if (v === '') return updMedia(i, { subscribers: 0 })
+                      const n = parseFloat(v)
+                      updMedia(i, { subscribers: isNaN(n) || n < 0 ? 0 : n })
+                    }}
+                    style={{ ...inputCss, paddingRight: 28 }}
+                  />
+                  <span style={{
+                    position: 'absolute', right: 12, top: '50%',
+                    transform: 'translateY(-50%)', color: '#7a8c9c',
+                    fontSize: 13, fontWeight: 500, pointerEvents: 'none',
+                  }}>к</span>
+                </div>
                 <button onClick={() => removeMedia(i)} style={{ padding: '0 12px', background: '#fff', border: '1px solid #d4dee5', borderRadius: 8, cursor: 'pointer' }}>×</button>
               </div>
             )

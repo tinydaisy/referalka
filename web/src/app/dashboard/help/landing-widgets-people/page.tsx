@@ -55,9 +55,12 @@ const SAMPLE_JSON = `{
       "knowledge_base_title": null,
       "knowledge_base_url": null,
       "media_assets": [
-        { "platform": "tg",        "subscribers": 12500 },
-        { "platform": "youtube",   "subscribers": 3400 },
-        { "platform": "instagram", "subscribers": 8900 }
+        { "platform": "tg",        "subscribers": 12.5 },    // в тысячах → "12.5к"
+        { "platform": "youtube",   "subscribers": 3.4 },     // → "3.4к"
+        { "platform": "instagram", "subscribers": 8.9 },     // → "8.9к"
+        { "platform": "chatbots",  "subscribers": 25 },      // → "25к"
+        { "platform": "database",  "subscribers": 150 },     // → "150к" (база контактов)
+        { "platform": "total",     "subscribers": 200 }      // → "200к" (суммарно)
       ],
       "ref_code": "abc123",
       "sort_order": 0,
@@ -86,7 +89,7 @@ fetch(\`https://pluson.ru/api/v1/public/landing-widget/events/\${SLUG}/collabora
         </ul>
         <div>
           \${(s.media_assets || []).map(m =>
-            \`<span>\${m.platform}: \${m.subscribers.toLocaleString('ru-RU')}</span>\`
+            \`<span>\${m.platform}: \${m.subscribers}к</span>\`
           ).join(' · ')}
         </div>
       </article>
@@ -133,15 +136,29 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/{ID}/collaborators
   "instagram_url": null, "website_url": null,
   "knowledge_base_title": null, "knowledge_base_url": null,
   "media_assets": [
-    { "platform": "tg",      "subscribers": 12500 },
-    { "platform": "youtube", "subscribers": 3400 }
+    { "platform": "tg",      "subscribers": 12.5 },   // в тысячах → "12.5к"
+    { "platform": "youtube", "subscribers": 3.4 },    // → "3.4к"
+    { "platform": "total",   "subscribers": 200 }     // → "200к" (совокупный охват)
   ],
   "ref_code": "abc123",
   "sort_order": 0, "priority": 10
 }
 
-Платформы в media_assets: tg / youtube / vk / tiktok / instagram / max / rutube
-Лейблы для UI: Telegram / YouTube / VK / TikTok / Instagram / MAX / RuTube
+ВАЖНО: subscribers — число в ТЫСЯЧАХ подписчиков. На лендинге всегда отображай как \`\${subscribers}к\` (например, 12.5 → "12.5к", 200 → "200к"). Может быть дробным (один знак после запятой).
+
+Платформы в media_assets (slug → лейбл):
+  tg        → Telegram
+  youtube   → YouTube
+  vk        → VK
+  tiktok    → TikTok
+  instagram → Instagram
+  max       → MAX
+  rutube    → RuTube
+  chatbots  → Чат-боты
+  database  → База
+  total     → Суммарно
+
+Если у коллаба есть платформа "total" — это совокупный охват, который клиент посчитал сам и хочет показать одной цифрой. Можешь вынести её отдельным крупным числом сверху карточки, а остальные платформы — мелким списком.
 
 Сортировка внутри группы уже выполнена на бэке — рендери в полученном порядке.
 
@@ -171,7 +188,7 @@ fetch(\`https://pluson.ru/api/v1/public/landing-widget/events/\${SLUG}/collabora
         <p>\${s.position || ''}</p>
         <ul>\${(s.achievements || []).map(a => \`<li>\${a}</li>\`).join('')}</ul>
         <div>\${(s.media_assets || []).map(m =>
-          \`<span>\${m.platform}: \${m.subscribers.toLocaleString('ru-RU')}</span>\`
+          \`<span>\${m.platform}: \${m.subscribers}к</span>\`
         ).join(' · ')}</div>
       </article>
     \`).join('');
@@ -317,13 +334,22 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/collaborators`}
             <div>
               <b style={{ color: BRAND }}>Медийные активы.</b> Массив{' '}
               <code className="bg-gray-100 px-1 rounded text-xs">media_assets</code> — подписчики по площадкам.
-              Платформы: <code className="bg-gray-100 px-1 rounded text-xs">tg</code>,{' '}
-              <code className="bg-gray-100 px-1 rounded text-xs">youtube</code>,{' '}
-              <code className="bg-gray-100 px-1 rounded text-xs">vk</code>,{' '}
-              <code className="bg-gray-100 px-1 rounded text-xs">tiktok</code>,{' '}
-              <code className="bg-gray-100 px-1 rounded text-xs">instagram</code>,{' '}
-              <code className="bg-gray-100 px-1 rounded text-xs">max</code>,{' '}
-              <code className="bg-gray-100 px-1 rounded text-xs">rutube</code>.
+              Поле <code className="bg-gray-100 px-1 rounded text-xs">subscribers</code> — в <b>тысячах</b>:
+              {' '}<code className="bg-gray-100 px-1 rounded text-xs">12.5</code> = 12.5к, отображается как
+              {' '}<code className="bg-gray-100 px-1 rounded text-xs">12.5к</code>.
+              <div className="mt-1.5 text-xs text-gray-600">
+                Платформы:
+                {' '}<code className="bg-gray-100 px-1 rounded">tg</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">youtube</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">vk</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">tiktok</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">instagram</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">max</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">rutube</code>,{' '}
+                <code className="bg-gray-100 px-1 rounded">chatbots</code> (Чат-боты),{' '}
+                <code className="bg-gray-100 px-1 rounded">database</code> (База),{' '}
+                <code className="bg-gray-100 px-1 rounded">total</code> (Суммарно).
+              </div>
             </div>
             <div>
               <b style={{ color: BRAND }}>Кэш.</b> Ответ кешируется на 60 секунд — изменения подхватятся в течение минуты.

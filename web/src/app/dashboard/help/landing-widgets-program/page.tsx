@@ -65,7 +65,8 @@ const SAMPLE_JSON = `{
         "vk_url": null, "max_url": null,
         "instagram_url": null, "website_url": null,
         "media_assets": [
-          { "platform": "tg", "subscribers": 12500 }
+          { "platform": "tg",    "subscribers": 12.5 },   // в тысячах → "12.5к"
+          { "platform": "total", "subscribers": 200 }     // → "200к"
         ]
       }
     }
@@ -141,11 +142,19 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/{ID}/program
         "tg_channel_url": "...",
         "vk_url": null, "max_url": null,
         "instagram_url": null, "website_url": null,
-        "media_assets": [ { "platform": "tg", "subscribers": 12500 } ]
+        "media_assets": [
+          { "platform": "tg",    "subscribers": 12.5 },   // в тысячах → "12.5к"
+          { "platform": "total", "subscribers": 200 }     // → "200к"
+        ]
       }
     }
   ]
 }
+
+ВАЖНО ПРО subscribers
+- Число в ТЫСЯЧАХ подписчиков. Отображай как \`\${subscribers}к\` (12.5 → "12.5к", 200 → "200к").
+- Может быть дробным (один знак после запятой).
+- 10 платформ: tg / youtube / vk / tiktok / instagram / max / rutube / chatbots (Чат-боты) / database (База) / total (Суммарно).
 
 ВАЖНО ПРО ВРЕМЯ
 - start_time, end_time, open_time, close_time — строки HH:MM по московскому времени.
