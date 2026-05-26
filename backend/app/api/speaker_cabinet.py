@@ -598,12 +598,13 @@ async def get_me_materials(
                   e.client_id,
                   e.video_url AS event_video_url,
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
-                  cl.partner_landing_url,
+                  cl.partner_landing_url, cl.partner_dashboard_url,
                   c.contact_id,
                   COALESCE(ec.poster_url, c.poster_url) AS speaker_poster_url,
                   c.video_url AS speaker_video_url,
                   ctc.ref_code AS speaker_ref_code,
-                  ctc.first_referrer_contact_id
+                  ctc.first_referrer_contact_id,
+                  ctc.external_ref_param AS speaker_external_ref_param
              FROM event_collaborators ec
              JOIN collaborators c    ON c.id = ec.speaker_id
              JOIN events e           ON e.id = ec.event_id
@@ -701,5 +702,12 @@ async def get_me_materials(
         "ref_links":    ref_links,
         "partner_link": partner_link,
         "partner_landing_configured": partner_landing_configured,
+        # Партнёрский код самого спикера во внешней системе клиента
+        # (contacts.external_ref_param). Если есть — кабинет спикера показывает
+        # «Вы уже партнёр, ваш код X» вместо ссылок на регистрацию.
+        "speaker_external_ref_param": (base.get("speaker_external_ref_param") or "").strip() or None,
+        # URL аффилиат-кабинета во внешней системе клиента (миграция 118).
+        # Кликабельная ссылка для спикера-партнёра, если у него уже есть код.
+        "partner_dashboard_url": (base.get("partner_dashboard_url") or "").strip() or None,
         "placeholders": placeholders,
     }

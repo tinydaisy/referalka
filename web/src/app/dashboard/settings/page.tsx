@@ -37,7 +37,7 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant' || t === 'chat-gates') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', partner_landing_url: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [clientId, setClientId] = useState<number | null>(null)
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [botHandles, setBotHandles] = useState<{ telegram?: string | null; vk?: string | null; max?: string | null } | null>(null)
@@ -69,6 +69,7 @@ export default function SettingsPage() {
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
         partner_landing_url: c.partner_landing_url || '',
+        partner_dashboard_url: c.partner_dashboard_url || '',
       })
       setTariff(c.subscription || null)
       setClientId(c.id || null)
@@ -113,6 +114,7 @@ export default function SettingsPage() {
         broadcast_concurrency: concurrency,
         notifications_telegram_chat_id: form.notifications_telegram_chat_id ? Number(form.notifications_telegram_chat_id) : null,
         partner_landing_url: form.partner_landing_url.trim() || null,
+        partner_dashboard_url: form.partner_dashboard_url.trim() || null,
       })
       setTimezone(form.timezone)
       setSaved(true)
@@ -1082,6 +1084,25 @@ function PartnerRegistrationBlock({
           Бот дополнит ваш URL параметрами: <span className="font-mono">?pluson_cid=&lt;id&gt;&amp;&lt;код_рефовода&gt;</span>.{' '}
           Настройте в форме скрытое поле <span className="font-mono">pluson_cid</span> и поля под ключи кода (например{' '}
           <span className="font-mono">gcpc</span>), чтобы они отправились в наш webhook.
+        </p>
+      </div>
+
+      {/* URL кабинета партнёра (миграция 118) */}
+      <div className="mb-4">
+        <label className="block text-xs font-semibold text-gray-700 mb-1">
+          URL кабинета партнёра
+        </label>
+        <input
+          type="url"
+          value={form.partner_dashboard_url}
+          onChange={set('partner_dashboard_url')}
+          placeholder="https://example.com/affiliate/login"
+          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Страница входа в аффилиат-кабинет вашей внешней системы (GetCourse / Bizon360 /
+          Tilda). Если задана — в кабинете спикера у тех, кто уже зарегистрирован
+          партнёром, появится кнопка «Открыть кабинет партнёра» вместо ссылок на регистрацию.
         </p>
       </div>
 

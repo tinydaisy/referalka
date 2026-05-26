@@ -1,4 +1,4 @@
--- 115_event_main_buttons.sql
+-- 117_event_main_buttons.sql
 -- 2026-05-26
 --
 -- «Главные кнопки» события в Mini App — заголовок «Чат события» и выбор
