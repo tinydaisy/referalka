@@ -1193,25 +1193,19 @@ function MaterialsTab({
 
       {/* Партнёрская ссылка спикера — ветка «есть код / нет кода» (миграция 118).
           Если у спикера-контакта есть external_ref_param → он уже зарегистрирован
-          партнёром: показываем код + ссылку на кабинет (если у клиента задан
-          partner_dashboard_url) + подсказку про восстановление пароля.
+          партнёром: показываем ТОЛЬКО кнопку «Открыть кабинет партнёра» (если у
+          клиента задан partner_dashboard_url) + поясняющий текст про деньги/переходы.
+          Сам external_ref_param наружу НЕ показываем — он нужен организатору для
+          отслеживания вопросов от партнёра, не самому партнёру.
           Если кода нет — показываем ссылки на регистрацию (старое поведение). */}
       {materials.speaker_external_ref_param ? (
         <div style={sectionCss}>
-          <div style={titleCss}>Ваш партнёрский код для начисления процента с оплат</div>
+          <div style={titleCss}>Кабинет партнёра организатора</div>
           <div style={subCss}>
-            Вы уже зарегистрированы партнёром организатора и получаете % кэшбэка с приведённых участников.
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: DARK, width: 70, flexShrink: 0 }}>Код</span>
-            <code style={{
-              flex: 1, fontSize: 13, color: '#1a2a3a', background: '#fff5e6',
-              padding: '8px 12px', borderRadius: 6, fontFamily: 'monospace',
-              border: '1px solid #ffd699', fontWeight: 700,
-            }}>{materials.speaker_external_ref_param}</code>
-            <button onClick={() => copy('erp', materials.speaker_external_ref_param || '')} style={copyBtnCss}>
-              {refCopied === 'erp' ? '✓' : '📋'}
-            </button>
+            Вы зарегистрированы партнёром организатора и получаете процент с продаж приведённых
+            участников. В кабинете партнёра видны <strong>финансовые начисления</strong> по вашим
+            продажам — это отдельный сторонний сервис организатора, не ПЛЮСОН.
+            Статистика переходов и регистраций по вашим реф-ссылкам — выше, в этом разделе «Материалы».
           </div>
           {materials.partner_dashboard_url && (
             <a
