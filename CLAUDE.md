@@ -114,7 +114,19 @@
   3. Реф-ссылки спикера (TG/VK/MAX) — **перенесены сюда из шапки**
   4. **Партнёрская ссылка спикера** — новое. Логика: если у `contacts.first_referrer_contact_id` есть значение → `prtp_<first_referrer_contact_id>` (партнёр регистрируется через рефовода спикера); если рефовода нет → корневая `prtc_<client_id>`. Только если `clients.partner_landing_url` заполнен. Платформы — те, где у клиента есть подключённый канал; TG fallback на `@pluson_bot`; email/телефон не показываем.
 
-**Endpoint поставщика данных** — `GET /api/v1/public/speaker-cabinet/me/materials` ([backend/app/api/speaker_cabinet.py](backend/app/api/speaker_cabinet.py)). Отдаёт `{posters, announcement_texts, ref_links, partner_link, partner_landing_configured, placeholders}`. Логика партнёрской ссылки переиспользует `share_links.get_active_platforms / get_client_bot_handles / get_client_vk_app_id / _has_system_channel`.
+**Endpoint поставщика данных** — `GET /api/v1/public/speaker-cabinet/me/materials` ([backend/app/api/speaker_cabinet.py](backend/app/api/speaker_cabinet.py)). Отдаёт `{posters, speaker_poster_url, event_video_url, speaker_video_url, announcement_texts, ref_links, partner_link, partner_landing_configured, placeholders}`. Логика партнёрской ссылки переиспользует `share_links.get_active_platforms / get_client_bot_handles / get_client_vk_app_id / _has_system_channel`.
+
+### Видео для спикеров: общее + индивидуальное (миграция 113 от 2026-05-26)
+
+**Зачем.** К афишам в Материалах добавлены два видео:
+- **Общее видео события** (`events.video_url`) — клиент загружает в подвкладке «Афиши» дашборда, отдаётся ВСЕМ спикерам этого события.
+- **Индивидуальное видео коллаба** (`collaborators.video_url`) — клиент загружает в карточке коллаба (`/dashboard/collaborations/[id]`), видит ТОЛЬКО этот спикер в своём кабинете.
+
+**Файлы.** Заливаются через основной `POST /api/v1/uploads` с новыми kinds: `event_video` (нужен `event_id`) и `speaker_video` (нужен `collaborator_id`). Видео НЕ ресайзятся (хранятся как есть). Лимит **100 МБ** (cap Cloudflare) — для остальных kinds оставлен 50 МБ. Валидация content_type=`video/*`. R2-ключи: `clients/{cid}/events/{eid}/videos/{uuid}.mp4` и `clients/{cid}/speakers/{collab_id}/videos/{uuid}.mp4`.
+
+**Подписи блоков в кабинете спикера** — фиксированы: «Индивидуальная афиша» / «Общие афиши» / «Индивидуальное видео» / «Общее видео». Каждый блок показывается только если URL не пуст.
+
+**Не плодить дубль с `video_folder_url`.** Существующее поле `collaborators.video_folder_url` — это **URL папки** (Я.Диск/Google Drive) с несколькими видео, заполняется спикером в Профиле кабинета. `collaborators.video_url` — это **один загруженный файл в R2** под скачивание, заполняется клиентом в дашборде коллаба. Разные сценарии, оба остаются.
 
 ### Контакты — фильтры по событиям/лид-магнитам/пакетам + CSV-экспорт (07.05.2026)
 
@@ -881,6 +893,7 @@ API:
 - `has_vip_tariff` BOOL + `vip_price`, `vip_url`, `vip_title`, `vip_description` — кнопка VIP в программе и «КУПИТЬ VIP-ТАРИФ С ЗАПИСЯМИ» в итогах
 - `vip_button_label` TEXT NULL (миграция 091 от 2026-05-21) — кастомный текст кнопки VIP в Mini App («Программа» + «Интро»). Если пусто — дефолт «Расшириться до VIP-тарифа». При клике в Mini App к `vip_url` дописывается партнёрский параметр контакта (`contacts.external_ref_param`) — резолв через `/public/events/{slug}/external-ref?pid=...`, аналогично сторонним лендингам. Хелпер: `redirectToVip` в [mini-app/src/pages/EventPage.tsx](mini-app/src/pages/EventPage.tsx), прокидывается в [ProgramTab](mini-app/src/tabs/ProgramTab.tsx) / [TurnirProgramTab](mini-app/src/tabs/TurnirProgramTab.tsx) / [WelcomePage](mini-app/src/components/WelcomePage.tsx) как `onVipClick`. Настраивается в дашборде — «Основное» мероприятия и «Настройки» конференции.
 - `chat_url` + `chat_subscriptions_required` BOOL + `chat_member_count_label` (статичная подпись «900+ человек») — плитка чата в программе
+- `chat_button_label` TEXT NULL + `accent_button` TEXT NULL (миграция 117 от 2026-05-26) — заголовок кнопки чата в Mini App и выбор «акцентной» (красной) кнопки. `chat_button_label` пусто → дефолт «Чат события». `accent_button` ∈ `vip|chat|none`, NULL = `vip` (обратная совместимость — VIP всегда красная как было). При `accent_button='chat'` чат-кнопка получает красный градиент VipButton, VIP — тёмно-синий. При `'none'` обе кнопки тёмно-синие. Редактируется в дашборде блоком «Главные кнопки» — общий компонент [MainButtonsBlock.tsx](web/src/components/MainButtonsBlock.tsx), используется в OverviewTab мероприятия и в SettingsTab конференции/турнира. В Mini App логика — [ProgramTab.tsx](mini-app/src/tabs/ProgramTab.tsx), [TurnirProgramTab.tsx](mini-app/src/tabs/TurnirProgramTab.tsx), [WelcomePage.tsx](mini-app/src/components/WelcomePage.tsx) (там только VIP — peach-плашка чата на онбординге не красится), компонент [VipButton.tsx](mini-app/src/components/VipButton.tsx) принимает `accent='red'|'blue'`. В контестах и Welcome-плашке чата схема не применяется (у конкурса свой персиковый CTA «Голосование», Welcome — single-time onboarding). API: поле `accent_button` валидируется на бэке как `vip|chat|none` ([events.py](backend/app/api/events.py)) и пробрасывается в conf-роут через `EVENT_FIELDS` ([conference.py](backend/app/api/modules/conference.py)).
 
 **Розыгрыш** — три новые таблицы:
 - `event_raffle_settings (event_id UNIQUE, is_enabled, draw_at, subscription_grants_starter_ticket, intro_text)` — общие настройки

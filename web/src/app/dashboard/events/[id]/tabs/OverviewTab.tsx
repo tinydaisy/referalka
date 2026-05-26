@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
 import ExternalLandingBlock from '@/components/ExternalLandingBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
+import MainButtonsBlock, { AccentButton, normalizeAccent } from '@/components/MainButtonsBlock'
 
 export default function OverviewTab({
   event, eventId, onReload,
@@ -30,6 +31,8 @@ export default function OverviewTab({
   })
   const [vipUrl, setVipUrl] = useState(event.vip_url || '')
   const [vipButtonLabel, setVipButtonLabel] = useState(event.vip_button_label || '')
+  const [chatButtonLabel, setChatButtonLabel] = useState(event.chat_button_label || '')
+  const [accentButton, setAccentButton] = useState<AccentButton>(normalizeAccent(event.accent_button))
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
@@ -77,6 +80,10 @@ export default function OverviewTab({
       if (v !== (event.vip_url || ''))                          payload.vip_url = v || null
       const vbl = vipButtonLabel.trim()
       if (vbl !== (event.vip_button_label || ''))               payload.vip_button_label = vbl || null
+      const cbl = chatButtonLabel.trim()
+      if (cbl !== (event.chat_button_label || ''))              payload.chat_button_label = cbl || null
+      const initAccent = normalizeAccent(event.accent_button)
+      if (accentButton !== initAccent)                          payload.accent_button = accentButton
       const startIso = startAt ? new Date(startAt).toISOString() : null
       const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
       if (startIso !== eventStartIso)                           payload.start_at = startIso
@@ -157,18 +164,22 @@ export default function OverviewTab({
 
           <EventChatsField value={chats} onChange={setChats} />
 
-          <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App на «Программе» и в «Интро» появится персиковая кнопка. Если у участника есть pid (его привёл партнёр) — к ссылке добавится партнёрский параметр коллаборатора, как у стороннего лендинга.">
+          <Field label="Ссылка на оплату VIP-тарифа" hint="Если задана — в Mini App на «Программе» и в «Интро» появится кнопка. Если у участника есть pid (его привёл партнёр) — к ссылке добавится партнёрский параметр коллаборатора, как у стороннего лендинга.">
             <input value={vipUrl} onChange={e => setVipUrl(e.target.value)}
                    className="input" placeholder="https://..." />
           </Field>
-
-          <Field label="Текст кнопки VIP-тарифа" hint="Что будет написано на кнопке в Mini App. По умолчанию — «Расшириться до VIP-тарифа».">
-            <input value={vipButtonLabel} onChange={e => setVipButtonLabel(e.target.value)}
-                   className="input" placeholder="Расшириться до VIP-тарифа"
-                   maxLength={64} />
-          </Field>
         </div>
       </div>
+
+      {/* Главные кнопки (тексты + акцент) */}
+      <MainButtonsBlock
+        vipLabel={vipButtonLabel}
+        chatLabel={chatButtonLabel}
+        accent={accentButton}
+        onVipLabel={setVipButtonLabel}
+        onChatLabel={setChatButtonLabel}
+        onAccent={setAccentButton}
+      />
 
       {/* 3) ПОДПИСКА НА КАНАЛЫ ОРГАНИЗАТОРОВ */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">

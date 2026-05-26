@@ -107,6 +107,11 @@ class UpdateEventRequest(BaseModel):
     primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     chat_subscriptions_required: Optional[bool] = None
     chat_member_count_label: Optional[str] = None
+    # Заголовок кнопки чата в Mini App (миграция 117). NULL = дефолт «Чат события».
+    chat_button_label: Optional[str] = None
+    # Какая из главных кнопок красная: 'vip' | 'chat' | 'none' (миграция 117).
+    # NULL = 'vip' (обратная совместимость).
+    accent_button: Optional[str] = None
     telegram_chat_ids: Optional[str] = None  # ID чатов/каналов через запятую — общее для меропр и конференций
     # Чекбокс «Регистрировать без ввода контактных данных» — работает на встроенном
     # лендинге Mini App, если landing_url не задан. TRUE → клик «Хочу участвовать»
@@ -345,6 +350,12 @@ async def update_event(
         wlog = {k: (v if k != "welcome_text" else f"len={len(v or '')}") for k, v in updates.items() if k.startswith("welcome_")}
         _l.getLogger(__name__).info("PATCH /events/%s welcome fields: %s", event_id, wlog)
 
+    # accent_button: допускаем только 'vip'|'chat'|'none' или null (= дефолт 'vip').
+    if "accent_button" in updates:
+        v = updates["accent_button"]
+        if v is not None and v not in ("vip", "chat", "none"):
+            raise HTTPException(status_code=400, detail="accent_button должен быть 'vip', 'chat' или 'none'")
+
     # Slug: валидация формата + проверка уникальности (если меняется)
     if "slug" in updates:
         new_slug = _validate_custom_slug(updates["slug"])
@@ -430,6 +441,7 @@ async def copy_event(
                   chat_url, chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform,
                   stream_url, vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
+                  chat_button_label, accent_button,
                   skip_contact_form)
                VALUES ($1,$2,$3,$4,$5,$6,$7,
                        NULL,NULL,
@@ -438,7 +450,8 @@ async def copy_event(
                        $14,$15,$16,$17,$18,
                        $19,$20,$21,
                        $22,$23,
-                       $24)
+                       $24,$25,
+                       $26)
                RETURNING *""",
             client_id, new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -454,6 +467,8 @@ async def copy_event(
             src.get('vip_button_label'),
             src.get('chat_subscriptions_required') or False,
             src.get('chat_member_count_label'),
+            src.get('chat_button_label'),
+            src.get('accent_button'),
             src.get('skip_contact_form') or False,
         )
         new_id = new_event['id']

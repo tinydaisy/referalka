@@ -228,6 +228,11 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
   const hasVip  = !!vipUrl
   const vipLabel = (event?.vip_button_label || '').trim() || 'Расшириться до VIP-тарифа'
   const hasChat = !!(event?.chat_url || event?.chat_url_tg || event?.chat_url_vk || event?.chat_url_max)
+  const chatLabel = (event?.chat_button_label || '').trim() || 'Чат события'
+  const accentBtn: 'vip' | 'chat' | 'none' =
+    event?.accent_button === 'chat' || event?.accent_button === 'none' ? event.accent_button : 'vip'
+  const vipAccent: 'red' | 'blue' = accentBtn === 'vip' ? 'red' : 'blue'
+  const chatAccent: 'red' | 'blue' = accentBtn === 'chat' ? 'red' : 'blue'
 
   const [days, setDays] = useState<Day[]>([])
   const [stages, setStages] = useState<Stage[]>([])
@@ -474,6 +479,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
         <VipButton
           label={vipLabel}
           url={vipUrl}
+          accent={vipAccent}
           onClick={onVipClick || ((u) => { window.open(u, '_blank', 'noopener,noreferrer') })}
         />
       )}
@@ -530,22 +536,30 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
         )
       )}
 
-      {/* Чат события — отдельная плашка во всю ширину */}
+      {/* Чат события — отдельная плашка во всю ширину.
+          Цвет управляется events.accent_button (миграция 117). */}
       {hasChat && (
         <button onClick={openChatWithCheck} disabled={chatLoading} style={{
           display: 'flex', alignItems: 'center', gap: 12,
-          background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+          background: chatAccent === 'red'
+            ? 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)'
+            : 'linear-gradient(135deg, #25455D, #0a1520)',
+          color: 'white',
           borderRadius: 14, padding: 14, marginBottom: 12,
-          border: 0, cursor: 'pointer', width: '100%', textAlign: 'left',
+          border: chatAccent === 'red' ? '1px solid rgba(127,29,29,0.5)' : 0,
+          boxShadow: chatAccent === 'red' ? '0 4px 14px rgba(220,38,38,0.45)' : 'none',
+          cursor: 'pointer', width: '100%', textAlign: 'left',
           fontFamily: 'inherit',
           opacity: chatLoading ? 0.7 : 1,
         }}>
           <div style={{
             width: 40, height: 40, borderRadius: 10,
-            background: 'rgba(255,207,164,0.15)',
+            background: chatAccent === 'red' ? 'rgba(255,255,255,0.18)' : 'rgba(255,207,164,0.15)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                 stroke={chatAccent === 'red' ? 'white' : PEACH}
+                 strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 12 20 22 4 22 4 12"/>
               <rect x="2" y="7" width="20" height="5"/>
               <line x1="12" y1="22" x2="12" y2="7"/>
@@ -554,12 +568,12 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
             </svg>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800 }}>Чат события</div>
+            <div style={{ fontSize: 14, fontWeight: 800 }}>{chatLabel}</div>
             <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
               {chatLoading ? 'Проверяем подписку…' : (event.chat_member_count_label || 'Нетворкинг и подарки за регистрацию')}
             </div>
           </div>
-          <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
+          <div style={{ fontSize: 24, color: chatAccent === 'red' ? 'white' : PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
         </button>
       )}
 

@@ -23,6 +23,10 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
   const eventTitle = event?.title || 'события'
   const vipUrl: string = (event?.vip_url || '').trim()
   const vipLabel: string = (event?.vip_button_label || '').trim() || 'Расшириться до VIP-тарифа'
+  // Какая кнопка красная (миграция 117). На Welcome чат всегда — отдельная
+  // peach-плашка (это онбординг, не «Программа»), а VIP красится по выбору
+  // клиента: 'vip' → красная (дефолт), 'chat' | 'none' → тёмно-синяя.
+  const vipAccent: 'red' | 'blue' = event?.accent_button === 'vip' || !event?.accent_button ? 'red' : 'blue'
   const { openChat, modal, loading } = useChatGate(event, tgUser)
 
   async function handleContinue() {
@@ -80,6 +84,7 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
           <VipButton
             label={vipLabel}
             url={vipUrl}
+            accent={vipAccent}
             onClick={onVipClick || ((u) => { window.open(u, '_blank', 'noopener,noreferrer') })}
             style={{ marginBottom: 16 }}
           />

@@ -1,9 +1,14 @@
-// Персиково-красная кнопка оплаты VIP-тарифа. При нажатии запускает
-// async-колбэк (redirectToVip в EventPage), пока тот резолвится — на
-// кнопке крутится спиннер вместо текста. Это нужно потому что
-// redirectToVip уходит во внешний браузер через openLink (Telegram WebApp
-// иногда заметно «думает» перед открытием системного браузера, и
-// пользователь успевает кликнуть второй раз).
+// Кнопка оплаты VIP-тарифа. При нажатии запускает async-колбэк
+// (redirectToVip в EventPage), пока тот резолвится — на кнопке крутится
+// спиннер вместо текста. Это нужно потому что redirectToVip уходит во
+// внешний браузер через openLink (Telegram WebApp иногда заметно
+// «думает» перед открытием системного браузера, и пользователь успевает
+// кликнуть второй раз).
+//
+// Цвет управляется пропом `accent` (миграция 117): 'red' — старая
+// красная схема, 'blue' — тёмно-синяя в одном стиле с кнопкой чата.
+// Какая из кнопок (VIP или Чат) красная — выбирает клиент в дашборде в
+// поле events.accent_button.
 
 import { useState, CSSProperties } from 'react'
 
@@ -12,9 +17,10 @@ interface Props {
   url: string
   onClick: (url: string) => void | Promise<void>
   style?: CSSProperties
+  accent?: 'red' | 'blue'
 }
 
-export default function VipButton({ label, url, onClick, style }: Props) {
+export default function VipButton({ label, url, onClick, style, accent = 'red' }: Props) {
   const [busy, setBusy] = useState(false)
 
   async function handle() {
@@ -29,6 +35,19 @@ export default function VipButton({ label, url, onClick, style }: Props) {
     }
   }
 
+  const isRed = accent === 'red'
+  const palette: CSSProperties = isRed
+    ? {
+        background: 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)',
+        boxShadow: '0 4px 14px rgba(220,38,38,0.45)',
+        border: '1px solid rgba(127,29,29,0.5)',
+      }
+    : {
+        background: 'linear-gradient(135deg, #25455D, #0a1520)',
+        boxShadow: '0 4px 14px rgba(37,69,93,0.35)',
+        border: '1px solid rgba(10,21,32,0.5)',
+      }
+
   return (
     <button
       type="button"
@@ -36,15 +55,13 @@ export default function VipButton({ label, url, onClick, style }: Props) {
       disabled={busy}
       style={{
         display: 'block', width: '100%', cursor: busy ? 'wait' : 'pointer',
-        background: 'linear-gradient(135deg, #7f1d1d 0%, #dc2626 35%, #ef4444 50%, #dc2626 65%, #7f1d1d 100%)',
         color: '#FFFFFF',
         borderRadius: 14, padding: '16px 16px', marginBottom: 12,
         textAlign: 'center', fontWeight: 900, fontSize: 15,
         letterSpacing: 1.2, textTransform: 'uppercase',
-        boxShadow: '0 4px 14px rgba(220,38,38,0.45)',
-        border: '1px solid rgba(127,29,29,0.5)',
         textShadow: '0 1px 2px rgba(0,0,0,0.35)',
         opacity: busy ? 0.9 : 1,
+        ...palette,
         ...style,
       }}
     >
