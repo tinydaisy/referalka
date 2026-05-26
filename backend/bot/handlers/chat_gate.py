@@ -171,7 +171,18 @@ async def handle_group_message(message: Message, bot: Bot):
                 continue
             channel_lines.append(f"• {name}: {url}" if name else f"• {url}")
 
-        user_name = message.from_user.first_name or message.from_user.username or "Друг"
+        # «Имя обращения»: first_name + (опционально) «(@username)» — чтобы человек сразу видел
+        # что обращение именно к нему, и при ответе из соседнего сообщения было понятно кто.
+        first = (message.from_user.first_name or "").strip()
+        username = (message.from_user.username or "").strip()
+        if first and username:
+            user_name = f"{first} (@{username})"
+        elif first:
+            user_name = first
+        elif username:
+            user_name = f"@{username}"
+        else:
+            user_name = "Друг"
         warning_text = _render_warning(
             gate["warning_text"],
             user_name=user_name,
