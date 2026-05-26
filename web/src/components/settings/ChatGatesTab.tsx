@@ -46,6 +46,9 @@ export default function ChatGatesTab() {
   const [gates, setGates] = useState<Gate[]>([])
   const [loading, setLoading] = useState(true)
   const [hasChannels, setHasChannels] = useState<boolean | null>(null)
+  // Handle бота клиента (VIP — собственный, у Марго @ivision_conf_bot; обычный — @pluson_bot).
+  // Подставляется в инструкцию про privacy mode и в подсказку при добавлении чата.
+  const [botHandle, setBotHandle] = useState<string>('pluson_bot')
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Gate | null>(null)
   const [verifyResults, setVerifyResults] = useState<Record<number, VerifyResult>>({})
@@ -54,13 +57,20 @@ export default function ChatGatesTab() {
   async function loadAll() {
     setLoading(true)
     try {
-      const [list, profile] = await Promise.all([
+      const [list, profile, me] = await Promise.all([
         api.miniApp.chatGates.list(),
         api.miniApp.profile.get().catch(() => null),
+        api.auth.me().catch(() => null),
       ])
       setGates(list.items || [])
       const channels = (profile as any)?.social_links?.telegram_channels
       setHasChannels(Array.isArray(channels) && channels.length > 0)
+      // Резолв какого бота показывать в инструкции:
+      // VIP-клиент с подключённым TG-каналом → `me.bot_handles.telegram` (например @ivision_conf_bot)
+      // Иначе fallback на системный @pluson_bot
+      const handles = (me as any)?.bot_handles || {}
+      const tg = (handles.telegram || '').replace(/^@/, '')
+      setBotHandle(tg || 'pluson_bot')
     } catch (e: any) {
       alert(e?.message || 'Не удалось загрузить гейты')
     } finally {
@@ -71,9 +81,17 @@ export default function ChatGatesTab() {
   useEffect(() => { loadAll() }, [])
 
   async function toggleActive(g: Gate) {
+    const turningOn = !g.is_active
     try {
-      const updated = await api.miniApp.chatGates.update(g.id, { is_active: !g.is_active })
+      const updated = await api.miniApp.chatGates.update(g.id, { is_active: turningOn })
       setGates(prev => prev.map(x => x.id === g.id ? updated : x))
+      // Явная обратная связь — иначе клиент не понимает, сохранилось ли изменение.
+      if (turningOn) {
+        alert(
+          'Гейт активирован.\n\nТеперь все сообщения от неподписанных будут удаляться. ' +
+          'Если бот не получает сообщений в чате — проверьте отключение privacy mode в @BotFather (см. жёлтый баннер выше).'
+        )
+      }
     } catch (e: any) {
       alert(e?.message || 'Не удалось переключить')
     }
@@ -116,11 +134,12 @@ export default function ChatGatesTab() {
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
         <div className="font-semibold text-amber-900 mb-1 flex items-center gap-1.5">
-          <AlertTriangle size={16} /> Включите отключение privacy mode у бота
+          <AlertTriangle size={16} /> Отключите privacy mode у бота <code className="font-mono">@{botHandle}</code>
         </div>
         <div className="text-amber-800">
           В <a href="https://t.me/BotFather" target="_blank" rel="noopener" className="underline">@BotFather</a>:
-          {' '}<code className="font-mono">/mybots</code> → выберите бот → <code>Bot Settings</code> → <code>Group Privacy</code> → <code>Disable</code>.
+          {' '}<code className="font-mono">/mybots</code> → выберите <code className="font-mono">@{botHandle}</code> → <code>Bot Settings</code> → <code>Group Privacy</code> → <code>Turn off</code>.
+          После этого нужно <strong>удалить бота из чата и заново добавить</strong> — privacy mode применяется только при добавлении.
           Без этого Telegram присылает боту только сообщения с упоминанием — гейт работать не будет.
         </div>
       </div>
@@ -172,6 +191,7 @@ export default function ChatGatesTab() {
       {(creating || editing) && (
         <GateModal
           initial={editing}
+          botHandle={botHandle}
           onClose={() => { setCreating(false); setEditing(null) }}
           onSaved={async () => { setCreating(false); setEditing(null); await loadAll() }}
         />
@@ -234,29 +254,56 @@ function GateCard({
       )}
 
       <div className="flex items-center gap-3 flex-wrap">
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={gate.is_active}
-            onChange={onToggle}
-            disabled={toggleDisabled}
-            className="w-4 h-4"
+        <button
+          type="button"
+          role="switch"
+          aria-checked={gate.is_active}
+          onClick={() => {
+            if (toggleDisabled) {
+              if (!hasChannels) {
+                alert('Сначала добавьте хотя бы один TG-канал основателя на вкладке «Основатель» в Mini App.')
+              } else {
+                alert('Сначала нажмите «Проверить настройки» — бот должен быть админом и в чате, и во всех каналах основателя.')
+              }
+              return
+            }
+            onToggle()
+          }}
+          className={`relative inline-flex items-center h-7 w-12 rounded-full transition-colors ${
+            toggleDisabled
+              ? 'bg-gray-200 cursor-not-allowed'
+              : gate.is_active
+                ? 'bg-green-500'
+                : 'bg-gray-300'
+          }`}
+          title={toggleDisabled ? 'Сначала «Проверить настройки» — должны быть все зелёные галочки ниже' : (gate.is_active ? 'Выключить гейт' : 'Включить гейт')}
+        >
+          <span
+            className={`inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${
+              gate.is_active ? 'translate-x-6' : 'translate-x-1'
+            }`}
           />
-          <span className={`text-sm ${toggleDisabled ? 'text-gray-400' : 'text-gray-700'}`}>
-            {gate.is_active ? 'Активен' : 'Выключен'}
-          </span>
-        </label>
+        </button>
+        <span className={`text-sm font-semibold ${
+          toggleDisabled
+            ? 'text-gray-400'
+            : gate.is_active
+              ? 'text-green-700'
+              : 'text-gray-600'
+        }`}>
+          {gate.is_active ? 'ГЕЙТ АКТИВЕН' : 'ГЕЙТ ВЫКЛЮЧЕН'}
+        </span>
         <button
           type="button"
           onClick={onVerify}
           disabled={verifying}
-          className="px-3 py-1.5 text-xs rounded bg-[#25455D] text-white flex items-center gap-1.5 disabled:opacity-50"
+          className="ml-auto px-3 py-1.5 text-xs rounded bg-[#25455D] text-white flex items-center gap-1.5 disabled:opacity-50"
         >
           {verifying ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           Проверить настройки
         </button>
         {gate.last_check_at && (
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-400 w-full">
             Проверено: {new Date(gate.last_check_at).toLocaleString('ru')}
           </span>
         )}
@@ -306,9 +353,10 @@ function CheckLine({ ok, okText, failText }: { ok: boolean; okText?: string; fai
 // ───────────────────── Modal ─────────────────────
 
 function GateModal({
-  initial, onClose, onSaved,
+  initial, botHandle, onClose, onSaved,
 }: {
   initial: Gate | null
+  botHandle: string
   onClose: () => void
   onSaved: () => void
 }) {
@@ -371,7 +419,7 @@ function GateModal({
           <p className="text-xs text-gray-500 mt-1">
             Числовой ID супергруппы/группы (начинается с «-100»). Как узнать:{' '}
             <a href="/dashboard/settings#tg-chat-id" className="text-[#25455D] underline">инструкция</a>.
-            Не забудьте добавить вашего бота админом в этот чат с правом «Удаление сообщений».
+            Не забудьте добавить бота <code className="font-mono">@{botHandle}</code> админом в этот чат с правом «Удаление сообщений».
           </p>
         </div>
 
