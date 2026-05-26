@@ -93,6 +93,16 @@ def build_key(
         # фото загружено и не использовано).
         return f"{base}/broadcast_photos/{fname}"
 
+    if kind == "event_video":
+        if not event_id:
+            raise ValueError("event_video требует event_id")
+        return f"{base}/events/{event_id}/videos/{fname}"
+
+    if kind == "speaker_video":
+        if not collaborator_id:
+            raise ValueError("speaker_video требует collaborator_id")
+        return f"{base}/speakers/{collaborator_id}/videos/{fname}"
+
     raise ValueError(f"Неизвестный kind: {kind}")
 
 

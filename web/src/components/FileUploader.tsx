@@ -17,7 +17,9 @@ import { Upload, Trash2, Loader2, Copy, Check, ImageIcon, FileText, AlertCircle 
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type UploadKind = 'event_poster' | 'certificate' | 'referral_material' | 'lead_magnet' | 'speaker_photo' | 'brand_photo' | 'brand_logo' | 'owner_photo' | 'funnel_media' | 'broadcast_photo'
+type UploadKind = 'event_poster' | 'certificate' | 'referral_material' | 'lead_magnet' | 'speaker_photo' | 'brand_photo' | 'brand_logo' | 'owner_photo' | 'funnel_media' | 'broadcast_photo' | 'event_video' | 'speaker_video'
+
+const VIDEO_KIND_SET: ReadonlySet<UploadKind> = new Set<UploadKind>(['event_video', 'speaker_video'])
 
 const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|ogg)(\?|$)/i
 function isVideoUrl(url: string): boolean {
@@ -74,11 +76,18 @@ export default function FileUploader(props: Props) {
 
   async function uploadOne(file: File): Promise<string> {
     // Клиентская проверка размера — до отправки на сервер.
-    // Лимит совпадает с nginx client_max_body_size = 50 МБ и Telegram bot API video = 50 МБ.
-    const MAX_BYTES = 50 * 1024 * 1024
+    // Для видео (event_video / speaker_video) лимит 100 МБ (cap Cloudflare).
+    // Для остального — 50 МБ (совпадает с nginx client_max_body_size и
+    // Telegram bot API video lim).
+    const isVideoKind = VIDEO_KIND_SET.has(kind)
+    const MAX_BYTES = isVideoKind ? 100 * 1024 * 1024 : 50 * 1024 * 1024
+    const MAX_MB = isVideoKind ? 100 : 50
     if (file.size > MAX_BYTES) {
       const sizeMb = (file.size / 1024 / 1024).toFixed(1)
-      throw new Error(`Файл ${sizeMb} МБ — больше лимита 50 МБ. Telegram-бот не принимает файлы крупнее 50 МБ. Сожмите видео (например, через QuickTime / Handbrake) и попробуйте снова.`)
+      const hint = isVideoKind
+        ? 'Сожмите видео (например, через QuickTime / Handbrake) или вырежьте короткий фрагмент.'
+        : 'Telegram-бот не принимает файлы крупнее 50 МБ. Сожмите видео (например, через QuickTime / Handbrake) и попробуйте снова.'
+      throw new Error(`Файл ${sizeMb} МБ — больше лимита ${MAX_MB} МБ. ${hint}`)
     }
 
     const fd = new FormData()
@@ -96,7 +105,8 @@ export default function FileUploader(props: Props) {
     })
     if (!r.ok) {
       if (r.status === 413) {
-        throw new Error('Файл больше 50 МБ — лимит превышен. Сожмите видео или загрузите файл поменьше.')
+        const limit = VIDEO_KIND_SET.has(kind) ? '100 МБ' : '50 МБ'
+        throw new Error(`Файл больше ${limit} — лимит превышен. Сожмите файл или загрузите поменьше.`)
       }
       const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }))
       throw new Error(err.detail || `HTTP ${r.status}`)

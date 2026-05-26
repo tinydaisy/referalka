@@ -97,6 +97,8 @@ type SpeakerMaterials = {
   event_title: string
   posters: { id: number; url: string; orientation: 'horizontal' | 'vertical' | 'square'; sort: number }[]
   speaker_poster_url: string | null
+  event_video_url: string | null
+  speaker_video_url: string | null
   announcement_texts: { id: number; content: string; sort: number }[]
   ref_links: { telegram?: string; vk?: string; max?: string }
   partner_link: { telegram?: string; vk?: string; max?: string }
@@ -985,12 +987,43 @@ function MaterialsTab({
     { key: 'max',      label: 'MAX',      url: materials.partner_link.max },
   ].filter(x => !!x.url) as { key: string; label: string; url: string }[]
 
+  // Карточка для видео — превью с native controls + кнопка скачать.
+  function VideoCard({ url, alt }: { url: string; alt: string }) {
+    return (
+      <div style={{
+        border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#000',
+        maxWidth: 320,
+      }}>
+        <video
+          src={url}
+          controls
+          preload="metadata"
+          style={{ width: '100%', display: 'block', background: '#000' }}
+        />
+        <a
+          href={url}
+          download
+          target="_blank"
+          rel="noreferrer"
+          aria-label={alt}
+          style={{
+            display: 'block', textAlign: 'center', padding: '6px 8px',
+            fontSize: 11, color: DARK, textDecoration: 'none',
+            background: '#fff', borderTop: '1px solid #d4dee5',
+          }}
+        >
+          ⬇ Скачать
+        </a>
+      </div>
+    )
+  }
+
   return (
     <div>
-      {/* Личная афиша спикера */}
+      {/* Индивидуальная афиша */}
       {materials.speaker_poster_url && (
         <div style={sectionCss}>
-          <div style={titleCss}>Ваша личная афиша</div>
+          <div style={titleCss}>Индивидуальная афиша</div>
           <div style={subCss}>
             Афиша с вашим фото/именем, подготовленная под это событие. Откройте кликом или скачайте.
           </div>
@@ -1000,7 +1033,7 @@ function MaterialsTab({
             }}>
               <img
                 src={materials.speaker_poster_url}
-                alt="Личная афиша"
+                alt="Индивидуальная афиша"
                 onClick={() => setLightbox(materials.speaker_poster_url!)}
                 style={{
                   width: '100%', aspectRatio: '9/16',
@@ -1025,9 +1058,9 @@ function MaterialsTab({
         </div>
       )}
 
-      {/* Афиши события */}
+      {/* Общие афиши */}
       <div style={sectionCss}>
-        <div style={titleCss}>Афиши события</div>
+        <div style={titleCss}>Общие афиши</div>
         <div style={subCss}>
           Картинки для анонса в ваших каналах. Кликните, чтобы открыть на весь экран, или скачайте.
         </div>
@@ -1067,6 +1100,28 @@ function MaterialsTab({
           </div>
         )}
       </div>
+
+      {/* Индивидуальное видео */}
+      {materials.speaker_video_url && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Индивидуальное видео</div>
+          <div style={subCss}>
+            Видео, подготовленное организатором лично для вас. Можно посмотреть прямо тут или скачать.
+          </div>
+          <VideoCard url={materials.speaker_video_url} alt="Индивидуальное видео" />
+        </div>
+      )}
+
+      {/* Общее видео */}
+      {materials.event_video_url && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Общее видео</div>
+          <div style={subCss}>
+            Видео для анонса события в ваших каналах. Можно посмотреть прямо тут или скачать.
+          </div>
+          <VideoCard url={materials.event_video_url} alt="Общее видео" />
+        </div>
+      )}
 
       {/* Тексты-анонсы */}
       <div style={sectionCss}>

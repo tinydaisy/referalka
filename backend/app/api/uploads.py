@@ -17,8 +17,11 @@ GET    /api/v1/storage/usage     — текущее использование �
     funnel_media      (фото/видео для текстов воронки лид-магнитов)
     broadcast_photo   (фото для произвольной рассылки; авто-удаляется через 10 мин
                        после отправки воркером cleanup_broadcast_photos)
+    event_video       (требует event_id; общее видео события — для скачивания спикерами)
+    speaker_video     (требует collaborator_id; индивидуальное видео коллаба)
 
 Картинки автоматически ресайзятся под kind (см. image_processor.MAX_DIM_BY_KIND).
+Видео (event_video, speaker_video) сохраняются как есть, лимит 100 МБ (Cloudflare cap).
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from typing import Optional
@@ -32,7 +35,13 @@ from app.services.image_processor import process_image, is_image
 router = APIRouter(tags=["Загрузка файлов"])
 
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 МБ — жёсткий лимит на один файл
+MAX_FILE_SIZE = 50 * 1024 * 1024            # 50 МБ — дефолтный лимит
+MAX_FILE_SIZE_VIDEO = 100 * 1024 * 1024     # 100 МБ — лимит для видео (упирается в Cloudflare cap)
+VIDEO_KINDS = {"event_video", "speaker_video"}
+
+
+def _is_video(content_type: str) -> bool:
+    return (content_type or "").lower().startswith("video/")
 
 
 def _human_bytes(n: int) -> str:
@@ -77,30 +86,36 @@ async def upload_file(
     if kind not in {
         "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
         "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
+        "event_video", "speaker_video",
     }:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 
-    if kind in ("event_poster", "certificate", "referral_material"):
+    if kind in ("event_poster", "certificate", "referral_material", "event_video"):
         if not event_id:
             raise HTTPException(400, detail=f"{kind} требует event_id")
         await _check_event_belongs(event_id, client_id, db)
     if kind == "event_poster" and poster_type not in ("horizontal", "vertical", "square"):
         raise HTTPException(400, detail="event_poster требует poster_type=horizontal|vertical|square")
-    if kind == "speaker_photo":
+    if kind in ("speaker_photo", "speaker_video"):
         if not collaborator_id:
-            raise HTTPException(400, detail="speaker_photo требует collaborator_id")
+            raise HTTPException(400, detail=f"{kind} требует collaborator_id")
         await _check_collaborator_belongs(collaborator_id, client_id, db)
 
-    # 2. Читаем содержимое
+    # 2. Читаем содержимое. Для видео лимит выше — 100 МБ (cap Cloudflare).
     raw = await file.read()
     if len(raw) == 0:
         raise HTTPException(400, detail="Пустой файл")
-    if len(raw) > MAX_FILE_SIZE:
-        raise HTTPException(413, detail=f"Файл больше {_human_bytes(MAX_FILE_SIZE)}")
+    size_limit = MAX_FILE_SIZE_VIDEO if kind in VIDEO_KINDS else MAX_FILE_SIZE
+    if len(raw) > size_limit:
+        raise HTTPException(413, detail=f"Файл больше {_human_bytes(size_limit)}")
 
-    # 3. Ресайз картинок (если применимо)
+    # 3. Ресайз картинок (если применимо). Видео сохраняем как есть.
     content_type = file.content_type or "application/octet-stream"
-    if is_image(content_type):
+    if kind in VIDEO_KINDS:
+        if not _is_video(content_type):
+            raise HTTPException(400, detail="Ожидается видео (video/mp4, video/webm и т.п.)")
+        ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "mp4"
+    elif is_image(content_type):
         processed, new_ct, new_ext = process_image(raw, kind, content_type)
         raw, content_type, ext = processed, new_ct, new_ext
     else:

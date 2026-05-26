@@ -117,6 +117,9 @@ class UpdateEventRequest(BaseModel):
     welcome_enabled: Optional[bool] = None
     welcome_text: Optional[str] = None
     welcome_email_subject: Optional[str] = None
+    # Общее видео события (миграция 113). Для скачивания спикерами на странице
+    # самоправки → вкладка «Материалы».
+    video_url: Optional[str] = None
 
 
 @router.get("/", summary="Список событий клиента")

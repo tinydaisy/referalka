@@ -102,6 +102,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         poster_url: form.poster_url,
         photo_folder_url: form.photo_folder_url,
         video_folder_url: form.video_folder_url,
+        video_url: form.video_url || null,
         tg_channel_url: form.tg_channel_url,
         instagram_url: form.instagram_url,
         website_url: form.website_url,
@@ -271,6 +272,23 @@ export default function CollaborationPage({ params }: { params: { id: string } }
               aspectClass="aspect-video"
               emptyText="Афиша/обложка"
               buttonLabel="Загрузить"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Индивидуальное видео</label>
+            <p className="text-xs text-gray-400 mb-2">
+              Один файл (mp4/webm/mov, до 100 МБ) — будет доступен на скачивание этому спикеру в его кабинете во вкладке «Материалы».
+            </p>
+            <FileUploader
+              mode="single"
+              kind="speaker_video"
+              collaboratorId={collaboratorId}
+              value={form.video_url || null}
+              onChange={u => setForm((f: any) => ({ ...f, video_url: u || '' }))}
+              accept="video/*"
+              aspectClass="aspect-video"
+              emptyText="Видео не загружено"
+              buttonLabel="Загрузить видео"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">

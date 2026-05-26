@@ -90,6 +90,9 @@ class CollaboratorCreate(BaseModel):
     poster_url: Optional[str] = None
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
+    # Индивидуальное видео коллаба (миграция 113) — один файл в R2.
+    # Отдаётся ему же на странице самоправки → вкладка «Материалы».
+    video_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
@@ -117,6 +120,7 @@ class CollaboratorUpdate(BaseModel):
     poster_url: Optional[str] = None
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
+    video_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
@@ -155,7 +159,7 @@ def row_to_dict(row):
 # и Mini App не пришлось менять.
 _COLLAB_SELECT = """
     c.id, c.name, c.title, c.achievements,
-    c.photo_url, c.poster_url, c.photo_folder_url, c.video_folder_url,
+    c.photo_url, c.poster_url, c.photo_folder_url, c.video_folder_url, c.video_url,
     c.tg_channel_url, c.vk_url, c.max_url,
     c.instagram_url, c.website_url,
     c.tg_channel_id, c.assistant_tg_username,

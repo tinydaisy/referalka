@@ -56,19 +56,31 @@ function SubTabs({ current, onChange }: { current: SubTab; onChange: (t: SubTab)
 
 function PostersBlock({ eventId }: { eventId: number }) {
   const [items, setItems] = useState<Poster[]>([])
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
     try {
-      const r = await api.referralProgram.posters.list(eventId)
+      const [r, ev] = await Promise.all([
+        api.referralProgram.posters.list(eventId),
+        api.events.get(eventId),
+      ])
       setItems(r.items || [])
+      setVideoUrl(ev?.event?.video_url ?? ev?.video_url ?? null)
       setErr(null)
     } catch (e: any) { setErr(e.message) }
     finally { setLoading(false) }
   }
   useEffect(() => { load() }, [eventId])
+
+  async function saveVideoUrl(url: string | null) {
+    try {
+      await api.events.update(eventId, { video_url: url })
+      setVideoUrl(url)
+    } catch (e: any) { setErr(e.message) }
+  }
 
   async function handleChange(orientation: Orientation, newUrls: string[]) {
     const oldItems = items.filter(p => p.orientation === orientation)
@@ -126,6 +138,27 @@ function PostersBlock({ eventId }: { eventId: number }) {
           </div>
         )
       })}
+
+      {/* Общее видео события — отдаётся всем спикерам на их странице «Материалы». */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="mb-4">
+          <h3 className="font-semibold text-gray-900">Общее видео</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Один файл (mp4/webm/mov, до 100 МБ) — будет доступен на скачивание спикерам в их кабинете во вкладке «Материалы».
+          </p>
+        </div>
+        <FileUploader
+          mode="single"
+          kind="event_video"
+          eventId={eventId}
+          accept="video/*"
+          value={videoUrl}
+          onChange={u => saveVideoUrl(u)}
+          aspectClass="aspect-video"
+          emptyText="Видео не загружено"
+          buttonLabel="Загрузить видео"
+        />
+      </div>
     </div>
   )
 }
