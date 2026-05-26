@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from html import escape
 
 from aiogram import Bot, F, Router
@@ -34,6 +35,39 @@ from app.services.funnel_service import check_telegram_channels_subscription
 
 router = Router()
 log = logging.getLogger(__name__)
+
+# In-memory кеш «подписан/не подписан» для конкретного юзера в конкретном чате.
+# Ключ: (chat_id_str, user_id). Значение: (decision_ok: bool, expires_at: float).
+# decision_ok=True — пропускаем; False — удаляем (и так понятно что не подписан).
+# TTL короткий (60 сек) — чтобы человек, который подписался после удаления,
+# не ждал минуты на разблокировку, но не дёргать API на каждое сообщение в чате.
+_SUB_CACHE: dict[tuple[str, int], tuple[bool, float]] = {}
+_SUB_CACHE_TTL_SEC = 60.0
+_SUB_CACHE_MAX = 5000  # защита от бесконечного роста на проде
+
+
+def _cache_get(chat_id: str, user_id: int) -> bool | None:
+    """Возвращает кешированное решение или None если кеш протух/нет."""
+    entry = _SUB_CACHE.get((chat_id, user_id))
+    if not entry:
+        return None
+    decision_ok, expires_at = entry
+    if expires_at < time.monotonic():
+        _SUB_CACHE.pop((chat_id, user_id), None)
+        return None
+    return decision_ok
+
+
+def _cache_put(chat_id: str, user_id: int, decision_ok: bool) -> None:
+    if len(_SUB_CACHE) >= _SUB_CACHE_MAX:
+        # Прореживаем — удаляем все протухшие записи (а если их мало, чистим всё).
+        now = time.monotonic()
+        expired = [k for k, (_, exp) in _SUB_CACHE.items() if exp < now]
+        for k in expired:
+            _SUB_CACHE.pop(k, None)
+        if len(_SUB_CACHE) >= _SUB_CACHE_MAX:
+            _SUB_CACHE.clear()
+    _SUB_CACHE[(chat_id, user_id)] = (decision_ok, time.monotonic() + _SUB_CACHE_TTL_SEC)
 
 
 DEFAULT_WARNING_TEMPLATE = (
@@ -89,6 +123,16 @@ async def handle_group_message(message: Message, bot: Bot):
     if not message.from_user or message.from_user.is_bot:
         return
     chat_id_str = str(message.chat.id)
+    user_id = message.from_user.id
+    t_start = time.monotonic()
+
+    # Быстрый путь: если на этого юзера в этом чате уже есть свежее решение «подписан» —
+    # пропускаем без обращения к БД и Telegram API. Это главная оптимизация для «активных»
+    # юзеров: первое сообщение проверяется (~1-2 сек), все следующие 60 сек — мгновенно.
+    cached = _cache_get(chat_id_str, user_id)
+    if cached is True:
+        return  # подписан — пропускаем
+
     pool = await get_pool()
     async with pool.acquire() as db:
         # 1) Ищем активный гейт для этого чата.
@@ -149,19 +193,22 @@ async def handle_group_message(message: Message, bot: Bot):
             )
             return
 
+        # Кешируем решение проверки на 60 сек: следующее сообщение этого юзера в этом чате
+        # пройдёт мимо БД и Telegram API.
+        _cache_put(chat_id_str, user_id, bool(sub.get("ok")))
+
         if sub.get("ok"):
+            log.info(
+                "chat_gate: gate=%s user=%s ALLOW in %.2fs",
+                gate["id"], user_id, time.monotonic() - t_start,
+            )
             return  # подписан на все — пропускаем
 
-        # 4) Не подписан хоть на один — удаляем сообщение + предупреждение.
-        try:
-            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
-        except Exception as e:
-            log.warning("chat_gate: delete_message failed for gate=%s: %s", gate["id"], e)
-
-        # Имя основателя и список неподписанных каналов
-        founder_name = await db.fetchval(
-            "SELECT name FROM clients WHERE id = $1", gate["client_id"]
-        ) or ""
+        # 4) Не подписан хоть на один — параллельно: удаляем сообщение + готовим
+        # предупреждение + достаём имя основателя из БД. delete и send выполняются
+        # одновременно через asyncio.gather — это экономит ~500ms (раньше было
+        # последовательно). reply_to_message_id указывает на УЖЕ удалённое сообщение —
+        # Telegram это поддерживает, предупреждение визуально привязывается к нарушителю.
         missing = sub.get("missing") or []
         channel_lines: list[str] = []
         for ch in missing:
@@ -172,7 +219,7 @@ async def handle_group_message(message: Message, bot: Bot):
             channel_lines.append(f"• {name}: {url}" if name else f"• {url}")
 
         # «Имя обращения»: first_name + (опционально) «(@username)» — чтобы человек сразу видел
-        # что обращение именно к нему, и при ответе из соседнего сообщения было понятно кто.
+        # что обращение именно к нему.
         first = (message.from_user.first_name or "").strip()
         username = (message.from_user.username or "").strip()
         if first and username:
@@ -183,6 +230,10 @@ async def handle_group_message(message: Message, bot: Bot):
             user_name = f"@{username}"
         else:
             user_name = "Друг"
+
+        founder_name = await db.fetchval(
+            "SELECT name FROM clients WHERE id = $1", gate["client_id"]
+        ) or ""
         warning_text = _render_warning(
             gate["warning_text"],
             user_name=user_name,
@@ -190,17 +241,29 @@ async def handle_group_message(message: Message, bot: Bot):
             founder_name=founder_name,
         )
 
-        try:
-            warn = await bot.send_message(
-                chat_id=message.chat.id,
-                text=warning_text,
-                # reply_to_message_id указывает на УЖЕ удалённое сообщение — Telegram
-                # это поддерживает, предупреждение визуально привязывается к нарушителю.
-                reply_to_message_id=message.message_id,
-                parse_mode=ParseMode.HTML,
-            )
-            asyncio.create_task(
-                _delete_later(bot, message.chat.id, warn.message_id, gate["warning_ttl_sec"])
-            )
-        except Exception as e:
-            log.warning("chat_gate: send warning failed for gate=%s: %s", gate["id"], e)
+        async def _do_delete():
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+            except Exception as e:
+                log.warning("chat_gate: delete_message failed for gate=%s: %s", gate["id"], e)
+
+        async def _do_warn():
+            try:
+                warn = await bot.send_message(
+                    chat_id=message.chat.id,
+                    text=warning_text,
+                    reply_to_message_id=message.message_id,
+                    parse_mode=ParseMode.HTML,
+                )
+                asyncio.create_task(
+                    _delete_later(bot, message.chat.id, warn.message_id, gate["warning_ttl_sec"])
+                )
+            except Exception as e:
+                log.warning("chat_gate: send warning failed for gate=%s: %s", gate["id"], e)
+
+        await asyncio.gather(_do_delete(), _do_warn())
+
+        log.info(
+            "chat_gate: gate=%s user=%s DELETE+WARN in %.2fs (missing=%d)",
+            gate["id"], user_id, time.monotonic() - t_start, len(missing),
+        )
