@@ -59,14 +59,19 @@ export default function LeadMagnetsPage() {
     const t = new URLSearchParams(window.location.search).get('tab')
     return (t === 'packages' || t === 'template') ? t as Tab : 'magnets'
   })
-  const [tgChannel, setTgChannel] = useState<string | null | undefined>(undefined)
+  // Канал(ы) основателя для воронки — массив (миграция 114).
+  // null = ещё не загружено или загружено и пусто; [] = загружено и пусто; [..] = есть.
+  const [tgChannels, setTgChannels] = useState<{ url: string; name?: string }[] | null>(null)
   // Сводные счётчики по всем лид-магнитам + всем пакетам (есть contact_id / получили)
   const [totals, setTotals] = useState<{ reached: number; received: number } | null>(null)
 
   useEffect(() => {
     api.miniApp.profile.get()
-      .then((p: any) => setTgChannel((p?.social_links || {}).telegram || null))
-      .catch(() => setTgChannel(null))
+      .then((p: any) => {
+        const list = (p?.social_links || {}).telegram_channels
+        setTgChannels(Array.isArray(list) ? list : [])
+      })
+      .catch(() => setTgChannels([]))
   }, [])
 
   useEffect(() => {
@@ -109,22 +114,42 @@ export default function LeadMagnetsPage() {
         )}
       </div>
 
-      {tgChannel === null && (
+      {tgChannels !== null && tgChannels.length === 0 && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
           <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
           <div className="flex-1 text-sm">
-            <div className="font-semibold text-amber-900 mb-1">Канал подписки не настроен</div>
+            <div className="font-semibold text-amber-900 mb-1">Канал(ы) основателя не настроены</div>
             <div className="text-amber-800">
               Без канала бот не сможет проверить подписку — материалы по воронке выдаваться не будут.
-              Укажите ссылку на ваш Telegram-канал в визитке основателя.
+              Укажите хотя бы один Telegram-канал основателя.
             </div>
             <a
               href="/dashboard/mini-app?tab=owner"
               className="inline-flex items-center gap-1 mt-2 text-sm font-medium underline text-amber-900 hover:text-amber-700"
             >
-              Настроить канал →
+              Настроить каналы →
             </a>
           </div>
+        </div>
+      )}
+      {tgChannels !== null && tgChannels.length > 0 && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+          <div className="font-semibold text-gray-900 mb-1">
+            Воронка проверит подписку на {tgChannels.length === 1 ? 'канал' : `${tgChannels.length} канала(ов)`}:
+          </div>
+          <ul className="space-y-0.5">
+            {tgChannels.map((ch, i) => (
+              <li key={i} className="text-gray-700">
+                • {ch.name ? `${ch.name} — ` : ''}<a href={ch.url} target="_blank" rel="noopener" className="text-[#25455D] underline">{ch.url}</a>
+              </li>
+            ))}
+          </ul>
+          <a
+            href="/dashboard/mini-app?tab=owner"
+            className="inline-flex items-center gap-1 mt-2 text-xs underline text-[#25455D]"
+          >
+            Изменить список каналов →
+          </a>
         </div>
       )}
 

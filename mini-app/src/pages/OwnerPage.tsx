@@ -3,6 +3,7 @@
  * Большое фото, имя, позиционирование, факты в цифрах, биография, соцсети.
  */
 interface Achievement { label: string; value: string }
+interface TgChannel { url: string; chat_id?: string; name?: string }
 interface Profile {
   id: number
   name: string
@@ -10,7 +11,15 @@ interface Profile {
   owner_positioning?: string | null
   owner_achievements?: Achievement[]
   bio?: string | null
-  social_links?: { instagram?: string; telegram?: string; youtube?: string; vk?: string; website?: string }
+  // social_links: telegram_channels — массив (миграция 114),
+  // остальные ключи — одиночные ссылки.
+  social_links?: {
+    telegram_channels?: TgChannel[]
+    instagram?: string
+    youtube?: string
+    vk?: string
+    website?: string
+  } & Record<string, any>
 }
 
 interface Props {
@@ -61,8 +70,8 @@ function IconGlobe() {
   )
 }
 
-const SOCIAL_META: { key: keyof NonNullable<Profile['social_links']>; label: string; Icon: () => JSX.Element }[] = [
-  { key: 'telegram',  label: 'Telegram',  Icon: IconTelegram },
+// Telegram-каналы — отдельным списком (массив), остальные соцсети — одиночные иконки.
+const SOCIAL_META: { key: 'instagram' | 'youtube' | 'vk' | 'website'; label: string; Icon: () => JSX.Element }[] = [
   { key: 'instagram', label: 'Instagram', Icon: IconInstagram },
   { key: 'youtube',   label: 'YouTube',   Icon: IconYoutube },
   { key: 'vk',        label: 'VK',        Icon: IconVk },
@@ -81,6 +90,9 @@ export default function OwnerPage({ profile, onBack }: Props) {
   const role = profile.owner_positioning || ''
   const ach = (profile.owner_achievements || []).filter(a => a.label?.trim() && a.value?.trim())
   const socials = SOCIAL_META.filter(s => profile.social_links?.[s.key])
+  const tgChannels: TgChannel[] = Array.isArray(profile.social_links?.telegram_channels)
+    ? profile.social_links!.telegram_channels!
+    : []
 
   return (
     <div className="fade-in">
@@ -151,8 +163,8 @@ export default function OwnerPage({ profile, onBack }: Props) {
         </div>
       )}
 
-      {/* Соцсети */}
-      {socials.length > 0 && (
+      {/* Соцсети (Telegram-каналов может быть несколько, остальные — по одному) */}
+      {(socials.length > 0 || tgChannels.length > 0) && (
         <div style={{ marginBottom: 24 }}>
           <div style={{
             fontSize: 10, color: PEACH, fontWeight: 700, letterSpacing: 1.5,
@@ -161,6 +173,19 @@ export default function OwnerPage({ profile, onBack }: Props) {
             Соцсети
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {tgChannels.map((ch, i) => (
+              <a key={`tg-${i}`} href={ch.url} target="_blank" rel="noreferrer"
+                 style={{
+                   display: 'inline-flex', alignItems: 'center', gap: 8,
+                   background: 'linear-gradient(135deg, #25455D, #0a1520)',
+                   padding: '10px 14px', borderRadius: 12, border: 'none',
+                   color: PEACH, fontWeight: 800, fontSize: 13, textDecoration: 'none',
+                   boxShadow: '0 2px 6px rgba(37,69,93,0.18)',
+                 }}>
+                <span style={{ display: 'inline-flex', color: PEACH }}><IconTelegram /></span>
+                {ch.name?.trim() ? ch.name : 'Telegram'}
+              </a>
+            ))}
             {socials.map(s => (
               <a key={s.key} href={profile.social_links?.[s.key]} target="_blank" rel="noreferrer"
                  style={{

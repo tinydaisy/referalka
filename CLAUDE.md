@@ -88,6 +88,41 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Гейт по подписке в TG-чатах + массив каналов основателя (миграции 114, 115 от 2026-05-26)
+
+**Зачем.** Клиент включает в своих Telegram-чатах правило: участник может писать только если подписан на ВСЕ TG-каналы основателя клиента. Раньше у клиента поддерживался ОДИН TG-канал (`clients.social_links->>'telegram'` + `telegram_chat_id`). Теперь — **массив** каналов (несколько TG-каналов основателя).
+
+**БД:**
+- **Миграция 114** — `clients.social_links.telegram_channels` = массив `[{ url, chat_id, name }]`. Бэкфилл из старых ключей `social_links.telegram` + `social_links.telegram_chat_id`, после чего эти ключи удалены. Поведение нормализатора `normalize_social_links` ([services/social_links.py](backend/app/services/social_links.py)) — теперь принимает legacy-ключи на запись и сам конвертит в массив (защита на случай если фронт-клиент кеширует старую форму).
+- **Миграция 115** — `client_chat_gates (id, client_id, chat_id, chat_title, warning_text, warning_ttl_sec, is_active, last_error, last_error_at, last_check_at)`. Один чат — один гейт (UNIQUE chat_id).
+
+**Где используется массив каналов:**
+1. **Воронка лид-магнита** ([funnel_service.py](backend/app/services/funnel_service.py)) — `check_telegram_channels_subscription(client_id, tg_id, db)` параллельно через `asyncio.gather` проверяет подписку на ВСЕ каналы из массива. `run_check_subscription` использует эту функцию вместо одиночного `getChatMember`. Если хоть на один канал не подписан → `'not_subscribed'`, алерт в [handlers/funnel.py](backend/bot/handlers/funnel.py) перечисляет НЕподписанные каналы (до 3 шт).
+2. **Чат-гейт** ([bot/handlers/chat_gate.py](backend/bot/handlers/chat_gate.py)) — на каждое сообщение в group/supergroup ищет активный `client_chat_gates` по `chat.id`, дёргает ту же `check_telegram_channels_subscription`, не подписан → `delete_message` + `send_message` с reply_to_message_id на УЖЕ удалённое сообщение + авто-удаление предупреждения через `warning_ttl_sec`. Бот любого клиента (`bot.id` → `channels.id` → `client_channels`) обрабатывает только гейты СВОЕГО клиента; системный @pluson_bot — обрабатывает гейты любых клиентов на bare-тарифе.
+3. **Mini App / Экосистема / OwnerPage** ([EcosystemTab.tsx](mini-app/src/tabs/EcosystemTab.tsx), [OwnerPage.tsx](mini-app/src/pages/OwnerPage.tsx)) — массив отрисовывается как несколько TG-иконок, под каждой `name` или «Telegram».
+4. **Подсказка в /dashboard/lead-magnets** — баннер «Воронка проверит подписку на N канала(ов)» со списком.
+
+**Авто-выключение гейта (fail-open).** Если в момент обработки сообщения бот не админ хоть в одном TG-канале основателя (`getChatMember` → `bot_not_in_channel`/`chat_not_found`) — гейт сам ставится `is_active=FALSE` с `last_error`, сообщение **НЕ удаляется**. В UI клиент видит красную плашку «Гейт автовыключен: …». Это сознательный компромисс: лучше пропустить лишнее, чем удалить честное.
+
+**Самопроверка гейта** — `POST /api/v1/clients/me/chat-gates/{id}/verify`. Возвращает:
+- `bot_in_chat` + `bot_in_chat_can_delete` (через `getChatMember(chat_id, bot_id)`)
+- `channels[]` — на каждый канал основателя `bot_in_channel`
+- `ready` — `True` если бот в чате и во всех каналах
+
+Тумблер «Активен» в UI становится Enabled только когда `ready=true`. Privacy mode (отключение в @BotFather) программно проверить через Bot API нельзя — выводим в UI как текстовое предупреждение.
+
+**API клиента:** `/api/v1/clients/me/chat-gates` — GET/POST/PATCH/DELETE + `/verify`. Регистрируется в [main.py](backend/app/main.py).
+
+**Endpoint резолва chat_id** ([client_profile.py:resolve_telegram_chat_id](backend/app/api/client_profile.py)) больше НЕ сохраняет в БД (раньше писал в `social_links.telegram_chat_id`). Теперь возвращает `{chat_id, username}` — фронт сам кладёт в нужный элемент массива и шлёт `PATCH /me/profile`. Принимает `{username}` или `{url}`.
+
+**Дашборд:**
+- `/dashboard/mini-app` → вкладка «Основатель» → новая секция «Telegram каналы основателя» (компонент [FounderTgChannelsField.tsx](web/src/components/FounderTgChannelsField.tsx) — список с add/remove/reorder).
+- `/dashboard/settings` → новая вкладка «Гейт в чатах» (компонент [ChatGatesTab.tsx](web/src/components/settings/ChatGatesTab.tsx) — CRUD + verify).
+
+**⚠️ Privacy mode у бота** — у каждого бота в @BotFather → Bot Settings → Group Privacy → **Disable**. Без этого Telegram присылает только сообщения с упоминанием, гейт не работает. В UI этот пункт подсвечен жёлтым баннером.
+
+**⚠️ Не путать с `subscription_check.py`** — там проверка подписки на каналы **спикеров** события через `collaborators.tg_channel_id` (для входа в чат события из Mini App). Это другая фича, не трогаем.
+
 ### Тексты-анонсы + вкладка «Материалы» в кабинете спикера (миграция 112 от 2026-05-25)
 
 **Зачем.** Параллельно с реф-программой («зови друзей за подарки» — аудитория участник) — отдельная сущность для спикеров/партнёров: готовые тексты-анонсы события. Их собирает организатор, а спикер открывает свой self-service кабинет, копирует и шлёт своей аудитории.

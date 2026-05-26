@@ -17,7 +17,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from bot.handlers import start, funnel, chat_member
+from bot.handlers import start, funnel, chat_member, chat_gate
 from app.config import settings
 from app.database import get_pool
 
@@ -107,6 +107,10 @@ async def main() -> None:
     dp = Dispatcher()
     dp.include_router(funnel.router)
     dp.include_router(chat_member.router)
+    # chat_gate должен быть ПЕРЕД start.router: в групповых сообщениях
+    # /start <param> может попадать в start handler если он зарегистрирован раньше,
+    # а нам нужно сначала проверить подписку и при необходимости удалить.
+    dp.include_router(chat_gate.router)
     dp.include_router(start.router)
 
     logger.info("Запущено %d бот(ов) в polling-режиме", len(bots))

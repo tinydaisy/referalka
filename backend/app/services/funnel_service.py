@@ -17,7 +17,7 @@ import httpx
 import json
 import logging
 from app.services.channels import get_client_telegram_token
-from app.services.social_links import normalize_telegram_link, telegram_api_id
+from app.services.social_links import normalize_telegram_link, telegram_api_id, get_founder_tg_channels
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -86,22 +86,22 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
                 sub_channel_chat_id = ""
         owner_link = sub_channel
     else:
-        # Telegram (default)
-        # В тексте — https-ссылка (работает и для открытых, и для закрытых каналов с инвайт-кодом).
-        # @-префикс не годится: для `+abc...` даёт мусор `@+abc...`.
-        tg_link = (social or {}).get("telegram") or ""
-        sub_channel = normalize_telegram_link(tg_link)
-        sub_channel_api = telegram_api_id(tg_link)  # @username для getChatMember (открытый канал)
-        # Числовой chat_id канала — самое надёжное для getChatMember, работает и для
-        # закрытых каналов (если бот в канале админ). Сохраняется кнопкой «Получить ID»
-        # в /dashboard/mini-app или вручную через инструкцию в /dashboard/settings.
-        raw_chat_id = (social or {}).get("telegram_chat_id")
-        if raw_chat_id is not None and str(raw_chat_id).strip():
-            try:
-                sub_channel_chat_id = str(int(raw_chat_id))
-            except (TypeError, ValueError):
-                sub_channel_chat_id = ""
-        owner_link = sub_channel
+        # Telegram (default) — массив каналов основателя (миграция 114).
+        # Старые legacy-ключи (telegram/telegram_chat_id) подхватываются get_founder_tg_channels
+        # как fallback на случай если миграция ещё не накатана.
+        tg_channels_full = get_founder_tg_channels(social)
+        # Для текста — все ссылки через перенос строки (если 1 канал — один URL без переноса).
+        sub_channel = "\n".join(ch["url"] for ch in tg_channels_full) if tg_channels_full else ""
+        # Первый канал — для совместимости со старыми плейсхолдерами `subscription_channel_api`
+        # и `subscription_channel_chat_id` (используются в VK-логике и устаревших путях кода).
+        if tg_channels_full:
+            first = tg_channels_full[0]
+            sub_channel_api = telegram_api_id(first["url"])
+            sub_channel_chat_id = first.get("chat_id") or ""
+        owner_link = tg_channels_full[0]["url"] if tg_channels_full else ""
+        # Полный список каналов — для проверки подписки на ВСЕ в run_check_subscription
+        # и для построения списка «не подписан на: ...» в handler/funnel.
+        # См. функцию `check_telegram_channels_subscription` ниже.
 
     achievements = row["owner_achievements"] or []
     if isinstance(achievements, str):
@@ -120,15 +120,21 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
             elif value:
                 parts.append(f"• {value}")
         achievements_text = "\n".join(parts)
+    # tg_channels — массив всех TG-каналов основателя (для проверки подписки на ВСЕ).
+    # Заполняется только для платформы 'telegram'; для 'vk' — пусто.
+    tg_channels: list[dict] = []
+    if platform != "vk":
+        tg_channels = get_founder_tg_channels(social)
     return {
         "brand_name": row["brand_name"] or "",
         "owner_name": row["owner_name"] or "",
         "owner_bio": row["bio"] or "",
         "owner_achievements": achievements_text,
-        "subscription_channel": sub_channel,                   # https-ссылка для текста
-        "subscription_channel_api": sub_channel_api,           # TG @username / VK screen_name
-        "subscription_channel_chat_id": sub_channel_chat_id,   # числовой id (приоритет)
+        "subscription_channel": sub_channel,                   # https-ссылка (или список через \n) для текста
+        "subscription_channel_api": sub_channel_api,           # TG @username первого канала / VK screen_name
+        "subscription_channel_chat_id": sub_channel_chat_id,   # числовой id первого канала (для VK group_id)
         "owner_telegram": owner_link,
+        "tg_channels": tg_channels,                            # массив для проверки подписки на ВСЕ
     }
 
 
@@ -395,6 +401,115 @@ async def _check_subscription(token: str, channel: str, user_id: str) -> bool:
     except Exception as e:
         log.warning("getChatMember error: %s", e)
     return False
+
+
+async def _check_subscription_detailed(token: str, channel: str, user_id: str) -> dict:
+    """Расширенная версия `_check_subscription`: возвращает причину невозможности проверки.
+
+    Returns:
+        {"ok": True}                                         — подписан
+        {"ok": False, "reason": "not_subscribed"}            — не подписан (left/kicked)
+        {"ok": False, "reason": "bot_not_in_channel"}        — бот сам не в канале/нет прав на getChatMember
+        {"ok": False, "reason": "chat_not_found"}            — канал не найден / некорректный chat_id
+        {"ok": False, "reason": "network_error"}             — сетевая ошибка / таймаут (fail-open в вызывающем коде)
+    """
+    if not channel:
+        return {"ok": True}
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(
+                f"https://api.telegram.org/bot{token}/getChatMember",
+                params={"chat_id": channel, "user_id": user_id}
+            )
+            data = r.json()
+    except Exception as e:
+        log.warning("getChatMember network error for %s: %s", channel, e)
+        return {"ok": False, "reason": "network_error"}
+    if data.get("ok"):
+        status = data["result"].get("status", "")
+        if status in ("member", "administrator", "creator"):
+            return {"ok": True}
+        # left, kicked, restricted — не подписан
+        return {"ok": False, "reason": "not_subscribed"}
+    desc = (data.get("description") or "").lower()
+    # Bot API типичные ошибки:
+    #   "chat not found" — канал недоступен боту вообще
+    #   "member list is inaccessible" — бот не админ (для приватных каналов)
+    #   "bot is not a member of the chat" — бот не подписан
+    if "chat not found" in desc:
+        return {"ok": False, "reason": "chat_not_found"}
+    if "member" in desc and ("inaccessible" in desc or "not a member" in desc):
+        return {"ok": False, "reason": "bot_not_in_channel"}
+    log.info("getChatMember not ok for %s: %s", channel, data)
+    # Любая другая ошибка — считаем что бот не в канале (fail-open для юзера)
+    return {"ok": False, "reason": "bot_not_in_channel"}
+
+
+async def check_telegram_channels_subscription(
+    client_id: int, tg_id: str, db
+) -> dict:
+    """Проверяет подписку tg_id на ВСЕ TG-каналы основателя клиента.
+
+    Returns:
+        {
+          "ok": bool,                  — True только если подписан на все, или нет каналов
+          "missing": list[dict],       — каналы, на которые юзер НЕ подписан
+          "bot_not_in": list[dict],    — каналы, в которых бот сам не админ (для авто-отключения гейта)
+          "no_token": bool,            — у клиента нет бота для проверки
+          "no_channels": bool,         — у клиента нет TG-каналов основателя
+        }
+
+    Возвращаемая «ok=True» при пустом списке каналов или при отсутствии токена —
+    это сознательный fail-open, чтобы воронка лид-магнита не блокировалась если
+    клиент ещё не настроил каналы.
+    """
+    import asyncio
+    ctx = await _get_brand_context(client_id, db, platform="telegram")
+    channels: list[dict] = ctx.get("tg_channels") or []
+    if not channels:
+        return {"ok": True, "missing": [], "bot_not_in": [], "no_token": False, "no_channels": True}
+    token = await _bot_token_for_client(client_id, db)
+    if not token:
+        return {"ok": True, "missing": [], "bot_not_in": [], "no_token": True, "no_channels": False}
+
+    async def _check_one(ch: dict) -> dict:
+        # Приоритет: числовой chat_id (надёжнее, работает и для закрытых каналов
+        # если бот добавлен админом) → @username (только открытый канал) →
+        # пропускаем (fail-open: закрытый канал без chat_id — Bot API не умеет
+        # проверить через инвайт-код, доверяем юзеру).
+        chat_id = (ch.get("chat_id") or "").strip()
+        target = chat_id or telegram_api_id(ch.get("url") or "")
+        if not target:
+            return {"channel": ch, "result": {"ok": True}}
+        result = await _check_subscription_detailed(token, target, str(tg_id))
+        return {"channel": ch, "result": result}
+
+    results = await asyncio.gather(*[_check_one(ch) for ch in channels])
+    missing: list[dict] = []
+    bot_not_in: list[dict] = []
+    for item in results:
+        res = item["result"]
+        ch = item["channel"]
+        if res.get("ok"):
+            continue
+        reason = res.get("reason")
+        if reason in ("bot_not_in_channel", "chat_not_found"):
+            bot_not_in.append(ch)
+            # бот не админ — пользователю показывать канал нет смысла (ложно-отрицательно),
+            # но для воронки считаем «не прошёл» чтобы клиент починил
+            missing.append(ch)
+        elif reason == "network_error":
+            # сетевая ошибка — fail-open для конкретного канала (не блокируем юзера)
+            continue
+        else:
+            missing.append(ch)
+    return {
+        "ok": len(missing) == 0,
+        "missing": missing,
+        "bot_not_in": bot_not_in,
+        "no_token": False,
+        "no_channels": False,
+    }
 
 
 async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
@@ -995,29 +1110,17 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
 
     ctx = await _get_brand_context(client_id, db)
 
-    channel = ctx.get("subscription_channel", "")
-    channel_api = ctx.get("subscription_channel_api", "")
-    channel_chat_id = ctx.get("subscription_channel_chat_id", "")
     token = await _bot_token_for_client(client_id, db)
     if not token:
         return "no_token"
 
-    # Приоритет: числовой chat_id (надёжнее, работает и для закрытых каналов
-    # если бот добавлен админом) → @username (только открытый канал) → выдаём
-    # без проверки (закрытый канал без сохранённого chat_id — Bot API не умеет
-    # резолвить инвайт-код, доверяем юзеру).
-    if channel_chat_id:
-        ok = await _check_subscription(token, channel_chat_id, str(tg_id))
-        if not ok:
-            return "not_subscribed"
-    elif channel_api:
-        ok = await _check_subscription(token, channel_api, str(tg_id))
-        if not ok:
-            return "not_subscribed"
-    elif channel:
-        # закрытый канал, chat_id не задан — пропускаем проверку
-        pass
-    # else: канал не настроен — тоже пропускаем (выдаём)
+    # Проверяем подписку на ВСЕ TG-каналы основателя (миграция 114).
+    # Если каналов нет — пропускаем (fail-open). Если есть — должен быть подписан
+    # на каждый. Закрытые каналы без chat_id внутри функции пропускаются (Bot API
+    # не умеет проверять через инвайт-код).
+    sub = await check_telegram_channels_subscription(client_id, str(tg_id), db)
+    if not sub["ok"]:
+        return "not_subscribed"
 
     # подписан → выдаём (или выдаём повторно при повторном нажатии «ГОТОВО»)
     is_first_delivery = run["stage"] != "delivered"

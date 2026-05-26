@@ -126,13 +126,86 @@ def vk_screen_name_from_link(s: Optional[str]) -> str:
     return path
 
 
+def normalize_telegram_channels(value) -> list[dict]:
+    """Нормализует массив TG-каналов основателя `social_links.telegram_channels`.
+
+    На входе ожидается список словарей со свободной формой; на выходе —
+    канонизированный список:
+        [{"url": "https://t.me/...", "chat_id": "-100..." | "", "name": "..."}]
+
+    Правила:
+      - url нормализуется через normalize_telegram_link, пустой url → элемент отбрасывается;
+      - chat_id хранится строкой, цифры с одним минусом в начале; невалид → "";
+      - name просто trim, максимум 60 символов;
+      - дубли по url убираются (первый выигрывает);
+      - порядок сохраняется (первый элемент = главный).
+    """
+    if not isinstance(value, list):
+        return []
+    seen_urls: set[str] = set()
+    out: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        raw_url = item.get("url") or ""
+        url = normalize_telegram_link(raw_url)
+        if not url:
+            continue
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        raw_cid = str(item.get("chat_id") or "").strip()
+        # цифры + один минус в начале
+        cid = ""
+        if raw_cid:
+            digits = "".join(ch for ch in raw_cid if ch.isdigit())
+            sign = "-" if raw_cid.lstrip().startswith("-") else ""
+            cid = sign + digits if digits else ""
+        name = (item.get("name") or "").strip()[:60]
+        out.append({"url": url, "chat_id": cid, "name": name})
+    return out
+
+
+def get_founder_tg_channels(social: Optional[dict]) -> list[dict]:
+    """Достаёт массив TG-каналов основателя из социал-линков клиента.
+
+    Возвращает уже нормализованный список (см. normalize_telegram_channels).
+    Если есть только legacy-ключи `telegram`/`telegram_chat_id` (до миграции 114),
+    конвертирует их на лету в массив из одного элемента — чтобы код работал
+    и до, и после миграции.
+    """
+    if not isinstance(social, dict):
+        return []
+    raw = social.get("telegram_channels")
+    if isinstance(raw, list) and raw:
+        return normalize_telegram_channels(raw)
+    legacy_url = (social.get("telegram") or "").strip()
+    if legacy_url:
+        return normalize_telegram_channels([{
+            "url": legacy_url,
+            "chat_id": social.get("telegram_chat_id"),
+            "name": "",
+        }])
+    return []
+
+
 def normalize_social_links(social: Optional[dict]) -> dict:
     """Нормализует все известные платформенные поля внутри social_links."""
     if not isinstance(social, dict):
         return {}
     out = dict(social)
-    if out.get("telegram"):
-        out["telegram"] = normalize_telegram_link(out["telegram"])
+    # Legacy одиночный TG-канал больше не поддерживается на запись —
+    # если клиент прислал устаревшие ключи, переносим их в массив.
+    if out.get("telegram") and not out.get("telegram_channels"):
+        out["telegram_channels"] = [{
+            "url": out.get("telegram"),
+            "chat_id": out.get("telegram_chat_id"),
+            "name": "",
+        }]
+    out.pop("telegram", None)
+    out.pop("telegram_chat_id", None)
+    if out.get("telegram_channels") is not None:
+        out["telegram_channels"] = normalize_telegram_channels(out["telegram_channels"])
     if out.get("vk"):
         out["vk"] = normalize_vk_link(out["vk"])
     return out

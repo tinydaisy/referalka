@@ -893,47 +893,42 @@ async def update_my_profile(
 
 
 class ResolveTgChatIdIn(BaseModel):
-    username: Optional[str] = None  # @xxx или xxx — если не задан, берём из social_links.telegram
+    # @username или просто username (без @) — если передан, резолвим именно его.
+    username: Optional[str] = None
+    # URL канала из массива social_links.telegram_channels — резолвим chat_id и
+    # сохраняем обратно в этот же элемент массива. Если не передан и нет username —
+    # 400.
+    url: Optional[str] = None
 
 
 @profile_router.post("/profile/resolve-telegram-chat-id",
-                     summary="Получить chat_id канала по @username и сохранить в social_links.telegram_chat_id")
+                     summary="Получить chat_id канала по @username (без сохранения)")
 async def resolve_telegram_chat_id(
     payload: ResolveTgChatIdIn = ResolveTgChatIdIn(),
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Получить chat_id публичного TG-канала через `getChat` и сохранить в
-    `social_links.telegram_chat_id`.
+    """Получить chat_id публичного TG-канала через `getChat`.
 
-    Источник @username:
-    - Если в body передан `username` (`@foo` или `foo`) — берём его. Это путь
-      «у меня в поле сохранена инвайт-ссылка, но реально канал имеет @username».
-    - Иначе — берём из `social_links.telegram` (если там открытый канал).
+    Источник @username (приоритет):
+      1. `payload.username` — явно переданный @username/username (для закрытого канала, который реально публичный).
+      2. `payload.url` — URL канала (https://t.me/foo) → из него вытаскивается @username.
 
-    Для канала, у которого нет публичного @username — отдаём 400.
+    Возвращает `{chat_id, username}` — фронт сам кладёт chat_id в нужный элемент
+    массива `social_links.telegram_channels` и шлёт PATCH /me/profile.
+    Этот endpoint больше НЕ сохраняет ничего в БД — потому что в массиве каналов
+    несколько элементов и без явного указания «куда сохранить» он не угадает.
+
+    Для канала без публичного @username (только инвайт-ссылка) — 400 `invite_only`.
     """
-    client_id = int(client["sub"])
-    row = await db.fetchrow("SELECT social_links FROM clients WHERE id = $1", client_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Клиент не найден")
-    social = row["social_links"] or {}
-    if isinstance(social, str):
-        social = json.loads(social)
-
-    # 1) пытаемся взять username из payload
     api_id = ""
     if payload.username and payload.username.strip():
         u = payload.username.strip().lstrip("@")
-        u = u.split("/")[-1]  # на случай, если вставили https://t.me/foo
+        u = u.split("/")[-1]
         if u:
             api_id = f"@{u}"
-    # 2) если не передан — берём из social_links.telegram
-    if not api_id:
-        tg_link = (social or {}).get("telegram") or ""
-        if not tg_link:
-            raise HTTPException(status_code=400, detail="Введите @username канала или укажите ссылку на канал в поле выше")
-        api_id = telegram_api_id(tg_link)
+    if not api_id and payload.url:
+        api_id = telegram_api_id(payload.url)
     if not api_id:
         raise HTTPException(
             status_code=400,
@@ -957,12 +952,6 @@ async def resolve_telegram_chat_id(
     chat_id = data["result"].get("id")
     if not chat_id:
         raise HTTPException(status_code=502, detail="getChat не вернул id")
-    new_social = dict(social) if isinstance(social, dict) else {}
-    new_social["telegram_chat_id"] = chat_id
-    await db.execute(
-        "UPDATE clients SET social_links = $1::jsonb WHERE id = $2",
-        json.dumps(new_social), client_id,
-    )
     return {"chat_id": chat_id, "username": api_id}
 
 

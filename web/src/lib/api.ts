@@ -484,11 +484,18 @@ export const api = {
     profile: {
       get:    () => request('/api/v1/clients/me/profile'),
       update: (data: any) => request('/api/v1/clients/me/profile', { method: 'PATCH', body: JSON.stringify(data) }),
-      resolveTelegramChatId: (username?: string) =>
+      resolveTelegramChatId: (params?: { username?: string; url?: string }) =>
         request('/api/v1/clients/me/profile/resolve-telegram-chat-id', {
           method: 'POST',
-          body: JSON.stringify(username ? { username } : {}),
+          body: JSON.stringify(params || {}),
         }),
+    },
+    chatGates: {
+      list:   () => request('/api/v1/clients/me/chat-gates'),
+      create: (data: any) => request('/api/v1/clients/me/chat-gates', { method: 'POST', body: JSON.stringify(data) }),
+      update: (id: number, data: any) => request(`/api/v1/clients/me/chat-gates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (id: number) => request(`/api/v1/clients/me/chat-gates/${id}`, { method: 'DELETE' }),
+      verify: (id: number) => request(`/api/v1/clients/me/chat-gates/${id}/verify`, { method: 'POST' }),
     },
     offerings: {
       list:   () => request('/api/v1/client-offerings'),

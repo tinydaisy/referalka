@@ -19,7 +19,14 @@ interface Profile {
   owner_positioning?: string | null
   owner_achievements?: Achievement[]
   bio?: string | null
-  social_links?: { instagram?: string; telegram?: string; youtube?: string; vk?: string; website?: string }
+  // social_links: telegram_channels — массив (миграция 114), остальные — одиночные.
+  social_links?: {
+    telegram_channels?: { url: string; chat_id?: string; name?: string }[]
+    instagram?: string
+    youtube?: string
+    vk?: string
+    website?: string
+  } & Record<string, any>
 }
 interface Offering {
   id: number

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from html import escape
 
@@ -202,14 +203,29 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         except Exception:
             event_date_short = ""
 
-    # Контакт организатора — из настроек клиента
+    # Контакт организатора — из настроек клиента. Приоритет work_tg_username,
+    # fallback — первый TG-канал основателя из массива social_links.telegram_channels
+    # (миграция 114). Legacy-ключ social_links->>'telegram' покрывается хелпером
+    # get_founder_tg_channels.
+    from app.services.social_links import get_founder_tg_channels
     contact_row = await db.fetchrow(
-        "SELECT work_tg_username, social_links->>'telegram' AS social_tg FROM clients WHERE id = $1",
+        "SELECT work_tg_username, social_links FROM clients WHERE id = $1",
         run_row["client_id"],
     )
+    founder_tg = ""
+    if contact_row:
+        social = contact_row["social_links"]
+        if isinstance(social, str):
+            try:
+                social = json.loads(social)
+            except Exception:
+                social = {}
+        channels = get_founder_tg_channels(social or {})
+        if channels:
+            founder_tg = channels[0]["url"]
     owner_tg = _build_owner_contact(
         (contact_row["work_tg_username"] if contact_row else None),
-        (contact_row["social_tg"] if contact_row else None),
+        founder_tg or None,
     )
 
     text = _format_text(

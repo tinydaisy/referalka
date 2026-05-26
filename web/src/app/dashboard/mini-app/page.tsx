@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Calendar, Globe, Building2, User, ChevronUp, ChevronDown } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
-import { TelegramChannelField } from '@/components/TelegramChannelField'
+import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
@@ -35,7 +35,9 @@ interface Profile {
   owner_positioning?: string | null
   owner_achievements: Achievement[]         // факты в цифрах основателя
   bio?: string | null                       // биография основателя
-  social_links: Record<string, string>      // соцсети основателя
+  // social_links — словарь соцсетей основателя. Ключи строковые (instagram, youtube, vk, website),
+  // отдельный ключ `telegram_channels` — МАССИВ TG-каналов основателя (миграция 114).
+  social_links: Record<string, any>
 }
 interface Offering {
   id: number
@@ -47,9 +49,10 @@ interface Offering {
   sort_order: number
 }
 
+// Telegram-каналы основателя — отдельная секция выше (FounderTgChannelsField),
+// потому что их может быть несколько и они используются для проверки подписки
+// (воронки лид-магнитов + чат-гейты). Здесь только остальные соцсети.
 const SOCIAL_FIELDS: { key: string; label: string; placeholder: string; hint?: string }[] = [
-  { key: 'telegram',  label: 'Telegram',  placeholder: 'https://t.me/your_channel',
-    hint: 'Полная ссылка через https. Для закрытого канала — инвайт-ссылка вида https://t.me/+abcDEF…' },
   { key: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/your_profile' },
   { key: 'youtube',   label: 'YouTube',   placeholder: 'https://youtube.com/@yourchannel' },
   { key: 'vk',        label: 'VK',        placeholder: 'https://vk.com/your_page' },
@@ -66,8 +69,6 @@ export default function MiniAppSettingsPage() {
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [editing, setEditing] = useState<Offering | null>(null)
   const [creating, setCreating] = useState(false)
-  const [usernamePromptOpen, setUsernamePromptOpen] = useState(false)
-  const [usernameDraft, setUsernameDraft] = useState('')
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'brand'
     const t = new URLSearchParams(window.location.search).get('tab')
@@ -106,53 +107,9 @@ export default function MiniAppSettingsPage() {
     if (value.trim()) next[key] = value.trim(); else delete next[key]
     update('social_links', next)
   }
-  async function tryResolve(username?: string): Promise<boolean> {
-    try {
-      const res: any = await api.miniApp.profile.resolveTelegramChatId(username)
-      if (profile && res?.chat_id) {
-        const next = { ...profile.social_links, telegram_chat_id: String(res.chat_id) }
-        update('social_links', next)
-        alert(`ID канала получен: ${res.chat_id}`)
-        return true
-      }
-      return false
-    } catch (e: any) {
-      const msg = e.message || ''
-      // Спец-сигнал бэка: «канал закрытый, у него нет @username, но юзер может ввести вручную»
-      if (msg === 'invite_only') return false
-      alert(msg || 'Не получилось получить ID')
-      return false
-    }
-  }
-  async function resolveTelegramChatId() {
+  function updateTgChannels(list: FounderTgChannel[]) {
     if (!profile) return
-    const link = profile.social_links.telegram || ''
-    const isInvite = /\/\+/.test(link) || !link
-    if (!isInvite) {
-      await tryResolve()
-      return
-    }
-    // Закрытый канал — открываем кастомный модал (нативный prompt не умеет ссылки)
-    setUsernamePromptOpen(true)
-  }
-  function normalizeChatIdInput(raw: string): string {
-    // Убираем пробелы и любые символы кроме цифр и минуса; минус только в начале и один.
-    const s = raw.trim().replace(/[^\d-]/g, '')
-    // Удаляем все минусы кроме первого
-    const sign = s.startsWith('-') ? '-' : ''
-    const digits = s.replace(/-/g, '')
-    return digits ? sign + digits : ''
-  }
-  function chatIdLooksValid(s: string): boolean {
-    if (!s) return true                  // пусто — ОК (поле опциональное)
-    return /^-100\d{6,}$/.test(s)        // канал/супергруппа: -100 + минимум 6 цифр
-  }
-  function updateChatId(raw: string) {
-    if (!profile) return
-    const cleaned = normalizeChatIdInput(raw)
-    const next = { ...profile.social_links }
-    if (cleaned) next.telegram_chat_id = cleaned
-    else delete next.telegram_chat_id
+    const next = { ...profile.social_links, telegram_channels: list }
     update('social_links', next)
   }
   function updateAch(field: 'achievements' | 'owner_achievements', idx: number, key: 'label' | 'value', value: string) {
@@ -432,42 +389,36 @@ export default function MiniAppSettingsPage() {
 
           <Section
             step={4}
-            title="Соцсети основателя"
+            title="Telegram каналы основателя"
+            hint="Список всех ваших TG-каналов. Используются для проверки подписки в воронках лид-магнитов и в гейтах чатов — участник должен быть подписан на ВСЕ каналы из списка. Также отображаются на странице «Об основателе» в Mini App."
+          >
+            <div className="max-w-2xl">
+              <FounderTgChannelsField
+                value={Array.isArray(profile.social_links.telegram_channels)
+                  ? profile.social_links.telegram_channels as FounderTgChannel[]
+                  : []}
+                onChange={updateTgChannels}
+              />
+            </div>
+          </Section>
+
+          <Section
+            step={5}
+            title="Другие соцсети основателя"
             hint="Ряд иконок на странице «Об основателе». Заполняйте только то что хотите показать."
           >
             <div className="space-y-3 max-w-2xl">
-              {SOCIAL_FIELDS.map(f => {
-                if (f.key === 'telegram') {
-                  return (
-                    <TelegramChannelField
-                      key="telegram"
-                      title="Telegram канал"
-                      mode="single"
-                      value={{
-                        url: profile.social_links.telegram || '',
-                        chatId: profile.social_links.telegram_chat_id || '',
-                      }}
-                      onChange={(next) => {
-                        const ns = { ...profile.social_links }
-                        if (next.url) ns.telegram = next.url; else delete ns.telegram
-                        if (next.chatId) ns.telegram_chat_id = next.chatId; else delete ns.telegram_chat_id
-                        update('social_links', ns)
-                      }}
-                    />
-                  )
-                }
-                return (
-                  <div key={f.key}>
-                    <label className="label">{f.label}</label>
-                    <input type="url"
-                           value={profile.social_links[f.key] || ''}
-                           onChange={e => updateSocial(f.key, e.target.value)}
-                           placeholder={f.placeholder}
-                           className="input" />
-                    {f.hint && <p className="text-xs text-gray-500 mt-1">{f.hint}</p>}
-                  </div>
-                )
-              })}
+              {SOCIAL_FIELDS.map(f => (
+                <div key={f.key}>
+                  <label className="label">{f.label}</label>
+                  <input type="url"
+                         value={profile.social_links[f.key] || ''}
+                         onChange={e => updateSocial(f.key, e.target.value)}
+                         placeholder={f.placeholder}
+                         className="input" />
+                  {f.hint && <p className="text-xs text-gray-500 mt-1">{f.hint}</p>}
+                </div>
+              ))}
             </div>
           </Section>
         </>
@@ -543,53 +494,6 @@ export default function MiniAppSettingsPage() {
         />
       )}
 
-      {usernamePromptOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-             onClick={() => { setUsernamePromptOpen(false); setUsernameDraft('') }}>
-          <div className="bg-white rounded-xl max-w-md w-full p-5 space-y-3"
-               onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-bold text-gray-900">Получить ID канала</h3>
-            <p className="text-sm text-gray-700">
-              У канала из ссылки нет публичного <code className="font-mono">@username</code> — это закрытый канал по инвайт-ссылке.
-            </p>
-            <p className="text-sm text-gray-700">
-              <strong>Если у канала есть публичный @username</strong> — впишите его сюда (с @ или без, не важно):
-            </p>
-            <input
-              type="text"
-              autoFocus
-              value={usernameDraft}
-              onChange={e => setUsernameDraft(e.target.value.replace(/^@+/, '').trim())}
-              placeholder="my_channel"
-              className="w-full px-3 py-2 text-sm font-mono border border-gray-200 rounded focus:outline-none focus:border-[#25455D]"
-            />
-            <p className="text-sm text-gray-700">
-              <strong>Если @username нет</strong> — закройте окно и получите ID через бот:{' '}
-              <a href="/dashboard/settings#tg-chat-id" className="text-[#25455D] underline font-medium">
-                инструкция в Тех.поддержке
-              </a>.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button"
-                      onClick={() => { setUsernamePromptOpen(false); setUsernameDraft('') }}
-                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">
-                Отмена
-              </button>
-              <button type="button"
-                      disabled={!usernameDraft}
-                      onClick={async () => {
-                        const u = usernameDraft.trim().replace(/^@+/, '').split('/').pop() || ''
-                        setUsernamePromptOpen(false); setUsernameDraft('')
-                        if (u) await tryResolve(u)
-                      }}
-                      className="px-4 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-50"
-                      style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
-                Получить ID
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
