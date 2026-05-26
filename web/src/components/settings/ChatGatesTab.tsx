@@ -314,17 +314,26 @@ function GateModal({
 }) {
   const [chatId, setChatId] = useState(initial?.chat_id || '')
   const [chatTitle, setChatTitle] = useState(initial?.chat_title || '')
-  const [warningText, setWarningText] = useState(initial?.warning_text || '')
+  // При создании сразу заполняем дефолтным шаблоном, чтобы клиент его видел
+  // и мог сразу редактировать, а не вводить с нуля. При редактировании
+  // существующего гейта: если в БД NULL (применяется дефолт на бэке) —
+  // тоже показываем тот же текст в поле.
+  const [warningText, setWarningText] = useState(initial?.warning_text || DEFAULT_WARNING_TEXT)
   const [ttl, setTtl] = useState(initial?.warning_ttl_sec || 15)
   const [saving, setSaving] = useState(false)
 
   async function save() {
     setSaving(true)
     try {
+      // Если текст совпадает с дефолтом — в БД пишем NULL (бэк сам подставит
+      // дефолт при отправке). Так клиент может «откатить к дефолту», очистив
+      // поле, и дефолт продолжает обновляться централизованно.
+      const trimmed = warningText.trim()
+      const customText = trimmed && trimmed !== DEFAULT_WARNING_TEXT.trim() ? trimmed : null
       const payload = {
         chat_id: chatId.trim(),
         chat_title: chatTitle.trim() || null,
-        warning_text: warningText.trim() || null,
+        warning_text: customText,
         warning_ttl_sec: Math.max(5, Math.min(600, Number(ttl) || 15)),
       }
       if (initial) {
@@ -391,7 +400,7 @@ function GateModal({
             Плейсхолдеры: <code className="font-mono">{'{user_name}'}</code>,{' '}
             <code className="font-mono">{'{channels_list}'}</code>,{' '}
             <code className="font-mono">{'{founder_name}'}</code>,{' '}
-            <code className="font-mono">{'{channel_url}'}</code>. Если оставить пустым — используется дефолт.
+            <code className="font-mono">{'{channel_url}'}</code>. Можно править под себя или очистить поле — тогда подставится текущий дефолт.
           </p>
         </div>
 
