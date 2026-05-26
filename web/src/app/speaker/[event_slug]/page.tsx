@@ -1198,7 +1198,7 @@ function MaterialsTab({
           Если кода нет — показываем ссылки на регистрацию (старое поведение). */}
       {materials.speaker_external_ref_param ? (
         <div style={sectionCss}>
-          <div style={titleCss}>Ваш партнёрский код</div>
+          <div style={titleCss}>Ваш партнёрский код для начисления процента с оплат</div>
           <div style={subCss}>
             Вы уже зарегистрированы партнёром организатора и получаете % кэшбэка с приведённых участников.
           </div>
