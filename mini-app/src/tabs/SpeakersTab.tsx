@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getEventCollaborators, getSpeakers } from '../api'
+import { getSpeakers } from '../api'
 
 interface Props {
   event: any
@@ -116,14 +116,13 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
     setLoading(true)
     ;(async () => {
       try {
-        // Для конференции — используем conf/speakers (тот же endpoint что в ProgramTab).
-        // Для турнира — event-collaborators (роль не важна, берём всех).
-        const isConf = event?.module_slug === 'conference'
-        const data = isConf
-          ? await getSpeakers(event.id)
-          : await getEventCollaborators(event.id)
+        // Единый endpoint /conference/speakers/public — отдаёт все поля
+        // (knowledge_base_title/url, темы, подарки) для коллабораторов
+        // ЛЮБОГО события: конференции и турнира. Endpoint /public/events/{id}/collaborators
+        // не возвращает knowledge_base — поэтому здесь его не используем.
+        const data = await getSpeakers(event.id)
         if (cancelled) return
-        const items: Speaker[] = (data.speakers || data.items || []).map((c: any) => ({
+        const items: Speaker[] = (data.speakers || []).map((c: any) => ({
           id: c.id,
           speaker_id: c.speaker_id,
           name: c.name,
