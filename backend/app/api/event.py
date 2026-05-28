@@ -27,6 +27,7 @@ class TgEventRequest(BaseModel):
     last_name: str = ""
     username: str = ""
     partner_id: str = ""   # промо-партнёр (из startapp pid)
+    utm_source: str = ""   # UTM-источник (из startapp src)
     event_slug: str = ""   # slug события (из startapp pg<slug>) — для определения клиента
     client_id: int = 0     # client_id (из startapp cid<id>) — приоритетнее event_slug
     platform: str = "telegram"  # telegram | vk | max — Mini App может крепиться к разным
@@ -64,6 +65,7 @@ async def handle_tg_event(body: TgEventRequest):
         last_name=body.last_name,
         username=body.username,
         partner_id=body.partner_id,
+        utm_source=body.utm_source,
     )
 
 

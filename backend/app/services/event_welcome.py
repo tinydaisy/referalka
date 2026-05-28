@@ -191,6 +191,7 @@ async def send_event_open_message(
     last_name: str = "",
     username: str = "",
     partner_id: str = "",
+    utm_source: str = "",
 ) -> dict:
     """Возвращает диагностический dict (для логов / API-ответов): {ok, kind, sent, deduped, ...}."""
     if not pool or not event_slug or not tg_id:
@@ -238,6 +239,7 @@ async def send_event_open_message(
                     username=username or None,
                     first_name=first_name or None,
                     last_name=last_name or None,
+                    utm_source=utm_source or None,
                 )
 
                 resolved_ref_code = None
