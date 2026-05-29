@@ -387,6 +387,27 @@ URL Mini App: для VIP — `https://t.me/{handle}` (бот клиента, б�
 
 **Уведомление организатору о новом интересе на событие (12.05.2026).** В дополнение к сообщению самому пользователю, при **первом** создании `event_participants` (то есть человек впервые открыл событие через Mini App / реф-ссылку / landing-redirect) от `@pluson_bot` улетает сообщение в `clients.notifications_telegram_chat_id` — точно так же, как для лид-магнитов, только первая строка «Событие: <title>» вместо «Лид-магнит». Дедуп по факту вставки в `event_participants` (ON CONFLICT DO NOTHING + RETURNING id): повторные открытия того же события — молчат. Реализация — `_send_event_organizer_notification` в [event_welcome.py](backend/app/services/event_welcome.py).
 
+### Финализация регистрации участника — единый хелпер (2026-05-29)
+
+Регистрация участника на событие происходит из **4 точек**:
+1. `POST /participants/register` — Mini App
+2. `POST /integrations/salebot/register` — webhook Salebot (autoreg по `participant_id`)
+3. `POST /integrations/salebot/register` — webhook Salebot (existing/new participant)
+4. `POST/GET /integrations/getcourse/register` — webhook GetCourse
+
+После каждого пути нужно сделать **три** действия:
+- Остановить nurture-воронку догрева (`start_nurture_run_if_eligible`)
+- Re-opt-in на email-канал клиента (если контакт был отписан)
+- Welcome-email (если у события `welcome_enabled=TRUE` и письмо не отправлялось)
+
+Все три собраны в один идемпотентный хелпер [`finalize_participant_registration`](backend/app/services/participant_registration.py). Сам проверяет `event_participants.is_registered=TRUE` (иначе выходит молча) — безопасно звать многократно и из любой ветки.
+
+**Правило.** При добавлении нового действия при регистрации (SMS, push, метрика, webhook клиенту) — править ТОЛЬКО хелпер. Не размазывать по 4 местам.
+
+**Почему так.** До 2026-05-29 эти 3 действия были захардкожены только в Mini-App-пути. Регистрации через GetCourse/Salebot шли мимо — 30+ зарегистрированных людей с email на «Ж.И.В.У.» (event 24) не получили welcome-письмо за месяц.
+
+**SQL re-opt-in.** PostgreSQL не разрешает алиасить целевую таблицу в `UPDATE ... FROM`. Использован паттерн `UPDATE platform_user_channels SET ... WHERE id IN (SELECT puc.id FROM platform_user_channels puc JOIN ...)`.
+
 ### Авто-редирект внутри Mini App webview на iOS (рецепт)
 
 Если из Mini App нужно автоматически (без клика) перебросить webview
