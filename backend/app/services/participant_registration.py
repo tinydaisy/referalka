@@ -62,16 +62,19 @@ async def _resubscribe_email(db, *, contact_id: int, event_id: int) -> None:
     """Возвращаем email-подписку, если контакт был ранее отписан.
     Затрагиваем ВСЕ email-каналы клиента, к которому принадлежит событие."""
     await db.execute(
-        """UPDATE platform_user_channels puc
+        """UPDATE platform_user_channels
               SET is_unsubscribed = FALSE,
                   unsubscribed_at = NULL
-            FROM platform_users pu
-            JOIN client_channels cc ON cc.id = puc.client_channel_id
-            JOIN events e ON e.client_id = cc.client_id
-           WHERE puc.platform_user_id = pu.id
-             AND pu.contact_id = $1
-             AND pu.platform_slug = 'email'
-             AND e.id = $2
-             AND puc.is_unsubscribed = TRUE""",
+            WHERE id IN (
+                SELECT puc.id
+                  FROM platform_user_channels puc
+                  JOIN platform_users pu ON pu.id = puc.platform_user_id
+                  JOIN client_channels cc ON cc.id = puc.client_channel_id
+                  JOIN events e ON e.client_id = cc.client_id
+                 WHERE pu.contact_id = $1
+                   AND pu.platform_slug = 'email'
+                   AND e.id = $2
+                   AND puc.is_unsubscribed = TRUE
+            )""",
         contact_id, event_id,
     )
