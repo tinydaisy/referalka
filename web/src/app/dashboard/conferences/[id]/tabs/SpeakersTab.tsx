@@ -79,12 +79,19 @@ function hasNoTopics(sp: any): boolean {
   return topics.length === 0 || topics.every(t => !t.trim())
 }
 
-function getMissingGiftLabels(sp: any): string[] {
+function getMissingGiftLabels(sp: any, raffleEnabled: boolean): string[] {
   const missing: string[] = []
-  if (!sp.gift_after_speech_title?.trim()) missing.push('нет названия подарка после эфира')
-  if (!sp.gift_after_speech_url?.trim()) missing.push('нет ссылки подарка после эфира')
-  if (!sp.gift_raffle_title?.trim()) missing.push('нет названия подарка розыгрыша')
-  if (!sp.gift_raffle_url?.trim()) missing.push('нет ссылки на подарок розыгрыша')
+  // Подарок «после эфира» проверяем только если показ поля включён
+  // (show_gift_after_speech_field !== false — default TRUE для совместимости).
+  if (sp.show_gift_after_speech_field !== false) {
+    if (!sp.gift_after_speech_title?.trim()) missing.push('нет названия подарка после эфира')
+    if (!sp.gift_after_speech_url?.trim()) missing.push('нет ссылки подарка после эфира')
+  }
+  // Подарок розыгрыша — только если розыгрыш включён в событии.
+  if (raffleEnabled) {
+    if (!sp.gift_raffle_title?.trim()) missing.push('нет названия подарка розыгрыша')
+    if (!sp.gift_raffle_url?.trim()) missing.push('нет ссылки на подарок розыгрыша')
+  }
   return missing
 }
 
@@ -97,6 +104,9 @@ function defaultRoleFor(moduleSlug?: string | null): string {
 }
 
 export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
+  // Включён ли розыгрыш для этого события — нужно, чтобы скрыть
+  // оранжевые предупреждения «нет подарка розыгрыша» если фича выключена.
+  const [raffleEnabled, setRaffleEnabled] = useState(false)
   const router = useRouter()
   const { t } = useLang()
   const { isAssistant } = useMe()
@@ -127,6 +137,15 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [eventId])
+
+  // Подгружаем настройку розыгрыша — нужно для условного показа
+  // предупреждений «нет подарка розыгрыша» (если розыгрыш выключен — не
+  // показываем). raffle.settings.get не требует прав ассистента.
+  useEffect(() => {
+    api.raffle.settings.get(eventId)
+      .then((r: any) => setRaffleEnabled(!!r?.is_enabled))
+      .catch(() => setRaffleEnabled(false))
+  }, [eventId])
 
   // Прямые ссылки саморегистрации спикером (2026-05-29).
   // Клиент копирует и шарит — человек переходит, бот регистрирует.
@@ -333,11 +352,15 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
                         ))}
                       </div>
                     ) : (
-                      <span className="flex items-center gap-0.5 text-xs text-amber-500">
-                        <AlertTriangle size={11} /> нет темы выступления
-                      </span>
+                      // «Нет темы» показываем только если поле включено
+                      // (show_topic_field !== false — default TRUE).
+                      sp.show_topic_field !== false && (
+                        <span className="flex items-center gap-0.5 text-xs text-amber-500">
+                          <AlertTriangle size={11} /> нет темы выступления
+                        </span>
+                      )
                     )}
-                    {getMissingGiftLabels(sp).map(label => (
+                    {getMissingGiftLabels(sp, raffleEnabled).map(label => (
                       <span key={label} className="flex items-center gap-0.5 text-xs text-amber-500">
                         <AlertTriangle size={11} /> {label}
                       </span>
