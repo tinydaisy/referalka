@@ -305,17 +305,13 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
       getStages(event.id).then((r: any) => r.stages as Stage[]).catch(() => []),
     ]).then(([d, sp, st]) => {
       setDays(d)
-      // На фронте сортируем по сегментам: организаторы → жюри → спикеры →
-      // партнёры (независимо от is_commercial). Бэк может ставить
-      // коммерческих партнёров впереди спикеров — в Mini App это смущает.
-      const segOrder: Record<string, number> = {
-        organizer: 0, jury: 1, headliner: 2, speaker: 2,
-        general_partner: 3, partner: 3,
-      }
-      const sorted = [...(sp || [])].sort((a: any, b: any) =>
-        (segOrder[a.role] ?? 9) - (segOrder[b.role] ?? 9)
-      )
-      setSpeakers(sorted)
+      // С 2026-05-29 бэк сам отдаёт в нужном порядке: организаторы первыми,
+      // потом все остальные в одном пуле по `referrals DESC` (кто привёл
+      // больше — выше), tie-break старая логика. Локальная сортировка по
+      // сегментам отключена.
+      // const segOrder: Record<string, number> = { organizer: 0, jury: 1, headliner: 2, speaker: 2, general_partner: 3, partner: 3 }
+      // const sorted = [...(sp || [])].sort((a: any, b: any) => (segOrder[a.role] ?? 9) - (segOrder[b.role] ?? 9))
+      setSpeakers(sp || [])
       setStages(st || [])
       // На refresh сбрасываем кэш сессий, чтобы перезагрузить активный день
       setSessionsByDay({})
