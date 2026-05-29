@@ -44,6 +44,29 @@ async def get_event_for_self_register(
     return dict(row) if row else None
 
 
+async def find_existing_speaker(
+    db: asyncpg.Connection,
+    *,
+    event_id: int,
+    client_id: int,
+    contact_id: int,
+) -> Optional[dict]:
+    """Если контакт уже добавлен в спикеры этого события — возвращаем
+    `{collaborator_id, access_code, event_slug, name}` для редиректа в
+    кабинет. Иначе None — сценарий саморегистрации."""
+    row = await db.fetchrow(
+        """SELECT c.id AS collaborator_id, c.access_code, c.name,
+                  e.slug AS event_slug
+             FROM collaborators c
+             JOIN event_collaborators ec ON ec.speaker_id = c.id
+             JOIN events e ON e.id = ec.event_id
+            WHERE c.contact_id = $1 AND ec.event_id = $2 AND e.client_id = $3
+            LIMIT 1""",
+        contact_id, event_id, client_id,
+    )
+    return dict(row) if row else None
+
+
 async def complete_speaker_self_register(
     db: asyncpg.Connection,
     *,

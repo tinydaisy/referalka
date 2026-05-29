@@ -236,7 +236,8 @@ async def handle_start(message: Message, command: CommandObject):
             try:
                 async with pool.acquire() as db:
                     from app.services.speaker_self_register import (
-                        get_event_for_self_register, SELF_REG_TEXT, SELF_REG_BUTTON,
+                        get_event_for_self_register, find_existing_speaker,
+                        SELF_REG_TEXT, SELF_REG_BUTTON,
                     )
                     from app.services.contact_merge import upsert_contact_with_identity
                     ev = await get_event_for_self_register(db, event_id)
@@ -244,7 +245,7 @@ async def handle_start(message: Message, command: CommandObject):
                         await message.answer("😕 Событие не найдено или удалено.")
                         return
                     # Upsert контакта для client_id этого события.
-                    await upsert_contact_with_identity(
+                    contact_id, _pu_id, _is_new = await upsert_contact_with_identity(
                         db,
                         client_id=ev["client_id"],
                         platform_slug='telegram',
@@ -253,6 +254,40 @@ async def handle_start(message: Message, command: CommandObject):
                         first_name=user.first_name or "",
                         last_name=user.last_name or "",
                     )
+                    # Уже в списке спикеров этого события? → впускаем в кабинет
+                    # (универсальная ссылка работает и для уже-добавленных).
+                    existing = await find_existing_speaker(
+                        db, event_id=event_id,
+                        client_id=ev["client_id"], contact_id=contact_id,
+                    )
+                    if existing:
+                        name = (existing["name"] or "").strip() or "спикер"
+                        slug = existing["event_slug"]
+                        access_code = existing["access_code"]
+                        cabinet_url = f"https://pluson.ru/speaker/{slug}"
+                        text_lines = [
+                            f"Здравствуйте, {name}!",
+                            "",
+                            f"Вы — спикер «{ev['title']}». Откройте свой кабинет, чтобы заполнить или обновить данные:",
+                            f"<b>{cabinet_url}</b>",
+                            "",
+                            f"Код доступа: <code>{access_code}</code>",
+                            "",
+                            "На странице выберите свою фамилию из списка и введите этот код. "
+                            "Сессия живёт 24 часа. Код можно передать ассистенту — он заполнит за вас.",
+                        ]
+                        kb = InlineKeyboardMarkup(inline_keyboard=[[
+                            InlineKeyboardButton(text="📝 Открыть мой кабинет", url=cabinet_url),
+                        ]])
+                        await message.answer(
+                            "\n".join(text_lines),
+                            parse_mode="HTML",
+                            disable_web_page_preview=True,
+                            reply_markup=kb,
+                        )
+                        return
+
+                    # Не в списке → предлагаем зарегистрироваться.
                     kb = InlineKeyboardMarkup(inline_keyboard=[[
                         InlineKeyboardButton(
                             text=f"➕ {SELF_REG_BUTTON}",

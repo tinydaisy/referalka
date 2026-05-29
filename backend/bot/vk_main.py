@@ -238,14 +238,27 @@ async def _handle_speaker_self_register_vk(
     contact_name = await db.fetchval(
         "SELECT name FROM contacts WHERE id = $1", contact_id,
     )
+    # Если контакт уже спикер этого события → не регистрируем заново,
+    # просто шлём ссылку на кабинет (универсальная ссылка работает для
+    # уже-добавленных).
+    from app.services.speaker_self_register import find_existing_speaker
+    existing = await find_existing_speaker(
+        db, event_id=event_id, client_id=ev["client_id"], contact_id=contact_id,
+    )
     try:
-        coll_id, access_code, slug, already = await complete_speaker_self_register(
-            db,
-            event_id=event_id,
-            client_id=ev["client_id"],
-            contact_id=contact_id,
-            contact_name=contact_name or "Спикер",
-        )
+        if existing:
+            coll_id = existing["collaborator_id"]
+            access_code = existing["access_code"]
+            slug = existing["event_slug"]
+            already = True
+        else:
+            coll_id, access_code, slug, already = await complete_speaker_self_register(
+                db,
+                event_id=event_id,
+                client_id=ev["client_id"],
+                contact_id=contact_id,
+                contact_name=contact_name or "Спикер",
+            )
     except Exception as e:
         logger.exception("VK speaker_self_register failed: %s", e)
         try:
