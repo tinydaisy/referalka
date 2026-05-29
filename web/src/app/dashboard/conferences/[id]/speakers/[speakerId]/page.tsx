@@ -706,21 +706,11 @@ export default function ConferenceSpeakerPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {/* «По умолчанию» как опция радио — poster_id=null */}
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="radio"
-                    name="broadcast_poster"
-                    checked={eventForm.poster_id == null}
-                    onChange={() => setEventForm(f => ({ ...f, poster_id: null }))}
-                    className="accent-brand"
-                  />
-                  <span className="text-sm text-gray-600">
-                    По умолчанию (первая из библиотеки — для рассылок)
-                  </span>
-                </label>
-                {posterLibrary.map(p => {
+                {posterLibrary.map((p, idx) => {
+                  // Если poster_id явно не выбран — первая афиша подсвечена
+                  // как «Для рассылок» (fallback совпадает с показанным выбором).
                   const isBroadcast = eventForm.poster_id === p.id
+                    || (eventForm.poster_id == null && idx === 0)
                   const isAnnouncement = eventForm.announcement_poster_ids.includes(p.id)
                   return (
                     <div
