@@ -726,6 +726,16 @@ async def add_speaker_from_base(
     )
     first_topic = topics_list[0] if topics_list else None
 
+    # Автодефолты тогглов «показывать поле» по роли:
+    # - jury (премии/турниры): тема, подарок, материал базы знаний — НЕ показываем
+    # - speaker / headliner / organizer: тема + подарок — показываем, материал — нет
+    # - partner / general_partner: всё выключено (партнёрам поля не нужны)
+    is_jury = data.role == "jury"
+    is_speaker_like = data.role in ("speaker", "headliner", "organizer")
+    show_topic_default = is_speaker_like and not is_jury
+    show_gift_default = is_speaker_like and not is_jury
+    show_kb_default = False  # материал в базу знаний — opt-in
+
     # poster_id если передан — проверим что принадлежит этому коллабу
     if data.poster_id is not None:
         belongs = await db.fetchval(
@@ -738,13 +748,15 @@ async def add_speaker_from_base(
         """INSERT INTO event_collaborators
            (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
             gift_raffle_title, gift_raffle_url,
-            poster_id, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
+            poster_id, partner_url, extra_info, notes, is_commercial, is_visible, sort_order,
+            show_topic_field, show_gift_after_speech_field, show_knowledge_base_field)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *""",
         data.speaker_id, event_id, data.role, first_topic,
         data.gift_after_speech_title, data.gift_after_speech_url,
         data.gift_raffle_title, data.gift_raffle_url,
         data.poster_id, data.partner_url, data.extra_info, data.notes,
-        data.is_commercial, data.is_visible, data.sort_order
+        data.is_commercial, data.is_visible, data.sort_order,
+        show_topic_default, show_gift_default, show_kb_default,
     )
     await _save_topics(cse["id"], topics_list, db)
     # Возвращаем с данными из глобальной базы
@@ -874,17 +886,25 @@ async def create_and_add_speaker(
         )
         first_topic = topics_list[0] if topics_list else None
 
+        # Автодефолты show_* по роли (та же логика что в add_speaker_from_base).
+        is_jury = data.role == "jury"
+        is_speaker_like = data.role in ("speaker", "headliner", "organizer")
+        show_topic_default = is_speaker_like and not is_jury
+        show_gift_default = is_speaker_like and not is_jury
+        show_kb_default = False
         cse = await db.fetchrow(
             """INSERT INTO event_collaborators
                (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
                 gift_raffle_title, gift_raffle_url,
-                partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
+                partner_url, extra_info, notes, is_commercial, is_visible, sort_order,
+                show_topic_field, show_gift_after_speech_field, show_knowledge_base_field)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *""",
             sp["id"], event_id, data.role, first_topic,
             data.gift_after_speech_title, data.gift_after_speech_url,
             data.gift_raffle_title, data.gift_raffle_url,
             data.partner_url, data.extra_info, data.notes,
-            data.is_commercial, data.is_visible, data.sort_order
+            data.is_commercial, data.is_visible, data.sort_order,
+            show_topic_default, show_gift_default, show_kb_default,
         )
         await _save_topics(cse["id"], topics_list, db)
 

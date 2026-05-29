@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, User, Trash2, Pencil, X, AlertTriangle } from 'lucide-react'
+import { Plus, User, Trash2, Pencil, X, AlertTriangle, ImageIcon } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -282,12 +282,16 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
                     ))}
                   </div>
                 </div>
-                {sp.poster_url && (
-                  <div className="w-8 shrink-0">
-                    <ImageThumb url={sp.poster_url} alt={`Афиша ${sp.name}`}
-                      className="w-8 h-12 rounded overflow-hidden block bg-gray-100" />
-                  </div>
-                )}
+                <div className="shrink-0" title={sp.poster_url ? 'Афиша «Для рассылок» этого события' : 'Нет афиши — добавьте в индивидуальные афиши спикера'}>
+                  {sp.poster_url
+                    ? <ImageThumb url={sp.poster_url} alt={`Афиша ${sp.name}`}
+                        className="w-10 h-14 rounded overflow-hidden block bg-gray-100" />
+                    : (
+                      <div className="w-10 h-14 rounded border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center text-gray-300">
+                        <ImageIcon size={14} />
+                      </div>
+                    )}
+                </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all" onClick={e => e.stopPropagation()}>
                   <button onClick={(e) => { e.stopPropagation(); openEdit(sp) }}
                     className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">

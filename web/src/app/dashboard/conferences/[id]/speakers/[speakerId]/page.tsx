@@ -149,6 +149,9 @@ export default function ConferenceSpeakerPage() {
     announcement_poster_ids: [] as number[],
   })
   const [posterLibrary, setPosterLibrary] = useState<Array<{ id: number; url: string; label: string | null }>>([])
+  const [uploadingPoster, setUploadingPoster] = useState(false)
+  const [posterUploadError, setPosterUploadError] = useState<string | null>(null)
+  const posterFileRef = useRef<HTMLInputElement | null>(null)
   const [showAccessCode, setShowAccessCode] = useState(false)
   const [inviteMsg, setInviteMsg] = useState<string | null>(null)
   const [inviteCopied, setInviteCopied] = useState(false)
@@ -270,6 +273,40 @@ export default function ConferenceSpeakerPage() {
       setError(err.message)
     } finally {
       setSavingProfile(false)
+    }
+  }
+
+  async function uploadPosterToLibrary(files: FileList | null) {
+    if (!files || files.length === 0 || !profile) return
+    setPosterUploadError(null)
+    setUploadingPoster(true)
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
+      for (const f of Array.from(files)) {
+        if (f.size > 50 * 1024 * 1024) throw new Error(`«${f.name}» больше 50 МБ`)
+        const fd = new FormData()
+        fd.append('file', f)
+        fd.append('kind', 'speaker_poster')
+        fd.append('collaborator_id', String(profile.id))
+        const r = await fetch(`${API_URL}/api/v1/uploads`, {
+          method: 'POST',
+          body: fd,
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }))
+          throw new Error(err.detail || `HTTP ${r.status}`)
+        }
+      }
+      // Перезагружаем библиотеку чтобы увидеть новые афиши.
+      const pr: any = await api.collaborators.posters.list(profile.id)
+      setPosterLibrary(pr.posters || [])
+    } catch (e: any) {
+      setPosterUploadError(e.message || 'Ошибка загрузки')
+    } finally {
+      setUploadingPoster(false)
+      if (posterFileRef.current) posterFileRef.current.value = ''
     }
   }
 
@@ -680,29 +717,46 @@ export default function ConferenceSpeakerPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Индивидуальные афиши</label>
+            <div className="flex items-center justify-between mb-1.5 gap-3">
+              <label className="block text-sm font-medium text-gray-700">Индивидуальные афиши</label>
+              <button
+                type="button"
+                onClick={() => posterFileRef.current?.click()}
+                disabled={uploadingPoster}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 disabled:opacity-50"
+              >
+                {uploadingPoster ? '⏳ Загрузка…' : '+ Добавить афишу'}
+              </button>
+              <input
+                ref={posterFileRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={e => uploadPosterToLibrary(e.target.files)}
+              />
+            </div>
             <p className="text-xs text-gray-400 mb-3">
-              Все афиши из библиотеки коллаба. Под каждой — две настройки <b>для этой
-              конференции</b>:
+              Все афиши коллаба. Под каждой — две настройки <b>для этой конференции</b>:
               <br />
-              • <b>Для рассылок по чат-боту</b> (радио, одна) — пойдёт в рассылки спикера
-              через бота. Если ничего не выбрано — берётся первая из библиотеки.
+              • <b>Для рассылок по чат-боту</b> (радио, одна) — пойдёт в рассылки бота.
+              По умолчанию первая из библиотеки.
               <br />
-              • <b>Для анонсов</b> (чек-боксы, любое число) — отмеченные афиши спикер
-              увидит у себя в кабинете и скачает для своих каналов.
+              • <b>Для анонсов</b> (чек-боксы, любое число) — отмеченные увидит спикер в
+              своём кабинете и скачает для своих каналов.
               <br />
-              Загрузить новые афиши в библиотеку можно на{' '}
+              Загруженные здесь афиши попадают в общую библиотеку коллаба — её можно
+              посмотреть и на{' '}
               <Link href={`/dashboard/collaborations/${profile.id}`} className="text-brand hover:underline">
                 странице коллаба
               </Link>.
             </p>
+            {posterUploadError && (
+              <div className="text-xs text-red-600 mb-2">{posterUploadError}</div>
+            )}
             {posterLibrary.length === 0 ? (
-              <div className="text-center py-8 text-sm text-gray-400 rounded-xl border border-dashed border-gray-200">
-                Афиши пока не загружены. Зайдите{' '}
-                <Link href={`/dashboard/collaborations/${profile.id}`} className="text-brand hover:underline">
-                  на страницу коллаба
-                </Link>{' '}
-                и добавьте.
+              <div className="text-center py-6 text-sm text-gray-400 rounded-xl border border-dashed border-gray-200">
+                Афиш ещё нет. Нажмите «+ Добавить афишу», чтобы загрузить.
               </div>
             ) : (
               <div className="space-y-3">
