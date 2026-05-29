@@ -512,9 +512,18 @@ async def update_collaborator(
 ):
     client_id = int(client["sub"])
     updates_full = {k: v for k, v in data.model_dump().items() if v is not None}
-    # Личный TG живёт в platform_users (миграция 107) — отделяем от UPDATE collaborators
+    # Личные идентичности TG/VK/MAX живут в platform_users (миграция 107),
+    # а не в collaborators. Отделяем их из updates_full, чтобы не пытаться
+    # UPDATE collaborators SET personal_vk_id = ... (колонок таких нет).
     tg_id_in = updates_full.pop("personal_tg_id", None)
     tg_uname_in = updates_full.pop("personal_tg_username", None)
+    vk_id_in = updates_full.pop("personal_vk_id", None)
+    vk_uname_in = updates_full.pop("personal_vk_username", None)
+    max_id_in = updates_full.pop("personal_max_id", None)
+    max_uname_in = updates_full.pop("personal_max_username", None)
+    has_personal = any([
+        tg_id_in, tg_uname_in, vk_id_in, vk_uname_in, max_id_in, max_uname_in,
+    ])
     # media_assets — JSONB, нужен явный ::jsonb cast и json.dumps. Обрабатываем отдельно.
     media_assets_in = _normalize_media_assets(updates_full.pop("media_assets", None))
     if "contact_id" in updates_full:
@@ -524,10 +533,10 @@ async def update_collaborator(
         )
         if not own:
             raise HTTPException(status_code=400, detail="Контакт не найден или принадлежит другому клиенту")
-    # Узнаём contact_id коллаба для UPSERT в platform_users (если меняется TG)
-    contact_id_for_tg = updates_full.get("contact_id")
-    if contact_id_for_tg is None and (tg_id_in or tg_uname_in):
-        contact_id_for_tg = await db.fetchval(
+    # Узнаём contact_id коллаба для UPSERT в platform_users (если меняется любая идентичность)
+    contact_id_for_identity = updates_full.get("contact_id")
+    if contact_id_for_identity is None and has_personal:
+        contact_id_for_identity = await db.fetchval(
             "SELECT contact_id FROM collaborators WHERE id = $1 AND created_by_client_id = $2",
             collaborator_id, client_id
         )
@@ -548,8 +557,19 @@ async def update_collaborator(
         )
         if not updated_id:
             raise HTTPException(status_code=404, detail="Коллаборация не найдена")
-    if (tg_id_in or tg_uname_in) and contact_id_for_tg:
-        await _upsert_personal_tg(db, client_id, contact_id_for_tg, tg_id_in, tg_uname_in)
+    if has_personal and contact_id_for_identity:
+        if tg_id_in or tg_uname_in:
+            await _upsert_personal_identity(
+                db, client_id, contact_id_for_identity, 'telegram', tg_id_in, tg_uname_in,
+            )
+        if vk_id_in or vk_uname_in:
+            await _upsert_personal_identity(
+                db, client_id, contact_id_for_identity, 'vk', vk_id_in, vk_uname_in,
+            )
+        if max_id_in or max_uname_in:
+            await _upsert_personal_identity(
+                db, client_id, contact_id_for_identity, 'max', max_id_in, max_uname_in,
+            )
     row = await db.fetchrow(
         f"SELECT {_COLLAB_SELECT} FROM collaborators c {_COLLAB_JOIN} "
         f"WHERE c.id = $1 AND c.created_by_client_id = $2",
