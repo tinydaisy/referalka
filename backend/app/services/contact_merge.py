@@ -113,15 +113,22 @@ async def find_or_create_contact(
 
     found = None
     if email_norm or phone_norm:
+        # Email живёт как идентичность в platform_users(platform_slug='email'),
+        # НЕ в contacts.email. Поэтому дедуп по email идёт через идентичность.
+        # Телефон — по contacts.phone_normalized (платформы phone нет).
         found = await db.fetchrow(
-            """SELECT id, name, email, email_normalized, phone, phone_normalized, salebot_id, utm_source
-                 FROM contacts
-                WHERE client_id = $1 AND is_active = TRUE
+            """SELECT c.id, c.name, c.phone, c.phone_normalized, c.salebot_id, c.utm_source
+                 FROM contacts c
+                WHERE c.client_id = $1 AND c.is_active = TRUE
                   AND (
-                    ($2::TEXT IS NOT NULL AND email_normalized = $2)
-                    OR ($3::TEXT IS NOT NULL AND phone_normalized = $3)
+                    ($2::TEXT IS NOT NULL AND EXISTS (
+                       SELECT 1 FROM platform_users pe
+                        WHERE pe.contact_id = c.id
+                          AND pe.platform_slug = 'email'
+                          AND pe.platform_user_id = $2))
+                    OR ($3::TEXT IS NOT NULL AND c.phone_normalized = $3)
                   )
-                ORDER BY id LIMIT 1""",
+                ORDER BY c.id LIMIT 1""",
             client_id, email_norm, phone_norm
         )
 
@@ -132,25 +139,24 @@ async def find_or_create_contact(
         )
         if tg_contact_id:
             found = await db.fetchrow(
-                """SELECT id, name, email, email_normalized, phone, phone_normalized, salebot_id, utm_source
+                """SELECT id, name, phone, phone_normalized, salebot_id, utm_source
                      FROM contacts WHERE id = $1 AND is_active = TRUE""",
                 tg_contact_id,
             )
 
     if found:
-        # Дозаполняем пустые поля (если у нашли есть пробелы — берём из нового импорта)
+        # Дозаполняем пустые поля (email НЕ трогаем — он живёт как идентичность,
+        # синхронизируется ниже через sync_email_identity_and_subscription).
         await db.execute(
             """UPDATE contacts
                   SET name              = COALESCE(name, $2),
-                      email             = COALESCE(email, $3),
-                      email_normalized  = COALESCE(email_normalized, $4),
-                      phone             = COALESCE(phone, $5),
-                      phone_normalized  = COALESCE(phone_normalized, $6),
-                      salebot_id        = COALESCE(salebot_id, $7),
-                      utm_source        = COALESCE(utm_source, $8),
+                      phone             = COALESCE(phone, $3),
+                      phone_normalized  = COALESCE(phone_normalized, $4),
+                      salebot_id        = COALESCE(salebot_id, $5),
+                      utm_source        = COALESCE(utm_source, $6),
                       updated_at        = NOW()
                 WHERE id = $1""",
-            found['id'], name, email, email_norm, phone, phone_norm, salebot_id, utm_source
+            found['id'], name, phone, phone_norm, salebot_id, utm_source
         )
         # Sync email-идентичности + подписки на главный email-канал клиента.
         # Запускаем только если email был передан — иначе не трогаем существующую.
@@ -161,14 +167,15 @@ async def find_or_create_contact(
             )
         return found['id'], False
 
-    # Создаём новый contact с уникальным ref_code
+    # Создаём новый contact с уникальным ref_code.
+    # email НЕ пишем в contacts — он создаётся как идентичность ниже.
     ref_code = await _generate_unique_ref_code(db)
     contact_id = await db.fetchval(
-        """INSERT INTO contacts (client_id, name, email, email_normalized, phone, phone_normalized,
+        """INSERT INTO contacts (client_id, name, phone, phone_normalized,
                                   salebot_id, utm_source, tags, ref_code)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::JSONB, '[]'::JSONB), $10)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::JSONB, '[]'::JSONB), $8)
          RETURNING id""",
-        client_id, name, email, email_norm, phone, phone_norm,
+        client_id, name, phone, phone_norm,
         salebot_id, utm_source, tags, ref_code
     )
     # Sync email-канала для нового контакта
@@ -480,24 +487,27 @@ async def upsert_contact_with_identity(
                 WHERE id = $1""",
             pu_existing['id'], username, first_name, last_name
         )
-        # Дозаполняем пустые поля контакта (без замены email/phone — это рискованно)
+        # Дозаполняем пустые поля контакта (email НЕ трогаем — идентичность, sync ниже)
         contact_name = name_from_parts(first_name, last_name)
         await db.execute(
             """UPDATE contacts
                   SET name             = COALESCE(name, $2),
-                      email            = COALESCE(email, $3),
-                      email_normalized = COALESCE(email_normalized, $4),
-                      phone            = COALESCE(phone, $5),
-                      phone_normalized = COALESCE(phone_normalized, $6),
-                      salebot_id       = COALESCE(salebot_id, $7),
-                      utm_source       = COALESCE(utm_source, $8),
+                      phone            = COALESCE(phone, $3),
+                      phone_normalized = COALESCE(phone_normalized, $4),
+                      salebot_id       = COALESCE(salebot_id, $5),
+                      utm_source       = COALESCE(utm_source, $6),
                       last_contact_at  = NOW(),
                       updated_at       = NOW()
                 WHERE id = $1""",
             pu_existing['contact_id'], contact_name,
-            email, normalize_email(email), phone, normalize_phone(phone),
+            phone, normalize_phone(phone),
             salebot_id, utm_source
         )
+        if normalize_email(email):
+            await sync_email_identity_and_subscription(
+                db, client_id=client_id, contact_id=pu_existing['contact_id'],
+                email=normalize_email(email), first_name=first_name,
+            )
         # Если был передан email — синхронизируем email-канал.
         # (existing identity ≠ email; email — это поле контакта, синхронизация
         # касается отдельной email-identity у этого же contact_id)
@@ -666,19 +676,19 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
         # дозаполняем пустые поля
         sec = by_id[secondary_id]
         prim = by_id[primary_id]
+        # email НЕ переносим как поле — email-идентичность (platform_users)
+        # уже переехала на главного выше через UPDATE platform_users.
         await db.execute(
             """UPDATE contacts
                   SET name             = COALESCE(name, $2),
-                      email            = COALESCE(email, $3),
-                      phone            = COALESCE(phone, $4),
-                      email_normalized = COALESCE(email_normalized, LOWER(TRIM($3))),
+                      phone            = COALESCE(phone, $3),
                       merged_ref_codes = CASE
-                          WHEN $5::TEXT IS NULL THEN merged_ref_codes
-                          ELSE merged_ref_codes || to_jsonb($5::TEXT)
+                          WHEN $4::TEXT IS NULL THEN merged_ref_codes
+                          ELSE merged_ref_codes || to_jsonb($4::TEXT)
                       END,
                       updated_at = NOW()
                 WHERE id = $1""",
-            primary_id, sec['name'], sec['email'], sec['phone'], secondary_ref
+            primary_id, sec['name'], sec['phone'], secondary_ref
         )
 
         # Soft-delete второстепенного. ref_code НЕ обнуляем (миграция 060

@@ -808,7 +808,11 @@ async def handle_vk_event(body: VkEventRequest):
         # Возвращаем фронту флаги — есть ли у этого contact email/phone
         # (после автомерджа: в TG-базе могло уже быть, тогда диалоги VK Bridge не нужны).
         existing = await conn.fetchrow(
-            "SELECT COALESCE(email_normalized, '') AS email, COALESCE(phone_normalized, '') AS phone FROM contacts WHERE id = $1",
+            """SELECT COALESCE((SELECT pe.platform_user_id FROM platform_users pe
+                                 WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                                 ORDER BY pe.id LIMIT 1), '') AS email,
+                      COALESCE(c.phone_normalized, '') AS phone
+                 FROM contacts c WHERE c.id = $1""",
             contact_id,
         )
         has_email = bool(existing and existing["email"])

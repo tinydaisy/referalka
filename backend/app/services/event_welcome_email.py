@@ -66,7 +66,10 @@ async def send_welcome_email_if_needed(
 
     # Email + имя
     contact = await db.fetchrow(
-        """SELECT c.name, c.email,
+        """SELECT c.name,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email,
                   cl.brand_name, cl.name AS client_name
              FROM contacts c
              JOIN clients cl ON cl.id = c.client_id

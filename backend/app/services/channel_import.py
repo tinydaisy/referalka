@@ -258,7 +258,13 @@ async def import_csv_to_channel(
             # 1. Ищем platform_users
             pu = await db.fetchrow(
                 """SELECT pu.id, pu.contact_id, pu.username,
-                          c.name AS c_name, c.email AS c_email, c.email_normalized,
+                          c.name AS c_name,
+                          (SELECT pe.platform_user_id FROM platform_users pe
+                            WHERE pe.contact_id=c.id AND pe.platform_slug='email'
+                            ORDER BY pe.id LIMIT 1) AS c_email,
+                          (SELECT pe.platform_user_id FROM platform_users pe
+                            WHERE pe.contact_id=c.id AND pe.platform_slug='email'
+                            ORDER BY pe.id LIMIT 1) AS email_normalized,
                           c.phone AS c_phone, c.phone_normalized
                      FROM platform_users pu
                      JOIN contacts c ON c.id = pu.contact_id
@@ -294,14 +300,23 @@ async def import_csv_to_channel(
                 contact_row = None
                 if csv_email_n or csv_phone_n:
                     contact_row = await db.fetchrow(
-                        """SELECT id, name, email, email_normalized, phone, phone_normalized
-                             FROM contacts
-                            WHERE client_id = $1 AND is_active = TRUE
+                        """SELECT c.id, c.name,
+                                  (SELECT pe.platform_user_id FROM platform_users pe
+                                    WHERE pe.contact_id=c.id AND pe.platform_slug='email'
+                                    ORDER BY pe.id LIMIT 1) AS email,
+                                  (SELECT pe.platform_user_id FROM platform_users pe
+                                    WHERE pe.contact_id=c.id AND pe.platform_slug='email'
+                                    ORDER BY pe.id LIMIT 1) AS email_normalized,
+                                  c.phone, c.phone_normalized
+                             FROM contacts c
+                            WHERE c.client_id = $1 AND c.is_active = TRUE
                               AND (
-                                ($2::TEXT IS NOT NULL AND email_normalized = $2)
-                                OR ($3::TEXT IS NOT NULL AND phone_normalized = $3)
+                                ($2::TEXT IS NOT NULL AND EXISTS(
+                                   SELECT 1 FROM platform_users pe WHERE pe.contact_id=c.id
+                                    AND pe.platform_slug='email' AND pe.platform_user_id=$2))
+                                OR ($3::TEXT IS NOT NULL AND c.phone_normalized = $3)
                               )
-                            ORDER BY id LIMIT 1""",
+                            ORDER BY c.id LIMIT 1""",
                         client_id, csv_email_n, csv_phone_n
                     )
 
@@ -334,24 +349,22 @@ async def import_csv_to_channel(
                     await db.execute(
                         """UPDATE contacts
                               SET name             = COALESCE(name, $2),
-                                  email            = COALESCE(email, $3),
-                                  email_normalized = COALESCE(email_normalized, $4),
-                                  phone            = COALESCE(phone, $5),
-                                  phone_normalized = COALESCE(phone_normalized, $6),
+                                  phone            = COALESCE(phone, $3),
+                                  phone_normalized = COALESCE(phone_normalized, $4),
                                   last_contact_at  = NOW(),
                                   updated_at       = NOW()
                             WHERE id = $1""",
-                        contact_id, csv_name, csv_email, csv_email_n, csv_phone, csv_phone_n
+                        contact_id, csv_name, csv_phone, csv_phone_n
                     )
                 else:
                     # 3. Создаём новый contact
                     ref_code = await _generate_unique_ref_code(db)
                     contact_id = await db.fetchval(
-                        """INSERT INTO contacts (client_id, name, email, email_normalized,
+                        """INSERT INTO contacts (client_id, name,
                                                   phone, phone_normalized, ref_code, last_contact_at)
-                           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                           VALUES ($1, $2, $3, $4, $5, NOW())
                            RETURNING id""",
-                        client_id, csv_name, csv_email, csv_email_n, csv_phone, csv_phone_n, ref_code
+                        client_id, csv_name, csv_phone, csv_phone_n, ref_code
                     )
                     stats['created_contacts'] += 1
 

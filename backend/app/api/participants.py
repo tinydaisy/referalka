@@ -758,7 +758,10 @@ async def get_participant_in_event(
     # Контакт у клиента ЭТОГО события (по platform_user_id). Email/phone отсюда —
     # если оба поля заполнены, фронт пропускает форму регистрации.
     prefill = await db.fetchrow(
-        """SELECT c.email, c.phone, c.name
+        """SELECT (SELECT pe.platform_user_id FROM platform_users pe
+                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                     ORDER BY pe.id LIMIT 1) AS email,
+                  c.phone, c.name
              FROM events e
              JOIN platform_users pu ON pu.client_id = e.client_id
                                     AND pu.platform_slug = $3

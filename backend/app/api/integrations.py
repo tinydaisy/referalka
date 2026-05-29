@@ -189,6 +189,13 @@ async def salebot_register(
             data.phone, _normalize_phone_for_update(data.phone),
             data.salebot_id,
         )
+        # email → идентичность (platform_users), не только поле contacts.email
+        if (data.email or '').strip():
+            from app.services.contact_merge import sync_email_identity_and_subscription, normalize_email as _ne
+            await sync_email_identity_and_subscription(
+                db, client_id=data.client_id, contact_id=contact_id,
+                email=_ne(data.email), first_name=name_from_parts(data.first_name, data.last_name),
+            )
         # Помечаем регистрацию — самим фактом заполнения формы. Не откатываем назад.
         await db.execute(
             """UPDATE event_participants SET
@@ -237,6 +244,13 @@ async def salebot_register(
             data.phone, _normalize_phone_for_update(data.phone),
             data.salebot_id,
         )
+        # email → идентичность (platform_users), не только поле contacts.email
+        if (data.email or '').strip():
+            from app.services.contact_merge import sync_email_identity_and_subscription, normalize_email as _ne
+            await sync_email_identity_and_subscription(
+                db, client_id=data.client_id, contact_id=contact_id,
+                email=_ne(data.email), first_name=name_from_parts(data.first_name, data.last_name),
+            )
     elif data.platform_user_id:
         # Полный путь: с привязкой к платформенной идентичности
         contact_id, pluson_id, is_new_user = await upsert_contact_with_identity(
@@ -713,6 +727,13 @@ async def _register_by_participant(
         data.email, (data.email or '').strip().lower() or None,
         data.phone, _normalize_phone_for_update(data.phone),
     )
+    # email → идентичность (platform_users), не только поле contacts.email
+    if (data.email or '').strip():
+        from app.services.contact_merge import sync_email_identity_and_subscription, normalize_email as _ne
+        await sync_email_identity_and_subscription(
+            db, client_id=data.client_id, contact_id=contact_id,
+            email=_ne(data.email), first_name=name_from_parts(data.first_name, data.last_name),
+        )
 
     # 4. Помечаем регистрацию (только в сторону TRUE, назад не откатываем)
     await db.execute(

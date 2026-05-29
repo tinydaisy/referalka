@@ -82,7 +82,7 @@ def _build_contacts_filter(
         idx = len(params)
         where += f"""
           AND (
-            c.name ILIKE ${idx} OR c.email ILIKE ${idx} OR c.phone ILIKE ${idx}
+            c.name ILIKE ${idx} OR c.phone ILIKE ${idx}
             OR c.ref_code ILIKE ${idx}
             OR c.external_ref_param ILIKE ${idx}
             OR EXISTS (
@@ -293,7 +293,9 @@ async def get_contacts(
         SELECT
           c.id,
           c.name,
-          c.email,
+          (SELECT pe.platform_user_id FROM platform_users pe
+            WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+            ORDER BY pe.id LIMIT 1) AS email,
           c.phone,
           c.utm_source,
           c.tags,
@@ -396,7 +398,9 @@ async def export_contacts_csv(
         SELECT
           c.id,
           c.name,
-          c.email,
+          (SELECT pe.platform_user_id FROM platform_users pe
+            WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+            ORDER BY pe.id LIMIT 1) AS email,
           c.phone,
           c.utm_source,
           c.tags,
@@ -586,7 +590,9 @@ async def get_contact(
         SELECT
           c.id,
           c.name,
-          c.email,
+          (SELECT pe.platform_user_id FROM platform_users pe
+            WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+            ORDER BY pe.id LIMIT 1) AS email,
           c.phone,
           c.utm_source,
           c.tags,
@@ -735,18 +741,28 @@ async def get_duplicates(
 ):
     """Возможные дубли — другие активные контакты клиента с совпадающим email/phone/именем."""
     client_id = int(client["sub"])
+    # email берём из email-идентичности (platform_users), не из contacts.email
     target = await db.fetchrow(
-        """SELECT id, client_id, name, email_normalized, phone_normalized
-             FROM contacts WHERE id = $1 AND client_id = $2""",
+        """SELECT c.id, c.client_id, c.name, c.phone_normalized,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email_normalized
+             FROM contacts c WHERE c.id = $1 AND c.client_id = $2""",
         contact_id, client_id
     )
     if not target:
         raise HTTPException(status_code=404, detail="Not found")
 
     rows = await db.fetch(
-        """SELECT c.id, c.name, c.email, c.phone, c.ref_code,
+        """SELECT c.id, c.name,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email,
+                  c.phone, c.ref_code,
                   CASE
-                    WHEN $3::TEXT IS NOT NULL AND c.email_normalized = $3 THEN 'email'
+                    WHEN $3::TEXT IS NOT NULL AND EXISTS (
+                       SELECT 1 FROM platform_users pe WHERE pe.contact_id = c.id
+                        AND pe.platform_slug = 'email' AND pe.platform_user_id = $3) THEN 'email'
                     WHEN $4::TEXT IS NOT NULL AND c.phone_normalized = $4 THEN 'phone'
                     WHEN $5::TEXT IS NOT NULL AND c.name IS NOT NULL
                          AND LOWER(c.name) = LOWER($5) THEN 'name'
@@ -755,7 +771,9 @@ async def get_duplicates(
              FROM contacts c
             WHERE c.client_id = $1 AND c.id <> $2 AND c.is_active = TRUE
               AND (
-                ($3::TEXT IS NOT NULL AND c.email_normalized = $3)
+                ($3::TEXT IS NOT NULL AND EXISTS (
+                   SELECT 1 FROM platform_users pe WHERE pe.contact_id = c.id
+                    AND pe.platform_slug = 'email' AND pe.platform_user_id = $3))
                 OR ($4::TEXT IS NOT NULL AND c.phone_normalized = $4)
                 OR ($5::TEXT IS NOT NULL AND c.name IS NOT NULL AND LOWER(c.name) = LOWER($5))
               )
@@ -826,11 +844,6 @@ async def update_contact(
             raise HTTPException(status_code=400, detail="Имя слишком длинное (>200 симв.)")
         args.append(name)
         sets.append(f"name = ${len(args)}")
-    if data.email is not None:
-        from app.services.contact_merge import normalize_email as _normalize_email
-        em = (data.email or "").strip() or None
-        args.append(em); sets.append(f"email = ${len(args)}")
-        args.append(_normalize_email(em) if em else None); sets.append(f"email_normalized = ${len(args)}")
     if data.phone is not None:
         from app.services.contact_merge import normalize_phone as _normalize_phone
         ph = (data.phone or "").strip() or None
@@ -842,25 +855,48 @@ async def update_contact(
             raise HTTPException(status_code=400, detail="Партнёрский параметр слишком длинный (>500 симв.)")
         args.append(erp); sets.append(f"external_ref_param = ${len(args)}")
 
-    if not sets:
+    # email НЕ пишем в contacts — он живёт как идентичность (platform_users).
+    email_change = data.email is not None
+    em = ((data.email or "").strip() or None) if email_change else None
+
+    if not sets and not email_change:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
 
-    args.append(contact_id)
-    row = await db.fetchrow(
-        f"UPDATE contacts SET {', '.join(sets)}, updated_at = NOW() "
-        f"WHERE id = ${len(args)} RETURNING id, name, email, phone, external_ref_param",
-        *args
-    )
-
-    # Если email менялся — синхронизируем email-идентичность + подписку
-    # на главный email-канал клиента (миграция 097).
-    if data.email is not None and row["email"]:
-        from app.services.contact_merge import sync_email_identity_and_subscription
-        await sync_email_identity_and_subscription(
-            db, client_id=client_id, contact_id=contact_id,
-            email=row["email"], first_name=row["name"],
+    if sets:
+        args.append(contact_id)
+        await db.execute(
+            f"UPDATE contacts SET {', '.join(sets)}, updated_at = NOW() WHERE id = ${len(args)}",
+            *args
         )
 
+    if email_change:
+        from app.services.contact_merge import (
+            sync_email_identity_and_subscription,
+            normalize_email as _normalize_email,
+        )
+        em_norm = _normalize_email(em)
+        if em_norm:
+            nm = await db.fetchval("SELECT name FROM contacts WHERE id = $1", contact_id)
+            await sync_email_identity_and_subscription(
+                db, client_id=client_id, contact_id=contact_id,
+                email=em_norm, first_name=nm,
+            )
+        else:
+            # email очищен — удаляем email-идентичность (подписки уйдут каскадом)
+            await db.execute(
+                "DELETE FROM platform_users WHERE contact_id = $1 AND platform_slug = 'email'",
+                contact_id,
+            )
+
+    # Ответ: email берём из актуальной email-идентичности
+    row = await db.fetchrow(
+        """SELECT c.id, c.name, c.phone, c.external_ref_param,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email
+             FROM contacts c WHERE c.id = $1""",
+        contact_id,
+    )
     return {"ok": True, "contact": dict(row)}
 
 
@@ -997,7 +1033,10 @@ async def import_contacts_csv(
         # Конфликтная ситуация: email совпал с одним контактом, phone — с другим
         if email_n and phone_n:
             by_email = await db.fetchval(
-                "SELECT id FROM contacts WHERE client_id=$1 AND email_normalized=$2 AND is_active=TRUE LIMIT 1",
+                """SELECT pe.contact_id FROM platform_users pe
+                     JOIN contacts c ON c.id = pe.contact_id AND c.is_active = TRUE
+                    WHERE pe.client_id=$1 AND pe.platform_slug='email'
+                      AND pe.platform_user_id=$2 LIMIT 1""",
                 client_id, email_n,
             )
             by_phone = await db.fetchval(

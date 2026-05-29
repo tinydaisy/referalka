@@ -619,7 +619,11 @@ async def create_collaborator_quick(
 
     if contact_id is None and not data.force_create:
         matches = await db.fetch(
-            """SELECT c.id, c.name, c.email, c.phone,
+            """SELECT c.id, c.name,
+                      (SELECT pe.platform_user_id FROM platform_users pe
+                        WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                        ORDER BY pe.id LIMIT 1) AS email,
+                      c.phone,
                       EXISTS(SELECT 1 FROM collaborators col WHERE col.contact_id = c.id) AS has_collab
                  FROM contacts c
                 WHERE c.client_id = $1

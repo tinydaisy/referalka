@@ -747,7 +747,10 @@ async def event_participants(
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
                   ep.link_clicked_at,
                   c.name AS contact_name,
-                  c.email, c.phone, c.salebot_id,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email,
+                  c.phone, c.salebot_id,
                   (SELECT pu.platform_user_id FROM platform_users pu
                     WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram' LIMIT 1) AS platform_user_id,
                   (SELECT pu.username FROM platform_users pu

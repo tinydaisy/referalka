@@ -226,7 +226,9 @@ async def _do_unsubscribe(
     )
     if not email_addr:
         email_addr = await db.fetchval(
-            "SELECT email_normalized FROM contacts WHERE id = $1",
+            """SELECT pe.platform_user_id FROM platform_users pe
+                WHERE pe.contact_id = $1 AND pe.platform_slug = 'email'
+                ORDER BY pe.id LIMIT 1""",
             target_contact_id,
         )
     if email_addr:
