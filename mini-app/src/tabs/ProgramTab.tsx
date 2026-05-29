@@ -294,7 +294,18 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
       getSpeakers(event.id).then((r: any) => r.speakers as Speaker[]).catch(() => []),
     ]).then(([d, sp]) => {
       setDays(d)
-      setSpeakers(sp)
+      // Сортировка по сегментам в Mini App: организаторы → жюри →
+      // спикеры → партнёры. Бэк может выдавать коммерческих партнёров
+      // впереди спикеров (collaborator_sort учитывает is_commercial), но в
+      // Mini App это смущает пользователя.
+      const segOrder: Record<string, number> = {
+        organizer: 0, jury: 1, headliner: 2, speaker: 2,
+        general_partner: 3, partner: 3,
+      }
+      const sorted = [...(sp || [])].sort((a: any, b: any) =>
+        (segOrder[a.role] ?? 9) - (segOrder[b.role] ?? 9)
+      )
+      setSpeakers(sorted)
       // На refresh сбрасываем кэш сессий, чтобы перезагрузить активный день
       setSessionsByDay({})
       setOpenDay(prev => {

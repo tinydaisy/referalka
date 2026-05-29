@@ -88,25 +88,34 @@ function getMissingGiftLabels(sp: any): string[] {
   return missing
 }
 
-export default function SpeakersTab({ eventId }: { eventId: number }) {
+// В премиях/турнирах при добавлении нового спикера через дашборд по
+// умолчанию ставим роль «жюри» — там 90% коллабораторов это жюри.
+// Саморегистрация через бот всегда создаёт спикера, независимо от модуля.
+function defaultRoleFor(moduleSlug?: string | null): string {
+  if (moduleSlug === 'turnir' || moduleSlug === 'awards' || moduleSlug === 'contest') return 'jury'
+  return 'speaker'
+}
+
+export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
   const router = useRouter()
   const { t } = useLang()
   const { isAssistant } = useMe()
   const ts = t.conferences.speakers
+  const defaultRole = defaultRoleFor(moduleSlug)
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'new' | 'base' | 'edit' | null>(null)
   const [editSpeaker, setEditSpeaker] = useState<any>(null)
-  const [editForm, setEditForm] = useState({ role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
+  const [editForm, setEditForm] = useState({ role: defaultRole, topics: [''], gift_title: '', gift_url: '', is_commercial: false })
   const [form, setForm] = useState({
-    name: '', role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false,
+    name: '', role: defaultRole, topics: [''], gift_title: '', gift_url: '', is_commercial: false,
     personal_tg_username: '', personal_vk_username: '', personal_max_username: '',
   })
   const [baseQuery, setBaseQuery] = useState('')
   const [baseList, setBaseList] = useState<any[]>([])
   const [baseLoading, setBaseLoading] = useState(false)
   const [selectedBase, setSelectedBase] = useState<any>(null)
-  const [baseForm, setBaseForm] = useState({ role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
+  const [baseForm, setBaseForm] = useState({ role: defaultRole, topics: [''], gift_title: '', gift_url: '', is_commercial: false })
   const [saving, setSaving] = useState(false)
   const [selfRegLinks, setSelfRegLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
   const [copiedPlatform, setCopiedPlatform] = useState<string>('')
