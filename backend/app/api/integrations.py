@@ -198,6 +198,11 @@ async def salebot_register(
             data.participant_id, bool(data.is_in_chat),
         )
         auto_event_marked = True
+        # Финализация (welcome-email + nurture-стоп + re-opt-in)
+        from app.services.participant_registration import finalize_participant_registration
+        await finalize_participant_registration(
+            db, event_id=int(auto_event_id), contact_id=contact_id,
+        )
     elif data.contact_id is not None:
         # Прямой путь: контакт уже известен. Проверяем что он принадлежит этому
         # клиенту, разруливаем merged_into (если контакт мержнут — берём главного).
@@ -316,6 +321,11 @@ async def salebot_register(
                     """,
                     data.is_registered, data.is_in_chat, participant_id
                 )
+                if data.is_registered:
+                    from app.services.participant_registration import finalize_participant_registration
+                    await finalize_participant_registration(
+                        db, event_id=event_id_int, contact_id=contact_id,
+                    )
         else:
             is_new_participant = True
 
@@ -347,6 +357,11 @@ async def salebot_register(
                 """,
                 event_id_int, contact_id, data.is_registered, data.is_in_chat, referrer_ref_code
             )
+            if data.is_registered:
+                from app.services.participant_registration import finalize_participant_registration
+                await finalize_participant_registration(
+                    db, event_id=event_id_int, contact_id=contact_id,
+                )
 
     # Если event_id не передавался — берём ref_code контакта (для веб-интеграций
     # без события — сразу отдаём свежесозданный ref_code партнёра).
@@ -703,6 +718,12 @@ async def _register_by_participant(
     await db.execute(
         "UPDATE event_participants SET is_registered = TRUE WHERE id = $1",
         data.participant_id,
+    )
+
+    # 5. Финализация (welcome-email + nurture-стоп + re-opt-in)
+    from app.services.participant_registration import finalize_participant_registration
+    await finalize_participant_registration(
+        db, event_id=prow["event_id"], contact_id=contact_id,
     )
 
     return {

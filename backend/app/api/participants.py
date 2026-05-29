@@ -248,57 +248,18 @@ async def register_participant(
         event["id"], contact_id, referrer_participant_id, resolved_ref_code
     )
 
-    # Регистрация = останов воронки догрева (если она была запущена).
-    try:
-        from app.api.event_nurture import start_nurture_run_if_eligible
-        await start_nurture_run_if_eligible(
-            db, event_id=event["id"], contact_id=contact_id, is_registered=True,
-        )
-    except Exception:
-        pass
-
-    # Re-opt-in: возвращаем email-подписку, если был отписан.
-    await _resubscribe_email(db, contact_id=contact_id, client_id=event["client_id"])
-
-    # Welcome-email на регистрацию (если включён шаблон у события).
-    # Дедуп — через event_participants.welcome_email_sent_at, шлём один раз.
-    try:
-        from app.services.event_welcome_email import send_welcome_email_if_needed
-        await send_welcome_email_if_needed(
-            db, event_id=event["id"], contact_id=contact_id,
-        )
-    except Exception:
-        pass
+    # Финализация регистрации (nurture-стоп + email re-opt-in + welcome-email).
+    # Единый хелпер, общий для всех путей регистрации (Mini App + webhooks).
+    from app.services.participant_registration import finalize_participant_registration
+    await finalize_participant_registration(
+        db, event_id=event["id"], contact_id=contact_id,
+    )
 
     return {
         "participant": {"id": participant["id"], "ref_code": user_ref_code},
         "is_new": True,
         **redirect,
     }
-
-
-async def _resubscribe_email(db, *, contact_id: int, client_id: int):
-    """При регистрации через форму с галочками — возвращаем email-подписку,
-    если контакт был ранее отписан. Логически: «человек только что снова
-    согласился с обработкой и подтвердил, что хочет получать материалы».
-    Затрагиваем ВСЕ email-каналы клиента (на случай если каналов несколько)."""
-    try:
-        await db.execute(
-            """UPDATE platform_user_channels puc
-                  SET is_unsubscribed = FALSE,
-                      unsubscribed_at = NULL
-                FROM platform_users pu
-                JOIN client_channels cc ON cc.id = puc.client_channel_id
-               WHERE puc.platform_user_id = pu.id
-                 AND pu.contact_id = $1
-                 AND pu.platform_slug = 'email'
-                 AND cc.client_id = $2
-                 AND puc.is_unsubscribed = TRUE""",
-            contact_id, client_id,
-        )
-    except Exception:
-        # Не блокируем регистрацию — re-opt-in best-effort.
-        pass
 
 
 @router.post("/{participant_id}/activate", summary="Активировать участника")
