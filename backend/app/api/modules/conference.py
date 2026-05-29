@@ -514,6 +514,11 @@ class SpeakerEventUpdate(BaseModel):
     show_topic_field: Optional[bool] = None
     show_gift_after_speech_field: Optional[bool] = None
     show_knowledge_base_field: Optional[bool] = None
+    # Показывать ли спикеру в его кабинете блок «Регистрация партнёром»
+    # клиента (миграция 123). Default TRUE; при саморегистрации через
+    # бот выставляется FALSE — самозаписавшимся партнёрку не агитируем
+    # до явной отметки клиентом.
+    show_partner_registration_link: Optional[bool] = None
     # Какая афиша из библиотеки коллаба используется в этом событии для
     # рассылок бота (speaker_intro / 5min_before / gift). NULL = первая
     # из библиотеки. См. миграцию 121.
@@ -600,6 +605,7 @@ async def list_event_speakers(
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
                   cse.show_knowledge_base_field,
+                  cse.show_partner_registration_link,
                   cse.poster_id,
                   cse.announcement_poster_ids,
                   cp_cse.url AS cse_poster_url,
@@ -845,7 +851,11 @@ async def create_and_add_speaker(
     # Возвращаем клиенту выбор (UI: «Использовать существующего» / «Создать нового»).
     if contact_id is None and not data.force_create:
         matches = await db.fetch(
-            """SELECT c.id, c.name, c.email, c.phone,
+            """SELECT c.id, c.name,
+                      (SELECT pe.platform_user_id FROM platform_users pe
+                        WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                        ORDER BY pe.id LIMIT 1) AS email,
+                      c.phone,
                       EXISTS(SELECT 1 FROM collaborators col WHERE col.contact_id = c.id) AS has_collab
                  FROM contacts c
                 WHERE c.client_id = $1
@@ -3443,7 +3453,11 @@ async def speaker_click_stats(
     )
     by_kind = {r["click_kind"]: int(r["cnt"]) for r in counts}
     recent = await db.fetch(
-        """SELECT c.id, c.name, c.email, c.phone, cl.click_kind, cl.clicked_at,
+        """SELECT c.id, c.name,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email,
+                  c.phone, cl.click_kind, cl.clicked_at,
                   cl.contact_name AS snapshot_name,
                   cl.tg_id        AS snapshot_tg_id,
                   cl.tg_nickname  AS snapshot_tg_nickname,

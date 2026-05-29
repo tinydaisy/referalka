@@ -139,6 +139,7 @@ export default function ConferenceSpeakerPage() {
     show_topic_field: true,
     show_gift_after_speech_field: true,
     show_knowledge_base_field: false,
+    show_partner_registration_link: true,
     notes: '',
     is_commercial: false,
     bot_in_channel: false,
@@ -211,6 +212,7 @@ export default function ConferenceSpeakerPage() {
           show_topic_field: sp.show_topic_field !== false,
           show_gift_after_speech_field: sp.show_gift_after_speech_field !== false,
           show_knowledge_base_field: !!sp.show_knowledge_base_field,
+          show_partner_registration_link: sp.show_partner_registration_link !== false,
           notes: sp.notes || '',
           is_commercial: sp.is_commercial || false,
           bot_in_channel: sp.bot_in_channel || false,
@@ -369,6 +371,7 @@ export default function ConferenceSpeakerPage() {
         show_topic_field: eventForm.show_topic_field,
         show_gift_after_speech_field: eventForm.show_gift_after_speech_field,
         show_knowledge_base_field: eventForm.show_knowledge_base_field,
+        show_partner_registration_link: eventForm.show_partner_registration_link,
         notes: eventForm.notes,
         is_commercial: eventForm.is_commercial,
         bot_in_channel: eventForm.bot_in_channel,
@@ -656,6 +659,12 @@ export default function ConferenceSpeakerPage() {
               onChange={e => setEventForm(f => ({ ...f, show_knowledge_base_field: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
             <span>Материал в базу знаний — спикер может заполнить сам</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_partner_registration_link}
+              onChange={e => setEventForm(f => ({ ...f, show_partner_registration_link: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Ссылка на регистрацию партнёром — спикеру предлагается зарегистрироваться партнёром клиента</span>
           </label>
           <p className="text-xs text-gray-500 pt-1">Подарок для розыгрыша показывается автоматически, если для события включён модуль розыгрыша.</p>
         </div>

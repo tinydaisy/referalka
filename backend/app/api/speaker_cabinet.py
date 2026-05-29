@@ -159,7 +159,10 @@ async def get_me(
                   (pu_tg.id IS NOT NULL)  AS tg_locked,
                   (pu_vk.id IS NOT NULL)  AS vk_locked,
                   (pu_max.id IS NOT NULL) AS max_locked,
-                  ctc.email, ctc.phone, ctc.ref_code,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = ctc.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email,
+                  ctc.phone, ctc.ref_code,
                   e.title AS event_title, e.slug AS event_slug,
                   ers.is_enabled AS raffle_enabled,
                   cc.subscription_mode
@@ -307,25 +310,33 @@ async def patch_me(
             c_id, *vals
         )
 
-    # 2. Контакт (contacts) — email / phone
+    # 2. Контакт (contacts) — только phone. Email живёт как идентичность
+    #    (platform_users), синхронизируется ниже, в contacts.email НЕ пишем.
     if contact_id:
-        ct_upd = {}
-        if data.email is not None:
-            ct_upd["email"] = data.email.strip() or None
-            ct_upd["email_normalized"] = (data.email or "").strip().lower() or None
         if data.phone is not None:
             phone_raw = (data.phone or "").strip()
             phone_norm = "".join(ch for ch in phone_raw if ch.isdigit()) or None
             if phone_norm and phone_norm.startswith("8") and len(phone_norm) == 11:
                 phone_norm = "+7" + phone_norm[1:]
-            ct_upd["phone"] = phone_raw or None
-            ct_upd["phone_normalized"] = phone_norm
-        if ct_upd:
-            parts = [f"{k} = ${i+2}" for i, k in enumerate(ct_upd.keys())]
             await db.execute(
-                f"UPDATE contacts SET {', '.join(parts)} WHERE id = $1",
-                contact_id, *ct_upd.values()
+                "UPDATE contacts SET phone = $2, phone_normalized = $3, updated_at = NOW() WHERE id = $1",
+                contact_id, phone_raw or None, phone_norm,
             )
+        if data.email is not None:
+            from app.services.contact_merge import (
+                sync_email_identity_and_subscription, normalize_email as _ne,
+            )
+            em_norm = _ne(data.email)
+            if em_norm:
+                cl_id = await db.fetchval("SELECT client_id FROM contacts WHERE id = $1", contact_id)
+                await sync_email_identity_and_subscription(
+                    db, client_id=cl_id, contact_id=contact_id, email=em_norm, first_name=None,
+                )
+            else:
+                await db.execute(
+                    "DELETE FROM platform_users WHERE contact_id = $1 AND platform_slug = 'email'",
+                    contact_id,
+                )
 
     # 3. Личные идентичности → platform_users.
     # ВАЖНО: если у contact_id уже есть запись на платформе (привязана через
@@ -610,6 +621,7 @@ async def get_me_materials(
                   c.contact_id,
                   c.photo_url AS speaker_photo_url,
                   ec.announcement_poster_ids,
+                  ec.show_partner_registration_link,
                   (SELECT url FROM collaborator_posters cp
                      WHERE cp.id = ec.poster_id OR
                            (ec.poster_id IS NULL AND cp.collaborator_id = c.id)
@@ -683,7 +695,13 @@ async def get_me_materials(
     # Партнёрская ссылка спикера. Если у спикера есть first_referrer_contact_id
     # → prtp_<id рефовода>; иначе корневая prtc_<client_id>. Платформы — те,
     # где у клиента есть подключённый канал (TG fallback на @pluson_bot).
-    partner_landing_configured = bool((base.get("partner_landing_url") or "").strip())
+    # Тогл «Показывать ссылку на регистрацию партнёром» (миграция 123).
+    # Если клиент выключил для этого спикера — партнёрский блок не
+    # отдаём, как будто фича не настроена.
+    show_partner_link = bool(base.get("show_partner_registration_link", True))
+    partner_landing_configured = (
+        show_partner_link and bool((base.get("partner_landing_url") or "").strip())
+    )
     partner_link: dict = {}
     if partner_landing_configured:
         from app.services.share_links import (
@@ -743,9 +761,14 @@ async def get_me_materials(
         # Партнёрский код самого спикера во внешней системе клиента
         # (contacts.external_ref_param). Если есть — кабинет спикера показывает
         # «Вы уже партнёр, ваш код X» вместо ссылок на регистрацию.
-        "speaker_external_ref_param": (base.get("speaker_external_ref_param") or "").strip() or None,
+        # Скрываем целиком если клиент выключил show_partner_registration_link (миграция 123).
+        "speaker_external_ref_param": (
+            (base.get("speaker_external_ref_param") or "").strip() or None
+        ) if show_partner_link else None,
         # URL аффилиат-кабинета во внешней системе клиента (миграция 118).
         # Кликабельная ссылка для спикера-партнёра, если у него уже есть код.
-        "partner_dashboard_url": (base.get("partner_dashboard_url") or "").strip() or None,
+        "partner_dashboard_url": (
+            (base.get("partner_dashboard_url") or "").strip() or None
+        ) if show_partner_link else None,
         "placeholders": placeholders,
     }

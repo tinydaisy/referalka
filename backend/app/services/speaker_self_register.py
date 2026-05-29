@@ -97,12 +97,15 @@ async def complete_speaker_self_register(
 
     # role='speaker' + автодефолты show_* (см. add_speaker_from_base):
     # speaker → topic + gift включены, kb выключен.
+    # show_partner_registration_link=FALSE — самозаписавшимся партнёрку
+    # не агитируем до явной активации клиентом (миграция 123).
     await db.execute(
         """INSERT INTO event_collaborators
              (speaker_id, event_id, role,
               is_commercial, is_visible, sort_order,
-              show_topic_field, show_gift_after_speech_field, show_knowledge_base_field)
-           VALUES ($1, $2, 'speaker', FALSE, TRUE, 0, TRUE, TRUE, FALSE)""",
+              show_topic_field, show_gift_after_speech_field, show_knowledge_base_field,
+              show_partner_registration_link)
+           VALUES ($1, $2, 'speaker', FALSE, TRUE, 0, TRUE, TRUE, FALSE, FALSE)""",
         collaborator_id, event_id,
     )
     return collaborator_id, access_code, event_slug, False
