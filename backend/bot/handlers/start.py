@@ -221,6 +221,51 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
+    # Саморегистрация спикером (2026-05-29): /start spkreg_<event_id>.
+    # Клиент шарит прямую ссылку из вкладки «Спикеры» события. Человек
+    # переходит — бот апсертит contact для client_id события и шлёт
+    # текст + inline-кнопку «Включить в спикеры» (callback
+    # `spkreg_confirm_<event_id>`).
+    if args.startswith("spkreg_"):
+        try:
+            event_id = int(args.removeprefix("spkreg_"))
+        except ValueError:
+            event_id = None
+        if event_id:
+            pool = await get_pool()
+            try:
+                async with pool.acquire() as db:
+                    from app.services.speaker_self_register import (
+                        get_event_for_self_register, SELF_REG_TEXT, SELF_REG_BUTTON,
+                    )
+                    from app.services.contact_merge import upsert_contact_with_identity
+                    ev = await get_event_for_self_register(db, event_id)
+                    if not ev:
+                        await message.answer("😕 Событие не найдено или удалено.")
+                        return
+                    # Upsert контакта для client_id этого события.
+                    await upsert_contact_with_identity(
+                        db,
+                        client_id=ev["client_id"],
+                        platform_slug='telegram',
+                        platform_user_id=str(user.id),
+                        username=user.username or "",
+                        first_name=user.first_name or "",
+                        last_name=user.last_name or "",
+                    )
+                    kb = InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(
+                            text=f"➕ {SELF_REG_BUTTON}",
+                            callback_data=f"spkreg_confirm_{event_id}",
+                        )
+                    ]])
+                    await message.answer(SELF_REG_TEXT, reply_markup=kb)
+                return
+            except Exception as e:
+                log.exception("spkreg_ handler failed: %s", e)
+                await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
+                return
+
     # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>.
     # Спикер кликнул invite-ссылку из сообщения, которое организатор скопировал
     # и отправил ему в личку. Опознаём коллаба по access_code → шлём в чат

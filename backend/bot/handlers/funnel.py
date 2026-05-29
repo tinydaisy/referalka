@@ -59,3 +59,72 @@ async def handle_check_subscription(callback: CallbackQuery):
             )
         else:
             await callback.answer("Что-то пошло не так. Попробуйте позже.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("spkreg_confirm_"))
+async def handle_speaker_self_register(callback: CallbackQuery):
+    """Саморегистрация спикером (2026-05-29). На клик кнопки «Включить в
+    спикеры» из сообщения по `/start spkreg_<event_id>`: создаём коллаба +
+    привязку к событию, шлём ссылку на кабинет."""
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    try:
+        event_id = int((callback.data or "").removeprefix("spkreg_confirm_"))
+    except ValueError:
+        await callback.answer("Ошибка кнопки")
+        return
+    pool = await get_pool()
+    user = callback.from_user
+    async with pool.acquire() as db:
+        from app.services.speaker_self_register import (
+            get_event_for_self_register, complete_speaker_self_register,
+        )
+        ev = await get_event_for_self_register(db, event_id)
+        if not ev:
+            await callback.answer("Событие не найдено", show_alert=True)
+            return
+        # Узнаём contact + его имя (upsert уже был при /start spkreg_).
+        contact = await db.fetchrow(
+            """SELECT c.id, c.name
+                 FROM contacts c
+                 JOIN platform_users pu ON pu.contact_id = c.id
+                WHERE c.client_id = $1 AND pu.platform_slug = 'telegram'
+                  AND pu.platform_user_id = $2
+                LIMIT 1""",
+            ev["client_id"], str(user.id),
+        )
+        if not contact:
+            await callback.answer("Сначала перейдите по ссылке организатора.", show_alert=True)
+            return
+        try:
+            coll_id, access_code, slug, already = await complete_speaker_self_register(
+                db,
+                event_id=event_id,
+                client_id=ev["client_id"],
+                contact_id=contact["id"],
+                contact_name=contact["name"] or (user.full_name or "Спикер"),
+            )
+        except Exception as e:
+            log.exception("speaker self-register failed: %s", e)
+            await callback.answer("Что-то пошло не так. Попробуйте позже.", show_alert=True)
+            return
+
+    # Берём username бота для построения ссылки spkinv_<code>.
+    try:
+        me = await callback.bot.get_me()
+        bot_handle = me.username or "pluson_bot"
+    except Exception:
+        bot_handle = "pluson_bot"
+    spkinv_url = f"https://t.me/{bot_handle}?start=spkinv_{access_code}"
+
+    if already:
+        head = f"Вы уже спикер «{ev['title']}».\n\nОткройте свой кабинет:"
+    else:
+        head = f"Готово! Вы включены в спикеры «{ev['title']}».\n\nОткройте свой кабинет и заполните данные о себе:"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📝 Открыть кабинет спикера", url=spkinv_url)
+    ]])
+    try:
+        await callback.message.answer(head, reply_markup=kb)
+    except Exception as e:
+        log.exception("send spkreg confirm reply failed: %s", e)
+    await callback.answer("Готово!", show_alert=False)

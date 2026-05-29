@@ -565,6 +565,27 @@ async def _save_topics(cse_id: int, topics: list, db) -> None:
             )
 
 
+@router.get("/speakers/self-register-links", summary="Прямые ссылки саморегистрации спикером (TG/VK/MAX)")
+async def speaker_self_register_links(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Возвращает прямые ссылки для шаринга — клиент копирует и
+    отправляет потенциальным спикерам. По клику бот: TG — шлёт текст +
+    кнопку «Включить в спикеры», VK/MAX — сразу регистрирует."""
+    client_id = int(client["sub"])
+    ev = await db.fetchval(
+        "SELECT id FROM events WHERE id = $1 AND client_id = $2",
+        event_id, client_id,
+    )
+    if not ev:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    from app.services.share_links import build_speaker_self_register_links
+    links = await build_speaker_self_register_links(db, client_id, event_id)
+    return {"links": links}
+
+
 @router.get("/speakers", summary="Спикеры события")
 async def list_event_speakers(
     event_id: int,

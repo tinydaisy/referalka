@@ -108,6 +108,8 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
   const [selectedBase, setSelectedBase] = useState<any>(null)
   const [baseForm, setBaseForm] = useState({ role: 'speaker', topics: [''], gift_title: '', gift_url: '', is_commercial: false })
   const [saving, setSaving] = useState(false)
+  const [selfRegLinks, setSelfRegLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
+  const [copiedPlatform, setCopiedPlatform] = useState<string>('')
 
   function load() {
     setLoading(true)
@@ -116,6 +118,22 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [eventId])
+
+  // Прямые ссылки саморегистрации спикером (2026-05-29).
+  // Клиент копирует и шарит — человек переходит, бот регистрирует.
+  useEffect(() => {
+    api.conference.speakers.selfRegisterLinks(eventId)
+      .then((r: any) => setSelfRegLinks(r.links || {}))
+      .catch(() => setSelfRegLinks({}))
+  }, [eventId])
+
+  async function copyLink(platform: string, url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedPlatform(platform)
+      setTimeout(() => setCopiedPlatform(''), 2000)
+    } catch {}
+  }
 
   async function searchBase(q: string) {
     setBaseLoading(true)
@@ -210,8 +228,43 @@ export default function SpeakersTab({ eventId }: { eventId: number }) {
     </select>
   )
 
+  const platformLabels: Record<string, string> = { telegram: 'Telegram', vk: 'VK', max: 'MAX' }
+  const platformLinks = Object.entries(selfRegLinks).filter(([, v]) => !!v) as Array<[string, string]>
+
   return (
     <div className="max-w-2xl">
+      {/* Саморегистрация спикером (2026-05-29). Клиент шарит ссылку —
+          человек переходит, бот шлёт «Включить в спикеры» — создаётся
+          коллаб и event_collaborators с role='speaker'. */}
+      {platformLinks.length > 0 && (
+        <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
+          <div className="text-sm font-semibold text-gray-900 mb-1">Самостоятельная регистрация спикером</div>
+          <p className="text-xs text-gray-500 mb-3">
+            Это пригласит человека стать спикером через бот. Скопируйте ссылку и
+            отправьте — он перейдёт, нажмёт кнопку «Включить в спикеры» и сразу
+            появится в этом списке. Потом сможет сам заполнить свои данные.
+          </p>
+          <div className="flex flex-col gap-2">
+            {platformLinks.map(([platform, url]) => (
+              <div key={platform} className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-600 w-20 shrink-0">{platformLabels[platform] || platform}</span>
+                <input type="text" value={url} readOnly
+                  onClick={e => (e.target as HTMLInputElement).select()}
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-mono bg-white text-gray-700 truncate" />
+                <button type="button" onClick={() => copyLink(platform, url)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    copiedPlatform === platform
+                      ? 'bg-green-100 text-green-700 border border-green-300'
+                      : 'border border-gray-300 text-gray-700 hover:bg-white'
+                  }`}>
+                  {copiedPlatform === platform ? '✓ Скопировано' : 'Копировать'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-4">
         <p className="text-sm text-gray-500">{ts.count(speakers.length)}</p>
         <div className="flex gap-2">

@@ -170,6 +170,13 @@ def _extract_partner_done_client_id(message_or_event: dict) -> int | None:
     return _extract_ref_with_prefix(message_or_event, "partner_done_")
 
 
+def _extract_speaker_self_register_event_id(message_or_event: dict) -> int | None:
+    """Ищет `ref=spkreg_<event_id>` — корневая ссылка саморегистрации спикером
+    (2026-05-29). VK: одношаговая регистрация — пользователь нажал по ссылке,
+    мы сразу создаём коллаба и шлём ссылку spkinv_<access_code>."""
+    return _extract_ref_with_prefix(message_or_event, "spkreg_")
+
+
 def _extract_speaker_invite_code(message_or_event: dict) -> str | None:
     """Ищет `ref=spkinv_<access_code>` — invite-ссылка кабинета спикера (миграция 108).
 
@@ -197,6 +204,88 @@ def _extract_speaker_invite_code(message_or_event: dict) -> str | None:
         if s.startswith("spkinv_"):
             return s.removeprefix("spkinv_") or None
     return None
+
+
+async def _handle_speaker_self_register_vk(
+    event_id: int, user_id: int, db, ctx: "GroupCtx",
+) -> None:
+    """Саморегистрация спикером события (2026-05-29). Одношаговая для VK:
+    пользователь явно кликнул по `vk.me/{group}?ref=spkreg_<event_id>` →
+    апсертим contact, создаём коллаба + event_collaborators, шлём ссылку
+    spkinv_<access_code> для входа в кабинет."""
+    from app.services.speaker_self_register import (
+        get_event_for_self_register, complete_speaker_self_register,
+    )
+    from app.services.contact_merge import upsert_contact_with_identity
+    from app.services.channels import get_client_telegram_token
+    ev = await get_event_for_self_register(db, event_id)
+    if not ev:
+        try:
+            await vk_send_message(user_id, "😕 Событие не найдено.", token=ctx.token)
+        except Exception:
+            pass
+        return
+
+    contact_id, _pu, _is_new = await upsert_contact_with_identity(
+        db,
+        client_id=ev["client_id"],
+        platform_slug='vk',
+        platform_user_id=str(user_id),
+        username="",
+        first_name="",
+        last_name="",
+    )
+    contact_name = await db.fetchval(
+        "SELECT name FROM contacts WHERE id = $1", contact_id,
+    )
+    try:
+        coll_id, access_code, slug, already = await complete_speaker_self_register(
+            db,
+            event_id=event_id,
+            client_id=ev["client_id"],
+            contact_id=contact_id,
+            contact_name=contact_name or "Спикер",
+        )
+    except Exception as e:
+        logger.exception("VK speaker_self_register failed: %s", e)
+        try:
+            await vk_send_message(user_id, "Что-то пошло не так. Попробуйте позже.", token=ctx.token)
+        except Exception:
+            pass
+        return
+
+    # Ссылка на TG-бот клиента (или системный) с spkinv_<code>.
+    # У клиента может быть только TG-канал для кабинета — даём универсальную
+    # ссылку через @pluson_bot если своего TG-бота нет.
+    tg_token = await get_client_telegram_token(ev["client_id"], db)
+    bot_handle = "pluson_bot"
+    if tg_token:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5) as http:
+                r = await http.get(f"https://api.telegram.org/bot{tg_token}/getMe")
+            data = r.json()
+            if data.get("ok"):
+                bot_handle = (data["result"].get("username") or bot_handle).lstrip("@")
+        except Exception:
+            pass
+    spkinv_url = f"https://t.me/{bot_handle}?start=spkinv_{access_code}"
+
+    if already:
+        text = (
+            f"Вы уже спикер «{ev['title']}».\n\nОткройте свой кабинет: {spkinv_url}\n"
+            f"Код доступа: {access_code}"
+        )
+    else:
+        text = (
+            f"Готово! Вы включены в спикеры «{ev['title']}».\n\n"
+            f"Откройте свой кабинет и заполните данные: {spkinv_url}\n"
+            f"Код доступа: {access_code}"
+        )
+    try:
+        await vk_send_message(user_id, text, token=ctx.token)
+    except Exception as e:
+        logger.warning("VK spkreg send_message failed: %s", e)
 
 
 async def _handle_speaker_invite_vk(access_code: str, user_id: int, db, ctx: "GroupCtx") -> bool:
@@ -388,6 +477,16 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_allow partner_done failed: %s", e)
+
+    # Саморегистрация спикером (2026-05-29): ref=spkreg_<event_id>.
+    # Одношаговая для VK — пользователь явно кликнул по корневой ссылке.
+    spkreg_event_id = _extract_speaker_self_register_event_id(event)
+    if spkreg_event_id:
+        try:
+            await _handle_speaker_self_register_vk(spkreg_event_id, int(user_id), db, ctx)
+            return
+        except Exception as e:
+            logger.warning("VK message_allow spkreg failed: %s", e)
 
     # Самообслуживание спикера: ref=spkinv_<access_code> (миграция 108).
     spk_code = _extract_speaker_invite_code(event)
@@ -640,6 +739,15 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         except Exception as e:
             logger.warning("VK message_new partner_done failed: %s", e)
+
+    # Саморегистрация спикером (2026-05-29): ref=spkreg_<event_id>.
+    spkreg_event_id = _extract_speaker_self_register_event_id(event_obj)
+    if spkreg_event_id:
+        try:
+            await _handle_speaker_self_register_vk(spkreg_event_id, int(from_id), db, ctx)
+            return
+        except Exception as e:
+            logger.warning("VK message_new spkreg failed: %s", e)
 
     # Самообслуживание спикера (миграция 108).
     spk_code = _extract_speaker_invite_code(event_obj)

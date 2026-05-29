@@ -217,6 +217,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/conference/speakers/${speakerEventId}/click-stats`),
       clickReport: (eventId: number) =>
         request(`/api/v1/events/${eventId}/conference/click-report`),
+      selfRegisterLinks: (eventId: number) =>
+        request(`/api/v1/events/${eventId}/conference/speakers/self-register-links`),
     },
     days: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/days`),

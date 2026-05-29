@@ -1,0 +1,108 @@
+"""
+Самостоятельная регистрация спикером события (2026-05-29).
+
+Сценарий:
+1. Клиент во вкладке «Спикеры» события копирует прямую ссылку
+   `t.me/{bot}?start=spkreg_{event_id}` (или VK / MAX аналог).
+2. Человек переходит → попадает в бот → стандартный upsert contact +
+   platform_user.
+3. Бот шлёт фикс. текст + inline-кнопку «Добавиться в спикеры»
+   (callback `spkreg_confirm_{event_id}`).
+4. На callback: создаётся `collaborator` (если ещё нет) + запись в
+   `event_collaborators` (если ещё нет, role='speaker' + автодефолты
+   show_*). Бот шлёт `t.me/{bot}?start=spkinv_<access_code>` — это уже
+   стандартный путь самообслуживания (миграция 108).
+
+Без модерации в MVP. Клиент может удалить спикера руками если не нужен.
+"""
+import logging
+from typing import Optional, Tuple
+import asyncpg
+
+from app.api.collaborators import _generate_unique_access_code
+
+logger = logging.getLogger(__name__)
+
+
+SELF_REG_TEXT = (
+    "Вы находитесь в агенте по оформлению вас спикером. "
+    "Чтобы добавиться в состав спикеров — нажмите кнопку ниже."
+)
+SELF_REG_BUTTON = "Включить в спикеры"
+
+
+async def get_event_for_self_register(
+    db: asyncpg.Connection, event_id: int,
+) -> Optional[dict]:
+    """Узнаёт client_id и slug события. Без проверок видимости/статуса —
+    клиент сам делится ссылкой, если событие не публикуется, спикер всё
+    равно может зарегистрироваться."""
+    row = await db.fetchrow(
+        "SELECT id, client_id, slug, title FROM events WHERE id = $1",
+        event_id,
+    )
+    return dict(row) if row else None
+
+
+async def complete_speaker_self_register(
+    db: asyncpg.Connection,
+    *,
+    event_id: int,
+    client_id: int,
+    contact_id: int,
+    contact_name: str,
+) -> Tuple[int, str, str, bool]:
+    """Создаёт коллаба (если ещё нет) и привязывает к событию.
+
+    Возвращает (collaborator_id, access_code, event_slug, was_already_speaker).
+    `was_already_speaker=True` если у contact уже была запись
+    `event_collaborators` для этого события — тогда повтор не создаём, но
+    возвращаем те же данные (access_code позволит спикеру повторно войти).
+    """
+    ev_row = await db.fetchrow(
+        "SELECT slug FROM events WHERE id = $1 AND client_id = $2",
+        event_id, client_id,
+    )
+    if not ev_row:
+        raise ValueError("Событие не найдено или не принадлежит клиенту")
+    event_slug = ev_row["slug"]
+
+    # Найти или создать коллаба
+    coll_row = await db.fetchrow(
+        "SELECT id, access_code FROM collaborators WHERE contact_id = $1",
+        contact_id,
+    )
+    if coll_row:
+        collaborator_id = coll_row["id"]
+        access_code = coll_row["access_code"]
+    else:
+        access_code = await _generate_unique_access_code(db)
+        # Имя из contacts.name (бот upsert'нул имя из TG/VK при /start).
+        collaborator_id = await db.fetchval(
+            """INSERT INTO collaborators
+                 (contact_id, name, access_code, created_by_client_id)
+               VALUES ($1, $2, $3, $4)
+               RETURNING id""",
+            contact_id, (contact_name or "Спикер").strip() or "Спикер",
+            access_code, client_id,
+        )
+
+    # Уже добавлен в событие?
+    existing_cse = await db.fetchval(
+        "SELECT id FROM event_collaborators WHERE speaker_id = $1 AND event_id = $2",
+        collaborator_id, event_id,
+    )
+    if existing_cse:
+        return collaborator_id, access_code, event_slug, True
+
+    # role='speaker' + автодефолты show_* (см. add_speaker_from_base):
+    # speaker → topic + gift включены, kb выключен.
+    await db.execute(
+        """INSERT INTO event_collaborators
+             (speaker_id, event_id, role,
+              is_commercial, is_visible, sort_order,
+              show_topic_field, show_gift_after_speech_field, show_knowledge_base_field)
+           VALUES ($1, $2, 'speaker', FALSE, TRUE, 0, TRUE, TRUE, FALSE)""",
+        collaborator_id, event_id,
+    )
+    return collaborator_id, access_code, event_slug, False

@@ -261,3 +261,39 @@ async def build_invite_links_for_collaborator(
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
 
     return result
+
+
+async def build_speaker_self_register_links(
+    db,
+    client_id: int,
+    event_id: int,
+) -> dict[str, str]:
+    """Прямые ссылки для саморегистрации спикером события (2026-05-29).
+
+    Клиент шарит эти ссылки тем, кто хочет выступить. Пользователь
+    переходит → попадает в бот → нажимает «Включить в спикеры» (TG,
+    callback) или сразу регистрируется (VK/MAX, по ref).
+
+    Бот / сообщество выбирается как для invite-ссылок:
+      - TG: VIP-бот клиента ИЛИ системный @pluson_bot
+      - VK: только собственное сообщество клиента (vk.me/{group}?ref=…)
+      - MAX: только собственный MAX-бот клиента
+    """
+    payload = f"spkreg_{event_id}"
+    handles = await get_client_bot_handles(db, client_id)
+    result: dict[str, str] = {}
+
+    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
+    if tg_handle == PLUSON_TG_HANDLE:
+        if not await _has_system_channel(db, "telegram", allow_test=False):
+            tg_handle = ""
+    if tg_handle:
+        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+
+    if handles.get("vk"):
+        result["vk"] = f"https://vk.me/{handles['vk'].lstrip('@')}?ref={payload}"
+
+    if handles.get("max"):
+        result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?startapp={payload}"
+
+    return result
