@@ -218,6 +218,22 @@ class TariffCreate(BaseModel):
     broadcasts_daily_limit: Optional[int] = None  # NULL = безлимит
     default_duration_days: int = 30
     feature_slugs: list[str] = []
+    prodamus_payment_url: Optional[str] = None
+    promo_banner_text: Optional[str] = None
+    promo_old_price: Optional[float] = None
+
+
+class TariffUpdate(BaseModel):
+    name: Optional[str] = None
+    price: Optional[float] = None
+    contact_limit: Optional[int] = None
+    broadcasts_daily_limit: Optional[int] = None  # ВНИМАНИЕ: чтобы поставить NULL (безлимит), передавать explicit null невозможно через эту схему — see endpoint
+    default_duration_days: Optional[int] = None
+    feature_slugs: Optional[list[str]] = None
+    is_active: Optional[bool] = None
+    prodamus_payment_url: Optional[str] = None
+    promo_banner_text: Optional[str] = None
+    promo_old_price: Optional[float] = None
 
 
 @router.get("/tariffs", summary="Список тарифов")
@@ -245,11 +261,15 @@ async def create_tariff(
 ):
     tariff = await db.fetchrow(
         """
-        INSERT INTO tariffs (slug, name, price, contact_limit, broadcasts_daily_limit, default_duration_days)
-        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
+        INSERT INTO tariffs (
+            slug, name, price, contact_limit, broadcasts_daily_limit, default_duration_days,
+            prodamus_payment_url, promo_banner_text, promo_old_price
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
         """,
         data.slug, data.name, data.price,
         data.contact_limit, data.broadcasts_daily_limit, data.default_duration_days,
+        data.prodamus_payment_url, data.promo_banner_text, data.promo_old_price,
     )
     if data.feature_slugs:
         await db.execute(
@@ -258,6 +278,182 @@ async def create_tariff(
             tariff["id"], data.feature_slugs,
         )
     return {"tariff": dict(tariff)}
+
+
+@router.patch("/tariffs/{tariff_id}", summary="Редактировать тариф")
+async def update_tariff(
+    tariff_id: int,
+    data: TariffUpdate,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    # Собираем UPDATE только из непустых полей. Пустая строка для URL/баннера = очистка (NULL).
+    sets: list[str] = []
+    args: list = []
+
+    def add(column: str, value):
+        args.append(value)
+        sets.append(f"{column} = ${len(args)}")
+
+    if data.name is not None: add("name", data.name)
+    if data.price is not None: add("price", data.price)
+    if data.contact_limit is not None: add("contact_limit", data.contact_limit)
+    if data.broadcasts_daily_limit is not None: add("broadcasts_daily_limit", data.broadcasts_daily_limit if data.broadcasts_daily_limit > 0 else None)
+    if data.default_duration_days is not None: add("default_duration_days", data.default_duration_days)
+    if data.is_active is not None: add("is_active", data.is_active)
+    if data.prodamus_payment_url is not None:
+        add("prodamus_payment_url", data.prodamus_payment_url.strip() or None)
+    if data.promo_banner_text is not None:
+        add("promo_banner_text", data.promo_banner_text.strip() or None)
+    if data.promo_old_price is not None:
+        # 0 трактуем как "очистить"
+        add("promo_old_price", data.promo_old_price if data.promo_old_price > 0 else None)
+
+    if sets:
+        args.append(tariff_id)
+        row = await db.fetchrow(
+            f"UPDATE tariffs SET {', '.join(sets)} WHERE id = ${len(args)} RETURNING *",
+            *args,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Тариф не найден")
+
+    # Пересинхронизация фич если передан feature_slugs
+    if data.feature_slugs is not None:
+        await db.execute("DELETE FROM tariff_features WHERE tariff_id = $1", tariff_id)
+        if data.feature_slugs:
+            await db.execute(
+                """INSERT INTO tariff_features (tariff_id, feature_id)
+                   SELECT $1, f.id FROM features f WHERE f.slug = ANY($2::text[])""",
+                tariff_id, data.feature_slugs,
+            )
+
+    tariff = await db.fetchrow(
+        """SELECT t.*,
+                  ARRAY(SELECT f.slug FROM tariff_features tf
+                          JOIN features f ON f.id = tf.feature_id
+                         WHERE tf.tariff_id = t.id
+                         ORDER BY f.sort) AS feature_slugs
+             FROM tariffs t WHERE t.id = $1""",
+        tariff_id,
+    )
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+    return {"tariff": dict(tariff)}
+
+
+# ─── Промоакции ───────────────────────────────────────────────────────────────
+
+class PromotionCreate(BaseModel):
+    slug: str
+    name: str
+    description: Optional[str] = None
+    type: str  # 'trial_bonus_days'
+    value: int
+    target_tariff_slug: Optional[str] = None
+    max_uses: Optional[int] = None
+    starts_at: Optional[str] = None  # ISO 8601
+    ends_at: Optional[str] = None
+    is_active: bool = True
+
+
+class PromotionUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    value: Optional[int] = None
+    target_tariff_slug: Optional[str] = None
+    max_uses: Optional[int] = None
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/promotions", summary="Список акций")
+async def list_promotions(
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    rows = await db.fetch(
+        """SELECT id, slug, name, description, type, value, target_tariff_slug,
+                  max_uses, used_count, starts_at, ends_at, is_active, created_at
+             FROM promotions ORDER BY id DESC"""
+    )
+    return {"promotions": [dict(r) for r in rows]}
+
+
+@router.post("/promotions", summary="Создать акцию")
+async def create_promotion(
+    data: PromotionCreate,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if data.type not in ("trial_bonus_days",):
+        raise HTTPException(status_code=400, detail="Неизвестный тип акции")
+    from datetime import datetime
+    starts = datetime.fromisoformat(data.starts_at) if data.starts_at else None
+    ends = datetime.fromisoformat(data.ends_at) if data.ends_at else None
+    try:
+        row = await db.fetchrow(
+            """INSERT INTO promotions
+                   (slug, name, description, type, value, target_tariff_slug,
+                    max_uses, starts_at, ends_at, is_active)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *""",
+            data.slug, data.name, data.description, data.type, data.value,
+            data.target_tariff_slug, data.max_uses, starts, ends, data.is_active,
+        )
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(status_code=409, detail="Slug уже используется")
+    return {"promotion": dict(row)}
+
+
+@router.patch("/promotions/{pid}", summary="Редактировать акцию")
+async def update_promotion(
+    pid: int,
+    data: PromotionUpdate,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    sets: list[str] = []
+    args: list = []
+
+    def add(col: str, val):
+        args.append(val)
+        sets.append(f"{col} = ${len(args)}")
+
+    if data.name is not None: add("name", data.name)
+    if data.description is not None: add("description", data.description or None)
+    if data.value is not None: add("value", data.value)
+    if data.target_tariff_slug is not None: add("target_tariff_slug", data.target_tariff_slug or None)
+    if data.max_uses is not None: add("max_uses", data.max_uses if data.max_uses > 0 else None)
+    if data.is_active is not None: add("is_active", data.is_active)
+    if data.starts_at is not None:
+        from datetime import datetime
+        add("starts_at", datetime.fromisoformat(data.starts_at) if data.starts_at else None)
+    if data.ends_at is not None:
+        from datetime import datetime
+        add("ends_at", datetime.fromisoformat(data.ends_at) if data.ends_at else None)
+    if not sets:
+        return {"ok": True, "message": "Нечего обновлять"}
+    args.append(pid)
+    row = await db.fetchrow(
+        f"UPDATE promotions SET {', '.join(sets)}, updated_at = NOW() WHERE id = ${len(args)} RETURNING *",
+        *args,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Акция не найдена")
+    return {"promotion": dict(row)}
+
+
+@router.delete("/promotions/{pid}", summary="Удалить акцию")
+async def delete_promotion(
+    pid: int,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    result = await db.execute("DELETE FROM promotions WHERE id = $1", pid)
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Акция не найдена")
+    return {"ok": True}
 
 
 @router.get("/features", summary="Список фич (для админки)")

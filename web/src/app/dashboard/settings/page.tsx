@@ -952,20 +952,178 @@ function SubscriptionTab() {
         </div>
       </div>
 
-      {/* Заглушка «Продлить» — пока без оплаты */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h3 className="font-semibold text-gray-800 mb-2">Продлить подписку</h3>
-        <p className="text-sm text-gray-500 mb-4">
-          Чтобы продлить тариф или сменить — напишите Марго в Telegram. Онлайн-оплата появится позже.
-        </p>
-        <a
-          href="https://t.me/margo_forbs?text=Хочу_продлить_подписку_iViSiON: ПЛЮСОН"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#25455D] text-white text-sm font-medium hover:bg-[#1a3247] transition-colors"
-        >
-          Написать в Telegram
-        </a>
+      {/* Оплата подписки через Prodamus */}
+      <SubscriptionPaymentBlock currentTariffSlug={sub?.tariff_slug} />
+
+      {/* История оплат */}
+      <SubscriptionHistoryBlock />
+    </div>
+  )
+}
+
+
+// ─── Блок выбора тарифа и оплаты ─────────────────────────────────────────────
+
+function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: string }) {
+  const [tariffs, setTariffs] = useState<any[]>([])
+  const [selectedSlug, setSelectedSlug] = useState<string>('')
+  const [promotions, setPromotions] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [paidBanner, setPaidBanner] = useState(false)
+
+  useEffect(() => {
+    api.publicData.tariffs().then((r: any) => {
+      const paid = (r.tariffs || []).filter((t: any) => t.slug !== 'trial' && Number(t.price) > 0 && t.prodamus_payment_url)
+      setTariffs(paid)
+      if (currentTariffSlug && paid.find((t: any) => t.slug === currentTariffSlug)) {
+        setSelectedSlug(currentTariffSlug)
+      } else if (paid.length) {
+        const pro = paid.find((t: any) => t.slug === 'pro')
+        setSelectedSlug((pro || paid[0]).slug)
+      }
+    }).catch(() => {})
+    api.publicData.activePromotions().then((r: any) => setPromotions(r.promotions || [])).catch(() => {})
+
+    if (typeof window !== 'undefined') {
+      const u = new URL(window.location.href)
+      if (u.searchParams.get('paid') === '1') {
+        setPaidBanner(true)
+        u.searchParams.delete('paid')
+        window.history.replaceState({}, '', u.toString())
+      }
+    }
+  }, [currentTariffSlug])
+
+  async function pay() {
+    if (!selectedSlug) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await api.subscriptions.createOrder(selectedSlug)
+      if (res?.payment_url) {
+        window.location.href = res.payment_url
+      } else {
+        setError('Не удалось создать заказ')
+        setLoading(false)
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Ошибка оплаты')
+      setLoading(false)
+    }
+  }
+
+  if (tariffs.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <h3 className="font-semibold text-gray-800 mb-2">Продлить или сменить тариф</h3>
+      <p className="text-sm text-gray-500 mb-4">
+        Оплата идёт через Prodamus, чек 54-ФЗ приходит на email автоматически.
+      </p>
+
+      {paidBanner && (
+        <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-lg px-3 py-2">
+          ✅ Оплата прошла. Подписка продлена.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        {tariffs.map(t => {
+          const promo = promotions.find(p => p.target_tariff_slug === t.slug || p.target_tariff_slug == null)
+          const selected = selectedSlug === t.slug
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setSelectedSlug(t.slug)}
+              className={`text-left rounded-xl border p-4 transition-all ${
+                selected ? 'border-[#25455D] ring-2 ring-[#25455D]/20 bg-blue-50/30' : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              {t.promo_banner_text && (
+                <div className="text-[10px] font-bold tracking-wider uppercase text-amber-700 mb-1">
+                  {t.promo_banner_text}
+                </div>
+              )}
+              <div className="font-semibold text-gray-900">{t.name}</div>
+              <div className="mt-1 flex items-baseline gap-2">
+                {t.promo_old_price && Number(t.promo_old_price) > Number(t.price) ? (
+                  <>
+                    <span className="text-sm line-through text-gray-400">{Number(t.promo_old_price).toLocaleString('ru-RU')} ₽</span>
+                    <span className="text-xl font-bold text-[#25455D]">{Number(t.price).toLocaleString('ru-RU')} ₽</span>
+                  </>
+                ) : (
+                  <span className="text-xl font-bold text-[#25455D]">{Number(t.price).toLocaleString('ru-RU')} ₽</span>
+                )}
+              </div>
+              <div className="text-[11px] text-gray-400 mt-0.5">за {t.default_duration_days} дн.</div>
+            </button>
+          )
+        })}
+      </div>
+
+      {error && <div className="mb-3 text-sm text-red-600">{error}</div>}
+
+      <button
+        onClick={pay}
+        disabled={!selectedSlug || loading}
+        className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {loading ? 'Создаём заказ…' : 'Оплатить'}
+      </button>
+    </div>
+  )
+}
+
+
+// ─── История оплат ────────────────────────────────────────────────────────────
+
+function SubscriptionHistoryBlock() {
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.subscriptions.listOrders().then((r: any) => {
+      setOrders(r.orders || [])
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return null
+  if (orders.length === 0) return null
+
+  const STATUS_LABEL: Record<string, { label: string; color: string }> = {
+    created:   { label: 'Создан, ждём оплату', color: 'text-amber-700 bg-amber-50' },
+    paid:      { label: 'Оплачен',              color: 'text-green-700 bg-green-50' },
+    failed:    { label: 'Ошибка оплаты',         color: 'text-red-700 bg-red-50' },
+    cancelled: { label: 'Отменён',               color: 'text-gray-600 bg-gray-100' },
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <h3 className="font-semibold text-gray-800 mb-4">История оплат</h3>
+      <div className="space-y-2">
+        {orders.map(o => {
+          const st = STATUS_LABEL[o.status] || { label: o.status, color: 'text-gray-600 bg-gray-100' }
+          const amount = (o.amount_paid_card_kopecks || o.amount_total_kopecks) / 100
+          return (
+            <div key={o.id} className="flex items-center justify-between text-sm py-2 border-b border-gray-50 last:border-0">
+              <div>
+                <div className="font-medium text-gray-800">{o.tariff_name}</div>
+                <div className="text-xs text-gray-400">
+                  {new Date(o.created_at).toLocaleString('ru-RU', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-semibold text-gray-900">{amount.toLocaleString('ru-RU')} ₽</div>
+                <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded ${st.color}`}>
+                  {st.label}
+                </span>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

@@ -55,46 +55,74 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
     )
     if not trial_tariff:
         raise HTTPException(status_code=500, detail="Тариф 'trial' не настроен в системе")
-    trial_days = trial_tariff["default_duration_days"] or 60
+    base_trial_days = trial_tariff["default_duration_days"] or 14
 
-    client = await db.fetchrow(
-        """
-        INSERT INTO clients (name, email, phone, telegram_username, password_hash, partner_code, integration_token)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, name, email
-        """,
-        data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token()
-    )
+    # Применение активной promo `trial_bonus_days` для тарифа `trial`.
+    # Под FOR UPDATE, чтобы used_count++ и проверка max_uses были атомарны
+    # относительно конкурентных регистраций.
+    applied_promo = None
+    async with db.transaction():
+        promo = await db.fetchrow(
+            """SELECT id, name, value, max_uses, used_count
+                 FROM promotions
+                WHERE is_active = TRUE
+                  AND type = 'trial_bonus_days'
+                  AND (target_tariff_slug IS NULL OR target_tariff_slug = 'trial')
+                  AND (starts_at IS NULL OR starts_at <= NOW())
+                  AND (ends_at   IS NULL OR ends_at   >  NOW())
+                  AND (max_uses  IS NULL OR used_count < max_uses)
+                ORDER BY id
+                LIMIT 1
+                FOR UPDATE"""
+        )
+        bonus_days = 0
+        if promo:
+            bonus_days = int(promo["value"] or 0)
+            await db.execute(
+                "UPDATE promotions SET used_count = used_count + 1, updated_at = NOW() WHERE id = $1",
+                promo["id"],
+            )
+            applied_promo = {"id": promo["id"], "name": promo["name"], "bonus_days": bonus_days}
+        trial_days = base_trial_days + bonus_days
 
-    # Создаём активную подписку (миграция 069). Без неё middleware будет блокировать все write.
-    sub_id = await db.fetchval(
-        """INSERT INTO client_subscriptions
-             (client_id, tariff_id, started_at, expires_at, status, source)
-           VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval, 'active', 'trial')
-           RETURNING id""",
-        client["id"], trial_tariff["id"], str(trial_days)
-    )
-    await db.execute(
-        "UPDATE clients SET current_subscription_id = $1 WHERE id = $2",
-        sub_id, client["id"]
-    )
+        client = await db.fetchrow(
+            """
+            INSERT INTO clients (name, email, phone, telegram_username, password_hash, partner_code, integration_token)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, name, email
+            """,
+            data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token()
+        )
 
-    # Подключаем базовый модуль
-    await db.execute(
-        "INSERT INTO client_modules (client_id, module_slug) VALUES ($1, 'base') ON CONFLICT DO NOTHING",
-        client["id"]
-    )
+        # Создаём активную подписку (миграция 069). Без неё middleware будет блокировать все write.
+        sub_id = await db.fetchval(
+            """INSERT INTO client_subscriptions
+                 (client_id, tariff_id, started_at, expires_at, status, source)
+               VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval, 'active', 'trial')
+               RETURNING id""",
+            client["id"], trial_tariff["id"], str(trial_days)
+        )
+        await db.execute(
+            "UPDATE clients SET current_subscription_id = $1 WHERE id = $2",
+            sub_id, client["id"]
+        )
 
-    # Архитектура G: создаём записи в client_channels для всех боевых системных каналов
-    # (is_system=TRUE AND is_test=FALSE). Они автоматом доступны клиенту с момента
-    # регистрации. Для не-VIP активный канал — этот системный (раз других нет).
-    await db.execute(
-        """INSERT INTO client_channels (client_id, channel_id, is_active)
-           SELECT $1, ch.id, TRUE
-             FROM channels ch
-            WHERE ch.is_system = TRUE AND ch.is_test = FALSE""",
-        client["id"]
-    )
+        # Подключаем базовый модуль
+        await db.execute(
+            "INSERT INTO client_modules (client_id, module_slug) VALUES ($1, 'base') ON CONFLICT DO NOTHING",
+            client["id"]
+        )
+
+        # Архитектура G: создаём записи в client_channels для всех боевых системных каналов
+        # (is_system=TRUE AND is_test=FALSE). Они автоматом доступны клиенту с момента
+        # регистрации. Для не-VIP активный канал — этот системный (раз других нет).
+        await db.execute(
+            """INSERT INTO client_channels (client_id, channel_id, is_active)
+               SELECT $1, ch.id, TRUE
+                 FROM channels ch
+                WHERE ch.is_system = TRUE AND ch.is_test = FALSE""",
+            client["id"]
+        )
 
     token = create_token({"sub": str(client["id"]), "email": client["email"], "role": "client"})
 
@@ -102,6 +130,8 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         "access_token": token,
         "token_type": "bearer",
         "client": dict(client),
+        "trial_days": trial_days,
+        "promo_applied": applied_promo,
         "message": "Регистрация прошла успешно! Добро пожаловать в ПЛЮСОН."
     }
 

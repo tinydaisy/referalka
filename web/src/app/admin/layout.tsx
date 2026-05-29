@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio } from 'lucide-react'
+import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag } from 'lucide-react'
 
 const adminNav = [
   { href: '/admin', label: 'Обзор', icon: BarChart2 },
@@ -9,6 +9,7 @@ const adminNav = [
   { href: '/admin/system-channels', label: 'Системные каналы', icon: Radio },
   { href: '/admin/partners', label: 'Партнёры', icon: Handshake },
   { href: '/admin/tariffs', label: 'Тарифы', icon: CreditCard },
+  { href: '/admin/promotions', label: 'Акции', icon: Tag },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
