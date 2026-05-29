@@ -505,20 +505,35 @@ API всех эндпоинтов событий ([`backend/app/api/events.py`](
 
 **Загрузка афиш** — через `POST /api/v1/uploads` с `kind='event_poster'` и `poster_type` ∈ `square|horizontal|vertical`. Запись попадает в `event_posters`. Старая колонка `events.poster_url` миграцией перенесена в `event_posters` как `horizontal`.
 
-### Афиши спикеров — двухуровнево, fallback `cse → collaborators`
+### Афиши спикеров — библиотека (миграция 121 от 2026-05-29)
 
-Афиша спикера живёт в двух местах:
-- `collaborators.poster_url` — **глобальная** афиша коллаборатора. Дефолт-полуфабрикат, виден везде, где он подключён, если не переопределён в событии.
-- `conf_speaker_events.poster_url` — **per-event** афиша. Заполняется на странице спикера в дашборде конференции, если для этой конференции нужна своя версия (надпись «СПИКЕР», брендирование, надпись «ЖЮРИ» для премии и т.д.).
+У коллаборатора **библиотека** афиш (0..N) в отдельной таблице — клиент копит дизайн под разные события, старые не удаляет. В каждой конференции отдельным селектором выбирает «текущую» афишу из библиотеки (для рассылок, Mini App, виджетов). Спикер видит всю библиотеку в своём кабинете и скачивает любую под анонс.
 
-**Правило отображения везде:** `cse.poster_url || collaborators.poster_url` — per-event приоритетнее, fallback на глобальную. При добавлении коллаборатора в событие `cse.poster_url` остаётся `NULL` — никакого копирования файла или URL не происходит, fallback срабатывает на лету при чтении.
+**БД:**
+- Таблица `collaborator_posters (id, collaborator_id FK CASCADE, url, label, sort_order, created_at)`.
+- `event_collaborators.poster_id` (FK, ON DELETE SET NULL) — какая из библиотеки в этом событии. NULL = первая по `sort_order, id` (default).
+- Старые колонки `collaborators.poster_url` и `event_collaborators.poster_url` миграцией перенесены в `collaborator_posters` и **дропнуты** — никакого dual-write.
 
-API:
-- `GET /events/{id}/conference/speakers` ([`list_event_speakers`](backend/app/api/modules/conference.py)) возвращает три поля: `cse_poster_url` (per-event), `speaker_poster_url` (глобальная), `poster_url` (готовый fallback `cse_poster_url || speaker_poster_url`). Фронт может читать любое из них.
-- `GET /speakers/{id}/send-to-telegram` и `GET /speakers/{id}/public` тоже алиасят колонки.
-- В рассылках ([`message_builder.py`](backend/app/services/message_builder.py)) для `speaker_intro` и `5min_before` используется `COALESCE(cse.poster_url, c.poster_url) AS speaker_poster`.
+**API:**
+- `GET/POST/PATCH/DELETE /api/v1/collaborators/{id}/posters` + `POST /reorder` ([backend/app/api/collaborator_posters.py](backend/app/api/collaborator_posters.py)) — CRUD библиотеки. DELETE чистит R2 + `client_files`. Reorder принимает `ids[]` в нужном порядке.
+- `POST /api/v1/uploads { kind: 'speaker_poster', collaborator_id }` — загрузка афиши; автоматически создаёт запись в `collaborator_posters` (фронту не нужно делать отдельный POST). Ответ дополняется `poster_id`.
+- `GET /api/v1/collaborators/{id}` отдаёт `posters[]` (вся библиотека) + `poster_url` (первая, для обратной совместимости отображения) + `posters_count`.
+- `GET /api/v1/public/speaker-cabinet/me/materials` отдаёт `speaker_posters[]` — вся библиотека спикера для скачивания.
 
-**В превью рассылок** ([`broadcasts/templates/page.tsx`](web/src/app/dashboard/conferences/[id]/broadcasts/templates/page.tsx)) спикерская афиша подставляется только для шаблонов со спикером (`speaker_intro`, `5min_before`, `gift`). Дневные/событийные шаблоны (`day_*`, `pre_conf`, `2h_before_*`, `30min_before`) подставляют горизонтальную афишу события из `event_posters`, а не первого попавшегося спикера.
+**Правило отображения везде** (Mini App / рассылки / виджет / дашборд): `cse.poster_id → collaborator_posters.url`, fallback на первую активную из библиотеки коллаба. Подзапрос вида:
+```sql
+(SELECT url FROM collaborator_posters cp
+   WHERE cp.id = cse.poster_id OR (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
+   ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
+   LIMIT 1)
+```
+
+**UI:**
+- `/dashboard/collaborations/[id]` — блок «Афиши (библиотека)» (компонент [CollaboratorPostersField.tsx](web/src/components/CollaboratorPostersField.tsx)): множественная загрузка, drag-reorder, переименование/удаление каждой. Поле «Афиша» в чек-листе важных полей теперь основано на `posters_count > 0`.
+- `/dashboard/conferences/[id]/speakers/[id]` — секция «Афиша для этой конференции»: грид-селектор из библиотеки коллаба (превью + подпись). Опция «По умолчанию» (poster_id=null) = первая из библиотеки. Загружать новые афиши тут нельзя — только на странице коллаба (одна точка истины).
+- `/speaker/<event_slug>` — вкладка «Профиль» больше НЕ содержит «Личную афишу». В Материалах — секция «Мои афиши» (раскладка карточек, на каждой превью + label + «Скачать»).
+
+**В превью рассылок** (templates page) спикерская афиша подставляется только для шаблонов со спикером (`speaker_intro`, `5min_before`, `gift`). Дневные/событийные (`day_*`, `pre_conf`, `2h_before_*`, `30min_before`) — горизонтальная афиша события из `event_posters`, не спикерская.
 
 ### Сортировка спикеров/жюри/организаторов — единая логика (с 2026-05-23)
 

@@ -295,7 +295,8 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 - `event_id`, `start_date`, `end_date`, `stream_url_day_1/2`, `is_live`, `vip_upsell_url`
 
 **`collaborators`** — глобальная база коллабораторов (НЕ per-client; общая для всей платформы)
-- `name`, `title`, `achievements[]`, `photo_url`, `poster_url`, `tg_channel_url`, `tg_channel_id`, `personal_tg_id`, `personal_tg_username`, `assistant_tg_username`, `instagram_url`, `website_url`
+- `name`, `title`, `achievements[]`, `photo_url`, `tg_channel_url`, `tg_channel_id`, `personal_tg_id`, `personal_tg_username`, `assistant_tg_username`, `instagram_url`, `website_url`
+- ⚠️ `poster_url` УДАЛЕНА миграцией 121 — афиши теперь в таблице `collaborator_posters` (библиотека на коллаба)
 - `created_by_client_id` → клиент, который завёл первым
 - **`platform_user_id`** → `platform_users(id)` (миграция 032) — каждый коллаб связан с Контактом, и через него — с реф-кодом
 - **`external_ref_param`** TEXT (миграция 058) — опаковая строка `key=value` (например, `gcpc=fdd97`) для связки с партнёрской системой во внешней платформе (GetCourse, Bizon360 и т.п.). Не парсим/не валидируем. **Применяется в** `GET /api/v1/public/events/{slug}/landing-redirect`: если `pid` резолвится в коллаборатора с непустым `external_ref_param`, его параметр приписывается к `events.landing_url` через `&` в конце URL
@@ -305,11 +306,19 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 - `speaker_id` → `collaborators`, `event_id` → `events`
 - `role` (organizer/headliner/commercial/speaker/partner/general_partner)
 - `speaker_topic`, `gift_after_speech_title/url`, `gift_raffle_title/url`, `keyword_code`
-- `poster_url` — индивидуальная афиша спикера для этого события
+- `poster_id` FK на `collaborator_posters` (ON DELETE SET NULL, миграция 121) — какая афиша из библиотеки коллаба используется в этой конференции. NULL = первая из библиотеки (fallback на чтение)
+- ⚠️ `poster_url` УДАЛЕНА миграцией 121 — поведение заменено через `poster_id` + библиотеку
 - `partner_url`, `extra_info`, `bot_in_channel`, `is_visible`, `sort_order`, `priority`
 - `exclude_gift_from_broadcast`, `exclude_channel_from_subscription`
 - ⚠️ Удалено: `ref_code` (живёт в `platform_users` через `collaborators.platform_user_id`, миграция 032)
 - Реф-код спикера резолвится: `cse → collaborators.platform_user_id → platform_users.ref_code`
+
+**`collaborator_posters`** (миграция 121) — библиотека афиш коллаба
+- `id`, `collaborator_id` → `collaborators(id)` (CASCADE), `url`, `label`, `sort_order`, `created_at`
+- Индекс на `(collaborator_id, sort_order, id)` — для быстрого ORDER BY fallback
+- CRUD: `GET/POST/PATCH/DELETE /api/v1/collaborators/{id}/posters` + `POST /reorder`
+- DELETE удаляет файл из R2 и запись в `client_files`. ON DELETE SET NULL для `event_collaborators.poster_id` — события автоматически перейдут на fallback
+- Загрузка через `POST /api/v1/uploads { kind: 'speaker_poster', collaborator_id }` — авто-INSERT в библиотеку (без отдельного POST на CRUD), ответ дополняется `poster_id`
 
 **`conf_sessions`** — сессии программы
 - `event_id`, `speaker_id`, `day`, `start_datetime`, `title`, `gift_description`, `sort_order`
