@@ -91,10 +91,26 @@ async function trackSpeakerClick(
   } catch (_) {}
 }
 
+// Сегменты для группировки на странице (вместо плоского списка):
+// «Жюри» отдельно от «Спикеров» в премиях/турнирах. Свёрнуть/развернуть
+// каждую группу отдельно (изначально развёрнуты).
+const SEGMENTS: Array<{ key: string; title: string; roles: string[] }> = [
+  { key: 'organizer', title: 'Организаторы', roles: ['organizer'] },
+  { key: 'jury',      title: 'Жюри',         roles: ['jury'] },
+  { key: 'speaker',   title: 'Спикеры',      roles: ['headliner', 'speaker'] },
+  { key: 'partner',   title: 'Партнёры',     roles: ['general_partner', 'partner'] },
+]
+
+function segmentFor(role: string | null | undefined): string {
+  for (const s of SEGMENTS) if (role && s.roles.includes(role)) return s.key
+  return 'speaker'
+}
+
 export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, onHighlightConsumed }: Props) {
   const [speakers, setSpeakers] = useState<Speaker[]>([])
   const [loading, setLoading] = useState(true)
   const [highlightId, setHighlightId] = useState<number | null>(null)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const cardRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   // Если родитель попросил подсветить конкретного спикера (deeplink из
@@ -158,13 +174,51 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
     return <div style={{ padding: 20, color: '#6b7c8e', textAlign: 'center' }}>Список спикеров пока пуст.</div>
   }
 
+  // Группируем спикеров по сегментам (Жюри / Спикеры / Организаторы / Партнёры).
+  // Каждая группа выводится отдельным блоком с шевроном-сворачиванием.
+  // Скрываем пустые сегменты. Спикеры внутри сегмента — в порядке как пришли с бэка.
+  const grouped: Record<string, Speaker[]> = {}
+  speakers.forEach(sp => {
+    const seg = segmentFor(sp.role)
+    if (!grouped[seg]) grouped[seg] = []
+    grouped[seg].push(sp)
+  })
+
+  function renderSpeakerCard(sp: Speaker, idx: number) {
+    return null // обратно в map ниже
+  }
+
   return (
     <div style={{ padding: '16px 12px 80px' }}>
       <h1 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '4px 8px 14px' }}>
         Спикеры и жюри
       </h1>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {speakers.map((sp, idx) => {
+      {SEGMENTS.filter(s => (grouped[s.key]?.length || 0) > 0).map((segment, segIdx) => {
+        const list = grouped[segment.key] || []
+        const isCollapsed = !!collapsed[segment.key]
+        return (
+          <div key={segment.key} style={{ marginBottom: 18 }}>
+            <button
+              type="button"
+              onClick={() => setCollapsed(c => ({ ...c, [segment.key]: !c[segment.key] }))}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '10px 12px', borderRadius: 12, border: '1px solid #d9e2ea',
+                background: 'linear-gradient(45deg, #25455D, #0a1520)', color: '#fff',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 10,
+              }}
+            >
+              <span>{segment.title} · {list.length}</span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 24, height: 24, borderRadius: '50%', background: PEACH, color: DARK,
+                transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s', fontWeight: 800, fontSize: 14,
+              }}>▾</span>
+            </button>
+            {!isCollapsed && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {list.map((sp, idx) => {
           const roleLabel = sp.role && ROLE_LABELS[sp.role]
           const roleColors = (sp.role && ROLE_COLORS[sp.role]) || ROLE_COLORS.speaker
           const topicsList: string[] = Array.isArray(sp.topics) && sp.topics.length > 0
@@ -305,8 +359,12 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
               )}
             </div>
           )
-        })}
-      </div>
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
