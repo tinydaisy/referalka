@@ -97,8 +97,14 @@ type SpeakerMaterials = {
   event_slug: string
   event_title: string
   posters: { id: number; url: string; orientation: 'horizontal' | 'vertical' | 'square'; sort: number }[]
-  // Библиотека афиш самого спикера (миграция 121). Видна вся, скачивает любую.
-  speaker_posters: { id: number; url: string; label: string | null; sort_order: number }[]
+  // Фото профиля коллаба (collaborators.photo_url) — «Фото для сайта»
+  photo_url: string | null
+  // Афиша помеченная клиентом «Для рассылок по чат-боту» в этой конференции.
+  // NULL → fallback на первую из библиотеки.
+  broadcast_poster_url: string | null
+  // Афиши помеченные «Для анонсов» — массив (миграция 122).
+  announcement_posters: { id: number; url: string; label: string | null; sort_order: number }[]
+  // Алиас для обратной совместимости (тот же URL что broadcast_poster_url).
   speaker_poster_url: string | null
   event_video_url: string | null
   speaker_video_url: string | null
@@ -1026,18 +1032,96 @@ function MaterialsTab({
 
   return (
     <div>
-      {/* Мои афиши (библиотека коллаба — миграция 121).
-          В каждом событии организатор выбирает «текущую» афишу из этой
-          библиотеки; здесь вы видите все варианты — копируйте любую под
-          свои анонсы. */}
-      {materials.speaker_posters && materials.speaker_posters.length > 0 && (
+      {/* Фото для сайта (collaborators.photo_url).
+          Используется на лендинге события и в визитке Mini App. */}
+      {materials.photo_url && (
         <div style={sectionCss}>
-          <div style={titleCss}>Мои афиши</div>
+          <div style={titleCss}>Фото для сайта</div>
           <div style={subCss}>
-            Все ваши афиши, которые подготовил организатор. Откройте кликом или скачайте — пригодится для анонсов в вашем канале.
+            Используется на лендинге события, в визитке Mini App и в сторонних виджетах.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-            {materials.speaker_posters.map(p => (
+            <div style={{
+              border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
+            }}>
+              <img
+                src={materials.photo_url}
+                alt="Фото профиля"
+                onClick={() => setLightbox(materials.photo_url!)}
+                style={{
+                  width: '100%', aspectRatio: '1/1',
+                  objectFit: 'cover', cursor: 'zoom-in', display: 'block',
+                }}
+              />
+              <a
+                href={materials.photo_url}
+                download
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'block', textAlign: 'center', padding: '6px 8px',
+                  fontSize: 11, color: DARK, textDecoration: 'none',
+                  background: '#fff', borderTop: '1px solid #d4dee5',
+                }}
+              >
+                ⬇ Скачать
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Фото для рассылок по боту — одна афиша из библиотеки, помеченная
+          организатором как «Для рассылок по чат-боту» в этой конференции. */}
+      {materials.broadcast_poster_url && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Фото для рассылок по боту</div>
+          <div style={subCss}>
+            Эта афиша уходит участникам события в сообщениях бота — со словами знакомства,
+            напоминанием за 5 минут и подарком после выступления.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            <div style={{
+              border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
+            }}>
+              <img
+                src={materials.broadcast_poster_url}
+                alt="Афиша для рассылки"
+                onClick={() => setLightbox(materials.broadcast_poster_url!)}
+                style={{
+                  width: '100%', aspectRatio: '1/1',
+                  objectFit: 'cover', cursor: 'zoom-in', display: 'block',
+                }}
+              />
+              <a
+                href={materials.broadcast_poster_url}
+                download
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'block', textAlign: 'center', padding: '6px 8px',
+                  fontSize: 11, color: DARK, textDecoration: 'none',
+                  background: '#fff', borderTop: '1px solid #d4dee5',
+                }}
+              >
+                ⬇ Скачать
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Афиши для анонсов — множественные, отмеченные организатором
+          чек-боксом «Для анонсов» в этой конференции (миграция 122). */}
+      {materials.announcement_posters && materials.announcement_posters.length > 0 && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Афиши для анонсов</div>
+          <div style={subCss}>
+            Афиши, которые организатор приготовил для распространения. Скачайте любую и
+            опубликуйте в своих каналах, чтобы пригласить аудиторию.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            {materials.announcement_posters.map(p => (
               <div key={p.id} style={{
                 border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
               }}>

@@ -608,6 +608,8 @@ async def get_me_materials(
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
                   cl.partner_landing_url, cl.partner_dashboard_url,
                   c.contact_id,
+                  c.photo_url AS speaker_photo_url,
+                  ec.announcement_poster_ids,
                   (SELECT url FROM collaborator_posters cp
                      WHERE cp.id = ec.poster_id OR
                            (ec.poster_id IS NULL AND cp.collaborator_id = c.id)
@@ -628,15 +630,20 @@ async def get_me_materials(
     if not base:
         raise HTTPException(status_code=404, detail="Спикер не найден")
 
-    # Библиотека афиш самого спикера (collaborator_posters, миграция 121).
-    # Видна целиком — спикер скачивает любую под нужный анонс.
-    speaker_posters = await db.fetch(
-        """SELECT id, url, label, sort_order
-             FROM collaborator_posters
-            WHERE collaborator_id = $1
-            ORDER BY sort_order, id""",
-        c_id,
-    )
+    # Афиши «для анонсов» в этом событии (миграция 122) — те, что клиент
+    # отметил на странице спикера конференции. Спикер увидит их в своём
+    # кабинете в секции «Афиши для анонсов» и скачает для распространения.
+    announcement_ids = list(base.get("announcement_poster_ids") or [])
+    if announcement_ids:
+        announcement_posters = await db.fetch(
+            """SELECT id, url, label, sort_order
+                 FROM collaborator_posters
+                WHERE id = ANY($1::int[]) AND collaborator_id = $2
+                ORDER BY sort_order, id""",
+            announcement_ids, c_id,
+        )
+    else:
+        announcement_posters = []
 
     # Афиши события (упорядочены: horizontal → vertical → square)
     posters = await db.fetch(
@@ -717,8 +724,16 @@ async def get_me_materials(
         "event_slug":   base["event_slug"],
         "event_title":  base["event_title"],
         "posters":      [dict(r) for r in posters],
-        "speaker_posters": [dict(r) for r in speaker_posters],
-        "speaker_poster_url": base.get("speaker_poster_url"),
+        # Фото профиля коллаба (collaborators.photo_url) — «Фото для сайта»
+        # в кабинете спикера. На лендинге и в Mini App используется именно оно.
+        "photo_url":         base.get("speaker_photo_url"),
+        # Афиша помеченная «для рассылок» (radio) в этой конференции —
+        # одна. NULL → fallback на первую из библиотеки.
+        "broadcast_poster_url": base.get("speaker_poster_url"),
+        "speaker_poster_url":   base.get("speaker_poster_url"),  # alias, обратная совместимость
+        # Афиши помеченные «для анонсов» (чек-бокс) в этой конференции —
+        # массив. Спикер скачивает любую для своих анонсов.
+        "announcement_posters": [dict(r) for r in announcement_posters],
         "event_video_url":    base.get("event_video_url"),
         "speaker_video_url":  base.get("speaker_video_url"),
         "announcement_texts": [dict(r) for r in texts],

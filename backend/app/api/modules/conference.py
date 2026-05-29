@@ -514,9 +514,14 @@ class SpeakerEventUpdate(BaseModel):
     show_topic_field: Optional[bool] = None
     show_gift_after_speech_field: Optional[bool] = None
     show_knowledge_base_field: Optional[bool] = None
-    # Какая афиша из библиотеки коллаба используется в этом событии.
-    # NULL = первая из библиотеки. См. миграцию 121.
+    # Какая афиша из библиотеки коллаба используется в этом событии для
+    # рассылок бота (speaker_intro / 5min_before / gift). NULL = первая
+    # из библиотеки. См. миграцию 121.
     poster_id: Optional[int] = None
+    # Какие афиши из библиотеки коллаба отмечены «для анонсов» в этом событии.
+    # Видны спикеру в его кабинете в разделе «Афиши для анонсов» —
+    # скачивает и постит в своих каналах. Множественный выбор. Миграция 122.
+    announcement_poster_ids: Optional[List[int]] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
     notes: Optional[str] = None
@@ -575,6 +580,7 @@ async def list_event_speakers(
                   cse.show_topic_field, cse.show_gift_after_speech_field,
                   cse.show_knowledge_base_field,
                   cse.poster_id,
+                  cse.announcement_poster_ids,
                   cp_cse.url AS cse_poster_url,
                   cse.partner_url, cse.extra_info, cse.notes,
                   c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
@@ -901,6 +907,30 @@ async def update_speaker_event(
     topics_list = raw.pop("topics", None)
     # Не обновляем speaker_topic через общий механизм — управляем темами отдельно
     raw.pop("speaker_topic", None)
+    # Валидация poster_id и announcement_poster_ids: все должны принадлежать
+    # библиотеке этого коллаба (миграции 121-122).
+    if raw.get("poster_id") is not None or raw.get("announcement_poster_ids") is not None:
+        sp_id = await db.fetchval(
+            "SELECT speaker_id FROM event_collaborators WHERE id=$1 AND event_id=$2",
+            speaker_event_id, event_id,
+        )
+        if not sp_id:
+            raise HTTPException(status_code=404, detail="Спикер не найден в событии")
+        check_ids = []
+        if raw.get("poster_id") is not None:
+            check_ids.append(int(raw["poster_id"]))
+        if raw.get("announcement_poster_ids") is not None:
+            check_ids.extend(int(x) for x in raw["announcement_poster_ids"])
+        if check_ids:
+            valid_count = await db.fetchval(
+                "SELECT COUNT(*) FROM collaborator_posters WHERE id = ANY($1::int[]) AND collaborator_id = $2",
+                list(set(check_ids)), sp_id,
+            )
+            if valid_count != len(set(check_ids)):
+                raise HTTPException(
+                    status_code=400,
+                    detail="poster_id / announcement_poster_ids ссылаются на афиши не из библиотеки этого коллаба"
+                )
     updates = {k: v for k, v in raw.items() if v is not None}
     if updates:
         set_parts = [f"{k} = ${i+3}" for i, k in enumerate(updates.keys())]

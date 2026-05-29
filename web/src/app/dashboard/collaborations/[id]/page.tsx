@@ -250,7 +250,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.media}</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.photo}</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Фото для сайта</label>
             <FileUploader
               mode="single"
               kind="speaker_photo"
@@ -259,7 +259,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
               onChange={u => setForm((f: any) => ({ ...f, photo_url: u || '' }))}
               accept="image/*"
               aspectClass="aspect-square"
-              emptyText="Фото коллаборатора"
+              emptyText="Перетащите сюда фото"
               buttonLabel="Загрузить"
             />
           </div>

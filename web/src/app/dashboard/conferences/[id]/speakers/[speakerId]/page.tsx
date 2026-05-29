@@ -146,6 +146,7 @@ export default function ConferenceSpeakerPage() {
     exclude_gift_from_broadcast: false,
     exclude_channel_from_subscription: false,
     poster_id: null as number | null,
+    announcement_poster_ids: [] as number[],
   })
   const [posterLibrary, setPosterLibrary] = useState<Array<{ id: number; url: string; label: string | null }>>([])
   const [showAccessCode, setShowAccessCode] = useState(false)
@@ -216,6 +217,8 @@ export default function ConferenceSpeakerPage() {
           // Какая афиша из библиотеки коллаба используется в этой конференции
           // (миграция 121). NULL = первая из библиотеки.
           poster_id: sp.poster_id ?? null,
+          // Афиши «для анонсов» в этой конференции (миграция 122).
+          announcement_poster_ids: Array.isArray(sp.announcement_poster_ids) ? sp.announcement_poster_ids : [],
         })
 
         return api.collaborators.get(sp.speaker_id)
@@ -336,6 +339,7 @@ export default function ConferenceSpeakerPage() {
         exclude_gift_from_broadcast: eventForm.exclude_gift_from_broadcast,
         exclude_channel_from_subscription: eventForm.exclude_channel_from_subscription,
         poster_id: eventForm.poster_id,
+        announcement_poster_ids: eventForm.announcement_poster_ids,
       } as any)
       setEventSaved(true)
       setTimeout(() => setEventSaved(false), 3000)
@@ -662,7 +666,7 @@ export default function ConferenceSpeakerPage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">{t.fields.media}</h3>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.photo}</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Фото для сайта</label>
             <FileUploader
               mode="single"
               kind="speaker_photo"
@@ -671,15 +675,22 @@ export default function ConferenceSpeakerPage() {
               onChange={u => setProfile((p: any) => ({ ...p, photo_url: u || '' }))}
               accept="image/*"
               aspectClass="aspect-square"
-              emptyText="Фото спикера"
+              emptyText="Перетащите сюда фото"
               buttonLabel="Загрузить"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Афиша для этой конференции</label>
-            <p className="text-xs text-gray-400 mb-2">
-              Выберите из библиотеки афиш спикера. Используется в рассылках конференции
-              и в Mini App. Если ничего не выбрать — берётся первая из библиотеки.
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Индивидуальные афиши</label>
+            <p className="text-xs text-gray-400 mb-3">
+              Все афиши из библиотеки коллаба. Под каждой — две настройки <b>для этой
+              конференции</b>:
+              <br />
+              • <b>Для рассылок по чат-боту</b> (радио, одна) — пойдёт в рассылки спикера
+              через бота. Если ничего не выбрано — берётся первая из библиотеки.
+              <br />
+              • <b>Для анонсов</b> (чек-боксы, любое число) — отмеченные афиши спикер
+              увидит у себя в кабинете и скачает для своих каналов.
+              <br />
               Загрузить новые афиши в библиотеку можно на{' '}
               <Link href={`/dashboard/collaborations/${profile.id}`} className="text-brand hover:underline">
                 странице коллаба
@@ -694,39 +705,65 @@ export default function ConferenceSpeakerPage() {
                 и добавьте.
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {/* «По умолчанию» — пустой poster_id = первая из библиотеки */}
-                <button
-                  type="button"
-                  onClick={() => setEventForm(f => ({ ...f, poster_id: null }))}
-                  className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-colors ${
-                    eventForm.poster_id == null ? 'border-brand' : 'border-gray-200'
-                  }`}
-                  title="По умолчанию (первая из библиотеки)"
-                >
-                  <img src={posterLibrary[0].url} alt="По умолчанию" className="w-full h-full object-cover opacity-60" />
-                  <div className="absolute inset-0 flex items-center justify-center text-white text-xs font-semibold bg-black/40">
-                    По умолчанию
-                  </div>
-                </button>
-                {posterLibrary.map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setEventForm(f => ({ ...f, poster_id: p.id }))}
-                    className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-colors ${
-                      eventForm.poster_id === p.id ? 'border-brand' : 'border-gray-200'
-                    }`}
-                    title={p.label || ''}
-                  >
-                    <img src={p.url} alt={p.label || ''} className="w-full h-full object-cover" />
-                    {p.label && (
-                      <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-[10px] text-white bg-black/60 truncate">
-                        {p.label}
+              <div className="space-y-3">
+                {/* «По умолчанию» как опция радио — poster_id=null */}
+                <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="broadcast_poster"
+                    checked={eventForm.poster_id == null}
+                    onChange={() => setEventForm(f => ({ ...f, poster_id: null }))}
+                    className="accent-brand"
+                  />
+                  <span className="text-sm text-gray-600">
+                    По умолчанию (первая из библиотеки — для рассылок)
+                  </span>
+                </label>
+                {posterLibrary.map(p => {
+                  const isBroadcast = eventForm.poster_id === p.id
+                  const isAnnouncement = eventForm.announcement_poster_ids.includes(p.id)
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex items-stretch gap-3 p-3 rounded-xl border border-gray-200 bg-white"
+                    >
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg overflow-hidden bg-gray-100 border border-gray-100 shrink-0">
+                        <img src={p.url} alt={p.label || ''} className="w-full h-full object-cover" />
                       </div>
-                    )}
-                  </button>
-                ))}
+                      <div className="flex-1 flex flex-col justify-between min-w-0">
+                        <div className="text-xs text-gray-600 truncate">
+                          {p.label || <span className="text-gray-400 italic">без подписи</span>}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="broadcast_poster"
+                              checked={isBroadcast}
+                              onChange={() => setEventForm(f => ({ ...f, poster_id: p.id }))}
+                              className="accent-brand"
+                            />
+                            Для рассылок по чат-боту
+                          </label>
+                          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isAnnouncement}
+                              onChange={e => setEventForm(f => ({
+                                ...f,
+                                announcement_poster_ids: e.target.checked
+                                  ? [...f.announcement_poster_ids, p.id]
+                                  : f.announcement_poster_ids.filter(x => x !== p.id),
+                              }))}
+                              className="accent-brand"
+                            />
+                            Для анонсов
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
