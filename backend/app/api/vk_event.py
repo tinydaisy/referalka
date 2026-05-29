@@ -410,6 +410,139 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
     return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id, "cabinet_url": cabinet_url}
 
 
+class VkSpeakerSelfRegisterRequest(BaseModel):
+    """Mini App открыт по `vk.com/app{vk_app_id}#spkreg_<event_id>`."""
+    launch_params: dict[str, str]
+    event_id: int
+
+
+@router.post("/vk/speaker-self-register", summary="Саморегистрация спикером из VK Mini App")
+async def vk_speaker_self_register(body: VkSpeakerSelfRegisterRequest):
+    """VK-аналог `/start spkreg_<event_id>` в Telegram. Открывается через
+    Mini App клиента. Если контакт уже спикер этого события — шлём ссылку
+    на кабинет. Если нет — создаём коллаб + cse и шлём ту же ссылку."""
+    vk_app_id_raw = body.launch_params.get("vk_app_id")
+    secure_key: str | None = settings.vk_app_secure_key
+    try:
+        if vk_app_id_raw and int(vk_app_id_raw) != int(getattr(settings, "vk_app_id", "0") or 0):
+            pool = await get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """SELECT platform_meta->>'vk_secure_key' AS sk
+                             FROM channels
+                            WHERE platform_slug = 'vk'
+                              AND (platform_meta->>'vk_app_id')::int = $1
+                            LIMIT 1""",
+                        int(vk_app_id_raw),
+                    )
+                    if row and row["sk"]:
+                        secure_key = row["sk"]
+    except Exception as e:
+        logger.warning(f"VK spkreg secure_key lookup failed: {e}")
+
+    if not secure_key or not validate_vk_launch_params(body.launch_params, secure_key):
+        raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
+
+    vk_user_id_raw = body.launch_params.get("vk_user_id")
+    if not vk_user_id_raw:
+        raise HTTPException(status_code=400, detail="vk_user_id required")
+    try:
+        vk_user_id = int(vk_user_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="vk_user_id must be int")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="db not available")
+
+    async with pool.acquire() as conn:
+        chan = await conn.fetchrow(
+            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id,
+                      (ch.platform_meta->>'vk_group_id')::int AS vk_group_id
+                 FROM channels ch
+                 JOIN client_channels cc ON cc.channel_id = ch.id
+                WHERE ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                  AND cc.is_active = TRUE
+                  AND (ch.platform_meta->>'vk_app_id')::int = $1
+                LIMIT 1""",
+            int(vk_app_id_raw or 0),
+        )
+        if not chan or not chan["bot_token"]:
+            raise HTTPException(status_code=404, detail="VK-сообщество клиента не подключено")
+
+        from app.services.speaker_self_register import (
+            get_event_for_self_register, find_existing_speaker, complete_speaker_self_register,
+        )
+        from app.services.contact_merge import upsert_contact_with_identity
+
+        ev = await get_event_for_self_register(conn, body.event_id)
+        if not ev or ev["client_id"] != chan["client_id"]:
+            raise HTTPException(status_code=404, detail="Событие не найдено")
+
+        contact_id, _pu, _is_new = await upsert_contact_with_identity(
+            conn,
+            client_id=ev["client_id"],
+            platform_slug='vk',
+            platform_user_id=str(vk_user_id),
+            username="",
+            first_name="",
+            last_name="",
+        )
+
+        # Уже в списке? → шлём ссылку на кабинет, ничего не создаём.
+        existing = await find_existing_speaker(
+            conn, event_id=body.event_id,
+            client_id=ev["client_id"], contact_id=contact_id,
+        )
+        if existing:
+            coll_id = existing["collaborator_id"]
+            access_code = existing["access_code"]
+            slug = existing["event_slug"]
+            sp_name = (existing["name"] or "").strip() or "спикер"
+            cabinet_url = f"https://pluson.ru/speaker/{slug}"
+            text = (
+                f"Здравствуйте, {sp_name}!\n\n"
+                f"Вы — спикер «{ev['title']}». Откройте свой кабинет, чтобы заполнить или обновить данные:\n"
+                f"{cabinet_url}\n\nКод доступа: {access_code}\n\n"
+                "На странице выберите свою фамилию и введите код. Сессия живёт 24 часа. "
+                "Код можно передать ассистенту."
+            )
+        else:
+            # Создаём нового коллаба + cse.
+            contact_name = await conn.fetchval(
+                "SELECT name FROM contacts WHERE id = $1", contact_id,
+            )
+            coll_id, access_code, slug, _ = await complete_speaker_self_register(
+                conn,
+                event_id=body.event_id,
+                client_id=ev["client_id"],
+                contact_id=contact_id,
+                contact_name=contact_name or "Спикер",
+            )
+            cabinet_url = f"https://pluson.ru/speaker/{slug}"
+            text = (
+                f"Готово! Вы включены в спикеры «{ev['title']}».\n\n"
+                f"Откройте свой кабинет и заполните данные:\n{cabinet_url}\n\n"
+                f"Код доступа: {access_code}\n\n"
+                "Код можно передать ассистенту — он заполнит за вас."
+            )
+
+        from app.services.vk_api import send_message as vk_send_message, tg_inline_to_vk_keyboard
+        keyboard = tg_inline_to_vk_keyboard([[
+            {"text": "📝 Открыть кабинет спикера", "url": cabinet_url},
+        ]])
+        try:
+            await vk_send_message(int(vk_user_id), text, keyboard=keyboard, token=chan["bot_token"])
+        except Exception as e:
+            logger.warning(f"VK spkreg messages.send failed: {e}")
+
+        group_id = int(body.launch_params.get("vk_group_id") or 0) or int(chan["vk_group_id"] or 0)
+
+    return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id, "cabinet_url": cabinet_url}
+
+
 class VkPartnerRunStartRequest(BaseModel):
     """Mini App открыт по `vk.com/app{aid}#prt_<run_id>` — стартуем партнёрский flow."""
     launch_params: dict[str, str]

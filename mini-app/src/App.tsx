@@ -170,6 +170,46 @@ async function handleVkFunnelIfNeeded(
     return true
   }
 
+  // Саморегистрация спикером события (2026-05-29): `spkreg_<event_id>`.
+  // Mini App клиента открывается по `vk.com/app{vk_app_id}#spkreg_<id>` →
+  // бэк проверяет: если контакт уже в списке спикеров — шлёт ссылку на
+  // кабинет с access_code; иначе создаёт коллаба + cse и шлёт ссылку.
+  if (sp.startsWith('spkreg_')) {
+    const eventId = Number(sp.slice(7))
+    setFunnelKind('speaker')
+    let ok = false
+    let groupId = 0
+    if (eventId && lp.vk_user_id) {
+      let gid = Number(lp.vk_group_id || 0)
+      if (!gid && lp.vk_app_id) {
+        try {
+          const g: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+            .then(x => x.ok ? x.json() : null)
+          if (g?.group_id) gid = Number(g.group_id)
+        } catch (_) {}
+      }
+      await new Promise<void>((resolve) => {
+        if (!gid) return resolve()
+        adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
+      })
+      try {
+        const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/speaker-self-register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ launch_params: lp, event_id: eventId }),
+        }).then(x => x.ok ? x.json() : null)
+        if (r?.ok) {
+          ok = true
+          groupId = Number(r.group_id || gid || 0)
+        }
+      } catch (e) { console.warn('vk speaker-self-register failed', e) }
+    }
+    setFunnelStatus(ok ? 'ok' : 'fail')
+    setFunnelGroupId(groupId)
+    setLoading(false)
+    return true
+  }
+
   // Регистрация партнёра — новые форматы (миграция 105+):
   //   `prtc_<client_id>`  — корневая ссылка клиента
   //   `prtp_<contact_id>` — личная ссылка партнёра (рефовод по contact_id)

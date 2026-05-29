@@ -290,8 +290,13 @@ async def build_speaker_self_register_links(
     if tg_handle:
         result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
 
+    # VK: через Mini App клиента (как spkinv_). vk.me/{handle}?ref=
+    # ненадёжен — VK не передаёт ref если пользователь раньше уже писал
+    # сообществу. Mini App парсит hash и шлёт POST /api/v1/vk/speaker-self-register.
     if handles.get("vk"):
-        result["vk"] = f"https://vk.me/{handles['vk'].lstrip('@')}?ref={payload}"
+        vk_app_id = await get_client_vk_app_id(db, client_id)
+        if vk_app_id:
+            result["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
 
     if handles.get("max"):
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?startapp={payload}"
