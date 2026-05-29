@@ -793,7 +793,14 @@ export default function ConferenceSpeakerPage() {
                               type="radio"
                               name="broadcast_poster"
                               checked={isBroadcast}
-                              onChange={() => setEventForm(f => ({ ...f, poster_id: p.id }))}
+                              // Автосейв: меняется радио — сразу PATCH cse.
+                              // Кнопка «Сохранить выступление» внизу формы не
+                              // обязательна для выбора афиш — клиент часто думал,
+                              // что верхняя «Сохранить профиль» сохраняет всё.
+                              onChange={() => {
+                                setEventForm(f => ({ ...f, poster_id: p.id }))
+                                api.conference.speakers.update(confId, speakerEventId, { poster_id: p.id } as any).catch(() => {})
+                              }}
                               className="accent-brand"
                             />
                             Для рассылок по чат-боту
@@ -802,12 +809,13 @@ export default function ConferenceSpeakerPage() {
                             <input
                               type="checkbox"
                               checked={isAnnouncement}
-                              onChange={e => setEventForm(f => ({
-                                ...f,
-                                announcement_poster_ids: e.target.checked
-                                  ? [...f.announcement_poster_ids, p.id]
-                                  : f.announcement_poster_ids.filter(x => x !== p.id),
-                              }))}
+                              onChange={e => {
+                                const nextIds = e.target.checked
+                                  ? [...eventForm.announcement_poster_ids, p.id]
+                                  : eventForm.announcement_poster_ids.filter(x => x !== p.id)
+                                setEventForm(f => ({ ...f, announcement_poster_ids: nextIds }))
+                                api.conference.speakers.update(confId, speakerEventId, { announcement_poster_ids: nextIds } as any).catch(() => {})
+                              }}
                               className="accent-brand"
                             />
                             Для анонсов
