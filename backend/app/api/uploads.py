@@ -85,6 +85,7 @@ async def upload_file(
     # 1. Валидация kind и обязательных параметров
     if kind not in {
         "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
+        "speaker_poster",
         "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
         "event_video", "speaker_video",
     }:
@@ -96,7 +97,7 @@ async def upload_file(
         await _check_event_belongs(event_id, client_id, db)
     if kind == "event_poster" and poster_type not in ("horizontal", "vertical", "square"):
         raise HTTPException(400, detail="event_poster требует poster_type=horizontal|vertical|square")
-    if kind in ("speaker_photo", "speaker_video"):
+    if kind in ("speaker_photo", "speaker_poster", "speaker_video"):
         if not collaborator_id:
             raise HTTPException(400, detail=f"{kind} требует collaborator_id")
         await _check_collaborator_belongs(collaborator_id, client_id, db)
@@ -146,7 +147,11 @@ async def upload_file(
     )
     url = await r2_storage.upload_bytes(key, raw, content_type)
 
-    # 6. Запись в client_files + обновление used_bytes (одной транзакцией)
+    # 6. Запись в client_files + обновление used_bytes (одной транзакцией).
+    # Для kind='speaker_poster' дополнительно регистрируем загрузку в
+    # библиотеке афиш коллаба (миграция 121) — фронту не нужно делать
+    # отдельный POST /collaborators/{id}/posters.
+    poster_id: Optional[int] = None
     async with db.transaction():
         row = await db.fetchrow(
             """
@@ -163,6 +168,16 @@ async def upload_file(
             "UPDATE clients SET storage_used_bytes = storage_used_bytes + $1 WHERE id = $2",
             size, client_id,
         )
+        if kind == "speaker_poster" and collaborator_id:
+            next_sort = await db.fetchval(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM collaborator_posters WHERE collaborator_id = $1",
+                collaborator_id,
+            )
+            poster_id = await db.fetchval(
+                """INSERT INTO collaborator_posters (collaborator_id, url, sort_order)
+                   VALUES ($1, $2, $3) RETURNING id""",
+                collaborator_id, url, int(next_sort),
+            )
 
     return {
         "id": row["id"],
@@ -170,6 +185,7 @@ async def upload_file(
         "key": key,
         "size_bytes": size,
         "content_type": content_type,
+        **({"poster_id": poster_id} if poster_id is not None else {}),
     }
 
 

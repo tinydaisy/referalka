@@ -6,7 +6,7 @@ from app.config import settings
 from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
 from app.api import broadcasts_general
@@ -61,6 +61,7 @@ app.include_router(conference.router,   prefix="/api/v1")
 app.include_router(broadcasts.router,   prefix="/api/v1")
 app.include_router(broadcasts_general.router, prefix="/api/v1")
 app.include_router(collaborators.router)
+app.include_router(collaborator_posters.router)                                # /api/v1/collaborators/{id}/posters — библиотека афиш (миграция 121)
 app.include_router(event.router,        prefix="/api/v1")  # POST /api/v1/event
 app.include_router(vk_event.router,     prefix="/api/v1")  # POST /api/v1/vk/event (миграция 2026-05-19)
 app.include_router(max_event.router,    prefix="/api/v1")  # POST /api/v1/max/event (миграция 2026-05-20)

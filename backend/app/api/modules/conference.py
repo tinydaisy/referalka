@@ -444,7 +444,9 @@ class SpeakerAddToEvent(BaseModel):
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
-    poster_url: Optional[str] = None
+    # Какая афиша из библиотеки коллаба используется в этом событии
+    # (для рассылок, виджетов, Mini App). NULL = первая из библиотеки.
+    poster_id: Optional[int] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
     notes: Optional[str] = None
@@ -483,7 +485,8 @@ class SpeakerCreateAndAdd(BaseModel):
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
     gift_raffle_url: Optional[str] = None
-    poster_url: Optional[str] = None
+    # poster_id выбирается в карточке спикера после создания (тут нет
+    # библиотеки афиш, потому что коллаб только что родился).
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
     notes: Optional[str] = None
@@ -511,7 +514,9 @@ class SpeakerEventUpdate(BaseModel):
     show_topic_field: Optional[bool] = None
     show_gift_after_speech_field: Optional[bool] = None
     show_knowledge_base_field: Optional[bool] = None
-    poster_url: Optional[str] = None
+    # Какая афиша из библиотеки коллаба используется в этом событии.
+    # NULL = первая из библиотеки. См. миграцию 121.
+    poster_id: Optional[int] = None
     partner_url: Optional[str] = None
     extra_info: Optional[str] = None
     notes: Optional[str] = None
@@ -569,14 +574,18 @@ async def list_event_speakers(
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
                   cse.show_knowledge_base_field,
-                  cse.poster_url AS cse_poster_url,
+                  cse.poster_id,
+                  cp_cse.url AS cse_poster_url,
                   cse.partner_url, cse.extra_info, cse.notes,
                   c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
                   cse.bot_in_channel, cse.priority,
                   cse.exclude_gift_from_broadcast, cse.exclude_channel_from_subscription,
                   sp.name, sp.title, sp.achievements,
                   sp.photo_url,
-                  sp.poster_url AS speaker_poster_url,
+                  (SELECT url FROM collaborator_posters cp_g
+                     WHERE cp_g.collaborator_id = sp.id
+                     ORDER BY cp_g.sort_order, cp_g.id
+                     LIMIT 1) AS speaker_poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.vk_url, sp.max_url,
                   sp.instagram_url, sp.website_url,
@@ -589,6 +598,7 @@ async def list_event_speakers(
                   pu_max.platform_user_id AS personal_max_id
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN collaborator_posters cp_cse ON cp_cse.id = cse.poster_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
            LEFT JOIN platform_users pu_tg
              ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
@@ -649,10 +659,15 @@ async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: a
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
-                  cse.poster_url AS event_poster_url,
+                  cse.poster_id,
+                  cp_cse.url AS event_poster_url,
                   cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.poster_url,
+                  sp.photo_url,
+                  (SELECT url FROM collaborator_posters cp_g
+                     WHERE cp_g.collaborator_id = sp.id
+                     ORDER BY cp_g.sort_order, cp_g.id
+                     LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id,
@@ -661,6 +676,7 @@ async def get_speaker_profile_public(event_id: int, speaker_event_id: int, db: a
                   sp.assistant_tg_username
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN collaborator_posters cp_cse ON cp_cse.id = cse.poster_id
            LEFT JOIN platform_users pu_tg
              ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.id = $1 AND cse.event_id = $2""",
@@ -704,23 +720,36 @@ async def add_speaker_from_base(
     )
     first_topic = topics_list[0] if topics_list else None
 
+    # poster_id если передан — проверим что принадлежит этому коллабу
+    if data.poster_id is not None:
+        belongs = await db.fetchval(
+            "SELECT 1 FROM collaborator_posters WHERE id = $1 AND collaborator_id = $2",
+            data.poster_id, data.speaker_id,
+        )
+        if not belongs:
+            raise HTTPException(status_code=400, detail="poster_id не из библиотеки этого коллаба")
     cse = await db.fetchrow(
         """INSERT INTO event_collaborators
            (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
             gift_raffle_title, gift_raffle_url,
-            poster_url, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
+            poster_id, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
         data.speaker_id, event_id, data.role, first_topic,
         data.gift_after_speech_title, data.gift_after_speech_url,
         data.gift_raffle_title, data.gift_raffle_url,
-        data.poster_url, data.partner_url, data.extra_info, data.notes,
+        data.poster_id, data.partner_url, data.extra_info, data.notes,
         data.is_commercial, data.is_visible, data.sort_order
     )
     await _save_topics(cse["id"], topics_list, db)
     # Возвращаем с данными из глобальной базы
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
+                  sp.photo_url,
+                  (SELECT url FROM collaborator_posters cp_g
+                     WHERE cp_g.collaborator_id = sp.id
+                     ORDER BY cp_g.sort_order, cp_g.id
+                     LIMIT 1) AS poster_url,
+                  sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM event_collaborators cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
@@ -843,12 +872,12 @@ async def create_and_add_speaker(
             """INSERT INTO event_collaborators
                (speaker_id, event_id, role, speaker_topic, gift_after_speech_title, gift_after_speech_url,
                 gift_raffle_title, gift_raffle_url,
-                poster_url, partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *""",
+                partner_url, extra_info, notes, is_commercial, is_visible, sort_order)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
             sp["id"], event_id, data.role, first_topic,
             data.gift_after_speech_title, data.gift_after_speech_url,
             data.gift_raffle_title, data.gift_raffle_url,
-            data.poster_url, data.partner_url, data.extra_info, data.notes,
+            data.partner_url, data.extra_info, data.notes,
             data.is_commercial, data.is_visible, data.sort_order
         )
         await _save_topics(cse["id"], topics_list, db)
@@ -888,7 +917,12 @@ async def update_speaker_event(
         )
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.poster_url, sp.photo_folder_url, sp.video_folder_url,
+                  sp.photo_url,
+                  (SELECT url FROM collaborator_posters cp_g
+                     WHERE cp_g.collaborator_id = sp.id
+                     ORDER BY cp_g.sort_order, cp_g.id
+                     LIMIT 1) AS poster_url,
+                  sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url
            FROM event_collaborators cse JOIN collaborators sp ON sp.id = cse.speaker_id
            WHERE cse.id = $1""",
@@ -1859,7 +1893,7 @@ class SpeakerSelfUpdate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
-    poster_url: Optional[str] = None
+    # poster_url убран миграцией 121 — афиши теперь в библиотеке (collaborator_posters).
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
@@ -1904,7 +1938,11 @@ async def get_speaker_by_ref_code(event_id: int, ref_code: str, db: asyncpg.Conn
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.is_commercial, c.ref_code, cse.keyword_code,
                   sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.poster_url,
+                  sp.photo_url,
+                  (SELECT url FROM collaborator_posters cp_g
+                     WHERE cp_g.collaborator_id = sp.id
+                     ORDER BY cp_g.sort_order, cp_g.id
+                     LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id,
@@ -1955,7 +1993,7 @@ async def update_speaker_by_ref_code(
 
     # Обновляем глобальный профиль спикера (collaborators).
     # Личный TG (personal_tg_id/username) живёт в platform_users — апсертим отдельно.
-    profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
+    profile_fields = ["name", "title", "achievements", "photo_url",
                       "photo_folder_url", "video_folder_url", "tg_channel_url",
                       "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id",
@@ -2045,7 +2083,11 @@ async def get_editor_info(event_id: int, code: str, db: asyncpg.Connection = Dep
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.poster_url,
+                  sp.photo_url,
+                  (SELECT url FROM collaborator_posters cp_g
+                     WHERE cp_g.collaborator_id = sp.id
+                     ORDER BY cp_g.sort_order, cp_g.id
+                     LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id,
@@ -2098,7 +2140,7 @@ async def update_speaker_as_editor(
     speaker_id = cse["speaker_id"]
 
     # Профиль (без personal_tg_* — они живут в platform_users, миграция 107)
-    profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
+    profile_fields = ["name", "title", "achievements", "photo_url",
                       "photo_folder_url", "video_folder_url", "tg_channel_url",
                       "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id",
@@ -2166,7 +2208,11 @@ async def update_speaker_as_editor(
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.is_commercial,
                   sp.name, sp.title, sp.achievements,
-                  sp.photo_url, sp.poster_url,
+                  sp.photo_url,
+                  (SELECT url FROM collaborator_posters cp_g
+                     WHERE cp_g.collaborator_id = sp.id
+                     ORDER BY cp_g.sort_order, cp_g.id
+                     LIMIT 1) AS poster_url,
                   sp.photo_folder_url, sp.video_folder_url,
                   sp.tg_channel_url, sp.instagram_url, sp.website_url,
                   sp.tg_channel_id,
@@ -2534,12 +2580,17 @@ async def send_speaker_to_telegram(
     row = await db.fetchrow(
         """SELECT cse.id, cse.role,
                   cse.gift_after_speech_title, cse.gift_raffle_title,
-                  cse.poster_url AS cse_poster_url,
+                  cp_cse.url AS cse_poster_url,
                   sp.name, sp.achievements,
-                  sp.photo_url, sp.poster_url,
+                  sp.photo_url,
+                  (SELECT url FROM collaborator_posters cp_g
+                     WHERE cp_g.collaborator_id = sp.id
+                     ORDER BY cp_g.sort_order, cp_g.id
+                     LIMIT 1) AS poster_url,
                   sp.tg_channel_url, sp.instagram_url
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN collaborator_posters cp_cse ON cp_cse.id = cse.poster_id
            WHERE cse.id = $1 AND cse.event_id = $2""",
         speaker_event_id, event_id
     )

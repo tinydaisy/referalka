@@ -444,7 +444,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             sp = await conn.fetchrow(
                 """
                 SELECT c.name as speaker_name,
-                       COALESCE(cse.poster_url, c.poster_url) as speaker_poster,
+                       (SELECT url FROM collaborator_posters cp
+                          WHERE cp.id = cse.poster_id OR
+                                (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
+                          ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
+                          LIMIT 1) as speaker_poster,
                        pu_tg.username AS personal_tg_username,
                        c.tg_channel_url, c.instagram_url,
                        c.achievements,
@@ -489,7 +493,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 """
                 SELECT cs.title as session_title, cs.start_time, cs.end_time, cs.day,
                        c.name as speaker_name,
-                       COALESCE(cse.poster_url, c.poster_url) as speaker_poster,
+                       (SELECT url FROM collaborator_posters cp
+                          WHERE cp.id = cse.poster_id OR
+                                (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
+                          ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
+                          LIMIT 1) as speaker_poster,
                        pu_tg.username as speaker_personal_tg,
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,

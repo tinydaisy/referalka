@@ -173,6 +173,18 @@ export const api = {
       request('/api/v1/collaborators/import', { method: 'POST', body: JSON.stringify(data) }),
     inviteMessage: (collabId: number, eventId: number) =>
       request(`/api/v1/collaborators/${collabId}/invite-message?event_id=${eventId}`),
+    posters: {
+      list: (collabId: number) =>
+        request(`/api/v1/collaborators/${collabId}/posters`),
+      add: (collabId: number, data: { url: string; label?: string }) =>
+        request(`/api/v1/collaborators/${collabId}/posters`, { method: 'POST', body: JSON.stringify(data) }),
+      update: (collabId: number, posterId: number, data: { label?: string; sort_order?: number }) =>
+        request(`/api/v1/collaborators/${collabId}/posters/${posterId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete: (collabId: number, posterId: number) =>
+        request(`/api/v1/collaborators/${collabId}/posters/${posterId}`, { method: 'DELETE' }),
+      reorder: (collabId: number, ids: number[]) =>
+        request(`/api/v1/collaborators/${collabId}/posters/reorder`, { method: 'POST', body: JSON.stringify({ ids }) }),
+    },
   },
   gifts: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/gifts/`),

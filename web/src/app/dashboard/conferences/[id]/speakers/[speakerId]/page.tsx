@@ -17,7 +17,9 @@ const PROFILE_FIELDS: { key: string; label: string }[] = [
   { key: 'title', label: 'Должность / специализация' },
   { key: 'achievements', label: 'Регалии' },
   { key: 'photo_url', label: 'Фото' },
-  { key: 'poster_url', label: 'Афиша' },
+  // poster_url стал библиотекой (миграция 121). Признак «заполнено» = есть
+  // хоть одна афиша. _COLLAB_SELECT отдаёт posters_count.
+  { key: 'posters_count', label: 'Афиша' },
   { key: 'tg_channel_url', label: 'Ссылка на Telegram-канал' },
   { key: 'tg_channel_id', label: 'ID канала' },
   { key: 'personal_tg_id', label: 'ID личного аккаунта' },
@@ -29,6 +31,7 @@ function getMissingProfileFields(form: any): string[] {
     .filter(f => {
       const v = form[f.key]
       if (Array.isArray(v)) return v.length === 0
+      if (typeof v === 'number') return v <= 0
       return !v || String(v).trim() === ''
     })
     .map(f => f.label)
@@ -142,7 +145,9 @@ export default function ConferenceSpeakerPage() {
     priority: 60,
     exclude_gift_from_broadcast: false,
     exclude_channel_from_subscription: false,
+    poster_id: null as number | null,
   })
+  const [posterLibrary, setPosterLibrary] = useState<Array<{ id: number; url: string; label: string | null }>>([])
   const [showAccessCode, setShowAccessCode] = useState(false)
   const [inviteMsg, setInviteMsg] = useState<string | null>(null)
   const [inviteCopied, setInviteCopied] = useState(false)
@@ -208,6 +213,9 @@ export default function ConferenceSpeakerPage() {
           priority: sp.priority ?? 60,
           exclude_gift_from_broadcast: sp.exclude_gift_from_broadcast || false,
           exclude_channel_from_subscription: sp.exclude_channel_from_subscription || false,
+          // Какая афиша из библиотеки коллаба используется в этой конференции
+          // (миграция 121). NULL = первая из библиотеки.
+          poster_id: sp.poster_id ?? null,
         })
 
         return api.collaborators.get(sp.speaker_id)
@@ -217,6 +225,10 @@ export default function ConferenceSpeakerPage() {
         setProfile(r.collaborator)
         const ach = r.collaborator.achievements
         setAchievementsText(Array.isArray(ach) ? ach.join('\n') : (ach || ''))
+        // Загружаем библиотеку афиш этого коллаба
+        api.collaborators.posters.list(r.collaborator.id)
+          .then((pr: any) => setPosterLibrary(pr.posters || []))
+          .catch(() => setPosterLibrary([]))
       })
       .catch(() => router.push(`/dashboard/conferences/${confId}?tab=speakers`))
       .finally(() => setLoading(false))
@@ -232,7 +244,6 @@ export default function ConferenceSpeakerPage() {
         title: profile.title,
         achievements,
         photo_url: profile.photo_url,
-        poster_url: profile.poster_url,
         photo_folder_url: profile.photo_folder_url,
         video_folder_url: profile.video_folder_url,
         tg_channel_url: profile.tg_channel_url,
@@ -324,6 +335,7 @@ export default function ConferenceSpeakerPage() {
         priority,
         exclude_gift_from_broadcast: eventForm.exclude_gift_from_broadcast,
         exclude_channel_from_subscription: eventForm.exclude_channel_from_subscription,
+        poster_id: eventForm.poster_id,
       } as any)
       setEventSaved(true)
       setTimeout(() => setEventSaved(false), 3000)
@@ -664,18 +676,59 @@ export default function ConferenceSpeakerPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.posterUrl}</label>
-            <FileUploader
-              mode="single"
-              kind="speaker_photo"
-              collaboratorId={profile.id}
-              value={profile.poster_url || null}
-              onChange={u => setProfile((p: any) => ({ ...p, poster_url: u || '' }))}
-              accept="image/*"
-              aspectClass="aspect-video"
-              emptyText="Афиша/обложка"
-              buttonLabel="Загрузить"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Афиша для этой конференции</label>
+            <p className="text-xs text-gray-400 mb-2">
+              Выберите из библиотеки афиш спикера. Используется в рассылках конференции
+              и в Mini App. Если ничего не выбрать — берётся первая из библиотеки.
+              Загрузить новые афиши в библиотеку можно на{' '}
+              <Link href={`/dashboard/collaborations/${profile.id}`} className="text-brand hover:underline">
+                странице коллаба
+              </Link>.
+            </p>
+            {posterLibrary.length === 0 ? (
+              <div className="text-center py-8 text-sm text-gray-400 rounded-xl border border-dashed border-gray-200">
+                Афиши пока не загружены. Зайдите{' '}
+                <Link href={`/dashboard/collaborations/${profile.id}`} className="text-brand hover:underline">
+                  на страницу коллаба
+                </Link>{' '}
+                и добавьте.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {/* «По умолчанию» — пустой poster_id = первая из библиотеки */}
+                <button
+                  type="button"
+                  onClick={() => setEventForm(f => ({ ...f, poster_id: null }))}
+                  className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-colors ${
+                    eventForm.poster_id == null ? 'border-brand' : 'border-gray-200'
+                  }`}
+                  title="По умолчанию (первая из библиотеки)"
+                >
+                  <img src={posterLibrary[0].url} alt="По умолчанию" className="w-full h-full object-cover opacity-60" />
+                  <div className="absolute inset-0 flex items-center justify-center text-white text-xs font-semibold bg-black/40">
+                    По умолчанию
+                  </div>
+                </button>
+                {posterLibrary.map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setEventForm(f => ({ ...f, poster_id: p.id }))}
+                    className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-colors ${
+                      eventForm.poster_id === p.id ? 'border-brand' : 'border-gray-200'
+                    }`}
+                    title={p.label || ''}
+                  >
+                    <img src={p.url} alt={p.label || ''} className="w-full h-full object-cover" />
+                    {p.label && (
+                      <div className="absolute bottom-0 left-0 right-0 px-2 py-1 text-[10px] text-white bg-black/60 truncate">
+                        {p.label}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

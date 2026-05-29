@@ -141,7 +141,12 @@ async def get_me(
                   cse.show_knowledge_base_field,
                   cse.bot_in_channel,
                   c.id AS collaborator_id, c.name, c.title, c.achievements,
-                  c.photo_url, c.poster_url, c.photo_folder_url, c.video_folder_url,
+                  c.photo_url,
+                  (SELECT url FROM collaborator_posters cp
+                     WHERE cp.collaborator_id = c.id
+                     ORDER BY cp.sort_order, cp.id
+                     LIMIT 1) AS poster_url,
+                  c.photo_folder_url, c.video_folder_url,
                   c.video_url AS speaker_video_url,
                   c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url,
                   c.tg_channel_id, c.media_assets,
@@ -230,7 +235,8 @@ class CabinetUpdate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
-    poster_url: Optional[str] = None
+    # poster_url убран миграцией 121 — афиши теперь в библиотеке (collaborator_posters).
+    # Спикер видит свою библиотеку в Материалах и может скачать любую афишу.
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     tg_channel_url: Optional[str] = None
@@ -283,7 +289,7 @@ async def patch_me(
     contact_id = coll["contact_id"]
 
     # 1. Профиль (collaborators)
-    profile_fields = ["name", "title", "achievements", "photo_url", "poster_url",
+    profile_fields = ["name", "title", "achievements", "photo_url",
                       "photo_folder_url", "video_folder_url",
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]
@@ -504,8 +510,10 @@ async def upload_me(
     Файл проходит через тот же image_processor (ресайз) и пишется в R2 по
     путь `clients/{client_id}/speakers/{collaborator_id}/{photo|poster}/`.
     """
-    if kind not in ("speaker_photo", "speaker_poster"):
-        raise HTTPException(400, detail="kind must be 'speaker_photo' or 'speaker_poster'")
+    if kind != "speaker_photo":
+        # speaker_poster через cabinet больше не загружается: афиши — это
+        # библиотека (collaborator_posters), управляется клиентом из дашборда.
+        raise HTTPException(400, detail="kind must be 'speaker_photo'")
     c_id = int(session["c_id"])
     coll = await db.fetchrow(
         "SELECT created_by_client_id FROM collaborators WHERE id = $1",
@@ -546,11 +554,11 @@ async def upload_me(
             size, client_id,
         )
 
-    # Сразу проставляем url в collaborators.photo_url / poster_url
-    if kind == "speaker_photo":
-        await db.execute("UPDATE collaborators SET photo_url = $1, updated_at = NOW() WHERE id = $2", url, c_id)
-    else:
-        await db.execute("UPDATE collaborators SET poster_url = $1, updated_at = NOW() WHERE id = $2", url, c_id)
+    # Сразу проставляем url в collaborators.photo_url
+    await db.execute(
+        "UPDATE collaborators SET photo_url = $1, updated_at = NOW() WHERE id = $2",
+        url, c_id,
+    )
 
     return {"url": url, "kind": kind}
 
@@ -600,7 +608,11 @@ async def get_me_materials(
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
                   cl.partner_landing_url, cl.partner_dashboard_url,
                   c.contact_id,
-                  COALESCE(ec.poster_url, c.poster_url) AS speaker_poster_url,
+                  (SELECT url FROM collaborator_posters cp
+                     WHERE cp.id = ec.poster_id OR
+                           (ec.poster_id IS NULL AND cp.collaborator_id = c.id)
+                     ORDER BY (cp.id = ec.poster_id) DESC, cp.sort_order, cp.id
+                     LIMIT 1) AS speaker_poster_url,
                   c.video_url AS speaker_video_url,
                   ctc.ref_code AS speaker_ref_code,
                   ctc.first_referrer_contact_id,
@@ -615,6 +627,16 @@ async def get_me_materials(
     )
     if not base:
         raise HTTPException(status_code=404, detail="Спикер не найден")
+
+    # Библиотека афиш самого спикера (collaborator_posters, миграция 121).
+    # Видна целиком — спикер скачивает любую под нужный анонс.
+    speaker_posters = await db.fetch(
+        """SELECT id, url, label, sort_order
+             FROM collaborator_posters
+            WHERE collaborator_id = $1
+            ORDER BY sort_order, id""",
+        c_id,
+    )
 
     # Афиши события (упорядочены: horizontal → vertical → square)
     posters = await db.fetch(
@@ -695,6 +717,7 @@ async def get_me_materials(
         "event_slug":   base["event_slug"],
         "event_title":  base["event_title"],
         "posters":      [dict(r) for r in posters],
+        "speaker_posters": [dict(r) for r in speaker_posters],
         "speaker_poster_url": base.get("speaker_poster_url"),
         "event_video_url":    base.get("event_video_url"),
         "speaker_video_url":  base.get("speaker_video_url"),

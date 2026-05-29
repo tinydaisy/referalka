@@ -87,7 +87,8 @@ class CollaboratorCreate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
-    poster_url: Optional[str] = None
+    # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters
+    # (CRUD `/api/v1/collaborators/{id}/posters`).
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     # Индивидуальное видео коллаба (миграция 113) — один файл в R2.
@@ -117,7 +118,7 @@ class CollaboratorUpdate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
-    poster_url: Optional[str] = None
+    # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters.
     photo_folder_url: Optional[str] = None
     video_folder_url: Optional[str] = None
     video_url: Optional[str] = None
@@ -159,7 +160,13 @@ def row_to_dict(row):
 # и Mini App не пришлось менять.
 _COLLAB_SELECT = """
     c.id, c.name, c.title, c.achievements,
-    c.photo_url, c.poster_url, c.photo_folder_url, c.video_folder_url, c.video_url,
+    c.photo_url,
+    (SELECT url FROM collaborator_posters cp
+       WHERE cp.collaborator_id = c.id
+       ORDER BY cp.sort_order, cp.id
+       LIMIT 1) AS poster_url,
+    (SELECT COUNT(*) FROM collaborator_posters cp WHERE cp.collaborator_id = c.id) AS posters_count,
+    c.photo_folder_url, c.video_folder_url, c.video_url,
     c.tg_channel_url, c.vk_url, c.max_url,
     c.instagram_url, c.website_url,
     c.tg_channel_id, c.assistant_tg_username,
@@ -240,14 +247,14 @@ async def create_collaborator(
     new_id = await db.fetchval(
         """INSERT INTO collaborators
            (contact_id, name, title, achievements,
-            photo_url, poster_url, photo_folder_url, video_folder_url,
+            photo_url, photo_folder_url, video_folder_url,
             tg_channel_url, vk_url, max_url, instagram_url, website_url,
             tg_channel_id, assistant_tg_username,
             access_code, media_assets,
             created_by_client_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18) RETURNING id""",
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17) RETURNING id""",
         data.contact_id, name, data.title, data.achievements,
-        data.photo_url, data.poster_url, data.photo_folder_url, data.video_folder_url,
+        data.photo_url, data.photo_folder_url, data.video_folder_url,
         data.tg_channel_url, data.vk_url, data.max_url, data.instagram_url, data.website_url,
         data.tg_channel_id, data.assistant_tg_username,
         access_code, json.dumps(media_assets),
@@ -485,6 +492,14 @@ async def get_collaborator(
     if not row:
         raise HTTPException(status_code=404, detail="Коллаборация не найдена")
     d = row_to_dict(row)
+    posters = await db.fetch(
+        """SELECT id, url, label, sort_order
+             FROM collaborator_posters
+            WHERE collaborator_id = $1
+            ORDER BY sort_order, id""",
+        collaborator_id,
+    )
+    d["posters"] = [dict(p) for p in posters]
     return {"speaker": d, "collaborator": d}
 
 
@@ -556,7 +571,7 @@ class CollaboratorQuickCreate(BaseModel):
     title: Optional[str] = None
     achievements: Optional[List[str]] = None
     photo_url: Optional[str] = None
-    poster_url: Optional[str] = None
+    # poster_url убран миграцией 121 — афиши теперь в таблице collaborator_posters.
     tg_channel_url: Optional[str] = None
     tg_channel_id: Optional[str] = None
     vk_url: Optional[str] = None
@@ -647,16 +662,16 @@ async def create_collaborator_quick(
         new_id = await db.fetchval(
             """INSERT INTO collaborators
                (contact_id, name, title, achievements,
-                photo_url, poster_url,
+                photo_url,
                 tg_channel_url, tg_channel_id,
                 vk_url, max_url,
                 instagram_url, website_url,
                 assistant_tg_username,
                 access_code, media_assets,
                 created_by_client_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16) RETURNING id""",
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15) RETURNING id""",
             contact_id, name, data.title, data.achievements,
-            data.photo_url, data.poster_url,
+            data.photo_url,
             data.tg_channel_url, data.tg_channel_id,
             data.vk_url, data.max_url,
             data.instagram_url, data.website_url,

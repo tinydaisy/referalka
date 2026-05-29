@@ -10,13 +10,16 @@ import { ImageThumb } from '@/components/ImagePreview'
 import FileUploader from '@/components/FileUploader'
 import { TelegramChannelField } from '@/components/TelegramChannelField'
 import MediaAssetsField, { MediaAsset } from '@/components/MediaAssetsField'
+import CollaboratorPostersField from '@/components/CollaboratorPostersField'
 
 const IMPORTANT_FIELDS: { key: string; label: string }[] = [
   { key: 'name', label: 'Имя и фамилия' },
   { key: 'title', label: 'Должность / специализация' },
   { key: 'achievements', label: 'Регалии' },
   { key: 'photo_url', label: 'Фото' },
-  { key: 'poster_url', label: 'Афиша' },
+  // poster_url — теперь библиотека из 0..N афиш. Признак «заполнено» = есть
+  // хоть одна афиша. Backend отдаёт posters_count в _COLLAB_SELECT.
+  { key: 'posters_count', label: 'Афиша' },
   { key: 'tg_channel_url', label: 'Ссылка на Telegram-канал' },
   { key: 'tg_channel_id', label: 'ID канала' },
   { key: 'personal_tg_id', label: 'ID личного аккаунта' },
@@ -28,6 +31,7 @@ function getMissingFields(form: any): string[] {
     .filter(f => {
       const v = form[f.key]
       if (Array.isArray(v)) return v.length === 0
+      if (typeof v === 'number') return v <= 0
       return !v || String(v).trim() === ''
     })
     .map(f => f.label)
@@ -99,7 +103,6 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         title: form.title,
         achievements,
         photo_url: form.photo_url,
-        poster_url: form.poster_url,
         photo_folder_url: form.photo_folder_url,
         video_folder_url: form.video_folder_url,
         video_url: form.video_url || null,
@@ -261,18 +264,8 @@ export default function CollaborationPage({ params }: { params: { id: string } }
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.posterUrl}</label>
-            <FileUploader
-              mode="single"
-              kind="speaker_photo"
-              collaboratorId={collaboratorId}
-              value={form.poster_url || null}
-              onChange={u => setForm((f: any) => ({ ...f, poster_url: u || '' }))}
-              accept="image/*"
-              aspectClass="aspect-video"
-              emptyText="Афиша/обложка"
-              buttonLabel="Загрузить"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Афиши (библиотека)</label>
+            <CollaboratorPostersField collaboratorId={collaboratorId} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Индивидуальное видео</label>

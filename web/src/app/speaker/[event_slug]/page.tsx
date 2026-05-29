@@ -37,7 +37,8 @@ type SpeakerMe = {
   title: string | null
   achievements: string[] | null
   photo_url: string | null
-  poster_url: string | null
+  // poster_url убран миграцией 121: афиши теперь библиотека на стороне клиента,
+  // спикер их только просматривает в разделе «Материалы».
   photo_folder_url: string | null
   video_folder_url: string | null
   tg_channel_url: string | null
@@ -96,6 +97,8 @@ type SpeakerMaterials = {
   event_slug: string
   event_title: string
   posters: { id: number; url: string; orientation: 'horizontal' | 'vertical' | 'square'; sort: number }[]
+  // Библиотека афиш самого спикера (миграция 121). Видна вся, скачивает любую.
+  speaker_posters: { id: number; url: string; label: string | null; sort_order: number }[]
   speaker_poster_url: string | null
   event_video_url: string | null
   speaker_video_url: string | null
@@ -127,7 +130,7 @@ export default function SpeakerCabinetPage() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [achText, setAchText] = useState<string>('')
-  const [uploading, setUploading] = useState<'speaker_photo' | 'speaker_poster' | null>(null)
+  const [uploading, setUploading] = useState<'speaker_photo' | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; text: string; bot_handle?: string } | null>(null)
   const [verifying, setVerifying] = useState(false)
@@ -239,7 +242,7 @@ export default function SpeakerCabinetPage() {
         .filter(Boolean)
       const payload: any = {
         name: me.name, title: me.title, achievements,
-        photo_url: me.photo_url, poster_url: me.poster_url,
+        photo_url: me.photo_url,
         photo_folder_url: me.photo_folder_url, video_folder_url: me.video_folder_url,
         tg_channel_url: me.tg_channel_url, tg_channel_id: me.tg_channel_id,
         vk_url: me.vk_url, max_url: me.max_url,
@@ -308,7 +311,7 @@ export default function SpeakerCabinetPage() {
     }
   }
 
-  const onUpload = async (kind: 'speaker_photo' | 'speaker_poster', file: File) => {
+  const onUpload = async (kind: 'speaker_photo', file: File) => {
     if (!token) return
     setUploading(kind); setError(null)
     try {
@@ -322,7 +325,7 @@ export default function SpeakerCabinetPage() {
       })
       const d = await r.json()
       if (!r.ok) { setError(d.detail || 'Ошибка загрузки'); return }
-      update(kind === 'speaker_photo' ? { photo_url: d.url } : { poster_url: d.url })
+      update({ photo_url: d.url })
     } catch (e: any) {
       setError(String(e.message || e))
     } finally {
@@ -407,7 +410,7 @@ export default function SpeakerCabinetPage() {
   }
 
   // Карточка для фото/афиши: превью + кнопки «Раскрыть», «Скачать», «Загрузить новое»
-  function ImageCard({ url, kind, label }: { url: string | null, kind: 'speaker_photo' | 'speaker_poster', label: string }) {
+  function ImageCard({ url, kind, label }: { url: string | null, kind: 'speaker_photo', label: string }) {
     const fileInputId = `up-${kind}`
     return (
       <div>
@@ -419,8 +422,8 @@ export default function SpeakerCabinetPage() {
               alt={label}
               onClick={() => setLightbox(url)}
               style={{
-                width: kind === 'speaker_photo' ? 90 : 120,
-                height: kind === 'speaker_photo' ? 90 : 160,
+                width: 90,
+                height: 90,
                 objectFit: 'cover',
                 borderRadius: 12,
                 border: '1px solid #d4dee5',
@@ -429,8 +432,8 @@ export default function SpeakerCabinetPage() {
             />
           ) : (
             <div style={{
-              width: kind === 'speaker_photo' ? 90 : 120,
-              height: kind === 'speaker_photo' ? 90 : 160,
+              width: 90,
+              height: 90,
               borderRadius: 12,
               border: '1px dashed #c4d1dc',
               background: '#f5f7fa',
@@ -549,9 +552,6 @@ export default function SpeakerCabinetPage() {
 
           <div style={{ marginTop: 14 }}>
             <ImageCard url={me.photo_url} kind="speaker_photo" label="Фото профиля" />
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <ImageCard url={me.poster_url} kind="speaker_poster" label="Личная афиша" />
           </div>
 
           <label style={labelCss}>Ссылка на папку с фото (Я.Диск / Google Drive)</label>
@@ -1026,40 +1026,50 @@ function MaterialsTab({
 
   return (
     <div>
-      {/* Индивидуальная афиша */}
-      {materials.speaker_poster_url && (
+      {/* Мои афиши (библиотека коллаба — миграция 121).
+          В каждом событии организатор выбирает «текущую» афишу из этой
+          библиотеки; здесь вы видите все варианты — копируйте любую под
+          свои анонсы. */}
+      {materials.speaker_posters && materials.speaker_posters.length > 0 && (
         <div style={sectionCss}>
-          <div style={titleCss}>Индивидуальная афиша</div>
+          <div style={titleCss}>Мои афиши</div>
           <div style={subCss}>
-            Афиша с вашим фото/именем, подготовленная под это событие. Откройте кликом или скачайте.
+            Все ваши афиши, которые подготовил организатор. Откройте кликом или скачайте — пригодится для анонсов в вашем канале.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-            <div style={{
-              border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
-            }}>
-              <img
-                src={materials.speaker_poster_url}
-                alt="Индивидуальная афиша"
-                onClick={() => setLightbox(materials.speaker_poster_url!)}
-                style={{
-                  width: '100%', aspectRatio: '9/16',
-                  objectFit: 'cover', cursor: 'zoom-in', display: 'block',
-                }}
-              />
-              <a
-                href={materials.speaker_poster_url}
-                download
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  display: 'block', textAlign: 'center', padding: '6px 8px',
-                  fontSize: 11, color: DARK, textDecoration: 'none',
-                  background: '#fff', borderTop: '1px solid #d4dee5',
-                }}
-              >
-                ⬇ Скачать
-              </a>
-            </div>
+            {materials.speaker_posters.map(p => (
+              <div key={p.id} style={{
+                border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
+              }}>
+                <img
+                  src={p.url}
+                  alt={p.label || ''}
+                  onClick={() => setLightbox(p.url)}
+                  style={{
+                    width: '100%', aspectRatio: '1/1',
+                    objectFit: 'cover', cursor: 'zoom-in', display: 'block',
+                  }}
+                />
+                {p.label && (
+                  <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7c8b', borderTop: '1px solid #e6edf3' }}>
+                    {p.label}
+                  </div>
+                )}
+                <a
+                  href={p.url}
+                  download
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: 'block', textAlign: 'center', padding: '6px 8px',
+                    fontSize: 11, color: DARK, textDecoration: 'none',
+                    background: '#fff', borderTop: '1px solid #d4dee5',
+                  }}
+                >
+                  ⬇ Скачать
+                </a>
+              </div>
+            ))}
           </div>
         </div>
       )}
