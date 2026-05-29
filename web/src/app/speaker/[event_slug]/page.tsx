@@ -173,7 +173,9 @@ export default function SpeakerCabinetPage() {
       const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (r.status === 401) {
+      // 401 — токен истёк/сломан; 404 — cse удалён/изменился. В обоих случаях
+      // тихо сбрасываем токен и показываем форму логина, без ошибочного баннера.
+      if (r.status === 401 || r.status === 404) {
         localStorage.removeItem(TOKEN_KEY(slug))
         setToken(null)
         setMe(null)
