@@ -194,12 +194,11 @@ export default function SpeakerCabinetPage() {
     loadMe()
   }, [loadMe])
 
-  // Materials — отдельный эндпоинт. Перезагружаем при каждом переключении
-  // на вкладку «Материалы», чтобы спикер сразу видел тексты, которые
-  // организатор только что добавил/изменил в дашборде.
+  // Materials — отдельный эндпоинт. Грузим сразу как только есть me, чтобы
+  // партнёрский блок (перенесён в Профиль 2026-05-30) отображался на обеих
+  // вкладках, и тексты не догружались с задержкой при переключении.
   useEffect(() => {
     if (!token || !me) return
-    if (activeTab !== 'materials') return
     let cancelled = false
     fetch(`${API}/api/v1/public/speaker-cabinet/me/materials`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -793,6 +792,83 @@ export default function SpeakerCabinetPage() {
           </Section>
         )}
 
+        {/* Партнёрский блок — перенесён сюда из вкладки «Материалы» (2026-05-30).
+            На Материалах остаются только то что используется в анонсах
+            (реф-ссылки, афиши, тексты). Партнёрка — про деньги/регистрацию,
+            это к Профилю. */}
+        {materials && (
+          materials.speaker_external_ref_param ? (
+            <Section title="Кабинет партнёра организатора">
+              <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8, lineHeight: 1.5 }}>
+                Вы зарегистрированы партнёром организатора и получаете процент с продаж приведённых
+                участников. В кабинете партнёра видны <strong>финансовые начисления</strong> по вашим
+                продажам — это отдельный сторонний сервис организатора, не ПЛЮСОН.
+                Статистика переходов и регистраций по вашим реф-ссылкам — на вкладке «Материалы».
+              </div>
+              {materials.partner_dashboard_url && (
+                <a
+                  href={materials.partner_dashboard_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '8px 14px', borderRadius: 8,
+                    background: PEACH, color: DARK, fontSize: 13, fontWeight: 700,
+                    textDecoration: 'none', marginBottom: 10,
+                  }}
+                >
+                  Открыть кабинет партнёра →
+                </a>
+              )}
+              <div style={{ fontSize: 11, color: '#5a6a7a', lineHeight: 1.5 }}>
+                Пароль от кабинета был отправлен на ваш email при регистрации — проверьте папку «Спам».
+                Если письмо не нашли — воспользуйтесь формой восстановления пароля на странице входа.
+              </div>
+            </Section>
+          ) : (
+            materials.partner_landing_configured && (() => {
+              const rows = [
+                { key: 'telegram', label: 'Telegram', url: materials.partner_link.telegram },
+                { key: 'vk',       label: 'VK',       url: materials.partner_link.vk },
+                { key: 'max',      label: 'MAX',      url: materials.partner_link.max },
+              ].filter(r => !!r.url) as Array<{ key: string; label: string; url: string }>
+              if (rows.length === 0) return null
+              return (
+                <Section title="Ссылка регистрации на получение % кэшбэка">
+                  <div style={{ fontSize: 12, color: '#7a8c9c', marginBottom: 8, lineHeight: 1.5 }}>
+                    Пройдите по ссылке, чтобы зарегистрироваться партнёром организатора на получение
+                    вознаграждения с привлечённых участников.
+                  </div>
+                  {rows.map(({ key, label, url }) => {
+                    const k = `prt:${key}`
+                    return (
+                      <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: DARK, width: 70, flexShrink: 0 }}>{label}</span>
+                        <code style={{
+                          flex: 1, fontSize: 12, color: '#1a2a3a', background: '#f5f7fa',
+                          padding: '6px 10px', borderRadius: 6, overflow: 'hidden',
+                          textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace',
+                          border: '1px solid #e0e7ec',
+                        }}>{url}</code>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(url); setRefCopied(k); setTimeout(() => setRefCopied(''), 1500) }}
+                          style={{
+                            background: PEACH, color: DARK, fontWeight: 700,
+                            border: 'none', borderRadius: 6, padding: '6px 10px',
+                            cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {refCopied === k ? '✓' : '📋'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </Section>
+              )
+            })()
+          )
+        )}
+
         {error && <div style={{ background: '#ffe9e0', color: '#a83e1c', padding: 12, borderRadius: 10, marginBottom: 12, fontSize: 14 }}>{error}</div>}
 
         <button
@@ -1034,6 +1110,34 @@ function MaterialsTab({
 
   return (
     <div>
+      {/* Реф-ссылки спикера — перенесены в начало вкладки (2026-05-30).
+          Это главное что спикер копирует и шлёт своей аудитории. */}
+      {refLinkRows.length > 0 && (
+        <div style={sectionCss}>
+          <div style={titleCss}>Ваши реф-ссылки на событие</div>
+          <div style={subCss}>
+            Делитесь любой из этих ссылок — все, кто перейдёт и зарегистрируется, засчитаются как ваши приглашённые.
+          </div>
+          {refLinkRows.map(({ key, label, url }) => {
+            const k = `ref:${key}`
+            return (
+              <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: DARK, width: 70, flexShrink: 0 }}>{label}</span>
+                <code style={{
+                  flex: 1, fontSize: 12, color: '#1a2a3a', background: '#f5f7fa',
+                  padding: '6px 10px', borderRadius: 6, overflow: 'hidden',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace',
+                  border: '1px solid #e0e7ec',
+                }}>{url}</code>
+                <button onClick={() => copy(k, url)} style={copyBtnCss}>
+                  {refCopied === k ? '✓' : '📋'}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* Фото для сайта (collaborators.photo_url).
           Используется на лендинге события и в визитке Mini App. */}
       {materials.photo_url && (
@@ -1260,96 +1364,8 @@ function MaterialsTab({
         )}
       </div>
 
-      {/* Реф-ссылки спикера */}
-      {refLinkRows.length > 0 && (
-        <div style={sectionCss}>
-          <div style={titleCss}>Ваши реф-ссылки на событие</div>
-          <div style={subCss}>
-            Делитесь любой из этих ссылок — все, кто перейдёт и зарегистрируется, засчитаются как ваши приглашённые.
-          </div>
-          {refLinkRows.map(({ key, label, url }) => {
-            const k = `ref:${key}`
-            return (
-              <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: DARK, width: 70, flexShrink: 0 }}>{label}</span>
-                <code style={{
-                  flex: 1, fontSize: 12, color: '#1a2a3a', background: '#f5f7fa',
-                  padding: '6px 10px', borderRadius: 6, overflow: 'hidden',
-                  textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace',
-                  border: '1px solid #e0e7ec',
-                }}>{url}</code>
-                <button onClick={() => copy(k, url)} style={copyBtnCss}>
-                  {refCopied === k ? '✓' : '📋'}
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Партнёрская ссылка спикера — ветка «есть код / нет кода» (миграция 118).
-          Если у спикера-контакта есть external_ref_param → он уже зарегистрирован
-          партнёром: показываем ТОЛЬКО кнопку «Открыть кабинет партнёра» (если у
-          клиента задан partner_dashboard_url) + поясняющий текст про деньги/переходы.
-          Сам external_ref_param наружу НЕ показываем — он нужен организатору для
-          отслеживания вопросов от партнёра, не самому партнёру.
-          Если кода нет — показываем ссылки на регистрацию (старое поведение). */}
-      {materials.speaker_external_ref_param ? (
-        <div style={sectionCss}>
-          <div style={titleCss}>Кабинет партнёра организатора</div>
-          <div style={subCss}>
-            Вы зарегистрированы партнёром организатора и получаете процент с продаж приведённых
-            участников. В кабинете партнёра видны <strong>финансовые начисления</strong> по вашим
-            продажам — это отдельный сторонний сервис организатора, не ПЛЮСОН.
-            Статистика переходов и регистраций по вашим реф-ссылкам — выше, в этом разделе «Материалы».
-          </div>
-          {materials.partner_dashboard_url && (
-            <a
-              href={materials.partner_dashboard_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '8px 14px', borderRadius: 8,
-                background: PEACH, color: DARK, fontSize: 13, fontWeight: 700,
-                textDecoration: 'none', marginBottom: 10,
-              }}
-            >
-              Открыть кабинет партнёра →
-            </a>
-          )}
-          <div style={{ fontSize: 11, color: '#5a6a7a', lineHeight: 1.5 }}>
-            Пароль от кабинета был отправлен на ваш email при регистрации — проверьте папку «Спам».
-            Если письмо не нашли — воспользуйтесь формой восстановления пароля на странице входа.
-          </div>
-        </div>
-      ) : (
-        materials.partner_landing_configured && partnerRows.length > 0 && (
-          <div style={sectionCss}>
-            <div style={titleCss}>Ссылка регистрации на получение % кэшбэка</div>
-            <div style={subCss}>
-              Пройдите по ссылке, чтобы зарегистрироваться партнёром организатора на получение вознаграждения с привлечённых участников.
-            </div>
-            {partnerRows.map(({ key, label, url }) => {
-              const k = `prt:${key}`
-              return (
-                <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: DARK, width: 70, flexShrink: 0 }}>{label}</span>
-                  <code style={{
-                    flex: 1, fontSize: 12, color: '#1a2a3a', background: '#f5f7fa',
-                    padding: '6px 10px', borderRadius: 6, overflow: 'hidden',
-                    textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace',
-                    border: '1px solid #e0e7ec',
-                  }}>{url}</code>
-                  <button onClick={() => copy(k, url)} style={copyBtnCss}>
-                    {refCopied === k ? '✓' : '📋'}
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        )
-      )}
+      {/* Реф-ссылки и партнёрский блок перенесены: реф-ссылки — в начало
+          этой вкладки, партнёрка — в вкладку «Профиль» (2026-05-30). */}
     </div>
   )
 }
