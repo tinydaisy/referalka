@@ -173,6 +173,7 @@ export default function ConferenceSpeakerPage() {
   const [channelVerifyMsg, setChannelVerifyMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [error, setError] = useState('')
   const [showWarning, setShowWarning] = useState(false)
+  const [subTab, setSubTab] = useState<'talk' | 'profile'>('talk')
 
   useEffect(() => {
     api.auth.me().then((c: any) => {
@@ -501,10 +502,26 @@ export default function ConferenceSpeakerPage() {
         )}
       </div>
 
-      {/* ── БЛОК 1: Данные выступления ── */}
+      {/* Подвкладки: Выступление / Профиль */}
+      <div className="border-b border-gray-200 mb-6 flex gap-1">
+        {([['talk', 'Выступление'], ['profile', 'Профиль']] as const).map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setSubTab(k)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              subTab === k
+                ? 'border-[#FFCFA4] text-[#25455D]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ВКЛАДКА «ВЫСТУПЛЕНИЕ» ── */}
+      {subTab === 'talk' && (
       <form onSubmit={saveEvent} className="space-y-4 mb-8">
         <h2 className="font-bold text-gray-900 text-lg">Выступление в этой конференции</h2>
 
+        {/* Роль + коммерческое */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
@@ -530,11 +547,6 @@ export default function ConferenceSpeakerPage() {
             </div>
           </div>
 
-          <div>
-            <FieldLabel label="Темы выступления" empty={!eventForm.topics.some(t => t.trim())} />
-            <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))} />
-          </div>
-
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={eventForm.is_commercial}
               onChange={e => {
@@ -545,46 +557,43 @@ export default function ConferenceSpeakerPage() {
               className="w-4 h-4 rounded border-gray-300 text-brand" />
             <span className="text-sm text-gray-700">Коммерческое выступление</span>
           </label>
-
         </div>
 
-        {/* Заметки */}
+        {/* Что спикер видит в своей форме — сразу после галочки «Коммерческое» */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
-          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-            <span>Заметки</span>
-            <span className="text-xs text-gray-400 font-normal">— только для вас, не показывается участникам</span>
-          </h3>
-          <textarea
-            value={eventForm.notes}
-            onChange={e => setEventForm(f => ({ ...f, notes: e.target.value }))}
-            rows={6}
-            placeholder="Например: текст частушки для ведущего, шпаргалка по гонорару, контакты ассистента"
-            className="input resize-y text-sm w-full"
-          />
+          <h3 className="font-semibold text-gray-900 text-sm">Что спикер видит в своей форме</h3>
+          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются спикеру на странице <code className="bg-gray-50 px-1 rounded">pluson.ru/speaker/{eventSlug || '…'}</code>.</p>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_topic_field}
+              onChange={e => setEventForm(f => ({ ...f, show_topic_field: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Темы выступления — спикер может заполнить сам</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_gift_after_speech_field}
+              onChange={e => setEventForm(f => ({ ...f, show_gift_after_speech_field: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Подарок после эфира — спикер может заполнить сам</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_knowledge_base_field}
+              onChange={e => setEventForm(f => ({ ...f, show_knowledge_base_field: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Материал в базу знаний — спикер может заполнить сам</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+            <input type="checkbox" checked={eventForm.show_partner_registration_link}
+              onChange={e => setEventForm(f => ({ ...f, show_partner_registration_link: e.target.checked }))}
+              className="w-4 h-4 rounded border-gray-300 text-brand" />
+            <span>Ссылка на регистрацию партнёром — спикеру предлагается зарегистрироваться партнёром клиента</span>
+          </label>
+          <p className="text-xs text-gray-500 pt-1">Подарок для розыгрыша показывается автоматически, если для события включён модуль розыгрыша.</p>
         </div>
 
-        {/* Чёрный список */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
-          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
-            <span>Чёрный список</span>
-            <span className="text-xs text-gray-400 font-normal">— исключения для этого спикера</span>
-          </h3>
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" checked={eventForm.exclude_gift_from_broadcast}
-              onChange={e => setEventForm(f => ({ ...f, exclude_gift_from_broadcast: e.target.checked }))}
-              className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span className="text-sm text-gray-700">
-              Исключать подарок из общей рассылки
-            </span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" checked={eventForm.exclude_channel_from_subscription}
-              onChange={e => setEventForm(f => ({ ...f, exclude_channel_from_subscription: e.target.checked }))}
-              className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span className="text-sm text-gray-700">
-              Исключать канал из подписки
-            </span>
-          </label>
+        {/* Темы выступления — перед подарками */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <FieldLabel label="Темы выступления" empty={!eventForm.topics.some(t => t.trim())} />
+          <TopicsEditor topics={eventForm.topics} onChange={topics => setEventForm(f => ({ ...f, topics }))} />
         </div>
 
         {/* Подарок после эфира */}
@@ -638,35 +647,43 @@ export default function ConferenceSpeakerPage() {
           </div>
         </div>
 
-        {/* Видимость полей в форме самообслуживания */}
+        {/* Заметки */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
-          <h3 className="font-semibold text-gray-900 text-sm">Что спикер видит в своей форме</h3>
-          <p className="text-xs text-gray-500 -mt-1">Тогглы управляют тем, какие поля показываются спикеру на странице <code className="bg-gray-50 px-1 rounded">pluson.ru/speaker/{eventSlug || '…'}</code>.</p>
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-            <input type="checkbox" checked={eventForm.show_topic_field}
-              onChange={e => setEventForm(f => ({ ...f, show_topic_field: e.target.checked }))}
+          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+            <span>Заметки</span>
+            <span className="text-xs text-gray-400 font-normal">— только для вас, не показывается участникам</span>
+          </h3>
+          <textarea
+            value={eventForm.notes}
+            onChange={e => setEventForm(f => ({ ...f, notes: e.target.value }))}
+            rows={6}
+            placeholder="Например: текст частушки для ведущего, шпаргалка по гонорару, контакты ассистента"
+            className="input resize-y text-sm w-full"
+          />
+        </div>
+
+        {/* Чёрный список */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+            <span>Чёрный список</span>
+            <span className="text-xs text-gray-400 font-normal">— исключения для этого спикера</span>
+          </h3>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={eventForm.exclude_gift_from_broadcast}
+              onChange={e => setEventForm(f => ({ ...f, exclude_gift_from_broadcast: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Темы выступления — спикер может заполнить сам</span>
+            <span className="text-sm text-gray-700">
+              Исключать подарок из общей рассылки
+            </span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-            <input type="checkbox" checked={eventForm.show_gift_after_speech_field}
-              onChange={e => setEventForm(f => ({ ...f, show_gift_after_speech_field: e.target.checked }))}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={eventForm.exclude_channel_from_subscription}
+              onChange={e => setEventForm(f => ({ ...f, exclude_channel_from_subscription: e.target.checked }))}
               className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Подарок после эфира — спикер может заполнить сам</span>
+            <span className="text-sm text-gray-700">
+              Исключать канал из подписки
+            </span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-            <input type="checkbox" checked={eventForm.show_knowledge_base_field}
-              onChange={e => setEventForm(f => ({ ...f, show_knowledge_base_field: e.target.checked }))}
-              className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Материал в базу знаний — спикер может заполнить сам</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-            <input type="checkbox" checked={eventForm.show_partner_registration_link}
-              onChange={e => setEventForm(f => ({ ...f, show_partner_registration_link: e.target.checked }))}
-              className="w-4 h-4 rounded border-gray-300 text-brand" />
-            <span>Ссылка на регистрацию партнёром — спикеру предлагается зарегистрироваться партнёром клиента</span>
-          </label>
-          <p className="text-xs text-gray-500 pt-1">Подарок для розыгрыша показывается автоматически, если для события включён модуль розыгрыша.</p>
         </div>
 
         <div className="flex gap-3 items-center">
@@ -681,8 +698,10 @@ export default function ConferenceSpeakerPage() {
           )}
         </div>
       </form>
+      )}
 
-      {/* ── БЛОК 2: Глобальный профиль спикера ── */}
+      {/* ── ВКЛАДКА «ПРОФИЛЬ» ── */}
+      {subTab === 'profile' && (
       <form onSubmit={saveProfile} className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">Профиль спикера</h2>
@@ -1030,6 +1049,7 @@ export default function ConferenceSpeakerPage() {
           )}
         </div>
       </form>
+      )}
 
       {/* Статистика кликов по карточке спикера в Mini App (миграция 109) */}
       <SpeakerClickStats confId={confId} speakerEventId={speakerEventId} />
