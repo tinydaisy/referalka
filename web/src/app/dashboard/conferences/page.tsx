@@ -106,7 +106,7 @@ export default function ConferencesPage() {
     setCopyingId(id)
     try {
       const res = await api.events.copy(id)
-      router.push(`/dashboard/conferences/${res.event.id}`)
+      router.push(`${basePath}/${res.event.id}`)
     } catch (e: any) {
       alert(e.message || 'Ошибка копирования')
       setCopyingId(null)

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Plus, User, Trash2, Pencil, X, AlertTriangle, ImageIcon } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
@@ -108,6 +108,10 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
   // оранжевые предупреждения «нет подарка розыгрыша» если фича выключена.
   const [raffleEnabled, setRaffleEnabled] = useState(false)
   const router = useRouter()
+  const pathname = usePathname()
+  // Премия/турнир открыта под /dashboard/tournaments — сохраняем этот путь
+  // при переходе в карточку спикера, иначе сайдбар и «назад» уводят в Конференции.
+  const basePath = pathname?.startsWith('/dashboard/tournaments') ? '/dashboard/tournaments' : '/dashboard/conferences'
   const { t } = useLang()
   const { isAssistant } = useMe()
   const ts = t.conferences.speakers
@@ -331,7 +335,7 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
             return (
               <div
                 key={sp.id}
-                onClick={() => router.push(`/dashboard/conferences/${eventId}/speakers/${sp.id}`)}
+                onClick={() => router.push(`${basePath}/${eventId}/speakers/${sp.id}`)}
                 className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors cursor-pointer ${i > 0 ? 'border-t border-gray-50' : ''}`}
               >
                 <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">

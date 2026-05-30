@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -119,9 +119,13 @@ function FieldLabel({ label, empty }: { label: string; empty: boolean }) {
 
 export default function ConferenceSpeakerPage() {
   const router = useRouter()
+  const pathname = usePathname()
   const { id, speakerId } = useParams()
   const confId = Number(id)
   const speakerEventId = Number(speakerId)
+  // Премия/турнир открыта под /dashboard/tournaments — «назад» и ссылки на
+  // настройки должны вести туда же, а не в Конференции.
+  const basePath = pathname?.startsWith('/dashboard/tournaments') ? '/dashboard/tournaments' : '/dashboard/conferences'
   const { t } = useLang()
 
   const [profile, setProfile] = useState<any>(null)
@@ -194,7 +198,7 @@ export default function ConferenceSpeakerPage() {
       .then(r => {
         const speakers = r.speakers || []
         const sp = speakers.find((s: any) => s.id === speakerEventId)
-        if (!sp) { router.push(`/dashboard/conferences/${confId}?tab=speakers`); return }
+        if (!sp) { router.push(`${basePath}/${confId}?tab=speakers`); return }
         setRefCode(sp.ref_code || null)
 
         const rawTopics = sp.topics && sp.topics.length > 0
@@ -239,7 +243,7 @@ export default function ConferenceSpeakerPage() {
           .then((pr: any) => setPosterLibrary(pr.posters || []))
           .catch(() => setPosterLibrary([]))
       })
-      .catch(() => router.push(`/dashboard/conferences/${confId}?tab=speakers`))
+      .catch(() => router.push(`${basePath}/${confId}?tab=speakers`))
       .finally(() => setLoading(false))
   }, [confId, speakerEventId])
 
@@ -413,7 +417,7 @@ export default function ConferenceSpeakerPage() {
     <div className="max-w-2xl">
       {/* Шапка */}
       <div className="flex items-center gap-3 mb-8">
-        <Link href={`/dashboard/conferences/${confId}?tab=speakers`}
+        <Link href={`${basePath}/${confId}?tab=speakers`}
           className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
           <ArrowLeft size={18} />
         </Link>
@@ -975,8 +979,8 @@ export default function ConferenceSpeakerPage() {
                   <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl p-3">
                     Подключение канала к проверке подписки отключено.{' '}
                     {subscriptionMode === 'none'
-                      ? <>В <a href={`/dashboard/conferences/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Не требовать подписку».</>
-                      : <>В <a href={`/dashboard/conferences/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Только каналы организаторов», поэтому канал этого спикера не участвует в проверке.</>
+                      ? <>В <a href={`${basePath}/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Не требовать подписку».</>
+                      : <>В <a href={`${basePath}/${confId}?tab=settings`} className="underline">настройках конференции</a> выбран режим «Только каналы организаторов», поэтому канал этого спикера не участвует в проверке.</>
                     }
                   </div>
                 </div>

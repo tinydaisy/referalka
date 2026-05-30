@@ -1177,45 +1177,9 @@ function MaterialsTab({
         </div>
       )}
 
-      {/* Фото для рассылок по боту — одна афиша из библиотеки, помеченная
-          организатором как «Для рассылок по чат-боту» в этой конференции. */}
-      {materials.broadcast_poster_url && (
-        <div style={sectionCss}>
-          <div style={titleCss}>Фото для рассылок по боту</div>
-          <div style={subCss}>
-            Эта афиша уходит участникам события в сообщениях бота — со словами знакомства,
-            напоминанием за 5 минут и подарком после выступления.
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-            <div style={{
-              border: '1px solid #d4dee5', borderRadius: 10, overflow: 'hidden', background: '#f5f7fa',
-            }}>
-              <img
-                src={materials.broadcast_poster_url}
-                alt="Афиша для рассылки"
-                onClick={() => setLightbox(materials.broadcast_poster_url!)}
-                style={{
-                  width: '100%', aspectRatio: '1/1',
-                  objectFit: 'cover', cursor: 'zoom-in', display: 'block',
-                }}
-              />
-              <a
-                href={materials.broadcast_poster_url}
-                download
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  display: 'block', textAlign: 'center', padding: '6px 8px',
-                  fontSize: 11, color: DARK, textDecoration: 'none',
-                  background: '#fff', borderTop: '1px solid #d4dee5',
-                }}
-              >
-                ⬇ Скачать
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Афиша «для рассылок по боту» намеренно НЕ показывается спикеру в его
+          кабинете — это служебное фото для бота организатора, спикеру нужна
+          только индивидуальная афиша «для анонсов» (ниже). */}
 
       {/* Афиши для анонсов — множественные, отмеченные организатором
           чек-боксом «Для анонсов» в этой конференции (миграция 122). */}
