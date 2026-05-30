@@ -587,6 +587,26 @@ export const api = {
       return res.blob()
     },
   },
+  // Трекер анонсов спикеров (вкладка в карточке конференции/турнира/премии, миграция 124)
+  announcementTracker: {
+    get: (eventId: number) => request(`/api/v1/events/${eventId}/announcement-tracker`),
+    addPlatform: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/announcement-tracker/platforms`, { method: 'POST', body: JSON.stringify(data) }),
+    updatePlatform: (eventId: number, id: number, data: any) =>
+      request(`/api/v1/events/${eventId}/announcement-tracker/platforms/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deletePlatform: (eventId: number, id: number) =>
+      request(`/api/v1/events/${eventId}/announcement-tracker/platforms/${id}`, { method: 'DELETE' }),
+    addColumn: (eventId: number, data: any = {}) =>
+      request(`/api/v1/events/${eventId}/announcement-tracker/columns`, { method: 'POST', body: JSON.stringify(data) }),
+    updateColumn: (eventId: number, id: number, data: any) =>
+      request(`/api/v1/events/${eventId}/announcement-tracker/columns/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteColumn: (eventId: number, id: number) =>
+      request(`/api/v1/events/${eventId}/announcement-tracker/columns/${id}`, { method: 'DELETE' }),
+    saveCell: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/announcement-tracker/cell`, { method: 'PUT', body: JSON.stringify(data) }),
+    saveAgreement: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/announcement-tracker/agreement`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
   raffle: {
     settings: {
       get:  (eventId: number) => request(`/api/v1/events/${eventId}/raffle/settings`),
