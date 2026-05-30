@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { useLang } from '@/contexts/LangContext'
 import FileUploader from '@/components/FileUploader'
 import AnnouncementTextsBlock from '@/components/AnnouncementTextsBlock'
+import MaterialsExportButton from '@/components/MaterialsExportButton'
 
 type Orientation = 'horizontal' | 'vertical' | 'square'
 
@@ -26,7 +27,7 @@ type SubTab = 'posters' | 'materials'
 // общий с обычными мероприятиями. API: /events/{id}/referral/posters.
 // Старые поля conf_conferences.poster_* больше не используются для записи —
 // существующие данные мигрированы в event_posters миграцией 046.
-export default function PostersTab({ eventId }: { eventId: number }) {
+export default function PostersTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
   const { lang } = useLang()
   const [tab, setTab] = useState<SubTab>('posters')
 
@@ -37,7 +38,7 @@ export default function PostersTab({ eventId }: { eventId: number }) {
 
   return (
     <div>
-      <div className="border-b border-gray-200 mb-6 flex gap-1 -mt-2">
+      <div className="border-b border-gray-200 mb-6 flex items-center gap-1 -mt-2">
         {(['posters','materials'] as SubTab[]).map(t => (
           <button key={t}
                   onClick={() => setTab(t)}
@@ -49,6 +50,9 @@ export default function PostersTab({ eventId }: { eventId: number }) {
             {labels[t]}
           </button>
         ))}
+        <div className="ml-auto pb-1">
+          <MaterialsExportButton eventId={eventId} moduleSlug={moduleSlug} />
+        </div>
       </div>
 
       {tab === 'posters'

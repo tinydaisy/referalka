@@ -154,7 +154,7 @@ export default function ConferencePage() {
       {tab === 'program'      && (isTournament ? <TournamentProgramTab eventId={eventId} /> : <ProgramTab eventId={eventId} />)}
       {tab === 'participants' && <ParticipantsTab eventId={eventId} />}
       {tab === 'raffle'       && <RaffleTab />}
-      {tab === 'posters'      && <PostersTab      eventId={eventId} />}
+      {tab === 'posters'      && <PostersTab      eventId={eventId} moduleSlug={event?.module_slug} />}
       {tab === 'referral'     && <ReferralProgramTab eventId={eventId} moduleSlug="conference" />}
       {tab === 'nurture'      && <NurtureTab       eventId={eventId} />}
       {tab === 'welcome'      && <WelcomeTab       event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}

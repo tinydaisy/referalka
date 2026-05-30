@@ -573,6 +573,19 @@ export const api = {
       request(`/api/v1/events/${eventId}/referral/import`, {
         method: 'POST', body: JSON.stringify({ from_event_id: fromEventId }),
       }),
+    // ZIP-архив материалов для спикеров/жюри (реф-ссылки + тексты-анонсы +
+    // афиши события + индивидуальные афиши + кодовые слова розыгрыша).
+    exportMaterials: async (eventId: number) => {
+      const token = getToken()
+      const res = await fetch(`${API_URL}/api/v1/events/${eventId}/materials-export`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || 'Ошибка экспорта')
+      }
+      return res.blob()
+    },
   },
   raffle: {
     settings: {

@@ -14,10 +14,19 @@
   (аудитория = аудитория спикера/партнёра).
 """
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import timezone, timedelta
+import io
+import re
+import zipfile
+import asyncio
+import httpx
 from app.auth import get_current_client
 from app.database import get_db
+from app.config import settings
+from app.services.r2_storage import key_from_url, get_r2_client
 import asyncpg
 
 router = APIRouter(prefix="/events/{event_id}", tags=["Реф-программа"])
@@ -632,3 +641,250 @@ async def delete_announcement_text(
     if result.endswith("0"):
         raise HTTPException(status_code=404, detail="Текст не найден")
     return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════════════
+# ЭКСПОРТ МАТЕРИАЛОВ ДЛЯ СПИКЕРОВ / ЖЮРИ (ZIP-архив)
+# ══════════════════════════════════════════════════════════════════
+#
+# Кнопка «МАТЕРИАЛЫ ДЛЯ СПИКЕРОВ» (конференция/турнир) или «МАТЕРИАЛЫ ДЛЯ
+# ЖЮРИ» (премия) на вкладке «Афиши» дашборда. Собирает в один ZIP:
+#   • Реферальные ссылки.txt — на каждого коллаба: имя + TG + ВК (через
+#     двойной перенос), коллабы разделены строкой-разделителем.
+#   • Тексты для анонсов/Анонс N.txt — все тексты-анонсы события
+#     (плейсхолдеры {event}/{date}/{brand} подставлены, {link} оставлен —
+#     он персональный, лежит в «Реферальных ссылках»).
+#   • Афиши/<Ориентация>.<ext> — афиши события (event_posters) в корне.
+#   • Афиши/Индивидуальные афиши/Имя_Фамилия.<ext> — афиши коллабов,
+#     отмеченные «для анонсов» (event_collaborators.announcement_poster_ids).
+#   • Кодовые слова для розыгрыша.txt — если розыгрыш включён.
+#
+# Кого включаем зависит от типа события:
+#   • премия (awards)        → роли jury + organizer
+#   • конференция/турнир/др. → роли organizer + speaker + headliner
+
+_MSK = timezone(timedelta(hours=3))
+
+_ORIENTATION_RU = {
+    "horizontal": "Горизонтальная афиша",
+    "vertical":   "Вертикальная афиша",
+    "square":     "Квадратная афиша",
+}
+
+
+def _is_jury_module(module_slug: Optional[str]) -> bool:
+    # «Премии/Турниры» (module_slug='turnir', историч. 'awards') — там роли
+    # по умолчанию «жюри». Конференция — «спикеры».
+    return module_slug in ("awards", "turnir")
+
+
+def _export_roles(module_slug: Optional[str]) -> list[str]:
+    if _is_jury_module(module_slug):
+        return ["jury", "organizer"]
+    return ["organizer", "speaker", "headliner"]
+
+
+def _safe_filename(name: Optional[str]) -> str:
+    """Безопасное имя файла: режем спецсимволы ФС, пробелы → подчёркивание.
+    Кириллицу сохраняем (ZIP пишется в UTF-8)."""
+    name = (name or "").strip()
+    name = re.sub(r'[\\/:*?"<>|\r\n\t]+', "", name)
+    name = re.sub(r"\s+", "_", name)
+    return name or "Без_имени"
+
+
+def _ext_from_url(url: Optional[str], default: str = "jpg") -> str:
+    path = (url or "").split("?")[0].split("#")[0].rstrip("/")
+    base = path.rsplit("/", 1)[-1]
+    if "." in base:
+        ext = base.rsplit(".", 1)[-1].lower()
+        if 1 <= len(ext) <= 5 and ext.isalnum():
+            return ext
+    return default
+
+
+def _fmt_event_date_msk(start_at) -> str:
+    if not start_at:
+        return ""
+    dt = start_at
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_MSK).strftime("%d.%m.%Y %H:%M") + " МСК"
+
+
+async def _download_file_bytes(url: Optional[str]) -> Optional[bytes]:
+    """Качает файл из R2 (по ключу через boto3) с fallback на обычный HTTP."""
+    if not url:
+        return None
+    key = key_from_url(url)
+    if key:
+        try:
+            r2 = get_r2_client()
+            loop = asyncio.get_event_loop()
+            obj = await loop.run_in_executor(
+                None,
+                lambda: r2.get_object(Bucket=settings.cf_r2_bucket_name, Key=key),
+            )
+            return obj["Body"].read()
+        except Exception:
+            pass
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as hc:
+            resp = await hc.get(url)
+            if resp.status_code == 200:
+                return resp.content
+    except Exception:
+        return None
+    return None
+
+
+@router.get("/materials-export", summary="ZIP-архив материалов для спикеров/жюри")
+async def export_speaker_materials(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    ev = await db.fetchrow(
+        """SELECT id, slug, title, client_id, module_slug, start_at
+             FROM events WHERE id = $1 AND client_id = $2""",
+        event_id, client_id,
+    )
+    if not ev:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    brand = await db.fetchval(
+        "SELECT COALESCE(NULLIF(brand_name, ''), name) FROM clients WHERE id = $1",
+        client_id,
+    )
+    roles = _export_roles(ev["module_slug"])
+
+    # ── Коллабораторы нужных ролей (с реф-кодом) ──
+    from app.services import collaborator_sort
+    from app.api.modules.conference import ensure_collaborator_contact
+    from app.services.share_links import build_share_links
+
+    rows = await db.fetch(
+        f"""SELECT ec.id AS ec_id, ec.role, ec.announcement_poster_ids,
+                   co.id AS collaborator_id, co.name, ctc.ref_code
+              FROM event_collaborators ec
+              JOIN collaborators co  ON co.id = ec.speaker_id
+         LEFT JOIN contacts ctc      ON ctc.id = co.contact_id
+             WHERE ec.event_id = $1
+               AND ec.role = ANY($2::text[])
+             ORDER BY {collaborator_sort.order_by_sql("ec")}""",
+        event_id, roles,
+    )
+    collabs = []
+    for r in rows:
+        d = dict(r)
+        if not d.get("ref_code"):
+            try:
+                d["ref_code"] = await ensure_collaborator_contact(d["collaborator_id"], db)
+            except Exception:
+                d["ref_code"] = None
+        collabs.append(d)
+
+    # ── 1. Реферальные ссылки.txt ──
+    blocks = []
+    for c in collabs:
+        ref_code = c.get("ref_code")
+        links = {}
+        if ref_code:
+            try:
+                links = await build_share_links(
+                    db, client_id=client_id, event_slug=ev["slug"], partner_id=ref_code,
+                )
+            except Exception:
+                links = {}
+        lines = [c["name"] or "Без имени"]
+        if links.get("telegram"):
+            lines.append(f"Телеграм: {links['telegram']}")
+        if links.get("vk"):
+            lines.append(f"Без ВПН через ВК: {links['vk']}")
+        blocks.append("\n\n".join(lines))
+    separator = "\n\n" + ("—" * 30) + "\n\n"
+    ref_doc = separator.join(blocks) if blocks else "Нет коллабораторов с реф-ссылками."
+
+    # ── 2. Тексты для анонсов ──
+    texts = await db.fetch(
+        "SELECT content FROM event_announcement_texts WHERE event_id = $1 ORDER BY sort, id",
+        event_id,
+    )
+    subst = {
+        "{event}": ev["title"] or "",
+        "{date}":  _fmt_event_date_msk(ev["start_at"]),
+        "{brand}": brand or "",
+    }
+
+    def _apply_placeholders(t: Optional[str]) -> str:
+        t = t or ""
+        for k, v in subst.items():
+            t = t.replace(k, v)
+        return t
+
+    # ── 3. Афиши события ──
+    posters = await db.fetch(
+        """SELECT url, orientation FROM event_posters
+            WHERE event_id = $1
+            ORDER BY CASE orientation
+                       WHEN 'horizontal' THEN 1
+                       WHEN 'vertical'   THEN 2
+                       WHEN 'square'     THEN 3
+                       ELSE 4
+                     END, sort, id""",
+        event_id,
+    )
+
+    # ── Сборка ZIP ──
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("Реферальные ссылки.txt", ref_doc)
+
+        for i, t in enumerate(texts, start=1):
+            zf.writestr(f"Тексты для анонсов/Анонс {i}.txt", _apply_placeholders(t["content"]))
+
+        # Афиши события в корень папки «Афиши»
+        used_counts: dict[str, int] = {}
+        for p in posters:
+            data = await _download_file_bytes(p["url"])
+            if data is None:
+                continue
+            label = _ORIENTATION_RU.get(p["orientation"], "Афиша")
+            used_counts[label] = used_counts.get(label, 0) + 1
+            suffix = "" if used_counts[label] == 1 else f" {used_counts[label]}"
+            ext = _ext_from_url(p["url"])
+            zf.writestr(f"Афиши/{label}{suffix}.{ext}", data)
+
+        # Индивидуальные афиши коллабов (отмеченные «для анонсов»)
+        for c in collabs:
+            ids = list(c.get("announcement_poster_ids") or [])
+            if not ids:
+                continue
+            prows = await db.fetch(
+                """SELECT url FROM collaborator_posters
+                    WHERE id = ANY($1::int[]) AND collaborator_id = $2
+                    ORDER BY sort_order, id""",
+                ids, c["collaborator_id"],
+            )
+            safe = _safe_filename(c["name"])
+            n = 0
+            for pr in prows:
+                data = await _download_file_bytes(pr["url"])
+                if data is None:
+                    continue
+                n += 1
+                ext = _ext_from_url(pr["url"])
+                fname = f"{safe}.{ext}" if n == 1 else f"{safe}_{n}.{ext}"
+                zf.writestr(f"Афиши/Индивидуальные афиши/{fname}", data)
+
+    zip_bytes = buf.getvalue()
+    fname_base = "materialy-zhyuri" if _is_jury_module(ev["module_slug"]) else "materialy-spikery"
+    return StreamingResponse(
+        iter([zip_bytes]),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname_base}-{ev["slug"]}.zip"',
+            "Content-Length": str(len(zip_bytes)),
+        },
+    )
