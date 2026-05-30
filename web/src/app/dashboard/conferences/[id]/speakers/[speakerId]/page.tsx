@@ -290,6 +290,7 @@ export default function ConferenceSpeakerPage() {
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       const token = (typeof window !== 'undefined' && localStorage.getItem('plusson_token')) || ''
+      const newPosterIds: number[] = []
       for (const f of Array.from(files)) {
         if (f.size > 50 * 1024 * 1024) throw new Error(`«${f.name}» больше 50 МБ`)
         const fd = new FormData()
@@ -305,10 +306,26 @@ export default function ConferenceSpeakerPage() {
           const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }))
           throw new Error(err.detail || `HTTP ${r.status}`)
         }
+        const body = await r.json().catch(() => ({}))
+        if (typeof body.poster_id === 'number') newPosterIds.push(body.poster_id)
       }
       // Перезагружаем библиотеку чтобы увидеть новые афиши.
       const pr: any = await api.collaborators.posters.list(profile.id)
       setPosterLibrary(pr.posters || [])
+      // По умолчанию: только что загруженная индивидуальная афиша становится
+      // и афишей для рассылок (radio), и попадает в «Афиши для анонсов»
+      // (галочки) в этой конференции. Клиент может переснять выбор вручную.
+      if (newPosterIds.length > 0) {
+        const broadcastId = newPosterIds[newPosterIds.length - 1]
+        setEventForm(f => {
+          const announcement = Array.from(new Set([...f.announcement_poster_ids, ...newPosterIds]))
+          api.conference.speakers.update(confId, speakerEventId, {
+            poster_id: broadcastId,
+            announcement_poster_ids: announcement,
+          } as any).catch(() => {})
+          return { ...f, poster_id: broadcastId, announcement_poster_ids: announcement }
+        })
+      }
     } catch (e: any) {
       setPosterUploadError(e.message || 'Ошибка загрузки')
     } finally {
