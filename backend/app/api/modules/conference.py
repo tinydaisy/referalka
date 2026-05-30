@@ -896,16 +896,21 @@ async def create_and_add_speaker(
                 )
 
         # 2. Коллаб в глобальной базе
+        # access_code (миграция 108, NOT NULL без дефолта) — генерим в коде,
+        # как во всех остальных путях создания коллаба.
+        from app.api.collaborators import _generate_unique_access_code
+        access_code = await _generate_unique_access_code(db)
         sp = await db.fetchrow(
             """INSERT INTO collaborators
                (contact_id, name, title, achievements,
                 photo_url, photo_folder_url, video_folder_url,
-                tg_channel_url, vk_url, max_url, instagram_url, website_url, created_by_client_id)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *""",
+                tg_channel_url, vk_url, max_url, instagram_url, website_url, created_by_client_id,
+                access_code)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *""",
             contact_id, name, data.title, data.achievements,
             data.photo_url, data.photo_folder_url, data.video_folder_url,
             data.tg_channel_url, data.vk_url, data.max_url, data.instagram_url, data.website_url,
-            client_id
+            client_id, access_code
         )
         # Личные идентичности — пишем в platform_users (миграции 107/108).
         from app.api.collaborators import _upsert_personal_identities
