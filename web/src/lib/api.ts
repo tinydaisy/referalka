@@ -219,6 +219,8 @@ export const api = {
         request(`/api/v1/events/${eventId}/conference/click-report`),
       selfRegisterLinks: (eventId: number) =>
         request(`/api/v1/events/${eventId}/conference/speakers/self-register-links`),
+      selfEditLinks: (eventId: number) =>
+        request(`/api/v1/events/${eventId}/conference/speakers/self-edit-links`),
     },
     days: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/conference/days`),
@@ -664,5 +666,24 @@ export const api = {
     tariffs: () => request('/api/v1/admin/tariffs'),
     createTariff: (data: any) =>
       request('/api/v1/admin/tariffs', { method: 'POST', body: JSON.stringify(data) }),
+    updateTariff: (id: number, data: any) =>
+      request(`/api/v1/admin/tariffs/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    promotions: () => request('/api/v1/admin/promotions'),
+    createPromotion: (data: any) =>
+      request('/api/v1/admin/promotions', { method: 'POST', body: JSON.stringify(data) }),
+    updatePromotion: (id: number, data: any) =>
+      request(`/api/v1/admin/promotions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deletePromotion: (id: number) =>
+      request(`/api/v1/admin/promotions/${id}`, { method: 'DELETE' }),
+  },
+  publicData: {
+    tariffs: () => request('/api/v1/public/tariffs'),
+    activePromotions: () => request('/api/v1/public/promotions/active'),
+  },
+  subscriptions: {
+    createOrder: (tariff_slug: string) =>
+      request('/api/v1/subscriptions/order', { method: 'POST', body: JSON.stringify({ tariff_slug }) }),
+    getOrder: (id: number) => request(`/api/v1/subscriptions/orders/${id}`),
+    listOrders: () => request('/api/v1/subscriptions/orders'),
   },
 }

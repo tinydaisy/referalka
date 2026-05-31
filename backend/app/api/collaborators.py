@@ -442,28 +442,66 @@ async def _set_subscription_state(
     )
 
 
+_PLATFORM_HUMAN = {"telegram": "Telegram", "vk": "VK", "max": "MAX"}
+
+
+async def _raise_if_identity_collision(db, client_id: int, platform_slug: str, res: dict):
+    """Если _upsert_personal_identity вернул коллизию (ник/ID уже у другого
+    контакта) — бросаем 409 с понятным текстом и именем того контакта.
+
+    Это защита от частой ошибки: ассистент при добавлении нового спикера/жюри
+    вписывает Telegram, который уже привязан к ДРУГОМУ человеку. Раньше статус
+    молча игнорировался — получался дубль и псевдо-запись рядом с чужой реальной.
+    """
+    status = (res or {}).get("status")
+    if status not in ("username_taken", "foreign_owner"):
+        return
+    other_id = res.get("other_contact_id")
+    other_name = None
+    if other_id is not None:
+        other_name = await db.fetchval("SELECT name FROM contacts WHERE id = $1", other_id)
+    platform = _PLATFORM_HUMAN.get(platform_slug, platform_slug)
+    who = f"«{other_name}»" if other_name else f"контактом #{other_id}"
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"Этот {platform}-аккаунт уже привязан к другому человеку — {who}. "
+            f"Один и тот же {platform} нельзя указать двум людям. "
+            f"Проверьте ник: возможно, вы вписали аккаунт ассистента или другого спикера."
+        ),
+    )
+
+
 async def _upsert_personal_identities(
     db: asyncpg.Connection,
     client_id: int,
     contact_id: int,
     data,
 ):
-    """Прокидывает personal_{tg,vk,max}_{id,username} из payload в platform_users."""
-    await _upsert_personal_identity(
+    """Прокидывает personal_{tg,vk,max}_{id,username} из payload в platform_users.
+
+    При коллизии (ник/ID уже принадлежит другому контакту) бросает 409 —
+    создание коллаба откатывается (вызовы идут внутри транзакции), ассистент
+    видит понятную ошибку вместо тихого дубля.
+    """
+    res_tg = await _upsert_personal_identity(
         db, client_id, contact_id, 'telegram',
         getattr(data, "personal_tg_id", None),
         getattr(data, "personal_tg_username", None),
     )
-    await _upsert_personal_identity(
+    await _raise_if_identity_collision(db, client_id, 'telegram', res_tg)
+    res_vk = await _upsert_personal_identity(
         db, client_id, contact_id, 'vk',
         getattr(data, "personal_vk_id", None),
         getattr(data, "personal_vk_username", None),
     )
-    await _upsert_personal_identity(
+    await _raise_if_identity_collision(db, client_id, 'vk', res_vk)
+    res_max = await _upsert_personal_identity(
         db, client_id, contact_id, 'max',
         getattr(data, "personal_max_id", None),
         getattr(data, "personal_max_username", None),
     )
+    await _raise_if_identity_collision(db, client_id, 'max', res_max)
 
 
 # Алиас для обратной совместимости с местами, где зовётся _upsert_personal_tg.

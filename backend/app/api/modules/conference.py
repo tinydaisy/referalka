@@ -591,6 +591,27 @@ async def speaker_self_register_links(
     return {"links": links}
 
 
+@router.get("/speakers/self-edit-links", summary="Прямые ссылки входа в кабинет (для добавленных спикеров и ассистентов)")
+async def speaker_self_edit_links(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Ссылки для УЖЕ добавленных спикеров и их ассистентов — вход в кабинет
+    без создания нового коллаба. Бот по TG зашедшего находит спикера события
+    (личный TG или assistant_tg_username) и отдаёт его код доступа."""
+    client_id = int(client["sub"])
+    ev = await db.fetchval(
+        "SELECT id FROM events WHERE id = $1 AND client_id = $2",
+        event_id, client_id,
+    )
+    if not ev:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    from app.services.share_links import build_speaker_self_edit_links
+    links = await build_speaker_self_edit_links(db, client_id, event_id)
+    return {"links": links}
+
+
 @router.get("/speakers", summary="Спикеры события")
 async def list_event_speakers(
     event_id: int,

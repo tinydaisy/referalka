@@ -132,6 +132,7 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
   const [baseForm, setBaseForm] = useState({ role: defaultRole, topics: [''], gift_title: '', gift_url: '', is_commercial: false })
   const [saving, setSaving] = useState(false)
   const [selfRegLinks, setSelfRegLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
+  const [selfEditLinks, setSelfEditLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
   const [copiedPlatform, setCopiedPlatform] = useState<string>('')
 
   function load() {
@@ -157,6 +158,9 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
     api.conference.speakers.selfRegisterLinks(eventId)
       .then((r: any) => setSelfRegLinks(r.links || {}))
       .catch(() => setSelfRegLinks({}))
+    api.conference.speakers.selfEditLinks(eventId)
+      .then((r: any) => setSelfEditLinks(r.links || {}))
+      .catch(() => setSelfEditLinks({}))
   }, [eventId])
 
   async function copyLink(platform: string, url: string) {
@@ -261,47 +265,60 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
   )
 
   const platformLabels: Record<string, string> = { telegram: 'Telegram', vk: 'VK', max: 'MAX' }
-  const platformLinks = Object.entries(selfRegLinks).filter(([, v]) => !!v) as Array<[string, string]>
+  const regLinks = Object.entries(selfRegLinks).filter(([, v]) => !!v) as Array<[string, string]>
+  const editLinks = Object.entries(selfEditLinks).filter(([, v]) => !!v) as Array<[string, string]>
+
+  const renderLinkRows = (links: Array<[string, string]>, keyPrefix: string) => (
+    <div className="flex flex-col gap-2">
+      {links.map(([platform, url]) => {
+        const cid = `${keyPrefix}:${platform}`
+        return (
+          <div key={cid} className="flex items-center gap-2">
+            <span className="text-xs font-medium text-gray-600 w-20 shrink-0">{platformLabels[platform] || platform}</span>
+            <input type="text" value={url} readOnly
+              onClick={e => (e.target as HTMLInputElement).select()}
+              className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-mono bg-white text-gray-700 truncate" />
+            <button type="button" onClick={() => copyLink(cid, url)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                copiedPlatform === cid
+                  ? 'bg-green-100 text-green-700 border border-green-300'
+                  : 'border border-gray-300 text-gray-700 hover:bg-white'
+              }`}>
+              {copiedPlatform === cid ? '✓ Скопировано' : 'Копировать'}
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
 
   return (
     <div className="max-w-2xl">
-      {/* Саморегистрация спикером (2026-05-29). Клиент шарит ссылку —
-          человек переходит, бот шлёт «Включить в спикеры» — создаётся
-          коллаб и event_collaborators с role='speaker'. */}
-      {platformLinks.length > 0 && (
+      {/* Две раздельные ссылки: регистрация новых спикеров и вход в кабинет
+          уже добавленных (+ их ассистентов). */}
+      {regLinks.length > 0 && (
         <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
-          <div className="text-sm font-semibold text-gray-900 mb-1">Ссылка для входа в кабинет / регистрации спикером</div>
+          <div className="text-sm font-semibold text-gray-900 mb-1">1. Ссылка для регистрации новых спикеров</div>
           <p className="text-xs text-gray-500 mb-3">
-            Одна универсальная ссылка для всех — шлите её и уже добавленным
-            спикерам, и тем, кого хотите пригласить.
-            <br />
-            • Если человек <b>уже в списке</b> и его аккаунт привязан — бот
-            опознает его и пришлёт ссылку на кабинет с кодом доступа.
-            <br />
-            • Если <b>не в списке</b> — нажмёт кнопку «Включить в спикеры» и
-            сам зарегистрируется. Потом тоже получит кабинет.
-            <br />
-            Чтобы передать заполнение ассистенту — отправьте ему <b>код доступа
-            из карточки спикера</b> (он введёт его на странице кабинета вручную).
+            Шлите тем, кого хотите пригласить выступить. Человек переходит,
+            нажимает «Включить в спикеры» — создаётся его карточка, и он получает
+            доступ в кабинет, чтобы заполнить данные о себе.
           </p>
-          <div className="flex flex-col gap-2">
-            {platformLinks.map(([platform, url]) => (
-              <div key={platform} className="flex items-center gap-2">
-                <span className="text-xs font-medium text-gray-600 w-20 shrink-0">{platformLabels[platform] || platform}</span>
-                <input type="text" value={url} readOnly
-                  onClick={e => (e.target as HTMLInputElement).select()}
-                  className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-mono bg-white text-gray-700 truncate" />
-                <button type="button" onClick={() => copyLink(platform, url)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    copiedPlatform === platform
-                      ? 'bg-green-100 text-green-700 border border-green-300'
-                      : 'border border-gray-300 text-gray-700 hover:bg-white'
-                  }`}>
-                  {copiedPlatform === platform ? '✓ Скопировано' : 'Копировать'}
-                </button>
-              </div>
-            ))}
-          </div>
+          {renderLinkRows(regLinks, 'reg')}
+        </div>
+      )}
+
+      {editLinks.length > 0 && (
+        <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
+          <div className="text-sm font-semibold text-gray-900 mb-1">2. Ссылка для входа в кабинет</div>
+          <p className="text-xs text-gray-500 mb-3">
+            Для тех, кто <b>уже в списке</b> спикеров, и их <b>ассистентов</b>.
+            Новую карточку не создаёт — просто пускает в кабинет с кодом доступа.
+            <br />
+            Чтобы ассистент мог войти — спикер вписывает его Telegram-ник в своей
+            карточке (поле «Telegram-ник ассистента» в кабинете).
+          </p>
+          {renderLinkRows(editLinks, 'edit')}
         </div>
       )}
 

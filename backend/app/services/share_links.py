@@ -302,3 +302,37 @@ async def build_speaker_self_register_links(
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?startapp={payload}"
 
     return result
+
+
+async def build_speaker_self_edit_links(
+    db,
+    client_id: int,
+    event_id: int,
+) -> dict[str, str]:
+    """Прямые ссылки для входа в кабинет уже-добавленного спикера (и его
+    ассистента). В отличие от build_speaker_self_register_links, эта ссылка
+    НЕ создаёт нового коллаба — только пускает в кабинет.
+
+    payload = spkedit_<event_id>. Бот по TG зашедшего находит спикера события
+    (личный TG или assistant_tg_username) → отдаёт его код доступа.
+    """
+    payload = f"spkedit_{event_id}"
+    handles = await get_client_bot_handles(db, client_id)
+    result: dict[str, str] = {}
+
+    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
+    if tg_handle == PLUSON_TG_HANDLE:
+        if not await _has_system_channel(db, "telegram", allow_test=False):
+            tg_handle = ""
+    if tg_handle:
+        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+
+    if handles.get("vk"):
+        vk_app_id = await get_client_vk_app_id(db, client_id)
+        if vk_app_id:
+            result["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
+
+    if handles.get("max"):
+        result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?startapp={payload}"
+
+    return result

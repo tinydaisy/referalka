@@ -149,7 +149,7 @@ async def get_me(
                   c.photo_folder_url, c.video_folder_url,
                   c.video_url AS speaker_video_url,
                   c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url,
-                  c.tg_channel_id, c.media_assets,
+                  c.tg_channel_id, c.media_assets, c.assistant_tg_username,
                   pu_tg.platform_user_id AS personal_tg_id,
                   pu_tg.username AS personal_tg_username,
                   pu_vk.platform_user_id AS personal_vk_id,
@@ -248,6 +248,9 @@ class CabinetUpdate(BaseModel):
     instagram_url: Optional[str] = None
     website_url: Optional[str] = None
     tg_channel_id: Optional[str] = None
+    # TG-ник ассистента, который может редактировать профиль (по ссылке
+    # саморедактирования / spkinv). Спикер вписывает сам в кабинете.
+    assistant_tg_username: Optional[str] = None
     # Контакт (contacts)
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -297,6 +300,9 @@ async def patch_me(
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]
     upd = {f: getattr(data, f) for f in profile_fields if getattr(data, f) is not None}
+    # Ник ассистента — нормализуем (срезаем @ и пробелы); пустая строка → NULL.
+    if data.assistant_tg_username is not None:
+        upd["assistant_tg_username"] = (data.assistant_tg_username or "").lstrip("@").strip() or None
     media_assets_in = _normalize_media_assets(data.media_assets)
     if upd or media_assets_in is not None:
         parts = [f"{k} = ${i+2}" for i, k in enumerate(upd.keys())]

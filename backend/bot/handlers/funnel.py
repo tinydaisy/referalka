@@ -116,10 +116,18 @@ async def handle_speaker_self_register(callback: CallbackQuery):
         bot_handle = "pluson_bot"
     spkinv_url = f"https://t.me/{bot_handle}?start=spkinv_{access_code}"
 
+    assistant_hint = (
+        "\n\nЕсли хотите, чтобы ваш профиль вёл ассистент — войдите в кабинет "
+        "и впишите его Telegram-ник в своей карточке (поле «Telegram-ник ассистента» "
+        "сразу под именем). После этого он сможет открыть кабинет по ссылке от организатора."
+    )
     if already:
-        head = f"Вы уже спикер «{ev['title']}».\n\nОткройте свой кабинет:"
+        head = f"Вы уже спикер «{ev['title']}».\n\nОткройте свой кабинет для заполнения данных:{assistant_hint}"
     else:
-        head = f"Готово! Вы включены в спикеры «{ev['title']}».\n\nОткройте свой кабинет и заполните данные о себе:"
+        head = (
+            f"Готово! Вы включены в спикеры «{ev['title']}».\n\n"
+            f"Войдите в кабинет спикера и заполните данные о себе.{assistant_hint}"
+        )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="📝 Открыть кабинет спикера", url=spkinv_url)
     ]])

@@ -221,6 +221,98 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
+    # Саморедактирование (вход в кабинет без создания коллаба):
+    # /start spkedit_<event_id>. Для УЖЕ добавленных спикеров и их ассистентов.
+    # Бот по TG зашедшего ищет спикера события: личный TG или
+    # assistant_tg_username. Нашёл → отдаёт код доступа. Новый коллаб НЕ создаём.
+    if args.startswith("spkedit_"):
+        try:
+            event_id = int(args.removeprefix("spkedit_"))
+        except ValueError:
+            event_id = None
+        if event_id:
+            pool = await get_pool()
+            try:
+                async with pool.acquire() as db:
+                    ev = await db.fetchrow(
+                        "SELECT slug, title FROM events WHERE id = $1", event_id
+                    )
+                    if not ev:
+                        await message.answer("😕 Событие не найдено.")
+                        return
+                    uname = (user.username or "").lstrip("@").strip().lower()
+                    # 1) Спикер по личному TG (числовой id).
+                    sp = await db.fetchrow(
+                        """SELECT c.name, c.access_code
+                             FROM event_collaborators ec
+                             JOIN collaborators c ON c.id = ec.speaker_id
+                             JOIN platform_users pu ON pu.contact_id = c.contact_id
+                                  AND pu.platform_slug = 'telegram'
+                            WHERE ec.event_id = $1 AND pu.platform_user_id = $2
+                            LIMIT 1""",
+                        event_id, str(user.id),
+                    )
+                    role_label = "speaker"
+                    # 2) Если не нашли — пробуем как ассистента по нику.
+                    if not sp and uname:
+                        sp = await db.fetchrow(
+                            """SELECT c.name, c.access_code
+                                 FROM event_collaborators ec
+                                 JOIN collaborators c ON c.id = ec.speaker_id
+                                WHERE ec.event_id = $1
+                                  AND LOWER(c.assistant_tg_username) = $2
+                                LIMIT 1""",
+                            event_id, uname,
+                        )
+                        if sp:
+                            role_label = "assistant"
+                    if not sp:
+                        await message.answer(
+                            "😕 Этот Telegram-аккаунт не привязан ни к одному спикеру события.\n\n"
+                            "Если вы спикер и ещё не в списке — используйте ссылку регистрации спикером.\n"
+                            "Если вы ассистент — попросите спикера вписать ваш Telegram-ник в его карточке "
+                            "(поле «Telegram-ник ассистента» в кабинете спикера)."
+                        )
+                        return
+                    sp_name = (sp["name"] or "").strip() or "спикер"
+                    access_code = sp["access_code"]
+                    cabinet_url = f"https://pluson.ru/speaker/{ev['slug']}"
+                    if role_label == "assistant":
+                        text_lines = [
+                            f"Здравствуйте! Вы менеджер спикера <b>{sp_name}</b> («{ev['title']}»).",
+                            "",
+                            f"Ваш код доступа для редактирования карточки спикера: <code>{access_code}</code>",
+                            "",
+                            f"Откройте кабинет: <b>{cabinet_url}</b>",
+                            "",
+                            f"На странице выберите фамилию «{sp_name}» и введите этот код. Сессия живёт 24 часа.",
+                        ]
+                    else:
+                        text_lines = [
+                            f"Здравствуйте, {sp_name}!",
+                            "",
+                            f"Вы — спикер «{ev['title']}». Откройте свой кабинет, чтобы обновить данные:",
+                            f"<b>{cabinet_url}</b>",
+                            "",
+                            f"Код доступа: <code>{access_code}</code>",
+                            "",
+                            "На странице выберите свою фамилию и введите этот код. Сессия живёт 24 часа.",
+                        ]
+                    kb = InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(text="📝 Открыть кабинет спикера", url=cabinet_url)
+                    ]])
+                    await message.answer(
+                        "\n".join(text_lines),
+                        parse_mode="HTML",
+                        disable_web_page_preview=True,
+                        reply_markup=kb,
+                    )
+                return
+            except Exception as e:
+                log.exception("spkedit_ handler failed: %s", e)
+                await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
+                return
+
     # Саморегистрация спикером (2026-05-29): /start spkreg_<event_id>.
     # Клиент шарит прямую ссылку из вкладки «Спикеры» события. Человек
     # переходит — бот апсертит contact для client_id события и шлёт
@@ -313,7 +405,7 @@ async def handle_start(message: Message, command: CommandObject):
                 async with pool.acquire() as db:
                     coll = await db.fetchrow(
                         """SELECT c.id AS collaborator_id, c.name, c.contact_id,
-                                  c.created_by_client_id
+                                  c.created_by_client_id, c.assistant_tg_username
                              FROM collaborators c
                             WHERE LOWER(c.access_code) = LOWER($1)""",
                         access_code,
@@ -324,10 +416,20 @@ async def handle_start(message: Message, command: CommandObject):
                         )
                         return
 
+                    # Ассистент спикера: если у коллаба указан assistant_tg_username
+                    # и зашедший TG-ник совпадает с ним — это законный помощник,
+                    # который заполняет кабинет за спикера. Не привязываем его TG к
+                    # контакту спикера (это чужой аккаунт) и НЕ считаем foreign_owner —
+                    # просто отдаём код доступа спикера.
+                    assistant_uname = (coll["assistant_tg_username"] or "").lstrip("@").strip().lower()
+                    is_assistant = bool(
+                        assistant_uname and (user.username or "").strip().lower() == assistant_uname
+                    )
+
                     # Привязываем личный TG спикера к contact (если ещё не привязан).
                     from app.api.collaborators import _upsert_personal_identity
                     foreign_owner = False
-                    if coll["contact_id"] and coll["created_by_client_id"]:
+                    if not is_assistant and coll["contact_id"] and coll["created_by_client_id"]:
                         res = await _upsert_personal_identity(
                             db,
                             coll["created_by_client_id"],
@@ -364,18 +466,32 @@ async def handle_start(message: Message, command: CommandObject):
 
                     name = (coll["name"] or "").strip() or "спикер"
                     cabinet_url = f"https://pluson.ru/speaker/{event_slug}" if event_slug else "https://pluson.ru/speaker/"
-                    text_lines = [
-                        f"Здравствуйте, {name}!",
-                        "",
-                        f"Вы — спикер «{event_title}». Чтобы заполнить свои данные для участников события, откройте свой кабинет:",
-                        f"<b>{cabinet_url}</b>",
-                        "",
-                        f"Код доступа: <code>{access_code}</code>",
-                        "",
-                        "На странице выберите свою фамилию из списка и введите этот код. Сессия живёт 24 часа. Можно передать ссылку и код ассистенту — он заполнит за вас.",
-                    ]
+                    if is_assistant:
+                        text_lines = [
+                            f"Здравствуйте! Вы менеджер спикера <b>{name}</b> («{event_title}»).",
+                            "",
+                            f"Ваш код доступа для редактирования карточки спикера: <code>{access_code}</code>",
+                            "",
+                            f"Откройте кабинет: <b>{cabinet_url}</b>",
+                            "",
+                            f"На странице выберите фамилию «{name}» из списка и введите этот код. Сессия живёт 24 часа.",
+                        ]
+                    else:
+                        text_lines = [
+                            f"Здравствуйте, {name}!",
+                            "",
+                            f"Вы — спикер «{event_title}». Чтобы заполнить свои данные для участников события, откройте свой кабинет:",
+                            f"<b>{cabinet_url}</b>",
+                            "",
+                            f"Код доступа: <code>{access_code}</code>",
+                            "",
+                            "На странице выберите свою фамилию из списка и введите этот код. Сессия живёт 24 часа. Можно передать ссылку и код ассистенту — он заполнит за вас.",
+                        ]
                     kb = InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(text="📝 Открыть мой кабинет", url=cabinet_url)
+                        InlineKeyboardButton(
+                            text="📝 Открыть кабинет спикера" if is_assistant else "📝 Открыть мой кабинет",
+                            url=cabinet_url,
+                        )
                     ]]) if event_slug else None
                     await message.answer(
                         "\n".join(text_lines),

@@ -47,6 +47,7 @@ type SpeakerMe = {
   instagram_url: string | null
   website_url: string | null
   tg_channel_id: string | null
+  assistant_tg_username: string | null
   email: string | null
   phone: string | null
   personal_tg_id: string | null
@@ -252,6 +253,7 @@ export default function SpeakerCabinetPage() {
         photo_url: me.photo_url,
         photo_folder_url: me.photo_folder_url, video_folder_url: me.video_folder_url,
         tg_channel_url: me.tg_channel_url, tg_channel_id: me.tg_channel_id,
+        assistant_tg_username: me.assistant_tg_username,
         vk_url: me.vk_url, max_url: me.max_url,
         instagram_url: me.instagram_url, website_url: me.website_url,
         email: me.email, phone: me.phone,
@@ -547,6 +549,18 @@ export default function SpeakerCabinetPage() {
         <Section title="Профиль">
           <label style={labelCss}>Имя и фамилия</label>
           <input style={inputCss} value={me.name || ''} onChange={(e) => update({ name: e.target.value })} />
+
+          <label style={labelCss}>Telegram-ник ассистента</label>
+          <input
+            style={inputCss}
+            value={me.assistant_tg_username || ''}
+            onChange={(e) => update({ assistant_tg_username: e.target.value })}
+            placeholder="username без @"
+          />
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: -6, marginBottom: 4 }}>
+            Если хотите, чтобы профиль за вас вёл ассистент — впишите его Telegram-ник.
+            Он сможет войти в этот кабинет по ссылке от организатора и получит ваш код доступа.
+          </div>
 
           <label style={labelCss}>Должность / роль</label>
           <input style={inputCss} value={me.title || ''} onChange={(e) => update({ title: e.target.value })} placeholder="Кто вы и чем занимаетесь" />
