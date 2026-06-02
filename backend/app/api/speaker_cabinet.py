@@ -300,6 +300,10 @@ async def patch_me(
                       "tg_channel_url", "vk_url", "max_url",
                       "instagram_url", "website_url", "tg_channel_id"]
     upd = {f: getattr(data, f) for f in profile_fields if getattr(data, f) is not None}
+    # photo_url можно ОБНУЛИТЬ (спикер нажал «Удалить»): если поле явно
+    # передано как null — пишем NULL, иначе фильтр выше его пропускает.
+    if "photo_url" in data.model_fields_set and data.photo_url is None:
+        upd["photo_url"] = None
     # Ник ассистента — нормализуем (срезаем @ и пробелы); пустая строка → NULL.
     if data.assistant_tg_username is not None:
         upd["assistant_tg_username"] = (data.assistant_tg_username or "").lstrip("@").strip() or None

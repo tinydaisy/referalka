@@ -11,7 +11,7 @@
  * скачивает любую афишу под свой анонс.
  */
 import { useEffect, useState, useRef } from 'react'
-import { Loader2, Trash2, Upload, AlertCircle, GripVertical, Pencil, Check, X } from 'lucide-react'
+import { Loader2, Trash2, Upload, AlertCircle, GripVertical, Pencil, Check, X, Maximize2, Download, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -30,7 +30,15 @@ export default function CollaboratorPostersField({ collaboratorId }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [labelDraft, setLabelDraft] = useState('')
   const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  function copyUrl(id: number, url: string) {
+    navigator.clipboard.writeText(url)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
 
   async function reload() {
     setLoading(true)
@@ -176,10 +184,46 @@ export default function CollaboratorPostersField({ collaboratorId }: Props) {
               className={`flex flex-col gap-2 ${dragIndex === idx ? 'opacity-50' : ''}`}
             >
               <div className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 border border-gray-100 group">
-                <img src={p.url} alt={p.label || `Афиша ${idx + 1}`} className="w-full h-full object-cover" />
+                <img
+                  src={p.url}
+                  alt={p.label || `Афиша ${idx + 1}`}
+                  onClick={() => setLightbox(p.url)}
+                  className="w-full h-full object-cover cursor-zoom-in"
+                />
                 <div className="absolute top-1.5 left-1.5 p-1 rounded bg-white/80 text-gray-400 cursor-grab">
                   <GripVertical size={14} />
                 </div>
+              </div>
+              {/* Действия с афишей: раскрыть, скачать, скопировать ссылку */}
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => setLightbox(p.url)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
+                  title="Раскрыть"
+                >
+                  <Maximize2 size={11} /> Раскрыть
+                </button>
+                <a
+                  href={p.url}
+                  download
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
+                  title="Скачать"
+                >
+                  <Download size={11} /> Скачать
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copyUrl(p.id, p.url)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
+                  title={p.url}
+                >
+                  {copiedId === p.id
+                    ? <><Check size={11} className="text-green-600" /> Скопировано</>
+                    : <><Copy size={11} /> Ссылка</>}
+                </button>
               </div>
               {editingId === p.id ? (
                 <div className="flex gap-1">
@@ -233,6 +277,35 @@ export default function CollaboratorPostersField({ collaboratorId }: Props) {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Lightbox — раскрытие афиши на весь экран */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85"
+          onClick={() => setLightbox(null)}
+        >
+          <div className="relative max-w-5xl max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <img src={lightbox} alt="" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
+            <div className="absolute top-2 right-2 flex gap-2">
+              <a
+                href={lightbox}
+                download
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 bg-white/90 text-gray-800 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-white transition-colors"
+              >
+                <Download size={14} /> Скачать
+              </a>
+              <button
+                onClick={() => setLightbox(null)}
+                className="bg-black/50 text-white rounded-full p-1.5 hover:bg-black/80 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

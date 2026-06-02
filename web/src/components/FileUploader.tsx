@@ -13,7 +13,7 @@
  * Удаление: DELETE /api/v1/uploads/by-url?url=... — стирает из R2 + client_files.
  */
 import { useRef, useState } from 'react'
-import { Upload, Trash2, Loader2, Copy, Check, ImageIcon, FileText, AlertCircle } from 'lucide-react'
+import { Upload, Trash2, Loader2, Copy, Check, ImageIcon, FileText, AlertCircle, Maximize2, Download, X } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -64,6 +64,7 @@ export default function FileUploader(props: Props) {
   const [error, setError] = useState<string | null>(null)
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [lightbox, setLightbox] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const urls: string[] = props.mode === 'multiple' ? props.value : (props.value ? [props.value] : [])
@@ -221,7 +222,12 @@ export default function FileUploader(props: Props) {
                 {isVideoUrl(url) ? (
                   <video src={url} controls className="w-full h-full object-cover bg-black" />
                 ) : isImage ? (
-                  <img src={url} alt={`file ${i+1}`} className="w-full h-full object-cover" />
+                  <img
+                    src={url}
+                    alt={`file ${i+1}`}
+                    onClick={() => setLightbox(url)}
+                    className="w-full h-full object-cover cursor-zoom-in"
+                  />
                 ) : (
                   <a href={url} target="_blank" rel="noreferrer"
                     className="w-full h-full flex flex-col items-center justify-center text-gray-500 hover:text-brand">
@@ -230,11 +236,31 @@ export default function FileUploader(props: Props) {
                   </a>
                 )}
               </div>
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
+                {isImage && !isVideoUrl(url) && (
+                  <button
+                    type="button"
+                    onClick={() => setLightbox(url)}
+                    className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
+                    title="Раскрыть на весь экран"
+                  >
+                    <Maximize2 size={13} /> Раскрыть
+                  </button>
+                )}
+                <a
+                  href={url}
+                  download
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
+                  title="Скачать файл"
+                >
+                  <Download size={13} /> Скачать
+                </a>
                 <button
                   type="button"
                   onClick={() => copyUrl(url)}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
+                  className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
                   title={url}
                 >
                   {copiedUrl === url
@@ -252,6 +278,35 @@ export default function FileUploader(props: Props) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Lightbox — раскрытие картинки на весь экран */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85"
+          onClick={() => setLightbox(null)}
+        >
+          <div className="relative max-w-5xl max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <img src={lightbox} alt="" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
+            <div className="absolute top-2 right-2 flex gap-2">
+              <a
+                href={lightbox}
+                download
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 bg-white/90 text-gray-800 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-white transition-colors"
+              >
+                <Download size={14} /> Скачать
+              </a>
+              <button
+                onClick={() => setLightbox(null)}
+                className="bg-black/50 text-white rounded-full p-1.5 hover:bg-black/80 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

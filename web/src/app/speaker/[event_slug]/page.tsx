@@ -144,6 +144,7 @@ export default function SpeakerCabinetPage() {
   const [refCopied, setRefCopied] = useState<string>('')
   const [activeTab, setActiveTab] = useState<CabinetTab>('profile')
   const [materials, setMaterials] = useState<SpeakerMaterials | null>(null)
+  const [photoLinkCopied, setPhotoLinkCopied] = useState(false)
 
   // Восстановить токен из localStorage
   useEffect(() => {
@@ -320,6 +321,26 @@ export default function SpeakerCabinetPage() {
     }
   }
 
+  const onDeletePhoto = async () => {
+    if (!token) return
+    if (!confirm('Удалить фото профиля?')) return
+    setError(null)
+    try {
+      // Мгновенно сохраняем пустое фото через PATCH /me — как и загрузка,
+      // удаление применяется сразу, без необходимости жать «Сохранить».
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ photo_url: null }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setError(d.detail || 'Не удалось удалить'); return }
+      update({ photo_url: null })
+    } catch (e: any) {
+      setError(String(e.message || e))
+    }
+  }
+
   const onUpload = async (kind: 'speaker_photo', file: File) => {
     if (!token) return
     setUploading(kind); setError(null)
@@ -485,6 +506,24 @@ export default function SpeakerCabinetPage() {
                 >
                   ⬇ Скачать
                 </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(url)
+                    setPhotoLinkCopied(true)
+                    setTimeout(() => setPhotoLinkCopied(false), 1800)
+                  }}
+                  style={buttonSmall}
+                >
+                  {photoLinkCopied ? '✓ Скопировано' : '🔗 Ссылка'}
+                </button>
+                <button
+                  type="button"
+                  onClick={onDeletePhoto}
+                  style={{ ...buttonSmall, color: '#c0392b', borderColor: '#f0c0b8' }}
+                >
+                  🗑 Удалить
+                </button>
               </>
             )}
           </div>
