@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon } from 'lucide-react'
+import { ArrowLeft, Save, ExternalLink, Check, AlertTriangle, X, User as UserIcon, Maximize2, Download, Copy } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -157,6 +157,8 @@ export default function ConferenceSpeakerPage() {
   const [uploadingPoster, setUploadingPoster] = useState(false)
   const [posterUploadError, setPosterUploadError] = useState<string | null>(null)
   const posterFileRef = useRef<HTMLInputElement | null>(null)
+  const [posterLightbox, setPosterLightbox] = useState<string | null>(null)
+  const [posterCopiedId, setPosterCopiedId] = useState<number | null>(null)
   const [showAccessCode, setShowAccessCode] = useState(false)
   const [inviteMsg, setInviteMsg] = useState<string | null>(null)
   const [inviteCopied, setInviteCopied] = useState(false)
@@ -821,11 +823,51 @@ export default function ConferenceSpeakerPage() {
                       className="flex items-stretch gap-3 p-3 rounded-xl border border-gray-200 bg-white"
                     >
                       <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg overflow-hidden bg-gray-100 border border-gray-100 shrink-0">
-                        <img src={p.url} alt={p.label || ''} className="w-full h-full object-cover" />
+                        <img
+                          src={p.url}
+                          alt={p.label || ''}
+                          onClick={() => setPosterLightbox(p.url)}
+                          className="w-full h-full object-cover cursor-zoom-in"
+                        />
                       </div>
                       <div className="flex-1 flex flex-col justify-between min-w-0">
                         <div className="text-xs text-gray-600 truncate">
                           {p.label || <span className="text-gray-400 italic">без подписи</span>}
+                        </div>
+                        {/* Действия с афишей: раскрыть, скачать, скопировать ссылку */}
+                        <div className="flex flex-wrap gap-1.5 my-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setPosterLightbox(p.url)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
+                            title="Раскрыть"
+                          >
+                            <Maximize2 size={11} /> Раскрыть
+                          </button>
+                          <a
+                            href={p.url}
+                            download
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
+                            title="Скачать"
+                          >
+                            <Download size={11} /> Скачать
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(p.url)
+                              setPosterCopiedId(p.id)
+                              setTimeout(() => setPosterCopiedId(null), 2000)
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-700"
+                            title={p.url}
+                          >
+                            {posterCopiedId === p.id
+                              ? <><Check size={11} className="text-green-600" /> Скопировано</>
+                              : <><Copy size={11} /> Ссылка</>}
+                          </button>
                         </div>
                         <div className="flex flex-col gap-1.5">
                           <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
@@ -1074,6 +1116,35 @@ export default function ConferenceSpeakerPage() {
 
       {/* Статистика кликов по карточке спикера в Mini App (миграция 109) */}
       <SpeakerClickStats confId={confId} speakerEventId={speakerEventId} />
+
+      {/* Lightbox — раскрытие индивидуальной афиши на весь экран */}
+      {posterLightbox && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/85"
+          onClick={() => setPosterLightbox(null)}
+        >
+          <div className="relative max-w-5xl max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <img src={posterLightbox} alt="" className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
+            <div className="absolute top-2 right-2 flex gap-2">
+              <a
+                href={posterLightbox}
+                download
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 bg-white/90 text-gray-800 rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-white transition-colors"
+              >
+                <Download size={14} /> Скачать
+              </a>
+              <button
+                onClick={() => setPosterLightbox(null)}
+                className="bg-black/50 text-white rounded-full p-1.5 hover:bg-black/80 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
