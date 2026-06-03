@@ -679,6 +679,7 @@ export const api = {
   publicData: {
     tariffs: () => request('/api/v1/public/tariffs'),
     activePromotions: () => request('/api/v1/public/promotions/active'),
+    features: () => request('/api/v1/public/features'),
   },
   subscriptions: {
     createOrder: (tariff_slug: string) =>

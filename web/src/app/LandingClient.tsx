@@ -31,14 +31,6 @@ interface Promotion {
   remaining: number | null
 }
 
-const FEATURE_LABELS: Record<string, string> = {
-  lead_magnets: 'Лид-магниты с воронкой',
-  conference:   'Модуль «Конференция»',
-  awards:       'Модуль «Премии»',
-  channels:     'Свой бот в Telegram',
-  export_contacts: 'Экспорт контактов',
-}
-
 const TARIFF_BASE_FEATURES = [
   'Контакты и сегментация',
   'Создание мероприятий',
@@ -48,6 +40,7 @@ const TARIFF_BASE_FEATURES = [
 export default function LandingClient() {
   const [tariffs, setTariffs] = useState<Tariff[]>([])
   const [promotions, setPromotions] = useState<Promotion[]>([])
+  const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({})
   const [pid, setPid] = useState<string | null>(null)
 
   useEffect(() => {
@@ -66,6 +59,11 @@ export default function LandingClient() {
     api.publicData.tariffs()
       .then(r => setTariffs((r.tariffs || []).filter((t: Tariff) => t.slug !== 'trial')))
       .catch(() => {})
+    api.publicData.features().then((r: any) => {
+      const map: Record<string, string> = {}
+      for (const f of (r.features || [])) map[f.slug] = f.name
+      setFeatureLabels(map)
+    }).catch(() => {})
     api.publicData.activePromotions()
       .then(r => setPromotions(r.promotions || []))
       .catch(() => {})
@@ -164,7 +162,7 @@ export default function LandingClient() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-7 max-w-5xl mx-auto">
             {tariffs.map(t => (
-              <TariffCard key={t.id} t={t} registerHref={registerHref} />
+              <TariffCard key={t.id} t={t} registerHref={registerHref} featureLabels={featureLabels} />
             ))}
           </div>
 
@@ -195,7 +193,7 @@ export default function LandingClient() {
   )
 }
 
-function TariffCard({ t, registerHref }: { t: Tariff; registerHref: string }) {
+function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHref: string; featureLabels: Record<string, string> }) {
   const isPro = t.slug === 'pro'
   return (
     <div className={`relative rounded-2xl p-5 sm:p-7 border shadow-sm flex flex-col bg-white ${
@@ -242,7 +240,7 @@ function TariffCard({ t, registerHref }: { t: Tariff; registerHref: string }) {
         {(t.feature_slugs || []).map(slug => (
           <div key={slug} className="flex items-start gap-2">
             <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-            <span>{FEATURE_LABELS[slug] || slug}</span>
+            <span>{featureLabels[slug] || slug}</span>
           </div>
         ))}
       </div>

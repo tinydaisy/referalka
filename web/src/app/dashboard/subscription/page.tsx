@@ -4,19 +4,11 @@ import Link from 'next/link'
 import { CreditCard, CheckCircle2, X, ArrowRight, Wallet } from 'lucide-react'
 import { api } from '@/lib/api'
 
-const FEATURE_LABELS: Record<string, string> = {
-  lead_magnets:     'Лид-магниты',
-  conference:       'Модуль Конференции',
-  awards:           'Премии и турниры',
-  channels:         'Свой брендированный бот',
-  export_contacts:  'Экспорт контактов',
-  contests:         'Конкурсы',
-}
-
 export default function SubscriptionPage() {
   const [me, setMe] = useState<any>(null)
   const [tariffs, setTariffs] = useState<any[]>([])
   const [promotions, setPromotions] = useState<any[]>([])
+  const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({})
   const [selectedSlug, setSelectedSlug] = useState<string>('')
   const [bonusBalance, setBonusBalance] = useState(0)
   const [paidBanner, setPaidBanner] = useState(false)
@@ -31,6 +23,11 @@ export default function SubscriptionPage() {
       setTariffs(paid)
     }).catch(() => {})
     api.publicData.activePromotions().then((r: any) => setPromotions(r.promotions || [])).catch(() => {})
+    api.publicData.features().then((r: any) => {
+      const map: Record<string, string> = {}
+      for (const f of (r.features || [])) map[f.slug] = f.name
+      setFeatureLabels(map)
+    }).catch(() => {})
     api.referrals.me().then((r: any) => setBonusBalance(r.balance_kopecks || 0)).catch(() => {})
 
     if (typeof window !== 'undefined') {
@@ -172,8 +169,8 @@ export default function SubscriptionPage() {
                   <div className="space-y-1 mt-3 text-xs text-gray-600">
                     <div>До {t.contact_limit?.toLocaleString('ru-RU')} контактов</div>
                     <div>{t.broadcasts_daily_limit ? `${t.broadcasts_daily_limit.toLocaleString('ru-RU')} рассылок/сутки` : 'Безлимит рассылок'}</div>
-                    {(t.feature_slugs || []).slice(0, 3).map((slug: string) => (
-                      <div key={slug}>· {FEATURE_LABELS[slug] || slug}</div>
+                    {(t.feature_slugs || []).map((slug: string) => (
+                      <div key={slug}>· {featureLabels[slug] || slug}</div>
                     ))}
                   </div>
                 </button>
@@ -226,7 +223,7 @@ export default function SubscriptionPage() {
             </div>
           ))}
           <div className="text-[11px] font-semibold tracking-wider text-gray-400 uppercase mb-1 mt-3">Опции тарифа</div>
-          {Object.entries(FEATURE_LABELS).map(([slug, label]) => {
+          {Object.entries(featureLabels).map(([slug, label]) => {
             const enabled = features.includes(slug)
             return (
               <div key={slug} className={`flex items-center gap-2 ${enabled ? 'text-gray-700' : 'text-gray-400'}`}>

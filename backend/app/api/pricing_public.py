@@ -38,6 +38,21 @@ async def public_tariffs(db: asyncpg.Connection = Depends(get_db)):
     return {"tariffs": [dict(r) for r in rows]}
 
 
+@router.get("/features", summary="Справочник фич (для лендинга и страницы подписки)")
+async def public_features(db: asyncpg.Connection = Depends(get_db)):
+    """Возвращает все доступные опции тарифов (slug + name + description).
+
+    Используется лендингом и `/dashboard/subscription` чтобы динамически
+    подставлять название каждой фичи рядом с её slug — без хардкода
+    FEATURE_LABELS на фронте. Любое изменение `features.name` в БД сразу
+    отражается в UI без правок кода.
+    """
+    rows = await db.fetch(
+        "SELECT slug, name, description, sort FROM features ORDER BY sort, slug"
+    )
+    return {"features": [dict(r) for r in rows]}
+
+
 @router.get("/promotions/active", summary="Активные акции (для счётчиков на лендинге)")
 async def public_active_promotions(db: asyncpg.Connection = Depends(get_db)):
     """Возвращает все активные не исчерпавшиеся акции с оставшимися местами.
