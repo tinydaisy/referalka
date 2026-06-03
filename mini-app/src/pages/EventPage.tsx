@@ -216,7 +216,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
       } else if (alreadyRegistered) {
         // initialTab из startapp (_tabgame, _tabraffle и т.п.) — приоритет над дефолтом.
         // Доступен только зарегистрированным; для нерег. остаётся landing.
-        const allowed = ['welcome', 'program', 'game', 'raffle', 'ecosystem']
+        const allowed = ['welcome', 'program', 'speakers', 'game', 'raffle', 'ecosystem']
         if (initialTab && allowed.includes(initialTab)) {
           setTabState(initialTab)
         } else if (part?.participant?.welcomed_at == null && !['contest', 'turnir'].includes(landing?.module_slug)) {
