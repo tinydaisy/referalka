@@ -740,6 +740,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 TG_VIDEO_CAPTION_LIMIT = 1024
 
 
+# Кеш скачанных с R2 байт видео — в пределах одной рассылки прогрев качает
+# файл максимум один раз (на первого получателя), дальше шлём по file_id.
+_VIDEO_BYTES_CACHE: dict[str, bytes] = {}
+
+
 async def _tg_send_video(
     client: httpx.AsyncClient,
     bot_token: str,
@@ -750,25 +755,69 @@ async def _tg_send_video(
     video_file_id: str | None,
     on_video_file_id=None,
 ) -> tuple[bool, str]:
-    """sendVideo: пробуем file_id (мгновенно), при неудаче — URL (TG скачает с R2).
-    При успехе по URL извлекаем свежий file_id и сохраняем через колбэк.
-    Возвращает (успех, ошибка)."""
+    """Отправляет видео в Telegram со встроенным плеером.
+
+    Порядок:
+      1) если есть video_file_id — sendVideo по file_id (мгновенно, JSON);
+      2) иначе/при неудаче — СКАЧИВАЕМ файл с R2 и грузим в Telegram
+         multipart-ом (sendVideo с file=...). Это надёжный путь: Telegram
+         плохо умеет тянуть видео по URL (часто `wrong type of the web page
+         content`), а байты принимает всегда. Из ответа достаём file_id и
+         кешируем через колбэк — следующим получателям уйдёт мгновенно.
+
+    Возвращает (успех, ошибка). При полной неудаче — caller сделает fallback
+    на текст+ссылку."""
     caption = text if (text and len(text) <= TG_VIDEO_CAPTION_LIMIT) else None
     long_text = text if (text and len(text) > TG_VIDEO_CAPTION_LIMIT) else None
 
-    async def _do_send(video_value: str) -> tuple[bool, str, str | None]:
-        payload = {"chat_id": chat_id, "video": video_value, "supports_streaming": True}
+    def _common_fields() -> dict:
+        d = {"chat_id": chat_id, "supports_streaming": "true"}
+        if caption:
+            d["caption"] = caption
+            d["parse_mode"] = "HTML"
+        if reply_markup and not long_text:
+            import json as _j
+            d["reply_markup"] = _j.dumps(reply_markup)
+        return d
+
+    async def _send_by_file_id(fid: str) -> tuple[bool, str, str | None]:
+        payload = {"chat_id": chat_id, "video": fid, "supports_streaming": True}
         if caption:
             payload["caption"] = caption
             payload["parse_mode"] = "HTML"
         if reply_markup and not long_text:
             payload["reply_markup"] = reply_markup
         try:
-            r = await client.post(f"https://api.telegram.org/bot{bot_token}/sendVideo", json=payload, timeout=180)
+            r = await client.post(f"https://api.telegram.org/bot{bot_token}/sendVideo", json=payload, timeout=60)
             data = r.json()
             if data.get("ok"):
-                fid = (data.get("result", {}).get("video") or {}).get("file_id")
-                return True, "", fid
+                return True, "", (data.get("result", {}).get("video") or {}).get("file_id")
+            return False, data.get("description", f"HTTP {r.status_code}"), None
+        except Exception as e:
+            return False, str(e), None
+
+    async def _send_multipart() -> tuple[bool, str, str | None]:
+        # Скачиваем байты (с кешем на время рассылки).
+        content = _VIDEO_BYTES_CACHE.get(video_url)
+        if content is None:
+            try:
+                rr = await client.get(video_url, timeout=180)
+                if rr.status_code != 200:
+                    return False, f"R2 GET {rr.status_code}", None
+                content = rr.content
+                _VIDEO_BYTES_CACHE[video_url] = content
+            except Exception as e:
+                return False, f"download: {e}", None
+        try:
+            r = await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendVideo",
+                data=_common_fields(),
+                files={"video": ("video.mp4", content, "video/mp4")},
+                timeout=180,
+            )
+            data = r.json()
+            if data.get("ok"):
+                return True, "", (data.get("result", {}).get("video") or {}).get("file_id")
             return False, data.get("description", f"HTTP {r.status_code}"), None
         except Exception as e:
             return False, str(e), None
@@ -776,15 +825,15 @@ async def _tg_send_video(
     ok, err, fid = (False, "", None)
     # 1) сначала file_id, если есть
     if video_file_id:
-        ok, err, fid = await _do_send(video_file_id)
-    # 2) fallback на URL (или сразу URL, если file_id ещё нет)
+        ok, err, fid = await _send_by_file_id(video_file_id)
+    # 2) иначе/при неудаче — multipart (надёжно)
     if not ok:
-        ok, err, fid = await _do_send(video_url)
-        if ok and fid and on_video_file_id:
-            try:
-                on_video_file_id(fid)
-            except Exception:
-                pass
+        ok, err, fid = await _send_multipart()
+    if ok and fid and on_video_file_id:
+        try:
+            on_video_file_id(fid)
+        except Exception:
+            pass
 
     if not ok:
         return False, err
