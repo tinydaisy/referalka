@@ -1,5 +1,7 @@
-import { redirect } from 'next/navigation'
+import LandingClient from './LandingClient'
+
+export const dynamic = 'force-dynamic'
 
 export default function Home() {
-  redirect('/dashboard')
+  return <LandingClient />
 }
