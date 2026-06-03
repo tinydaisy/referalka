@@ -93,6 +93,11 @@ def build_key(
         # фото загружено и не использовано).
         return f"{base}/broadcast_photos/{fname}"
 
+    if kind == "broadcast_video":
+        # Видео рассылок. Тот же воркер cleanup_broadcast_photos чистит их после
+        # отправки (но не трогает видео, на которое ссылается шаблон).
+        return f"{base}/broadcast_videos/{fname}"
+
     if kind == "event_video":
         if not event_id:
             raise ValueError("event_video требует event_id")
