@@ -22,6 +22,7 @@ class RegisterRequest(BaseModel):
     telegram_username: str | None = None
     password: str
     partner_code: str | None = None
+    pid: str | None = None  # реф-код пригласившего клиента (миграция 125)
 
 
 class LoginRequest(BaseModel):
@@ -46,6 +47,30 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         partner = await db.fetchrow("SELECT id FROM partners WHERE partner_code = $1", data.partner_code)
         if not partner:
             data.partner_code = None  # Неверный код — просто игнорируем
+
+    # Разрешаем pid → referred_by_client_id (миграция 125)
+    referred_by_client_id = None
+    if data.pid:
+        ref_row = await db.fetchrow(
+            "SELECT id FROM clients WHERE referral_code = $1",
+            data.pid.strip(),
+        )
+        if ref_row:
+            referred_by_client_id = ref_row["id"]
+        # если код невалиден — молча игнорируем (просто без связи)
+
+    # Генерим реф-код для нового клиента
+    import random
+    alphabet = '23456789abcdefghjkmnpqrstuvwxyz'
+    new_referral_code = None
+    for _ in range(20):  # 20 попыток на коллизию (вероятность ~0)
+        candidate = ''.join(random.choice(alphabet) for _ in range(8))
+        exists = await db.fetchval("SELECT 1 FROM clients WHERE referral_code = $1", candidate)
+        if not exists:
+            new_referral_code = candidate
+            break
+    if not new_referral_code:
+        raise HTTPException(status_code=500, detail="Не удалось сгенерировать реф-код")
 
     pw_hash = hash_password(data.password)
 
@@ -87,11 +112,19 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
 
         client = await db.fetchrow(
             """
-            INSERT INTO clients (name, email, phone, telegram_username, password_hash, partner_code, integration_token)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO clients (name, email, phone, telegram_username, password_hash, partner_code, integration_token,
+                                 referral_code, referred_by_client_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id, name, email
             """,
-            data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token()
+            data.name, data.email, data.phone, data.telegram_username, pw_hash, data.partner_code, _new_integration_token(),
+            new_referral_code, referred_by_client_id,
+        )
+
+        # Создаём запись бонусного баланса (NULL не допустим, всегда нулевая запись)
+        await db.execute(
+            "INSERT INTO client_bonus_balance (client_id, balance_kopecks) VALUES ($1, 0) ON CONFLICT DO NOTHING",
+            client["id"],
         )
 
         # Создаём активную подписку (миграция 069). Без неё middleware будет блокировать все write.

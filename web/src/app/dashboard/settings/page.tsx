@@ -968,7 +968,9 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
   const [tariffs, setTariffs] = useState<any[]>([])
   const [selectedSlug, setSelectedSlug] = useState<string>('')
   const [promotions, setPromotions] = useState<any[]>([])
+  const [bonusBalance, setBonusBalance] = useState<number>(0)  // в копейках
   const [loading, setLoading] = useState(false)
+  const [bonusLoading, setBonusLoading] = useState(false)
   const [error, setError] = useState('')
   const [paidBanner, setPaidBanner] = useState(false)
 
@@ -984,6 +986,7 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
       }
     }).catch(() => {})
     api.publicData.activePromotions().then((r: any) => setPromotions(r.promotions || [])).catch(() => {})
+    api.referrals.me().then((r: any) => setBonusBalance(r.balance_kopecks || 0)).catch(() => {})
 
     if (typeof window !== 'undefined') {
       const u = new URL(window.location.href)
@@ -994,6 +997,10 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
       }
     }
   }, [currentTariffSlug])
+
+  const selectedTariff = tariffs.find(t => t.slug === selectedSlug)
+  const selectedPriceKopecks = selectedTariff ? Math.round(Number(selectedTariff.price) * 100) : 0
+  const canPayWithBonus = selectedTariff && bonusBalance >= selectedPriceKopecks && selectedPriceKopecks > 0
 
   async function pay() {
     if (!selectedSlug) return
@@ -1010,6 +1017,23 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
     } catch (e: any) {
       setError(e?.message || 'Ошибка оплаты')
       setLoading(false)
+    }
+  }
+
+  async function payWithBonus() {
+    if (!selectedSlug || !canPayWithBonus) return
+    if (!confirm(`Списать ${(selectedPriceKopecks / 100).toLocaleString('ru-RU')} ₽ с бонусного баланса?`)) return
+    setBonusLoading(true)
+    setError('')
+    try {
+      await api.subscriptions.payWithBonus(selectedSlug)
+      setPaidBanner(true)
+      setBonusBalance(b => b - selectedPriceKopecks)
+      // перезагрузим страницу через секунду чтобы /auth/me показала новую expires_at
+      setTimeout(() => window.location.reload(), 1500)
+    } catch (e: any) {
+      setError(e?.message || 'Ошибка списания бонусов')
+      setBonusLoading(false)
     }
   }
 
@@ -1063,15 +1087,37 @@ function SubscriptionPaymentBlock({ currentTariffSlug }: { currentTariffSlug?: s
         })}
       </div>
 
+      {bonusBalance > 0 && (
+        <div className="mb-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+          💰 Бонусный баланс: <b>{(bonusBalance / 100).toLocaleString('ru-RU')} ₽</b>
+          {!canPayWithBonus && selectedTariff && (
+            <span className="text-gray-500 ml-2">
+              · нужно ещё {((selectedPriceKopecks - bonusBalance) / 100).toLocaleString('ru-RU')} ₽ чтобы оплатить целиком
+            </span>
+          )}
+        </div>
+      )}
+
       {error && <div className="mb-3 text-sm text-red-600">{error}</div>}
 
-      <button
-        onClick={pay}
-        disabled={!selectedSlug || loading}
-        className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? 'Создаём заказ…' : 'Оплатить'}
-      </button>
+      <div className="flex gap-2 flex-wrap">
+        <button
+          onClick={pay}
+          disabled={!selectedSlug || loading || bonusLoading}
+          className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Создаём заказ…' : 'Оплатить картой'}
+        </button>
+        {canPayWithBonus && (
+          <button
+            onClick={payWithBonus}
+            disabled={bonusLoading || loading}
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {bonusLoading ? 'Списываем…' : `Оплатить бонусами (${(selectedPriceKopecks / 100).toLocaleString('ru-RU')} ₽)`}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

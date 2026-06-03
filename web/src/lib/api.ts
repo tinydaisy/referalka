@@ -685,5 +685,29 @@ export const api = {
       request('/api/v1/subscriptions/order', { method: 'POST', body: JSON.stringify({ tariff_slug }) }),
     getOrder: (id: number) => request(`/api/v1/subscriptions/orders/${id}`),
     listOrders: () => request('/api/v1/subscriptions/orders'),
+    payWithBonus: (tariff_slug: string) =>
+      request('/api/v1/subscriptions/pay-with-bonus', { method: 'POST', body: JSON.stringify({ tariff_slug }) }),
+  },
+  referrals: {
+    me: () => request('/api/v1/referrals/me'),
+    withdraw: (amount_kopecks: number, payment_details: string) =>
+      request('/api/v1/referrals/withdraw', {
+        method: 'POST',
+        body: JSON.stringify({ amount_kopecks, payment_details }),
+      }),
+  },
+  adminWithdrawals: {
+    list: (status?: 'pending' | 'completed' | 'cancelled') =>
+      request(`/api/v1/admin/withdrawals${status ? `?status=${status}` : ''}`),
+    complete: (id: number, admin_note?: string) =>
+      request(`/api/v1/admin/withdrawals/${id}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ admin_note: admin_note || null }),
+      }),
+    cancel: (id: number, admin_note: string) =>
+      request(`/api/v1/admin/withdrawals/${id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ admin_note }),
+      }),
   },
 }

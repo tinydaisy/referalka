@@ -10,6 +10,7 @@ const adminNav = [
   { href: '/admin/partners', label: 'Партнёры', icon: Handshake },
   { href: '/admin/tariffs', label: 'Тарифы', icon: CreditCard },
   { href: '/admin/promotions', label: 'Акции', icon: Tag },
+  { href: '/admin/withdrawals', label: 'Заявки на вывод', icon: CreditCard },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

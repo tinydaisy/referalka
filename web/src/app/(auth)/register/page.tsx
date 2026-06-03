@@ -34,9 +34,11 @@ export default function RegisterPage() {
       const res = await api.auth.register({
         name: form.name, email: form.email, phone: form.phone || undefined,
         telegram_username: form.telegram_username || undefined,
-        password: form.password, partner_code: form.partner_code || undefined
+        password: form.password, partner_code: form.partner_code || undefined,
+        pid: referrerPid || undefined,  // реф-код пригласившего (миграция 125)
       })
       localStorage.setItem('plusson_token', res.access_token)
+      localStorage.removeItem('pluson_referrer_pid')  // pid использован
       window.location.href = '/dashboard'
     } catch (err: any) {
       setError(err.message)

@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -62,6 +62,8 @@ export default function Sidebar() {
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
         // Каналы — у ассистента нет доступа даже на чтение (миграция 106)
         ...(isAssistant ? [] : [{ href: '/dashboard/channels', label: t.nav.channels, icon: Radio }]),
+        // Партнёрская программа — у ассистента нет доступа (бонусы и вывод — личное)
+        ...(isAssistant ? [] : [{ href: '/dashboard/partner-program', label: 'Партнёрская', icon: Wallet }]),
       ],
     },
   ]
