@@ -55,6 +55,8 @@ class TemplateCreate(BaseModel):
     subject: Optional[str] = None               # email Subject + жирная первая строка в TG/VK/MAX
     text: Optional[str] = None
     photo_url: Optional[str] = None
+    video_url: Optional[str] = None             # видео (Telegram — встроенный плеер)
+    media_type: Optional[str] = None            # None | 'photo' | 'video'
     button_text: Optional[str] = None
     button_url: Optional[str] = None
     audience_include: Optional[str] = None
@@ -72,6 +74,8 @@ class TemplateUpdate(BaseModel):
     subject: Optional[str] = None
     text: Optional[str] = None
     photo_url: Optional[str] = None
+    video_url: Optional[str] = None
+    media_type: Optional[str] = None
     button_text: Optional[str] = None
     button_url: Optional[str] = None
     schedule_mode: Optional[str] = None
@@ -369,7 +373,7 @@ async def list_templates(
 
     rows = await db.fetch(
         """
-        SELECT id, name, type, subject, text, photo_url, button_text, button_url,
+        SELECT id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
@@ -464,12 +468,14 @@ async def create_template(
         INSERT INTO broadcast_templates
           (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
            audience_include, audience_exclude, custom_day_ref, custom_time,
-           schedule_mode, allow_custom_datetime, target_channel_ids)
+           schedule_mode, allow_custom_datetime, target_channel_ids,
+           video_url, media_type)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
                 COALESCE($10, 'all_event'), COALESCE($11, 'none'),
                 $12, $13,
-                COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16)
-        RETURNING id, name, type, subject, text, photo_url, button_text, button_url,
+                COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16,
+                $17, $18)
+        RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   custom_day_ref, custom_time, target_channel_ids, created_at
         """,
@@ -479,6 +485,7 @@ async def create_template(
         data.custom_day_ref, data.custom_time,
         schedule_mode, allow_custom_datetime,
         data.target_channel_ids,
+        data.video_url, data.media_type,
     )
     return dict(row)
 
@@ -510,9 +517,10 @@ async def update_template(
             custom_day_ref = COALESCE($16, custom_day_ref),
             custom_time = COALESCE($17, custom_time),
             target_channel_ids = COALESCE($18::int[], target_channel_ids),
+            video_url = $21, media_type = $22,
             updated_at = NOW()
         WHERE id = $19 AND event_id = $20
-        RETURNING id, name, type, subject, text, photo_url, button_text, button_url,
+        RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
                   custom_day_ref, custom_time, target_channel_ids
@@ -524,7 +532,8 @@ async def update_template(
         data.intro_start_time, data.intro_interval_min, data.intro_days_before,
         data.custom_day_ref, data.custom_time,
         data.target_channel_ids,
-        template_id, event_id
+        template_id, event_id,
+        data.video_url, data.media_type,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
@@ -1192,10 +1201,29 @@ class AddCustomRequest(BaseModel):
     fire_at: str
     text: str
     photo_url: Optional[str] = None
+    video_url: Optional[str] = None
+    media_type: Optional[str] = None
     buttons: List[ButtonItem] = []
     is_test: bool = False
     audience_include: str = "all_event"
     audience_exclude: str = "none"
+
+
+def _resolve_snapshot_media(photo_url: Optional[str], video_url: Optional[str],
+                            media_type: Optional[str]) -> tuple:
+    """(snapshot_photo, snapshot_video, snapshot_media_type) — см. broadcasts_general._resolve_media."""
+    mt = (media_type or "").strip().lower() or None
+    p = (photo_url or "").strip() or None
+    v = (video_url or "").strip() or None
+    if mt == "video" and v:
+        return None, v, "video"
+    if mt == "photo" and p:
+        return p, None, "photo"
+    if mt is None and v:
+        return None, v, "video"
+    if mt is None and p:
+        return p, None, "photo"
+    return None, None, None
 
 
 def _parse_fire_at(s: str, tz: ZoneInfo) -> datetime:
@@ -1257,17 +1285,19 @@ async def add_custom_schedule(
     buttons_json = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
 
     import json as _json
+    snap_photo, snap_video, snap_mtype = _resolve_snapshot_media(data.photo_url, data.video_url, data.media_type)
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
           (event_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
-           snapshot_text, snapshot_photo, snapshot_buttons)
-        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb)
+           snapshot_text, snapshot_photo, snapshot_buttons,
+           snapshot_video, snapshot_media_type)
+        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
-        data.text, data.photo_url, _json.dumps(buttons_json)
+        data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype
     )
     return dict(row)
 
@@ -1276,6 +1306,8 @@ class BulkItem(BaseModel):
     fire_at: str
     text: str
     photo_url: Optional[str] = None
+    video_url: Optional[str] = None
+    media_type: Optional[str] = None
     buttons: List[ButtonItem] = []
 
 
@@ -1315,11 +1347,14 @@ async def bulk_add_schedules(
                 errs.append("неверный формат даты")
         if errs:
             errors_by_idx.append({"index": idx, "errors": errs})
+        sp, sv, smt = _resolve_snapshot_media(it.photo_url, it.video_url, it.media_type)
         parsed.append({
             "index": idx,
             "dt_utc": dt_utc,
             "text": it.text,
-            "photo_url": it.photo_url,
+            "photo_url": sp,
+            "video_url": sv,
+            "media_type": smt,
             "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in it.buttons if b.text.strip() and b.url.strip()],
         })
 
@@ -1338,12 +1373,14 @@ async def bulk_add_schedules(
                 INSERT INTO broadcast_schedules
                   (event_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
-                   snapshot_text, snapshot_photo, snapshot_buttons)
-                VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb)
+                   snapshot_text, snapshot_photo, snapshot_buttons,
+                   snapshot_video, snapshot_media_type)
+                VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
                 RETURNING id
                 """,
                 event_id, p["dt_utc"], data.is_test, data.audience_include, data.audience_exclude,
-                p["text"], p["photo_url"], _json.dumps(p["buttons"])
+                p["text"], p["photo_url"], _json.dumps(p["buttons"]),
+                p["video_url"], p["media_type"]
             )
             created_ids.append(row["id"])
     return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids}
@@ -1580,6 +1617,7 @@ async def preview_schedule(
     schedule = await db.fetchrow(
         """
         SELECT bs.*, bt.text as tmpl_text, bt.photo_url as tmpl_photo,
+               bt.video_url as tmpl_video, bt.media_type as tmpl_media_type,
                bt.button_text as tmpl_btn_text, bt.button_url as tmpl_btn_url,
                bt.type as tmpl_type
         FROM broadcast_schedules bs
@@ -1608,6 +1646,8 @@ async def preview_schedule(
         snap = {
             "text": schedule.get("snapshot_text") or "",
             "photo": schedule.get("snapshot_photo"),
+            "video": schedule.get("snapshot_video"),
+            "media_type": schedule.get("snapshot_media_type"),
             "buttons": snap_buttons or [],
         }
 
@@ -1624,11 +1664,15 @@ async def preview_schedule(
         tz=tz,
         template_id=schedule.get("template_id"),
         snapshot=snap,
+        video_url=schedule["tmpl_video"],
+        media_type=schedule["tmpl_media_type"],
     )
 
     return {
         "text": content["text"],
         "photo": content["photo"],
+        "video": content.get("video"),
+        "media_type": content.get("media_type"),
         "button_text": content.get("button_text"),
         "button_url": content.get("button_url"),
         "buttons": content.get("buttons") or [],
@@ -1700,6 +1744,8 @@ async def test_template(
         out: list[dict] = []
         text = content.get("text") or ""
         photo = content.get("photo")
+        video = content.get("video")
+        m_type = content.get("media_type")
         btn_text = content.get("button_text")
         btn_url = content.get("button_url")
 
@@ -1707,7 +1753,8 @@ async def test_template(
         if test_tg_ids and bot_token:
             for chat_id in [str(t) for t in test_tg_ids]:
                 ok, err = await send_telegram_message(
-                    http, bot_token, chat_id, text, photo, btn_text, btn_url
+                    http, bot_token, chat_id, text, photo, btn_text, btn_url,
+                    video_url=video if m_type == "video" else None,
                 )
                 out.append({"platform": "telegram", "chat_id": chat_id, "ok": ok, "error": err})
 
@@ -1722,6 +1769,8 @@ async def test_template(
                 vk_keyboard = tg_inline_to_vk_keyboard([[{"text": btn_text, "url": btn_url}]])
             # Фото в превью: VK сам развернёт по URL в начале сообщения.
             vk_text = f"{photo}\n\n{text}".strip() if photo else text
+            if m_type == "video" and video:
+                vk_text = f"{vk_text}\n\n🎬 Видео: {video}".strip()
             for vid in [str(t) for t in test_vk_ids]:
                 try:
                     res = await vk_send(int(vid), vk_text, keyboard=vk_keyboard)
@@ -1744,6 +1793,8 @@ async def test_template(
             max_text = text
             if photo:
                 max_text = f"{photo}\n\n{max_text}".strip()
+            if m_type == "video" and video:
+                max_text = f"{max_text}\n\n🎬 Видео: {video}".strip()
             for mid in [str(t) for t in test_max_ids]:
                 try:
                     res = await max_send(int(mid), max_text, token=max_token, buttons=max_buttons)
@@ -1784,6 +1835,7 @@ async def test_template(
                     btn_text=tpl["button_text"], btn_url=tpl["button_url"] or "",
                     event_id=event_id, session_id=s["session_id"],
                     fire_at=None, tz=tz,
+                    video_url=tpl["video_url"], media_type=tpl["media_type"],
                 )
                 speaker_results = await _send_one_content(http, content)
                 results.append({"speaker": s["speaker_name"], "results": speaker_results})
@@ -1809,6 +1861,7 @@ async def test_template(
             event_id=event_id, session_id=None,
             fire_at=fake_fire_at, tz=tz,
             template_id=tpl["id"],
+            video_url=tpl["video_url"], media_type=tpl["media_type"],
         )
         async with httpx.AsyncClient(timeout=15) as http:
             send_results = await _send_one_content(http, content)

@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation'
 import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import BroadcastMediaPicker from '@/components/BroadcastMediaPicker'
 import RichTextEditor from '@/components/RichTextEditor'
 
 type TypeDef = {
@@ -156,6 +157,7 @@ function audienceLabel(inc: string, exc: string): string {
 
 const emptyForm = {
   name: '', type: '5min_before', subject: '', text: '', photo_url: '',
+  video_url: '', media_type: null as 'photo' | 'video' | null,
   button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
   intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
   custom_day_ref: '', custom_time: '12:00',
@@ -251,8 +253,13 @@ export default function TemplatesPage() {
 
   async function save() {
     try {
+      const mt = (form as any).media_type as 'photo' | 'video' | null
       const payload: any = {
         ...form,
+        // Не отправляем фото и видео одновременно — оставляем выбранный тип.
+        photo_url: mt === 'photo' ? ((form as any).photo_url || null) : null,
+        video_url: mt === 'video' ? ((form as any).video_url || null) : null,
+        media_type: mt,
         audience_include: (form as any).audience_include || 'all_event',
         audience_exclude: (form as any).audience_exclude || 'none',
         intro_start_time: (form as any).intro_start_time || '11:00',
@@ -305,7 +312,9 @@ export default function TemplatesPage() {
         type: 'custom',
         subject: f.subject || null,
         text: f.text || '',
-        photo_url: f.photo_url || null,
+        photo_url: f.media_type === 'photo' ? (f.photo_url || null) : null,
+        video_url: f.media_type === 'video' ? (f.video_url || null) : null,
+        media_type: f.media_type,
         button_text: f.button_text || null,
         button_url: f.button_url || null,
         audience_include: f.audience_include || 'all_event',
@@ -342,6 +351,8 @@ export default function TemplatesPage() {
       subject: t.subject || '',
       text: (t.text || '').replace(/\\n/g, '\n'),
       photo_url: t.photo_url || '',
+      video_url: t.video_url || '',
+      media_type: (t.media_type || (t.photo_url ? 'photo' : null)) as 'photo' | 'video' | null,
       button_text: t.button_text || '',
       button_url: t.button_url || '',
       audience_include: t.audience_include || 'all_event',
@@ -823,13 +834,16 @@ export default function TemplatesPage() {
                 </div>
 
                 <div className="bg-gray-50 rounded-xl p-4">
-                  {tpl.photo_url && (
+                  {tpl.media_type === 'video' && tpl.video_url ? (
+                    <video src={tpl.video_url} controls className="w-full max-h-40 rounded-lg mb-3 bg-black" />
+                  ) : tpl.photo_url ? (
                     <img src={tpl.photo_url} alt="" className="w-full max-h-40 object-contain rounded-lg mb-3"
                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                  )}
+                  ) : null}
                   <p className="text-xs text-gray-700 whitespace-pre-wrap font-mono mb-3">{(tpl.text || '').replace(/\\n/g, '\n')}</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-                    {tpl.photo_url && <span>📷 Своё фото</span>}
+                    {tpl.media_type === 'video' && tpl.video_url && <span>🎬 Своё видео</span>}
+                    {tpl.media_type !== 'video' && tpl.photo_url && <span>📷 Своё фото</span>}
                     {tpl.button_text && (
                       <span>
                         🔘 Кнопка: «{tpl.button_text}»
@@ -904,16 +918,19 @@ export default function TemplatesPage() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">
-                  Фото (URL) — если пусто, подставится афиша автоматически
+                  Медиа (опционально) — фото или видео. Если пусто, для дневных шаблонов подставится афиша.
                 </label>
-                <input value={form.photo_url} onChange={e => setForm({ ...form, photo_url: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
-                {form.photo_url && (
-                  <img src={form.photo_url} alt="" className="mt-2 w-full max-h-48 object-contain rounded-lg border border-gray-200"
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                    onLoad={e => { (e.target as HTMLImageElement).style.display = '' }} />
-                )}
+                <BroadcastMediaPicker
+                  value={{
+                    photo_url: form.media_type === 'photo' ? (form.photo_url || null) : null,
+                    video_url: form.media_type === 'video' ? (form.video_url || null) : null,
+                    media_type: form.media_type,
+                  }}
+                  onChange={(v) => setForm({ ...form, photo_url: v.photo_url || '', video_url: v.video_url || '', media_type: v.media_type } as any)}
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Видео в Telegram проигрывается прямо в сообщении; в VK/MAX/email — ссылкой.
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -1129,16 +1146,18 @@ export default function TemplatesPage() {
               </div>
 
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">Фото (URL) — необязательно</label>
-                <input value={(form as any).photo_url}
-                  onChange={e => setForm({ ...form, photo_url: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
-                {(form as any).photo_url && (
-                  <img src={(form as any).photo_url} alt="" className="mt-2 w-full max-h-48 object-contain rounded-lg border border-gray-200"
-                    onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                    onLoad={e => { (e.target as HTMLImageElement).style.display = '' }} />
-                )}
+                <label className="text-xs text-gray-500 mb-1 block">Медиа (опционально) — фото или видео</label>
+                <BroadcastMediaPicker
+                  value={{
+                    photo_url: (form as any).media_type === 'photo' ? ((form as any).photo_url || null) : null,
+                    video_url: (form as any).media_type === 'video' ? ((form as any).video_url || null) : null,
+                    media_type: (form as any).media_type,
+                  }}
+                  onChange={(v) => setForm({ ...form, photo_url: v.photo_url || '', video_url: v.video_url || '', media_type: v.media_type } as any)}
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Видео в Telegram проигрывается прямо в сообщении; в VK/MAX/email — ссылкой.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -1252,8 +1271,13 @@ export default function TemplatesPage() {
 
             {/* Имитация Telegram-сообщения */}
             <div className="bg-[#effdde] rounded-2xl rounded-tr-sm p-3 shadow-sm">
+              {/* Видео шаблона (если выбрано) — приоритет над афишей */}
+              {previewModal.tpl.media_type === 'video' && previewModal.tpl.video_url && (
+                <video src={previewModal.tpl.video_url} controls
+                  className="w-full max-h-48 rounded-xl mb-2 bg-black" />
+              )}
               {/* Фото */}
-              {previewModal.def.showPhoto && (() => {
+              {previewModal.def.showPhoto && previewModal.tpl.media_type !== 'video' && (() => {
                 // Конференционные/событийные шаблоны: афиша события (не спикера).
                 // Спикерская афиша подставляется только для шаблонов со спикером.
                 const isEventLevelTpl = previewModal.def.type.startsWith('day_')

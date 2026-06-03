@@ -17,6 +17,7 @@ GET    /api/v1/storage/usage     — текущее использование �
     funnel_media      (фото/видео для текстов воронки лид-магнитов)
     broadcast_photo   (фото для произвольной рассылки; авто-удаляется через 10 мин
                        после отправки воркером cleanup_broadcast_photos)
+    broadcast_video   (видео для рассылки; лимит 100 МБ; авто-удаляется как broadcast_photo)
     event_video       (требует event_id; общее видео события — для скачивания спикерами)
     speaker_video     (требует collaborator_id; индивидуальное видео коллаба)
 
@@ -37,7 +38,7 @@ router = APIRouter(tags=["Загрузка файлов"])
 
 MAX_FILE_SIZE = 50 * 1024 * 1024            # 50 МБ — дефолтный лимит
 MAX_FILE_SIZE_VIDEO = 100 * 1024 * 1024     # 100 МБ — лимит для видео (упирается в Cloudflare cap)
-VIDEO_KINDS = {"event_video", "speaker_video"}
+VIDEO_KINDS = {"event_video", "speaker_video", "broadcast_video"}
 
 
 def _is_video(content_type: str) -> bool:
@@ -87,6 +88,7 @@ async def upload_file(
         "event_poster", "certificate", "referral_material", "lead_magnet", "speaker_photo",
         "speaker_poster",
         "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
+        "broadcast_video",
         "event_video", "speaker_video",
     }:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")

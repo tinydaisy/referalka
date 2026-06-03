@@ -6,8 +6,8 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
-import FileUploader from '@/components/FileUploader'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
+import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -73,6 +73,8 @@ export default function GeneralBroadcastsPage() {
     text: string
     subject: string
     photo_url: string
+    video_url: string
+    media_type: 'photo' | 'video' | null
     buttons: { text: string; url: string }[]
     target_channel_ids: number[] | null
   }>(null)
@@ -450,6 +452,8 @@ export default function GeneralBroadcastsPage() {
                               text: s.snapshot_text || '',
                               subject: s.snapshot_subject || '',
                               photo_url: s.snapshot_photo || '',
+                              video_url: s.snapshot_video || '',
+                              media_type: s.snapshot_media_type || (s.snapshot_photo ? 'photo' : null),
                               buttons: btns.map(b => ({ text: b.text || '', url: b.url || '' })),
                               target_channel_ids: Array.isArray(s.target_channel_ids) ? s.target_channel_ids : null,
                             })
@@ -510,6 +514,8 @@ export default function GeneralBroadcastsPage() {
             text: editModal.text,
             subject: editModal.subject,
             photo_url: editModal.photo_url,
+            video_url: editModal.video_url,
+            media_type: editModal.media_type,
             buttons: editModal.buttons,
             is_test: editModal.is_test,
             target_channel_ids: editModal.target_channel_ids,
@@ -674,6 +680,12 @@ export default function GeneralBroadcastsPage() {
                   onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                 />
               )}
+              {previewModal.video && (
+                <video src={previewModal.video} controls
+                  className="w-full rounded-xl mb-2 bg-black"
+                  style={{ maxHeight: '300px' }}
+                />
+              )}
               <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed break-words"
                 style={{ overflowWrap: 'anywhere' }}
                 dangerouslySetInnerHTML={{ __html: previewModal.text || '' }} />
@@ -714,6 +726,8 @@ function CustomBroadcastModal(props: {
     text?: string
     subject?: string
     photo_url?: string
+    video_url?: string
+    media_type?: 'photo' | 'video' | null
     buttons?: { text: string; url: string }[]
     is_test?: boolean
     target_channel_ids?: number[] | null
@@ -722,7 +736,11 @@ function CustomBroadcastModal(props: {
   const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
   const [subject, setSubject] = useState(props.initial?.subject || '')
   const [text, setText] = useState(props.initial?.text || '')
-  const [photoUrl, setPhotoUrl] = useState(props.initial?.photo_url || '')
+  const [media, setMedia] = useState<BroadcastMedia>({
+    photo_url: props.initial?.photo_url || null,
+    video_url: props.initial?.video_url || null,
+    media_type: props.initial?.media_type || (props.initial?.photo_url ? 'photo' : null),
+  })
   const [buttons, setButtons] = useState<{text: string; url: string}[]>(props.initial?.buttons || [])
   const [isTest, setIsTest] = useState(!!props.initial?.is_test)
   // target_channel_ids: null = «пока не выбрано» (BroadcastChannelPicker
@@ -779,7 +797,9 @@ function CustomBroadcastModal(props: {
         fire_at: fireAt,
         text: liveText,
         subject: subject || null,
-        photo_url: photoUrl || null,
+        photo_url: media.media_type === 'photo' ? media.photo_url : null,
+        video_url: media.media_type === 'video' ? media.video_url : null,
+        media_type: media.media_type,
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
       }
@@ -818,19 +838,11 @@ function CustomBroadcastModal(props: {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Фото (опционально)</label>
-            <FileUploader
-              mode="single"
-              value={photoUrl || null}
-              onChange={(url) => setPhotoUrl(url || '')}
-              kind="broadcast_photo"
-              accept="image/*"
-              aspectClass="aspect-video"
-              emptyText="Перетащите фото или нажмите «Загрузить»"
-              buttonLabel="Загрузить фото"
-            />
+            <label className="text-xs text-gray-500 mb-1 block">Медиа (опционально) — фото или видео</label>
+            <BroadcastMediaPicker value={media} onChange={setMedia} />
             <p className="text-[11px] text-gray-400 mt-1">
-              Фото авто-удалится через 10 минут после отправки рассылки — хранилище не засоряется.
+              Медиа авто-удалится через сутки после отправки рассылки — хранилище не засоряется.
+              Видео в Telegram проигрывается прямо в сообщении; в VK/MAX/email — ссылкой.
             </p>
           </div>
           <div>

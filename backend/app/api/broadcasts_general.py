@@ -32,6 +32,8 @@ class AddCustomRequest(BaseModel):
     text: str
     subject: Optional[str] = None  # Email Subject + жирная первая строка для TG/VK/MAX
     photo_url: Optional[str] = None
+    video_url: Optional[str] = None       # видео для рассылки (Telegram — встроенный плеер)
+    media_type: Optional[str] = None      # None | 'photo' | 'video'
     buttons: List[ButtonItem] = []
     is_test: bool = False
     # Каналы для отправки: NULL/None = все каналы клиента (default),
@@ -44,6 +46,8 @@ class BulkItem(BaseModel):
     text: str
     subject: Optional[str] = None
     photo_url: Optional[str] = None
+    video_url: Optional[str] = None
+    media_type: Optional[str] = None
     buttons: List[ButtonItem] = []
     target_channel_ids: Optional[List[int]] = None
 
@@ -148,6 +152,29 @@ def _validate_item(item: dict) -> list:
     return errors
 
 
+def _resolve_media(photo_url: Optional[str], video_url: Optional[str],
+                   media_type: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Нормализует медиа рассылки → (snapshot_photo, snapshot_video, snapshot_media_type).
+
+    Источник истины — media_type. Если 'video' и есть video_url → видео.
+    Если 'photo' (или не указан, но есть photo_url) → фото. Иначе медиа нет.
+    Чистим взаимоисключающие поля, чтобы в БД не лежало и фото, и видео сразу.
+    """
+    mt = (media_type or "").strip().lower() or None
+    p = (photo_url or "").strip() or None
+    v = (video_url or "").strip() or None
+    if mt == "video" and v:
+        return None, v, "video"
+    if mt == "photo" and p:
+        return p, None, "photo"
+    # media_type не задан явно — выводим из наличия URL (обратная совместимость).
+    if mt is None and v:
+        return None, v, "video"
+    if mt is None and p:
+        return p, None, "photo"
+    return None, None, None
+
+
 async def _client_tz(db, client_id: int) -> ZoneInfo:
     row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
     return ZoneInfo((row["timezone"] or "Europe/Moscow") if row else "Europe/Moscow")
@@ -180,6 +207,7 @@ async def list_schedules(
         SELECT id, type, fire_at, status, recipients_sent, is_test,
                audience_include, audience_exclude, started_at, finished_at,
                error_log, snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons,
+               snapshot_video, snapshot_media_type,
                target_channel_ids,
                CASE WHEN finished_at IS NOT NULL AND started_at IS NOT NULL
                     THEN EXTRACT(EPOCH FROM (finished_at - started_at))::int
@@ -246,19 +274,21 @@ async def add_custom(
     except Exception:
         raise HTTPException(400, "Неверный формат даты")
     buttons = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
+    snap_photo, snap_video, snap_mtype = _resolve_media(data.photo_url, data.video_url, data.media_type)
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
-           snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids)
+           snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
+           snapshot_video, snapshot_media_type)
         VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                $4, $5, $6, $7::jsonb, $8)
+                $4, $5, $6, $7::jsonb, $8, $9, $10)
         RETURNING id, fire_at, status
         """,
         client_id, dt_utc, data.is_test, data.text,
-        (data.subject or None), data.photo_url, _json.dumps(buttons),
-        data.target_channel_ids,
+        (data.subject or None), snap_photo, _json.dumps(buttons),
+        data.target_channel_ids, snap_video, snap_mtype,
     )
     return dict(row)
 
@@ -284,11 +314,14 @@ async def bulk_add(
                 errs.append("неверный формат даты")
         if errs:
             errors_by_idx.append({"index": idx, "errors": errs})
+        sp, sv, smt = _resolve_media(it.photo_url, it.video_url, it.media_type)
         parsed.append({
             "dt_utc": dt_utc,
             "text": it.text,
             "subject": it.subject,
-            "photo_url": it.photo_url,
+            "photo_url": sp,
+            "video_url": sv,
+            "media_type": smt,
             "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in it.buttons if b.text.strip() and b.url.strip()],
             "target_channel_ids": it.target_channel_ids,
         })
@@ -304,14 +337,16 @@ async def bulk_add(
                 INSERT INTO broadcast_schedules
                   (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
-                   snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids)
+                   snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
+                   snapshot_video, snapshot_media_type)
                 VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                        $4, $5, $6, $7::jsonb, $8)
+                        $4, $5, $6, $7::jsonb, $8, $9, $10)
                 RETURNING id
                 """,
                 client_id, p["dt_utc"], data.is_test, p["text"],
                 (p["subject"] or None), p["photo_url"],
                 _json.dumps(p["buttons"]), p["target_channel_ids"],
+                p["video_url"], p["media_type"],
             )
             created_ids.append(row["id"])
     return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids}
@@ -335,6 +370,8 @@ async def preview(
     snap = {
         "text": row.get("snapshot_text") or "",
         "photo": row.get("snapshot_photo"),
+        "video": row.get("snapshot_video"),
+        "media_type": row.get("snapshot_media_type"),
         "buttons": snap_btns or [],
     }
     tz = await _client_tz(db, client_id)
@@ -346,6 +383,8 @@ async def preview(
     return {
         "text": content["text"],
         "photo": content["photo"],
+        "video": content.get("video"),
+        "media_type": content.get("media_type"),
         "buttons": content.get("buttons") or [],
         "template_type": "custom",
     }

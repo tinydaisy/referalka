@@ -273,13 +273,19 @@ async def get_default_event_photo(conn, event_id: int) -> Optional[str]:
 
 async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, btn_text, btn_url: str,
                                  event_id: int, session_id, fire_at, tz: ZoneInfo,
-                                 template_id=None, snapshot=None) -> dict:
+                                 template_id=None, snapshot=None,
+                                 video_url=None, media_type=None) -> dict:
     """
-    Единственная функция сборки текста, фото и кнопки для любого типа шаблона.
+    Единственная функция сборки текста, фото/видео и кнопки для любого типа шаблона.
     Используется и в Celery (broadcast.py) и в превью (broadcasts.py).
 
-    Для type='custom' данные берутся из `snapshot`: {text, photo, buttons:[{text,url},...]}
+    Для type='custom' данные берутся из `snapshot`:
+      {text, photo, video, media_type, buttons:[{text,url},...]}
     и возвращаются как есть (с подстановкой {first_name} на уровне Celery).
+
+    `video`/`media_type` в ответе:
+      - media_type='video' → media лежит в `video` (Telegram шлёт встроенным плеером);
+      - media_type='photo' (или фото без media_type) → media в `photo`.
     """
     # ── custom: произвольное сообщение без шаблона ─────────────────────────
     if tpl_type == "custom":
@@ -287,9 +293,17 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         raw_text = (snap.get("text") or tmpl_text or "").strip()
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text)
         raw_buttons = snap.get("buttons") or []
+        snap_mtype = snap.get("media_type")
+        snap_video = snap.get("video")
+        snap_photo = snap.get("photo")
+        # Если media_type не задан (старые записи) — выводим из наличия URL.
+        if not snap_mtype:
+            snap_mtype = "video" if snap_video else ("photo" if snap_photo else None)
         return {
             "text": raw_text,
-            "photo": snap.get("photo") or photo_url,
+            "photo": (snap_photo or photo_url) if snap_mtype != "video" else None,
+            "video": snap_video if snap_mtype == "video" else None,
+            "media_type": snap_mtype,
             "button_text": None,
             "button_url": None,
             "buttons": raw_buttons,
@@ -697,15 +711,95 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
+    # Для шаблонов media_type='video' → отдаём видео (фото игнорируем).
+    tpl_mtype = (media_type or "").strip().lower() or None
+    if tpl_mtype == "video" and video_url:
+        return {
+            "text": text,
+            "photo": None,
+            "video": video_url,
+            "media_type": "video",
+            "button_text": btn_text,
+            "button_url": btn_url or None,
+        }
+
     return {
         "text": text,
         "photo": photo,
+        "video": None,
+        "media_type": "photo" if photo else None,
         "button_text": btn_text,
         "button_url": btn_url or None,
     }
 
 
 # ─── Отправка в Telegram ─────────────────────────────────────────────────────
+
+# Лимит Telegram на caption под видео = 1024 символа. Длиннее — видео без
+# подписи + текст отдельным сообщением.
+TG_VIDEO_CAPTION_LIMIT = 1024
+
+
+async def _tg_send_video(
+    client: httpx.AsyncClient,
+    bot_token: str,
+    chat_id: str,
+    text: str,
+    reply_markup: dict | None,
+    video_url: str,
+    video_file_id: str | None,
+    on_video_file_id=None,
+) -> tuple[bool, str]:
+    """sendVideo: пробуем file_id (мгновенно), при неудаче — URL (TG скачает с R2).
+    При успехе по URL извлекаем свежий file_id и сохраняем через колбэк.
+    Возвращает (успех, ошибка)."""
+    caption = text if (text and len(text) <= TG_VIDEO_CAPTION_LIMIT) else None
+    long_text = text if (text and len(text) > TG_VIDEO_CAPTION_LIMIT) else None
+
+    async def _do_send(video_value: str) -> tuple[bool, str, str | None]:
+        payload = {"chat_id": chat_id, "video": video_value, "supports_streaming": True}
+        if caption:
+            payload["caption"] = caption
+            payload["parse_mode"] = "HTML"
+        if reply_markup and not long_text:
+            payload["reply_markup"] = reply_markup
+        try:
+            r = await client.post(f"https://api.telegram.org/bot{bot_token}/sendVideo", json=payload, timeout=180)
+            data = r.json()
+            if data.get("ok"):
+                fid = (data.get("result", {}).get("video") or {}).get("file_id")
+                return True, "", fid
+            return False, data.get("description", f"HTTP {r.status_code}"), None
+        except Exception as e:
+            return False, str(e), None
+
+    ok, err, fid = (False, "", None)
+    # 1) сначала file_id, если есть
+    if video_file_id:
+        ok, err, fid = await _do_send(video_file_id)
+    # 2) fallback на URL (или сразу URL, если file_id ещё нет)
+    if not ok:
+        ok, err, fid = await _do_send(video_url)
+        if ok and fid and on_video_file_id:
+            try:
+                on_video_file_id(fid)
+            except Exception:
+                pass
+
+    if not ok:
+        return False, err
+
+    # Текст не влез в caption — досылаем отдельным сообщением с кнопкой.
+    if long_text:
+        payload = {"chat_id": chat_id, "text": long_text, "parse_mode": "HTML", "disable_web_page_preview": True}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        try:
+            await client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+        except Exception:
+            pass
+    return True, ""
+
 
 async def send_telegram_message(
     client: httpx.AsyncClient,
@@ -717,10 +811,22 @@ async def send_telegram_message(
     button_url: str = None,
     buttons: list = None,
     _retry: int = 0,
+    video_url: str = None,
+    video_file_id: str = None,
+    on_video_file_id=None,
 ) -> tuple[bool, str]:
     """Отправляет сообщение через Telegram Bot API.
     - Если передан `buttons` (список {text, url}) — используется он (по одной в ряду, до 3).
     - Иначе, если есть `button_text`+`button_url` — одиночная inline-кнопка (совместимость).
+
+    Видео (`video_url`): шлём через sendVideo — Telegram показывает встроенный плеер.
+    Чтобы не качать файл с R2 на каждого получателя, первый успешный sendVideo
+    возвращает file_id; передавайте его следующим вызовам через `video_file_id`.
+    `on_video_file_id(fid)` — колбэк для сохранения свежего file_id (вызовется один раз).
+    Если sendVideo не прошёл (видео не принято/слишком большое) — fallback: ссылка
+    на видео добавляется в текст и уходит обычным sendMessage. Так доставка
+    гарантирована.
+
     Возвращает (успех, описание_ошибки).
     """
     try:
@@ -738,6 +844,26 @@ async def send_telegram_message(
             btn_rows.append([{"text": button_text, "url": button_url}])
         if btn_rows:
             reply_markup = {"inline_keyboard": btn_rows}
+
+        # ── Видео: sendVideo со встроенным плеером (с кешем file_id) ──
+        if video_url:
+            ok, err = await _tg_send_video(
+                client, bot_token, chat_id, text, reply_markup,
+                video_url, video_file_id, on_video_file_id,
+            )
+            if ok:
+                return True, ""
+            # sendVideo не прошёл — fallback на текст со ссылкой, доставка важнее.
+            logger.warning(f"sendVideo не прошёл ({err}) — fallback на текст+ссылку для {chat_id}")
+            link_text = f"{text}\n\n🎬 Видео: {video_url}" if text else video_url
+            payload = {"chat_id": chat_id, "text": link_text, "parse_mode": "HTML", "disable_web_page_preview": False}
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            resp = await client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+            if resp.status_code == 200:
+                return True, ""
+            err2 = resp.json().get("description", f"HTTP {resp.status_code}")
+            return False, err2
 
         if photo_url and len(text) <= 1024:
             payload = {"chat_id": chat_id, "photo": photo_url, "caption": text, "parse_mode": "HTML"}
