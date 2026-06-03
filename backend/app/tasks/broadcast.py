@@ -126,13 +126,17 @@ async def _send_broadcast(schedule_id: int):
         # Читаем шаблон отдельным свежим запросом — максимально близко к отправке,
         # чтобы правки шаблона применились даже если очередь уже активирована
         tmpl = await conn.fetchrow(
-            "SELECT subject, text, photo_url, button_text, button_url, target_channel_ids "
+            "SELECT subject, text, photo_url, video_url, media_type, video_file_id, "
+            "button_text, button_url, target_channel_ids "
             "FROM broadcast_templates WHERE id=$1",
             schedule["template_id"]
         ) if schedule["template_id"] else None
         tmpl_subject_val  = tmpl["subject"]      if tmpl else None
         tmpl_text_val  = tmpl["text"]         if tmpl else ""
         tmpl_photo_val = tmpl["photo_url"]    if tmpl else None
+        tmpl_video_val = tmpl["video_url"]    if tmpl else None
+        tmpl_media_type_val = tmpl["media_type"] if tmpl else None
+        tmpl_video_file_id_val = tmpl["video_file_id"] if tmpl else None
         tmpl_btn_text_val = tmpl["button_text"] if tmpl else None
         tmpl_btn_url_val  = tmpl["button_url"]  if tmpl else ""
 
@@ -205,6 +209,8 @@ async def _send_broadcast(schedule_id: int):
             snap = {
                 "text": schedule.get("snapshot_text") or "",
                 "photo": schedule.get("snapshot_photo"),
+                "video": schedule.get("snapshot_video"),
+                "media_type": schedule.get("snapshot_media_type"),
                 "buttons": snap_buttons or [],
             }
             # snapshot_subject имеет приоритет над template.subject для custom-рассылок
@@ -226,13 +232,36 @@ async def _send_broadcast(schedule_id: int):
             tz=tz,
             template_id=schedule.get("template_id"),
             snapshot=snap,
+            video_url=tmpl_video_val,
+            media_type=tmpl_media_type_val,
         )
 
         text = content["text"]
         photo_url = content["photo"]
+        video_url = content.get("video")
+        media_type = content.get("media_type")
         button_text = content.get("button_text")
         button_url = content.get("button_url")
         buttons = content.get("buttons") or None
+
+        # Кеш Telegram file_id для видео: чтобы не качать файл с R2 на каждого
+        # получателя — первый успешный sendVideo вернёт file_id, дальше шлём по нему.
+        # Для шаблонных рассылок начальный file_id берём из шаблона (если уже грелся
+        # на прошлых отправках), для произвольных — из снапшота расписания.
+        video_file_id = None
+        if media_type == "video":
+            video_file_id = (
+                schedule.get("snapshot_video_file_id")
+                or (tmpl_video_file_id_val if tpl_type != "custom" else None)
+            )
+        # Куда сохранить свежий file_id после первой отправки (один раз).
+        _vid_fid_holder = {"fid": video_file_id, "saved": False}
+
+        def _capture_video_file_id(fid: str):
+            if not fid or _vid_fid_holder["saved"]:
+                return
+            _vid_fid_holder["fid"] = fid
+            _vid_fid_holder["saved"] = True  # пометим, реальный UPDATE сделаем после рассылки
 
         # Заголовок шаблона (subject) — для TG/VK/MAX добавляем первой жирной строкой,
         # для email — становится темой письма (передаётся в _send_broadcast_email_part).
@@ -362,12 +391,39 @@ async def _send_broadcast(schedule_id: int):
                         msg_btn_url = msg_btn_url.replace("{game_link}", game_link_url)
                 ok, err = await send_telegram_message(
                     http_client, token, tg_id, msg_text, photo_url, button_text, msg_btn_url,
-                    buttons=buttons
+                    buttons=buttons,
+                    video_url=video_url if media_type == "video" else None,
+                    video_file_id=_vid_fid_holder["fid"] if media_type == "video" else None,
+                    on_video_file_id=_capture_video_file_id if media_type == "video" else None,
                 )
                 return tg_id, channel_id, (ok, err)
 
         async with httpx.AsyncClient(timeout=15, limits=httpx.Limits(max_connections=max(concurrency + 20, 50))) as http_client:
-            results = await asyncio.gather(*[send_one(t, c, tok, http_client) for (t, c, tok) in send_jobs])
+            # Прогрев file_id: для видео без готового file_id шлём ПЕРВОМУ получателю
+            # последовательно — Telegram скачает файл с R2 один раз и вернёт file_id,
+            # дальше остальным шлём по нему мгновенно (без повторной заливки).
+            results = []
+            jobs = list(send_jobs)
+            if media_type == "video" and not _vid_fid_holder["fid"] and jobs:
+                first = jobs.pop(0)
+                results.append(await send_one(first[0], first[1], first[2], http_client))
+            results.extend(await asyncio.gather(*[send_one(t, c, tok, http_client) for (t, c, tok) in jobs]))
+
+        # Сохраняем прогретый file_id, чтобы следующие рассылки этого видео шли мгновенно.
+        fresh_fid = _vid_fid_holder["fid"]
+        if media_type == "video" and fresh_fid:
+            try:
+                await conn.execute(
+                    "UPDATE broadcast_schedules SET snapshot_video_file_id=$1 WHERE id=$2",
+                    fresh_fid, schedule_id,
+                )
+                if schedule.get("template_id") and tpl_type != "custom":
+                    await conn.execute(
+                        "UPDATE broadcast_templates SET video_file_id=$1 WHERE id=$2",
+                        fresh_fid, schedule["template_id"],
+                    )
+            except Exception as e:
+                logger.warning(f"Не смог сохранить video_file_id для рассылки {schedule_id}: {e}")
 
         # Пишем лог одной пачкой после отправки
         BLOCKED_ERRORS = ("bot was blocked by the user", "user is deactivated", "chat not found", "have no rights to send a message")
@@ -421,6 +477,7 @@ async def _send_broadcast(schedule_id: int):
             vk_sent = await _send_broadcast_vk_part(
                 conn, schedule, event_id, text, photo_url, button_text, button_url,
                 buttons=buttons, target_channel_set=target_channel_set,
+                video_url=video_url, media_type=media_type,
             )
             sent += vk_sent
             logger.info(f"VK-часть рассылки {schedule_id}: отправлено {vk_sent}")
@@ -435,6 +492,7 @@ async def _send_broadcast(schedule_id: int):
             max_sent = await _send_broadcast_max_part(
                 conn, schedule, event_id, text, photo_url, button_text, button_url,
                 buttons=buttons, target_channel_set=target_channel_set,
+                video_url=video_url, media_type=media_type,
             )
             sent += max_sent
             logger.info(f"MAX-часть рассылки {schedule_id}: отправлено {max_sent}")
@@ -449,6 +507,7 @@ async def _send_broadcast(schedule_id: int):
                 conn, schedule, event_id, text_for_email, photo_url, button_text, button_url,
                 buttons=buttons, target_channel_set=target_channel_set,
                 subject_override=subject_val or None,
+                video_url=video_url, media_type=media_type,
             )
             sent += email_sent
             logger.info(f"Email-часть рассылки {schedule_id}: отправлено {email_sent}")
@@ -476,6 +535,8 @@ async def _send_broadcast_vk_part(
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
     buttons: list | None = None,
     target_channel_set: set[int] | None = None,
+    video_url: str | None = None,
+    media_type: str | None = None,
 ) -> int:
     """Отправляет рассылку VK-подписчикам клиента через VK API messages.send.
 
@@ -598,7 +659,7 @@ async def _send_broadcast_vk_part(
     # Загружаем под тем же токеном, которым шлём — иначе owner_id фото будет
     # чужим и VK отклонит сообщение.
     photo_attachment: str | None = None
-    if photo_url:
+    if media_type != "video" and photo_url:
         try:
             photo_attachment = await vk_upload_photo(photo_url, token=vk_token)
         except Exception as e:
@@ -613,6 +674,32 @@ async def _send_broadcast_vk_part(
                 f"R2-ссылку в текст вшивать НЕ будем: {photo_url}"
             )
 
+    # Видео: грузим в VK ОДИН раз для всей рассылки — получаем video-attachment,
+    # который шлём всем получателям. Нативная загрузка (video.save) требует
+    # user-токена админа сообщества; без него — fallback на doc (файл .mp4);
+    # если совсем не вышло — fallback на ссылку в тексте (vk_link_fallback=True).
+    video_attachment: str | None = None
+    vk_link_fallback = False
+    if media_type == "video" and video_url:
+        from app.services.vk_api import (
+            upload_video_via_user_token as vk_upload_video_native,
+            upload_video_to_messages as vk_upload_video_doc,
+        )
+        from app.services.funnel_service import _vk_admin_user_token_for_client
+        try:
+            vk_user_tok, vk_user_grp = await _vk_admin_user_token_for_client(client_id, conn)
+            if vk_user_tok:
+                video_attachment = await vk_upload_video_native(
+                    video_url, user_token=vk_user_tok, group_id=vk_user_grp
+                )
+            if not video_attachment:
+                video_attachment = await vk_upload_video_doc(video_url, token=vk_token)
+        except Exception as e:
+            logger.warning(f"VK video upload failed for {video_url}: {e}")
+        if not video_attachment:
+            vk_link_fallback = True
+            logger.warning(f"VK video upload не удался — шлём ссылкой в тексте: {video_url}")
+
     sent = 0
     for r in rows:
         try:
@@ -620,6 +707,9 @@ async def _send_broadcast_vk_part(
         except (TypeError, ValueError):
             continue
         message_text = text or ""
+        attachment = video_attachment if media_type == "video" else photo_attachment
+        if media_type == "video" and vk_link_fallback:
+            message_text = f"{message_text}\n\n🎬 Видео: {video_url}" if message_text else video_url
         # Раньше тут был fallback «если фото не залилось → вшиваем URL в текст».
         # Убрано: пользователь увидит уродливую R2-ссылку, и это выглядит как
         # спам. Лучше отправить только текст — фото потеряется, но сообщение
@@ -631,7 +721,7 @@ async def _send_broadcast_vk_part(
             res = await vk_send(
                 vk_id_int, message_text,
                 token=vk_token,
-                keyboard=keyboard, attachment=photo_attachment,
+                keyboard=keyboard, attachment=attachment,
             )
             ok = bool(res)
             if ok and isinstance(res, int):
@@ -667,6 +757,8 @@ async def _send_broadcast_max_part(
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
     buttons: list | None = None,
     target_channel_set: set[int] | None = None,
+    video_url: str | None = None,
+    media_type: str | None = None,
 ) -> int:
     """Отправляет рассылку MAX-подписчикам клиента через MAX Bot API.
 
@@ -788,6 +880,10 @@ async def _send_broadcast_max_part(
         # выглядит как спам. Лучше шлём без фото; нативную загрузку в MAX
         # добавим отдельно. TODO: max_api.upload_photo + attachment.
         # if photo_url: ...  # не добавляем URL в текст
+        # Видео в MAX: нативной загрузки из URL нет — даём ссылку на видео в текст,
+        # чтобы подписчик гарантированно мог его открыть.
+        if media_type == "video" and video_url:
+            message_text = f"{message_text}\n\n🎬 Видео: {video_url}" if message_text else video_url
         ok = False
         err: str | None = None
         try:
@@ -820,6 +916,8 @@ async def _send_broadcast_email_part(
     buttons: list | None = None,
     target_channel_set: set[int] | None = None,
     subject_override: str | None = None,
+    video_url: str | None = None,
+    media_type: str | None = None,
 ) -> int:
     """Отправляет рассылку email-подписчикам клиента через локальный Postfix.
 
@@ -965,6 +1063,11 @@ async def _send_broadcast_email_part(
     # тема собирается из первой строки текста, если она короткая.
     import re as _re
     raw_text = text or ""
+
+    # Видео в email не встроить — добавляем ссылку на видео в текст письма
+    # (станет кликабельной через _linkify / HTML-рендер ниже).
+    if media_type == "video" and video_url:
+        raw_text = f"{raw_text}\n\n🎬 Видео: {video_url}" if raw_text else f"🎬 Видео: {video_url}"
 
     def _strip_html(s: str) -> str:
         """HTML-теги → пусто. Минимальный замены HTML-entities."""
@@ -1410,29 +1513,43 @@ async def _cleanup_broadcast_photos():
     from app.services import r2_storage
     conn = await _get_conn()
     try:
-        # 1. Фото, использованные в рассылках, которые завершились (done/cancelled/
-        #    paused_subscription_expired) > 10 минут назад.
+        # 1. Медиа (фото/видео), использованные в произвольных рассылках, которые
+        #    завершились (done/cancelled/paused_subscription_expired) > 24ч назад.
+        #    Видео матчим по snapshot_video, фото — по snapshot_photo.
+        #    ВАЖНО: НЕ удаляем медиа, на которое ссылается шаблон (broadcast_templates) —
+        #    шаблонные видео/фото должны жить, пока шаблон существует.
         used_rows = await conn.fetch(
             """
             SELECT DISTINCT cf.id, cf.r2_key, cf.size_bytes, cf.client_id
               FROM client_files cf
-              JOIN broadcast_schedules bs ON bs.snapshot_photo = cf.url
-             WHERE cf.kind = 'broadcast_photo'
+              JOIN broadcast_schedules bs
+                ON (cf.kind = 'broadcast_photo' AND bs.snapshot_photo = cf.url)
+                OR (cf.kind = 'broadcast_video' AND bs.snapshot_video = cf.url)
+             WHERE cf.kind IN ('broadcast_photo', 'broadcast_video')
                AND bs.status IN ('done', 'cancelled', 'paused_subscription_expired')
                AND bs.finished_at IS NOT NULL
                AND bs.finished_at < NOW() - INTERVAL '24 hours'
+               AND NOT EXISTS (
+                 SELECT 1 FROM broadcast_templates bt
+                  WHERE bt.video_url = cf.url OR bt.photo_url = cf.url
+               )
             """
         )
 
-        # 2. Орфаны: загружены > 1 часа назад и ни в одной рассылке не используются.
+        # 2. Орфаны: загружены > 1 часа назад, не используются ни в рассылке, ни в шаблоне.
         orphan_rows = await conn.fetch(
             """
             SELECT cf.id, cf.r2_key, cf.size_bytes, cf.client_id
               FROM client_files cf
-             WHERE cf.kind = 'broadcast_photo'
+             WHERE cf.kind IN ('broadcast_photo', 'broadcast_video')
                AND cf.created_at < NOW() - INTERVAL '1 hour'
                AND NOT EXISTS (
-                 SELECT 1 FROM broadcast_schedules bs WHERE bs.snapshot_photo = cf.url
+                 SELECT 1 FROM broadcast_schedules bs
+                  WHERE bs.snapshot_photo = cf.url OR bs.snapshot_video = cf.url
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM broadcast_templates bt
+                  WHERE bt.video_url = cf.url OR bt.photo_url = cf.url
                )
             """
         )
