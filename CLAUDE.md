@@ -1139,6 +1139,31 @@ clients/{client_id}/speakers/{collaborator_id}/{uuid}.jpg
 
 **Дашборд BroadcastsTab** — [один компонент](web/src/app/dashboard/events/[id]/tabs/BroadcastsTab.tsx) для мероприятий и конференций (две карточки: «Шаблоны» и «Очередь», ведут на `/dashboard/conferences/{id}/broadcasts/{templates|queue}` — URL-сегмент `conferences` исторический, эти страницы работают с любым событием).
 
+### Видео в рассылках — встроенный плеер в Telegram (миграция 127 от 2026-06-03)
+
+К рассылке (произвольной `/dashboard/broadcasts` И шаблонной в конференции) можно прикрепить **фото ИЛИ видео**. Раньше было только фото.
+
+**БД (миграция 127):**
+- `broadcast_schedules`: `snapshot_video TEXT`, `snapshot_media_type TEXT CHECK(NULL|photo|video)`, `snapshot_video_file_id TEXT` (кеш TG file_id).
+- `broadcast_templates`: `video_url TEXT`, `media_type TEXT CHECK(...)`, `video_file_id TEXT`.
+- Бэкфилл `media_type='photo'` там, где уже было фото.
+- Новый upload kind `broadcast_video` (лимит 100 МБ, R2-путь `clients/{cid}/broadcast_videos/`) в [uploads.py](backend/app/api/uploads.py) И в [r2_storage.build_key](backend/app/services/r2_storage.py) (две точки — не забыть обе!).
+
+**Источник истины — `media_type`** (`photo`/`video`/NULL). Если `video` → медиа в `video_url`/`snapshot_video`, фото зануляется (и наоборот). Хелперы `_resolve_media` в [broadcasts_general.py](backend/app/api/broadcasts_general.py) и `_resolve_snapshot_media` в [modules/broadcasts.py](backend/app/api/modules/broadcasts.py). `build_message_content` ([message_builder.py](backend/app/services/message_builder.py)) возвращает `{photo, video, media_type, ...}`.
+
+**Отправка по платформам:**
+- **Telegram** — встроенный плеер. `_tg_send_video` ([message_builder.py](backend/app/services/message_builder.py)): первый получатель — **скачиваем байты с R2 и грузим в TG multipart-ом** (`sendVideo` с `files={video:...}`), НЕ по URL (Telegram плохо тянет видео по URL — частая ошибка `wrong type of the web page content`). Из ответа достаём `file_id`, кешируем в `snapshot_video_file_id`/`video_file_id` → остальным шлём мгновенно по file_id. file_id привязан к боту: при fanout на несколько ботов file_id чужого бота даёт 400 → авто-фолбэк на multipart. Прогрев: первый job в [tasks/broadcast.py](backend/app/tasks/broadcast.py) шлётся последовательно, потом остальные параллельно. Если `sendVideo` совсем не прошёл — **фолбэк на текст + ссылка** (доставка гарантирована).
+- **VK** — видео файлом: `send_message_with_media` → нативная загрузка `upload_video_via_user_token` (нужен `vk_admin_user_token`) → doc → фолбэк ссылкой в тексте.
+- **MAX / email** — видео ссылкой в тексте (`🎬 Видео: <url>`).
+
+**Cleanup** ([tasks/broadcast.py](backend/app/tasks/broadcast.py) `cleanup_broadcast_photos`) теперь чистит и `broadcast_video` (по `snapshot_video`), но **НЕ удаляет** медиа, на которое ссылается шаблон (`broadcast_templates.video_url/photo_url`). Used → 24ч после finish, орфаны → 1ч.
+
+**Фронт** — общий компонент [BroadcastMediaPicker.tsx](web/src/components/BroadcastMediaPicker.tsx): переключатель Фото/Видео + **предупреждения при загрузке видео** (требование «гарантировать отправку»): >50 МБ → «Telegram не покажет встроенным плеером, уйдёт ссылкой»; не `.mp4` → «может не проигрываться, лучше MP4». В обоих случаях `confirm()` — выбор за клиентом («всё равно загрузить» / «отменить»). Жёсткий стоп >100 МБ. Используется в `/dashboard/broadcasts` (форма + edit) и в templates page (edit + create модалки). Превью видео (`<video controls>`) в карточке шаблона, в модалке превью и в превью произвольной рассылки.
+
+**nginx:** на dev (и нужно на проде) `client_max_body_size` в `location /api/` поднят до **100M** (видео до 100 МБ; раньше было 50M на сервер-уровне).
+
+**Тест на dev (e2e, 2026-06-03):** загрузка MP4 → произвольная рассылка с видео → Celery → `sendVideo` 200 OK, 4/4 доставлено, `snapshot_video_file_id` закеширован. Фолбэк на ссылку проверен (когда Telegram не принял URL).
+
 ### Выбор каналов отправки для рассылки (миграция 100 от 2026-05-22)
 
 К каждой рассылке (произвольной и шаблонной) клиент может выбрать **подмножество** своих каналов. По умолчанию рассылка уходит **по всем** подключённым каналам — это поведение «как было до миграции», обратная совместимость сохраняется.
