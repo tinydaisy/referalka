@@ -69,6 +69,70 @@ async def _record_subscription(message: Message) -> None:
         log.warning("record_subscription failed: %s", e)
 
 
+async def _upgrade_pseudo_identities(user) -> None:
+    """Дорастить ВСЕ псевдо-записи `platform_user_id='@<username>'` этого человека
+    до реального числового tg_id — глобально, по всем клиентам.
+
+    Зачем. Организатор может завести коллаба/контакт по @нику без числового id —
+    тогда создаётся псевдо-запись platform_users (см.
+    project_collaborator_pseudo_platform_users). Она должна сама превращаться в
+    реальную при ЛЮБОМ касании ботом (любой /start: спикер, партнёр, лид-магнит,
+    или вообще без аргументов). Раньше это делалось только внутри
+    upsert_contact_with_identity и зависело от точки входа — отсюда баг «спикер
+    есть в списке, а войти не может» (Юлия Фрейм, 2026-06-04).
+
+    Идемпотентно. Срабатывает только если у юзера сейчас виден username (без него
+    Telegram не присылает ник — сопоставить не с чем, это ограничение Telegram).
+    """
+    if not user or not user.username:
+        return
+    uname = user.username.lstrip("@").strip()
+    if not uname:
+        return
+    real_id = str(user.id)
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            # Все псевдо-записи этого ника, у которых реальный id ещё не занят
+            # другим контактом у того же клиента (иначе оставляем как есть).
+            pseudos = await db.fetch(
+                """SELECT p.id, p.client_id
+                     FROM platform_users p
+                    WHERE p.platform_slug = 'telegram'
+                      AND p.platform_user_id = $1
+                      AND NOT EXISTS (
+                            SELECT 1 FROM platform_users o
+                             WHERE o.client_id = p.client_id
+                               AND o.platform_slug = 'telegram'
+                               AND o.platform_user_id = $2
+                               AND o.id <> p.id
+                          )""",
+                f"@{uname}", real_id,
+            )
+            for ps in pseudos:
+                await db.execute(
+                    """UPDATE platform_users
+                          SET platform_user_id = $1, username = $2, updated_at = NOW()
+                        WHERE id = $3""",
+                    real_id, uname, ps["id"],
+                )
+                await db.execute(
+                    """UPDATE platform_user_channels
+                          SET is_unsubscribed = FALSE,
+                              subscribed_at   = COALESCE(subscribed_at, NOW()),
+                              unsubscribed_at = NULL
+                        WHERE platform_user_id = $1 AND is_unsubscribed = TRUE""",
+                    ps["id"],
+                )
+            if pseudos:
+                log.info(
+                    "upgraded %d pseudo TG identities for @%s -> %s",
+                    len(pseudos), uname, real_id,
+                )
+    except Exception as e:
+        log.warning("upgrade_pseudo_identities failed: %s", e)
+
+
 @router.message(CommandStart())
 async def handle_start(message: Message, command: CommandObject):
     args = (command.args or "").strip()
@@ -76,6 +140,9 @@ async def handle_start(message: Message, command: CommandObject):
 
     # Регистрируем подписку — для счётчика подписчиков канала и базы контактов
     await _record_subscription(message)
+
+    # Дорастить пустышки `@username` -> реальный tg_id (любой вход в бот, до ветвления)
+    await _upgrade_pseudo_identities(user)
 
     # Воронка лид-магнита: прямой формат `/start m_<slug>` (для лид-магнита) или
     # `/start p_<slug>` (для пакета). Опционально с UTM/pid: `m_<slug>_pid<ref>_src<utm>`.
