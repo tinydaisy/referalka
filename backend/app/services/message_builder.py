@@ -743,6 +743,9 @@ TG_VIDEO_CAPTION_LIMIT = 1024
 # Кеш скачанных с R2 байт видео — в пределах одной рассылки прогрев качает
 # файл максимум один раз (на первого получателя), дальше шлём по file_id.
 _VIDEO_BYTES_CACHE: dict[str, bytes] = {}
+# Кеш метаданных видео (width, height, duration) и обложки-JPEG по URL —
+# чтобы ffprobe/ffmpeg отработали один раз на рассылку, а не на каждого.
+_VIDEO_META_CACHE: dict[str, dict] = {}
 
 
 async def _tg_send_video(
@@ -796,6 +799,24 @@ async def _tg_send_video(
         except Exception as e:
             return False, str(e), None
 
+    async def _ensure_meta(content: bytes) -> dict:
+        """Считает (один раз на URL) размеры/длительность и обложку видео —
+        чтобы Telegram показал правильные пропорции и постер."""
+        meta = _VIDEO_META_CACHE.get(video_url)
+        if meta is not None:
+            return meta
+        meta = {"w": None, "h": None, "dur": None, "thumb": None}
+        try:
+            from app.services.video_meta import probe_dimensions, extract_thumbnail
+            dims = await probe_dimensions(content)
+            if dims:
+                meta["w"], meta["h"], meta["dur"] = dims
+            meta["thumb"] = await extract_thumbnail(content)
+        except Exception as e:
+            logger.warning(f"video meta extraction failed: {e}")
+        _VIDEO_META_CACHE[video_url] = meta
+        return meta
+
     async def _send_multipart() -> tuple[bool, str, str | None]:
         # Скачиваем байты (с кешем на время рассылки).
         content = _VIDEO_BYTES_CACHE.get(video_url)
@@ -808,11 +829,23 @@ async def _tg_send_video(
                 _VIDEO_BYTES_CACHE[video_url] = content
             except Exception as e:
                 return False, f"download: {e}", None
+        meta = await _ensure_meta(content)
+        fields = _common_fields()
+        if meta.get("w") and meta.get("h"):
+            fields["width"] = str(meta["w"])
+            fields["height"] = str(meta["h"])
+        if meta.get("dur"):
+            fields["duration"] = str(meta["dur"])
+        files = {"video": ("video.mp4", content, "video/mp4")}
+        if meta.get("thumb"):
+            # Telegram: обложку прикладываем файлом и ссылаемся через attach://
+            files["thumbnail"] = ("thumb.jpg", meta["thumb"], "image/jpeg")
+            fields["thumbnail"] = "attach://thumbnail"
         try:
             r = await client.post(
                 f"https://api.telegram.org/bot{bot_token}/sendVideo",
-                data=_common_fields(),
-                files={"video": ("video.mp4", content, "video/mp4")},
+                data=fields,
+                files=files,
                 timeout=180,
             )
             data = r.json()
