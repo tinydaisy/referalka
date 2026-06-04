@@ -336,6 +336,12 @@ async function sendVkEventStart(
   }
 
   adapter.requestWriteAccess({ vkGroupId: groupId }, async () => {
+    // Помимо разрешения на ЛС — предлагаем подписаться на само сообщество (стену).
+    // Это разные действия во ВК: AllowMessages ≠ JoinGroup. group_join на бэке
+    // зафиксирует подписавшегося в базе.
+    if (adapter.joinGroup) {
+      try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
+    }
     const status = await sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug,
       parsed.clientId, parsed.utmSource, parsed.initialTab)
 

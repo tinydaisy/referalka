@@ -48,6 +48,13 @@ export interface PlatformAdapter {
   requestWriteAccess(opts: { vkGroupId?: number }, cb: (granted: boolean) => void): void
 
   /**
+   * Предложить подписаться на сообщество (только VK — VKWebAppJoinGroup).
+   * Это ОТДЕЛЬНО от requestWriteAccess: разрешение писать в ЛС ≠ подписка на
+   * сообщество (стену). На TG/MAX — no-op (cb(false)).
+   */
+  joinGroup?(opts: { vkGroupId?: number }, cb: (joined: boolean) => void): void
+
+  /**
    * Открыть внешнюю ссылку.
    * - TG: openTelegramLink или openLink.
    * - VK: window.top.location (iframe → universal link iOS).
