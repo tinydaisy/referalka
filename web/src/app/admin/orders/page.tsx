@@ -15,7 +15,7 @@ export default function AdminOrdersPage() {
   const [summary, setSummary] = useState<any>({})
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'paid' | 'created' | 'failed' | 'cancelled' | 'all'>('paid')
+  const [filter, setFilter] = useState<'paid' | 'created' | 'failed' | 'cancelled' | 'all'>('all')
   const [search, setSearch] = useState('')
 
   function load() {
