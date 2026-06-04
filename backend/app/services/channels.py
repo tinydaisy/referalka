@@ -124,6 +124,53 @@ async def find_channel_by_bot_id(bot_id: int, db) -> Optional[dict]:
     return dict(row) if row else None
 
 
+async def register_platform_channel_subscription(
+    client_id: int,
+    platform_slug: str,
+    platform_user_id: int,
+    db,
+) -> Optional[int]:
+    """Подписывает уже существующую идентичность (platform_users.id) на ГЛАВНЫЙ
+    активный канал клиента той же платформы.
+
+    Нужно для VK/MAX-входа в событие: контакт + platform_users там создаются через
+    upsert_contact_with_identity, но шаг привязки к каналу (как register_telegram_subscription
+    делает для TG) отсутствовал — человек не попадал в подписчиков канала и в рассылку.
+
+    Идемпотентно: ON CONFLICT не перезатирает is_unsubscribed=TRUE (если человек сам отписался).
+    Возвращает client_channel_id или None если у клиента нет активного канала этой платформы.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    if not platform_user_id or not client_id or not platform_slug:
+        return None
+    cc_id = await db.fetchval(
+        """SELECT cc.id
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = $2
+              AND cc.is_active = TRUE
+            ORDER BY cc.id LIMIT 1""",
+        client_id, platform_slug,
+    )
+    if not cc_id:
+        log.warning(
+            "register_platform_channel_subscription: у клиента %s нет активного %s-канала "
+            "(подписка не зарегистрирована для pu=%s).",
+            client_id, platform_slug, platform_user_id,
+        )
+        return None
+    await db.execute(
+        """INSERT INTO platform_user_channels
+             (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at)
+           VALUES ($1, $2, FALSE, NOW())
+           ON CONFLICT (platform_user_id, client_channel_id) DO NOTHING""",
+        platform_user_id, cc_id,
+    )
+    return cc_id
+
+
 async def register_telegram_subscription(
     client_id: int,
     channel_id: int,
