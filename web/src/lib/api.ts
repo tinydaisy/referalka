@@ -697,6 +697,17 @@ export const api = {
         body: JSON.stringify({ amount_kopecks, payment_details }),
       }),
   },
+  adminOrders: {
+    list: (params?: { status?: string; search?: string; limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams()
+      if (params?.status) qs.set('status', params.status)
+      if (params?.search) qs.set('search', params.search)
+      if (params?.limit != null) qs.set('limit', String(params.limit))
+      if (params?.offset != null) qs.set('offset', String(params.offset))
+      const s = qs.toString()
+      return request(`/api/v1/admin/orders${s ? '?' + s : ''}`)
+    },
+  },
   adminWithdrawals: {
     list: (status?: 'pending' | 'completed' | 'cancelled') =>
       request(`/api/v1/admin/withdrawals${status ? `?status=${status}` : ''}`),

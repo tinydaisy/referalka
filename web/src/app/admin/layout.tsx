@@ -10,6 +10,7 @@ const adminNav = [
   { href: '/admin/partners', label: 'Партнёры', icon: Handshake },
   { href: '/admin/tariffs', label: 'Тарифы', icon: CreditCard },
   { href: '/admin/promotions', label: 'Акции', icon: Tag },
+  { href: '/admin/orders', label: 'Оплаты', icon: CreditCard },
   { href: '/admin/withdrawals', label: 'Заявки на вывод', icon: CreditCard },
 ]
 

@@ -98,6 +98,7 @@ app.include_router(client_chat_gates.router, prefix="/api/v1")                 #
 app.include_router(pricing_public.router)                                      # /api/v1/public/tariffs, /api/v1/public/promotions/active — для лендинга pluson.ru (миграции 116-119)
 app.include_router(subscriptions.router,         prefix="/api/v1")              # /api/v1/subscriptions/order, /orders — оплата подписки клиентом (миграция 120)
 app.include_router(subscriptions.webhook_router, prefix="/api/v1")              # /api/v1/integrations/prodamus/webhook — webhook от Prodamus (миграция 120)
+app.include_router(subscriptions.admin_router,   prefix="/api/v1")              # /api/v1/admin/orders — список всех оплат подписок
 app.include_router(referrals.router,             prefix="/api/v1")              # /api/v1/referrals/me, /withdraw — реф-программа (миграции 125-126)
 app.include_router(referrals.pay_router,         prefix="/api/v1")              # /api/v1/subscriptions/pay-with-bonus — оплата бонусами
 app.include_router(referrals.admin_router,       prefix="/api/v1")              # /api/v1/admin/withdrawals — обработка заявок

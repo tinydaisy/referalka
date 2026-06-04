@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.auth import get_current_client as get_current_user
+from app.auth import get_current_client as get_current_user, get_current_admin
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +149,73 @@ async def list_orders(
         client_id,
     )
     return {"orders": [dict(r) for r in rows]}
+
+
+# ─── Админ: список всех оплат подписок ────────────────────────────────────────
+
+admin_router = APIRouter(prefix="/admin", tags=["Админ: оплаты подписок"])
+
+
+@admin_router.get("/orders", summary="Все оплаты подписок (для админки)")
+async def list_all_orders(
+    status: Optional[str] = None,           # 'created'|'paid'|'failed'|'cancelled'
+    search: Optional[str] = None,           # по имени/email клиента
+    limit: int = 100,
+    offset: int = 0,
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    where = ["1=1"]
+    args: list = []
+    if status:
+        args.append(status)
+        where.append(f"so.status = ${len(args)}")
+    if search:
+        args.append(f"%{search}%")
+        where.append(f"(c.name ILIKE ${len(args)} OR c.email ILIKE ${len(args)})")
+
+    args.extend([limit, offset])
+    where_sql = " AND ".join(where)
+
+    rows = await db.fetch(
+        f"""SELECT so.id, so.status,
+                   so.amount_total_kopecks, so.amount_paid_card_kopecks, so.amount_paid_bonus_kopecks,
+                   so.prodamus_order_num, so.prodamus_payment_type, so.paid_at, so.created_at,
+                   t.slug AS tariff_slug, t.name AS tariff_name,
+                   c.id AS client_id, c.name AS client_name, c.email AS client_email,
+                   c.telegram_username,
+                   ref.id AS referrer_id, ref.name AS referrer_name
+              FROM subscription_orders so
+              JOIN clients c ON c.id = so.client_id
+              JOIN tariffs t ON t.id = so.tariff_id
+              LEFT JOIN clients ref ON ref.id = c.referred_by_client_id
+             WHERE {where_sql}
+             ORDER BY so.created_at DESC
+             LIMIT ${len(args) - 1} OFFSET ${len(args)}""",
+        *args,
+    )
+    total = await db.fetchval(
+        f"""SELECT COUNT(*) FROM subscription_orders so
+              JOIN clients c ON c.id = so.client_id
+             WHERE {where_sql}""",
+        *args[:-2],
+    )
+
+    # Сводка по статусам (без учёта search/status фильтров — полная картина)
+    summary = await db.fetchrow(
+        """SELECT
+             COUNT(*) FILTER (WHERE status='paid') AS paid_count,
+             COALESCE(SUM(amount_paid_card_kopecks) FILTER (WHERE status='paid'), 0) AS total_card_paid,
+             COALESCE(SUM(amount_paid_bonus_kopecks) FILTER (WHERE status='paid'), 0) AS total_bonus_paid,
+             COUNT(*) FILTER (WHERE status='created') AS pending_count
+           FROM subscription_orders"""
+    )
+
+    return {
+        "orders": [dict(r) for r in rows],
+        "total": total,
+        "summary": dict(summary) if summary else {},
+    }
 
 
 # ─── Webhook от Prodamus ──────────────────────────────────────────────────────
