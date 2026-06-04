@@ -73,15 +73,38 @@ async def _send_event_organizer_notification(
         contact_id, platform_slug,
     )
     referrer = None
+    referrer_role_label = "Участник"
     if referrer_contact_id:
+        # Ник реферера ищем по ЛЮБОЙ его платформе (не по платформе пришедшего):
+        # реферер мог быть заведён в TG, а пришедший прийти через VK — тогда
+        # совпадения по platform_slug не будет и ник терялся. Берём первый ник.
         referrer = await conn.fetchrow(
-            """SELECT c.name, pu.username
+            """SELECT c.name,
+                      (SELECT pu.username FROM platform_users pu
+                        WHERE pu.contact_id = c.id AND pu.username IS NOT NULL
+                        ORDER BY pu.id LIMIT 1) AS username
                  FROM contacts c
-            LEFT JOIN platform_users pu
-                   ON pu.contact_id = c.id AND pu.platform_slug = $2
                 WHERE c.id = $1""",
-            referrer_contact_id, platform_slug,
+            referrer_contact_id,
         )
+        # Роль реферера В ЭТОМ событии: если он коллаборатор (organizer/jury/
+        # speaker/headliner/partner) — берём его роль, иначе он обычный участник.
+        ref_role = await conn.fetchval(
+            """SELECT ec.role
+                 FROM collaborators co
+                 JOIN event_collaborators ec ON ec.speaker_id = co.id
+                WHERE co.contact_id = $1 AND ec.event_id = $2
+                LIMIT 1""",
+            referrer_contact_id, event_id,
+        )
+        _ROLE_LABELS = {
+            "organizer": "Организатор",
+            "jury": "Жюри",
+            "speaker": "Спикер",
+            "headliner": "Спикер",
+            "partner": "Партнёр",
+        }
+        referrer_role_label = _ROLE_LABELS.get((ref_role or "").lower(), "Участник")
 
     # Активный бот клиента — события и лид-магниты слушает именно он.
     from .channels import get_bot_handle_for_user
@@ -108,6 +131,7 @@ async def _send_event_organizer_notification(
     ]
     if referrer_contact_id and referrer:
         parts.append("<b>Кто привёл</b>")
+        parts.append(f"<b>Роль:</b> {referrer_role_label}")
         parts.append(f"<b>Никнейм:</b> {('@' + referrer['username']) if referrer['username'] else '—'}")
         parts.append(f"<b>Имя:</b> {referrer['name'] or '—'}")
         parts.append(f"<b>ID контакта:</b> #{referrer_contact_id}")
