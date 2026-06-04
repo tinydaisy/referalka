@@ -603,6 +603,38 @@ async def handle_start(message: Message, command: CommandObject):
             except Exception as e:
                 log.exception("reg_ handler failed: %s", e)
 
+    # Партнёрский ref-код клиента ПЛЮСОНа: /start ref{8симв} (миграция 125).
+    # Формат строго `ref` + 8 символов алфавита `23456789abcdefghjkmnpqrstuvwxyz`.
+    # Обрабатываем ДО общего ref_-обработчика событий, иначе уйдёт в Mini App.
+    import re as _re
+    m = _re.fullmatch(r"ref([23456789abcdefghjkmnpqrstuvwxyz]{8})", args)
+    if m:
+        referral_code = m.group(1)
+        try:
+            from app.database import get_pool as _get_pool
+            pool = await _get_pool()
+            async with pool.acquire() as conn:
+                referrer = await conn.fetchrow(
+                    "SELECT id, name FROM clients WHERE referral_code = $1",
+                    referral_code,
+                )
+            if referrer:
+                register_url = f"https://pluson.ru/register?pid={referral_code}"
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="📝 Зарегистрироваться", url=register_url)
+                ]])
+                await message.answer(
+                    f"Привет, {user.first_name or ''}! 👋\n\n"
+                    f"Вас пригласил(а) <b>{referrer['name']}</b> в <b>iViSiON: ПЛЮСОН</b> — "
+                    f"платформу для организаторов и экспертов.\n\n"
+                    f"Создайте аккаунт и попробуйте всё сами 👇",
+                    reply_markup=kb,
+                    parse_mode="HTML",
+                )
+                return
+        except Exception as e:
+            log.exception("partner ref handler failed: %s", e)
+
     # Старый сценарий: реф-ссылка события → Mini App
     if args.startswith("ref_") or args.startswith("ref"):
         mini_app_url = f"{settings.mini_app_url}?ref={args}"

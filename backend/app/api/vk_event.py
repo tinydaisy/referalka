@@ -841,6 +841,15 @@ async def handle_vk_event(body: VkEventRequest):
             utm_source=body.utm_source or None,
         )
 
+        # Подписка на главный VK-канал клиента — чтобы человек попал в подписчики
+        # и в рассылку (TG это делает через register_telegram_subscription; для VK
+        # этого шага раньше не было → VK-база рассылок не наполнялась).
+        try:
+            from app.services.channels import register_platform_channel_subscription
+            await register_platform_channel_subscription(client_id, "vk", pu_id, conn)
+        except Exception as e:
+            logger.warning(f"VK register channel subscription failed (pu={pu_id}): {e}")
+
         # Реферер — если в startapp передан pid (ref_code партнёра)
         resolved_ref_code = None
         referrer_contact_id = None

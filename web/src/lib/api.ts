@@ -679,11 +679,47 @@ export const api = {
   publicData: {
     tariffs: () => request('/api/v1/public/tariffs'),
     activePromotions: () => request('/api/v1/public/promotions/active'),
+    features: () => request('/api/v1/public/features'),
   },
   subscriptions: {
     createOrder: (tariff_slug: string) =>
       request('/api/v1/subscriptions/order', { method: 'POST', body: JSON.stringify({ tariff_slug }) }),
     getOrder: (id: number) => request(`/api/v1/subscriptions/orders/${id}`),
     listOrders: () => request('/api/v1/subscriptions/orders'),
+    payWithBonus: (tariff_slug: string) =>
+      request('/api/v1/subscriptions/pay-with-bonus', { method: 'POST', body: JSON.stringify({ tariff_slug }) }),
+  },
+  referrals: {
+    me: () => request('/api/v1/referrals/me'),
+    withdraw: (amount_kopecks: number, payment_details: string) =>
+      request('/api/v1/referrals/withdraw', {
+        method: 'POST',
+        body: JSON.stringify({ amount_kopecks, payment_details }),
+      }),
+  },
+  adminOrders: {
+    list: (params?: { status?: string; search?: string; limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams()
+      if (params?.status) qs.set('status', params.status)
+      if (params?.search) qs.set('search', params.search)
+      if (params?.limit != null) qs.set('limit', String(params.limit))
+      if (params?.offset != null) qs.set('offset', String(params.offset))
+      const s = qs.toString()
+      return request(`/api/v1/admin/orders${s ? '?' + s : ''}`)
+    },
+  },
+  adminWithdrawals: {
+    list: (status?: 'pending' | 'completed' | 'cancelled') =>
+      request(`/api/v1/admin/withdrawals${status ? `?status=${status}` : ''}`),
+    complete: (id: number, admin_note?: string) =>
+      request(`/api/v1/admin/withdrawals/${id}/complete`, {
+        method: 'POST',
+        body: JSON.stringify({ admin_note: admin_note || null }),
+      }),
+    cancel: (id: number, admin_note: string) =>
+      request(`/api/v1/admin/withdrawals/${id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ admin_note }),
+      }),
   },
 }

@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { CheckCircle, ArrowRight } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -10,6 +10,14 @@ export default function RegisterPage() {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [referrerPid, setReferrerPid] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const fromUrl = new URLSearchParams(window.location.search).get('pid')
+    if (fromUrl) localStorage.setItem('pluson_referrer_pid', fromUrl)
+    setReferrerPid(fromUrl || localStorage.getItem('pluson_referrer_pid'))
+  }, [])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -26,9 +34,11 @@ export default function RegisterPage() {
       const res = await api.auth.register({
         name: form.name, email: form.email, phone: form.phone || undefined,
         telegram_username: form.telegram_username || undefined,
-        password: form.password, partner_code: form.partner_code || undefined
+        password: form.password, partner_code: form.partner_code || undefined,
+        pid: referrerPid || undefined,  // реф-код пригласившего (миграция 125)
       })
       localStorage.setItem('plusson_token', res.access_token)
+      localStorage.removeItem('pluson_referrer_pid')  // pid использован
       window.location.href = '/dashboard'
     } catch (err: any) {
       setError(err.message)
@@ -74,7 +84,13 @@ export default function RegisterPage() {
             <span className="text-2xl font-bold" style={{ color: '#25455D' }}>iViSiON: ПЛЮСОН</span>
           </div>
 
-          <h2 className="text-2xl font-bold text-gray-900 mb-8">Создайте аккаунт</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Создайте аккаунт</h2>
+          {referrerPid && (
+            <p className="mb-6 text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-lg">
+              🎁 Вас пригласили по реф-коду <b>{referrerPid}</b>
+            </p>
+          )}
+          {!referrerPid && <div className="mb-6" />}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
