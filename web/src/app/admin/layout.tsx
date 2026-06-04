@@ -35,8 +35,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       router.replace('/admin/login')
       return
     }
-    // /auth/me возвращает payload JWT с role. Для админа role='admin'.
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/me`, {
+    // /admin/me доступен ТОЛЬКО для JWT с role='admin'. Используем его
+    // (а не /auth/me, который читает clients по sub и для админа возвращает
+    // данные клиента-Маргариты — это запутывает guard).
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/admin/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.ok ? r.json() : null)
@@ -46,7 +48,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           setAuthorized(true)
           setChecking(false)
         } else {
-          // Залогинены как клиент или токен невалиден — на /admin/login
+          // Не админ или токен невалиден — на /admin/login
           router.replace('/admin/login')
         }
       })

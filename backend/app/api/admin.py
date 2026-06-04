@@ -8,6 +8,26 @@ import asyncpg
 router = APIRouter(prefix="/admin", tags=["Администратор"])
 
 
+@router.get("/me", summary="Профиль текущего администратора (для admin-guard на фронте)")
+async def admin_me(
+    admin=Depends(get_current_admin),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Возвращает данные ИЗ ТАБЛИЦЫ admins по sub из JWT с role='admin'.
+
+    Создан потому что /auth/me читает clients по sub — у админа и клиента
+    с id=1 это разные люди (admin@plusson.app vs margarita.vl2011@gmail.com).
+    Использовать для admin-guard на фронте: если ответ 200 → admin, иначе → нет.
+    """
+    row = await db.fetchrow(
+        "SELECT id, name, email, is_superadmin FROM admins WHERE id = $1",
+        int(admin["sub"]),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Администратор не найден")
+    return {**dict(row), "role": "admin"}
+
+
 # ─── Статистика ───────────────────────────────────────────────────────────────
 
 @router.get("/stats", summary="Общая статистика платформы")
