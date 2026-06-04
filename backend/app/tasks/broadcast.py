@@ -1064,10 +1064,11 @@ async def _send_broadcast_email_part(
     import re as _re
     raw_text = text or ""
 
-    # Видео в email не встроить — добавляем ссылку на видео в текст письма
-    # (станет кликабельной через _linkify / HTML-рендер ниже).
-    if media_type == "video" and video_url:
-        raw_text = f"{raw_text}\n\n🎬 Видео: {video_url}" if raw_text else f"🎬 Видео: {video_url}"
+    # Видео в email не проигрывается встроенно (почтовые клиенты режут <video>).
+    # Поэтому показываем КАРТИНКУ-ОБЛОЖКУ (первый кадр) как кликабельную ссылку
+    # на видео — см. блок html_video_cover ниже. В plain-часть (для клиентов без
+    # HTML) добавляем текстовую ссылку отдельно (body_text), в HTML — нет.
+    is_video_email = bool(media_type == "video" and video_url)
 
     def _strip_html(s: str) -> str:
         """HTML-теги → пусто. Минимальный замены HTML-entities."""
@@ -1197,6 +1198,54 @@ async def _send_broadcast_email_part(
                 f'</div>'
             )
 
+    # ── Видео-обложка для email: первый кадр как кликабельная картинка ──
+    # Telegram/VK играют видео сами; в email встроить нельзя — поэтому
+    # показываем обложку (thumbnail) с иконкой play, вся картинка — ссылка на
+    # видео (открывается в браузере). Обложку встраиваем по CID (как фото).
+    html_video_cover = ""
+    video_thumb_data: bytes | None = None
+    video_thumb_cid: str = "broadcast_video_cover"
+    if is_video_email:
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as vf:
+                vresp = await vf.get(video_url)
+            if vresp.status_code == 200:
+                from app.services.video_meta import extract_thumbnail
+                video_thumb_data = await extract_thumbnail(vresp.content)
+        except Exception as e:
+            logger.warning(f"Email broadcast: не смог получить обложку видео {video_url}: {e}")
+        # Кликабельная обложка с наложенной иконкой play (через таблицу-overlay
+        # не делаем — почтовики капризны; кладём play как фоновую псевдо-кнопку
+        # поверх через простой div поверх img в обёртке position:relative).
+        cover_src = f"cid:{video_thumb_cid}" if video_thumb_data else None
+        if cover_src:
+            html_video_cover = (
+                f'<a href="{video_url}" target="_blank" rel="noopener" '
+                f'style="display:block;position:relative;margin-bottom:20px;text-decoration:none;">'
+                f'<img src="{cover_src}" alt="Смотреть видео" '
+                f'style="display:block;max-width:100%;width:600px;height:auto;'
+                f'border-radius:12px;border:0;outline:none;"/>'
+                f'<span style="position:absolute;top:50%;left:50%;'
+                f'transform:translate(-50%,-50%);background:rgba(37,69,93,0.85);'
+                f'color:#FFCFA4;width:64px;height:64px;border-radius:50%;'
+                f'font-size:28px;line-height:64px;text-align:center;">&#9658;</span>'
+                f'</a>'
+                f'<div style="margin:-8px 0 20px;">'
+                f'<a href="{video_url}" target="_blank" rel="noopener" '
+                f'style="color:#3D8CB6;text-decoration:underline;font-size:14px;">▶ Смотреть видео</a>'
+                f'</div>'
+            )
+        else:
+            # Обложку извлечь не вышло — даём аккуратную кнопку-ссылку.
+            html_video_cover = (
+                f'<div style="margin-bottom:20px;">'
+                f'<a href="{video_url}" target="_blank" rel="noopener" '
+                f'style="display:inline-block;background-color:#25455D;color:#FFCFA4 !important;'
+                f'padding:14px 28px;border-radius:12px;text-decoration:none;'
+                f'font-family:Roboto,sans-serif;font-size:16px;font-weight:700;">▶ Смотреть видео</a>'
+                f'</div>'
+            )
+
     # HTML-кнопка: простой <a> с inline-стилем. Без <table> — Gmail
     # надёжнее рендерит и сохраняет href кликабельным.
     def _html_button(label: str, url: str) -> str:
@@ -1234,6 +1283,7 @@ async def _send_broadcast_email_part(
         f'font-size:15px;line-height:1.55;color:#25455D;max-width:640px;margin:0 auto;">'
         f'<div style="background:#E8F2FA;padding:30px 24px;border-radius:16px;">'
         f'{html_image}'
+        f'{html_video_cover}'
         f'<div>{html_inner}</div>'
         f'{html_button}'
         f'</div>'
@@ -1242,6 +1292,8 @@ async def _send_broadcast_email_part(
 
     # Plain-часть: HTML вырезан + текстовая кнопка.
     body_text = _strip_html(raw_text)
+    if is_video_email:
+        body_text = body_text.rstrip() + f"\n\n▶ Смотреть видео: {video_url}"
     if button_text and button_url:
         body_text = body_text.rstrip() + f"\n\n{button_text}: {button_url}"
     elif buttons:
@@ -1346,13 +1398,23 @@ async def _send_broadcast_email_part(
         msg_id: str | None = None
         # Если фото удалось скачать — передаём байты как inline-attachment,
         # на который ссылается <img src="cid:broadcast_image"> в html_body.
+        # Аналогично — обложка видео (cid:broadcast_video_cover).
         inline_images_arg = None
+        _imgs = []
         if inline_image_data:
-            inline_images_arg = [{
+            _imgs.append({
                 "content_id": inline_image_cid,
                 "data": inline_image_data,
                 "subtype": inline_image_subtype,
-            }]
+            })
+        if video_thumb_data:
+            _imgs.append({
+                "content_id": video_thumb_cid,
+                "data": video_thumb_data,
+                "subtype": "jpeg",
+            })
+        if _imgs:
+            inline_images_arg = _imgs
 
         try:
             msg_id = sender.send(
