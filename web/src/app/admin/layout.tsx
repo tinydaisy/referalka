@@ -21,6 +21,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter()
   const [checking, setChecking] = useState(true)
   const [authorized, setAuthorized] = useState(false)
+  const [adminInfo, setAdminInfo] = useState<{ email?: string; name?: string } | null>(null)
 
   useEffect(() => {
     // Страница /admin/login не должна гонять auth-check (там идёт сам логин).
@@ -41,6 +42,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       .then(r => r.ok ? r.json() : null)
       .then(me => {
         if (me && me.role === 'admin') {
+          setAdminInfo({ email: me.email, name: me.name })
           setAuthorized(true)
           setChecking(false)
         } else {
@@ -90,6 +92,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           })}
         </nav>
         <div className="px-3 py-4 border-t border-white/10">
+          {adminInfo && (
+            <div className="px-3 py-2 mb-2">
+              <div className="text-[10px] uppercase tracking-wider text-white/40 mb-1">Залогинены как</div>
+              <div className="text-sm text-white font-medium truncate" title={adminInfo.email}>
+                {adminInfo.name || 'Администратор'}
+              </div>
+              <div className="text-xs text-white/60 truncate" title={adminInfo.email}>
+                {adminInfo.email}
+              </div>
+            </div>
+          )}
           <button
             className="flex items-center gap-3 px-3 py-2 text-white/60 hover:text-white text-sm w-full"
             onClick={() => { localStorage.removeItem('plusson_token'); window.location.href = '/admin/login' }}
