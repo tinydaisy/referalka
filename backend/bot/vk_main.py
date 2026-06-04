@@ -981,6 +981,56 @@ async def handle_message_read(event_obj: dict, db, ctx: GroupCtx) -> None:
         logger.warning(f"VK message_read UPDATE failed group={ctx.group_id} from={from_id}: {e}")
 
 
+async def handle_group_join(event: dict, db, ctx: GroupCtx) -> None:
+    """group_join: пользователь подписался на СООБЩЕСТВО (стену).
+
+    Записываем его в базу как контакт + VK-идентичность + подписку на VK-канал
+    клиента. ВАЖНО: подписка на сообщество ≠ разрешение писать в ЛС — рассылку
+    этому человеку слать нельзя, пока он отдельно не нажал «Разрешить сообщения»
+    (message_allow). Но контакт фиксируем для аналитики и связки.
+    """
+    user_id = event.get("user_id")
+    if not user_id:
+        return
+    join_type = event.get("join_type")  # join | unsure | accepted | approved | request
+    logger.info("VK group_join group=%s user=%s type=%s", ctx.group_id, user_id, join_type)
+
+    try:
+        user_info = await get_user_info(int(user_id))
+    except Exception:
+        user_info = None
+    await upsert_contact_with_identity(
+        db,
+        client_id=ctx.client_id,
+        platform_slug="vk",
+        platform_user_id=str(user_id),
+        username=(user_info or {}).get("screen_name") or None,
+        first_name=(user_info or {}).get("first_name") or None,
+        last_name=(user_info or {}).get("last_name") or None,
+    )
+    # Подписка на VK-канал клиента (тот же паттерн, что в handle_message_allow).
+    cc_id = await db.fetchval(
+        """SELECT cc.id FROM client_channels cc
+            WHERE cc.client_id = $1 AND cc.channel_id = $2 LIMIT 1""",
+        ctx.client_id, ctx.channel_id,
+    )
+    if cc_id:
+        pu_id = await db.fetchval(
+            """SELECT id FROM platform_users
+                WHERE client_id = $1 AND platform_slug = 'vk' AND platform_user_id = $2""",
+            ctx.client_id, str(user_id),
+        )
+        if pu_id:
+            await db.execute(
+                """INSERT INTO platform_user_channels (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at)
+                   VALUES ($1, $2, FALSE, NOW())
+                   ON CONFLICT (platform_user_id, client_channel_id)
+                   DO UPDATE SET is_unsubscribed=FALSE, subscribed_at=NOW(), unsubscribed_at=NULL""",
+                pu_id, cc_id,
+            )
+    logger.info("VK group_join: group=%s user=%s recorded", ctx.group_id, user_id)
+
+
 async def process_event(ev: dict, db, ctx: GroupCtx) -> None:
     """Диспетчер событий Long Poll."""
     t = ev.get("type")
@@ -996,7 +1046,9 @@ async def process_event(ev: dict, db, ctx: GroupCtx) -> None:
             await handle_message_new(obj, db, ctx)
         elif t == "message_read":
             await handle_message_read(obj, db, ctx)
-        # message_reply, group_join, group_leave — не обрабатываем пока
+        elif t == "group_join":
+            await handle_group_join(obj, db, ctx)
+        # message_reply, group_leave — не обрабатываем пока
     except Exception as e:
         logger.exception(f"VK process_event group={ctx.group_id} type={t} failed: {e}")
 

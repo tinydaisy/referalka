@@ -52,6 +52,13 @@ export async function initPlatform(): Promise<PlatformAdapter> {
         .then((r: any) => cb(!!r?.result))
         .catch(() => cb(false))
     },
+    joinGroup: (opts, cb) => {
+      const gid = Number(opts.vkGroupId || 0) || Number(launchParams.vk_group_id || 0)
+      if (!gid) { cb(false); return }
+      bridge.send('VKWebAppJoinGroup', { group_id: gid })
+        .then((r: any) => cb(!!r?.result))
+        .catch(() => cb(false))
+    },
     openExternal: (url: string) => {
       // Семантика «openExternal» в VK Mini App = «открыть во внешнем браузере,
       // не закрывая Mini App». VK Bridge API для этого нет (есть только
