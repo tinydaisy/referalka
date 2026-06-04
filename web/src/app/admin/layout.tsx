@@ -1,7 +1,9 @@
 'use client'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { BarChart2, Users, Handshake, CreditCard, Settings, LogOut, Radio, Tag } from 'lucide-react'
+import { api } from '@/lib/api'
 
 const adminNav = [
   { href: '/admin', label: 'Обзор', icon: BarChart2 },
@@ -16,6 +18,56 @@ const adminNav = [
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
+  const [checking, setChecking] = useState(true)
+  const [authorized, setAuthorized] = useState(false)
+
+  useEffect(() => {
+    // Страница /admin/login не должна гонять auth-check (там идёт сам логин).
+    if (pathname === '/admin/login') {
+      setChecking(false)
+      setAuthorized(true)
+      return
+    }
+    const token = typeof window !== 'undefined' && localStorage.getItem('plusson_token')
+    if (!token) {
+      router.replace('/admin/login')
+      return
+    }
+    // /auth/me возвращает payload JWT с role. Для админа role='admin'.
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(me => {
+        if (me && me.role === 'admin') {
+          setAuthorized(true)
+          setChecking(false)
+        } else {
+          // Залогинены как клиент или токен невалиден — на /admin/login
+          router.replace('/admin/login')
+        }
+      })
+      .catch(() => router.replace('/admin/login'))
+  }, [pathname, router])
+
+  if (pathname === '/admin/login') {
+    // /admin/login сам по себе не требует обёртки админ-сайдбара
+    return <>{children}</>
+  }
+
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-sm text-gray-500">Проверяем доступ к админке…</div>
+      </div>
+    )
+  }
+
+  if (!authorized) {
+    return null
+  }
+
   return (
     <div className="flex min-h-screen bg-gray-50">
       <aside className="sidebar hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-40 w-60">
@@ -40,7 +92,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="px-3 py-4 border-t border-white/10">
           <button
             className="flex items-center gap-3 px-3 py-2 text-white/60 hover:text-white text-sm w-full"
-            onClick={() => { localStorage.removeItem('plusson_token'); window.location.href = '/login' }}
+            onClick={() => { localStorage.removeItem('plusson_token'); window.location.href = '/admin/login' }}
           >
             <LogOut size={16} /> Выйти
           </button>
