@@ -522,6 +522,12 @@ async def connect_vk_community(
                 "message_allow": 1,
                 "message_deny": 1,
                 "message_event": 1,
+                "message_read": 1,
+                # group_join — чтобы ловить подписавшихся на СООБЩЕСТВО (стену) в базу.
+                # group_leave — отписки (на будущее). Без этих флагов VK не шлёт события,
+                # и обработчик handle_group_join в боте никогда не сработает.
+                "group_join": 1,
+                "group_leave": 1,
             },
             token=token,
         )
