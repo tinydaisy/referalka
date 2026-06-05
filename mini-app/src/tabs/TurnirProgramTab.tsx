@@ -260,7 +260,8 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
   // один из дней конференции — активная ссылка с LIVE-значком.
   // В остальные дни — неактивная плашка-«заглушка» с пояснением.
   const hasStream = !!event?.stream_url
-  const streamLive = hasStream && isStreamDay(event, days)
+  // «День эфира» — сегодня попадает в дни события.
+  const isToday = isStreamDay(event, days)
 
   const speakersScrollRef = useRef<HTMLDivElement | null>(null)
   const speakerCardRefs   = useRef<Record<number, HTMLDivElement | null>>({})
@@ -315,11 +316,20 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
       setStages(st || [])
       // На refresh сбрасываем кэш сессий, чтобы перезагрузить активный день
       setSessionsByDay({})
+      // Активный день: сегодняшний → ближайший будущий → первый.
+      const today = d.find(x => dayState(x) === 'today')
+      const future = d.find(x => dayState(x) === 'future')
+      const activeDay = today || future || d[0] || null
       setOpenDay(prev => {
         if (prev != null && d.some(x => x.day_number === prev)) return prev
-        const today = d.find(x => dayState(x) === 'today')
-        const future = d.find(x => dayState(x) === 'future')
-        return today?.day_number || future?.day_number || d[0]?.day_number || null
+        return activeDay?.day_number || null
+      })
+      // По умолчанию раскрываем этап, в котором лежит активный день —
+      // чтобы карточка идущего/ближайшего дня была сразу видна (а не спрятана
+      // внутри свёрнутого этапа). Если клиент уже сам раскрывал этап — не трогаем.
+      setOpenStageId(prev => {
+        if (prev != null && st.some((s: Stage) => s.id === prev)) return prev
+        return activeDay?.stage_id ?? null
       })
     })
   }, [event?.id, isTurnir, refreshKey])
@@ -352,6 +362,29 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
     return null
   }, [days, sessionsByDay, nowTs])
   const activeSpeakerEventId = activeSession?.speaker_event_id || null
+
+  // Время старта эфира СЕГОДНЯ (строка "HH:MM" МСК). Берём время открытия
+  // сегодняшнего дня (conf_days.open_time); если его нет — время самой ранней
+  // сессии этого дня. null = времени нет (показываем LIVE сразу, как раньше).
+  const streamStartToday: string | null = useMemo(() => {
+    const d = days.find(x => x.day_date === nowTs.date)
+    if (!d) return null
+    const open = (d.open_time || '').slice(0, 5)
+    if (open) return open
+    const list = sessionsByDay[d.day_number] || []
+    const starts = list
+      .map(s => (s.start_time || '').slice(0, 5))
+      .filter(Boolean)
+      .sort()
+    return starts[0] || null
+  }, [days, sessionsByDay, nowTs])
+
+  // Эфир «уже идёт» только если сегодня день эфира И время старта наступило
+  // (или времени старта нет — тогда LIVE весь день, как было раньше).
+  const streamStarted = isToday && (!streamStartToday || nowTs.time >= streamStartToday)
+  const streamLive = hasStream && streamStarted
+  // Сегодня день эфира, но он ещё не начался — показываем «начнётся в HH:MM».
+  const streamPendingToday = hasStream && isToday && !streamStarted && !!streamStartToday
 
   // Лента дублируется (loop) только если контент шире контейнера — иначе
   // при 2-3 спикерах второй набор виден на экране сразу и выглядит как дубль.
@@ -516,6 +549,31 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
             </div>
             <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
           </a>
+        ) : streamPendingToday ? (
+          // Сегодня день эфира, но он ещё не начался по программе —
+          // показываем время старта, без LIVE и без активной ссылки.
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
+            borderRadius: 14, padding: 14, marginBottom: 10,
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+              background: 'rgba(255,207,164,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={PEACH} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7"/>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Стрим</div>
+              <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
+                Эфир начнётся в {streamStartToday} МСК — ссылка появится здесь
+              </div>
+            </div>
+          </div>
         ) : (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12,
