@@ -227,7 +227,7 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
 
 def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
                       stream_url_val, registration_url_val, raffle_url_val="", day_speakers_gifts="",
-                      next_day_mention="", day_title=""):
+                      next_day_mention="", day_title="", day_datetime=""):
     text = tmpl_text or ""
     ordinal = ORDINALS.get(day_number, f"{day_number}-м")
     text = text.replace("{day_number}", str(day_number))
@@ -235,6 +235,9 @@ def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
     # {day_title} — кастомное название дня (conf_days.title), fallback «День N».
     text = text.replace("{day_title}", (day_title or "").strip() or f"День {day_number}")
     text = text.replace("{conf_title}", conf_title or "")
+    # {day_datetime} — дата + время старта (для мероприятий: «5 июня в 12:06 МСК»).
+    # fallback на дату без времени, если время неизвестно.
+    text = text.replace("{day_datetime}", (day_datetime or "").strip() or (day_date or ""))
     text = text.replace("{day_date}", day_date or "")
     text = text.replace("{day_program}", day_program or "")
     text = text.replace("{stream_url}", stream_url_val or "")
@@ -340,7 +343,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                    e.stream_url,
                    cd.title AS day_title,
                    COALESCE(cd.day_date,
-                            (e.start_at AT TIME ZONE 'Europe/Moscow')::date) AS day_date
+                            (e.start_at AT TIME ZONE 'Europe/Moscow')::date) AS day_date,
+                   (e.start_at AT TIME ZONE 'Europe/Moscow') AS event_start_msk
             FROM events e
             LEFT JOIN conf_conferences cc ON cc.event_id = e.id
             LEFT JOIN conf_days cd ON cd.event_id = e.id AND cd.day_number = $2
@@ -354,10 +358,25 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         is_conference = (conf_row["module_slug"] == "conference") if conf_row else False
         stream_url = (conf_row["stream_url"] or "") if conf_row else ""
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
+        # У мероприятия (нет программы по дням) часто не задан landing_url, но есть
+        # stream_url (вебинарная комната). Тогда {landing_url}/{registration_url} и
+        # кнопка «Зарегистрироваться» ведут прямо в комнату — иначе кнопка с пустым
+        # URL не создаётся в Telegram и сообщение уходит вообще без кнопки.
+        if not reg_url and not is_program_event and stream_url:
+            reg_url = stream_url
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
         day_title = (conf_row["day_title"] or "") if conf_row else ""
         day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else (f"День {day}" if is_program_event else "")
+        # {day_datetime} — дата + время старта. Для мероприятия (нет программы по
+        # дням) время берём из events.start_at; «5 июня в 12:06 МСК». Для конф/
+        # турнира start_at обычно пуст — fallback на дату дня без времени.
+        event_start_msk = conf_row["event_start_msk"] if conf_row else None
+        if event_start_msk and not is_program_event:
+            day_datetime_str = (f"{event_start_msk.day} {RU_MONTHS[event_start_msk.month - 1]} "
+                                f"в {event_start_msk.strftime('%H:%M')} МСК")
+        else:
+            day_datetime_str = day_date_str
         if not photo:
             photo = await get_default_event_photo(conn, event_id)
 
@@ -453,7 +472,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
         text = build_day_message(text, day, conf_title, day_date_str, day_program,
                                   stream_url, reg_url, raffle_url, day_speakers_gifts, next_day_mention,
-                                  day_title=day_title)
+                                  day_title=day_title, day_datetime=day_datetime_str)
         btn_url = (btn_url
                    .replace("{stream_url}", stream_url)
                    .replace("{landing_url}", reg_url)

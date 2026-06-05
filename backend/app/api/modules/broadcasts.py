@@ -213,12 +213,22 @@ DEFAULT_TEMPLATES = [
     {
         "name": "За 2 часа (не зарегистрирован)",
         "type": "2h_before_unreg",
+        # Текст для конференций/турниров — с программой дня ({day_program}).
         "text": (
             "<b>Уже через 2 часа стартует «{conf_title}»</b>\n\n"
             "🔗 {landing_url} \n\n"
             "Сегодня в программе:\n\n"
             "{day_date}\n\n"
             "{day_program}\n\n"
+            "Нажимай на кнопку «Зарегистрироваться», чтобы попасть в вебинарную комнату.\n"
+            "🔗 {landing_url}\n\n"
+            "—\n"
+            "При возникновении технических трудностей пишите — @forbs_service2"
+        ),
+        # Текст для мероприятий — без программы по дням (её нет), дата+время старта.
+        "text_event": (
+            "<b>Уже через 2 часа стартует «{conf_title}»</b>\n\n"
+            "🗓 {day_datetime}\n\n"
             "Нажимай на кнопку «Зарегистрироваться», чтобы попасть в вебинарную комнату.\n"
             "🔗 {landing_url}\n\n"
             "—\n"
@@ -394,6 +404,9 @@ async def list_templates(
         # `event_live` (за 5 мин до старта мероприятия) — только для мероприятия.
         ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
         is_conf = ev_row and ev_row["module_slug"] == "conference"
+        is_turnir = ev_row and ev_row["module_slug"] == "turnir"
+        # Мероприятие = не конференция и не турнир (base/webinar/прочие без программы).
+        is_plain_event = not is_conf and not is_turnir
         EVENT_ONLY_TYPES = {
             "30min_before",
             "2h_before_unreg", "2h_before_reg",
@@ -410,6 +423,9 @@ async def list_templates(
                 continue
             if is_conf and tpl["type"].startswith("day_before_09_12"):
                 continue  # для конф эту роль играет pre_conf
+            # Для мероприятий — альтернативный текст без программы по дням (text_event),
+            # если он задан у шаблона. Конференции/турниры используют основной text.
+            tpl_text = tpl["text_event"] if (is_plain_event and tpl.get("text_event")) else tpl["text"]
             await db.execute(
                 """
                 INSERT INTO broadcast_templates
@@ -418,7 +434,7 @@ async def list_templates(
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 """,
                 client_id, event_id, tpl["name"], tpl["type"],
-                tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"],
+                tpl_text, tpl["photo_url"], tpl["button_text"], tpl["button_url"],
                 tpl["schedule_mode"], tpl["offset_minutes"],
                 tpl["audience_include"], tpl["audience_exclude"], tpl["allow_custom_datetime"],
             )
