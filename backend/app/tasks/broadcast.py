@@ -170,11 +170,14 @@ async def _send_broadcast(schedule_id: int):
         )
         default_bot_token = await get_client_telegram_token(schedule["client_id"], conn)
         if not default_bot_token:
+            # Архитектура G (миграция 066): у channels НЕТ client_id — связь через
+            # junction client_channels. Берём любой TG-канал клиента с токеном.
             default_bot_token = await conn.fetchval(
-                """SELECT bot_token FROM channels
-                    WHERE client_id = $1 AND platform_slug = 'telegram'
-                      AND bot_token IS NOT NULL AND bot_token <> ''
-                    ORDER BY is_active DESC, id ASC LIMIT 1""",
+                """SELECT ch.bot_token FROM channels ch
+                     JOIN client_channels cc ON cc.channel_id = ch.id
+                    WHERE cc.client_id = $1 AND ch.platform_slug = 'telegram'
+                      AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+                    ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
                 schedule["client_id"],
             )
         if not default_bot_token:
@@ -309,12 +312,18 @@ async def _send_broadcast(schedule_id: int):
         if needs_game_link:
             ev_row = await conn.fetchrow("SELECT slug FROM events WHERE id=$1", event_id)
             event_slug_for_glink = (ev_row["slug"] if ev_row else "") or ""
-            # Бот клиента (VIP) или общий @pluson_bot/pluson
+            # Бот клиента (VIP) или общий @pluson_bot/pluson.
+            # Архитектура G (миграция 066): у channels НЕТ client_id — связь
+            # канал↔клиент только через junction client_channels. Берём активный
+            # НЕ системный TG-бот клиента (VIP). Если своего бота нет — fallback
+            # на общий @pluson_bot/pluson ниже.
             bot_handle = await conn.fetchval(
-                """SELECT REGEXP_REPLACE(handle, '^@', '')
-                     FROM channels
-                    WHERE client_id=$1 AND platform_slug='telegram'
-                      AND is_active=true AND bot_token IS NOT NULL
+                """SELECT REGEXP_REPLACE(ch.handle, '^@', '')
+                     FROM channels ch
+                     JOIN client_channels cc ON cc.channel_id = ch.id
+                    WHERE cc.client_id = $1 AND ch.platform_slug = 'telegram'
+                      AND cc.is_active = true AND ch.is_system = false
+                      AND ch.bot_token IS NOT NULL
                     LIMIT 1""",
                 schedule["client_id"]
             )
