@@ -345,21 +345,39 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
   }, [days, sessionsByDay, nowTs])
   const activeSpeakerEventId = activeSession?.speaker_event_id || null
 
-  // Время старта эфира СЕГОДНЯ (строка "HH:MM" МСК). Берём время открытия
-  // сегодняшнего дня (conf_days.open_time); если его нет — время самой ранней
-  // сессии этого дня. null = времени нет (показываем LIVE сразу, как раньше).
+  // Время старта эфира СЕГОДНЯ (строка "HH:MM" МСК).
+  // - Конференция: время самой ранней сессии сегодняшнего дня (или open_time дня).
+  // - Мероприятие (нет conf_days): время из events.start_at, если сегодня = дата старта.
+  // null = времени нет (показываем LIVE сразу, как раньше).
   const streamStartToday: string | null = useMemo(() => {
     const d = days.find(x => x.day_date === nowTs.date)
-    if (!d) return null
-    const open = (d.open_time || '').slice(0, 5)
-    if (open) return open
-    const list = sessionsByDay[d.day_number] || []
-    const starts = list
-      .map(s => (s.start_time || '').slice(0, 5))
-      .filter(Boolean)
-      .sort()
-    return starts[0] || null
-  }, [days, sessionsByDay, nowTs])
+    if (d) {
+      const open = (d.open_time || '').slice(0, 5)
+      if (open) return open
+      const list = sessionsByDay[d.day_number] || []
+      const starts = list
+        .map(s => (s.start_time || '').slice(0, 5))
+        .filter(Boolean)
+        .sort()
+      return starts[0] || null
+    }
+    // Мероприятие без программы по дням — берём дату/время из events.start_at (МСК).
+    if (event?.start_at) {
+      const dt = new Date(event.start_at)
+      if (!isNaN(dt.getTime())) {
+        const fmt = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Europe/Moscow',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', hour12: false,
+        })
+        const parts = fmt.formatToParts(dt)
+        const get = (t: string) => parts.find(p => p.type === t)?.value || ''
+        const startDate = `${get('year')}-${get('month')}-${get('day')}`
+        if (startDate === nowTs.date) return `${get('hour')}:${get('minute')}`
+      }
+    }
+    return null
+  }, [days, sessionsByDay, nowTs, event?.start_at])
 
   // Эфир «уже идёт» только если сегодня день эфира И время старта наступило
   // (или времени старта нет — тогда LIVE весь день, как было раньше).
