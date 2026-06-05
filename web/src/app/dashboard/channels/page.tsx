@@ -98,7 +98,7 @@ export default function ChannelsPage() {
       </div>
 
       {!isVip ? (
-        <NonVipView onUpgrade={() => alert('Свяжитесь с поддержкой для перехода на VIP')} />
+        <NonVipView onUpgrade={() => { window.location.href = '/dashboard/subscription' }} />
       ) : (
         <VipView
           channels={channels}
@@ -188,7 +188,7 @@ function NonVipView({ onUpgrade }: { onUpgrade: () => void }) {
         <div className="relative">
           <div className="inline-flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full text-xs font-medium mb-4">
             <Crown size={14} style={{ color: '#FFCFA4' }} />
-            <span>VIP-тариф</span>
+            <span>Тариф ПРОФИ</span>
           </div>
           <h2 className="text-xl font-bold mb-2">Хотите свой брендовый бот?</h2>
           <p className="text-white/75 text-sm mb-5 max-w-lg">
@@ -216,7 +216,7 @@ function NonVipView({ onUpgrade }: { onUpgrade: () => void }) {
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm"
             style={{ background: '#FFCFA4', color: '#25455D' }}
           >
-            Перейти на VIP <ArrowRight size={16} />
+            Перейти на ПРОФИ <ArrowRight size={16} />
           </button>
         </div>
       </div>
