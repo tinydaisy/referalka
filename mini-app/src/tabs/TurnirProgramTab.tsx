@@ -316,9 +316,11 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
       setStages(st || [])
       // На refresh сбрасываем кэш сессий, чтобы перезагрузить активный день
       setSessionsByDay({})
-      // Активный день: сегодняшний → ближайший будущий → первый.
+      // Активный день: сегодняшний → БЛИЖАЙШИЙ будущий (минимум по дате) → первый.
       const today = d.find(x => dayState(x) === 'today')
-      const future = d.find(x => dayState(x) === 'future')
+      const future = d
+        .filter(x => dayState(x) === 'future')
+        .sort((a, b) => (a.day_date || '').localeCompare(b.day_date || ''))[0]
       const activeDay = today || future || d[0] || null
       setOpenDay(prev => {
         if (prev != null && d.some(x => x.day_number === prev)) return prev
@@ -672,7 +674,22 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
               const dayLabel = d.day_date
                 ? `${baseName} · ${fmtDate(d.day_date)}`
                 : baseName
-              const stateLabel = state === 'past' ? 'завершён' : state === 'today' ? 'идёт сейчас' : 'впереди'
+              // Для сегодняшнего дня «идёт сейчас» показываем только если время
+              // старта уже наступило. До старта — «начнётся в HH:MM» (или «сегодня»,
+              // если время неизвестно). Старт = open_time дня, fallback на первую сессию.
+              const dayStart = (() => {
+                const open = (d.open_time || '').slice(0, 5)
+                if (open) return open
+                const starts = (sessionsByDay[d.day_number] || [])
+                  .map(s => (s.start_time || '').slice(0, 5)).filter(Boolean).sort()
+                return starts[0] || ''
+              })()
+              const todayLive = state === 'today' && (!dayStart || nowTs.time >= dayStart)
+              const stateLabel = state === 'past'
+                ? 'завершён'
+                : state === 'today'
+                  ? (todayLive ? 'идёт сейчас' : (dayStart ? `начнётся в ${dayStart} МСК` : 'сегодня'))
+                  : 'впереди'
               const accent = state === 'today'
               return (
                 <div key={d.day_number} style={{
@@ -693,7 +710,7 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                      {state === 'today' && (
+                      {todayLive && (
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#d32f2f',
                                        display: 'inline-block', flexShrink: 0 }}/>
                       )}
