@@ -7,16 +7,23 @@ export default function BroadcastsLayout({ children }: { children: React.ReactNo
   const { id } = useParams()
   const pathname = usePathname()
 
+  // Этот layout переиспользуется (ре-экспортом) в conferences / tournaments /
+  // events / contests. Базовый раздел берём из текущего URL, а не хардкодим
+  // 'conferences' — иначе из турнира «назад» и подвкладки уводили в раздел
+  // конференций (и сайдбар подсвечивал «Конференции»).
+  const section = pathname.match(/^\/dashboard\/(conferences|tournaments|events|contests)\//)?.[1] || 'conferences'
+  const base = `/dashboard/${section}/${id}`
+
   const navItems = [
-    { href: `/dashboard/conferences/${id}/broadcasts/templates`, label: 'Шаблоны', icon: Edit2 },
-    { href: `/dashboard/conferences/${id}/broadcasts/queue`, label: 'Очередь рассылок', icon: Send },
+    { href: `${base}/broadcasts/templates`, label: 'Шаблоны', icon: Edit2 },
+    { href: `${base}/broadcasts/queue`, label: 'Очередь рассылок', icon: Send },
   ]
 
   return (
     <div>
       {/* Заголовок раздела */}
       <div className="flex items-center gap-3 mb-6">
-        <Link href={`/dashboard/conferences/${id}`}
+        <Link href={base}
           className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
           <ArrowLeft size={18} />
         </Link>

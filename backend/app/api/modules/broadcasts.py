@@ -214,7 +214,7 @@ DEFAULT_TEMPLATES = [
         "name": "За 2 часа (не зарегистрирован)",
         "type": "2h_before_unreg",
         "text": (
-            "<b>[Последний шанс зарегистрироваться] Через 2 часа стартует День {day_number} конференции «{conf_title}»</b>\n\n"
+            "<b>Уже через 2 часа стартует «{conf_title}»</b>\n\n"
             "🔗 {landing_url} \n\n"
             "Сегодня в программе:\n\n"
             "{day_date}\n\n"
