@@ -682,8 +682,17 @@ async def generate_schedules(
         event_id
     )
     is_conf = ev_row and ev_row["module_slug"] == "conference"
+    is_turnir = ev_row and ev_row["module_slug"] == "turnir"
     event_start_at = ev_row["start_at"] if ev_row else None
     event_end_at = ev_row["end_at"] if ev_row else None
+
+    # «Событие с программой по дням» — конференция или турнир, у которого
+    # есть дни программы (conf_days). Тогда дневные рассылки (2h/30min) считаем
+    # по первой сессии каждого дня, а не от единой events.start_at.
+    has_conf_days = await db.fetchval(
+        "SELECT 1 FROM conf_days WHERE event_id=$1 LIMIT 1", event_id
+    )
+    use_day_program = bool(is_conf or (is_turnir and has_conf_days))
 
     templates = await db.fetch(
         """
@@ -703,15 +712,17 @@ async def generate_schedules(
     if not tmpl_map and not custom_tmpls:
         raise HTTPException(status_code=400, detail="Сначала создайте шаблоны рассылок")
 
-    # Валидация: для конференции нужна программа, для мероприятия — start_at.
-    if is_conf:
-        any_day = await db.fetchval(
-            "SELECT 1 FROM conf_days WHERE event_id=$1 LIMIT 1", event_id
+    # Валидация: для события с программой по дням нужна программа (дни + сессии),
+    # для обычного мероприятия — start_at.
+    if use_day_program:
+        any_session = await db.fetchval(
+            "SELECT 1 FROM conf_sessions WHERE event_id=$1 AND start_time IS NOT NULL LIMIT 1",
+            event_id
         )
-        if not any_day:
+        if not any_session:
             raise HTTPException(
                 status_code=400,
-                detail="У конференции нет программы — добавьте дни и сессии во вкладке «Программа»"
+                detail="В программе нет сессий со временем — добавьте сессии во вкладке «Программа»"
             )
     else:
         if not event_start_at:
@@ -731,7 +742,7 @@ async def generate_schedules(
         ORDER BY cs.day, cs.start_time
         """,
         event_id
-    ) if is_conf else []
+    ) if use_day_program else []
 
     created = 0
     skipped = 0
@@ -948,11 +959,37 @@ async def generate_schedules(
             offset = tmpl["offset_minutes"] or 30
             await add_schedule(tmpl, last_end_utc + timedelta(minutes=offset), None, "day_end")
 
-    # ── Расписания для НЕ-конференций (одна точка отсчёта = events.start_at) ──
-    # Все «дневные» рассылки (2h, 30min, event_live, day_before_09_12) — относительно start_at.
+    # ── event_live + day_before_09_12 для события с программой (турнир) ──
+    # У турнира эти шаблоны засеяны как у мероприятия, но точка отсчёта = первая
+    # сессия ПЕРВОГО дня программы (а не events.start_at, который не используется).
+    if use_day_program and days:
+        first_day_num = min(days.keys())
+        first_day_sessions = days[first_day_num]
+        prog_first_start_utc = _msk_str_to_utc(
+            first_day_sessions[0].get("day_date"), first_day_sessions[0].get("start_time")
+        )
+        if prog_first_start_utc:
+            if "event_live" in tmpl_map:
+                tmpl = tmpl_map["event_live"]
+                offset = tmpl["offset_minutes"] or 5
+                await add_schedule(tmpl, prog_first_start_utc - timedelta(minutes=offset), None, "event_live")
+            # day_before_09_12_*: за сутки до первой сессии, в 09:12 МСК
+            tz_msk = ZoneInfo("Europe/Moscow")
+            first_start_msk = prog_first_start_utc.astimezone(tz_msk)
+            day_before = first_start_msk.date() - timedelta(days=1)
+            fire_0912_utc = datetime(
+                day_before.year, day_before.month, day_before.day, 9, 12, 0, tzinfo=tz_msk
+            ).astimezone(ZoneInfo("UTC"))
+            for ttype in ("day_before_09_12_unreg", "day_before_09_12_reg"):
+                if ttype in tmpl_map:
+                    await add_schedule(tmpl_map[ttype], fire_0912_utc, None, ttype)
+
+    # ── Расписания для событий БЕЗ программы по дням (одна точка отсчёта = events.start_at) ──
+    # Обычные мероприятия (и турнир без программы). Все «дневные» рассылки
+    # (2h, 30min, event_live, day_before_09_12) — относительно start_at.
     # `5min_before` (за 5 мин до выступления спикера) не используется для мероприятий —
     # для них есть отдельный тип `event_live` (за 5 мин до старта эфира).
-    if not is_conf and event_start_at:
+    if not use_day_program and event_start_at:
         # event_start_at в БД хранится как TIMESTAMPTZ — приводим к UTC
         if event_start_at.tzinfo is None:
             event_start_utc = event_start_at.replace(tzinfo=ZoneInfo("UTC"))

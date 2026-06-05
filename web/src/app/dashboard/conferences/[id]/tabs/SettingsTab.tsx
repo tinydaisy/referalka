@@ -42,6 +42,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     description: event?.description || '',
     description_post_register: event?.description_post_register || '',
     stream_url: conf?.stream_url || '',
+    hide_stream_button: !!conf?.hide_stream_button,
     // landing_url — единое поле для всех событий (events.landing_url),
     // после миграции 057. Старое conf_conferences.registration_url удалено.
     landing_url: event?.landing_url || '',
@@ -70,6 +71,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       description: event?.description || '',
       description_post_register: event?.description_post_register || '',
       stream_url: conf?.stream_url || '',
+    hide_stream_button: !!conf?.hide_stream_button,
       landing_url: event?.landing_url || '',
       vip_url: conf?.vip_url || '',
       vip_button_label: conf?.vip_button_label || '',
@@ -113,6 +115,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
 
       const confPatch: any = {}
       if (form.stream_url !== (conf?.stream_url || ''))                confPatch.stream_url = form.stream_url || null
+      if (form.hide_stream_button !== !!conf?.hide_stream_button)      confPatch.hide_stream_button = form.hide_stream_button
       if (form.vip_url !== (conf?.vip_url || ''))                      confPatch.vip_url = form.vip_url || null
       if (form.vip_button_label !== (conf?.vip_button_label || ''))    confPatch.vip_button_label = form.vip_button_label || null
       if (form.chat_button_label !== (conf?.chat_button_label || ''))  confPatch.chat_button_label = form.chat_button_label || null
@@ -195,6 +198,17 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
             placeholder="https://us02web.zoom.us/j/... или https://youtube.com/live/..."
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
           <p className="text-xs text-gray-400 mt-1">Если у каждого дня свой стрим — задаётся в редакторе программы по дням.</p>
+          <label className="flex items-start gap-2 mt-3 cursor-pointer">
+            <input type="checkbox" checked={form.hide_stream_button}
+              onChange={e => setForm(f => ({ ...f, hide_stream_button: e.target.checked }))}
+              className="mt-0.5 accent-[#25455D]" />
+            <span className="text-sm text-gray-700">
+              Скрыть кнопку стрима в Mini App
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Кнопка не будет показываться участникам, даже если ссылка задана.
+              </span>
+            </span>
+          </label>
         </div>
         <EventChatsField value={chats} onChange={setChats} />
         <div>

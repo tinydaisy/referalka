@@ -227,11 +227,13 @@ def build_pre_start_message(tmpl_text, speaker_name, speaker_topic, stream_url_v
 
 def build_day_message(tmpl_text, day_number, conf_title, day_date, day_program,
                       stream_url_val, registration_url_val, raffle_url_val="", day_speakers_gifts="",
-                      next_day_mention=""):
+                      next_day_mention="", day_title=""):
     text = tmpl_text or ""
     ordinal = ORDINALS.get(day_number, f"{day_number}-м")
     text = text.replace("{day_number}", str(day_number))
     text = text.replace("{day_ordinal}", ordinal)
+    # {day_title} — кастомное название дня (conf_days.title), fallback «День N».
+    text = text.replace("{day_title}", (day_title or "").strip() or f"День {day_number}")
     text = text.replace("{conf_title}", conf_title or "")
     text = text.replace("{day_date}", day_date or "")
     text = text.replace("{day_program}", day_program or "")
@@ -336,6 +338,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                    e.landing_url AS registration_url,
                    cc.raffle_url,
                    e.stream_url,
+                   cd.title AS day_title,
                    COALESCE(cd.day_date,
                             (e.start_at AT TIME ZONE 'Europe/Moscow')::date) AS day_date
             FROM events e
@@ -346,16 +349,19 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             event_id, day
         )
         conf_title = (conf_row["conf_title"] or "") if conf_row else ""
+        # «Событие с программой по дням» — конференция ИЛИ турнир (оба используют conf_days).
+        is_program_event = (conf_row["module_slug"] in ("conference", "turnir")) if conf_row else False
         is_conference = (conf_row["module_slug"] == "conference") if conf_row else False
         stream_url = (conf_row["stream_url"] or "") if conf_row else ""
         reg_url = (conf_row["registration_url"] or "") if conf_row else ""
         raffle_url = (conf_row["raffle_url"] or "") if conf_row else ""
         raw_date = conf_row["day_date"] if conf_row else None
-        day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else (f"День {day}" if is_conference else "")
+        day_title = (conf_row["day_title"] or "") if conf_row else ""
+        day_date_str = f"{raw_date.day} {RU_MONTHS[raw_date.month - 1]}" if raw_date else (f"День {day}" if is_program_event else "")
         if not photo:
             photo = await get_default_event_photo(conn, event_id)
 
-        # Программа дня — только у конференций. У мероприятий conf_sessions пуст.
+        # Программа дня — у событий с программой (конференция/турнир). У мероприятий conf_sessions пуст.
         day_sessions = await conn.fetch(
             """
             SELECT cs.start_time, cs.end_time, cs.title as session_title,
@@ -367,7 +373,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             ORDER BY cs.sort_order, cs.start_time
             """,
             event_id, day
-        ) if is_conference else []
+        ) if is_program_event else []
         program_lines = []
         for s in day_sessions:
             t_start = _fmt_time(s["start_time"])
@@ -446,7 +452,8 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 next_day_mention = f"Встречаемся {when} в {next_time} МСК на День {day + 1}."
 
         text = build_day_message(text, day, conf_title, day_date_str, day_program,
-                                  stream_url, reg_url, raffle_url, day_speakers_gifts, next_day_mention)
+                                  stream_url, reg_url, raffle_url, day_speakers_gifts, next_day_mention,
+                                  day_title=day_title)
         btn_url = (btn_url
                    .replace("{stream_url}", stream_url)
                    .replace("{landing_url}", reg_url)

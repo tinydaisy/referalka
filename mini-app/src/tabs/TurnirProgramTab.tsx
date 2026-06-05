@@ -259,7 +259,8 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
   // Блок стрима показываем всегда если URL задан. В день вебинара /
   // один из дней конференции — активная ссылка с LIVE-значком.
   // В остальные дни — неактивная плашка-«заглушка» с пояснением.
-  const hasStream = !!event?.stream_url
+  // Кнопка стрима показывается если есть ссылка И клиент не скрыл её в настройках.
+  const hasStream = !!event?.stream_url && !event?.hide_stream_button
   // «День эфира» — сегодня попадает в дни события.
   const isToday = isStreamDay(event, days)
 
@@ -553,11 +554,14 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
           </a>
         ) : streamPendingToday ? (
           // Сегодня день эфира, но он ещё не начался по программе —
-          // показываем время старта, без LIVE и без активной ссылки.
-          <div style={{
+          // кнопка КЛИКАБЕЛЬНА (можно зайти заранее), подпись «начнётся в HH:MM»,
+          // без красного LIVE-бейджа.
+          <a href={event.stream_url} target="_blank" rel="noreferrer"
+             onClick={() => trackLinkClick(event?.slug, tgUser)}
+             style={{
             display: 'flex', alignItems: 'center', gap: 12,
             background: 'linear-gradient(135deg, #25455D, #0a1520)', color: 'white',
-            borderRadius: 14, padding: 14, marginBottom: 10,
+            borderRadius: 14, padding: 14, textDecoration: 'none', marginBottom: 10,
           }}>
             <div style={{
               width: 44, height: 44, borderRadius: 10, flexShrink: 0,
@@ -570,12 +574,13 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
               </svg>
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 800 }}>Стрим</div>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Смотреть стрим</div>
               <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
-                Эфир начнётся в {streamStartToday} МСК — ссылка появится здесь
+                Эфир начнётся в {streamStartToday} МСК
               </div>
             </div>
-          </div>
+            <div style={{ fontSize: 24, color: PEACH, fontWeight: 600, marginRight: 4 }}>›</div>
+          </a>
         ) : (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12,

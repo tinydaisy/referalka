@@ -246,6 +246,7 @@ class ConferenceUpdate(BaseModel):
     vip_button_label: Optional[str] = None
     chat_button_label: Optional[str] = None        # заголовок кнопки чата (миграция 117)
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
+    hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
     getcourse_form_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
     subscription_mode: Optional[str] = None   # none | organizer | all_speakers
@@ -278,6 +279,7 @@ async def get_conference(
                e.vip_button_label AS event_vip_button_label,
                e.chat_button_label AS event_chat_button_label,
                e.accent_button AS event_accent_button,
+               e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
                e.telegram_chat_ids AS event_telegram_chat_ids
         FROM conf_conferences cc
@@ -301,6 +303,7 @@ async def get_conference(
     d["vip_button_label"] = d.pop("event_vip_button_label") or ""
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
+    d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
     d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
     # event_landing_url — для шаблонов рассылок и превью; conf_conferences.landing_url
     # (если осталось) — это устаревший шаблон встроенного лендинга, не путать.
@@ -345,7 +348,7 @@ async def update_conference(
         "chat_url", "chat_url_tg", "chat_url_vk", "chat_url_max",
         "primary_chat_platform",
         "stream_url", "vip_url", "vip_button_label",
-        "chat_button_label", "accent_button",
+        "chat_button_label", "accent_button", "hide_stream_button",
         "telegram_chat_ids",
     )
     sent = data.model_dump(exclude_unset=True)
@@ -395,6 +398,7 @@ async def update_conference(
                e.vip_button_label AS event_vip_button_label,
                e.chat_button_label AS event_chat_button_label,
                e.accent_button AS event_accent_button,
+               e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
                e.telegram_chat_ids AS event_telegram_chat_ids
         FROM conf_conferences cc
@@ -414,6 +418,7 @@ async def update_conference(
     d["vip_button_label"]  = d.pop("event_vip_button_label") or ""
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
+    d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
     d["event_landing_url"] = d.pop("event_landing_url") or ""
     d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
     return {"conference": d}

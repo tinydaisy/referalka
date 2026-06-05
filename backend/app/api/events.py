@@ -118,6 +118,9 @@ class UpdateEventRequest(BaseModel):
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).
     skip_contact_form: Optional[bool] = None
     stream_url: Optional[str] = None
+    # Скрыть кнопку стрима в Mini App (миграция 128). FALSE (default) = кнопка
+    # показывается. TRUE = жёстко скрыта, даже если stream_url задан.
+    hide_stream_button: Optional[bool] = None
     # Welcome-письмо при регистрации (миграция 099). См. event_welcome_email.py.
     welcome_enabled: Optional[bool] = None
     welcome_text: Optional[str] = None

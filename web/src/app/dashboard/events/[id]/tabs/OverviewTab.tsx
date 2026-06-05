@@ -22,6 +22,7 @@ export default function OverviewTab({
   // потому что ProgramTab Mini App рендерит блок стрима по stream_url.
   // Раньше поле сохраняло в events.address — старые данные подтягиваются как fallback.
   const [streamUrl, setStreamUrl] = useState(event.stream_url || event.address || '')
+  const [hideStreamButton, setHideStreamButton] = useState<boolean>(!!event.hide_stream_button)
   const [chats, setChats] = useState<EventChatsValue>({
     tg:  event.chat_url_tg  || (event.primary_chat_platform === 'telegram' ? (event.chat_url || '') : ''),
     vk:  event.chat_url_vk  || '',
@@ -66,6 +67,7 @@ export default function OverviewTab({
       const su = streamUrl.trim()
       const initStream = event.stream_url || event.address || ''
       if (su !== initStream)                                    payload.stream_url = su || null
+      if (hideStreamButton !== !!event.hide_stream_button)      payload.hide_stream_button = hideStreamButton
       const tg  = chats.tg.trim()
       const vk  = chats.vk.trim()
       const mx  = chats.max.trim()
@@ -161,6 +163,18 @@ export default function OverviewTab({
             <input value={streamUrl} onChange={e => setStreamUrl(e.target.value)}
                    className="input" placeholder="https://us02web.zoom.us/j/..." />
           </Field>
+
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={hideStreamButton}
+              onChange={e => setHideStreamButton(e.target.checked)}
+              className="mt-0.5 accent-[#25455D]" />
+            <span className="text-sm text-gray-700">
+              Скрыть кнопку стрима в Mini App
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Кнопка не будет показываться участникам, даже если ссылка задана.
+              </span>
+            </span>
+          </label>
 
           <EventChatsField value={chats} onChange={setChats} />
 
