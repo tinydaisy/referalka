@@ -596,6 +596,15 @@ async def list_schedules(
     rows = await db.fetch(
         """
         SELECT bs.id, bs.type, bs.fire_at, bs.status,
+               -- «Дошло» — источник истины broadcast_log (реальные доставки),
+               -- а НЕ bs.recipients_sent (ненадёжный счётчик: перезаписывается при
+               -- ретраях/доотправке и расходится с фактом). Fallback на
+               -- recipients_sent только если detailed-лога ещё нет (старые записи).
+               COALESCE(
+                 (SELECT COUNT(*) FROM broadcast_log bl
+                   WHERE bl.schedule_id = bs.id AND bl.status = 'sent'),
+                 0
+               ) AS log_sent,
                bs.recipients_sent, bs.is_test, bs.audience_include, bs.audience_exclude,
                bs.started_at, bs.finished_at,
                CASE WHEN bs.finished_at IS NOT NULL AND bs.started_at IS NOT NULL
@@ -634,6 +643,12 @@ async def list_schedules(
     result = []
     for r in rows:
         d = dict(r)
+        # «Дошло» в плитке = реальные доставки из broadcast_log (как в модалке
+        # «Получатели»). recipients_sent оставляем только как fallback, если лога
+        # ещё нет (log_sent=0, но счётчик что-то писал — старые/тестовые записи).
+        log_sent = d.pop("log_sent", 0) or 0
+        if log_sent > 0:
+            d["recipients_sent"] = log_sent
         if r["fire_at"]:
             fire_local = r["fire_at"].astimezone(tz)
             d["fire_at_local"] = fire_local.strftime("%d.%m.%Y %H:%M")
@@ -1895,8 +1910,10 @@ async def test_template(
         return {"ok": True, "sent": len(sessions), "details": results}
 
     else:
-        # Для всех остальных (day_*, pre_conf и любых будущих) — одна отправка.
-        # fire_at имитируем через первую сессию выбранного дня (МСК → UTC).
+        # Для всех остальных (day_*, 30min_before, event_live, pre_conf и будущих) —
+        # одна отправка. fire_at имитируем через первую сессию выбранного дня (конф/
+        # турнир). Для мероприятия программы нет — берём events.start_at, чтобы
+        # {day_datetime} и время старта подставились в тестовом сообщении.
         first_session = await db.fetchrow(
             """SELECT cs.start_time, d.day_date
                  FROM conf_sessions cs
@@ -1906,6 +1923,8 @@ async def test_template(
             event_id, day
         )
         fake_fire_at = _msk_str_to_utc(first_session["day_date"], first_session["start_time"]) if first_session else None
+        if not fake_fire_at:
+            fake_fire_at = await db.fetchval("SELECT start_at FROM events WHERE id=$1", event_id)
 
         content = await build_message_content(
             conn=db, tpl_type=tpl["type"],

@@ -1351,7 +1351,7 @@ export default function TemplatesPage() {
               <button onClick={() => setTestModal(null)}><X size={18} /></button>
             </div>
 
-            {['pre_conf', 'gift', 'speaker_intro', '5min_before', '2h_before_unreg', '2h_before_reg', 'day_live', 'day_end'].includes(testModal.def.type) ? (
+            {['pre_conf', 'gift', 'speaker_intro', '5min_before', '2h_before_unreg', '2h_before_reg', 'day_live', 'day_end', '30min_before', 'event_live'].includes(testModal.def.type) ? (
               <>
                 <p className="text-sm text-gray-600 mb-4">
                   {testModal.def.type === 'pre_conf' && 'Отправит анонс знакомства со спикерами с горизонтальной афишей, описанием конференции и ссылкой на регистрацию на тестовые Telegram ID из настроек.'}
@@ -1362,11 +1362,20 @@ export default function TemplatesPage() {
                   {testModal.def.type === '2h_before_reg' && `Отправит сообщение для зарегистрированных для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                   {testModal.def.type === 'day_live' && `Отправит сообщение о старте эфира для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
                   {testModal.def.type === 'day_end' && `Отправит итоги дня для каждого дня конференции. Итого ${confDays.length} сообщений на каждый тестовый аккаунт.`}
+                  {testModal.def.type === '30min_before' && 'Отправит сообщение «за 30 минут до старта» на тестовые Telegram ID из настроек.'}
+                  {testModal.def.type === 'event_live' && 'Отправит сообщение «за 5 минут до старта эфира» на тестовые Telegram ID из настроек.'}
                 </p>
 
-                {!testResult && (
+                {!testResult && (() => {
+                  // «Все дни» — только для типов, которые шлются по каждому дню конференции.
+                  // 30min_before / event_live / спикерские — единичная тестовая отправка.
+                  const MULTI_DAY = ['2h_before_unreg', '2h_before_reg', 'day_live', 'day_end']
+                  const isMultiDay = MULTI_DAY.includes(testModal.def.type) && confDays.length > 0
+                  return (
                   <>
-                    <p className="text-xs text-gray-400 mb-4">Будет отправлено для каждого из {confDays.length} дней</p>
+                    {isMultiDay && (
+                      <p className="text-xs text-gray-400 mb-4">Будет отправлено для каждого из {confDays.length} дней</p>
+                    )}
                     <button
                       onClick={runTest}
                       disabled={testSending}
@@ -1375,11 +1384,12 @@ export default function TemplatesPage() {
                     >
                       {testSending
                         ? <><Loader2 size={15} className="animate-spin" /> Отправляем...</>
-                        : <><Send size={15} /> Отправить тест — все дни ({confDays.length} сообщений)</>
+                        : <><Send size={15} /> {isMultiDay ? `Отправить тест — все дни (${confDays.length} сообщений)` : 'Отправить тест'}</>
                       }
                     </button>
                   </>
-                )}
+                  )
+                })()}
                 {testResult && testResult.ok && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-emerald-700 mb-3 flex items-center gap-2">

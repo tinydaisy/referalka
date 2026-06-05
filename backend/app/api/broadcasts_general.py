@@ -205,6 +205,13 @@ async def list_schedules(
     rows = await db.fetch(
         """
         SELECT id, type, fire_at, status, recipients_sent, is_test,
+               -- «Дошло» — реальные доставки из broadcast_log, не ненадёжный
+               -- счётчик recipients_sent (расходится при ретраях/доотправке).
+               COALESCE(
+                 (SELECT COUNT(*) FROM broadcast_log bl
+                   WHERE bl.schedule_id = broadcast_schedules.id AND bl.status = 'sent'),
+                 0
+               ) AS log_sent,
                audience_include, audience_exclude, started_at, finished_at,
                error_log, snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons,
                snapshot_video, snapshot_media_type,
@@ -231,6 +238,10 @@ async def list_schedules(
     result = []
     for r in rows:
         d = dict(r)
+        # «Дошло» = реальные доставки из broadcast_log (см. SELECT log_sent).
+        log_sent = d.pop("log_sent", 0) or 0
+        if log_sent > 0:
+            d["recipients_sent"] = log_sent
         if r["fire_at"]:
             fire_local = r["fire_at"].astimezone(tz)
             d["fire_at_local"] = fire_local.strftime("%d.%m.%Y %H:%M")
