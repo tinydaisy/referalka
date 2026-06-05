@@ -188,18 +188,12 @@ async def register_participant(
                     WHERE id = $1""",
                 existing["id"], upd_ref_code, upd_referrer_pid
             )
-            # Останов воронки догрева — теперь зарегистрирован
-            try:
-                from app.api.event_nurture import start_nurture_run_if_eligible
-                await start_nurture_run_if_eligible(
-                    db, event_id=event["id"], contact_id=contact_id, is_registered=True,
-                )
-            except Exception:
-                pass
-        # Re-opt-in: если пользователь когда-то отписался от email и теперь
-        # снова заполняет форму — возвращаем подписку. Это явное действие
-        # пользователя (он только что согласился с обработкой и подтвердил).
-        await _resubscribe_email(db, contact_id=contact_id, client_id=event["client_id"])
+        # Финализация: nurture-стоп + email re-opt-in + welcome-email.
+        # Единый идемпотентный хелпер (сам проверяет is_registered=TRUE).
+        from app.services.participant_registration import finalize_participant_registration
+        await finalize_participant_registration(
+            db, event_id=event["id"], contact_id=contact_id,
+        )
         return {"participant": dict(existing), "is_new": False, **redirect}
 
     # Резолв реферера: если передан ref_code (может быть legacy длинный из
