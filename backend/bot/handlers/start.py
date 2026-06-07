@@ -93,40 +93,95 @@ async def _upgrade_pseudo_identities(user) -> None:
     try:
         pool = await get_pool()
         async with pool.acquire() as db:
-            # Все псевдо-записи этого ника, у которых реальный id ещё не занят
-            # другим контактом у того же клиента (иначе оставляем как есть).
+            # ВСЕ псевдо-записи `@<username>` этого ника (по всем клиентам).
+            # Контакт псевдо-записи — это, как правило, контакт коллаба, его
+            # ОБЯЗАТЕЛЬНО сохраняем (на нём висит access_code кабинета).
             pseudos = await db.fetch(
-                """SELECT p.id, p.client_id
+                """SELECT p.id, p.client_id, p.contact_id
                      FROM platform_users p
                     WHERE p.platform_slug = 'telegram'
-                      AND p.platform_user_id = $1
-                      AND NOT EXISTS (
-                            SELECT 1 FROM platform_users o
-                             WHERE o.client_id = p.client_id
-                               AND o.platform_slug = 'telegram'
-                               AND o.platform_user_id = $2
-                               AND o.id <> p.id
-                          )""",
-                f"@{uname}", real_id,
+                      AND p.platform_user_id = $1""",
+                f"@{uname}",
             )
             for ps in pseudos:
-                await db.execute(
-                    """UPDATE platform_users
-                          SET platform_user_id = $1, username = $2, updated_at = NOW()
-                        WHERE id = $3""",
-                    real_id, uname, ps["id"],
-                )
-                await db.execute(
-                    """UPDATE platform_user_channels
-                          SET is_unsubscribed = FALSE,
-                              subscribed_at   = COALESCE(subscribed_at, NOW()),
-                              unsubscribed_at = NULL
-                        WHERE platform_user_id = $1 AND is_unsubscribed = TRUE""",
-                    ps["id"],
-                )
+                async with db.transaction():
+                    # Уже есть реальная TG-запись с этим tg_id у того же клиента?
+                    real = await db.fetchrow(
+                        """SELECT id, contact_id FROM platform_users
+                            WHERE client_id = $1 AND platform_slug = 'telegram'
+                              AND platform_user_id = $2 AND id <> $3
+                            LIMIT 1""",
+                        ps["client_id"], real_id, ps["id"],
+                    )
+                    if real is None:
+                        # Ветка A: конфликта нет — просто дорастить заглушку.
+                        await db.execute(
+                            """UPDATE platform_users
+                                  SET platform_user_id = $1, username = $2, updated_at = NOW()
+                                WHERE id = $3""",
+                            real_id, uname, ps["id"],
+                        )
+                        await db.execute(
+                            """UPDATE platform_user_channels
+                                  SET is_unsubscribed = FALSE,
+                                      subscribed_at   = COALESCE(subscribed_at, NOW()),
+                                      unsubscribed_at = NULL
+                                WHERE platform_user_id = $1 AND is_unsubscribed = TRUE""",
+                            ps["id"],
+                        )
+                        continue
+                    # Ветка B: реальный tg_id уже создан ОТДЕЛЬНЫМ контактом
+                    # (человек зашёл в бот раньше, чем коллаба завели по нику,
+                    #  ИЛИ наоборот — заглушка не доросла). Сливаем реальный
+                    #  контакт В контакт коллаба (ps.contact_id), сохраняя его.
+                    keep_cid = ps["contact_id"]      # контакт коллаба — оставляем
+                    dup_cid = real["contact_id"]     # реальный дубль — поглощаем
+                    if dup_cid == keep_cid:
+                        # Обе записи уже на одном контакте — просто убираем заглушку.
+                        await db.execute("DELETE FROM platform_users WHERE id = $1", ps["id"])
+                        continue
+                    # Перенести зависимые сущности дубля на контакт коллаба.
+                    await db.execute(
+                        "UPDATE event_participants SET contact_id = $1 WHERE contact_id = $2",
+                        keep_cid, dup_cid,
+                    )
+                    await db.execute(
+                        "UPDATE collaborators SET contact_id = $1 WHERE contact_id = $2",
+                        keep_cid, dup_cid,
+                    )
+                    await db.execute(
+                        "UPDATE contacts SET first_referrer_contact_id = $1 WHERE first_referrer_contact_id = $2",
+                        keep_cid, dup_cid,
+                    )
+                    # Убрать заглушку и перевесить реальную TG-запись на контакт коллаба
+                    # (заглушка занимает UNIQUE (contact_id, platform_slug) — удаляем её первой).
+                    await db.execute("DELETE FROM platform_users WHERE id = $1", ps["id"])
+                    await db.execute(
+                        """UPDATE platform_users
+                              SET contact_id = $1, username = $2, updated_at = NOW()
+                            WHERE id = $3""",
+                        keep_cid, uname, real["id"],
+                    )
+                    await db.execute(
+                        """UPDATE platform_user_channels
+                              SET is_unsubscribed = FALSE,
+                                  subscribed_at   = COALESCE(subscribed_at, NOW()),
+                                  unsubscribed_at = NULL
+                            WHERE platform_user_id = $1 AND is_unsubscribed = TRUE""",
+                        real["id"],
+                    )
+                    # Пометить дубль слитым.
+                    await db.execute(
+                        "UPDATE contacts SET merged_into = $1, is_active = FALSE WHERE id = $2",
+                        keep_cid, dup_cid,
+                    )
+                    log.info(
+                        "merged dup contact %s -> collaborator contact %s on @%s (%s)",
+                        dup_cid, keep_cid, uname, real_id,
+                    )
             if pseudos:
                 log.info(
-                    "upgraded %d pseudo TG identities for @%s -> %s",
+                    "processed %d pseudo TG identities for @%s -> %s",
                     len(pseudos), uname, real_id,
                 )
     except Exception as e:
