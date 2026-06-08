@@ -113,16 +113,19 @@ export default function LandingTab({ event, onRegister }: Props) {
           </div>
         )}
 
-        {event?.description && (
-          <EventDescription
-            text={event.description}
-            style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.6, marginTop: 18 }}
-          />
-        )}
+        {/* Кнопка-CTA сразу под названием/датой — всегда показывается. */}
+        <div style={{ marginTop: 16 }}>{cta}</div>
 
-        <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={onRegister}>
-          Хочу участвовать
-        </button>
+        {event?.description && (
+          <>
+            <EventDescription
+              text={event.description}
+              style={{ color: 'var(--text)', fontSize: 14, lineHeight: 1.6, marginTop: 18 }}
+            />
+            {/* Дубль кнопки ПОД описанием — если описание заполнено. */}
+            <div style={{ marginTop: 18 }}>{cta}</div>
+          </>
+        )}
       </div>
     </div>
   )
