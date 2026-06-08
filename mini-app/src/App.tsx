@@ -33,7 +33,7 @@ function detectClientIdFromPath(): number | null {
 const FLAG_RE = /^[a-z0-9-]{1,16}$/
 function parseStartParam(raw: string): {
   eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number;
-  live?: boolean; regFromLanding?: boolean; initialTab?: string; flags?: string[]
+  live?: boolean; regFromLanding?: boolean; noLanding?: boolean; initialTab?: string; flags?: string[]
 } {
   const r: any = {}
   const flags: string[] = []
@@ -44,6 +44,10 @@ function parseStartParam(raw: string): {
     else if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
     else if (p === 'live')        r.live       = true
     else if (p === 'reg')         r.regFromLanding = true
+    // `_nolend` — не показывать сторонний лендинг даже если он задан у события.
+    // Регистрируем через внутренний LandingTab. Обрабатываем ДО `tab`/`q`,
+    // т.к. это самостоятельный флаг без значения.
+    else if (p === 'nolend')      r.noLanding  = true
     else if (p.startsWith('tab')) r.initialTab = p.slice(3)
     else if (p.startsWith('q') && p.length > 1) {
       const k = p.slice(1).toLowerCase()
@@ -408,6 +412,7 @@ export default function App() {
   const [utmSource, setUtmSource] = useState<string | undefined>()
   const [flags, setFlags] = useState<string[] | undefined>()
   const [regFromLanding, setRegFromLanding] = useState<boolean>(false)
+  const [noLanding, setNoLanding] = useState<boolean>(false)
   const [initialTab, setInitialTab] = useState<string | undefined>()
   const [pendingOpen, setPendingOpen] = useState<boolean>(false)
   // VK-only: экран статуса после m_/p_/fnl_/spkinv_/prt_ landing
@@ -434,6 +439,7 @@ export default function App() {
         setUtmSource(parsed.utmSource)
         if (parsed.flags && parsed.flags.length) setFlags(parsed.flags)
         if (parsed.regFromLanding) setRegFromLanding(true)
+        if (parsed.noLanding) setNoLanding(true)
         if (parsed.initialTab) setInitialTab(parsed.initialTab)
       }
 
@@ -559,6 +565,7 @@ export default function App() {
           utmSource={utmSource}
           flags={flags}
           regFromLanding={regFromLanding}
+          noLanding={noLanding}
           initialTab={initialTab}
           onBack={backToHub}
           onOpenEvent={openEvent}

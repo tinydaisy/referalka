@@ -757,7 +757,22 @@ async def handle_start(message: Message, command: CommandObject):
         except Exception as e:
             log.exception("partner ref handler failed: %s", e)
 
-    # Старый сценарий: реф-ссылка события → Mini App
+    # Реф-ссылка события через БОТ-флоу: `/start ref_pg<slug>[_land][_nolend][_pid..][_src..]`.
+    # В отличие от `?startapp=...` (прямое открытие Mini App), `?start=...` открывает
+    # СНАЧАЛА бот, который шлёт сообщение с кнопкой:
+    #   • без `_land` → кнопка открывает Mini App (вариант 1);
+    #   • с `_land`   → кнопка ведёт на сторонний лендинг события (вариант 2),
+    #                   если лендинг пуст — фолбэк на Mini App;
+    #   • `_nolend`   → передаём флаг дальше в Mini App, чтобы внутри не уводило
+    #                   на сторонний лендинг (вариант 3 в бот-флоу).
+    if args.startswith("ref_pg"):
+        try:
+            if await _handle_ref_event_bot_flow(message, args):
+                return
+        except Exception as e:
+            log.exception("ref_pg bot-flow handler failed: %s", e)
+
+    # Старый сценарий (compat): любой иной `ref…` → Mini App.
     if args.startswith("ref_") or args.startswith("ref"):
         mini_app_url = f"{settings.mini_app_url}?ref={args}"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[
@@ -784,6 +799,149 @@ async def handle_start(message: Message, command: CommandObject):
         f"Откройте Mini App или перейдите по ссылке организатора.",
         parse_mode="HTML",
     )
+
+
+def _support_footer(work_tg: str) -> str:
+    """Хвост сообщения бота: три переноса + разделитель + строка о техподдержке.
+
+    `work_tg` — `clients.work_tg_username` (рабочий контакт основателя для
+    участников). Если пусто — хвост не добавляем."""
+    work_tg = (work_tg or "").lstrip("@").strip()
+    if not work_tg:
+        return ""
+    return (
+        "\n\n\n---\n"
+        f'Если проблемы с регистрацией — пишите в '
+        f'<a href="https://t.me/{_html.escape(work_tg)}">@{_html.escape(work_tg)}</a>'
+    )
+
+
+async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
+    """Бот-флоу для `/start ref_pg<slug>[_land][_nolend][_pid..][_src..]`.
+
+    Возвращает True, если сообщение отправлено (дальнейшую обработку прервать).
+
+    Варианты:
+      • без `_land`  → web_app/url-кнопка открывает Mini App (вариант 1);
+      • с `_land`    → url-кнопка на сторонний лендинг события (вариант 2);
+                       если у события нет landing_url — фолбэк на Mini App;
+      • `_nolend`    → флаг передаётся в Mini App через startapp (внутри Mini App
+                       сторонний лендинг не открывается).
+    """
+    user = message.from_user
+    if not user:
+        return False
+
+    # Разбираем payload: после `ref_pg` идёт slug, дальше — флаги/параметры через `_`.
+    rest = args[len("ref_pg"):]
+    parts = rest.split("_") if rest else []
+    slug = parts[0] if parts else ""
+    if not slug:
+        return False
+    want_landing = False   # флаг `_land` — кнопка на сторонний лендинг
+    no_landing = False     # флаг `_nolend` — не открывать сторонний лендинг в Mini App
+    pid: str | None = None
+    utm_source: str | None = None
+    for chunk in parts[1:]:
+        if chunk == "land":
+            want_landing = True
+        elif chunk == "nolend":
+            no_landing = True
+        elif chunk.startswith("pid"):
+            pid = chunk[3:] or None
+        elif chunk.startswith("src"):
+            utm_source = chunk[3:] or None
+
+    # username бота (для t.me-ссылки на Mini App). Системный @pluson_bot открывает
+    # Mini App по short-name `/pluson`, VIP-бот — напрямую `t.me/{handle}?startapp=`.
+    try:
+        me = await message.bot.get_me()
+        bot_username = (me.username or "").lstrip("@")
+    except Exception:
+        bot_username = ""
+    if not bot_username:
+        return False
+
+    from app.services.share_links import PLUSON_TG_HANDLE, PLUSON_TG_APP
+
+    # Собираем startapp-payload для Mini App: ref_pg<slug> + флаги/параметры
+    # (всё, КРОМЕ `_land` — это маркер только для бот-флоу).
+    sa_parts = [f"ref_pg{slug}"]
+    if pid:
+        sa_parts.append(f"pid{pid}")
+    if utm_source:
+        sa_parts.append(f"src{utm_source}")
+    if no_landing:
+        sa_parts.append("nolend")
+    startapp = "_".join(sa_parts)
+    app_part = f"/{PLUSON_TG_APP}" if bot_username == PLUSON_TG_HANDLE else ""
+    mini_app_link = f"https://t.me/{bot_username}{app_part}?startapp={startapp}"
+
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        ev = await db.fetchrow(
+            "SELECT id, client_id, title, landing_url, status FROM events WHERE slug = $1 LIMIT 1",
+            slug,
+        )
+        if not ev:
+            return False
+        work_tg = await db.fetchval(
+            "SELECT work_tg_username FROM clients WHERE id = $1", ev["client_id"]
+        ) or ""
+
+        # Вариант 2: кнопка на сторонний лендинг.
+        landing_url = (ev["landing_url"] or "").strip()
+        if want_landing and landing_url and ev["status"] == "published":
+            from app.services.external_landing import (
+                resolve_or_create_participant,
+                get_contact_landing_params,
+                resolve_referrer_external_ref_param,
+                build_external_landing_url,
+            )
+            participant_id, contact_id = await resolve_or_create_participant(
+                db, client_id=ev["client_id"], event_id=ev["id"],
+                platform_slug="telegram", platform_user_id=str(user.id),
+            )
+            contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
+            erp = await resolve_referrer_external_ref_param(
+                db, ev["client_id"], pid=pid,
+                participant_id=participant_id, contact_id=contact_id,
+            )
+            full_url = build_external_landing_url(
+                landing_url,
+                event_slug=slug,
+                participant_id=participant_id,
+                contact_id=contact_id,
+                pid=pid,
+                utm_source=utm_source,
+                external_ref_param=erp,
+                **contact_params,
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Перейти к регистрации", url=full_url)
+            ]])
+            text = (
+                f"Привет, {_html.escape(user.first_name or '')}! 👋\n\n"
+                f"Регистрация на «{_html.escape(ev['title'] or '')}» — по кнопке ниже."
+                f"{_support_footer(work_tg)}"
+            )
+            await message.answer(text, reply_markup=kb, parse_mode="HTML",
+                                 disable_web_page_preview=True)
+            return True
+
+    # Вариант 1 (и фолбэк варианта 2, если лендинга нет): кнопка на Mini App.
+    # Открываем по t.me-ссылке (url-кнопка) — Telegram сам распарсит startapp.
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Открыть приложение", url=mini_app_link)
+    ]])
+    text = (
+        f"Привет, {_html.escape(user.first_name or '')}! 👋\n\n"
+        f"Нажмите кнопку, чтобы открыть приложение."
+        f"{_support_footer(work_tg)}"
+    )
+    await message.answer(text, reply_markup=kb, parse_mode="HTML",
+                         disable_web_page_preview=True)
+    return True
 
 
 async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:

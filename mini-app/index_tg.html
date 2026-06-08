@@ -91,7 +91,7 @@
     // Парсим startapp: ref_pg<slug>_pid<id>_src<utm>_cid<id>[_q<flag>…]_reg
     // Флаги `_q{key}` (до 5 штук, алфавит [a-z0-9-]) — произвольные маркеры,
     // которые в /landing-redirect превратятся в &{key}=1 на стороннем лендинге.
-    var eventSlug = '', partnerId = '', utmSource = '', clientId = 0, regFlag = false;
+    var eventSlug = '', partnerId = '', utmSource = '', clientId = 0, regFlag = false, nolendFlag = false;
     var flagList = [];
     var FLAG_RE = /^[a-z0-9-]{1,16}$/;
     sp.split('_').forEach(function (p) {
@@ -100,6 +100,8 @@
       if (p.indexOf('src') === 0) { utmSource = p.slice(3); return; }
       if (p.indexOf('cid') === 0) { clientId  = parseInt(p.slice(3), 10) || 0; return; }
       if (p === 'reg')            { regFlag   = true; return; }
+      // `_nolend` — не уводить на сторонний лендинг, регать через внутренний.
+      if (p === 'nolend')         { nolendFlag = true; return; }
       if (p.indexOf('q') === 0 && p.length > 1) {
         var k = p.slice(1).toLowerCase();
         if (FLAG_RE.test(k) && flagList.indexOf(k) === -1 && flagList.length < 5) {
@@ -141,13 +143,13 @@
     // Пока флаг true, React не рендерит контент (видит LoadingScreen).
     // Когда fetch завершается — либо window.location.replace (Mini App
     // уплывает), либо флаг снимается и React продолжает обычный flow.
-    if (eventSlug && !regFlag) {
+    if (eventSlug && !regFlag && !nolendFlag) {
       window.__redirectPending = true;
       // Safety: даже если бэк завис — через 3 сек разблокируем React.
       setTimeout(function () { window.__redirectPending = false; }, 3000);
     }
     function maybeRedirectToLanding() {
-      if (!eventSlug || regFlag) return;
+      if (!eventSlug || regFlag || nolendFlag) return;
       try {
         // Шлём только tg_id — бэк сам зарезолвит contact_id и подсунет его
         // в URL стороннего лендинга. tg_id в URL лендинга НЕ попадёт.

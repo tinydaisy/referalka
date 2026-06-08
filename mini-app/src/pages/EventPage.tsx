@@ -24,6 +24,7 @@ interface Props {
   utmSource?: string
   flags?: string[]           // флаги `_q{key}` в startapp — пробрасываем как `&{key}=1` на сторонний лендинг
   regFromLanding?: boolean   // флаг `_reg` в startapp — вернулись с лендинга клиента
+  noLanding?: boolean        // флаг `_nolend` в startapp — не показывать сторонний лендинг, регать через внутренний
   initialTab?: string        // флаг `_tabXXX` в startapp — открыть на конкретной вкладке (game, raffle, ...)
   onBack: () => void
   onOpenEvent?: (slug: string) => void  // открыть другое событие (для блока «А дальше» в Итогах)
@@ -71,7 +72,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, regFromLanding, initialTab, onBack, onOpenEvent }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, regFromLanding, noLanding, initialTab, onBack, onOpenEvent }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -305,11 +306,12 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
     if (loading) return
     if (registered || ended) return
     if (regFromLanding) return  // ← возврат с лендинга: ждём registerParticipant
+    if (noLanding) return       // ← флаг `_nolend`: показываем внутренний лендинг, внешний не открываем
     const landingUrl: string = (event.landing_url || '').trim()
     if (!landingUrl) return
     redirectToExternalLanding(landingUrl)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event, loading, registered, ended, regFromLanding])
+  }, [event, loading, registered, ended, regFromLanding, noLanding])
 
   // Стандартный набор GET-параметров для ЛЮБОГО внешнего URL клиента
   // (events.landing_url, events.vip_url, partner_landing_url):
@@ -414,7 +416,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
     // Если у события заполнен сторонний лендинг — переходим на него навигацией
     // webview (как в auto-useEffect выше). На iOS это работает без user-gesture
     // ограничений и согласуется с авто-открытием.
-    const landingUrl: string = (event?.landing_url || '').trim()
+    // Флаг `_nolend` — клиент намеренно гонит регистрацию через внутренний
+    // лендинг, на сторонний не уводим даже по клику «Хочу участвовать».
+    const landingUrl: string = noLanding ? '' : (event?.landing_url || '').trim()
     if (landingUrl) {
       await redirectToExternalLanding(landingUrl)
       return
@@ -476,7 +480,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
   // событие — кнопка опасна). Поэтому ДО рендера прячем всё под loader, пока
   // редирект ещё не сработал.
   const willRedirectToLanding =
-    !!event && !!(event.landing_url || '').trim() && !registered && !ended && !regFromLanding
+    !!event && !!(event.landing_url || '').trim() && !registered && !ended && !regFromLanding && !noLanding
   if (willRedirectToLanding) {
     return (
       <div style={{
