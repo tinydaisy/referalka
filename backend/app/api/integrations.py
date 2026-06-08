@@ -24,6 +24,23 @@ def _normalize_phone_for_update(phone: Optional[str]) -> Optional[str]:
     """Возвращает нормализованный phone или None для пустых значений."""
     return normalize_phone(phone)
 
+
+def _clean_external_ref_param(raw: Optional[str]) -> str:
+    """Извлекает чистый `key=value` из external_ref_param, срезая обёртки.
+
+    Клиенты иногда оборачивают значение в URL GetCourse литералами, например
+    `external_ref_param=A.{object.participant_code}.B` → в БД прилетает
+    `A.gcpc=7a5dc.B`. Берём `key=value` (ключ — буквы/цифры/`_` перед `=`,
+    значение — до первого `.`/пробела/`&`/`?`) и отбрасываем мусор по краям.
+
+    Возвращает '' если чистый `key=value` не нашёлся."""
+    import re
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    m = re.search(r"([A-Za-z0-9_]+=[A-Za-z0-9_-]+)", s)
+    return m.group(1) if m else ""
+
 router = APIRouter(prefix="/integrations", tags=["Интеграции"])
 
 
@@ -285,8 +302,8 @@ async def salebot_register(
     # значение (`""`, `gcpc=`) пропускаем — НЕ обнуляем существующее в БД,
     # чтобы клиент не терял уже сохранённый код при повторной отправке формы
     # без партнёрского хвоста.
-    erp = (data.external_ref_param or "").strip()
-    if erp and '=' in erp and erp.split('=', 1)[1].strip():
+    erp = _clean_external_ref_param(data.external_ref_param)
+    if erp:
         await db.execute(
             "UPDATE contacts SET external_ref_param = $1, updated_at = NOW() WHERE id = $2",
             erp, contact_id,
@@ -828,9 +845,9 @@ async def _update_external_ref(
     # Пустая строка или "gcpc=" без хвоста — пропускаем, существующее в БД
     # НЕ обнуляем (повторная отправка формы без партнёрского кода не должна
     # терять уже сохранённый).
-    erp = (data.external_ref_param or "").strip()
+    erp = _clean_external_ref_param(data.external_ref_param)
     updated = False
-    if erp and '=' in erp and erp.split('=', 1)[1].strip():
+    if erp:
         await db.execute(
             "UPDATE contacts SET external_ref_param = $1, updated_at = NOW() WHERE id = $2",
             erp, target_id,
