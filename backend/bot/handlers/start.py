@@ -880,7 +880,17 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     pool = await get_pool()
     async with pool.acquire() as db:
         ev = await db.fetchrow(
-            "SELECT id, client_id, title, landing_url, status FROM events WHERE slug = $1 LIMIT 1",
+            """SELECT id, client_id, title, landing_url, status,
+                      (SELECT url FROM event_posters
+                         WHERE event_id = e.id
+                         ORDER BY CASE orientation
+                                    WHEN 'horizontal' THEN 1
+                                    WHEN 'square'     THEN 2
+                                    WHEN 'vertical'   THEN 3
+                                    ELSE 4
+                                  END, sort, id
+                         LIMIT 1) AS poster_url
+                 FROM events e WHERE e.slug = $1 LIMIT 1""",
             slug,
         )
         if not ev:
@@ -888,6 +898,16 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         work_tg = await db.fetchval(
             "SELECT work_tg_username FROM clients WHERE id = $1", ev["client_id"]
         ) or ""
+
+        title = _html.escape(ev["title"] or "")
+        poster_url = (ev["poster_url"] or "").strip()
+
+        # Единый текст приветствия для обоих вариантов (с лендингом и без).
+        text = (
+            "Добрейшего-богатейшего! 🤝\n\n"
+            f"Мы готовы зарегистрировать вас на «{title}» — нажмите на кнопку ниже."
+            f"{_support_footer(work_tg)}"
+        )
 
         # Вариант 2: кнопка на сторонний лендинг.
         landing_url = (ev["landing_url"] or "").strip()
@@ -907,7 +927,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
                 db, ev["client_id"], pid=pid,
                 participant_id=participant_id, contact_id=contact_id,
             )
-            full_url = build_external_landing_url(
+            target_url = build_external_landing_url(
                 landing_url,
                 event_slug=slug,
                 participant_id=participant_id,
@@ -917,28 +937,24 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
                 external_ref_param=erp,
                 **contact_params,
             )
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="Перейти к регистрации", url=full_url)
-            ]])
-            text = (
-                f"Привет, {_html.escape(user.first_name or '')}! 👋\n\n"
-                f"Регистрация на «{_html.escape(ev['title'] or '')}» — по кнопке ниже."
-                f"{_support_footer(work_tg)}"
-            )
-            await message.answer(text, reply_markup=kb, parse_mode="HTML",
-                                 disable_web_page_preview=True)
-            return True
+        else:
+            # Вариант 1 (и фолбэк варианта 2, если лендинга нет): кнопка на Mini App.
+            # Открываем по t.me-ссылке (url-кнопка) — Telegram сам распарсит startapp.
+            target_url = mini_app_link
 
-    # Вариант 1 (и фолбэк варианта 2, если лендинга нет): кнопка на Mini App.
-    # Открываем по t.me-ссылке (url-кнопка) — Telegram сам распарсит startapp.
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Открыть приложение", url=mini_app_link)
+        InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=target_url)
     ]])
-    text = (
-        f"Привет, {_html.escape(user.first_name or '')}! 👋\n\n"
-        f"Нажмите кнопку, чтобы открыть приложение."
-        f"{_support_footer(work_tg)}"
-    )
+
+    # Если у события есть афиша — шлём фото с подписью; иначе обычный текст.
+    # Подпись Telegram ограничена 1024 символами — длинный текст без афиши.
+    if poster_url and len(text) <= 1024:
+        try:
+            await message.answer_photo(poster_url, caption=text, reply_markup=kb,
+                                       parse_mode="HTML")
+            return True
+        except Exception as e:
+            log.warning("ref_pg poster send failed (%s), fallback to text: %s", poster_url, e)
     await message.answer(text, reply_markup=kb, parse_mode="HTML",
                          disable_web_page_preview=True)
     return True

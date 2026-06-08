@@ -37,7 +37,6 @@ export default function AltLaunchLinksPage() {
   const [loading, setLoading] = useState(true)
 
   const [slug, setSlug] = useState('')
-  const [mode, setMode] = useState<string>('bot_app')
   const [useOwnBot, setUseOwnBot] = useState(false)
 
   useEffect(() => {
@@ -78,9 +77,6 @@ export default function AltLaunchLinksPage() {
     return `${botBase(true)}?startapp=ref_pg${slugValue}_nolend`
   }
 
-  const selectedMode = MODES.find(m => m.id === mode)!
-  const link = slug ? buildLink(mode, slug) : ''
-
   return (
     <div className="pb-24 max-w-3xl">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
@@ -105,57 +101,27 @@ export default function AltLaunchLinksPage() {
         </div>
       </div>
 
-      {/* Три варианта */}
-      <Section step="1" title="Выберите, как должна работать ссылка">
-        <div className="space-y-2 mb-4">
-          {MODES.map(m => {
-            const Icon = m.icon
-            const active = mode === m.id
-            return (
-              <button
-                key={m.id}
-                onClick={() => setMode(m.id)}
-                className="w-full text-left rounded-xl border p-3 flex gap-3 transition"
-                style={{
-                  borderColor: active ? BRAND : '#e5e7eb',
-                  background: active ? '#f0f5f9' : '#fff',
-                }}>
-                <div className="mt-0.5 flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-white"
-                     style={{ background: active ? 'linear-gradient(45deg, #25455D, #0a1520)' : '#cbd5e1' }}>
-                  <Icon size={17} />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold" style={{ color: BRAND }}>{m.label}</div>
-                  <p className="text-xs text-gray-600 leading-snug mt-0.5">{m.note}</p>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </Section>
-
-      {/* Генератор */}
-      <Section step="2" title="Готовая ссылка под ваше событие">
+      {/* Генератор: выбрал событие → три готовые ссылки */}
+      <Section step="1" title="Выберите событие">
         {loading ? (
           <p className="text-sm text-gray-400">Загружаем ваши события…</p>
         ) : events.length === 0 ? (
           <p className="text-sm text-gray-500">
-            У вас пока нет опубликованных событий. Создайте и опубликуйте событие, тогда здесь появится генератор ссылок.
+            У вас пока нет опубликованных событий. Создайте и опубликуйте событие, тогда здесь появятся готовые ссылки.
           </p>
         ) : (
           <>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Событие</label>
             <select
               value={slug}
               onChange={e => setSlug(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm mb-4 bg-white">
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white">
               {events.map(e => (
                 <option key={e.id} value={e.slug}>{e.title} ({e.slug})</option>
               ))}
             </select>
 
             {botHandle && (
-              <label className="flex items-center gap-2 mb-4 text-sm text-gray-700 cursor-pointer">
+              <label className="flex items-center gap-2 mt-4 text-sm text-gray-700 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={useOwnBot}
@@ -166,53 +132,54 @@ export default function AltLaunchLinksPage() {
                 {!useOwnBot && <span className="text-gray-400 text-xs">(сейчас — общий @pluson_bot)</span>}
               </label>
             )}
-
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 mb-2">
-              <div className="text-xs font-semibold mb-1.5" style={{ color: BRAND }}>{selectedMode.label}</div>
-              <CopyBlock value={link} />
-            </div>
-            <p className="text-xs text-gray-500">{selectedMode.note}</p>
           </>
         )}
       </Section>
 
-      {/* Как это работает — таблица */}
-      <Section step="?" title="Что за хвосты в ссылке">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="text-left" style={{ color: BRAND }}>
-                <th className="py-2 pr-3 border-b border-gray-200 font-semibold">Вариант</th>
-                <th className="py-2 pr-3 border-b border-gray-200 font-semibold">Формат ссылки</th>
-                <th className="py-2 border-b border-gray-200 font-semibold">Что делает</th>
-              </tr>
-            </thead>
-            <tbody className="text-gray-700">
-              <tr>
-                <td className="py-2 pr-3 border-b border-gray-100">Бот → приложение</td>
-                <td className="py-2 pr-3 border-b border-gray-100"><code>?start=ref_pg{'{slug}'}</code></td>
-                <td className="py-2 border-b border-gray-100">Открывает бот, бот шлёт кнопку на Mini App</td>
-              </tr>
-              <tr>
-                <td className="py-2 pr-3 border-b border-gray-100">Бот → лендинг</td>
-                <td className="py-2 pr-3 border-b border-gray-100"><code>?start=ref_pg{'{slug}'}_land</code></td>
-                <td className="py-2 border-b border-gray-100">Открывает бот, бот шлёт кнопку на сторонний лендинг события</td>
-              </tr>
-              <tr>
-                <td className="py-2 pr-3">Приложение без лендинга</td>
-                <td className="py-2 pr-3"><code>?startapp=ref_pg{'{slug}'}_nolend</code></td>
-                <td className="py-2">Открывает Mini App сразу, сторонний лендинг не показывается</td>
-              </tr>
-            </tbody>
-          </table>
+      {/* Три готовые ссылки под выбранное событие */}
+      {!loading && events.length > 0 && slug && (
+        <Section step="2" title="Скопируйте нужную ссылку">
+          <p className="text-sm text-gray-600 mb-4">
+            Под событие <strong>«{events.find(e => e.slug === slug)?.title}»</strong> уже всё готово.
+            Выберите ту, что нужна, и нажмите «Копировать».
+          </p>
+          <div className="space-y-4">
+            {MODES.map(m => {
+              const Icon = m.icon
+              return (
+                <div key={m.id} className="rounded-xl border border-gray-200 p-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white flex-shrink-0"
+                         style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+                      <Icon size={15} />
+                    </div>
+                    <div className="text-sm font-semibold" style={{ color: BRAND }}>{m.label}</div>
+                  </div>
+                  <p className="text-xs text-gray-600 leading-snug mb-2.5 pl-9">{m.note}</p>
+                  <CopyBlock value={buildLink(m.id, slug)} />
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* Короткое пояснение «в чём разница» */}
+      <Section step="?" title="В чём разница между ними">
+        <div className="space-y-3 text-sm text-gray-700">
+          <p>
+            <strong>Первые две ссылки</strong> (на <code>?start=</code>) сначала открывают
+            <strong> чат с ботом</strong>. Бот пишет приветствие с афишей события и кнопкой
+            «ЗАРЕГИСТРИРОВАТЬСЯ» — на приложение или на ваш лендинг.
+          </p>
+          <p>
+            <strong>Третья ссылка</strong> (на <code>?startapp=</code>) открывает
+            <strong> сразу Mini App</strong>, минуя бота — и при этом не уводит человека на
+            сторонний лендинг, даже если он задан у события.
+          </p>
         </div>
-        <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
-          💡 Ключевое отличие: <code>?start=</code> открывает <strong>сначала бота</strong> (он присылает сообщение
-          с кнопкой), а <code>?startapp=</code> открывает <strong>сразу Mini App</strong>. К любой из ссылок можно
-          добавить партнёра и метку источника: <code>_pid{'{реф-код}'}_src{'{utm}'}</code>.
-        </div>
-        <div className="mt-3 bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-900">
-          ⚠️ В вариантах «через бота» в приветственном сообщении бот сам подставит строку
+        <div className="mt-4 bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-900">
+          ⚠️ В первых двух вариантах (через бота) к приветствию бот сам добавит строку
           «Если проблемы с регистрацией — пишите в @…» с вашим рабочим контактом. Он берётся из{' '}
           <Link href="/dashboard/settings" className="underline">Настроек</Link> →
           блок «Рабочий аккаунт» → поле «Никнейм». Если поле пустое — строка не добавляется.
