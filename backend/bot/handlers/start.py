@@ -1036,7 +1036,7 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
     text = (
         "Вы зарегистрированы на событие:\n"
         f"<b>{title}</b>\n\n"
-        "Это ваше меню — вы всегда можете вызвать его командой "
+        "Это ваше меню — вы всегда можете вызвать его командой\n"
         f"/menu{event_id}"
     )
 
@@ -1318,6 +1318,31 @@ async def handle_event_menu_command(message: Message):
         await send_event_menu(message, event_id, contact_id, db)
 
 
+@router.message(Command(commands=["app"]))
+async def handle_app(message: Message):
+    """Команда `/app` — кнопка открыть Mini App (команда сама URL открыть не
+    может, поэтому шлём сообщение с кнопкой web_app/url)."""
+    user = message.from_user
+    if not user:
+        return
+    try:
+        me = await message.bot.get_me()
+        bot_username = (me.username or "").lstrip("@")
+    except Exception:
+        bot_username = ""
+    if not bot_username:
+        return
+    from app.services.share_links import PLUSON_TG_HANDLE, PLUSON_TG_APP
+    # Системный бот открывает Mini App по short-name; VIP-бот — Main Mini App.
+    app_part = f"/{PLUSON_TG_APP}" if bot_username == PLUSON_TG_HANDLE else ""
+    app_url = f"https://t.me/{bot_username}{app_part}"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Открыть приложение", url=app_url)
+    ]])
+    await message.answer("Нажмите кнопку, чтобы открыть приложение 👇",
+                         reply_markup=kb)
+
+
 @router.message(Command(commands=["support"]))
 async def handle_support(message: Message):
     """Команда `/support` — сообщение со ссылкой на службу поддержки клиента.
@@ -1352,9 +1377,9 @@ async def handle_support(message: Message):
             "Есть вопрос?\n\n"
             f"Напишите его в нашу службу поддержки — @{_html.escape(work_tg)}"
         )
-        # Предзаполненный текст обращения (пробелы → подчёркивания в ?text=).
-        prefill = "Здравствуйте. Есть вопрос"
-        support_url = f"https://t.me/{work_tg}?text={prefill.replace(' ', '%20')}"
+        # Предзаполненный текст обращения — точно как задан, без пробелов
+        # (подчёркивание вместо пробела), чтобы не было %20 в ссылке.
+        support_url = f"https://t.me/{work_tg}?text=Здравствуйте.Есть_вопрос"
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="НАПИСАТЬ В ПОДДЕРЖКУ", url=support_url)
         ]])

@@ -690,9 +690,9 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                 f'{last_html}</div></div>'
                 f'{next_html}{bar}</div>'
             )
-            # Список порогов: получено / заблокировано
-            gift_rows = ""
-            for g in sorted_g:
+            # Список порогов: получено / заблокировано. Первый виден всегда,
+            # остальные — под жёлтой кнопкой «Показать ещё N».
+            def _gift_row(g):
                 cost = g.get("points_cost") or 0
                 got = registered >= cost
                 gtitle = esc(g.get("title") or "")
@@ -702,7 +702,7 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                     link = (g.get("link_url") or "").strip()
                     btn = (f'<a class="gi-open" href="{esc(link)}" target="_blank" '
                            f'rel="noopener">Открыть</a>') if link else ""
-                    gift_rows += (
+                    return (
                         '<div class="gi gi-got">'
                         '<div class="gi-ico">🎁</div>'
                         f'<div class="gi-body"><div class="gi-title">{gtitle}</div>'
@@ -710,22 +710,29 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                         f'<div class="gi-side"><span class="gi-badge got">за {cost} чел</span>'
                         f'{btn}</div></div>'
                     )
-                else:
-                    need = cost - registered
-                    word = "человек" if need == 1 else "человека"
-                    gift_rows += (
-                        '<div class="gi gi-lock">'
-                        '<div class="gi-ico locked">🎁</div>'
-                        f'<div class="gi-body"><div class="gi-title">{gtitle}</div>'
-                        f'<div class="gi-need">Нужно ещё {need} {word}</div></div>'
-                        f'<span class="gi-badge lock">за {cost} чел</span></div>'
-                    )
+                need = cost - registered
+                word = "человек" if need == 1 else "человека"
+                return (
+                    '<div class="gi gi-lock">'
+                    '<div class="gi-ico locked">🎁</div>'
+                    f'<div class="gi-body"><div class="gi-title">{gtitle}</div>'
+                    f'<div class="gi-need">Нужно ещё {need} {word}</div></div>'
+                    f'<span class="gi-badge lock">за {cost} чел</span></div>'
+                )
+            first_gift = _gift_row(sorted_g[0]) if sorted_g else ""
+            rest_gifts = sorted_g[1:]
+            rest_gifts_html = ""
+            if rest_gifts:
+                rest_rows = "".join(_gift_row(g) for g in rest_gifts)
+                rest_gifts_html = (
+                    f'<div class="gifts-rest" id="gifts-rest" style="display:none">{rest_rows}</div>'
+                    f'<button class="top-more" data-giftsmore type="button">'
+                    f'Показать ещё {len(rest_gifts)} ↓</button>'
+                )
             out += (
-                '<div class="acc collapsed">'
-                '<button class="acc-h" data-acc="gifts" type="button">'
-                f'<span>🎁 Подарки · {gifts_count}/{total}</span>'
-                '<span class="acc-chev">▾</span></button>'
-                f'<div class="acc-body" id="acc-gifts">{summary}{gift_rows}</div>'
+                '<div class="cab-block">'
+                f'<div class="cab-block-h">🎁 Подарки · {gifts_count}/{total}</div>'
+                f'{summary}{first_gift}{rest_gifts_html}'
                 '</div>'
             )
 
@@ -1070,9 +1077,9 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     if has_people:
         tabs.append(("speakers", "Спикеры"))
     if cabinet_html:
-        tabs.append(("cabinet", "Кабинет"))
+        tabs.append(("cabinet", "Подарки"))
     # Вкладка «О площадке» — всегда (последней)
-    tabs.append(("venue", "О площадке"))
+    tabs.append(("venue", "🏛 О площадке"))
     if not tabs:
         # совсем пустое событие — хотя бы программа-заглушка
         tabs.append(("program", "Программа"))
@@ -1455,6 +1462,15 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   document.querySelectorAll('[data-topmore]').forEach(function(btn) {{
     btn.addEventListener('click', function() {{
       var rest = document.getElementById('top-rest');
+      if (rest) rest.style.display = 'block';
+      btn.style.display = 'none';
+    }});
+  }});
+
+  // «Показать ещё» в подарках
+  document.querySelectorAll('[data-giftsmore]').forEach(function(btn) {{
+    btn.addEventListener('click', function() {{
+      var rest = document.getElementById('gifts-rest');
       if (rest) rest.style.display = 'block';
       btn.style.display = 'none';
     }});
