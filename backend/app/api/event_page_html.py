@@ -110,6 +110,50 @@ async def _load_program(db, event_id):
     return days, sessions
 
 
+async def _load_ref_cabinet(db, event, contact_id):
+    """Реф-кабинет человека на странице: его ref_code, сколько привёл на это
+    событие, персональные реф-ссылки (TG/VK/MAX). None если контакт не найден
+    у этого клиента или невалиден."""
+    if not contact_id:
+        return None
+    c = await db.fetchrow(
+        """SELECT id, ref_code, name FROM contacts
+            WHERE id = $1 AND client_id = $2 AND merged_into IS NULL""",
+        int(contact_id), event["client_id"],
+    )
+    if not c or not c["ref_code"]:
+        return None
+    # Сколько людей пришло по его реф-ссылке на ЭТО событие
+    invited = await db.fetchval(
+        """SELECT COUNT(*) FROM event_participants ep
+            WHERE ep.event_id = $1 AND ep.referrer_ref_code = $2""",
+        event["id"], c["ref_code"],
+    ) or 0
+    registered = await db.fetchval(
+        """SELECT COUNT(*) FROM event_participants ep
+            WHERE ep.event_id = $1 AND ep.referrer_ref_code = $2
+              AND ep.is_registered = TRUE""",
+        event["id"], c["ref_code"],
+    ) or 0
+    # Персональные реф-ссылки (share_links уже умеет собирать по платформам)
+    links = {}
+    try:
+        from app.services.share_links import build_share_links
+        links = await build_share_links(
+            db, event_slug=event["slug"], client_id=event["client_id"],
+            partner_id=c["ref_code"],
+        )
+    except Exception:
+        links = {}
+    return {
+        "ref_code": c["ref_code"],
+        "name": c["name"] or "",
+        "invited": invited,
+        "registered": registered,
+        "links": links if isinstance(links, dict) else {},
+    }
+
+
 async def _load_client(db, client_id):
     cl = await db.fetchrow(
         """SELECT name, brand_name, profile_photo_url, positioning,
@@ -182,7 +226,7 @@ def _people_section(title, people) -> str:
     return f'<h2 class="sec-h">{esc(title)}</h2><div class="cards">{cards}</div>'
 
 
-def render_page(event, groups, days, sessions, client, offerings) -> str:
+def render_page(event, groups, days, sessions, client, offerings, ref_cabinet=None) -> str:
     title = esc(event.get("title") or event.get("slug"))
     brand = esc((client.get("brand_name") if client else None) or (client.get("name") if client else "") or "")
     desc = event.get("description") or ""
@@ -257,8 +301,38 @@ def render_page(event, groups, days, sessions, client, offerings) -> str:
     if not eco_html:
         eco_html = '<div class="empty">Экосистема пока не заполнена</div>'
 
+    # ── Реф-кабинет (только если в ?c={contact_id} передан валидный контакт) ──
+    cabinet_html = ""
+    if ref_cabinet:
+        rc = ref_cabinet
+        name = esc(rc.get("name") or "")
+        invited = rc.get("invited", 0)
+        registered = rc.get("registered", 0)
+        cabinet_html += '<div class="cab-stats">'
+        cabinet_html += f'<div class="cab-stat"><div class="cab-num">{invited}</div><div class="cab-lbl">всего привели</div></div>'
+        cabinet_html += f'<div class="cab-stat"><div class="cab-num">{registered}</div><div class="cab-lbl">зарегистрировались</div></div>'
+        cabinet_html += '</div>'
+        links = rc.get("links") or {}
+        plabels = {"telegram": "Telegram", "vk": "ВКонтакте", "max": "MAX"}
+        link_rows = ""
+        for plat, url in links.items():
+            if not url:
+                continue
+            link_rows += (
+                f'<div class="cab-link"><span>{esc(plabels.get(plat, plat))}</span>'
+                f'<input readonly value="{esc(url)}" onclick="this.select()"></div>'
+            )
+        if link_rows:
+            cabinet_html += '<h2 class="sec-h">Ваши ссылки для друзей</h2>'
+            cabinet_html += '<div class="empty" style="text-align:left;padding:0 0 10px">Отправьте друзьям — за приглашённых получите подарки.</div>'
+            cabinet_html += link_rows
+        if rc.get("ref_code"):
+            cabinet_html += f'<div class="cab-code">Ваш код: <b>{esc(rc["ref_code"])}</b></div>'
+
     # ── Какие вкладки показываем ──
     tabs = []
+    if cabinet_html:
+        tabs.append(("cabinet", "Кабинет"))
     tabs.append(("about", "О событии"))
     if days:
         tabs.append(("program", "Программа"))
@@ -337,6 +411,14 @@ def render_page(event, groups, days, sessions, client, offerings) -> str:
   .o-price {{ font-weight:700; color:#25455D; margin-top:6px; }}
   .o-btn {{ display:inline-block; margin-top:10px; padding:9px 18px; border-radius:20px; background:#FFCFA4; color:#25455D; font-weight:700; text-decoration:none; font-size:14px; }}
   .empty {{ color:#8593a1; font-size:14px; padding:20px; text-align:center; }}
+  .cab-stats {{ display:flex; gap:12px; margin-bottom:8px; }}
+  .cab-stat {{ flex:1; background:#fff; border-radius:14px; padding:16px; text-align:center; box-shadow:0 1px 4px rgba(0,0,0,.06); }}
+  .cab-num {{ font-size:28px; font-weight:800; color:#25455D; }}
+  .cab-lbl {{ font-size:12px; color:#8593a1; margin-top:2px; }}
+  .cab-link {{ display:flex; align-items:center; gap:8px; background:#fff; border-radius:12px; padding:10px 12px; margin-bottom:8px; box-shadow:0 1px 4px rgba(0,0,0,.06); }}
+  .cab-link span {{ flex:0 0 90px; font-size:13px; font-weight:600; color:#25455D; }}
+  .cab-link input {{ flex:1; min-width:0; border:none; background:#f3f6f9; border-radius:8px; padding:8px 10px; font-size:12px; color:#41566a; }}
+  .cab-code {{ margin-top:12px; text-align:center; font-size:14px; color:#52647a; }}
 </style>
 </head>
 <body>
@@ -347,6 +429,7 @@ def render_page(event, groups, days, sessions, client, offerings) -> str:
   </div>
   <div class="tabs">{nav_html}</div>
   <div class="content">
+    {'<div class="panel" id="cabinet">' + cabinet_html + '</div>' if cabinet_html else ''}
     <div class="panel" id="about"><div data-anchor></div>{about_html}</div>
     {'<div class="panel" id="program">' + prog_html + '</div>' if days else ''}
     {'<div class="panel" id="speakers">' + people_html + '</div>' if has_people else ''}
@@ -378,7 +461,7 @@ def render_page(event, groups, days, sessions, client, offerings) -> str:
 
 
 @router.get("/event/{slug}", response_class=HTMLResponse, include_in_schema=False)
-async def event_page(slug: str, db: asyncpg.Connection = Depends(get_db)):
+async def event_page(slug: str, c: str = "", db: asyncpg.Connection = Depends(get_db)):
     event = await _resolve_event(db, slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -386,7 +469,11 @@ async def event_page(slug: str, db: asyncpg.Connection = Depends(get_db)):
     groups = await _load_collaborators(db, event_id)
     days, sessions = await _load_program(db, event_id)
     client, offerings = await _load_client(db, event["client_id"]) if event["client_id"] else (None, [])
+    # ?c={contact_id} — реф-кабинет конкретного человека. Битый/пустой → None.
+    contact_id = int(c) if c and c.isdigit() else None
+    ref_cabinet = await _load_ref_cabinet(db, dict(event), contact_id) if contact_id else None
     html_str = render_page(dict(event), groups, days, sessions,
                            dict(client) if client else None,
-                           [dict(o) for o in offerings])
+                           [dict(o) for o in offerings],
+                           ref_cabinet=ref_cabinet)
     return HTMLResponse(content=html_str)
