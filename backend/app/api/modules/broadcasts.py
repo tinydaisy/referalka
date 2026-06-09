@@ -611,6 +611,7 @@ async def list_schedules(
                     THEN EXTRACT(EPOCH FROM (bs.finished_at - bs.started_at))::int
                     ELSE NULL END as duration_seconds,
                (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = bs.id AND bl.status = 'failed') as recipients_failed,
+               (SELECT COUNT(*) FROM broadcast_log bl WHERE bl.schedule_id = bs.id AND bl.status = 'bounced') as recipients_bounced,
                bt.name as template_name, bt.type as template_type,
                bt.schedule_mode,
                cs.title as session_title,

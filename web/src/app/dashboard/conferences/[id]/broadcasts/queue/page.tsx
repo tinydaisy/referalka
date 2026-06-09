@@ -93,6 +93,11 @@ function humanReason(err: string): string {
   if (low.includes('photo') && low.includes('failed')) return 'Не удалось загрузить фото'
   if (low.includes('wrong file identifier') || low.includes('failed to get http url content')) return 'Битая ссылка на фото'
   if (low.includes('message is too long')) return 'Сообщение слишком длинное'
+  // Email-причины недоставки
+  if (low.includes('spam')) return 'Письмо отклонено как спам'
+  if (low.includes('user unknown') || low.includes('does not exist') || low.includes('no such user') || low.includes('mailbox not found') || low.includes('unknown user')) return 'Такого адреса не существует'
+  if (low.includes('mailbox full') || low.includes('out of storage') || low.includes('quota')) return 'Ящик получателя переполнен'
+  if (low.includes('greylist') || low.includes('try again')) return 'Временно отложено получателем'
   if (!err) return 'Неизвестная ошибка'
   return err.slice(0, 100)
 }
@@ -709,12 +714,12 @@ export default function QueuePage() {
                           <span className="text-sm font-semibold text-green-700">{s.recipients_sent}</span>
                           <div className="text-xs text-gray-400 leading-tight">дошло</div>
                         </div>
-                        {s.recipients_failed > 0 && (
+                        {((s.recipients_failed || 0) + (s.recipients_bounced || 0)) > 0 && (
                           <div className="relative group flex items-center gap-1 cursor-help">
                             <span className="text-red-500 font-bold text-sm leading-none">✕</span>
-                            <span className="text-sm font-semibold text-red-500">{s.recipients_failed}</span>
+                            <span className="text-sm font-semibold text-red-500">{(s.recipients_failed || 0) + (s.recipients_bounced || 0)}</span>
                             <div className="absolute bottom-full right-0 mb-1.5 w-64 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-50 shadow-xl pointer-events-none leading-snug">
-                              Не доставлено {s.recipients_failed} получателям. Нажмите «список» — увидите разбивку по причинам (бот заблокирован, чат не найден, и т.д.).
+                              Не доставлено {(s.recipients_failed || 0) + (s.recipients_bounced || 0)} получателям. Нажмите «список» — увидите разбивку по причинам (письмо отклонено как спам, адрес не существует, бот заблокирован, и т.д.).
                             </div>
                           </div>
                         )}
@@ -1104,11 +1109,12 @@ export default function QueuePage() {
       {/* ── Модалка: лог получателей ── */}
       {logModal && (() => {
         const sentCount = logModal.rows.filter(r => r.status === 'sent').length
+        // «Не доставлено» = всё, что не 'sent' (включая bounced — письмо отвергнуто почтой).
         const failed = logModal.rows.filter(r => r.status !== 'sent')
         // Группируем ошибки по тексту
         const reasonMap: Record<string, number> = {}
         for (const r of failed) {
-          const reason = humanReason(r.error || 'Неизвестная ошибка')
+          const reason = humanReason(r.error || 'Письмо не доставлено получателю')
           reasonMap[reason] = (reasonMap[reason] || 0) + 1
         }
         const reasons = Object.entries(reasonMap).sort((a, b) => b[1] - a[1])
@@ -1130,7 +1136,7 @@ export default function QueuePage() {
                 <h3 className="font-semibold text-gray-800 text-sm">Получатели рассылки</h3>
                 <p className="text-xs text-gray-400">
                   Всего: {logModal.rows.length} · <span className="text-green-600">доставлено {sentCount}</span>
-                  {failed.length > 0 && <> · <span className="text-red-500">не дошло {failed.length}</span></>}
+                  {failed.length > 0 && <> · <span className="text-red-500">не доставлено {failed.length}</span></>}
                 </p>
               </div>
               <button onClick={() => setLogModal(null)}><X size={18} /></button>

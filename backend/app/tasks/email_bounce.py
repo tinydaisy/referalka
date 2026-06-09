@@ -35,8 +35,11 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # Сколько последних строк лога читать (на dev/prod ~10-50K строк в час)
-LOG_TAIL_LINES = 100_000
-LOG_FILE = "/var/log/mail.log"
+LOG_TAIL_LINES = 200_000
+# Читаем текущий лог + предыдущий (после ночной ротации свежие bounces могут
+# оказаться в .1). cleanup-строка (qid→message-id) и финальная status=bounced
+# строка должны попасть в ОДНУ выборку, иначе связка теряется.
+LOG_FILES = ["/var/log/mail.log", "/var/log/mail.log.1"]
 
 # Паттерн для выделения нужных полей. Пример:
 # May 22 08:34:33 mail postfix/smtp[1234]: 18AC856262: to=<user@gmail.com>, ..., dsn=5.1.1, status=bounced (...)
@@ -76,10 +79,61 @@ def _read_tail(path: str, lines: int) -> list[str]:
             ["tail", "-n", str(lines), path],
             capture_output=True, text=True, timeout=30,
         )
+        if result.returncode != 0:
+            logger.warning(
+                f"_read_tail: tail вернул код {result.returncode} для {path}. "
+                f"stderr={result.stderr[:200]}. Скорее всего нет прав чтения "
+                f"(/var/log/mail.log = 640 syslog:adm — добавь www-data в группу adm)."
+            )
+            return []
         return result.stdout.splitlines()
     except Exception as e:
         logger.warning(f"_read_tail failed: {e}")
         return []
+
+
+def _read_logs(lines_per_file: int) -> list[str]:
+    """Читает несколько лог-файлов Postfix (текущий + ротированный) и склеивает
+    в один список в хронологическом порядке (старый .1 идёт первым)."""
+    out: list[str] = []
+    # .1 (более старый) сначала, текущий — последним, чтобы порядок строк был
+    # хронологическим и карта qid→message-id успела наполниться до bounce-строк.
+    for path in reversed(LOG_FILES):
+        out.extend(_read_tail(path, lines_per_file))
+    return out
+
+
+def human_reason(dsn: str | None, message: str | None, recipient: str | None = None) -> str:
+    """Человекочитаемая причина недоставки на русском — то, что увидит клиент.
+    Никаких «bounce» и SMTP-кодов: только понятный текст «Не доставлено: …»."""
+    msg = (message or "").lower()
+    dom = ""
+    if recipient and "@" in recipient:
+        dom = recipient.split("@", 1)[1].lower()
+    is_mailru = any(d in dom for d in ("mail.ru", "bk.ru", "inbox.ru", "list.ru", "internet.ru"))
+    provider = "mail.ru" if is_mailru else ("Gmail" if "gmail" in dom else "почтовый сервис получателя")
+
+    if "spam" in msg or "spam message rejected" in msg:
+        return f"{provider} отклонил письмо как спам"
+    if any(t in msg for t in ("user unknown", "does not exist", "no such user",
+                              "mailbox not found", "recipient address rejected",
+                              "unknown user", "no mailbox")):
+        return "Такого адреса не существует"
+    if "mailbox full" in msg or "out of storage" in msg or "quota" in msg or "over quota" in msg:
+        return "Ящик получателя переполнен"
+    if "blocked" in msg or "blacklist" in msg or "block list" in msg:
+        return f"{provider} заблокировал отправителя"
+    if "greylist" in msg or "greylisted" in msg or "try again" in msg:
+        return "Временно отложено получателем (повторим позже)"
+    if "relay access denied" in msg or "relay not permitted" in msg:
+        return "Сервер получателя отклонил доставку"
+    if "connection timed out" in msg or "connection refused" in msg or "no route" in msg:
+        return "Сервер получателя недоступен"
+    if dsn and dsn.startswith("5"):
+        return f"{provider} отклонил письмо"
+    if dsn and dsn.startswith("4"):
+        return "Временная ошибка доставки (повторим позже)"
+    return "Письмо не доставлено получателю"
 
 
 def _classify(dsn: str | None, message: str | None, status: str) -> str:
@@ -108,7 +162,7 @@ def process_bounces():
 async def _process_bounces_async():
     conn = await asyncpg.connect(settings.database_url)
     try:
-        lines = _read_tail(LOG_FILE, LOG_TAIL_LINES)
+        lines = _read_logs(LOG_TAIL_LINES)
         if not lines:
             return
 
@@ -158,13 +212,15 @@ async def _process_bounces_async():
                 # bounce: внешняя система отказала — статус «bounced».
                 # deferred (queue временно отложен) пока трактуем тоже как bounced,
                 # потому что обычно после deferred → bounced в течение часа.
+                # В error пишем ПОНЯТНУЮ русскую причину — её видит клиент в кабинете.
+                reason_human = human_reason(dsn, message, to_email)
                 res = await conn.execute(
                     """UPDATE broadcast_log
                           SET status = 'bounced',
-                              error = COALESCE($2, error)
+                              error = $2
                         WHERE external_message_id = $1
-                          AND status = 'sent'""",
-                    f"<{msgid}>", (message or dsn or "")[:500],
+                          AND status IN ('sent', 'sending')""",
+                    f"<{msgid}>", reason_human[:500],
                 )
                 if "UPDATE" in res and "UPDATE 0" not in res:
                     new_broadcast_bounced += 1

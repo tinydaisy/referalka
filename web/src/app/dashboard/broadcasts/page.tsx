@@ -51,6 +51,11 @@ function humanReason(err: string): string {
   if (low.includes('timeout') || low.includes('timed out')) return 'Таймаут ответа Telegram'
   if (low.includes('wrong file identifier') || low.includes('failed to get http url content')) return 'Битая ссылка на фото'
   if (low.includes('message is too long')) return 'Сообщение слишком длинное'
+  // Email-причины недоставки (на случай старых записей с сырым текстом лога)
+  if (low.includes('spam')) return 'Письмо отклонено как спам'
+  if (low.includes('user unknown') || low.includes('does not exist') || low.includes('no such user') || low.includes('mailbox not found') || low.includes('unknown user')) return 'Такого адреса не существует'
+  if (low.includes('mailbox full') || low.includes('out of storage') || low.includes('quota')) return 'Ящик получателя переполнен'
+  if (low.includes('greylist') || low.includes('try again')) return 'Временно отложено получателем'
   if (!err) return 'Неизвестная ошибка'
   return err.slice(0, 100)
 }
@@ -394,12 +399,12 @@ export default function GeneralBroadcastsPage() {
                               <span className="text-sm font-semibold text-green-700">{s.recipients_sent}</span>
                               <div className="text-xs text-gray-400 leading-tight">дошло</div>
                             </div>
-                            {s.recipients_failed > 0 && (
+                            {((s.recipients_failed || 0) + (s.recipients_bounced || 0)) > 0 && (
                               <div className="relative group flex items-center gap-1 cursor-help">
                                 <span className="text-red-500 font-bold text-sm leading-none">✕</span>
-                                <span className="text-sm font-semibold text-red-500">{s.recipients_failed}</span>
+                                <span className="text-sm font-semibold text-red-500">{(s.recipients_failed || 0) + (s.recipients_bounced || 0)}</span>
                                 <div className="absolute bottom-full right-0 mb-1.5 w-64 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 hidden group-hover:block z-50 shadow-xl pointer-events-none leading-snug">
-                                  Не доставлено {s.recipients_failed}. Нажмите «список» — увидите разбивку по причинам.
+                                  Не доставлено {(s.recipients_failed || 0) + (s.recipients_bounced || 0)}. Нажмите «список» — увидите разбивку по причинам.
                                 </div>
                               </div>
                             )}
@@ -530,7 +535,6 @@ export default function GeneralBroadcastsPage() {
       {logModal && (() => {
         const sentCount = logModal.rows.filter((r: any) => r.status === 'sent').length
         const readCount = logModal.rows.filter((r: any) => r.status === 'sent' && r.read_at).length
-        const bouncedCount = logModal.rows.filter((r: any) => r.status === 'bounced').length
         // Email-аналитика: открытий и кликов хотя бы 1 (по unique получателям)
         const emailOpenedCount = logModal.rows.filter((r: any) =>
           (r.channel_platform === 'email') && Number(r.email_opens) > 0
@@ -539,10 +543,12 @@ export default function GeneralBroadcastsPage() {
           (r.channel_platform === 'email') && Number(r.email_clicks) > 0
         ).length
         const hasEmailRows = logModal.rows.some((r: any) => r.channel_platform === 'email')
-        const failed = logModal.rows.filter((r: any) => r.status !== 'sent' && r.status !== 'bounced')
+        // Для клиента «не доставлено» = всё, что не 'sent' (включая bounced —
+        // письмо отвергнуто почтой получателя). Причину показываем по-русски.
+        const failed = logModal.rows.filter((r: any) => r.status !== 'sent')
         const reasonMap: Record<string, number> = {}
         for (const r of failed) {
-          const reason = humanReason(r.error || 'Неизвестная ошибка')
+          const reason = humanReason(r.error || 'Письмо не доставлено получателю')
           reasonMap[reason] = (reasonMap[reason] || 0) + 1
         }
         const reasons = Object.entries(reasonMap).sort((a, b) => b[1] - a[1])
@@ -574,8 +580,7 @@ export default function GeneralBroadcastsPage() {
                   <p className="text-xs text-gray-400">
                     Всего: {logModal.rows.length} · <span className="text-green-600">доставлено {sentCount}</span>
                     {readCount > 0 && <> · <span className="text-blue-600" title="Прочтения отслеживаются только в VK (Telegram Bot API не даёт read receipts)">прочитано {readCount}</span></>}
-                    {bouncedCount > 0 && <> · <span className="text-orange-600" title="Bounced: получатель отверг (Gmail/mail.ru написали что доставить нельзя)">отбито {bouncedCount}</span></>}
-                    {failed.length > 0 && <> · <span className="text-red-500">не дошло {failed.length}</span></>}
+                    {failed.length > 0 && <> · <span className="text-red-500" title="Письмо/сообщение не дошло до получателя (см. причины ниже)">не доставлено {failed.length}</span></>}
                   </p>
                   {hasEmailRows && (
                     <p className="text-xs text-gray-400 mt-0.5">
