@@ -93,7 +93,7 @@ async def _fetch_participants(
           c.tags,
           ep.referrer_ref_code,
           ep.is_registered,
-          ep.created_at       AS participated_at,
+          ep.registered_at    AS participated_at,
           c.created_at        AS contact_created_at,
           c.last_contact_at,
           (SELECT json_agg(json_build_object(
