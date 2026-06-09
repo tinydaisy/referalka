@@ -813,7 +813,7 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
             out += (
                 '<div class="acc collapsed">'
                 '<button class="acc-h" data-acc="materials" type="button">'
-                '<span>🖼 Материалы</span>'
+                '<span>🖼 Готовые материалы для анонсов</span>'
                 '<span class="acc-chev">▾</span></button>'
                 f'<div class="acc-body" id="acc-materials">{mat_inner}</div>'
                 '</div>'
