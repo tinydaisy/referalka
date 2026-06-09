@@ -384,6 +384,47 @@ async def find_contact_by_telegram_username(
     )
 
 
+async def _merge_if_email_belongs_to_other(db, *, client_id: int,
+                                            contact_id: int,
+                                            email: Optional[str]) -> int:
+    """Если переданный email УЖЕ привязан как идентичность к ДРУГОМУ активному
+    контакту того же клиента — это один и тот же человек на разных платформах
+    (например, зарегался в VK с email, потом в TG с тем же email). Сливаем,
+    чтобы не плодить дубль.
+
+    Контакт-владелец email становится primary (он раньше получил email),
+    текущий contact_id сливается в него. Возвращает id итогового (primary)
+    контакта — на нём дальше и продолжаем привязку идентичности/подписки.
+
+    Если email свободен или принадлежит этому же контакту — возвращает
+    contact_id без изменений.
+    """
+    email_norm = normalize_email(email)
+    if not email_norm:
+        return contact_id
+    owner = await db.fetchval(
+        """SELECT c.id FROM contacts c
+            JOIN platform_users pu ON pu.contact_id = c.id
+           WHERE c.client_id = $1 AND c.merged_into IS NULL
+             AND pu.platform_slug = 'email' AND pu.platform_user_id = $2
+             AND c.id <> $3
+           ORDER BY c.id LIMIT 1""",
+        client_id, email_norm, contact_id,
+    )
+    if not owner:
+        return contact_id
+    # Сливаем текущий контакт (secondary) в владельца email (primary).
+    try:
+        await merge_contacts(db, primary_id=owner, secondary_id=contact_id,
+                             client_id=client_id)
+    except Exception:
+        # Мердж не критичен для регистрации — если упал, оставляем как есть
+        # (хуже дубль, чем сломанная регистрация). Возвращаем владельца, чтобы
+        # хотя бы подписка/идентичность шли на него.
+        pass
+    return owner
+
+
 async def upsert_contact_with_identity(
     db,
     *,
@@ -513,20 +554,30 @@ async def upsert_contact_with_identity(
             phone, normalize_phone(phone),
             salebot_id, utm_source
         )
+        eff_contact_id = pu_existing['contact_id']
+        eff_pu_id = pu_existing['id']
         if normalize_email(email):
-            await sync_email_identity_and_subscription(
-                db, client_id=client_id, contact_id=pu_existing['contact_id'],
-                email=normalize_email(email), first_name=first_name,
+            # Если этот email уже у ДРУГОГО контакта клиента — это тот же человек
+            # на другой платформе (VK→TG с тем же email). Сливаем, чтобы не плодить
+            # дубль. После мерджа продолжаем на итоговом (primary) контакте.
+            merged_into_id = await _merge_if_email_belongs_to_other(
+                db, client_id=client_id, contact_id=eff_contact_id, email=email,
             )
-        # Если был передан email — синхронизируем email-канал.
-        # (existing identity ≠ email; email — это поле контакта, синхронизация
-        # касается отдельной email-identity у этого же contact_id)
-        if email:
+            if merged_into_id != eff_contact_id:
+                eff_contact_id = merged_into_id
+                # идентичность текущей платформы после мерджа уже на primary —
+                # перечитываем её id
+                eff_pu_id = await db.fetchval(
+                    """SELECT id FROM platform_users
+                        WHERE contact_id = $1 AND platform_slug = $2
+                          AND platform_user_id = $3 LIMIT 1""",
+                    eff_contact_id, platform_slug, str(platform_user_id),
+                ) or eff_pu_id
             await sync_email_identity_and_subscription(
-                db, client_id=client_id, contact_id=pu_existing['contact_id'],
-                email=email, first_name=contact_name,
+                db, client_id=client_id, contact_id=eff_contact_id,
+                email=normalize_email(email), first_name=contact_name,
             )
-        return pu_existing['contact_id'], pu_existing['id'], False
+        return eff_contact_id, eff_pu_id, False
 
     # Идентичности нет. Сначала пробуем known_contact_id (из ссылки): человек
     # уже есть в базе под этим контактом, просто впервые заходит на новой
