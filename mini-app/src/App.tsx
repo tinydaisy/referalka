@@ -498,7 +498,11 @@ export default function App() {
       } else {
         setLoading(false)
       }
-    })()
+    })().catch((e) => {
+      // Защита: любая ошибка в init не должна вешать splash навсегда.
+      console.error('App init failed:', e)
+      setLoading(false)
+    })
   }, [])
 
   // URL роутинг: popstate
