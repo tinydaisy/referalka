@@ -317,11 +317,21 @@ async def resolve_or_create_participant(
     event_id: int,
     platform_slug: str,
     platform_user_id: str,
+    username: Optional[str] = None,
+    utm_source: Optional[str] = None,
 ) -> tuple[Optional[int], Optional[int]]:
     """Находит (или создаёт) event_participants.id для пары
     (платформенный пользователь, событие). Возвращает (participant_id, contact_id).
 
-    Любые ошибки или отсутствие контакта → (None, None).
+    Если контакта с такой идентичностью ещё нет (ПЕРВОЕ касание человека —
+    например, он впервые открыл лендинг по реф-ссылке спикера, не побывав в
+    боте раньше) — создаёт контакт + идентичность СИНХРОННО через
+    upsert_contact_with_identity. Иначе pluson_contact_id/pluson_participant_id
+    не попадали бы в URL стороннего лендинга, и webhook GetCourse приходил бы
+    с пустым participant_id (баг до 2026-06-09: контакт создавался только
+    фоновой задачей send_event_open_message — уже ПОСЛЕ сборки URL).
+
+    Любые ошибки → (None, None).
     """
     if not platform_user_id:
         return None, None
@@ -336,9 +346,19 @@ async def resolve_or_create_participant(
                 LIMIT 1""",
             client_id, platform_slug, str(platform_user_id),
         )
-        if not row:
-            return None, None
-        contact_id = row["merged_into"] or row["id"]
+        if row:
+            contact_id = row["merged_into"] or row["id"]
+        else:
+            # Контакта ещё нет — создаём синхронно, чтобы ID попал в URL.
+            from app.services.contact_merge import upsert_contact_with_identity
+            contact_id, _pu_id, _is_new = await upsert_contact_with_identity(
+                db,
+                client_id=client_id,
+                platform_slug=platform_slug,
+                platform_user_id=str(platform_user_id),
+                username=username or None,
+                utm_source=utm_source or None,
+            )
 
         pid = await db.fetchval(
             """INSERT INTO event_participants (event_id, contact_id, is_registered)

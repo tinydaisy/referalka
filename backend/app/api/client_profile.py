@@ -471,11 +471,13 @@ async def public_event_landing_redirect(
         participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='telegram', platform_user_id=str(tg_id),
+            utm_source=utm_source,
         )
     elif vk_id is not None:
         participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='vk', platform_user_id=str(vk_id),
+            utm_source=utm_source,
         )
 
     # Поля контакта (name/email/phone) + платформенные идентичности (tg/vk/tg_nickname)
@@ -563,11 +565,13 @@ async def public_event_vip_redirect(
         participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='telegram', platform_user_id=str(tg_id),
+            utm_source=utm_source,
         )
     elif vk_id is not None:
         participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='vk', platform_user_id=str(vk_id),
+            utm_source=utm_source,
         )
 
     contact_params = await get_contact_landing_params(db, contact_id_out) if contact_id_out else {}
