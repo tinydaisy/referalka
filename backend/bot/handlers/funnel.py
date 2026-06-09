@@ -267,6 +267,126 @@ async def handle_event_menu_back(callback: CallbackQuery):
     await callback.answer()
 
 
+_RU_MONTHS = ["", "января", "февраля", "марта", "апреля", "мая", "июня",
+              "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
+
+@router.callback_query(F.data.startswith("evlive_"))
+async def handle_event_live(callback: CallbackQuery):
+    """«📺 Ссылка на эфир» — ближайший эфир (ближайшая будущая сессия / старт
+    события) + кнопка «ВОЙТИ В ЭФИР» (если есть stream_url и не скрыт). Внизу —
+    кнопки «Программа» и «⬅️ Вернуться в меню»."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    try:
+        event_id = int((callback.data or "").removeprefix("evlive_"))
+    except ValueError:
+        await callback.answer("Ошибка кнопки")
+        return
+
+    user_tg_id = callback.from_user.id
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        ev = await db.fetchrow(
+            """SELECT id, slug, title, module_slug, start_at,
+                      stream_url, hide_stream_button
+                 FROM events WHERE id = $1 LIMIT 1""",
+            event_id,
+        )
+        if not ev:
+            await callback.answer("Событие не найдено")
+            return
+
+        contact_id = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE platform_slug = 'telegram' AND platform_user_id = $1
+                ORDER BY id DESC LIMIT 1""",
+            str(user_tg_id),
+        )
+
+        now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+        live_when = ""   # «3 мая 12:00 МСК»
+        live_what = ""   # название сессии / события
+
+        # Ближайшая будущая сессия программы (conf_days.day_date + start_time).
+        sessions = await db.fetch(
+            """SELECT cd.day_date, s.start_time, s.title
+                 FROM conf_sessions s
+                 JOIN conf_days cd ON cd.event_id = s.event_id AND cd.day_number = s.day
+                WHERE s.event_id = $1 AND s.start_time IS NOT NULL
+                  AND cd.day_date IS NOT NULL
+                ORDER BY cd.day_date, s.start_time""",
+            event_id,
+        )
+        chosen = None
+        for r in sessions:
+            try:
+                hh, mm = str(r["start_time"])[:5].split(":")
+                dt = datetime(r["day_date"].year, r["day_date"].month,
+                              r["day_date"].day, int(hh), int(mm),
+                              tzinfo=ZoneInfo("Europe/Moscow"))
+            except Exception:
+                continue
+            if dt >= now_msk - timedelta(minutes=90):  # текущий/будущий эфир
+                chosen = (dt, r["title"])
+                break
+        if chosen is None and sessions:
+            # все прошли — берём последнюю
+            r = sessions[-1]
+            try:
+                hh, mm = str(r["start_time"])[:5].split(":")
+                dt = datetime(r["day_date"].year, r["day_date"].month,
+                              r["day_date"].day, int(hh), int(mm),
+                              tzinfo=ZoneInfo("Europe/Moscow"))
+                chosen = (dt, r["title"])
+            except Exception:
+                chosen = None
+
+        if chosen:
+            dt, what = chosen
+            live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
+            live_what = what or ""
+        elif ev["start_at"]:
+            dt = ev["start_at"]
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+            dt = dt.astimezone(ZoneInfo("Europe/Moscow"))
+            live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
+            live_what = ev["title"] or ""
+
+        # Текст
+        title = _html.escape(ev["title"] or "")
+        if live_when:
+            text = f"<b>Ближайший эфир</b> — {_html.escape(live_when)}"
+            if live_what:
+                text += f"\n{_html.escape(live_what)}"
+        else:
+            text = "<b>Ближайший эфир</b>"
+
+        # Кнопка/заглушка стрима
+        stream_url = (ev["stream_url"] or "").strip()
+        hide = bool(ev["hide_stream_button"])
+        rows = []
+        if stream_url and not hide:
+            rows.append([InlineKeyboardButton(text="ВОЙТИ В ЭФИР", url=stream_url)])
+        else:
+            text += "\n\nКнопка на стрим появится тут перед эфиром."
+
+        text += "\n\nЧтобы посмотреть всю программу — нажмите на кнопку 👇"
+
+        cid_q = f"?c={contact_id}" if contact_id else ""
+        rows.append([InlineKeyboardButton(
+            text="Программа",
+            url=f"https://pluson.ru/event/{ev['slug']}{cid_q}#program")])
+        rows.append([InlineKeyboardButton(
+            text="⬅️ Вернуться в меню", callback_data=f"evmenu_{event_id}")])
+
+        kb = InlineKeyboardMarkup(inline_keyboard=rows)
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML",
+                                      disable_web_page_preview=True)
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("fnl_check_"))
 async def handle_check_subscription(callback: CallbackQuery):
     try:

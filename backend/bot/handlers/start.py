@@ -1073,7 +1073,12 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
             text="📝 Вступить в Чат", callback_data=f"evchat_{event_id}"
         )])
 
-    # 3. Программа (и спикеры для конференций/турниров).
+    # 3. Ссылка на эфир (над Программой) — ближайший эфир + кнопка войти в стрим.
+    rows.append([InlineKeyboardButton(
+        text="📺 Ссылка на эфир", callback_data=f"evlive_{event_id}"
+    )])
+
+    # 4. Программа (и спикеры для конференций/турниров).
     prog_label = ("Программа и Спикеры"
                   if ev["module_slug"] in ("conference", "turnir")
                   else "Программа")
