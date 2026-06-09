@@ -486,10 +486,7 @@ async def send_event_open_message(
     extra_buttons: list[list[dict]] = []
 
     if kind == "register_cta":
-        date_str = _fmt_event_period(ev["effective_start_at"], ev["effective_end_at"], is_conf)
         text = f"Привет, {name}! 👋\n\nДобро пожаловать на «{ev_title}» 🎉"
-        if date_str:
-            text += f"\n\n🗓 {date_str}"
         text += "\n\nДля регистрации нажмите на кнопку."
         btn_text = "Зарегистрироваться"
         btn_url = f"{bot_url_base}?startapp=ref_pg{ev['slug']}"

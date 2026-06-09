@@ -53,35 +53,50 @@ async def _gather_event_chat_channels(event_id: int, mode: str, db):
     return [dict(r) for r in rows]
 
 
-def _build_chat_links_message(ev) -> tuple[str, list[list[InlineKeyboardButton]]]:
+def _build_chat_links_message(
+    ev, event_id: int, work_tg: str | None = None,
+) -> tuple[str, list[list[InlineKeyboardButton]]]:
     """Сообщение со ссылками на чаты события + кнопки. Главный чат
-    (primary_chat_platform) выводится первым с пометкой «(главный чат)»."""
+    (primary_chat_platform) выводится первым с пометкой «(главный чат)».
+    Ссылка вшита HTML-якорем за название площадки. В конце — футер со
+    Службой поддержки (work_tg), если задана. Внизу кнопок — «Меню события»."""
     tg = (ev["chat_url_tg"] or "").strip()
     vk = (ev["chat_url_vk"] or "").strip()
     mx = (ev["chat_url_max"] or "").strip()
     primary = (ev["primary_chat_platform"] or "telegram").strip()
 
-    # (platform_key, подпись_строки, текст_кнопки, url)
+    # (platform_key, подпись_площадки, текст_кнопки, url)
     items = [
         ("telegram", "Телеграм", "Чат в Телеграм", tg),
-        ("vk", "ВК", "Чат в ВК", vk),
-        ("max", "Мах", "Чат в МАХ", mx),
+        ("vk", "ВКонтакте", "Чат в ВК", vk),
+        ("max", "МАХ", "Чат в МАХ", mx),
     ]
     items = [it for it in items if it[3]]
     # Главный — первым.
     items.sort(key=lambda it: 0 if it[0] == primary else 1)
 
-    lines = [
-        "Это чаты события:",
-        'Добавьтесь во все и НАПИШИТЕ в чаты "Я С ВАМИ" и о себе, чтобы не потеряться!',
-        "",
-    ]
+    text = (
+        "Это чаты события:\n\n"
+        'Добавьтесь во все и <b>НАПИШИТЕ "Я с вами"</b>, чтобы не потеряться!\n\n'
+    )
     rows: list[list[InlineKeyboardButton]] = []
     for idx, (pkey, label, btn, url) in enumerate(items):
         main_mark = " (главный чат)" if idx == 0 else ""
-        lines.append(f"{label}: {_html.escape(url)}{main_mark}")
+        text += f'➤ <a href="{_html.escape(url)}">{label}{main_mark}</a>\n\n'
         rows.append([InlineKeyboardButton(text=btn, url=url)])
-    return "\n".join(lines), rows
+
+    work_tg = (work_tg or "").strip().lstrip("@")
+    if work_tg:
+        wt = _html.escape(work_tg)
+        text += (
+            "\n\n\n\n--- По всем техническим вопросам обращайтесь в "
+            f'<a href="https://t.me/{wt}">@{wt}</a>'
+        )
+
+    rows.append([InlineKeyboardButton(
+        text="⬅️ Меню события", callback_data=f"evmenu_{event_id}"
+    )])
+    return text, rows
 
 
 @router.callback_query(F.data.startswith("evchat_"))
@@ -106,6 +121,10 @@ async def handle_event_chat_join(callback: CallbackQuery):
         if not ev:
             await callback.answer("Событие не найдено", show_alert=True)
             return
+
+        work_tg = await db.fetchval(
+            "SELECT work_tg_username FROM clients WHERE id = $1", ev["client_id"]
+        )
 
         # Режим проверки: конференция → conf_conferences.subscription_mode,
         # мероприятие → events.require_subscription (true=organizer, false=none).
@@ -149,25 +168,62 @@ async def handle_event_chat_join(callback: CallbackQuery):
 
         # ── НЕ подписан на все нужные каналы — показываем список каналов ──────
         if channels and not_all_subscribed:
+            def _is_done(c):
+                return verdicts.get(c["speaker_id"]) in ("subscribed", "fake_pass")
+
+            def _channel_title(url: str) -> str:
+                """Название канала из url: последний сегмент после t.me/ или @."""
+                u = (url or "").strip().rstrip("/")
+                if not u:
+                    return "канал"
+                seg = u.split("/")[-1].lstrip("@")
+                return seg or "канал"
+
             lines = ["Чтобы попасть в чат — подпишитесь на каналы:", ""]
+
+            # ── Неподписанные — сквозная нумерация по всем группам ──
+            multi_group = sum(
+                1 for _, roles in _ROLE_GROUPS
+                if any(c["role"] in roles and not _is_done(c) for c in channels)
+            ) > 1
+            counter = 0
             for header, roles in _ROLE_GROUPS:
-                grp = [c for c in channels if c["role"] in roles]
+                grp = [c for c in channels if c["role"] in roles and not _is_done(c)]
                 if not grp:
                     continue
-                lines.append(f"<b>{header}:</b>")
+                if multi_group:
+                    lines.append(f"<b>{header}:</b>")
                 for c in grp:
+                    counter += 1
                     name = _html.escape(c["name"] or "Канал")
                     url = (c["tg_channel_url"] or "").strip()
-                    mark = "✅ " if verdicts.get(c["speaker_id"]) in ("subscribed", "fake_pass") else ""
                     if url:
-                        lines.append(f"{mark}- <a href=\"{_html.escape(url)}\">{name}</a>")
+                        lines.append(f'{counter}. <a href="{_html.escape(url)}">{name}</a>')
                     else:
-                        lines.append(f"{mark}- {name}")
-                lines.append("")
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="✅ Готово / Проверить снова",
-                                     callback_data=f"evchat_{event_id}")
-            ]])
+                        lines.append(f"{counter}. {name}")
+                if multi_group:
+                    lines.append("")
+
+            # ── Уже подписанные ──
+            done = [c for c in channels if _is_done(c)]
+            if done:
+                lines.append("\n\n")
+                lines.append("Вы уже подписаны:")
+                for c in done:
+                    name = _html.escape(c["name"] or "Канал")
+                    url = (c["tg_channel_url"] or "").strip()
+                    title = _html.escape(_channel_title(url))
+                    if url:
+                        lines.append(f'✅ <a href="{_html.escape(url)}">{name}</a> ({title})')
+                    else:
+                        lines.append(f"✅ {name} ({title})")
+
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Готово / Проверить снова",
+                                      callback_data=f"evchat_{event_id}")],
+                [InlineKeyboardButton(text="⬅️ Меню события",
+                                      callback_data=f"evmenu_{event_id}")],
+            ])
             await callback.message.answer(
                 "\n".join(lines).strip(), reply_markup=kb,
                 parse_mode="HTML", disable_web_page_preview=True,
@@ -176,13 +232,39 @@ async def handle_event_chat_join(callback: CallbackQuery):
             return
 
         # ── Подписан (или mode=none) — выдаём ссылки на чаты ──────────────────
-        text, rows = _build_chat_links_message(ev)
+        text, rows = _build_chat_links_message(ev, event_id, work_tg)
         kb = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
         await callback.message.answer(
             text, reply_markup=kb, parse_mode="HTML",
             disable_web_page_preview=True,
         )
         await callback.answer()
+
+
+@router.callback_query(F.data.startswith("evmenu_"))
+async def handle_event_menu_back(callback: CallbackQuery):
+    """«⬅️ Меню события» — возврат в меню кабинета зарегистрированного участника."""
+    try:
+        event_id = int((callback.data or "").removeprefix("evmenu_"))
+    except ValueError:
+        await callback.answer("Ошибка кнопки")
+        return
+
+    user_tg_id = callback.from_user.id
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        # Резолв contact_id по telegram-идентичности.
+        contact_id = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE platform_slug = 'telegram'
+                  AND platform_user_id = $1
+                ORDER BY id DESC LIMIT 1""",
+            str(user_tg_id),
+        )
+        # Отложенный импорт во избежание циклической зависимости.
+        from bot.handlers.start import send_event_menu
+        await send_event_menu(callback.message, event_id, contact_id, db)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("fnl_check_"))

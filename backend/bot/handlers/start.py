@@ -982,7 +982,6 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Открыть в Мини-Апп", url=mini_app_link)],
         [InlineKeyboardButton(text="Открыть в Веб-версии", url=web_url)],
-        [InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=reg_url)],
     ])
 
     # Если у события есть афиша — шлём фото с подписью; иначе обычный текст.
@@ -1014,8 +1013,17 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
     ev = await db.fetchrow(
         """SELECT id, client_id, slug, title, module_slug,
                   vip_url, vip_button_label,
-                  chat_url_tg, chat_url_vk, chat_url_max
-             FROM events WHERE id = $1 LIMIT 1""",
+                  chat_url_tg, chat_url_vk, chat_url_max,
+                  (SELECT url FROM event_posters
+                     WHERE event_id = e.id
+                     ORDER BY CASE orientation
+                                WHEN 'horizontal' THEN 1
+                                WHEN 'square'     THEN 2
+                                WHEN 'vertical'   THEN 3
+                                ELSE 4
+                              END, sort, id
+                     LIMIT 1) AS poster_url
+             FROM events e WHERE e.id = $1 LIMIT 1""",
         event_id,
     )
     if not ev:
@@ -1062,7 +1070,7 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
                     or (ev["chat_url_max"] or "").strip())
     if has_chat:
         rows.append([InlineKeyboardButton(
-            text="Вступить в Чат", callback_data=f"evchat_{event_id}"
+            text="📝 Вступить в Чат", callback_data=f"evchat_{event_id}"
         )])
 
     # 3. Программа (и спикеры для конференций/турниров).
@@ -1073,12 +1081,22 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
         text=prog_label, url=f"https://pluson.ru/event/{slug}{cid_q}#program"
     )])
 
-    # 4. Кабинет и подарки.
+    # 4. Кабинет и подарки → вкладка кабинета (#cabinet).
     rows.append([InlineKeyboardButton(
-        text="Кабинет и подарки", url=f"https://pluson.ru/event/{slug}{cid_q}"
+        text="🎁 Кабинет и подарки",
+        url=f"https://pluson.ru/event/{slug}{cid_q}#cabinet"
     )])
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    poster_url = (ev["poster_url"] or "").strip()
+    if poster_url and len(text) <= 1024:
+        try:
+            await message.answer_photo(poster_url, caption=text, reply_markup=kb,
+                                       parse_mode="HTML")
+            return
+        except Exception as e:
+            log.warning("send_event_menu poster send failed (%s), fallback to text: %s",
+                        poster_url, e)
     await message.answer(text, reply_markup=kb, parse_mode="HTML",
                          disable_web_page_preview=True)
 
