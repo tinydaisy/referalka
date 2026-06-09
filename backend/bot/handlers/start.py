@@ -1064,7 +1064,13 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
         vip_label = (ev["vip_button_label"] or "").strip() or "Выбрать формат участия"
         rows.append([InlineKeyboardButton(text=vip_label, url=vip_target)])
 
-    # 2. Вступить в Чат — только если есть хоть одна chat-ссылка.
+    # 2. Кабинет и подарки → вкладка кабинета (#cabinet).
+    rows.append([InlineKeyboardButton(
+        text="🎁 Кабинет и подарки",
+        url=f"https://pluson.ru/event/{slug}{cid_q}#cabinet"
+    )])
+
+    # 3. Вступить в Чат — только если есть хоть одна chat-ссылка.
     has_chat = bool((ev["chat_url_tg"] or "").strip()
                     or (ev["chat_url_vk"] or "").strip()
                     or (ev["chat_url_max"] or "").strip())
@@ -1084,12 +1090,6 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
                   else "Программа")
     rows.append([InlineKeyboardButton(
         text=prog_label, url=f"https://pluson.ru/event/{slug}{cid_q}#program"
-    )])
-
-    # 4. Кабинет и подарки → вкладка кабинета (#cabinet).
-    rows.append([InlineKeyboardButton(
-        text="🎁 Кабинет и подарки",
-        url=f"https://pluson.ru/event/{slug}{cid_q}#cabinet"
     )])
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
