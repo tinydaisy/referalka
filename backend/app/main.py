@@ -6,7 +6,7 @@ from app.config import settings
 from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
 from app.api import broadcasts_general
@@ -68,6 +68,7 @@ app.include_router(max_event.router,    prefix="/api/v1")  # POST /api/v1/max/ev
 app.include_router(max_webhook.router,  prefix="/api/v1")  # POST /api/v1/max/webhook/{secret}
 app.include_router(referral.router)     # /api/v1/referral/conversion
 app.include_router(integrations.router, prefix="/api/v1")
+app.include_router(participants_export.router, prefix="/api/v1")  # /api/v1/integrations/events/{id}/participants/{registered|not-registered} — выгрузка участников для сторонних сервисов
 app.include_router(subscription_check.router)  # /api/v1/public/...
 app.include_router(contacts.router,     prefix="/api/v1")
 app.include_router(lead_magnets.router, prefix="/api/v1")
@@ -88,6 +89,7 @@ app.include_router(event_raffle_public.router,            prefix="/api/v1")  # M
 app.include_router(event_raffle_public.event_root_router, prefix="/api/v1")  # Mini App: /events/{slug}/live — отметка «в эфире» (миграция 056)
 app.include_router(tg_utils.router,                       prefix="/api/v1")  # /api/v1/utils/resolve-tg-chat-id
 app.include_router(event_nurture.router,                  prefix="/api/v1")  # /api/v1/events/{id}/nurture/steps (миграция 088)
+app.include_router(event_nurture_reg.router,              prefix="/api/v1")  # /api/v1/events/{id}/nurture-reg/steps — воронка зарег. (миграция 129)
 app.include_router(email_unsubscribe.router)                                   # /api/v1/email/unsubscribe (миграции 097-098)
 app.include_router(legal.router)                                               # юр-данные клиента + публичная страничка политики (миграция 099)
 app.include_router(email_tracking.router)                                      # /api/v1/email/pixel/{token}.gif, /api/v1/email/click (миграция 098)

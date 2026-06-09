@@ -392,6 +392,22 @@ export const api = {
     remove: (stepId: number) =>
       request(`/api/v1/events/nurture/steps/${stepId}`, { method: 'DELETE' }),
   },
+  // Воронка догрева для ЗАРЕГИСТРИРОВАННЫХ участников (миграция 129)
+  eventNurtureReg: {
+    list: (eventId: number) => request(`/api/v1/events/${eventId}/nurture-reg/steps`),
+    previewUrls: (eventId: number) =>
+      request(`/api/v1/events/${eventId}/nurture-reg/preview-urls`),
+    create: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/nurture-reg/steps`, {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    update: (stepId: number, data: any) =>
+      request(`/api/v1/events/nurture-reg/steps/${stepId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    remove: (stepId: number) =>
+      request(`/api/v1/events/nurture-reg/steps/${stepId}`, { method: 'DELETE' }),
+  },
   channels: {
     list: () => request('/api/v1/channels'),
     get: (id: number) => request(`/api/v1/channels/${id}`),

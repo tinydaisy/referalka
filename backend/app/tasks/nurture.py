@@ -51,6 +51,8 @@ def _format_text(
     event_title: str,
     event_date_short: str,
     owner_telegram: str = "",
+    support_link: str = "",
+    brand_name: str = "",
 ) -> str:
     """Подставляет плейсхолдеры. Безопасно — формат-строка может содержать
     случайные {...} в HTML; используем replace, а не .format()."""
@@ -58,6 +60,8 @@ def _format_text(
     out = out.replace("{event_title}",      escape(event_title or ""))
     out = out.replace("{event_date_short}", escape(event_date_short or ""))
     out = out.replace("{owner_telegram}",   owner_telegram or "")  # уже HTML-тег <a>
+    out = out.replace("{support_link}",     support_link or "")    # уже HTML-тег <a> или текст
+    out = out.replace("{brand_name}",       f"«{escape(brand_name)}»" if brand_name else "")
     return out
 
 
@@ -79,6 +83,16 @@ def _build_owner_contact(work_tg: str | None, social_telegram: str | None) -> st
         return "откройте приложение → вкладка «Экосистема» — там контакты"
     href = f"https://t.me/{handle}"
     return f'<a href="{href}">@{escape(handle)}</a>'
+
+
+def _build_support_contact(work_tg: str | None) -> str:
+    """Контакт службы поддержки для {support_link}. HTML-якорь <a> с @username.
+    Берётся ТОЛЬКО из clients.work_tg_username (поле «Служба поддержки»).
+    Если не задан — нейтральный fallback «в этом боте»."""
+    handle = (work_tg or "").lstrip("@").strip()
+    if not handle:
+        return "в этом боте"
+    return f'<a href="https://t.me/{escape(handle)}">@{escape(handle)}</a>'
 
 
 async def _build_app_url(
@@ -209,7 +223,7 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     # get_founder_tg_channels.
     from app.services.social_links import get_founder_tg_channels
     contact_row = await db.fetchrow(
-        "SELECT work_tg_username, social_links FROM clients WHERE id = $1",
+        "SELECT work_tg_username, social_links, brand_name, name FROM clients WHERE id = $1",
         run_row["client_id"],
     )
     founder_tg = ""
@@ -223,18 +237,31 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         channels = get_founder_tg_channels(social or {})
         if channels:
             founder_tg = channels[0]["url"]
-    owner_tg = _build_owner_contact(
-        (contact_row["work_tg_username"] if contact_row else None),
-        founder_tg or None,
-    )
+    work_tg_username = contact_row["work_tg_username"] if contact_row else None
+    owner_tg = _build_owner_contact(work_tg_username, founder_tg or None)
+    # Служба поддержки для {support_link}: только work_tg_username (без fallback на
+    # канал основателя — это контакт для связи, а не канал).
+    support_link = _build_support_contact(work_tg_username)
+    brand_name = ""
+    if contact_row:
+        brand_name = (contact_row["brand_name"] or contact_row["name"] or "").strip()
 
     text = _format_text(
         step_row["text"],
         event_title=event_title,
         event_date_short=event_date_short,
         owner_telegram=owner_tg,
+        support_link=support_link,
+        brand_name=brand_name,
     )
     button_label = step_row["button_label"] or "Зарегистрироваться"
+    button_kind = step_row["button_kind"] if "button_kind" in step_row else "event"
+    # URL кнопки «Написать в поддержку» — t.me/{work_tg}?text=…
+    support_btn_url = ""
+    if button_kind == "support" and work_tg_username:
+        from urllib.parse import quote
+        handle = work_tg_username.lstrip("@").strip()
+        support_btn_url = f"https://t.me/{handle}?text={quote('Есть вопрос по регистрации')}"
 
     # Получатель: ищем идентичности контакта в TG и VK
     identities = await db.fetch(
@@ -252,7 +279,11 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
         plat = ident["platform_slug"]
         pid = ident["platform_user_id"]
         try:
-            url = await _build_app_url(db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code)
+            # Кнопка «support» ведёт на t.me/{поддержка}?text=…; иначе — на событие.
+            if button_kind == "support" and support_btn_url:
+                url = support_btn_url
+            else:
+                url = await _build_app_url(db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code)
             if plat == "telegram":
                 tok = await get_client_telegram_token(client_id, db) or settings.telegram_bot_token
                 if not tok:
@@ -309,7 +340,7 @@ async def _tick():
 
             # Берём следующий активный шаг по индексу last_step_index + 1
             next_step = await db.fetchrow(
-                """SELECT id, sort_order, offset_seconds, text, button_label
+                """SELECT id, sort_order, offset_seconds, text, button_label, button_kind
                      FROM event_nurture_steps
                     WHERE event_id = $1 AND is_active = TRUE
                     ORDER BY sort_order, id

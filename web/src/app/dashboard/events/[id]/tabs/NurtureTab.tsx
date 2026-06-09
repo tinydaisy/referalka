@@ -9,6 +9,7 @@ interface Step {
   offset_seconds: number
   text: string
   button_label: string
+  button_kind: 'event' | 'support'
   is_active: boolean
 }
 
@@ -25,7 +26,6 @@ const UNIT_FACTORS: Record<Unit, number> = {
   days:    86400,
 }
 const UNIT_LABELS: Record<Unit, [string, string, string]> = {
-  // (1, 2..4, 5+) — стандартный slavic plural
   seconds: ['секунда',  'секунды',  'секунд'],
   minutes: ['минута',   'минуты',   'минут'],
   hours:   ['час',      'часа',     'часов'],
@@ -39,7 +39,6 @@ function plural(n: number, one: string, few: string, many: string) {
   return many
 }
 
-// Из секунд вернёт удобное (число, единица) — наибольшая единица где значение целое.
 function secondsToValueUnit(sec: number): { value: number; unit: Unit } {
   if (sec === 0) return { value: 0, unit: 'minutes' }
   if (sec % 86400 === 0) return { value: sec / 86400, unit: 'days' }
@@ -49,29 +48,69 @@ function secondsToValueUnit(sec: number): { value: number; unit: Unit } {
 }
 
 function formatOffset(sec: number): string {
+  if (sec === 0) return 'сразу'
   const { value, unit } = secondsToValueUnit(sec)
   const [one, few, many] = UNIT_LABELS[unit]
   return `через ${value} ${plural(value, one, few, many)}`
 }
 
+type Audience = 'unreg' | 'reg'
+
 export default function NurtureTab({ eventId }: Props) {
+  const [audience, setAudience] = useState<Audience>('unreg')
+  return (
+    <div className="space-y-4">
+      {/* Подвкладки: незарегистрированным / зарегистрированным */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setAudience('unreg')}
+          className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+            audience === 'unreg'
+              ? 'text-white'
+              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+          }`}
+          style={audience === 'unreg' ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : {}}
+        >
+          Незарегистрированным
+        </button>
+        <button
+          onClick={() => setAudience('reg')}
+          className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+            audience === 'reg'
+              ? 'text-white'
+              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+          }`}
+          style={audience === 'reg' ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : {}}
+        >
+          Зарегистрированным
+        </button>
+      </div>
+
+      {/* Один и тот же редактор шагов, разный API-клиент и тексты-подсказки */}
+      {audience === 'unreg'
+        ? <NurtureEditor eventId={eventId} audience="unreg" />
+        : <NurtureEditor eventId={eventId} audience="reg" />}
+    </div>
+  )
+}
+
+// ─── Редактор шагов одной воронки ──────────────────────────────────────
+
+function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audience }) {
+  const client = audience === 'unreg' ? api.eventNurture : api.eventNurtureReg
+
   const [steps, setSteps] = useState<Step[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<number | null>(null)
   const [drafts, setDrafts] = useState<Record<number, Partial<Step>>>({})
-  const [previewUrls, setPreviewUrls] = useState<{ tg_url: string; vk_url: string } | null>(null)
+  const [previewUrls, setPreviewUrls] = useState<any>(null)
   const lastAddedRef = useRef<number | null>(null)
   const cardRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
-  // Подтягиваем РЕАЛЬНЫЕ URL'ы для подсказки куда ведёт кнопка.
-  // Бэк учитывает VIP-канал клиента: у вас в VIP — t.me/{ваш_бот}/pluson, иначе общий.
   useEffect(() => {
-    api.eventNurture.previewUrls(eventId).then((r: any) => {
-      setPreviewUrls({ tg_url: r?.tg_url || '', vk_url: r?.vk_url || '' })
-    }).catch(() => {})
-  }, [eventId])
+    client.previewUrls(eventId).then((r: any) => setPreviewUrls(r || null)).catch(() => {})
+  }, [eventId, audience])
 
-  // После reload — если был добавлен шаг, scroll к нему и подсветить
   useEffect(() => {
     if (lastAddedRef.current && steps.find(s => s.id === lastAddedRef.current)) {
       const el = cardRefs.current[lastAddedRef.current]
@@ -87,7 +126,7 @@ export default function NurtureTab({ eventId }: Props) {
   async function load() {
     setLoading(true)
     try {
-      const r = await api.eventNurture.list(eventId)
+      const r = await client.list(eventId)
       setSteps(r.steps || [])
       setDrafts({})
     } finally {
@@ -95,7 +134,7 @@ export default function NurtureTab({ eventId }: Props) {
     }
   }
 
-  useEffect(() => { load() }, [eventId])
+  useEffect(() => { load() }, [eventId, audience])
 
   function patchDraft(stepId: number, p: Partial<Step>) {
     setDrafts(d => ({ ...d, [stepId]: { ...d[stepId], ...p } }))
@@ -106,7 +145,7 @@ export default function NurtureTab({ eventId }: Props) {
     if (!d) return
     setSaving(s.id)
     try {
-      await api.eventNurture.update(s.id, d)
+      await client.update(s.id, d)
       await load()
     } finally {
       setSaving(null)
@@ -114,24 +153,23 @@ export default function NurtureTab({ eventId }: Props) {
   }
 
   async function toggleActive(s: Step) {
-    await api.eventNurture.update(s.id, { is_active: !s.is_active })
+    await client.update(s.id, { is_active: !s.is_active })
     load()
   }
 
   async function deleteStep(s: Step) {
     if (!confirm(`Удалить этот шаг воронки догрева?`)) return
-    await api.eventNurture.remove(s.id)
+    await client.remove(s.id)
     load()
   }
 
   async function addStep() {
-    // Дефолт — сутки после последнего шага. Новый шаг ВЫКЛЮЧЕН — клиент
-    // допишет текст и включит вручную.
     const lastOffset = steps.length ? steps[steps.length - 1].offset_seconds : 30 * 60
-    const r = await api.eventNurture.create(eventId, {
+    const r = await client.create(eventId, {
       offset_seconds: lastOffset + 86400,
       text: 'Новое сообщение воронки. Допишите текст и включите шаг ↑',
-      button_label: 'Зарегистрироваться',
+      button_label: audience === 'reg' ? '' : 'Зарегистрироваться',
+      button_kind: 'event',
       is_active: false,
     })
     lastAddedRef.current = r?.id || null
@@ -146,14 +184,21 @@ export default function NurtureTab({ eventId }: Props) {
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-          <Clock size={18} /> Воронка догрева
+          <Clock size={18} /> {audience === 'reg' ? 'Воронка догрева — зарегистрированным' : 'Воронка догрева — незарегистрированным'}
         </h3>
-        <p className="text-sm text-gray-500 mt-1">
-          Серия сообщений человеку, который открыл событие, но не зарегистрировался.
-          Отсчёт интервалов идёт от момента первого открытия — каждый получает в своё время.
-          Воронка останавливается автоматически когда человек регистрируется или событие
-          начинается.
-        </p>
+        {audience === 'reg' ? (
+          <p className="text-sm text-gray-500 mt-1">
+            Серия сообщений человеку, который <b>зарегистрировался</b> на событие. Помогает
+            не потеряться: вступить в чаты, закрепить бота. Отсчёт интервалов идёт от момента
+            регистрации. Останавливается автоматически, когда событие завершается.
+          </p>
+        ) : (
+          <p className="text-sm text-gray-500 mt-1">
+            Серия сообщений человеку, который открыл событие, но <b>не зарегистрировался</b>.
+            Отсчёт интервалов идёт от момента первого открытия — каждый получает в своё время.
+            Останавливается автоматически, когда человек регистрируется или событие завершается.
+          </p>
+        )}
         <p className="text-xs text-gray-500 mt-2">
           Поддерживается HTML-форматирование: <code>&lt;b&gt;жирный&lt;/b&gt;</code>,{' '}
           <code>&lt;i&gt;курсив&lt;/i&gt;</code>, <code>&lt;a href="..."&gt;ссылка&lt;/a&gt;</code>.
@@ -167,9 +212,39 @@ export default function NurtureTab({ eventId }: Props) {
         </p>
         <ul className="text-xs text-gray-500 mt-1 ml-4 list-disc space-y-0.5">
           <li><code>{'{event_title}'}</code> — название события</li>
-          <li><code>{'{event_date_short}'}</code> — дата в формате «28 мая в 11:00 МСК»</li>
-          <li><code>{'{owner_telegram}'}</code> — ваш Telegram-контакт из настроек (поле «Telegram для связи» в профиле). Если поле пустое — fallback на текст про Экосистему.</li>
+          {audience === 'unreg' && (
+            <>
+              <li><code>{'{event_date_short}'}</code> — дата в формате «28 мая в 11:00 МСК»</li>
+              <li><code>{'{owner_telegram}'}</code> — Telegram-контакт организатора из настроек профиля</li>
+              <li><code>{'{support_link}'}</code> — служба поддержки (поле в Профиле). Если пусто — «в этом боте»</li>
+              <li><code>{'{brand_name}'}</code> — название вашего бренда</li>
+            </>
+          )}
+          {audience === 'reg' && (
+            <>
+              <li><code>{'{chats}'}</code> — список чатов события (TG/VK/MAX), главный сверху и жирным</li>
+              <li><code>{'{bot_handle}'}</code> — @ник бота, через который пришло сообщение</li>
+              <li><code>{'{support_link}'}</code> — служба поддержки (поле в Профиле)</li>
+              <li><code>{'{program_link}'}</code> — раздел «Программа» в Mini App</li>
+              <li><code>{'{gifts_link}'}</code> — раздел «Подарки» (если включена реф-программа)</li>
+              <li><code>{'{speakers_link}'}</code> — раздел «Спикеры» (для конференций/турниров)</li>
+              <li><code>{'{vip_link}'}</code> — ссылка на VIP-тариф (если задана)</li>
+            </>
+          )}
         </ul>
+        {audience === 'reg' && previewUrls?.chats_html && (
+          <div className="text-[11px] text-gray-400 mt-2">
+            <span>Предпросмотр блока <code>{'{chats}'}</code>:</span>
+            <div className="ml-2 mt-1 p-2 bg-gray-50 rounded border border-gray-100"
+                 dangerouslySetInnerHTML={{ __html: previewUrls.chats_html.replace(/\n/g, '<br/>') }} />
+          </div>
+        )}
+        {audience === 'reg' && !previewUrls?.chats_html && (
+          <p className="text-[11px] text-amber-700 mt-2">
+            ⚠️ Чаты события не заданы — плейсхолдер <code>{'{chats}'}</code> будет пустым.
+            Заполните ссылки на чаты во вкладке «Настройки» события.
+          </p>
+        )}
       </div>
 
       {steps.length === 0 ? (
@@ -183,10 +258,9 @@ export default function NurtureTab({ eventId }: Props) {
           const currentOffset = d.offset_seconds ?? s.offset_seconds
           const currentText = d.text ?? s.text
           const currentLabel = d.button_label ?? s.button_label
+          const currentKind = (d.button_kind ?? s.button_kind) || 'event'
           const { value: vuValue, unit: vuUnit } = secondsToValueUnit(currentOffset)
-          // Mini App URL для подсказки «куда ведёт кнопка» — реальные ссылки от бэка,
-          // учитывают VIP-канал клиента.
-          const tgUrl = previewUrls?.tg_url || ''
+          const tgUrl = previewUrls?.tg_url || previewUrls?.program_link || ''
           const vkUrl = previewUrls?.vk_url || ''
           return (
             <div
@@ -221,10 +295,10 @@ export default function NurtureTab({ eventId }: Props) {
                   <div className="flex gap-2">
                     <input
                       type="number"
-                      min={1}
-                      value={vuValue || 1}
+                      min={0}
+                      value={vuValue}
                       onChange={e => {
-                        const v = Math.max(1, Number(e.target.value) || 1)
+                        const v = Math.max(0, Number(e.target.value) || 0)
                         patchDraft(s.id, { offset_seconds: v * UNIT_FACTORS[vuUnit] })
                       }}
                       className="w-20 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
@@ -233,7 +307,7 @@ export default function NurtureTab({ eventId }: Props) {
                       value={vuUnit}
                       onChange={e => {
                         const newUnit = e.target.value as Unit
-                        patchDraft(s.id, { offset_seconds: (vuValue || 1) * UNIT_FACTORS[newUnit] })
+                        patchDraft(s.id, { offset_seconds: (vuValue || 0) * UNIT_FACTORS[newUnit] })
                       }}
                       className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
                     >
@@ -243,25 +317,43 @@ export default function NurtureTab({ eventId }: Props) {
                       <option value="days">суток</option>
                     </select>
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-1">от первого открытия события</p>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    {audience === 'reg' ? 'от момента регистрации' : 'от первого открытия события'}
+                  </p>
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-xs text-gray-500 mb-1">Надпись на кнопке</label>
+                  <label className="block text-xs text-gray-500 mb-1">Надпись на кнопке <span className="text-gray-400">(пусто — без кнопки)</span></label>
                   <input
                     value={currentLabel}
                     onChange={e => patchDraft(s.id, { button_label: e.target.value })}
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
-                    placeholder="Зарегистрироваться"
+                    placeholder={audience === 'reg' ? 'Например: Открыть программу' : 'Зарегистрироваться'}
                   />
-                  {(tgUrl || vkUrl) && (
+                  <div className="mt-2">
+                    <label className="block text-xs text-gray-500 mb-1">Кнопка ведёт на</label>
+                    <select
+                      value={currentKind}
+                      onChange={e => patchDraft(s.id, { button_kind: e.target.value as 'event' | 'support' })}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                    >
+                      <option value="event">{audience === 'reg' ? 'Программу события' : 'Страницу события'}</option>
+                      <option value="support">Службу поддержки (Telegram)</option>
+                    </select>
+                  </div>
+                  {currentKind === 'event' && (tgUrl || vkUrl) && (
                     <div className="text-[11px] text-gray-400 mt-1 space-y-0.5">
                       <div className="flex items-start gap-1">
                         <ExternalLink size={11} className="mt-0.5 shrink-0" />
-                        <span>Ведёт на страницу события в Mini App вашего бота:</span>
+                        <span>Ведёт в Mini App вашего бота:</span>
                       </div>
                       {tgUrl && <div className="ml-4"><code className="text-[10px]">TG: {tgUrl}</code></div>}
                       {vkUrl && <div className="ml-4"><code className="text-[10px]">VK: {vkUrl}</code></div>}
                     </div>
+                  )}
+                  {currentKind === 'support' && (
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Ведёт на ваш Telegram службы поддержки (поле «Служба поддержки» в Профиле).
+                    </p>
                   )}
                 </div>
               </div>

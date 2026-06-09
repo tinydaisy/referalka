@@ -6,7 +6,7 @@ celery = Celery(
     "plusson",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.email_bounce"]
+    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce"]
 )
 
 celery.conf.update(
@@ -41,6 +41,11 @@ celery.conf.update(
         # Раз в 5 минут — отправка очередных шагов воронки догрева событий
         "nurture-tick": {
             "task": "app.tasks.nurture.tick",
+            "schedule": 300.0,
+        },
+        # Раз в 5 минут — воронка догрева ЗАРЕГИСТРИРОВАННЫХ участников (миграция 129)
+        "nurture-reg-tick": {
+            "task": "app.tasks.nurture_reg.tick",
             "schedule": 300.0,
         },
         # Раз в час — парсинг bounce-возвратов из mail.log,
