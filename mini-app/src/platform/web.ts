@@ -38,6 +38,9 @@ export async function initPlatform(): Promise<PlatformAdapter> {
     const src = sp.get('utm_source') || sp.get('src')
     if (pid) parts.push(`pid${pid}`)
     if (src) parts.push(`src${src}`)
+    // `_ct{N}` — наш contact_id (см. App.parseStartParam): бэк привяжет
+    // идентичность к существующему контакту вместо создания дубля.
+    if (contactId) parts.push(`ct${contactId}`)
     if (initialTab) parts.push(`tab${initialTab}`)
     startParam = parts.join('_')
   }

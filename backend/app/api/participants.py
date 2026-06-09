@@ -25,6 +25,7 @@ class RegisterParticipantRequest(BaseModel):
     phone: Optional[str] = None
     ref_code: Optional[str] = None
     partner_tg_id: Optional[str] = None
+    contact_id: Optional[int] = None  # сквозной contact_id (из startapp ct<N>) — против дублей
     platform: Literal["telegram", "vk", "max"] = "telegram"
     # Согласия (152-ФЗ). Обе галочки обязательные на форме регистрации.
     # Если форма пришла из flow «возврат с лендинга» (/r/{slug}) — клиент
@@ -99,6 +100,7 @@ async def register_participant(
         last_name=data.last_name,
         email=data.email,
         phone=data.phone,
+        known_contact_id=data.contact_id,
     )
 
     # Сохраняем согласия (152-ФЗ).

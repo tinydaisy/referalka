@@ -321,6 +321,7 @@ async def _process_start(
     event_slug = parsed["event_slug"]
     partner_ref_code = parsed["partner_ref_code"]
     utm_source = parsed["utm_source"]
+    known_contact_id = parsed.get("known_contact_id")
 
     pool = await get_pool()
     if not pool:
@@ -348,6 +349,7 @@ async def _process_start(
             first_name=first_name or None,
             last_name=last_name or None,
             utm_source=utm_source or None,
+            known_contact_id=known_contact_id,
         )
 
         # Реферер из startapp pid

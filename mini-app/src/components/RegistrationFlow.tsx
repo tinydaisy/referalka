@@ -6,11 +6,12 @@ interface Props {
   tgUser: any
   partnerId?: string
   utmSource?: string
+  contactId?: number
   onClose: () => void
   onDone: (participant: any) => void
 }
 
-export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, onClose, onDone }: Props) {
+export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, contactId, onClose, onDone }: Props) {
   const [step, setStep] = useState<1 | 2>(1)
   const [name,  setName]  = useState(tgUser?.first_name ? `${tgUser.first_name}${tgUser.last_name ? ' ' + tgUser.last_name : ''}` : '')
   const [email, setEmail] = useState('')
@@ -48,6 +49,7 @@ export default function RegistrationFlow({ event, tgUser, partnerId, utmSource, 
         phone: phone.trim(),
         ref_code: partnerId,
         utm_source: utmSource,
+        contact_id: contactId,
         consent_pd: consentPd,
         consent_marketing: consentMkt,
         policy_version: event?.privacy_policy_version || 0,

@@ -24,8 +24,13 @@ PLUSON_VK_HANDLE = "ivision_pluson"  # короткий адрес систем�
 PLUSON_MAX_HANDLE = "id890306512862_1_bot"  # системный MAX-бот «ПЛЮСОН-СЕРВИС»
 
 
-def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str | None = None, tab: str | None = None) -> str:
-    """Реф-ссылка в Telegram Mini App."""
+def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str | None = None, tab: str | None = None, contact_id: Optional[int] = None) -> str:
+    """Реф-ссылка в Telegram Mini App.
+
+    Если задан contact_id (известный человек) — в payload добавляется `_ct{id}`,
+    чтобы при клике на чужой платформе человек привязался к своему контакту,
+    а не создал дубль. Если None — поведение как раньше (обратная совместимость).
+    """
     handle = (bot_handle or PLUSON_TG_HANDLE).lstrip('@')
     # У общего @pluson_bot Mini App имеет short-name `pluson` (one 's')
     # У VIP-бота Main Mini App без short-name — `t.me/{handle}?startapp=…`
@@ -35,10 +40,12 @@ def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id:
         parts.append(f"pid{partner_id}")
     if tab:
         parts.append(f"tab{tab}")
+    if contact_id:
+        parts.append(f"ct{contact_id}")
     return f"https://t.me/{handle}{app_part}?startapp={'_'.join(parts)}"
 
 
-def vk_link(event_slug: str, *, app_id: int | None = None, partner_id: str | None = None, tab: str | None = None) -> str:
+def vk_link(event_slug: str, *, app_id: int | None = None, partner_id: str | None = None, tab: str | None = None, contact_id: Optional[int] = None) -> str:
     """Реф-ссылка в VK Mini App. VK передаёт стартовые параметры через hash (#)."""
     aid = app_id or PLUSON_VK_APP_ID
     parts = [f"ref_pg{event_slug}"]
@@ -46,10 +53,12 @@ def vk_link(event_slug: str, *, app_id: int | None = None, partner_id: str | Non
         parts.append(f"pid{partner_id}")
     if tab:
         parts.append(f"tab{tab}")
+    if contact_id:
+        parts.append(f"ct{contact_id}")
     return f"https://vk.com/app{aid}#{'_'.join(parts)}"
 
 
-def max_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str | None = None, tab: str | None = None) -> str:
+def max_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str | None = None, tab: str | None = None, contact_id: Optional[int] = None) -> str:
     """Реф-ссылка в MAX Mini App.
 
     Формат: https://max.ru/{bot_username}?startapp={payload}
@@ -61,6 +70,8 @@ def max_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str 
         parts.append(f"pid{partner_id}")
     if tab:
         parts.append(f"tab{tab}")
+    if contact_id:
+        parts.append(f"ct{contact_id}")
     return f"https://max.ru/{handle}?startapp={'_'.join(parts)}"
 
 
@@ -143,6 +154,7 @@ async def build_share_links(
     event_slug: str,
     partner_id: Optional[str] = None,
     tab: Optional[str] = None,
+    contact_id: Optional[int] = None,
 ) -> dict[str, str]:
     """Возвращает {platform → url} для всех **активных** платформ клиента + системных.
 
@@ -162,11 +174,11 @@ async def build_share_links(
             platforms.add(ps)
     result: dict[str, str] = {}
     if "telegram" in platforms:
-        result["telegram"] = telegram_link(event_slug, bot_handle=handles.get("telegram"), partner_id=partner_id, tab=tab)
+        result["telegram"] = telegram_link(event_slug, bot_handle=handles.get("telegram"), partner_id=partner_id, tab=tab, contact_id=contact_id)
     if "vk" in platforms:
-        result["vk"] = vk_link(event_slug, app_id=vk_app_id, partner_id=partner_id, tab=tab)
+        result["vk"] = vk_link(event_slug, app_id=vk_app_id, partner_id=partner_id, tab=tab, contact_id=contact_id)
     if "max" in platforms:
-        result["max"] = max_link(event_slug, bot_handle=handles.get("max"), partner_id=partner_id, tab=tab)
+        result["max"] = max_link(event_slug, bot_handle=handles.get("max"), partner_id=partner_id, tab=tab, contact_id=contact_id)
     return result
 
 

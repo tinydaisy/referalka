@@ -45,6 +45,7 @@ class MaxEventRequest(BaseModel):
     partner_id: str = ""   # ref_code партнёра
     utm_source: str = ""
     initial_tab: str = ""
+    contact_id: int = 0    # сквозной contact_id (из startapp ct<N>) — против дублей
     # Возврат с лендинга клиента (флаг _reg в startapp) — нужен для авто-регистрации
     reg_from_landing: bool = False
 
@@ -95,6 +96,7 @@ async def handle_max_event(body: MaxEventRequest):
             first_name=body.first_name or None,
             last_name=body.last_name or None,
             utm_source=body.utm_source or None,
+            known_contact_id=body.contact_id or None,
         )
 
         # Реферер из startapp pid

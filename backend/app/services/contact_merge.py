@@ -400,6 +400,7 @@ async def upsert_contact_with_identity(
     tags: Optional[list] = None,
     platform_meta: Optional[dict] = None,
     lookup_telegram_username: Optional[str] = None,
+    known_contact_id: Optional[int] = None,
 ) -> tuple[int, int, bool]:
     """
     Главный helper: создаёт/находит contact и привязывает к нему идентичность.
@@ -408,13 +409,22 @@ async def upsert_contact_with_identity(
 
     Логика:
     1. Если идентичность уже существует — берём её contact_id, обновляем поля.
-    2. Если нет — автомердж по email/phone находит contact (или ищем по
+    2. Если передан known_contact_id (человек пришёл по ссылке, в которой зашит
+       его contact_id) — привязываем новую идентичность к ЭТОМУ контакту, не
+       плодя дубль. Это ключ против дублей при переходе между платформами:
+       зарегался в VK → перешёл по кнопке в TG со своим contact_id → его TG
+       становится новой platform_users внутри того же контакта.
+    3. Иначе — автомердж по email/phone находит contact (или ищем по
        lookup_telegram_username если email/phone не нашли), иначе создаём новый.
-    3. Создаём идентичность с привязкой к contact_id.
+    4. Создаём идентичность с привязкой к contact_id.
 
     lookup_telegram_username: TG-ник для поиска существующего контакта (используется
     интеграциями типа GetCourse, где tg_id неизвестен, но в форме просили ник).
     На создание TG-идентичности не влияет — только поиск.
+
+    known_contact_id: contact_id из ссылки/кнопки. Используется только если
+    идентичности ещё нет И контакт принадлежит тому же client_id И не смерджен.
+    Иначе тихо игнорируется (fallback на обычный автомердж).
     """
     pu_existing = await db.fetchrow(
         """SELECT id, contact_id FROM platform_users
@@ -518,20 +528,58 @@ async def upsert_contact_with_identity(
             )
         return pu_existing['contact_id'], pu_existing['id'], False
 
-    # Идентичности нет — ищем/создаём контакт. TG-ник передаём как fallback
-    # для случаев, когда email/phone не нашли ничего (например, GetCourse
-    # webhook без email, но со скрытым полем telegram_username из формы).
-    contact_id, is_new = await find_or_create_contact(
-        db,
-        client_id=client_id,
-        name=name_from_parts(first_name, last_name),
-        email=email,
-        phone=phone,
-        salebot_id=salebot_id,
-        utm_source=utm_source,
-        tags=tags,
-        lookup_telegram_username=lookup_telegram_username,
-    )
+    # Идентичности нет. Сначала пробуем known_contact_id (из ссылки): человек
+    # уже есть в базе под этим контактом, просто впервые заходит на новой
+    # платформе — привязываем идентичность к нему, дубль не плодим.
+    contact_id = None
+    is_new = False
+    if known_contact_id:
+        target = await db.fetchrow(
+            """SELECT id FROM contacts
+                WHERE id = $1 AND client_id = $2 AND merged_into IS NULL""",
+            int(known_contact_id), client_id,
+        )
+        if target:
+            # У контакта уже может быть идентичность на ЭТОЙ платформе с ДРУГИМ
+            # id (например два разных TG) — тогда привязать нельзя (UNIQUE
+            # contact_id+platform_slug). В этом случае откатываемся на обычный
+            # автомердж, чтобы не упасть.
+            same_platform = await db.fetchval(
+                """SELECT platform_user_id FROM platform_users
+                    WHERE contact_id = $1 AND platform_slug = $2 LIMIT 1""",
+                target["id"], platform_slug,
+            )
+            if same_platform is None or str(same_platform) == str(platform_user_id):
+                contact_id = target["id"]
+                # дозаполним пустые поля контакта
+                await db.execute(
+                    """UPDATE contacts
+                          SET name             = COALESCE(name, $2),
+                              phone            = COALESCE(phone, $3),
+                              phone_normalized = COALESCE(phone_normalized, $4),
+                              utm_source       = COALESCE(utm_source, $5),
+                              last_contact_at  = NOW(),
+                              updated_at       = NOW()
+                        WHERE id = $1""",
+                    contact_id, name_from_parts(first_name, last_name),
+                    phone, normalize_phone(phone), utm_source,
+                )
+
+    # Если по known_contact_id не привязались — обычный автомердж по email/phone.
+    # TG-ник передаём как fallback (GetCourse webhook без email, но со скрытым
+    # полем telegram_username из формы).
+    if contact_id is None:
+        contact_id, is_new = await find_or_create_contact(
+            db,
+            client_id=client_id,
+            name=name_from_parts(first_name, last_name),
+            email=email,
+            phone=phone,
+            salebot_id=salebot_id,
+            utm_source=utm_source,
+            tags=tags,
+            lookup_telegram_username=lookup_telegram_username,
+        )
 
     # Контакт нашли по email/phone, но у него уже привязан ДРУГОЙ tg/vk — не можем
     # добавить вторую идентичность той же платформы (UNIQUE contact_id, platform_slug).

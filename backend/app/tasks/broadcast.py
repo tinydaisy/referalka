@@ -331,6 +331,22 @@ async def _send_broadcast(schedule_id: int):
                              else "https://t.me/pluson_bot/pluson")
             game_link_url = f"{glink_bot_url}?startapp=ref_pg{event_slug_for_glink}_tabgame"
 
+        # Персональный сквозной маркер контакта `_ct{contact_id}` в {game_link}.
+        # При клике на чужой платформе человек привяжется к своему контакту,
+        # а не создаст дубль. Мапа tg_id → contact_id для получателей-телеграмеров;
+        # если contact_id неизвестен — используем общий game_link_url (как раньше).
+        contact_by_tg: dict[str, int] = {}
+        if needs_game_link and final_ids:
+            ct_rows = await conn.fetch(
+                """SELECT platform_user_id, contact_id
+                     FROM platform_users
+                    WHERE client_id=$1 AND platform_slug='telegram'
+                      AND platform_user_id = ANY($2::text[])
+                      AND contact_id IS NOT NULL""",
+                schedule["client_id"], list(final_ids),
+            )
+            contact_by_tg = {r["platform_user_id"]: r["contact_id"] for r in ct_rows}
+
         # Fanout: для каждого получателя — список ВСЕХ подписанных каналов клиента
         # (is_unsubscribed=FALSE). По каждому каналу отправляем отдельное сообщение.
         # Если у получателя нет ни одной записи в platform_user_channels (легаси-контакт) —
@@ -395,9 +411,13 @@ async def _send_broadcast(schedule_id: int):
                 if needs_first_name:
                     msg_text = msg_text.replace("{first_name}", name_by_tg.get(tg_id, "друг"))
                 if needs_game_link:
-                    msg_text = msg_text.replace("{game_link}", game_link_url)
+                    # Персональная ссылка с `_ct{contact_id}` если контакт известен,
+                    # иначе общая game_link_url (обратная совместимость).
+                    ct = contact_by_tg.get(tg_id)
+                    glink = f"{game_link_url}_ct{ct}" if ct else game_link_url
+                    msg_text = msg_text.replace("{game_link}", glink)
                     if msg_btn_url:
-                        msg_btn_url = msg_btn_url.replace("{game_link}", game_link_url)
+                        msg_btn_url = msg_btn_url.replace("{game_link}", glink)
                 ok, err = await send_telegram_message(
                     http_client, token, tg_id, msg_text, photo_url, button_text, msg_btn_url,
                     buttons=buttons,

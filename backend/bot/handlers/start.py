@@ -842,6 +842,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     no_landing = False     # флаг `_nolend` — не открывать сторонний лендинг в Mini App
     pid: str | None = None
     utm_source: str | None = None
+    known_contact_id: int | None = None  # `_ct<N>` — сквозной contact_id против дублей
     for chunk in parts[1:]:
         if chunk == "land":
             want_landing = True
@@ -851,6 +852,9 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             pid = chunk[3:] or None
         elif chunk.startswith("src"):
             utm_source = chunk[3:] or None
+        elif chunk.startswith("ct"):
+            ct_raw = chunk[2:]
+            known_contact_id = int(ct_raw) if ct_raw.isdigit() else None
 
     # username бота (для t.me-ссылки на Mini App). Системный @pluson_bot открывает
     # Mini App по short-name `/pluson`, VIP-бот — напрямую `t.me/{handle}?startapp=`.
@@ -921,6 +925,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             participant_id, contact_id = await resolve_or_create_participant(
                 db, client_id=ev["client_id"], event_id=ev["id"],
                 platform_slug="telegram", platform_user_id=str(user.id),
+                known_contact_id=known_contact_id,
             )
             contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
             erp = await resolve_referrer_external_ref_param(

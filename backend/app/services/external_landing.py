@@ -319,6 +319,7 @@ async def resolve_or_create_participant(
     platform_user_id: str,
     username: Optional[str] = None,
     utm_source: Optional[str] = None,
+    known_contact_id: Optional[int] = None,
 ) -> tuple[Optional[int], Optional[int]]:
     """Находит (или создаёт) event_participants.id для пары
     (платформенный пользователь, событие). Возвращает (participant_id, contact_id).
@@ -358,6 +359,7 @@ async def resolve_or_create_participant(
                 platform_user_id=str(platform_user_id),
                 username=username or None,
                 utm_source=utm_source or None,
+                known_contact_id=known_contact_id,
             )
 
         pid = await db.fetchval(

@@ -102,6 +102,7 @@ async def _build_app_url(
     client_id: int | None,
     slug: str,
     ref_code: str | None,
+    contact_id: int | None = None,
 ) -> str:
     """Mini App URL для кнопки «Зарегистрироваться». Учитывает VIP-канал клиента
     если он есть на этой платформе.
@@ -115,6 +116,9 @@ async def _build_app_url(
       - системный: `vk.com/app{settings.vk_app_id}#ref_pg{slug}_pid{ref}`
     """
     pid_part = f"_pid{ref_code}" if ref_code else ""
+    # _ct{contact_id} — сквозной маркер контакта против дублей при переходе
+    # между платформами. Добавляется только если адресат известен.
+    ct_part = f"_ct{contact_id}" if contact_id else ""
 
     if platform == "telegram":
         vip_handle = None
@@ -132,10 +136,10 @@ async def _build_app_url(
                 client_id,
             )
         if vip_handle:
-            return f"https://t.me/{vip_handle}/pluson?startapp=ref_pg{slug}{pid_part}"
+            return f"https://t.me/{vip_handle}/pluson?startapp=ref_pg{slug}{pid_part}{ct_part}"
         # Системный бот: нужен cid чтобы Mini App знал контекст клиента
         cid_part = f"_cid{client_id}" if client_id else ""
-        return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}{cid_part}"
+        return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}{cid_part}{ct_part}"
 
     if platform == "vk":
         vip_app_id = None
@@ -153,10 +157,10 @@ async def _build_app_url(
                 client_id,
             )
         app_id = vip_app_id or settings.vk_app_id
-        return f"https://vk.com/app{app_id}#ref_pg{slug}{pid_part}"
+        return f"https://vk.com/app{app_id}#ref_pg{slug}{pid_part}{ct_part}"
 
     # Прочие платформы — пока нет VIP, fallback на pluson_bot
-    return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}"
+    return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}{ct_part}"
 
 
 async def _send_via_telegram(bot_token: str, chat_id: str, text: str, button_label: str, url: str) -> None:
@@ -283,7 +287,7 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             if button_kind == "support" and support_btn_url:
                 url = support_btn_url
             else:
-                url = await _build_app_url(db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code)
+                url = await _build_app_url(db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code, contact_id=run_row["contact_id"])
             if plat == "telegram":
                 tok = await get_client_telegram_token(client_id, db) or settings.telegram_bot_token
                 if not tok:

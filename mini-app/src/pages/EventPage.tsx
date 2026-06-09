@@ -22,6 +22,7 @@ interface Props {
   tgUser: any
   partnerId?: string
   utmSource?: string
+  contactId?: number         // `_ct{N}` в startapp — наш contact_id, чтобы бэк привязал идентичность к существующему контакту
   flags?: string[]           // флаги `_q{key}` в startapp — пробрасываем как `&{key}=1` на сторонний лендинг
   regFromLanding?: boolean   // флаг `_reg` в startapp — вернулись с лендинга клиента
   noLanding?: boolean        // флаг `_nolend` в startapp — не показывать сторонний лендинг, регать через внутренний
@@ -83,7 +84,7 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, regFromLanding, noLanding, initialTab, onBack, onOpenEvent }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, contactId, flags, regFromLanding, noLanding, initialTab, onBack, onOpenEvent }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -204,6 +205,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
             partner_id: partnerId || '',
             event_slug: slug,
             client_id:  0,
+            contact_id: contactId || 0,
             platform:   'telegram',
           }),
         }).catch(() => {})
@@ -223,6 +225,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
             last_name:  tgUser.last_name  || '',
             ref_code: partnerId,
             utm_source: utmSource,
+            contact_id: contactId,
           })
           const reg = r?.participant || r
           if (!cancelled) setParticipant({ ...reg, is_registered: true })
@@ -466,6 +469,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
           last_name:  tgUser.last_name  || '',
           ref_code: partnerId,
           utm_source: utmSource,
+          contact_id: contactId,
         })
         const reg = r?.participant || r
         setParticipant({ ...reg, is_registered: true })
@@ -489,6 +493,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
           phone: prefill!.phone!,
           ref_code: partnerId,
           utm_source: utmSource,
+          contact_id: contactId,
         })
         const reg = r?.participant || r
         setParticipant({ ...reg, is_registered: true })
@@ -626,6 +631,7 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
           tgUser={tgUser}
           partnerId={partnerId}
           utmSource={utmSource}
+          contactId={contactId}
           onClose={() => setShowReg(false)}
           onDone={handleRegistered}
         />

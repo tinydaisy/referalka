@@ -32,7 +32,7 @@ function detectClientIdFromPath(): number | null {
 // стороннем лендинге клиента (например `_qshpw` → к URL лендинга приклеится `&shpw=1`).
 const FLAG_RE = /^[a-z0-9-]{1,16}$/
 function parseStartParam(raw: string): {
-  eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number;
+  eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number; contactId?: number;
   live?: boolean; regFromLanding?: boolean; noLanding?: boolean; initialTab?: string; flags?: string[]
 } {
   const r: any = {}
@@ -42,6 +42,9 @@ function parseStartParam(raw: string): {
     else if (p.startsWith('pid')) r.partnerId  = p.slice(3)
     else if (p.startsWith('src')) r.utmSource  = p.slice(3)
     else if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
+    // `_ct{N}` — наш contact_id (НЕ путать с `cid`=client_id). Бэк привяжет
+    // платформенную идентичность к этому контакту, чтобы не плодить дубль.
+    else if (p.startsWith('ct')) r.contactId = Number(p.slice(2))
     else if (p === 'live')        r.live       = true
     else if (p === 'reg')         r.regFromLanding = true
     // `_nolend` — не показывать сторонний лендинг даже если он задан у события.
@@ -347,7 +350,7 @@ async function sendVkEventStart(
       try { adapter.joinGroup({ vkGroupId: groupId }, () => {}) } catch { /* skip */ }
     }
     const status = await sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug,
-      parsed.clientId, parsed.utmSource, parsed.initialTab)
+      parsed.clientId, parsed.utmSource, parsed.initialTab, null, null, parsed.contactId)
 
     const needEmail = !status.has_email
     const needPhone = !status.has_phone
@@ -360,7 +363,7 @@ async function sendVkEventStart(
     ])
     if (emailVal || phoneVal) {
       sendVkEvent(lp, user, parsed.partnerId, parsed.eventSlug, parsed.clientId,
-        parsed.utmSource, parsed.initialTab, emailVal, phoneVal)
+        parsed.utmSource, parsed.initialTab, emailVal, phoneVal, parsed.contactId)
     }
   })
 }
@@ -375,6 +378,7 @@ async function sendVkEvent(
   initialTab?: string,
   email?: string | null,
   phone?: string | null,
+  contactId?: number,
 ): Promise<{ has_email: boolean; has_phone: boolean }> {
   try {
     const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/event`, {
@@ -393,6 +397,7 @@ async function sendVkEvent(
         client_id: clientId || 0,
         email: email || '',
         phone: phone || '',
+        contact_id: contactId || 0,
       }),
     })
     if (res.ok) {
@@ -410,6 +415,7 @@ export default function App() {
   const [clientId, setClientId] = useState<number | null>(() => detectClientIdFromPath())
   const [partnerId, setPartnerId] = useState<string | undefined>()
   const [utmSource, setUtmSource] = useState<string | undefined>()
+  const [contactId, setContactId] = useState<number | undefined>()
   const [flags, setFlags] = useState<string[] | undefined>()
   const [regFromLanding, setRegFromLanding] = useState<boolean>(false)
   const [noLanding, setNoLanding] = useState<boolean>(false)
@@ -437,6 +443,7 @@ export default function App() {
         if (parsed.clientId)  setClientId(parsed.clientId)
         setPartnerId(parsed.partnerId)
         setUtmSource(parsed.utmSource)
+        if (parsed.contactId) setContactId(parsed.contactId)
         if (parsed.flags && parsed.flags.length) setFlags(parsed.flags)
         if (parsed.regFromLanding) setRegFromLanding(true)
         if (parsed.noLanding) setNoLanding(true)
@@ -455,6 +462,13 @@ export default function App() {
       // ?_tab=… — Mini App открыт через web_app inline-кнопку без startapp.
       const qsTab = new URLSearchParams(window.location.search).get('_tab')
       if (qsTab && !parsed.initialTab) setInitialTab(qsTab)
+
+      // ?c=… — наш contact_id через query (fallback к `_ct{N}` из startapp).
+      if (!parsed.contactId) {
+        const qsCt = new URLSearchParams(window.location.search).get('c')
+        const ctNum = qsCt ? Number(qsCt) : NaN
+        if (Number.isFinite(ctNum) && ctNum > 0) setContactId(ctNum)
+      }
 
       // Live-метка (TG, общая): пришли по публичной live-ссылке.
       if (parsed.live && parsed.eventSlug && user?.id) {
@@ -567,6 +581,7 @@ export default function App() {
           tgUser={tgUser}
           partnerId={partnerId}
           utmSource={utmSource}
+          contactId={contactId}
           flags={flags}
           regFromLanding={regFromLanding}
           noLanding={noLanding}

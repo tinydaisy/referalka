@@ -269,7 +269,12 @@ async def salebot_register(
                 email=_ne(data.email), first_name=name_from_parts(data.first_name, data.last_name),
             )
     elif data.platform_user_id:
-        # Полный путь: с привязкой к платформенной идентичности
+        # Полный путь: с привязкой к платформенной идентичности.
+        # known_contact_id прокидывается на случай, если форма прислала и
+        # contact_id, и новую платформенную идентичность — тогда идентичность
+        # привяжется к известному контакту, дубль не плодится. В этой ветке
+        # data.contact_id обычно None (иначе сработала бы ветка выше) — тогда
+        # это no-op и поведение не меняется.
         contact_id, pluson_id, is_new_user = await upsert_contact_with_identity(
             db,
             client_id=data.client_id,
@@ -282,6 +287,7 @@ async def salebot_register(
             phone=data.phone,
             salebot_id=data.salebot_id,
             lookup_telegram_username=data.telegram_username,
+            known_contact_id=data.contact_id,
         )
     else:
         # Веб-интеграция без идентификатора платформы (например, GetCourse-форма

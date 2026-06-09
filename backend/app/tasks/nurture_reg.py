@@ -134,16 +134,18 @@ async def _bot_handle(db: asyncpg.Connection, *, client_id: int, platform: str) 
 
 async def build_section_urls(
     db: asyncpg.Connection, *, event_id: int, client_id: int, slug: str,
-    ref_code: str | None = None,
+    ref_code: str | None = None, contact_id: int | None = None,
 ) -> dict:
     """Собирает ссылки на разделы Mini App + VIP для плейсхолдеров.
 
     Возвращает {vip_link, gifts_link, speakers_link, program_link}. Если раздела
     у события нет (нет реф-программы / нет спикеров) — соответствующий ключ = "".
     Ссылки в формате `...startapp=ref_pg{slug}_tab{tab}` (TG/VK).
+    Если задан contact_id — в payload базовой ссылки добавляется `_ct{id}`
+    (сквозной маркер против дублей контактов при переходе между платформами).
     """
     # Базовый Mini App URL (TG-вариант — для кнопок/ссылок в TG-сообщениях).
-    base = await _build_app_url(db, platform="telegram", client_id=client_id, slug=slug, ref_code=ref_code)
+    base = await _build_app_url(db, platform="telegram", client_id=client_id, slug=slug, ref_code=ref_code, contact_id=contact_id)
     # base уже содержит ?startapp=ref_pg{slug}{pid}. Добавляем _tab{tab}.
     def with_tab(tab: str) -> str:
         return f"{base}_tab{tab}"
@@ -252,6 +254,7 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
 
     section_urls = await build_section_urls(
         db, event_id=run_row["event_id"], client_id=client_id, slug=run_row["slug"], ref_code=ref_code,
+        contact_id=run_row["contact_id"],
     )
     button_label = (step_row["button_label"] or "").strip()
     button_kind = step_row["button_kind"] if "button_kind" in step_row else "event"
@@ -285,6 +288,7 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             else:
                 app_base = await _build_app_url(
                     db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code,
+                    contact_id=run_row["contact_id"],
                 )
                 url = f"{app_base}_tabprogram"
             if plat == "telegram":

@@ -38,6 +38,7 @@ class VkEventRequest(BaseModel):
     partner_id: str = ""
     utm_source: str = ""
     initial_tab: str = ""
+    contact_id: int = 0  # сквозной contact_id (из startapp ct<N>) — против дублей
     first_name: str = ""
     last_name: str = ""
     username: str = ""  # screen_name из VK
@@ -839,6 +840,7 @@ async def handle_vk_event(body: VkEventRequest):
             email=body.email or None,    # автомердж по email — если в TG-базе уже есть «Марго Форбс с email» → склеит
             phone=body.phone or None,    # то же по phone (8/+7-нормализация на стороне contact_merge)
             utm_source=body.utm_source or None,
+            known_contact_id=body.contact_id or None,
         )
 
         # Подписка на главный VK-канал клиента — чтобы человек попал в подписчики

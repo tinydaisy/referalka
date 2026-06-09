@@ -117,7 +117,7 @@ async def _load_client(db, client_id):
                   owner_achievements, social_links
              FROM clients WHERE id = $1""", client_id)
     offerings = await db.fetch(
-        """SELECT title, description, price, link_url, is_paid
+        """SELECT title, description, action_url, is_paid
              FROM client_offerings WHERE client_id = $1
             ORDER BY is_paid DESC, sort_order, id""", client_id)
     return cl, offerings
@@ -245,12 +245,10 @@ def render_page(event, groups, days, sessions, client, offerings) -> str:
         def _offer(o):
             ot = esc(o.get("title") or "")
             od = esc(o.get("description") or "")
-            price = esc(o.get("price") or "")
-            link = esc(o.get("link_url") or "")
+            link = esc(o.get("action_url") or "")
             btn = f'<a class="o-btn" href="{link}" target="_blank" rel="noopener">Подробнее</a>' if link else ""
-            pr = f'<div class="o-price">{price}</div>' if price else ""
             od_html = f'<div class="o-desc">{od}</div>' if od else ""
-            return f'<div class="offer"><div class="o-title">{ot}</div>{od_html}{pr}{btn}</div>'
+            return f'<div class="offer"><div class="o-title">{ot}</div>{od_html}{btn}</div>'
 
         if paid:
             eco_html += '<h2 class="sec-h">Платно</h2>' + "".join(_offer(o) for o in paid)

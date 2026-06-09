@@ -104,9 +104,9 @@ def parse_startapp_ref_payload(start_param: str) -> dict:
     """Разобрать payload из ?startapp=ref_pg{slug}[_pid{ref_code}][_src{utm}][_tab{tab}][_q{flag}…][_reg].
 
     Возвращает словарь с ключами: event_slug, partner_ref_code, utm_source, tab,
-    reg_from_landing, flags (list[str]).
+    reg_from_landing, flags (list[str]), known_contact_id (int|None).
 
-    Пример входа: "ref_pgivision-7_pidabc123_srcinsta_qshpw_qvip_tabgame"
+    Пример входа: "ref_pgivision-7_pidabc123_srcinsta_qshpw_qvip_tabgame_ct1234"
     """
     out: dict = {
         "event_slug": "",
@@ -115,6 +115,7 @@ def parse_startapp_ref_payload(start_param: str) -> dict:
         "tab": "",
         "reg_from_landing": False,
         "flags": [],
+        "known_contact_id": None,
     }
     if not start_param or not start_param.startswith("ref"):
         return out
@@ -132,6 +133,9 @@ def parse_startapp_ref_payload(start_param: str) -> dict:
             out["utm_source"] = part[3:]
         elif part.startswith("tab"):
             out["tab"] = part[3:]
+        elif part.startswith("ct"):
+            ct_raw = part[2:]
+            out["known_contact_id"] = int(ct_raw) if ct_raw.isdigit() else None
         elif part.startswith("q") and len(part) > 1:
             flags_raw.append(part[1:])
         elif part == "reg":

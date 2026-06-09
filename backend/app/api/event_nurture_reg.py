@@ -116,15 +116,25 @@ async def nurture_reg_preview_urls(
     плейсхолдеров в дашборде."""
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        "SELECT slug FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT slug, title FROM events WHERE id = $1 AND client_id = $2",
         event_id, client_id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Событие не найдено")
-    from app.tasks.nurture_reg import build_section_urls, build_chats_block
+    from app.tasks.nurture_reg import build_section_urls, build_chats_block, _bot_handle
+    from app.tasks.nurture import _build_support_contact
     sections = await build_section_urls(db, event_id=event_id, client_id=client_id, slug=row["slug"])
     chats = await build_chats_block(db, event_id=event_id, html=True)
-    return {**sections, "chats_html": chats}
+    bot_handle = await _bot_handle(db, client_id=client_id, platform="telegram")
+    work_tg = await db.fetchval("SELECT work_tg_username FROM clients WHERE id = $1", client_id)
+    support_link = _build_support_contact(work_tg)
+    return {
+        **sections,
+        "chats_html": chats,
+        "event_title": row["title"] or "событие",
+        "bot_handle": bot_handle,
+        "support_link": support_link,
+    }
 
 
 @router.get("/{event_id}/nurture-reg/steps")

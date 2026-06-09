@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 import httpx
 import logging
@@ -216,6 +217,7 @@ async def send_event_open_message(
     username: str = "",
     partner_id: str = "",
     utm_source: str = "",
+    known_contact_id: Optional[int] = None,
 ) -> dict:
     """Возвращает диагностический dict (для логов / API-ответов): {ok, kind, sent, deduped, ...}."""
     if not pool or not event_slug or not tg_id:
@@ -264,6 +266,7 @@ async def send_event_open_message(
                     first_name=first_name or None,
                     last_name=last_name or None,
                     utm_source=utm_source or None,
+                    known_contact_id=known_contact_id,
                 )
 
                 resolved_ref_code = None
