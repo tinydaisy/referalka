@@ -734,10 +734,13 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                 f'<div class="cab-block-h">🎁 Подарки · {gifts_count}/{total}</div>'
                 f'{summary}{first_gift}{rest_gifts_html}'
                 '</div>'
+                '<hr class="cab-divider">'
             )
 
-        # ── ТОП рейтинг: первые 3 видны всегда, остальные — «Показать ещё» ──
+        # ── ТОП рейтинг: первые 3 видны всегда, остальные — «Показать ещё».
+        # Сам блок вставляется НИЖЕ (после материалов, перед «Ваши люди»). ──
         top = rc.get("top") or []
+        top_block = ""
         if top:
             def _top_row(t):
                 rk = t.get("rank")
@@ -760,7 +763,7 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                     f'<button class="top-more" data-topmore type="button">'
                     f'Показать ещё {len(rest)} ↓</button>'
                 )
-            out += (
+            top_block = (
                 '<div class="cab-block">'
                 '<div class="cab-block-h">🏆 ТОП рейтинг</div>'
                 f'<div class="top-box">{head_rows}{rest_html}</div>'
@@ -825,6 +828,9 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                 f'<div class="acc-body" id="acc-materials">{mat_inner}</div>'
                 '</div>'
             )
+
+        # ── ТОП рейтинг (перенесён сюда: после ссылок и материалов) ──
+        out += top_block
 
         # ── Ваши люди (с иконкой платформы + кликабельные) ──
         people = rc.get("my_people") or []
@@ -1175,8 +1181,10 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
   .ss-go {{ font-size:11.5px; color:#b86b00; flex:0 0 auto; }}
   .top-rest {{ }}
-  .top-more {{ width:100%; margin-top:8px; padding:8px; border:none; border-radius:10px;
-    background:#eef2f6; color:#25455D; font-weight:600; font-size:13px; cursor:pointer; }}
+  .top-more {{ width:100%; margin-top:8px; padding:9px; border:none; border-radius:10px;
+    background:{PEACH}; color:#25455D; font-weight:700; font-size:13px; cursor:pointer; }}
+  .top-more:active {{ filter:brightness(.95); }}
+  .cab-divider {{ height:1px; background:#e7ecf1; margin:14px 2px; border:none; }}
 
   /* Карточки спикеров (SpeakersTab) */
   .acc {{ margin-bottom:18px; }}
@@ -1552,4 +1560,7 @@ async def event_page(slug: str, c: str = "", db: asyncpg.Connection = Depends(ge
         ref_cabinet=ref_cabinet,
         venue_profile=venue_profile, venue_offerings=venue_offerings,
     )
-    return HTMLResponse(content=html_str)
+    return HTMLResponse(
+        content=html_str,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )

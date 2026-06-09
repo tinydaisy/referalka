@@ -1333,9 +1333,13 @@ async def handle_app(message: Message):
     if not bot_username:
         return
     from app.services.share_links import PLUSON_TG_HANDLE, PLUSON_TG_APP
-    # Системный бот открывает Mini App по short-name; VIP-бот — Main Mini App.
-    app_part = f"/{PLUSON_TG_APP}" if bot_username == PLUSON_TG_HANDLE else ""
-    app_url = f"https://t.me/{bot_username}{app_part}"
+    # Системный бот открывает Mini App по short-name (t.me/pluson_bot/pluson).
+    # VIP-бот: Main Mini App открывается по `?startapp=...` (без него t.me-ссылка
+    # просто ведёт в чат с ботом и приложение не открывается).
+    if bot_username == PLUSON_TG_HANDLE:
+        app_url = f"https://t.me/{bot_username}/{PLUSON_TG_APP}?startapp=hub"
+    else:
+        app_url = f"https://t.me/{bot_username}?startapp=hub"
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Открыть приложение", url=app_url)
     ]])
