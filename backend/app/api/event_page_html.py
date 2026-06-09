@@ -205,20 +205,21 @@ async def _load_ref_cabinet(db, event, contact_id):
     #    speaker/headliner (исключаем organizer/jury/partner/general_partner);
     #  - все остальные типы: только участники события (исключаем всех коллабов).
     is_turnir = (event.get("module_slug") == "turnir")
+    # Роли коллабов, которые НИКОГДА не попадают в топ (даже если они участники).
+    # Турнир: исключаем организаторов/жюри/партнёров, но оставляем спикеров.
+    # Остальные типы: исключаем ВСЕХ коллабов (organizer/jury/speaker/...).
     if is_turnir:
-        top_where = (
-            "(ct.ref_code IN (SELECT c2.ref_code FROM event_participants ep2 "
-            " JOIN contacts c2 ON c2.id = ep2.contact_id WHERE ep2.event_id = $1) "
-            " OR ct.ref_code IN (SELECT c3.ref_code FROM event_collaborators ec3 "
-            " JOIN collaborators col3 ON col3.id = ec3.speaker_id "
-            " JOIN contacts c3 ON c3.id = col3.contact_id "
-            " WHERE ec3.event_id = $1 AND ec3.role IN ('speaker','headliner')))"
-        )
+        excluded_roles = "'organizer','jury','partner','general_partner'"
     else:
-        top_where = (
-            "ct.ref_code IN (SELECT c2.ref_code FROM event_participants ep2 "
-            " JOIN contacts c2 ON c2.id = ep2.contact_id WHERE ep2.event_id = $1)"
-        )
+        excluded_roles = "'organizer','jury','speaker','headliner','partner','general_partner'"
+    top_where = (
+        " ct.ref_code NOT IN ("
+        "   SELECT c3.ref_code FROM event_collaborators ec3"
+        "   JOIN collaborators col3 ON col3.id = ec3.speaker_id"
+        "   JOIN contacts c3 ON c3.id = col3.contact_id"
+        f"  WHERE ec3.event_id = $1 AND ec3.role IN ({excluded_roles})"
+        "   AND c3.ref_code IS NOT NULL)"
+    )
     top_rows = await db.fetch(
         f"""SELECT ct.name, ct.ref_code,
                    COUNT(*) AS cnt
@@ -228,8 +229,7 @@ async def _load_ref_cabinet(db, event, contact_id):
                AND ct.client_id = $2
                AND {top_where}
              GROUP BY ct.name, ct.ref_code
-             ORDER BY cnt DESC, ct.name
-             LIMIT 3""",
+             ORDER BY cnt DESC, ct.name""",
         event["id"], event["client_id"],
     )
     top = []
@@ -561,11 +561,22 @@ def _program_panel(event, collabs, days, stages, sessions) -> str:
                 stitle = esc(s.get("title") or "")
                 spk = esc(s.get("sp_name") or "")
                 sp_ec = s.get("sp_ec_id")
-                if spk and sp_ec:
-                    spk_html = (f'<a class="s-spk" href="#speakers" '
-                                f'data-speaker="{sp_ec}">{spk}</a>')
-                elif spk:
-                    spk_html = f'<div class="s-spk">{spk}</div>'
+                sp_photo = esc(s.get("sp_photo") or "")
+                if spk:
+                    # Мини-карточка спикера сессии (как в Mini App): аватар 32px +
+                    # имя + «Карточка →». Кликабельна → вкладка Спикеры к карточке.
+                    if sp_photo:
+                        av = (f'<span class="ss-ava" style="background-image:'
+                              f"url('{sp_photo}')\"></span>")
+                    else:
+                        inits = "".join([w[0] for w in spk.split()[:2]]).upper()
+                        av = f'<span class="ss-ava ss-ava-empty">{inits}</span>'
+                    arrow = '<span class="ss-go">Карточка →</span>' if sp_ec else ""
+                    tag = "a" if sp_ec else "div"
+                    attrs = (f'href="#speakers" data-speaker="{sp_ec}"'
+                             if sp_ec else "")
+                    spk_html = (f'<{tag} class="ss-card" {attrs}>{av}'
+                                f'<span class="ss-name">{spk}</span>{arrow}</{tag}>')
                 else:
                     spk_html = ""
                 time_html = f'<div class="s-time">{tm}</div>' if tm else ""
@@ -718,27 +729,34 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                 '</div>'
             )
 
-        # ── ТОП рейтинг (сворачиваемый аккордеон, топ-3) ──
+        # ── ТОП рейтинг: первые 3 видны всегда, остальные — «Показать ещё» ──
         top = rc.get("top") or []
         if top:
-            rows = ""
-            for t in top:
+            def _top_row(t):
                 rk = t.get("rank")
                 medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rk, str(rk))
                 me_cls = " me" if t.get("is_me") else ""
                 nm = "Вы" if t.get("is_me") else esc(t.get("name") or "")
-                rows += (
+                return (
                     f'<div class="top-row{me_cls}">'
                     f'<div class="top-rank">{medal}</div>'
                     f'<div class="top-name">{nm}</div>'
                     f'<div class="top-cnt">{t.get("count", 0)}</div></div>'
                 )
+            head_rows = "".join(_top_row(t) for t in top[:3])
+            rest = top[3:]
+            rest_html = ""
+            if rest:
+                rest_rows = "".join(_top_row(t) for t in rest)
+                rest_html = (
+                    f'<div class="top-rest" id="top-rest" style="display:none">{rest_rows}</div>'
+                    f'<button class="top-more" data-topmore type="button">'
+                    f'Показать ещё {len(rest)} ↓</button>'
+                )
             out += (
-                '<div class="acc collapsed">'
-                '<button class="acc-h" data-acc="top" type="button">'
-                '<span>🏆 ТОП рейтинг</span>'
-                '<span class="acc-chev">▾</span></button>'
-                f'<div class="acc-body" id="acc-top"><div class="top-box">{rows}</div></div>'
+                '<div class="cab-block">'
+                '<div class="cab-block-h">🏆 ТОП рейтинг</div>'
+                f'<div class="top-box">{head_rows}{rest_html}</div>'
                 '</div>'
             )
 
@@ -1017,6 +1035,19 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     brand = esc(brand_raw)
     start_at = event.get("start_at")
 
+    # Favicon — первая буква названия события на бренд-фоне (SVG data-URI).
+    # Title вкладки = название события (уже в title выше).
+    _ev_title_raw = (event.get("title") or event.get("slug") or "•").strip()
+    fav_letter = _html.escape(_ev_title_raw[0].upper() if _ev_title_raw else "•")
+    favicon_svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        "<rect width='64' height='64' rx='14' fill='#25455D'/>"
+        "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
+        f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>"
+    )
+    import urllib.parse as _up
+    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+
     has_people = bool(collabs)
     module = event.get("module_slug") or "base"
     is_program_event = module in ("conference", "turnir") or bool(days)
@@ -1070,6 +1101,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title}</title>
+<link rel="icon" href="{favicon_uri}">
 <style>
   * {{ box-sizing: border-box; }}
   html, body {{ margin:0; padding:0; font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -1126,6 +1158,18 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .s-main {{ flex:1; min-width:0; }}
   .s-title {{ font-size:14px; color:#1f2d3a; }}
   .s-spk {{ font-size:12.5px; color:#b86b00; margin-top:2px; text-decoration:none; display:inline-block; }}
+  .ss-card {{ display:flex; align-items:center; gap:8px; margin-top:8px; padding:6px 8px;
+    background:#f3f6f9; border-radius:10px; text-decoration:none; }}
+  .ss-ava {{ width:32px; height:32px; flex:0 0 32px; border-radius:50%; background-size:cover;
+    background-position:center; background-color:#dde4ea; display:flex; align-items:center;
+    justify-content:center; font-size:11px; font-weight:700; color:#25455D; }}
+  .ss-ava-empty {{ background:linear-gradient(135deg,#d4dde5,#b9c6d2); }}
+  .ss-name {{ flex:1; min-width:0; font-size:13px; font-weight:600; color:#1f2d3a;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+  .ss-go {{ font-size:11.5px; color:#b86b00; flex:0 0 auto; }}
+  .top-rest {{ }}
+  .top-more {{ width:100%; margin-top:8px; padding:8px; border:none; border-radius:10px;
+    background:#eef2f6; color:#25455D; font-weight:600; font-size:13px; cursor:pointer; }}
 
   /* Карточки спикеров (SpeakersTab) */
   .acc {{ margin-bottom:18px; }}
@@ -1404,6 +1448,15 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         btn.classList.remove('copied');
         btn.textContent = orig;
       }}, 1500);
+    }});
+  }});
+
+  // «Показать ещё» в ТОП рейтинге
+  document.querySelectorAll('[data-topmore]').forEach(function(btn) {{
+    btn.addEventListener('click', function() {{
+      var rest = document.getElementById('top-rest');
+      if (rest) rest.style.display = 'block';
+      btn.style.display = 'none';
     }});
   }});
 
