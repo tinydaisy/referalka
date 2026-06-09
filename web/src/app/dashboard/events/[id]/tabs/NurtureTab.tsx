@@ -54,6 +54,36 @@ function formatOffset(sec: number): string {
   return `через ${value} ${plural(value, one, few, many)}`
 }
 
+// Рендер предпросмотра «как в Telegram». Логика:
+//  1) экранируем сырой текст шаблона (он от клиента — мог содержать опечатки в тегах);
+//  2) возвращаем разрешённые inline-теги Telegram (<b>/<i>/<u>/<s>/<a>/<br>);
+//  3) ТОЛЬКО ПОТОМ подставляем плейсхолдеры — их значения (chats/ссылки/контакты)
+//     мы формируем сами на бэке, это доверенный HTML, экранировать его не нужно.
+const ALLOWED_INLINE = /&lt;(\/?(?:b|strong|i|em|u|s|br\s*\/?))&gt;/gi
+function escapeHtml(x: string): string {
+  return (x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+function restoreTags(s: string): string {
+  return s
+    .replace(ALLOWED_INLINE, '<$1>')
+    .replace(/&lt;a href=&quot;([^&]*?)&quot;&gt;/gi,
+      (_m, href) => `<a href="${href}" style="color:#2563eb;text-decoration:underline" target="_blank" rel="noopener">`)
+    .replace(/&lt;\/a&gt;/gi, '</a>')
+}
+function renderPreviewHtml(raw: string, vars: Record<string, string>): string {
+  // 1+2: экранируем текст шаблона и возвращаем разрешённые теги
+  let s = restoreTags(escapeHtml(raw || ''))
+  // 3: подставляем плейсхолдеры доверенными HTML-значениями
+  for (const [k, v] of Object.entries(vars)) {
+    s = s.split(`{${k}}`).join(v ?? '')
+  }
+  // оставшиеся неизвестные {placeholder} — серой меткой
+  s = s.replace(/\{([a-z_]+)\}/gi, '<span style="color:#9ca3af">{$1}</span>')
+  // переносы строк → <br>
+  s = s.replace(/\n/g, '<br/>')
+  return s
+}
+
 type Audience = 'unreg' | 'reg'
 
 export default function NurtureTab({ eventId }: Props) {
@@ -180,6 +210,27 @@ function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audie
     return <div className="text-sm text-gray-400 py-8">Загрузка…</div>
   }
 
+  // Значения плейсхолдеров для предпросмотра. Известные — реальные из API,
+  // остальные — примерные подписи. {chats} рендерим как HTML-блок.
+  const previewVars: Record<string, string> = audience === 'reg'
+    ? {
+        event_title: previewUrls?.event_title || 'Название события',
+        chats: previewUrls?.chats_html || '<i>(чаты события не заданы)</i>',
+        bot_handle: previewUrls?.bot_handle || '@pluson_bot',
+        support_link: previewUrls?.support_link || 'в этом боте',
+        program_link: previewUrls?.program_link || '',
+        gifts_link: previewUrls?.gifts_link || '',
+        speakers_link: previewUrls?.speakers_link || '',
+        vip_link: previewUrls?.vip_link || '',
+      }
+    : {
+        event_title: previewUrls?.event_title || 'Название события',
+        event_date_short: '28 мая в 11:00 МСК',
+        owner_telegram: previewUrls?.owner_telegram || '@organizer',
+        support_link: previewUrls?.support_link || 'в этом боте',
+        brand_name: previewUrls?.brand_name ? `«${previewUrls.brand_name}»` : '',
+      }
+
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -259,6 +310,7 @@ function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audie
           const currentText = d.text ?? s.text
           const currentLabel = d.button_label ?? s.button_label
           const currentKind = (d.button_kind ?? s.button_kind) || 'event'
+          const hasButton = !!(currentLabel && currentLabel.trim())
           const { value: vuValue, unit: vuUnit } = secondsToValueUnit(currentOffset)
           const tgUrl = previewUrls?.tg_url || previewUrls?.program_link || ''
           const vkUrl = previewUrls?.vk_url || ''
@@ -322,38 +374,60 @@ function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audie
                   </p>
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-xs text-gray-500 mb-1">Надпись на кнопке <span className="text-gray-400">(пусто — без кнопки)</span></label>
-                  <input
-                    value={currentLabel}
-                    onChange={e => patchDraft(s.id, { button_label: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
-                    placeholder={audience === 'reg' ? 'Например: Открыть программу' : 'Зарегистрироваться'}
-                  />
-                  <div className="mt-2">
-                    <label className="block text-xs text-gray-500 mb-1">Кнопка ведёт на</label>
-                    <select
-                      value={currentKind}
-                      onChange={e => patchDraft(s.id, { button_kind: e.target.value as 'event' | 'support' })}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
-                    >
-                      <option value="event">{audience === 'reg' ? 'Программу события' : 'Страницу события'}</option>
-                      <option value="support">Службу поддержки (Telegram)</option>
-                    </select>
-                  </div>
-                  {currentKind === 'event' && (tgUrl || vkUrl) && (
-                    <div className="text-[11px] text-gray-400 mt-1 space-y-0.5">
-                      <div className="flex items-start gap-1">
-                        <ExternalLink size={11} className="mt-0.5 shrink-0" />
-                        <span>Ведёт в Mini App вашего бота:</span>
-                      </div>
-                      {tgUrl && <div className="ml-4"><code className="text-[10px]">TG: {tgUrl}</code></div>}
-                      {vkUrl && <div className="ml-4"><code className="text-[10px]">VK: {vkUrl}</code></div>}
+                  {/* Тоггл «Добавить кнопку»: выкл → кнопки нет, сообщение уходит просто текстом */}
+                  <label className="flex items-center gap-2 text-xs text-gray-700 mb-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={hasButton}
+                      onChange={e => patchDraft(s.id, {
+                        button_label: e.target.checked
+                          ? (audience === 'reg' ? 'Открыть программу' : 'Зарегистрироваться')
+                          : '',
+                      })}
+                    />
+                    <span className="font-medium">Добавить кнопку под сообщением</span>
+                  </label>
+                  {!hasButton && (
+                    <div className="text-[11px] text-gray-400 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                      Без кнопки — сообщение уйдёт просто текстом. Включите галочку выше, чтобы добавить кнопку.
                     </div>
                   )}
-                  {currentKind === 'support' && (
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Ведёт на ваш Telegram службы поддержки (поле «Служба поддержки» в Профиле).
-                    </p>
+                  {hasButton && (
+                    <>
+                      <label className="block text-xs text-gray-500 mb-1">Надпись на кнопке</label>
+                      <input
+                        value={currentLabel}
+                        onChange={e => patchDraft(s.id, { button_label: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                        placeholder={audience === 'reg' ? 'Например: Открыть программу' : 'Зарегистрироваться'}
+                      />
+                      <div className="mt-2">
+                        <label className="block text-xs text-gray-500 mb-1">Кнопка ведёт на</label>
+                        <select
+                          value={currentKind}
+                          onChange={e => patchDraft(s.id, { button_kind: e.target.value as 'event' | 'support' })}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D]"
+                        >
+                          <option value="event">{audience === 'reg' ? 'Программу события' : 'Страницу события'}</option>
+                          <option value="support">Службу поддержки (Telegram)</option>
+                        </select>
+                      </div>
+                      {currentKind === 'event' && (tgUrl || vkUrl) && (
+                        <div className="text-[11px] text-gray-400 mt-1 space-y-0.5">
+                          <div className="flex items-start gap-1">
+                            <ExternalLink size={11} className="mt-0.5 shrink-0" />
+                            <span>Ведёт в Mini App вашего бота:</span>
+                          </div>
+                          {tgUrl && <div className="ml-4"><code className="text-[10px]">TG: {tgUrl}</code></div>}
+                          {vkUrl && <div className="ml-4"><code className="text-[10px]">VK: {vkUrl}</code></div>}
+                        </div>
+                      )}
+                      {currentKind === 'support' && (
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          Ведёт на ваш Telegram службы поддержки (поле «Служба поддержки» в Профиле).
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -367,6 +441,31 @@ function NurtureEditor({ eventId, audience }: { eventId: number; audience: Audie
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
                   placeholder="Текст с HTML-разметкой..."
                 />
+              </div>
+
+              {/* Предпросмотр сообщения — как придёт в Telegram */}
+              <div className="mt-3">
+                <label className="block text-xs text-gray-500 mb-1">Предпросмотр (как в Telegram)</label>
+                <div className="rounded-2xl px-3 py-3" style={{ background: '#e7f3ff' }}>
+                  <div
+                    className="text-sm text-gray-900 leading-relaxed"
+                    style={{ wordBreak: 'break-word' }}
+                    dangerouslySetInnerHTML={{ __html: renderPreviewHtml(currentText, previewVars) }}
+                  />
+                  {hasButton && currentLabel && (
+                    <div className="mt-2 pt-2 border-t" style={{ borderColor: '#cfe4fb' }}>
+                      <div
+                        className="w-full text-center py-2 rounded-lg text-sm font-medium"
+                        style={{ background: '#ffffff', color: '#2563eb' }}
+                      >
+                        {currentLabel}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Плейсхолдеры подставлены примерными значениями. В реальном сообщении — данные конкретного человека и события.
+                </p>
               </div>
 
               <div className="mt-3 flex justify-end">
