@@ -881,6 +881,13 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     app_part = f"/{PLUSON_TG_APP}" if bot_username == PLUSON_TG_HANDLE else ""
     mini_app_link = f"https://t.me/{bot_username}{app_part}?startapp={startapp}"
 
+    from app.services.external_landing import (
+        resolve_or_create_participant,
+        get_contact_landing_params,
+        resolve_referrer_external_ref_param,
+        build_external_landing_url,
+    )
+
     pool = await get_pool()
     async with pool.acquire() as db:
         ev = await db.fetchrow(
@@ -906,50 +913,77 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         title = _html.escape(ev["title"] or "")
         poster_url = (ev["poster_url"] or "").strip()
 
-        # Единый текст приветствия для обоих вариантов (с лендингом и без).
-        text = (
-            "Добрейшего-богатейшего! 🤝\n\n"
-            f"Мы готовы зарегистрировать вас на «{title}» — нажмите на кнопку ниже."
-            f"{_support_footer(work_tg)}"
+        # Резолвим contact_id + статус регистрации участника по tg_id.
+        is_registered = False
+        contact_id: int | None = None
+        reg_row = await db.fetchrow(
+            """SELECT ep.is_registered, ep.contact_id
+                 FROM event_participants ep
+                 JOIN platform_users pu
+                   ON pu.contact_id = ep.contact_id
+                  AND pu.platform_slug = 'telegram'
+                  AND pu.platform_user_id = $2
+                WHERE ep.event_id = $1
+                LIMIT 1""",
+            ev["id"], str(user.id),
         )
+        if reg_row:
+            is_registered = bool(reg_row["is_registered"])
+            contact_id = reg_row["contact_id"]
 
-        # Вариант 2: кнопка на сторонний лендинг.
-        landing_url = (ev["landing_url"] or "").strip()
-        if want_landing and landing_url and ev["status"] == "published":
-            from app.services.external_landing import (
-                resolve_or_create_participant,
-                get_contact_landing_params,
-                resolve_referrer_external_ref_param,
-                build_external_landing_url,
-            )
-            participant_id, contact_id = await resolve_or_create_participant(
+        # Если записи нет (или contact_id не достали) — создаём participant, чтобы
+        # получить contact_id для ссылок pluson.ru/event/{slug}?c={contact_id}.
+        if contact_id is None:
+            _pid_part, contact_id = await resolve_or_create_participant(
                 db, client_id=ev["client_id"], event_id=ev["id"],
                 platform_slug="telegram", platform_user_id=str(user.id),
                 known_contact_id=known_contact_id,
             )
+
+        # ── Зарегистрированный участник → меню кабинета ───────────────────────
+        if is_registered:
+            await send_event_menu(message, ev["id"], contact_id, db)
+            return True
+
+        # ── НЕ зарегистрирован → три кнопки (Mini App / Веб / Регистрация) ────
+        text = (
+            "Добрейшего-богатейшего! 🤝\n\n"
+            "Здесь вы можете зарегистрироваться на наше событие:\n"
+            f"<b>{title}</b>\n\n"
+            "Нажмите на кнопку ниже — ту, которая у вас сработает с учётом "
+            "скорости вашего интернета."
+            f"{_support_footer(work_tg)}"
+        )
+
+        # Веб-ссылка/ссылка регистрации: сторонний лендинг (если задан и опубликован),
+        # иначе внутренний веб pluson.ru/event/{slug}?c={contact_id}.
+        landing_url = (ev["landing_url"] or "").strip()
+        internal_web = f"https://pluson.ru/event/{slug}?c={contact_id}" if contact_id else f"https://pluson.ru/event/{slug}"
+        if landing_url and ev["status"] == "published":
             contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
             erp = await resolve_referrer_external_ref_param(
-                db, ev["client_id"], pid=pid,
-                participant_id=participant_id, contact_id=contact_id,
+                db, ev["client_id"], pid=pid, contact_id=contact_id,
             )
-            target_url = build_external_landing_url(
+            landing_target = build_external_landing_url(
                 landing_url,
                 event_slug=slug,
-                participant_id=participant_id,
                 contact_id=contact_id,
                 pid=pid,
                 utm_source=utm_source,
                 external_ref_param=erp,
                 **contact_params,
             )
+            web_url = landing_target
+            reg_url = landing_target
         else:
-            # Вариант 1 (и фолбэк варианта 2, если лендинга нет): кнопка на Mini App.
-            # Открываем по t.me-ссылке (url-кнопка) — Telegram сам распарсит startapp.
-            target_url = mini_app_link
+            web_url = internal_web
+            reg_url = internal_web
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=target_url)
-    ]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Открыть в Мини-Апп", url=mini_app_link)],
+        [InlineKeyboardButton(text="Открыть в Веб-версии", url=web_url)],
+        [InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=reg_url)],
+    ])
 
     # Если у события есть афиша — шлём фото с подписью; иначе обычный текст.
     # Подпись Telegram ограничена 1024 символами — длинный текст без афиши.
@@ -963,6 +997,90 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     await message.answer(text, reply_markup=kb, parse_mode="HTML",
                          disable_web_page_preview=True)
     return True
+
+
+async def send_event_menu(message: Message, event_id: int, contact_id: int | None, db) -> None:
+    """Меню кабинета зарегистрированного участника события.
+
+    Вызывается из ветки «зареган» в `_handle_ref_event_bot_flow` и из команды
+    `/menu{event_id}`. Кнопки строятся в зависимости от настроек события:
+      • «Выбрать формат участия» — только если задан events.vip_url (VIP-ссылка
+        обогащается параметрами контакта через enrich_external_url);
+      • «Вступить в Чат» — callback evchat_{event_id}, только если есть хоть один
+        chat_url_tg/vk/max;
+      • «Программа и Спикеры» / «Программа» — внутренний веб с якорем #program;
+      • «Кабинет и подарки» — внутренний веб события.
+    """
+    ev = await db.fetchrow(
+        """SELECT id, client_id, slug, title, module_slug,
+                  vip_url, vip_button_label,
+                  chat_url_tg, chat_url_vk, chat_url_max
+             FROM events WHERE id = $1 LIMIT 1""",
+        event_id,
+    )
+    if not ev:
+        return
+
+    slug = ev["slug"]
+    title = _html.escape(ev["title"] or "")
+    cid_q = f"?c={contact_id}" if contact_id else ""
+
+    text = (
+        "Вы зарегистрированы на событие:\n"
+        f"<b>{title}</b>\n\n"
+        "Это ваше меню — вы всегда можете вызвать его командой "
+        f"/menu{event_id}"
+    )
+
+    rows: list[list[InlineKeyboardButton]] = []
+
+    # 1. Выбрать формат участия (VIP) — только если задан vip_url.
+    vip_url = (ev["vip_url"] or "").strip()
+    if vip_url:
+        from app.services.external_landing import (
+            get_contact_landing_params,
+            resolve_referrer_external_ref_param,
+            enrich_external_url,
+        )
+        contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
+        erp = await resolve_referrer_external_ref_param(
+            db, ev["client_id"], contact_id=contact_id,
+        )
+        vip_target = enrich_external_url(
+            vip_url,
+            pluson_contact_id=contact_id,
+            event_slug=slug,
+            external_ref_param=erp,
+            **contact_params,
+        )
+        vip_label = (ev["vip_button_label"] or "").strip() or "Выбрать формат участия"
+        rows.append([InlineKeyboardButton(text=vip_label, url=vip_target)])
+
+    # 2. Вступить в Чат — только если есть хоть одна chat-ссылка.
+    has_chat = bool((ev["chat_url_tg"] or "").strip()
+                    or (ev["chat_url_vk"] or "").strip()
+                    or (ev["chat_url_max"] or "").strip())
+    if has_chat:
+        rows.append([InlineKeyboardButton(
+            text="Вступить в Чат", callback_data=f"evchat_{event_id}"
+        )])
+
+    # 3. Программа (и спикеры для конференций/турниров).
+    prog_label = ("Программа и Спикеры"
+                  if ev["module_slug"] in ("conference", "turnir")
+                  else "Программа")
+    rows.append([InlineKeyboardButton(
+        text=prog_label, url=f"https://pluson.ru/event/{slug}{cid_q}#program"
+    )])
+
+    # 4. Кабинет и подарки.
+    rows.append([InlineKeyboardButton(
+        text="Кабинет и подарки", url=f"https://pluson.ru/event/{slug}{cid_q}"
+    )])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    await message.answer(text, reply_markup=kb, parse_mode="HTML",
+                         disable_web_page_preview=True)
 
 
 async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
@@ -1136,6 +1254,50 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
     except Exception as e:
         log.exception("_handle_vip_direct_start failed: %s", e)
         return False
+
+
+@router.message(F.text.regexp(r"^/menu\d+"))
+async def handle_event_menu_command(message: Message):
+    """Команда `/menu{event_id}` — показать меню кабинета участника события.
+
+    Резолвит contact_id по tg_id текущего пользователя для события из команды.
+    Если человек не зарегистрирован/не участник — всё равно показываем меню
+    (он сам открыл свой кабинет; кнопки публичные/по контакту)."""
+    user = message.from_user
+    if not user:
+        return
+    import re as _re
+    m = _re.match(r"^/menu(\d+)", (message.text or "").strip())
+    if not m:
+        return
+    event_id = int(m.group(1))
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        ev = await db.fetchrow(
+            "SELECT id, client_id FROM events WHERE id = $1 LIMIT 1", event_id
+        )
+        if not ev:
+            await message.answer("Событие не найдено.")
+            return
+        # contact_id по tg_id (если есть участие/идентичность), иначе создаём.
+        contact_id = await db.fetchval(
+            """SELECT ep.contact_id
+                 FROM event_participants ep
+                 JOIN platform_users pu
+                   ON pu.contact_id = ep.contact_id
+                  AND pu.platform_slug = 'telegram'
+                  AND pu.platform_user_id = $2
+                WHERE ep.event_id = $1
+                LIMIT 1""",
+            event_id, str(user.id),
+        )
+        if contact_id is None:
+            from app.services.external_landing import resolve_or_create_participant
+            _pid, contact_id = await resolve_or_create_participant(
+                db, client_id=ev["client_id"], event_id=event_id,
+                platform_slug="telegram", platform_user_id=str(user.id),
+            )
+        await send_event_menu(message, event_id, contact_id, db)
 
 
 @router.message(Command(commands=["getchatid"]))
