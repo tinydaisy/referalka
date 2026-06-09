@@ -426,6 +426,61 @@ async def upsert_contact_with_identity(
     идентичности ещё нет И контакт принадлежит тому же client_id И не смерджен.
     Иначе тихо игнорируется (fallback на обычный автомердж).
     """
+    # Защита от гонки: Mini App иногда шлёт event_start ДВАЖДЫ за одну секунду
+    # (двойной useEffect / повтор запроса). Два параллельных вызова с одним
+    # tg_id оба не находят идентичность → оба создают контакт → второй падает
+    # на UNIQUE при вставке identity и оставляет ПУСТОЙ контакт-сироту («Без
+    # имени»). Берём транзакционный advisory-lock по (client_id, platform,
+    # platform_user_id) — параллельные вызовы сериализуются, второй дождётся
+    # первого и увидит уже созданную идентичность в SELECT ниже.
+    # hashtext даёт стабильный bigint-ключ; lock держится до конца транзакции.
+    lock_key = f"{client_id}:{platform_slug}:{platform_user_id}"
+    in_tx = db.is_in_transaction() if hasattr(db, "is_in_transaction") else False
+    if in_tx:
+        await db.execute("SELECT pg_advisory_xact_lock(hashtext($1))", lock_key)
+        return await _upsert_contact_with_identity_locked(
+            db, client_id=client_id, platform_slug=platform_slug,
+            platform_user_id=platform_user_id, username=username,
+            first_name=first_name, last_name=last_name, email=email, phone=phone,
+            salebot_id=salebot_id, utm_source=utm_source, tags=tags,
+            platform_meta=platform_meta,
+            lookup_telegram_username=lookup_telegram_username,
+            known_contact_id=known_contact_id,
+        )
+    # Нет внешней транзакции — открываем свою, чтобы xact-lock реально держался.
+    async with db.transaction():
+        await db.execute("SELECT pg_advisory_xact_lock(hashtext($1))", lock_key)
+        return await _upsert_contact_with_identity_locked(
+            db, client_id=client_id, platform_slug=platform_slug,
+            platform_user_id=platform_user_id, username=username,
+            first_name=first_name, last_name=last_name, email=email, phone=phone,
+            salebot_id=salebot_id, utm_source=utm_source, tags=tags,
+            platform_meta=platform_meta,
+            lookup_telegram_username=lookup_telegram_username,
+            known_contact_id=known_contact_id,
+        )
+
+
+async def _upsert_contact_with_identity_locked(
+    db,
+    *,
+    client_id: int,
+    platform_slug: str,
+    platform_user_id: str,
+    username: Optional[str] = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    salebot_id: Optional[str] = None,
+    utm_source: Optional[str] = None,
+    tags: Optional[list] = None,
+    platform_meta: Optional[dict] = None,
+    lookup_telegram_username: Optional[str] = None,
+    known_contact_id: Optional[int] = None,
+) -> tuple[int, int, bool]:
+    """Внутренняя реализация upsert — вызывается под advisory-lock (см. выше).
+    Вся прежняя логика без изменений."""
     pu_existing = await db.fetchrow(
         """SELECT id, contact_id FROM platform_users
             WHERE client_id = $1 AND platform_slug = $2 AND platform_user_id = $3""",
