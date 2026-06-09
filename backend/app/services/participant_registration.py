@@ -45,6 +45,14 @@ async def finalize_participant_registration(
         logger.warning(f"nurture stop failed for event={event_id} contact={contact_id}: {e}")
 
     try:
+        from app.api.event_nurture_reg import start_nurture_reg_run_if_eligible
+        await start_nurture_reg_run_if_eligible(
+            db, event_id=event_id, contact_id=contact_id,
+        )
+    except Exception as e:
+        logger.warning(f"nurture_reg start failed for event={event_id} contact={contact_id}: {e}")
+
+    try:
         await _resubscribe_email(db, contact_id=contact_id, event_id=event_id)
     except Exception as e:
         logger.warning(f"email re-opt-in failed for event={event_id} contact={contact_id}: {e}")
