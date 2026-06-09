@@ -51,6 +51,17 @@ const NAV_ENDED: NavItem[] = [
   { id: 'calendar',  label: 'Календарь',  icon: 'calendar'  },
   { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
 ]
+// Веб-витрина (pluson.ru/event/{slug}) для незарегистрированного гостя:
+// публичные вкладки открыты (Программа/Спикеры/Экосистема), а персональные
+// (Подарки/Розыгрыш) — под замком, т.к. требуют участника/contact_id.
+const NAV_WEB_PUBLIC: NavItem[] = [
+  { id: 'landing',   label: 'Лендинг',    icon: 'landing'   },
+  { id: 'program',   label: 'Программа',  icon: 'program'   },
+  { id: 'speakers',  label: 'Спикеры',    icon: 'speakers'  },
+  { id: 'game',      label: 'Подарки',    icon: 'game',      locked: true },
+  { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
+  { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
+]
 
 function isEnded(event: any): boolean {
   if (event?.status === 'ended') return true
@@ -118,6 +129,14 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
       markParticipantWelcomed(participant.id).catch(() => { /* offline ok */ })
     }
     setTabState(next)
+    // Веб-витрина: пишем вкладку в #hash, чтобы ссылка на конкретную вкладку
+    // (`/event/{slug}#speakers`) работала как прямая. На TG/VK — не трогаем URL.
+    if (getPlatformName() === 'web' && typeof window !== 'undefined') {
+      const newHash = '#' + next
+      if (window.location.hash !== newHash) {
+        history.replaceState(null, '', window.location.pathname + window.location.search + newHash)
+      }
+    }
     setRefreshKey(k => k + 1)
     reloadParticipant()
   }
@@ -228,6 +247,11 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
         } else {
           setTabState('program')
         }
+      } else if (getPlatformName() === 'web') {
+        // Веб-витрина без регистрации: открываем вкладку из #hash, если она
+        // публичная; иначе — лендинг.
+        const pub = ['landing', 'program', 'speakers', 'ecosystem']
+        setTabState(initialTab && pub.includes(initialTab) ? initialTab : 'landing')
       } else {
         setTabState('landing')
       }
@@ -270,10 +294,13 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
     (n.id !== 'raffle'   || raffleOn)
   )
 
+  const isWeb = getPlatformName() === 'web'
   const navItemsEnded = participant
     ? filterByEnabled(NAV_ENDED)
     : filterByEnabled(NAV_ENDED).filter(n => n.id !== 'game')
-  const navItems = state === 'not_registered' ? filterByEnabled(NAV_NOT_REG)
+  const navItems = state === 'not_registered'
+                     // Веб-витрина без регистрации: публичные вкладки открыты.
+                     ? (isWeb ? filterByEnabled(NAV_WEB_PUBLIC) : filterByEnabled(NAV_NOT_REG))
                  : state === 'registered'     ? filterByEnabled(NAV_REGISTERED)
                  :                              navItemsEnded
 
@@ -304,6 +331,9 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, flags, r
   useEffect(() => {
     if (!event) return
     if (loading) return
+    // Веб-витрина (pluson.ru/event/{slug}) — НЕ улетаем на сторонний лендинг
+    // клиента: показываем встроенную витрину (программа/спикеры/экосистема).
+    if (getPlatformName() === 'web') return
     if (registered || ended) return
     if (regFromLanding) return  // ← возврат с лендинга: ждём registerParticipant
     if (noLanding) return       // ← флаг `_nolend`: показываем внутренний лендинг, внешний не открываем
