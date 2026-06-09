@@ -123,6 +123,24 @@
 
 **⚠️ Не путать с `subscription_check.py`** — там проверка подписки на каналы **спикеров** события через `collaborators.tg_channel_id` (для входа в чат события из Mini App). Это другая фича, не трогаем.
 
+### Воронка догрева ЗАРЕГИСТРИРОВАННЫХ + Служба поддержки (миграция 129 от 2026-06-09)
+
+**Две независимые nurture-воронки на событие:**
+1. **Незарегистрированным** (`event_nurture_steps`/`runs`, миграция 088) — старт при ОТКРЫТИИ события без регистрации.
+2. **Зарегистрированным** (`event_nurture_reg_steps`/`runs`, миграция 129) — старт при РЕГИСТРАЦИИ. Помогает «не потеряться»: вступить в чаты, закрепить бота.
+
+**Запуск reg-воронки** — `start_nurture_reg_run_if_eligible` ([backend/app/api/event_nurture_reg.py](backend/app/api/event_nurture_reg.py)) зовётся из `finalize_participant_registration` (единая точка регистрации) ПОСЛЕ остановки незарег.-воронки. **Останов** — когда событие завершилось (`end_at < now` / `status='ended'`). Celery `app.tasks.nurture_reg.tick` ([backend/app/tasks/nurture_reg.py](backend/app/tasks/nurture_reg.py), beat 300с) — зеркало `nurture.py`. Дефолт 2 шага (auto-seed): Шаг 1 «3 действия» (сразу), Шаг 2 «всё получилось?» через 15 мин.
+
+**`button_kind` ('event'|'support')** — добавлен в ОБЕ таблицы шагов. `event` = кнопка на событие/программу, `support` = на `t.me/{clients.work_tg_username}?text=Есть вопрос по регистрации`.
+
+**Плейсхолдеры reg-воронки:** `{event_title}`, `{chats}` (чаты `events.chat_url_tg/vk/max`, главный по `primary_chat_platform` — сверху и жирным «(главный)»; HTML для TG/MAX, plain для VK), `{bot_handle}` (@ник VIP-бота или @pluson_bot), `{support_link}` (`work_tg_username`), `{program_link}`/`{gifts_link}`/`{speakers_link}`/`{vip_link}` (формат `...startapp=ref_pg{slug}_tab{tab}`). **Пустой раздел → плейсхолдер пропадает:** gifts только при `event_referral_settings.is_enabled`, speakers только conference/turnir + есть `event_collaborators`, vip только при `events.vip_url`.
+
+**Незарег.-воронка переписана по ТЗ (миграция 129):** новый Шаг 1 «🚨 не получилось зарегистрироваться?» через 15 мин (`button_kind='support'`, кнопка «Написать в поддержку») → бывший Шаг 1 стал 2 → бывший 2 стал 3 → старый 3 удалён. Новые плейсхолдеры `{support_link}` (только `work_tg_username`, БЕЗ fallback на канал основателя — в отличие от `{owner_telegram}`) и `{brand_name}` (`clients.brand_name||name`, оборачивается в «…»).
+
+**Фронт:** [NurtureTab.tsx](web/src/app/dashboard/events/%5Bid%5D/tabs/NurtureTab.tsx) — 2 подвкладки «Незарегистрированным»/«Зарегистрированным», общий компонент `NurtureEditor` (параметр `audience` + api-клиент `api.eventNurture` / `api.eventNurtureReg`), селектор «Кнопка ведёт на» (event/support), превью блока `{chats}`. Роуты reg: `/api/v1/events/{id}/nurture-reg/steps|preview-urls`.
+
+**Служба поддержки = `clients.work_tg_username`** — поле перенесено с вкладки «Техническое» на «Профиль» в `/dashboard/settings`, переименовано «Рабочий аккаунт» → «Служба поддержки». **⚠️ Старая подпись «для проверки подписки на каналы спикеров» ВРАЛА** — `work_tg_username` НЕ участвует в проверке подписки спикеров (там самопроверка спикера через `personal_tg_id` + `getChatMember` в `subscription_check.py` / `speaker_cabinet.py`). Реально используется как `{owner_telegram}`/`{support_link}`, в ответах VIP-бота и партнёрском флоу.
+
 ### Тексты-анонсы + вкладка «Материалы» в кабинете спикера (миграция 112 от 2026-05-25)
 
 **Зачем.** Параллельно с реф-программой («зови друзей за подарки» — аудитория участник) — отдельная сущность для спикеров/партнёров: готовые тексты-анонсы события. Их собирает организатор, а спикер открывает свой self-service кабинет, копирует и шлёт своей аудитории.
