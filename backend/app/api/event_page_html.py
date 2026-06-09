@@ -64,6 +64,7 @@ async def _load_collaborators(db, event_id):
     rows = await db.fetch(
         f"""SELECT cse.id AS ec_id, cse.role, cse.speaker_topic,
                    cse.knowledge_base_title, cse.knowledge_base_url,
+                   cse.gift_after_speech_title, cse.gift_raffle_title,
                    c.name, c.title, c.achievements, c.photo_url,
                    c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url
               FROM event_collaborators cse
@@ -165,29 +166,70 @@ async def _load_ref_cabinet(db, event, contact_id):
               AND ep.is_registered = TRUE""",
         event["id"], ref_code,
     ) or 0
-    # Список «Ваши люди»
+    # Список «Ваши люди». Для каждого приводим основную платформенную
+    # идентичность (приоритет telegram → vk → max), чтобы показать иконку
+    # и сделать имя кликабельным (личка в его приложении).
     people_rows = await db.fetch(
-        """SELECT ct.name, ep.is_registered
+        """SELECT ct.name, ep.is_registered,
+                  pu.platform_slug, pu.platform_user_id, pu.username
              FROM event_participants ep
              JOIN contacts ct ON ct.id = ep.contact_id
+             LEFT JOIN LATERAL (
+                 SELECT p.platform_slug, p.platform_user_id, p.username
+                   FROM platform_users p
+                  WHERE p.contact_id = ct.id
+                  ORDER BY CASE p.platform_slug
+                             WHEN 'telegram' THEN 1
+                             WHEN 'vk' THEN 2
+                             WHEN 'max' THEN 3
+                             WHEN 'email' THEN 4
+                             ELSE 5 END, p.id
+                  LIMIT 1
+             ) pu ON TRUE
             WHERE ep.event_id = $1 AND ep.referrer_ref_code = $2
             ORDER BY ep.is_registered DESC, ep.id DESC
             LIMIT 100""",
         event["id"], ref_code,
     )
-    my_people = [{"name": r["name"] or "Без имени",
-                  "is_registered": bool(r["is_registered"])} for r in people_rows]
-    # ТОП рефереров события (по числу приведённых)
+    my_people = [{
+        "name": r["name"] or "Без имени",
+        "is_registered": bool(r["is_registered"]),
+        "platform_slug": r["platform_slug"],
+        "platform_user_id": r["platform_user_id"],
+        "username": r["username"],
+    } for r in people_rows]
+
+    # ТОП рефереров события (по числу приведённых).
+    # Кто попадает в топ:
+    #  - турнир (module_slug='turnir'): участники события + коллабы с ролью
+    #    speaker/headliner (исключаем organizer/jury/partner/general_partner);
+    #  - все остальные типы: только участники события (исключаем всех коллабов).
+    is_turnir = (event.get("module_slug") == "turnir")
+    if is_turnir:
+        top_where = (
+            "(ct.ref_code IN (SELECT c2.ref_code FROM event_participants ep2 "
+            " JOIN contacts c2 ON c2.id = ep2.contact_id WHERE ep2.event_id = $1) "
+            " OR ct.ref_code IN (SELECT c3.ref_code FROM event_collaborators ec3 "
+            " JOIN collaborators col3 ON col3.id = ec3.speaker_id "
+            " JOIN contacts c3 ON c3.id = col3.contact_id "
+            " WHERE ec3.event_id = $1 AND ec3.role IN ('speaker','headliner')))"
+        )
+    else:
+        top_where = (
+            "ct.ref_code IN (SELECT c2.ref_code FROM event_participants ep2 "
+            " JOIN contacts c2 ON c2.id = ep2.contact_id WHERE ep2.event_id = $1)"
+        )
     top_rows = await db.fetch(
-        """SELECT ct.name, ct.ref_code,
-                  COUNT(*) AS cnt
-             FROM event_participants ep
-             JOIN contacts ct ON ct.ref_code = ep.referrer_ref_code
-            WHERE ep.event_id = $1 AND ep.referrer_ref_code IS NOT NULL
-              AND ct.client_id = $2
-            GROUP BY ct.name, ct.ref_code
-            ORDER BY cnt DESC, ct.name
-            LIMIT 10""",
+        f"""SELECT ct.name, ct.ref_code,
+                   COUNT(*) AS cnt
+              FROM event_participants ep
+              JOIN contacts ct ON ct.ref_code = ep.referrer_ref_code
+             WHERE ep.event_id = $1 AND ep.referrer_ref_code IS NOT NULL
+               AND ct.client_id = $2
+               AND {top_where}
+             GROUP BY ct.name, ct.ref_code
+             ORDER BY cnt DESC, ct.name
+             LIMIT 3""",
         event["id"], event["client_id"],
     )
     top = []
@@ -222,6 +264,37 @@ async def _load_ref_cabinet(db, event, contact_id):
 async def _load_client(db, client_id):
     return await db.fetchrow(
         "SELECT name, brand_name FROM clients WHERE id = $1", client_id)
+
+
+async def _load_venue(db, client_id):
+    """Профиль клиента (бренд + основатель) + продукты — для вкладки «О площадке»
+    (повторяет EcosystemTab + OwnerPage Mini App)."""
+    profile = await db.fetchrow(
+        """SELECT brand_name, name, profile_photo_url, positioning, achievements,
+                  owner_photo_url, owner_positioning, owner_achievements, bio,
+                  social_links
+             FROM clients WHERE id = $1""",
+        client_id,
+    )
+    offerings = await db.fetch(
+        """SELECT title, description, action_url, is_paid, cover_url
+             FROM client_offerings WHERE client_id = $1
+            ORDER BY is_paid DESC, sort_order, id""",
+        client_id,
+    )
+    return profile, [dict(o) for o in offerings]
+
+
+def _parse_jsonb_obj(value):
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        try:
+            v = json.loads(value)
+            return v if isinstance(v, dict) else {}
+        except Exception:
+            return {}
+    return value if isinstance(value, dict) else {}
 
 
 # ── Рендер ────────────────────────────────────────────────────────────────
@@ -327,6 +400,23 @@ def _speaker_card(p) -> str:
         items = "".join(f'<li>{esc(a)}</li>' for a in ach)
         ach_html = f'<ul class="ach">{items}</ul>'
 
+    # Подарок на эфире / в розыгрыше
+    gift_html = ""
+    gas = p.get("gift_after_speech_title")
+    if gas:
+        gift_html += (
+            '<div class="gift-tag gift-tag-air">'
+            '<div class="gift-tag-lbl">🎁 Подарок на эфире</div>'
+            f'<div class="gift-tag-val">{esc(gas)}</div></div>'
+        )
+    graf = p.get("gift_raffle_title")
+    if graf:
+        gift_html += (
+            '<div class="gift-tag gift-tag-raffle">'
+            '<div class="gift-tag-lbl">🎟 Подарок в розыгрыше</div>'
+            f'<div class="gift-tag-val">{esc(graf)}</div></div>'
+        )
+
     # соцсети 2×2 (только непустые)
     socials = []
     tg = _tg_url(p.get("tg_channel_url"))
@@ -369,7 +459,7 @@ def _speaker_card(p) -> str:
         f'<div class="sp-meta">{badge}'
         f'<div class="pname">{name}</div>{title_html}</div>'
         f'</div>'
-        f'{topic_html}{ach_html}{soc_html}{kb_html}'
+        f'{topic_html}{ach_html}{gift_html}{soc_html}{kb_html}'
         f'</div>'
     )
 
@@ -501,6 +591,35 @@ def _program_panel(event, collabs, days, stages, sessions) -> str:
     return out
 
 
+_PLATFORM_ICON = {
+    "telegram": ("✈️", "#0088cc", "rgba(0,136,204,0.10)"),
+    "vk": ("VK", "#4680bd", "rgba(70,128,189,0.10)"),
+    "max": ("M", "#e07b00", "rgba(255,138,0,0.12)"),
+    "email": ("@", "#6b7c8e", "#f0f3f7"),
+}
+
+
+def _people_dm_link(slug_platform, pu_id, username):
+    """Ссылка в личку человека по его платформе. None если построить нельзя."""
+    if slug_platform == "telegram":
+        if username:
+            return "https://t.me/" + str(username).lstrip("@")
+        if pu_id and str(pu_id).lstrip("@").isdigit():
+            return "tg://user?id=" + str(pu_id)
+        return None
+    if slug_platform == "vk":
+        if pu_id and str(pu_id).isdigit():
+            return "https://vk.com/id" + str(pu_id)
+        if username:
+            return "https://vk.com/" + str(username).lstrip("@")
+        return None
+    if slug_platform == "max":
+        if username:
+            return "https://max.ru/" + str(username).lstrip("@")
+        return None
+    return None
+
+
 def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                    ref_enabled, brand, title, start_at) -> str:
     """Вкладка «Кабинет» = копия GameTab."""
@@ -525,39 +644,81 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                  + "?app=tg&pid=" + str(rc.get("ref_code") or "")))
 
     if ref_enabled:
-        # Подарки: прогресс к следующему
         sorted_g = sorted(gifts, key=lambda g: g.get("points_cost") or 0)
+
+        # ── Подарки (сворачиваемый аккордеон) ──
         received = [g for g in sorted_g if registered >= (g.get("points_cost") or 0)]
         next_gift = next((g for g in sorted_g
                           if (g.get("points_cost") or 0) > registered), None)
         gifts_count = len(received)
         total = len(sorted_g)
-        count_html = str(gifts_count)
         if total > 0:
-            count_html += f'<span class="g-total">/{total}</span>'
-        last_html = ""
-        if received:
-            last_html = f'<div class="g-last">«{esc(received[-1].get("title") or "")}»</div>'
-        if next_gift:
-            to_next = (next_gift.get("points_cost") or 0) - registered
-            word = "человек" if to_next == 1 else "человека"
-            next_html = (f'<div class="g-next">🎁 Ещё {to_next} {word} '
-                         f'до подарка «{esc(next_gift.get("title") or "")}»</div>')
-            pct = min(100, round(registered / max(1, next_gift.get("points_cost") or 1) * 100))
-            bar = (f'<div class="g-bar"><div class="g-bar-fill" '
-                   f'style="width:{pct}%"></div></div>')
-        else:
-            next_html = '<div class="g-next done">🎉 Все подарки получены!</div>'
-            bar = ""
-        out += (
-            '<div class="gift-box">'
-            f'<div class="gift-top"><div class="gift-num">{count_html}</div>'
-            f'<div class="gift-info"><div class="gift-cap">Получено подарков</div>'
-            f'{last_html}</div></div>'
-            f'{next_html}{bar}</div>'
-        )
+            # Сводка-шапка подарков
+            count_html = str(gifts_count)
+            if total > 0:
+                count_html += f'<span class="g-total">/{total}</span>'
+            last_html = ""
+            if received:
+                last_html = (f'<div class="g-last">«'
+                             f'{esc(received[-1].get("title") or "")}»</div>')
+            if next_gift:
+                to_next = (next_gift.get("points_cost") or 0) - registered
+                word = "человек" if to_next == 1 else "человека"
+                next_html = (f'<div class="g-next">🎁 Ещё {to_next} {word} '
+                             f'до подарка «{esc(next_gift.get("title") or "")}»</div>')
+                pct = min(100, round(registered / max(1, next_gift.get("points_cost") or 1) * 100))
+                bar = (f'<div class="g-bar"><div class="g-bar-fill" '
+                       f'style="width:{pct}%"></div></div>')
+            else:
+                next_html = '<div class="g-next done">🎉 Все подарки получены!</div>'
+                bar = ""
+            summary = (
+                '<div class="gift-box">'
+                f'<div class="gift-top"><div class="gift-num">{count_html}</div>'
+                f'<div class="gift-info"><div class="gift-cap">Получено подарков</div>'
+                f'{last_html}</div></div>'
+                f'{next_html}{bar}</div>'
+            )
+            # Список порогов: получено / заблокировано
+            gift_rows = ""
+            for g in sorted_g:
+                cost = g.get("points_cost") or 0
+                got = registered >= cost
+                gtitle = esc(g.get("title") or "")
+                gdesc = esc(g.get("description") or "")
+                desc_html = f'<div class="gi-desc">{gdesc}</div>' if gdesc else ""
+                if got:
+                    link = (g.get("link_url") or "").strip()
+                    btn = (f'<a class="gi-open" href="{esc(link)}" target="_blank" '
+                           f'rel="noopener">Открыть</a>') if link else ""
+                    gift_rows += (
+                        '<div class="gi gi-got">'
+                        '<div class="gi-ico">🎁</div>'
+                        f'<div class="gi-body"><div class="gi-title">{gtitle}</div>'
+                        f'{desc_html}</div>'
+                        f'<div class="gi-side"><span class="gi-badge got">за {cost} чел</span>'
+                        f'{btn}</div></div>'
+                    )
+                else:
+                    need = cost - registered
+                    word = "человек" if need == 1 else "человека"
+                    gift_rows += (
+                        '<div class="gi gi-lock">'
+                        '<div class="gi-ico locked">🎁</div>'
+                        f'<div class="gi-body"><div class="gi-title">{gtitle}</div>'
+                        f'<div class="gi-need">Нужно ещё {need} {word}</div></div>'
+                        f'<span class="gi-badge lock">за {cost} чел</span></div>'
+                    )
+            out += (
+                '<div class="acc collapsed">'
+                '<button class="acc-h" data-acc="gifts" type="button">'
+                f'<span>🎁 Подарки · {gifts_count}/{total}</span>'
+                '<span class="acc-chev">▾</span></button>'
+                f'<div class="acc-body" id="acc-gifts">{summary}{gift_rows}</div>'
+                '</div>'
+            )
 
-        # ТОП рейтинг
+        # ── ТОП рейтинг (сворачиваемый аккордеон, топ-3) ──
         top = rc.get("top") or []
         if top:
             rows = ""
@@ -572,20 +733,31 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                     f'<div class="top-name">{nm}</div>'
                     f'<div class="top-cnt">{t.get("count", 0)}</div></div>'
                 )
-            out += ('<h2 class="sec-h">🏆 ТОП рейтинг</h2>'
-                    f'<div class="top-box">{rows}</div>')
+            out += (
+                '<div class="acc collapsed">'
+                '<button class="acc-h" data-acc="top" type="button">'
+                '<span>🏆 ТОП рейтинг</span>'
+                '<span class="acc-chev">▾</span></button>'
+                f'<div class="acc-body" id="acc-top"><div class="top-box">{rows}</div></div>'
+                '</div>'
+            )
 
-        # Реф-ссылки
+        # ── Реф-ссылки (с кнопками копирования) ──
         plabels = {"telegram": "Telegram", "vk": "ВКонтакте", "max": "MAX"}
         link_rows = ""
         for plat in ("telegram", "vk", "max"):
             url = links.get(plat)
             if not url:
                 continue
+            ico, fg, bg = _PLATFORM_ICON[plat]
             link_rows += (
-                f'<div class="cab-link"><span>{esc(plabels[plat])}</span>'
-                f'<input readonly value="{esc(url)}" '
-                f'onclick="this.select();document.execCommand(\'copy\')"></div>'
+                '<div class="cab-link">'
+                f'<div class="cl-ico" style="color:{fg};background:{bg}">{esc(ico)}</div>'
+                '<div class="cl-body">'
+                f'<div class="cl-lbl">{esc(plabels[plat])}</div>'
+                f'<div class="cl-url">{esc(url)}</div></div>'
+                f'<button class="cl-copy copy-btn" type="button" '
+                f'data-copy="{esc(url)}">Копировать</button></div>'
             )
         if link_rows:
             out += '<h2 class="sec-h">🔗 Ваши ссылки для друзей</h2>'
@@ -593,35 +765,43 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                     'в его приложение. За приглашённых — подарки.</div>')
             out += link_rows
 
-        # Материалы: афиши + тексты
+        # ── Материалы (сворачиваемый аккордеон): афиши + тексты ──
         date_str = _fmt_event_date(start_at)
-        if share_images:
-            tiles = "".join(
-                f'<a class="mat-img" href="{esc(u)}" target="_blank" rel="noopener">'
-                f'<img src="{esc(u)}" alt="" loading="lazy"></a>'
-                for u in share_images
-            )
-            out += '<h2 class="sec-h">🖼 Афиши для друзей</h2>'
-            out += f'<div class="mat-grid">{tiles}</div>'
-        if share_texts:
-            out += '<h2 class="sec-h">✍️ Тексты для друзей</h2>'
-            for tpl in share_texts:
-                rendered = (tpl or "")
-                rendered = rendered.replace("{link}", ref_link)
-                rendered = rendered.replace("{event}", title)
-                rendered = rendered.replace("{date}", date_str)
-                rendered = rendered.replace("{brand}", brand)
-                out += (
-                    '<div class="mat-text">'
-                    f'<textarea readonly rows="4" '
-                    f'onclick="this.select();document.execCommand(\'copy\');'
-                    f'this.nextElementSibling.textContent=\'✓ Скопировано\'">'
-                    f'{esc(rendered)}</textarea>'
-                    '<div class="mat-copy-hint">📋 Нажмите на текст, чтобы скопировать</div>'
-                    '</div>'
+        if share_images or share_texts:
+            mat_inner = ""
+            if share_images:
+                tiles = "".join(
+                    f'<a class="mat-img" href="{esc(u)}" target="_blank" rel="noopener">'
+                    f'<img src="{esc(u)}" alt="" loading="lazy"></a>'
+                    for u in share_images
                 )
+                mat_inner += '<div class="mat-sub">🖼 Афиши для друзей</div>'
+                mat_inner += f'<div class="mat-grid">{tiles}</div>'
+            if share_texts:
+                mat_inner += '<div class="mat-sub">✍️ Тексты для друзей</div>'
+                for tpl in share_texts:
+                    rendered = (tpl or "")
+                    rendered = rendered.replace("{link}", ref_link)
+                    rendered = rendered.replace("{event}", title)
+                    rendered = rendered.replace("{date}", date_str)
+                    rendered = rendered.replace("{brand}", brand)
+                    mat_inner += (
+                        '<div class="mat-text">'
+                        f'<div class="mat-body">{esc(rendered)}</div>'
+                        f'<button class="mat-copy copy-btn" type="button" '
+                        f'data-copy="{esc(rendered)}">📋 Скопировать текст</button>'
+                        '</div>'
+                    )
+            out += (
+                '<div class="acc collapsed">'
+                '<button class="acc-h" data-acc="materials" type="button">'
+                '<span>🖼 Материалы</span>'
+                '<span class="acc-chev">▾</span></button>'
+                f'<div class="acc-body" id="acc-materials">{mat_inner}</div>'
+                '</div>'
+            )
 
-        # Ваши люди
+        # ── Ваши люди (с иконкой платформы + кликабельные) ──
         people = rc.get("my_people") or []
         if people:
             rows = ""
@@ -629,11 +809,26 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                 reg = p.get("is_registered")
                 mark = "✓" if reg else "·"
                 mcls = "reg" if reg else "noreg"
-                rows += (
-                    f'<div class="people-row">'
-                    f'<div class="people-name">{esc(p.get("name") or "")}</div>'
-                    f'<div class="people-mark {mcls}">{mark}</div></div>'
+                plat = p.get("platform_slug")
+                ico_html = ""
+                if plat in _PLATFORM_ICON:
+                    pico, pfg, pbg = _PLATFORM_ICON[plat]
+                    ico_html = (f'<div class="pp-plat" style="color:{pfg};'
+                                f'background:{pbg}">{esc(pico)}</div>')
+                dm = _people_dm_link(plat, p.get("platform_user_id"),
+                                     p.get("username"))
+                name_html = esc(p.get("name") or "")
+                inner = (
+                    f'{ico_html}'
+                    f'<div class="people-name">{name_html}</div>'
+                    f'<div class="people-mark {mcls}">{mark}</div>'
                 )
+                if dm:
+                    rows += (f'<a class="people-row people-link" href="{esc(dm)}" '
+                             f'target="_blank" rel="noopener">{inner}'
+                             '<span class="pp-arr">›</span></a>')
+                else:
+                    rows += f'<div class="people-row">{inner}</div>'
             out += (f'<h2 class="sec-h">👥 Ваши люди · {len(people)}</h2>'
                     f'<div class="people-box">{rows}</div>')
     else:
@@ -643,9 +838,179 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
     return out
 
 
+def _achievements_grid(ach_list) -> str:
+    """Сетка «Факты в цифрах» 2×N. ach_list = [{label,value}]. Пусто → ''."""
+    items = []
+    for a in ach_list:
+        if not isinstance(a, dict):
+            continue
+        label = a.get("label")
+        value = a.get("value")
+        if not (label and str(label).strip()) and not (value and str(value).strip()):
+            continue
+        items.append(
+            '<div class="fact">'
+            f'<div class="fact-val">{esc(value or "")}</div>'
+            f'<div class="fact-lbl">{esc(label or "")}</div></div>'
+        )
+    if not items:
+        return ""
+    return '<div class="facts">' + "".join(items) + "</div>"
+
+
+def _social_links_html(social) -> str:
+    """Соцсети основателя (как OwnerPage). telegram_channels — массив, остальные
+    ключи — одиночные ссылки."""
+    social = social if isinstance(social, dict) else {}
+    btns = []
+    tg_channels = social.get("telegram_channels")
+    if isinstance(tg_channels, list):
+        for ch in tg_channels:
+            if not isinstance(ch, dict):
+                continue
+            url = ch.get("url")
+            if not url:
+                continue
+            label = ch.get("name") or "Telegram"
+            btns.append(
+                f'<a class="social-btn" href="{esc(url)}" target="_blank" '
+                f'rel="noopener">✈️ {esc(label)}</a>'
+            )
+    single = [
+        ("instagram", "Instagram", "📷"),
+        ("youtube", "YouTube", "▶"),
+        ("vk", "VK", "VK"),
+        ("website", "Сайт", "🌐"),
+    ]
+    for key, label, ico in single:
+        url = social.get(key)
+        if not url:
+            continue
+        href = url
+        if key == "instagram" and not str(url).startswith("http"):
+            href = "https://instagram.com/" + str(url).lstrip("@")
+        btns.append(
+            f'<a class="social-btn" href="{esc(href)}" target="_blank" '
+            f'rel="noopener">{ico} {esc(label)}</a>'
+        )
+    if not btns:
+        return ""
+    return ('<div class="social-h">Соцсети</div>'
+            '<div class="socials-wrap">' + "".join(btns) + "</div>")
+
+
+def _offering_card(o) -> str:
+    cover = esc(o.get("cover_url") or "")
+    is_paid = bool(o.get("is_paid"))
+    title = esc(o.get("title") or "")
+    desc = esc(o.get("description") or "")
+    action = (o.get("action_url") or "").strip()
+    if cover:
+        ico_html = (f'<div class="off-cover" style="background:center/cover '
+                    f'url(\'{cover}\')"></div>')
+    else:
+        emoji = "💼" if is_paid else "📄"
+        ico_html = f'<div class="off-cover off-cover-empty">{emoji}</div>'
+    desc_html = f'<div class="off-desc">{desc}</div>' if desc else ""
+    free_html = '<div class="off-free">Бесплатно</div>' if not is_paid else ""
+    btn_html = ""
+    if action:
+        btn_cls = "off-btn off-btn-paid" if is_paid else "off-btn off-btn-free"
+        btn_html = (f'<a class="{btn_cls}" href="{esc(action)}" target="_blank" '
+                    f'rel="noopener">Получить</a>')
+    return (
+        '<div class="off-card">'
+        f'<div class="off-top">{ico_html}'
+        f'<div class="off-body"><div class="off-title">{title}</div>'
+        f'{desc_html}{free_html}</div></div>{btn_html}</div>'
+    )
+
+
+def _venue_panel(profile, offerings) -> str:
+    """Вкладка «О площадке» = копия EcosystemTab + OwnerPage."""
+    if not profile:
+        return '<div class="empty">Нет данных о площадке.</div>'
+    brand = esc(profile["brand_name"] or profile["name"] or "")
+    brand_role = esc(profile["positioning"] or "")
+    brand_ach = _parse_jsonb(profile["achievements"])[:4]
+    owner_name = esc(profile["name"] or "")
+    owner_role = esc(profile["owner_positioning"] or "")
+    owner_ach = _parse_jsonb(profile["owner_achievements"])
+    bio = profile["bio"] or ""
+    social = _parse_jsonb_obj(profile["social_links"])
+
+    # Шапка бренда
+    photo = esc(profile["profile_photo_url"] or "")
+    if photo:
+        avatar = (f'<div class="venue-ava" style="background:center/cover '
+                  f'url(\'{photo}\')"></div>')
+    else:
+        avatar = (f'<div class="venue-ava venue-ava-empty">'
+                  f'{esc(_initials(profile["brand_name"] or profile["name"]))}</div>')
+    role_html = (f'<div class="venue-role">{brand_role}</div>'
+                 if brand_role else "")
+    out = (
+        '<div class="venue-head">'
+        f'{avatar}'
+        f'<div class="venue-head-body"><div class="venue-brand">{brand}</div>'
+        f'{role_html}</div></div>'
+    )
+
+    # Факты бренда
+    out += _achievements_grid(brand_ach)
+
+    # Карточка-тизер основателя (раскрываемый блок)
+    has_owner = bool(owner_name or profile["owner_photo_url"]
+                     or owner_role or bio)
+    if has_owner:
+        o_photo = esc(profile["owner_photo_url"] or "")
+        teaser_ava = (
+            f'<img class="owner-teaser-ava" src="{o_photo}" alt="">'
+            if o_photo else "")
+        teaser_role = (f'<div class="owner-teaser-role">{owner_role}</div>'
+                       if owner_role else "")
+        # Контент основателя
+        owner_body = ""
+        if o_photo:
+            owner_body += (f'<img class="owner-photo" src="{o_photo}" '
+                           f'alt="{owner_name}">')
+        owner_body += _achievements_grid(owner_ach)
+        if bio.strip():
+            owner_body += f'<div class="owner-bio">{bio}</div>'
+        owner_body += _social_links_html(social)
+        out += (
+            '<div class="acc collapsed owner-acc">'
+            '<button class="owner-teaser" data-acc="owner" type="button">'
+            f'{teaser_ava}'
+            '<div class="owner-teaser-body">'
+            '<div class="owner-teaser-lbl">Об основателе</div>'
+            f'<div class="owner-teaser-name">{owner_name}</div>'
+            f'{teaser_role}</div>'
+            '<span class="owner-teaser-chev">›</span></button>'
+            f'<div class="acc-body owner-acc-body" id="acc-owner">{owner_body}</div>'
+            '</div>'
+        )
+
+    # Продукты: Платно / Бесплатно
+    paid = [o for o in offerings if o.get("is_paid")]
+    free = [o for o in offerings if not o.get("is_paid")]
+    out += ('<div class="venue-tabs">'
+            '<button class="vt-btn active" data-vt="free" type="button">Бесплатно</button>'
+            '<button class="vt-btn" data-vt="paid" type="button">Платно</button>'
+            '</div>')
+    free_cards = ("".join(_offering_card(o) for o in free) if free
+                  else '<div class="empty">Бесплатных продуктов пока нет</div>')
+    paid_cards = ("".join(_offering_card(o) for o in paid) if paid
+                  else '<div class="empty">Платных продуктов пока нет</div>')
+    out += f'<div class="vt-pane" id="vt-free">{free_cards}</div>'
+    out += f'<div class="vt-pane" id="vt-paid" style="display:none">{paid_cards}</div>'
+    return out
+
+
 def render_page(event, collabs, days, stages, sessions, gifts,
                 share_texts, share_images, ref_enabled,
-                client, ref_cabinet=None) -> str:
+                client, ref_cabinet=None, venue_profile=None,
+                venue_offerings=None) -> str:
     title = esc(event.get("title") or event.get("slug"))
     brand_raw = ((client["brand_name"] if client else None)
                  or (client["name"] if client else None) or "")
@@ -664,6 +1029,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         cabinet_html = _cabinet_panel(
             ref_cabinet, event, gifts, share_texts, share_images,
             ref_enabled, brand_raw, event.get("title") or "", start_at)
+    venue_html = _venue_panel(venue_profile, venue_offerings or [])
 
     # ── Вкладки ──
     tabs = []
@@ -674,6 +1040,8 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         tabs.append(("speakers", "Спикеры"))
     if cabinet_html:
         tabs.append(("cabinet", "Кабинет"))
+    # Вкладка «О площадке» — всегда (последней)
+    tabs.append(("venue", "О площадке"))
     if not tabs:
         # совсем пустое событие — хотя бы программа-заглушка
         tabs.append(("program", "Программа"))
@@ -692,6 +1060,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         panels += f'<div class="panel" id="speakers">{speakers_html}</div>'
     if cabinet_html:
         panels += f'<div class="panel" id="cabinet">{cabinet_html}</div>'
+    panels += f'<div class="panel" id="venue">{venue_html}</div>'
 
     brand_block = f'<div class="brand">{brand}</div>' if brand else ""
 
@@ -848,6 +1217,123 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     justify-content:center; font-size:13px; font-weight:800; }}
   .people-mark.reg {{ background:#e8f5e9; color:#2e7d32; }}
   .people-mark.noreg {{ background:#f0f3f7; color:#c5cdd6; }}
+  .people-link {{ text-decoration:none; color:inherit; }}
+  .pp-plat {{ flex:0 0 26px; width:26px; height:26px; border-radius:8px; display:flex;
+    align-items:center; justify-content:center; font-size:13px; font-weight:800; }}
+  .pp-arr {{ color:#FFCFA4; font-size:18px; font-weight:700; flex:0 0 auto; }}
+
+  /* Подарок на эфире/розыгрыше в карточке спикера */
+  .gift-tag {{ margin-top:8px; padding:8px 10px; border-radius:10px; }}
+  .gift-tag-air {{ background:rgba(255,207,164,.18); border:1px solid rgba(255,207,164,.35); }}
+  .gift-tag-raffle {{ background:rgba(156,39,176,.06); border:1px solid rgba(156,39,176,.18); }}
+  .gift-tag-lbl {{ font-size:10px; text-transform:uppercase; letter-spacing:.4px; font-weight:700; margin-bottom:2px; }}
+  .gift-tag-air .gift-tag-lbl {{ color:#a86b2c; }}
+  .gift-tag-raffle .gift-tag-lbl {{ color:#6a1b9a; }}
+  .gift-tag-val {{ font-size:12px; color:#1a2a3a; font-weight:600; }}
+
+  /* Кнопки копирования (общие) */
+  .copy-btn {{ border:none; cursor:pointer; font-family:inherit; font-weight:700;
+    background:#FFCFA4; color:#25455D; border-radius:10px; transition:background .2s; }}
+  .copy-btn.copied {{ background:#6bb572; color:#fff; }}
+
+  /* Реф-ссылки с иконкой + копированием */
+  .cab-link {{ display:flex; align-items:center; gap:10px; background:#fff; border-radius:12px;
+    padding:10px 12px; margin-bottom:8px; box-shadow:0 1px 4px rgba(0,0,0,.06); }}
+  .cl-ico {{ flex:0 0 36px; width:36px; height:36px; border-radius:10px; display:flex;
+    align-items:center; justify-content:center; font-size:13px; font-weight:800; }}
+  .cl-body {{ flex:1; min-width:0; }}
+  .cl-lbl {{ font-size:11px; color:#6b7c8e; font-weight:600; margin-bottom:2px; }}
+  .cl-url {{ background:#f7f8fa; padding:6px 10px; border-radius:8px; font-size:11px; color:#25455D;
+    font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+  .cl-copy {{ flex:0 0 auto; padding:10px 12px; font-size:12px; min-width:84px; }}
+
+  /* Подарки внутри аккордеона */
+  .gi {{ display:flex; align-items:center; gap:12px; border-radius:14px; padding:12px; margin-bottom:8px; }}
+  .gi-got {{ background:#fff; box-shadow:0 2px 8px rgba(37,69,93,.05); }}
+  .gi-lock {{ background:#f7f8fa; opacity:.75; }}
+  .gi-ico {{ flex:0 0 44px; width:44px; height:44px; border-radius:12px; display:flex; align-items:center;
+    justify-content:center; font-size:20px; background:linear-gradient(135deg,#fff4e0,#FFCFA4); }}
+  .gi-ico.locked {{ background:#eef2f7; color:#b0bcc8; }}
+  .gi-body {{ flex:1; min-width:0; }}
+  .gi-title {{ font-size:13px; font-weight:700; color:#1a2a3a; margin-bottom:3px; }}
+  .gi-desc {{ font-size:11px; color:#6b7c8e; }}
+  .gi-need {{ font-size:11px; color:#b86b00; font-weight:700; }}
+  .gi-side {{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink:0; }}
+  .gi-badge {{ font-size:10px; font-weight:700; padding:3px 7px; border-radius:5px; white-space:nowrap; }}
+  .gi-badge.got {{ color:#2e7d32; background:#e8f5e9; }}
+  .gi-badge.lock {{ color:#b86b00; background:#fff4e0; flex-shrink:0; }}
+  .gi-open {{ background:linear-gradient(135deg,#25455D,#0a1520); color:#FFCFA4; padding:8px 14px;
+    border-radius:8px; font-size:12px; font-weight:700; text-decoration:none; }}
+
+  /* Материалы: подзаголовки + текст-карточка с кнопкой */
+  .mat-sub {{ font-size:11px; font-weight:700; letter-spacing:.8px; text-transform:uppercase;
+    color:#6b7c8e; margin:10px 0 8px; }}
+  .mat-body {{ font-size:13px; color:#1a2a3a; white-space:pre-wrap; line-height:1.55;
+    margin-bottom:10px; word-break:break-word; }}
+  .mat-copy {{ width:100%; padding:10px 14px; font-size:13px; }}
+
+  /* Вкладка «О площадке» */
+  .venue-head {{ display:flex; gap:14px; align-items:center; padding:18px 16px;
+    background:linear-gradient(45deg,#25455D,#0a1520); color:#fff; border-radius:14px; margin-bottom:14px; }}
+  .venue-ava {{ flex:0 0 72px; width:72px; height:72px; border-radius:14px; border:2px solid #FFCFA4; }}
+  .venue-ava-empty {{ display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg,#d4789a,#8b4561); color:#fff; font-weight:700; font-size:24px; }}
+  .venue-head-body {{ flex:1; min-width:0; }}
+  .venue-brand {{ font-size:18px; font-weight:900; letter-spacing:.5px; line-height:1.15; }}
+  .venue-role {{ font-size:12.5px; color:rgba(255,255,255,.75); margin-top:5px; line-height:1.35; }}
+  .facts {{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }}
+  .fact {{ background:#fff; padding:10px 12px; border-radius:12px; border:1px solid #f0f0f0;
+    box-shadow:0 1px 4px rgba(37,69,93,.06); }}
+  .fact-val {{ font-size:17px; font-weight:800; color:#25455D; line-height:1.1; }}
+  .fact-lbl {{ font-size:11px; color:#6b7c8e; margin-top:3px; line-height:1.25; }}
+  .owner-acc {{ margin-bottom:14px; }}
+  .owner-teaser {{ width:100%; display:flex; align-items:center; gap:12px; text-align:left; cursor:pointer;
+    background:#FFF1E2; border:1px solid #FFE0C2; border-radius:14px; padding:12px; font-family:inherit;
+    box-shadow:0 1px 4px rgba(37,69,93,.06); }}
+  .owner-teaser-ava {{ flex:0 0 48px; width:48px; height:48px; border-radius:50%; object-fit:cover;
+    border:2px solid #FFCFA4; }}
+  .owner-teaser-body {{ flex:1; min-width:0; }}
+  .owner-teaser-lbl {{ font-size:11px; color:#25455D; font-weight:800; letter-spacing:1px; text-transform:uppercase; }}
+  .owner-teaser-name {{ font-size:15px; font-weight:700; color:#25455D; margin-top:2px; line-height:1.2; }}
+  .owner-teaser-role {{ font-size:12px; color:#6b7c8e; margin-top:3px; line-height:1.3; }}
+  .owner-teaser-chev {{ font-size:24px; color:#25455D; font-weight:600; transition:transform .2s; }}
+  .owner-acc.collapsed .owner-teaser-chev {{ transform:rotate(0); }}
+  .owner-acc:not(.collapsed) .owner-teaser-chev {{ transform:rotate(90deg); }}
+  .owner-acc-body {{ display:block; padding-top:12px; }}
+  .owner-acc.collapsed .owner-acc-body {{ display:none; }}
+  .owner-photo {{ width:100%; max-height:360px; object-fit:cover; border-radius:16px; border:2px solid #FFCFA4;
+    margin-bottom:14px; display:block; }}
+  .owner-bio {{ background:#fff; padding:14px; border-radius:14px; border:1px solid #f0f0f0;
+    box-shadow:0 1px 4px rgba(37,69,93,.06); font-size:14px; color:#3a4a5a; line-height:1.55;
+    white-space:pre-wrap; margin-bottom:14px; }}
+  .owner-bio img {{ max-width:100%; border-radius:8px; }}
+  .owner-bio a {{ color:#0088cc; }}
+  .social-h {{ font-size:10px; color:#b86b00; font-weight:700; letter-spacing:1.5px; text-transform:uppercase;
+    margin-bottom:8px; }}
+  .socials-wrap {{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }}
+  .social-btn {{ display:inline-flex; align-items:center; gap:6px;
+    background:linear-gradient(135deg,#25455D,#0a1520); padding:10px 14px; border-radius:12px;
+    color:#FFCFA4; font-weight:800; font-size:13px; text-decoration:none; box-shadow:0 2px 6px rgba(37,69,93,.18); }}
+  .venue-tabs {{ display:flex; padding:4px; margin:0 0 12px; gap:4px; border-radius:14px;
+    background:linear-gradient(135deg,#25455D,#0a1520); box-shadow:inset 0 2px 4px rgba(0,0,0,.15); }}
+  .vt-btn {{ flex:1; padding:10px 4px; text-align:center; font-size:13px; font-weight:700; cursor:pointer;
+    color:rgba(255,255,255,.55); background:transparent; border:none; border-radius:11px; font-family:inherit; }}
+  .vt-btn.active {{ color:#25455D; background:linear-gradient(135deg,#FFCFA4,#f5b97e);
+    box-shadow:0 2px 8px rgba(255,207,164,.4); }}
+  .off-card {{ background:#fff; border-radius:14px; padding:14px; margin-bottom:10px; box-shadow:0 2px 8px rgba(37,69,93,.05); }}
+  .off-top {{ display:flex; gap:12px; }}
+  .off-cover {{ flex:0 0 44px; width:44px; height:44px; border-radius:10px; }}
+  .off-cover-empty {{ display:flex; align-items:center; justify-content:center; font-size:20px;
+    background:linear-gradient(135deg,#fff4e0,#FFCFA4); }}
+  .off-body {{ flex:1; min-width:0; }}
+  .off-title {{ font-size:14px; font-weight:700; color:#1a2a3a; margin-bottom:3px; }}
+  .off-desc {{ font-size:12px; color:#6b7c8e; line-height:1.4; margin-bottom:6px; }}
+  .off-free {{ font-size:13px; font-weight:700; color:#2e7d32; }}
+  .off-btn {{ display:block; margin-top:10px; padding:10px; border-radius:10px; text-align:center;
+    font-weight:700; font-size:13px; text-decoration:none; }}
+  .off-btn-paid {{ background:linear-gradient(135deg,#FFCFA4,#f5b97e); color:#25455D;
+    box-shadow:0 2px 6px rgba(255,207,164,.4); }}
+  .off-btn-free {{ background:linear-gradient(135deg,#25455D,#0a1520); color:#FFCFA4; }}
 </style>
 </head>
 <body>
@@ -879,10 +1365,59 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   }}
   function currentTab() {{ return (location.hash || '').replace('#','') || '{first_tab}'; }}
 
-  // Аккордеон в «Спикерах»
-  document.querySelectorAll('.acc-h').forEach(function(btn) {{
+  // Аккордеоны (Спикеры, Кабинет: подарки/топ/материалы, тизер основателя)
+  document.querySelectorAll('.acc-h, .owner-teaser').forEach(function(btn) {{
     btn.addEventListener('click', function() {{
-      btn.parentElement.classList.toggle('collapsed');
+      btn.closest('.acc').classList.toggle('collapsed');
+    }});
+  }});
+
+  // Копирование текста: navigator.clipboard с фолбэком на execCommand
+  function copyText(text) {{
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+      return navigator.clipboard.writeText(text).catch(function() {{ return fallbackCopy(text); }});
+    }}
+    return fallbackCopy(text);
+  }}
+  function fallbackCopy(text) {{
+    try {{
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }} catch (e) {{}}
+    return Promise.resolve();
+  }}
+  document.querySelectorAll('.copy-btn').forEach(function(btn) {{
+    btn.addEventListener('click', function(e) {{
+      e.preventDefault();
+      var text = btn.getAttribute('data-copy') || '';
+      copyText(text);
+      var orig = btn.textContent;
+      btn.classList.add('copied');
+      btn.textContent = '✓ Скопировано';
+      setTimeout(function() {{
+        btn.classList.remove('copied');
+        btn.textContent = orig;
+      }}, 1500);
+    }});
+  }});
+
+  // Переключатель Бесплатно/Платно на вкладке «О площадке»
+  document.querySelectorAll('.vt-btn').forEach(function(btn) {{
+    btn.addEventListener('click', function() {{
+      var target = btn.getAttribute('data-vt');
+      document.querySelectorAll('.vt-btn').forEach(function(b) {{
+        b.classList.toggle('active', b === btn);
+      }});
+      var free = document.getElementById('vt-free');
+      var paid = document.getElementById('vt-paid');
+      if (free) free.style.display = (target === 'free') ? 'block' : 'none';
+      if (paid) paid.style.display = (target === 'paid') ? 'block' : 'none';
     }});
   }});
 
@@ -934,6 +1469,10 @@ async def event_page(slug: str, c: str = "", db: asyncpg.Connection = Depends(ge
     ref_enabled = await _referral_enabled(db, event_id)
     client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
 
+    venue_profile, venue_offerings = (None, [])
+    if ev.get("client_id"):
+        venue_profile, venue_offerings = await _load_venue(db, ev["client_id"])
+
     # ?c={contact_id} — реф-кабинет конкретного человека. Битый/пустой → None.
     contact_id = int(c) if c and c.isdigit() else None
     ref_cabinet = await _load_ref_cabinet(db, ev, contact_id) if contact_id else None
@@ -942,5 +1481,6 @@ async def event_page(slug: str, c: str = "", db: asyncpg.Connection = Depends(ge
         ev, collabs, days, [dict(s) for s in stages], sessions, gifts,
         share_texts, share_images, ref_enabled, client,
         ref_cabinet=ref_cabinet,
+        venue_profile=venue_profile, venue_offerings=venue_offerings,
     )
     return HTMLResponse(content=html_str)
