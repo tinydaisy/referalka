@@ -109,8 +109,7 @@ async def handle_max_update(secret: str, request: Request):
         return {"ok": True}
 
     if update_type == "message_callback":
-        # На MVP — просто логируем, обработчики воронок добавим в этапе 4.
-        logger.info(f"MAX message_callback (not handled on MVP): {str(update)[:300]}")
+        await _handle_message_callback(update, bot_token=bot_token, client_id_override=client_id_override)
         return {"ok": True}
 
     logger.info(f"MAX unknown update_type {update_type!r} ignored")
@@ -212,6 +211,74 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
             {"text": "Открыть приложение", "url": f"https://max.ru/{settings.max_system_bot_username}"},
         ]]),
     )
+
+
+def _extract_callback_payload_and_user(update: dict) -> tuple[str, int | None, int | None]:
+    """Из update message_callback достаём payload кнопки, user_id и chat_id.
+
+    Структура MAX message_callback (dev.max.ru):
+      {
+        "update_type": "message_callback",
+        "callback": {"callback_id": "...", "payload": "...", "user": {...}},
+        "message": {"recipient": {"chat_id": ...}, "sender": {...}}
+      }
+    Бот может прислать payload в `callback.payload` либо (на других версиях API)
+    в `message_callback.payload` — проверяем оба, чтобы не зависеть от ревизии.
+    chat_id берём из message.recipient (диалог), иначе из callback.user.user_id.
+    """
+    cb = update.get("callback") or update.get("message_callback") or {}
+    payload = (cb.get("payload") or update.get("payload") or "").strip()
+    cb_user = cb.get("user") or {}
+    user_id = cb_user.get("user_id")
+
+    msg = update.get("message", {}) or {}
+    recipient = msg.get("recipient") or {}
+    chat_id = recipient.get("chat_id") or update.get("chat_id")
+    if not user_id:
+        sender = msg.get("sender") or update.get("user") or {}
+        user_id = sender.get("user_id")
+    if not chat_id and user_id:
+        chat_id = user_id  # приватный диалог: chat_id == user_id
+    return payload, user_id, chat_id
+
+
+async def _handle_message_callback(update: dict, *, bot_token: str, client_id_override: int | None) -> None:
+    """Клик по inline-кнопке в MAX. Сейчас обрабатываем кнопку «Вступить в Чат»
+    (payload `evchat_{event_id}`) из меню кабинета участника."""
+    payload, user_id, chat_id = _extract_callback_payload_and_user(update)
+    if not payload or not user_id or not chat_id:
+        logger.info(f"MAX message_callback without payload/user/chat: {str(update)[:300]}")
+        return
+
+    if payload.startswith("evchat_"):
+        try:
+            event_id = int(payload.removeprefix("evchat_"))
+        except ValueError:
+            logger.warning(f"MAX evchat callback bad payload: {payload!r}")
+            return
+        pool = await get_pool()
+        if not pool:
+            return
+        async with pool.acquire() as conn:
+            # Резолвим contact_id участника по MAX user_id.
+            contact_id = await conn.fetchval(
+                """SELECT ep.contact_id
+                     FROM event_participants ep
+                     JOIN platform_users pu
+                       ON pu.contact_id = ep.contact_id
+                      AND pu.platform_slug = 'max'
+                      AND pu.platform_user_id = $2
+                    WHERE ep.event_id = $1
+                    LIMIT 1""",
+                event_id, str(user_id),
+            )
+            try:
+                await _handle_max_chat_join(chat_id, event_id, contact_id, bot_token, conn)
+            except Exception as e:
+                logger.warning(f"MAX chat join failed (event={event_id}, user={user_id}): {e}")
+        return
+
+    logger.info(f"MAX message_callback unknown payload={payload!r}")
 
 
 async def _process_start(
@@ -361,13 +428,20 @@ async def _process_start(
             )
 
         event_title = None
+        event_id = None
+        event_status = None
+        event_landing_url = ""
+        is_registered = False
         if event_slug:
             ev = await conn.fetchrow(
-                "SELECT id, title, status FROM events WHERE slug = $1 AND client_id = $2",
+                "SELECT id, title, status, landing_url FROM events WHERE slug = $1 AND client_id = $2",
                 event_slug, client_id,
             )
             if ev:
                 event_title = ev["title"]
+                event_id = ev["id"]
+                event_status = ev["status"]
+                event_landing_url = (ev["landing_url"] or "").strip()
                 referrer_participant_id = None
                 if referrer_contact_id:
                     referrer_participant_id = await conn.fetchval(
@@ -397,28 +471,226 @@ async def _process_start(
                         )
                     except Exception as e:
                         logger.warning(f"MAX organizer notification failed: {e}")
+                # Статус регистрации участника (только что вставленный → FALSE).
+                is_registered = bool(await conn.fetchval(
+                    "SELECT is_registered FROM event_participants WHERE event_id = $1 AND contact_id = $2",
+                    ev["id"], contact_id,
+                ))
 
-    # Welcome — отправляем ВСЕГДА (новый юзер или нет)
-    if event_slug and event_title:
-        msg_text = (
-            f"👋 Здравствуйте, {first_name}!\n\n"
-            f"Вы открыли событие «{event_title}». Жмите кнопку ниже, чтобы войти в приложение — "
-            f"там программа, друзья и подарки за приглашения."
-        )
-        link_to_app = build_max_link(event_slug, partner_id=partner_ref_code or None)
-        buttons = tg_inline_to_max_keyboard([[
-            {"text": f"Войти в «{event_title[:30]}»", "url": link_to_app},
-        ]])
-    else:
-        msg_text = (
-            f"👋 Здравствуйте, {first_name}!\n\n"
-            "Добро пожаловать в iViSiON: ПЛЮСОН — платформу для организаторов и экспертов. "
-            "Откройте мини-приложение, чтобы увидеть события и подарки."
-        )
-        buttons = tg_inline_to_max_keyboard([[
-            {"text": "Открыть приложение", "url": f"https://max.ru/{settings.max_system_bot_username}"},
-        ]])
+        # ── Событие найдено → меню воронки (как в TG-боте) ──────────────────
+        if event_id and event_title:
+            work_tg = await conn.fetchval(
+                "SELECT work_tg_username FROM clients WHERE id = $1", client_id
+            ) or ""
+            if is_registered:
+                # Зарегистрирован → меню кабинета.
+                try:
+                    await _send_max_event_menu(
+                        chat_id, event_id, contact_id, bot_token, conn,
+                    )
+                except Exception as e:
+                    logger.warning(f"MAX event menu failed for user={user_id}: {e}")
+                return
+            # НЕ зарегистрирован → 3 кнопки (Мини-Апп / Веб / Регистрация).
+            mini_app_link = build_max_link(event_slug, partner_id=partner_ref_code or None)
+            internal_web = (
+                f"https://pluson.ru/event/{event_slug}?c={contact_id}"
+                if contact_id else f"https://pluson.ru/event/{event_slug}"
+            )
+            web_url = (
+                event_landing_url
+                if (event_landing_url and event_status == "published")
+                else internal_web
+            )
+            support_footer = (
+                f"\n\nЕсть вопросы по регистрации? Напишите: https://t.me/{work_tg.lstrip('@')}"
+                if work_tg else ""
+            )
+            msg_text = (
+                "Добрейшего-богатейшего! 🤝\n\n"
+                "Здесь вы можете зарегистрироваться на наше событие:\n"
+                f"{event_title}\n\n"
+                "Нажмите на кнопку ниже — ту, которая у вас сработает с учётом "
+                "скорости вашего интернета."
+                f"{support_footer}"
+            )
+            buttons = tg_inline_to_max_keyboard([
+                [{"text": "Открыть в Мини-Апп", "url": mini_app_link}],
+                [{"text": "Открыть в Веб-версии", "url": web_url}],
+                [{"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url}],
+            ])
+            try:
+                await max_send_message(chat_id, msg_text, token=bot_token, buttons=buttons)
+            except Exception as e:
+                logger.warning(f"MAX welcome failed for user={user_id}: {e}")
+            return
+
+    # ── Событие не задано → общий welcome платформы ─────────────────────────
+    msg_text = (
+        f"👋 Здравствуйте, {first_name}!\n\n"
+        "Добро пожаловать в iViSiON: ПЛЮСОН — платформу для организаторов и экспертов. "
+        "Откройте мини-приложение, чтобы увидеть события и подарки."
+    )
+    buttons = tg_inline_to_max_keyboard([[
+        {"text": "Открыть приложение", "url": f"https://max.ru/{settings.max_system_bot_username}"},
+    ]])
     try:
         await max_send_message(chat_id, msg_text, token=bot_token, buttons=buttons)
     except Exception as e:
         logger.warning(f"MAX welcome failed for user={user_id}: {e}")
+
+
+async def _send_max_event_menu(
+    chat_id: int,
+    event_id: int,
+    contact_id: int | None,
+    bot_token: str,
+    conn,
+) -> None:
+    """Меню кабинета зарегистрированного участника события в MAX.
+
+    Зеркало `send_event_menu` из TG-бота (backend/bot/handlers/start.py).
+    Кнопки (по одной в ряд):
+      • «Выбрать формат участия» — url=vip_url, только если задан;
+      • «Вступить в Чат» — callback evchat_{event_id}, только если есть чат;
+      • «Программа и Спикеры» / «Программа» — внутренний веб с якорем #program;
+      • «Кабинет и подарки» — внутренний веб события.
+    """
+    ev = await conn.fetchrow(
+        """SELECT id, client_id, slug, title, module_slug,
+                  vip_url, vip_button_label,
+                  chat_url_tg, chat_url_vk, chat_url_max
+             FROM events WHERE id = $1 LIMIT 1""",
+        event_id,
+    )
+    if not ev:
+        return
+
+    slug = ev["slug"]
+    title = ev["title"] or ""
+    cid_q = f"?c={contact_id}" if contact_id else ""
+
+    text = (
+        "Вы зарегистрированы на событие:\n"
+        f"{title}\n\n"
+        "Это ваше меню — открывайте кабинет, чат и программу по кнопкам ниже."
+    )
+
+    tg_rows: list[list[dict]] = []
+
+    # 1. Выбрать формат участия (VIP) — только если задан vip_url.
+    vip_url = (ev["vip_url"] or "").strip()
+    if vip_url:
+        vip_target = vip_url
+        try:
+            from app.services.external_landing import (
+                get_contact_landing_params,
+                resolve_referrer_external_ref_param,
+                enrich_external_url,
+            )
+            contact_params = (
+                await get_contact_landing_params(conn, contact_id) if contact_id else {}
+            )
+            erp = await resolve_referrer_external_ref_param(
+                conn, ev["client_id"], contact_id=contact_id,
+            )
+            vip_target = enrich_external_url(
+                vip_url,
+                pluson_contact_id=contact_id,
+                event_slug=slug,
+                external_ref_param=erp,
+                **contact_params,
+            )
+        except Exception as e:
+            logger.warning(f"MAX vip enrich failed (event={event_id}): {e}")
+            vip_target = vip_url
+        vip_label = (ev["vip_button_label"] or "").strip() or "Выбрать формат участия"
+        tg_rows.append([{"text": vip_label, "url": vip_target}])
+
+    # 2. Вступить в Чат — только если есть хоть одна chat-ссылка.
+    has_chat = bool((ev["chat_url_tg"] or "").strip()
+                    or (ev["chat_url_vk"] or "").strip()
+                    or (ev["chat_url_max"] or "").strip())
+    if has_chat:
+        tg_rows.append([{"text": "Вступить в Чат", "callback_data": f"evchat_{event_id}"}])
+
+    # 3. Программа (и спикеры для конференций/турниров).
+    prog_label = ("Программа и Спикеры"
+                  if ev["module_slug"] in ("conference", "turnir")
+                  else "Программа")
+    tg_rows.append([{"text": prog_label,
+                     "url": f"https://pluson.ru/event/{slug}{cid_q}#program"}])
+
+    # 4. Кабинет и подарки.
+    tg_rows.append([{"text": "Кабинет и подарки",
+                     "url": f"https://pluson.ru/event/{slug}{cid_q}"}])
+
+    await max_send_message(
+        chat_id, text, token=bot_token,
+        buttons=tg_inline_to_max_keyboard(tg_rows),
+    )
+
+
+async def _handle_max_chat_join(
+    chat_id: int,
+    event_id: int,
+    contact_id: int | None,
+    bot_token: str,
+    conn,
+) -> None:
+    """«Вступить в Чат» в MAX — зеркало `handle_event_chat_join` из TG.
+
+    Проверка подписки на MAX-каналы коллабов = ЗАГЛУШКА: MAX Bot API пока не
+    умеет getChatMember, поэтому считаем что подписан ВСЕГДА и сразу выдаём
+    ссылки на чаты.
+
+    TODO: реальная проверка подписки MAX, когда у MAX появится API проверки
+    участия в канале. Тогда здесь, по аналогии с TG (_gather_event_chat_channels
+    + collaborators.max_url + subscription_mode / require_subscription), собрать
+    каналы по ролям и проверять подписку.
+    """
+    ev = await conn.fetchrow(
+        """SELECT id, chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform
+             FROM events WHERE id = $1 LIMIT 1""",
+        event_id,
+    )
+    if not ev:
+        return
+
+    tg = (ev["chat_url_tg"] or "").strip()
+    vk = (ev["chat_url_vk"] or "").strip()
+    mx = (ev["chat_url_max"] or "").strip()
+    primary = (ev["primary_chat_platform"] or "telegram").strip()
+
+    # (platform_key, подпись_строки, текст_кнопки, url)
+    items = [
+        ("telegram", "Телеграм", "Чат в Телеграм", tg),
+        ("vk", "ВК", "Чат в ВК", vk),
+        ("max", "Мах", "Чат в МАХ", mx),
+    ]
+    items = [it for it in items if it[3]]
+    if not items:
+        await max_send_message(
+            chat_id,
+            "У этого события пока не указаны чаты. Загляните позже или напишите организатору.",
+            token=bot_token,
+        )
+        return
+    # Главный — первым.
+    items.sort(key=lambda it: 0 if it[0] == primary else 1)
+
+    lines = [
+        "Это чаты события:",
+        'Добавьтесь во все и НАПИШИТЕ в чаты "Я С ВАМИ" и о себе, чтобы не потеряться!',
+        "",
+    ]
+    tg_rows: list[list[dict]] = []
+    for idx, (pkey, label, btn, url) in enumerate(items):
+        main_mark = " (главный чат)" if idx == 0 else ""
+        lines.append(f"{label}: {url}{main_mark}")
+        tg_rows.append([{"text": btn, "url": url}])
+
+    await max_send_message(
+        chat_id, "\n".join(lines), token=bot_token,
+        buttons=tg_inline_to_max_keyboard(tg_rows),
+    )
