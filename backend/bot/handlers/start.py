@@ -1318,6 +1318,55 @@ async def handle_event_menu_command(message: Message):
         await send_event_menu(message, event_id, contact_id, db)
 
 
+@router.message(Command(commands=["support"]))
+async def handle_support(message: Message):
+    """Команда `/support` — сообщение со ссылкой на службу поддержки клиента.
+
+    Резолвит `clients.work_tg_username` по боту (через client_channels). Если
+    бот системный или work_tg не задан — кнопку не показываем (только текст)."""
+    user = message.from_user
+    if not user:
+        return
+    bot_id = message.bot.id if message.bot else None
+    work_tg = ""
+    if bot_id:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            from app.services.channels import find_channel_by_bot_id
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if ch and not ch["is_system"]:
+                client_id = await db.fetchval(
+                    """SELECT client_id FROM client_channels
+                        WHERE channel_id = $1
+                        ORDER BY is_active DESC, id ASC LIMIT 1""",
+                    ch["id"],
+                )
+                if client_id:
+                    work_tg = (await db.fetchval(
+                        "SELECT work_tg_username FROM clients WHERE id = $1",
+                        client_id,
+                    ) or "").lstrip("@").strip()
+
+    if work_tg:
+        text = (
+            "Есть вопрос?\n\n"
+            f"Напишите его в нашу службу поддержки — @{_html.escape(work_tg)}"
+        )
+        # Предзаполненный текст обращения (пробелы → подчёркивания в ?text=).
+        prefill = "Здравствуйте. Есть вопрос"
+        support_url = f"https://t.me/{work_tg}?text={prefill.replace(' ', '%20')}"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="НАПИСАТЬ В ПОДДЕРЖКУ", url=support_url)
+        ]])
+        await message.answer(text, reply_markup=kb, parse_mode="HTML",
+                             disable_web_page_preview=True)
+    else:
+        await message.answer(
+            "Есть вопрос?\n\nНапишите его в нашу службу поддержки.",
+            parse_mode="HTML",
+        )
+
+
 @router.message(Command(commands=["getchatid"]))
 async def handle_getchatid(message: Message):
     """Подсказка для клиента: как получить chat_id канала уведомлений.
