@@ -559,6 +559,25 @@ async def _send_broadcast(schedule_id: int):
         await conn.close()
 
 
+def _vk_error_human(code: int | None, msg: str) -> str:
+    """Человекочитаемая причина недоставки VK для broadcast_log.error.
+
+    Показывается клиенту в модалке «Получатели рассылки», поэтому по-русски
+    и без технического шума.
+    """
+    mapping = {
+        901: "Не разрешил сообществу писать в личку",
+        902: "Запрещено настройками приватности",
+        7: "Нет прав на отправку этому пользователю",
+        15: "Доступ закрыт (аккаунт удалён или заблокирован)",
+    }
+    if code in mapping:
+        return mapping[code]
+    if code is not None:
+        return f"VK ошибка {code}: {msg}" if msg else f"VK ошибка {code}"
+    return msg or "VK не принял сообщение"
+
+
 async def _send_broadcast_vk_part(
     conn, schedule, event_id: int | None,
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
@@ -580,6 +599,7 @@ async def _send_broadcast_vk_part(
         send_message as vk_send,
         tg_inline_to_vk_keyboard,
         upload_photo_to_messages as vk_upload_photo,
+        VK_CANT_MESSAGE_CODES,
     )
     from app.config import settings as _vk_settings
 
@@ -746,20 +766,45 @@ async def _send_broadcast_vk_part(
         ok = False
         err: str | None = None
         vk_message_id: int | None = None
+        vk_err_code: int | None = None
         try:
             res = await vk_send(
                 vk_id_int, message_text,
                 token=vk_token,
                 keyboard=keyboard, attachment=attachment,
+                return_error=True,
             )
-            ok = bool(res)
-            if ok and isinstance(res, int):
-                vk_message_id = res
-            if not ok:
-                err = "VK send returned None"
+            # return_error=True → res = (message_id|None, error_code|None, error_msg)
+            mid, vk_err_code, vk_err_msg = res
+            ok = mid is not None
+            if ok:
+                vk_message_id = mid
+            else:
+                # Понятная причина в лог вместо «VK send returned None»
+                if vk_err_code is not None:
+                    err = _vk_error_human(vk_err_code, vk_err_msg)
+                else:
+                    err = vk_err_msg or "VK не принял сообщение"
         except Exception as e:
             err = str(e)
             logger.warning(f"VK send failed for vk_id={vk_id_int}: {e}")
+        # Самоочистка базы: если VK сказал «этому юзеру писать нельзя» (901/902/7/15) —
+        # помечаем его подписку отписанной, чтобы он не попадал в следующие рассылки
+        # и не давал ложную «грязь» в статистике. Аналог пометки заблокировавших в TG.
+        if vk_err_code in VK_CANT_MESSAGE_CODES:
+            try:
+                await conn.execute(
+                    """UPDATE platform_user_channels
+                          SET is_unsubscribed = TRUE, unsubscribed_at = NOW()
+                        WHERE platform_user_id = $1
+                          AND client_channel_id IN (
+                              SELECT id FROM client_channels WHERE channel_id = $2
+                          )
+                          AND is_unsubscribed = FALSE""",
+                    r["pu_id"], vk_channel_id,
+                )
+            except Exception as e:
+                logger.warning(f"VK mark_unsubscribed failed for pu_id={r['pu_id']}: {e}")
         # Лог отправки — модалка «Получатели рассылки» читает отсюда.
         # external_message_id = vk message_id из messages.send — нужен чтобы
         # потом при event'е message_read сопоставить запись и поставить read_at.

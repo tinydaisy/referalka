@@ -23,10 +23,31 @@ VK_API_VERSION = "5.199"
 VK_API_BASE = "https://api.vk.com/method"
 
 
+class VkApiError(RuntimeError):
+    """Ошибка VK API с кодом. `code` — error_code из ответа VK (например 901)."""
+
+    def __init__(self, method: str, code: int | None, msg: str | None):
+        self.code = code
+        self.msg = msg or ""
+        super().__init__(f"VK API {method} error {code}: {msg}")
+
+
+# Коды ошибок messages.send, означающие что писать этому пользователю НЕЛЬЗЯ
+# (он не разрешил сообществу ЛС / отозвал разрешение / удалил аккаунт / заблокировал).
+# При них получателя надо пометить отписанным, чтобы не мусорил в каждой рассылке.
+# https://dev.vk.com/ru/reference/errors
+VK_CANT_MESSAGE_CODES = {
+    901,  # Can't send messages to this user due to their privacy settings (не разрешил ЛС)
+    902,  # Can't send messages to this user due to their privacy settings (приватность)
+    7,    # Permission denied
+    15,   # Access denied (часто — удалённый/заблокированный аккаунт)
+}
+
+
 async def vk_call(method: str, params: dict[str, Any], *, token: str | None = None) -> dict[str, Any]:
     """Низкоуровневый вызов VK API. Возвращает поле `response`.
 
-    Кидает RuntimeError если VK вернул `error`.
+    Кидает VkApiError (с полем .code) если VK вернул `error`.
     """
     token = token or settings.vk_system_group_token
     if not token:
@@ -37,7 +58,7 @@ async def vk_call(method: str, params: dict[str, Any], *, token: str | None = No
     data = r.json()
     if "error" in data:
         err = data["error"]
-        raise RuntimeError(f"VK API {method} error {err.get('error_code')}: {err.get('error_msg')}")
+        raise VkApiError(method, err.get("error_code"), err.get("error_msg"))
     return data.get("response", {})
 
 
@@ -48,7 +69,8 @@ async def send_message(
     token: str | None = None,
     keyboard: dict | None = None,
     attachment: str | None = None,
-) -> int | None:
+    return_error: bool = False,
+) -> int | None | tuple[int | None, int | None, str]:
     """Отправить личное сообщение от сообщества пользователю с vk_id.
 
     Если в `text` пришёл HTML/Telegram-форматированный текст (теги `<b>`,
@@ -58,7 +80,10 @@ async def send_message(
 
     :param keyboard: VK keyboard JSON dict (см. https://dev.vk.com/ru/api/bots/development/keyboard)
     :param attachment: строка типа `photo123_456` для прикрепления медиа
-    :return: message_id или None если упало
+    :param return_error: если True — вернуть кортеж (message_id|None, error_code|None, error_msg)
+        вместо просто message_id. Нужно рассылкам, чтобы при коде 901 пометить
+        получателя отписанным и записать понятную причину.
+    :return: message_id или None если упало (либо кортеж при return_error=True)
     """
     from .message_builder import html_to_vk_text
     safe_text = html_to_vk_text(text) if text else ""
@@ -75,11 +100,16 @@ async def send_message(
     try:
         resp = await vk_call("messages.send", params, token=token)
         if isinstance(resp, int):
-            return resp
-        return resp.get("message_id") if isinstance(resp, dict) else None
+            mid = resp
+        else:
+            mid = resp.get("message_id") if isinstance(resp, dict) else None
+        return (mid, None, "") if return_error else mid
+    except VkApiError as e:
+        logger.warning(f"VK send_message failed for user={user_vk_id}: {e}")
+        return (None, e.code, e.msg) if return_error else None
     except RuntimeError as e:
         logger.warning(f"VK send_message failed for user={user_vk_id}: {e}")
-        return None
+        return (None, None, str(e)) if return_error else None
 
 
 def tg_inline_to_vk_keyboard(buttons: list[list[dict]]) -> dict:
