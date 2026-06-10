@@ -88,6 +88,34 @@ class VkEventLandingRequest(BaseModel):
     username: str = ""
 
 
+async def _run_started_vk_bg(run_id: int, vk_user_id: int, channel_id: int, token: str) -> None:
+    """Фоновый запуск воронки лид-магнита: отправка Текста 1 (с возможным видео/
+    фото — медленный upload на VK) В ФОНЕ, чтобы фронт не ждал. Берёт свой коннект."""
+    pool = await get_pool()
+    if not pool:
+        return
+    try:
+        user_info = None
+        try:
+            from app.services.vk_api import get_user_info as vk_get_user_info
+            user_info = await vk_get_user_info(vk_user_id)
+        except Exception:
+            pass
+        from app.services.funnel_service import run_started_vk
+        async with pool.acquire() as conn:
+            await run_started_vk(
+                run_id, str(vk_user_id),
+                username=(user_info or {}).get("screen_name", "") if user_info else "",
+                first_name=(user_info or {}).get("first_name", "") if user_info else "",
+                last_name=(user_info or {}).get("last_name", "") if user_info else "",
+                db=conn,
+                channel_id=channel_id,
+                token=token,
+            )
+    except Exception as e:
+        logger.warning(f"VK funnel-landing background failed (run={run_id}, vk={vk_user_id}): {e}")
+
+
 @router.post("/vk/funnel-landing", summary="Прямая landing-воронка из VK Mini App (по slug)")
 async def vk_funnel_landing(body: VkFunnelLandingRequest):
     """Mini App открыт по `vk.com/app{aid}#m_<slug>` или `#p_<slug>` (без pluson.ru).
@@ -130,7 +158,7 @@ async def vk_funnel_landing(body: VkFunnelLandingRequest):
     async with pool.acquire() as conn:
         # Канал клиента по vk_app_id — для отправки сообщений
         chan = await conn.fetchrow(
-            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id,
+            """SELECT ch.id AS channel_id, ch.bot_token, cc.client_id, ch.handle,
                       (ch.platform_meta->>'vk_group_id')::int AS vk_group_id
                  FROM channels ch
                  JOIN client_channels cc ON cc.channel_id = ch.id
@@ -144,7 +172,7 @@ async def vk_funnel_landing(body: VkFunnelLandingRequest):
         if not chan or not chan["bot_token"]:
             raise HTTPException(status_code=404, detail="VK-сообщество клиента не подключено к этому Mini App")
 
-        # Резолвим slug → lead_magnet или package клиента
+        # Резолвим slug → lead_magnet или package клиента (funnel-landing)
         if body.kind == 'm':
             row = await conn.fetchrow(
                 "SELECT id, client_id FROM lead_magnets WHERE slug = $1", body.slug,
@@ -181,27 +209,18 @@ async def vk_funnel_landing(body: VkFunnelLandingRequest):
             client_id, lm_id, pkg_id, referrer_id, json.dumps(utm),
         )
 
-        user_info = None
-        try:
-            from app.services.vk_api import get_user_info as vk_get_user_info
-            user_info = await vk_get_user_info(vk_user_id)
-        except Exception:
-            pass
-
-        from app.services.funnel_service import run_started_vk
-        await run_started_vk(
-            run_id, str(vk_user_id),
-            username=(user_info or {}).get("screen_name", "") if user_info else "",
-            first_name=(user_info or {}).get("first_name", "") if user_info else "",
-            last_name=(user_info or {}).get("last_name", "") if user_info else "",
-            db=conn,
-            channel_id=chan["channel_id"],
-            token=chan["bot_token"],
-        )
-
         group_id = int(body.launch_params.get("vk_group_id") or 0) or int(chan["vk_group_id"] or 0)
+        group_screen = (chan["handle"] or "").lstrip("@")
+        bg_channel_id = chan["channel_id"]
+        bg_token = chan["bot_token"]
 
-    return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id, "run_id": run_id}
+    # Отправку Текста 1 (с медленным upload видео/фото на VK) — в ФОН, фронту
+    # отвечаем сразу, чтобы экран открывался мгновенно, а не ждал загрузку медиа.
+    import asyncio
+    asyncio.create_task(_run_started_vk_bg(run_id, vk_user_id, bg_channel_id, bg_token))
+
+    return {"ok": True, "vk_user_id": vk_user_id, "group_id": group_id,
+            "group_screen": group_screen, "run_id": run_id}
 
 
 @router.post("/vk/funnel-start", summary="Запуск воронки лид-магнита из VK Mini App")

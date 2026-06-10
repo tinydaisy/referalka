@@ -199,6 +199,7 @@ async function handleVkFunnelIfNeeded(
         if (r?.ok) {
           ok = true
           groupId = Number(r.group_id || gid || 0)
+          if (r.group_screen) setFunnelGroupScreen(String(r.group_screen))
         }
       } catch (e) { console.warn('funnel-landing failed', e) }
     }
@@ -697,12 +698,12 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
   groupScreen?: string;
 }) {
   const variant = kind || 'leadmagnet'
-  // Для события — кнопка ведёт в чат с ПРЕДЗАПОЛНЕННЫМ текстом (vk.me/{handle}?text=),
-  // чтобы человек нажал «отправить» → VK гарантированно регистрирует разрешение на
-  // ЛС, и бот сразу отвечает воронкой (страховка от задержки AllowMessages).
-  const PREFILL = 'Здравствуйте! Хочу участвовать в событии'
+  // Кнопка ведёт в чат с ПРЕДЗАПОЛНЕННЫМ словом «ПОЛУЧИТЬ» (vk.me/{handle}?text=):
+  // человек нажимает «отправить» → VK гарантированно регистрирует разрешение на ЛС
+  // (AllowMessages из Mini App ненадёжен), и бот сразу отвечает воронкой.
+  const PREFILL = 'ПОЛУЧИТЬ'
   const chatUrl =
-    variant === 'event' && groupScreen
+    (variant === 'event' || variant === 'leadmagnet') && groupScreen
       ? `https://vk.me/${groupScreen}?text=${encodeURIComponent(PREFILL)}`
       : groupId ? `https://vk.com/im?sel=-${groupId}` : ''
   function close() {
@@ -712,22 +713,22 @@ function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, grou
     }
   }
   const TITLE: Record<string, string> = {
-    leadmagnet: 'Подарки уже в чате',
+    leadmagnet: 'Подарки будут в чате',
     speaker:    'Код доступа уже в чате',
     partner:    'Инструкция уже в чате',
-    event:      eventTitle ? `«${eventTitle}»` : 'Подробности в чате',
+    event:      eventTitle ? `«${eventTitle}»` : 'Информация будет в чате',
   }
   const BODY: Record<string, string> = {
-    leadmagnet: 'Откройте диалог с сообществом — там лежит сообщение со списком ваших подарков и кнопкой «ГОТОВО».',
+    leadmagnet: 'Напишите слово «ПОЛУЧИТЬ» в диалоге с сообществом (или нажмите «Начать») — и мы отправим вам подарки.',
     speaker:    'Откройте диалог с сообществом — там сообщение с кодом доступа и кнопкой «Открыть мой кабинет», чтобы заполнить информацию о себе.',
     partner:    'Откройте диалог с сообществом — там сообщение с кнопкой для регистрации вас как партнёра.',
-    event:      'Подробности о событии отправлены вам в чат сообщества. Нажмите на кнопку, чтобы открыть диалог.',
+    event:      'Напишите слово «ПОЛУЧИТЬ» в диалоге с сообществом (или нажмите «Начать») — и мы отправим вам всю информацию.',
   }
   const BTN: Record<string, string> = {
-    leadmagnet: 'Открыть чат',
+    leadmagnet: 'НАПИСАТЬ В СООБЩЕСТВО',
     speaker:    'Открыть чат',
     partner:    'Открыть чат',
-    event:      'Открыть чат',
+    event:      'НАПИСАТЬ В СООБЩЕСТВО',
   }
   if (status === 'ok') {
     return (

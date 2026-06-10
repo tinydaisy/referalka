@@ -97,13 +97,15 @@ def tg_inline_to_vk_keyboard(buttons: list[list[dict]]) -> dict:
             if "url" in btn:
                 vk_row.append({"action": {"type": "open_link", "link": btn["url"], "label": label}})
             elif "callback_data" in btn:
+                # Без color: у inline-клавиатуры VK всё равно игнорирует цвет, а
+                # явный primary делал callback-кнопки контрастно-синими рядом с
+                # белыми url-ссылками. Убрали — все кнопки одинаково нейтральные.
                 vk_row.append({
                     "action": {
                         "type": "callback",
                         "payload": json.dumps({"cb": btn["callback_data"]}, ensure_ascii=False),
                         "label": label,
                     },
-                    "color": "primary",
                 })
             else:
                 vk_row.append({"action": {"type": "text", "label": label}})
