@@ -36,7 +36,7 @@ RU_MONTHS = ["", "января", "февраля", "марта", "апреля",
 async def _resolve_event(db: asyncpg.Connection, ref: str):
     cols = ("id, slug, title, module_slug, status, description, "
             "description_post_register, vip_url, vip_button_label, "
-            "client_id, landing_url, start_at, end_at")
+            "client_id, landing_url, start_at, end_at, link_mode")
     if ref.isdigit():
         ev = await db.fetchrow(
             f"SELECT {cols} FROM events WHERE id = $1", int(ref))
@@ -247,6 +247,7 @@ async def _load_ref_cabinet(db, event, contact_id):
         links = await build_share_links(
             db, event_slug=event["slug"], client_id=event["client_id"],
             partner_id=ref_code,
+            link_mode=(event["link_mode"] if "link_mode" in event else None) or "miniapp",
         )
     except Exception:
         links = {}

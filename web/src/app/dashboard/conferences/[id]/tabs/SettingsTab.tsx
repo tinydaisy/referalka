@@ -302,7 +302,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       <SaveBar saving={saving} saved={saved} onSave={handleSave} />
 
       {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ */}
-      <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={(s) => onEventUpdated?.({ slug: s })} eventStatus={event?.status} />
+      <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={(s) => onEventUpdated?.({ slug: s })} eventStatus={event?.status} linkMode={event?.link_mode} />
 
       <style jsx>{`
         .block-title {

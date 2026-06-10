@@ -115,8 +115,11 @@ export const api = {
     copy: (id: number) =>
       request(`/api/v1/events/${id}/copy`, { method: 'POST' }),
     analytics: (id: number) => request(`/api/v1/events/${id}/analytics`),
-    shareLinks: (slug: string, pid?: string) => {
-      const qs = pid ? `?pid=${encodeURIComponent(pid)}` : ''
+    shareLinks: (slug: string, pid?: string, mode?: 'miniapp' | 'bot') => {
+      const p = new URLSearchParams()
+      if (pid) p.set('pid', pid)
+      if (mode) p.set('mode', mode)
+      const qs = p.toString() ? `?${p}` : ''
       return request(`/api/v1/events/slug/${encodeURIComponent(slug)}/share-links${qs}`)
     },
     participants: (id: number, registered: 'all' | 'yes' | 'no' = 'all') =>

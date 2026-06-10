@@ -219,11 +219,15 @@ async def get_me(
             d.get("collaborator_id"),
         )
         if coll_client_id and d.get("event_slug") and d.get("ref_code"):
+            _lm = await db.fetchval(
+                "SELECT link_mode FROM events WHERE slug = $1", d["event_slug"]
+            ) or "miniapp"
             d["ref_links"] = await build_share_links(
                 db,
                 client_id=int(coll_client_id),
                 event_slug=d["event_slug"],
                 partner_id=d["ref_code"],
+                link_mode=_lm,
             )
         else:
             d["ref_links"] = {}
@@ -625,6 +629,7 @@ async def get_me_materials(
         """SELECT e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
                   e.start_at,
                   e.client_id,
+                  e.link_mode,
                   e.video_url AS event_video_url,
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
                   cl.partner_landing_url, cl.partner_dashboard_url,
@@ -698,6 +703,7 @@ async def get_me_materials(
             client_id=int(base["client_id"]),
             event_slug=base["event_slug"],
             partner_id=base["speaker_ref_code"],
+            link_mode=base["link_mode"] or "miniapp",
         ) if base.get("speaker_ref_code") else {}
     except Exception:
         ref_links = {}

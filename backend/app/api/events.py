@@ -128,6 +128,10 @@ class UpdateEventRequest(BaseModel):
     # Общее видео события (миграция 113). Для скачивания спикерами на странице
     # самоправки → вкладка «Материалы».
     video_url: Optional[str] = None
+    # Тип реф-ссылок события (миграция 131): 'miniapp' (открытие через Mini App)
+    # или 'bot' (бот шлёт воронку события в ЛС). Влияет на ссылки в кабинетах
+    # спикеров/рефералов и в материалах. Дефолт 'miniapp'.
+    link_mode: Optional[str] = None
 
 
 @router.get("/", summary="Список событий клиента")
@@ -273,16 +277,19 @@ async def get_event_share_links_by_slug(
     slug: str,
     pid: str | None = None,
     tab: str | None = None,
+    mode: str | None = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
     from ..services.share_links import build_share_links
-    ev = await db.fetchrow("SELECT id, slug, client_id FROM events WHERE slug = $1", slug)
+    ev = await db.fetchrow("SELECT id, slug, client_id, link_mode FROM events WHERE slug = $1", slug)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
+    # mode из query (для дашборда — оба набора) или актуальный режим события.
+    lm = mode if mode in ("miniapp", "bot") else (ev["link_mode"] or "miniapp")
     links = await build_share_links(
-        db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab,
+        db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
     )
-    return {"event_id": ev["id"], "slug": ev["slug"], "links": links}
+    return {"event_id": ev["id"], "slug": ev["slug"], "links": links, "link_mode": lm}
 
 
 @router.get("/{event_id}/share-links", summary="Реф-ссылки события для всех активных платформ клиента")
@@ -290,23 +297,25 @@ async def get_event_share_links(
     event_id: int,
     pid: str | None = None,
     tab: str | None = None,
+    mode: str | None = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Возвращает словарь {platform → url} с реф-ссылками для шеринга.
 
     Используется в дашборде (карточка события, страница соорганизатора/спикера)
     и в Mini App (вкладка «Игра» — показывает только ссылку текущей платформы).
-    Если у клиента не подключены доп. площадки — возвращает только telegram+vk
-    через системные ботов/сообщества.
+    `mode` ('miniapp'|'bot') — для дашборда (оба набора); без mode берётся
+    актуальный режим события `events.link_mode`.
     """
     from ..services.share_links import build_share_links
-    ev = await db.fetchrow("SELECT slug, client_id FROM events WHERE id = $1", event_id)
+    ev = await db.fetchrow("SELECT slug, client_id, link_mode FROM events WHERE id = $1", event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
+    lm = mode if mode in ("miniapp", "bot") else (ev["link_mode"] or "miniapp")
     links = await build_share_links(
-        db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab,
+        db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
     )
-    return {"event_id": event_id, "slug": ev["slug"], "links": links}
+    return {"event_id": event_id, "slug": ev["slug"], "links": links, "link_mode": lm}
 
 
 @router.get("/{event_id}", summary="Получить событие по ID")
@@ -358,6 +367,14 @@ async def update_event(
         v = updates["accent_button"]
         if v is not None and v not in ("vip", "chat", "none"):
             raise HTTPException(status_code=400, detail="accent_button должен быть 'vip', 'chat' или 'none'")
+
+    # link_mode: 'miniapp' | 'bot' (миграция 131). None → не трогаем.
+    if "link_mode" in updates:
+        v = updates["link_mode"]
+        if v is None:
+            del updates["link_mode"]  # null не пишем — оставляем дефолт/текущее
+        elif v not in ("miniapp", "bot"):
+            raise HTTPException(status_code=400, detail="link_mode должен быть 'miniapp' или 'bot'")
 
     # Slug: валидация формата + проверка уникальности (если меняется)
     if "slug" in updates:

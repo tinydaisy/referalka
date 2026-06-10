@@ -14,17 +14,22 @@ interface LinkRow {
   hint?: string
 }
 
+type PlatformLinks = { telegram?: string; vk?: string; max?: string }
+
 export default function PublicLinks({
   slug,
   eventId,
   onSlugSaved,
   eventStatus,
+  linkMode,
 }: {
   slug: string | null | undefined
   eventId?: number
   onSlugSaved?: (newSlug: string) => void | Promise<void>
   /** Если 'draft' — ссылки затуманены, копирование заблокировано (партнёру отдавать нельзя). */
   eventStatus?: 'draft' | 'published' | 'ended' | null
+  /** Текущий тип ссылок события: 'miniapp' (Mini App) | 'bot' (через ботов). */
+  linkMode?: 'miniapp' | 'bot' | null
 }) {
   const isDraft = eventStatus === 'draft'
   const [copied, setCopied] = useState<string | null>(null)
@@ -33,16 +38,20 @@ export default function PublicLinks({
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  // Прямые deeplink-ссылки на платформы (TG-бот клиента / VK Mini App / MAX-бот)
-  // приходят с бэка: build_share_links сам выбирает бот клиента или системный.
-  // Старый фолбэк через pluson.ru/l/{slug}?app=tg оставлен только на случай,
-  // если бэк временно недоступен — рабочий редирект /l/{slug} тоже понимает.
-  const [shareLinks, setShareLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
+  // Активный режим (радиокнопка). Управляемый: по умолчанию — из пропа события.
+  const [mode, setMode] = useState<'miniapp' | 'bot'>(linkMode === 'bot' ? 'bot' : 'miniapp')
+  const [modeSaving, setModeSaving] = useState(false)
+  useEffect(() => { setMode(linkMode === 'bot' ? 'bot' : 'miniapp') }, [linkMode])
+
+  // Грузим ОБА набора ссылок (Mini App и через ботов), чтобы показать обе группы.
+  const [miniappLinks, setMiniappLinks] = useState<PlatformLinks>({})
+  const [botLinks, setBotLinks] = useState<PlatformLinks>({})
   useEffect(() => {
-    if (!slug) { setShareLinks({}); return }
-    api.events.shareLinks(slug)
-      .then((r: any) => setShareLinks(r?.links || {}))
-      .catch(() => setShareLinks({}))
+    if (!slug) { setMiniappLinks({}); setBotLinks({}); return }
+    api.events.shareLinks(slug, undefined, 'miniapp')
+      .then((r: any) => setMiniappLinks(r?.links || {})).catch(() => setMiniappLinks({}))
+    api.events.shareLinks(slug, undefined, 'bot')
+      .then((r: any) => setBotLinks(r?.links || {})).catch(() => setBotLinks({}))
   }, [slug])
 
   useEffect(() => { setDraft(slug || '') }, [slug])
@@ -67,51 +76,52 @@ export default function PublicLinks({
     }
   }
 
-  // WEB — локальный URL, открывает SSR-лендинг pluson.ru/l/{slug}.
-  // TG/VK/MAX — прямые deeplink из shareLinks (бэк сам выбирает бот клиента
-  // или системный @pluson_bot / системное VK-сообщество).
-  const allLinks: (LinkRow & { platform: string | null })[] = slug ? [
-    {
-      key: 'web',
-      label: 'Веб-страница',
-      badge: 'WEB',
-      color: '#25455D',
-      url: `${APP_URL}/l/${slug}`,
-      hint: 'Лендинг события — публикуй в соцсетях, рассылках, на сайте',
-      platform: null,
-    },
-    {
-      key: 'telegram',
-      label: 'Telegram (Mini App)',
-      badge: 'TG',
-      color: '#229ED9',
-      url: shareLinks.telegram || '',
-      hint: 'Прямая ссылка в Telegram — открывает Mini App вашего бота (или @pluson_bot, если свой не подключён). Используй в TG-постах и личке',
-      platform: 'telegram',
-    },
-    {
-      key: 'vk',
-      label: 'ВКонтакте (Mini App)',
-      badge: 'VK',
-      color: '#0077FF',
-      url: shareLinks.vk || '',
-      hint: 'Прямая ссылка в VK Mini App. Используй в VK-постах и личке',
-      platform: 'vk',
-    },
-    {
-      key: 'max',
-      label: 'MAX',
-      badge: 'MAX',
-      color: '#FFCFA4',
-      url: shareLinks.max || '',
-      hint: 'Прямая ссылка в MAX-бот. Используй когда подключите свой MAX-канал',
-      platform: 'max',
-    },
-  ] : []
-  // Показываем только те платформы, по которым бэк вернул реальный URL
-  // (это значит: либо у клиента есть свой канал, либо есть боевой системный).
-  // WEB-строка показывается всегда.
-  const links: LinkRow[] = allLinks.filter(l => l.platform === null || !!l.url)
+  // Смена активного режима ссылок (радиокнопка) → PATCH events.link_mode.
+  async function changeMode(next: 'miniapp' | 'bot') {
+    if (next === mode || !editable) { setMode(next); return }
+    const prev = mode
+    setMode(next); setModeSaving(true)
+    try {
+      await api.events.update(eventId!, { link_mode: next } as any)
+    } catch {
+      setMode(prev)  // откат при ошибке
+    } finally {
+      setModeSaving(false)
+    }
+  }
+
+  // Сборка строк одной группы.
+  const buildRows = (pl: PlatformLinks, kind: 'miniapp' | 'bot'): LinkRow[] => {
+    if (!slug) return []
+    const rows: LinkRow[] = []
+    if (kind === 'miniapp') {
+      rows.push({
+        key: 'web', label: 'Веб-страница', badge: 'WEB', color: '#25455D',
+        url: `${APP_URL}/l/${slug}`,
+        hint: 'Лендинг события — публикуй в соцсетях, рассылках, на сайте',
+      })
+    }
+    if (pl.telegram) rows.push({
+      key: `${kind}-tg`, label: 'Telegram', badge: 'TG', color: '#229ED9', url: pl.telegram,
+      hint: kind === 'miniapp'
+        ? 'Открывает Mini App вашего бота (или @pluson_bot)'
+        : 'Открывает бота — он пришлёт сообщение события с кнопкой «Зарегистрироваться»',
+    })
+    if (pl.vk) rows.push({
+      key: `${kind}-vk`, label: 'ВКонтакте', badge: 'VK', color: '#0077FF', url: pl.vk,
+      hint: kind === 'miniapp'
+        ? 'Открывает VK Mini App'
+        : 'Лёгкая заглушка — сообщество пишет в ЛС сообщение события',
+    })
+    if (pl.max) rows.push({
+      key: `${kind}-max`, label: 'MAX', badge: 'MAX', color: '#FFCFA4', url: pl.max,
+      hint: 'Используй когда подключите свой MAX-канал',
+    })
+    return rows
+  }
+
+  const miniappRows = buildRows(miniappLinks, 'miniapp')
+  const botRows = buildRows(botLinks, 'bot')
 
   const copy = async (key: string, url: string) => {
     if (isDraft) {
@@ -132,6 +142,71 @@ export default function PublicLinks({
     setTimeout(() => setCopied(null), 1500)
   }
 
+  const renderRow = (l: LinkRow) => (
+    <div key={l.key} className="border border-gray-100 rounded-xl p-3">
+      <div className="flex items-center gap-3">
+        <span
+          className="inline-flex items-center justify-center w-9 h-9 rounded-full text-[10px] font-bold text-white shrink-0"
+          style={{ background: l.color }}
+        >
+          {l.badge}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800">{l.label}</p>
+          {isDraft ? (
+            <span
+              className="text-xs text-[#25455D] truncate block select-none"
+              style={{ filter: 'blur(4px)' }}
+              title="Опубликуйте событие, чтобы открыть ссылку"
+            >
+              {l.url}
+            </span>
+          ) : (
+            <a href={l.url} target="_blank" rel="noreferrer"
+               className="text-xs text-[#25455D] truncate block hover:underline">
+              {l.url}
+            </a>
+          )}
+        </div>
+        <button
+          onClick={() => copy(l.key, l.url)}
+          className={`p-2 rounded-lg ${isDraft ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-500'}`}
+          title={isDraft ? 'Сначала опубликуйте событие' : 'Скопировать ссылку'}
+        >
+          {copied === l.key ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
+        </button>
+      </div>
+      {l.hint && <p className="text-xs text-gray-400 mt-1.5 ml-12">{l.hint}</p>}
+    </div>
+  )
+
+  // Заголовок группы с радиокнопкой выбора активного режима.
+  const groupHeader = (kind: 'miniapp' | 'bot', title: string, desc: string) => {
+    const active = mode === kind
+    return (
+      <button
+        type="button"
+        onClick={() => changeMode(kind)}
+        disabled={!editable || modeSaving}
+        className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border transition ${
+          active ? 'border-[#FFCFA4] bg-[#FFF8F1]' : 'border-gray-200 bg-white hover:border-gray-300'
+        }`}
+      >
+        <span className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
+          active ? 'border-[#25455D]' : 'border-gray-300'
+        }`}>
+          {active && <span className="w-2 h-2 rounded-full bg-[#25455D]" />}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-gray-800">
+            {title} {active && <span className="text-[#b5793f] text-xs font-medium">· актуальные</span>}
+          </span>
+          <span className="block text-xs text-gray-500 mt-0.5">{desc}</span>
+        </span>
+      </button>
+    )
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-6">
       <div className="flex items-center gap-2 mb-1">
@@ -139,15 +214,14 @@ export default function PublicLinks({
         <h2 className="text-sm font-bold uppercase tracking-wider text-gray-800">Публичные ссылки</h2>
       </div>
       <p className="text-xs text-gray-400 mb-4">
-        Под каждую площадку — своя ссылка. Хвостик после <span className="font-mono">/l/</span> — это код события.
+        Выберите, какие ссылки актуальны — они и будут выдаваться спикерам и участникам
+        (в кабинетах и материалах).
       </p>
 
       {/* Редактор slug */}
       {editable && (
         <div className="mb-5 p-4 rounded-xl bg-gray-50 border border-gray-100">
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            Код ссылки
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Код ссылки</label>
           <p className="text-xs text-gray-500 mb-2">
             По умолчанию — короткий случайный код. Можно заменить на свой: латиница, цифры и дефис.
             Например <span className="font-mono">ivision-8</span>.
@@ -181,9 +255,7 @@ export default function PublicLinks({
       )}
 
       {!slug ? (
-        <p className="text-sm text-gray-400">
-          Появятся после сохранения мероприятия (нужен код).
-        </p>
+        <p className="text-sm text-gray-400">Появятся после сохранения мероприятия (нужен код).</p>
       ) : (
         <>
           {isDraft && (
@@ -192,52 +264,25 @@ export default function PublicLinks({
               Чтобы запустить, переключите статус «Опубликовано» в правом верхнем углу.
             </div>
           )}
-          <div className="space-y-2">
-            {links.map(l => (
-              <div key={l.key} className="border border-gray-100 rounded-xl p-3">
-                <div className="flex items-center gap-3">
-                  <span
-                    className="inline-flex items-center justify-center w-9 h-9 rounded-full text-[10px] font-bold text-white shrink-0"
-                    style={{ background: l.color }}
-                  >
-                    {l.badge}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800">{l.label}</p>
-                    {isDraft ? (
-                      <span
-                        className="text-xs text-[#25455D] truncate block select-none"
-                        style={{ filter: 'blur(4px)' }}
-                        title="Опубликуйте событие, чтобы открыть ссылку"
-                      >
-                        {l.url}
-                      </span>
-                    ) : (
-                      <a
-                        href={l.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-[#25455D] truncate block hover:underline"
-                      >
-                        {l.url}
-                      </a>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => copy(l.key, l.url)}
-                    className={`p-2 rounded-lg ${isDraft ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-500'}`}
-                    title={isDraft ? 'Сначала опубликуйте событие' : 'Скопировать ссылку'}
-                  >
-                    {copied === l.key ? (
-                      <Check size={15} className="text-green-600" />
-                    ) : (
-                      <Copy size={15} />
-                    )}
-                  </button>
-                </div>
-                {l.hint && <p className="text-xs text-gray-400 mt-1.5 ml-12">{l.hint}</p>}
-              </div>
-            ))}
+
+          {/* Группа 1 — Mini App */}
+          <div className="mb-4">
+            {groupHeader('miniapp', 'Регистрация через Mini App',
+              'Открывает приложение (Mini App) внутри Telegram/VK. + веб-лендинг.')}
+            <div className="space-y-2 mt-2">{miniappRows.map(renderRow)}</div>
+          </div>
+
+          {/* Группа 2 — через ботов */}
+          <div>
+            {groupHeader('bot', 'Регистрация через ботов',
+              'Открывает бота — он пишет в личку сообщение события с кнопкой «Зарегистрироваться». Быстрее, чем Mini App.')}
+            {botRows.length ? (
+              <div className="space-y-2 mt-2">{botRows.map(renderRow)}</div>
+            ) : (
+              <p className="text-xs text-gray-400 mt-2 ml-1">
+                Ссылки появятся, когда у клиента подключён бот на платформе.
+              </p>
+            )}
           </div>
         </>
       )}

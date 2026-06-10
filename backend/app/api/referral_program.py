@@ -746,7 +746,7 @@ async def export_speaker_materials(
 ):
     client_id = int(client["sub"])
     ev = await db.fetchrow(
-        """SELECT id, slug, title, client_id, module_slug, start_at
+        """SELECT id, slug, title, client_id, module_slug, start_at, link_mode
              FROM events WHERE id = $1 AND client_id = $2""",
         event_id, client_id,
     )
@@ -794,6 +794,7 @@ async def export_speaker_materials(
             try:
                 links = await build_share_links(
                     db, client_id=client_id, event_slug=ev["slug"], partner_id=ref_code,
+                    link_mode=ev["link_mode"] or "miniapp",
                 )
             except Exception:
                 links = {}

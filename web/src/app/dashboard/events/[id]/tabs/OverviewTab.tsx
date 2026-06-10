@@ -270,7 +270,7 @@ export default function OverviewTab({
       </div>
 
       {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ */}
-      <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={onReload} eventStatus={event?.status} />
+      <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={onReload} eventStatus={event?.status} linkMode={event?.link_mode} />
 
       <style jsx>{`
         .input {

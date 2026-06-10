@@ -247,6 +247,7 @@ class ConferenceUpdate(BaseModel):
     chat_button_label: Optional[str] = None        # заголовок кнопки чата (миграция 117)
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
     hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
+    link_mode: Optional[str] = None                # 'miniapp' | 'bot' (миграция 131)
     getcourse_form_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
     subscription_mode: Optional[str] = None   # none | organizer | all_speakers
@@ -281,7 +282,8 @@ async def get_conference(
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
-               e.telegram_chat_ids AS event_telegram_chat_ids
+               e.telegram_chat_ids AS event_telegram_chat_ids,
+               e.link_mode AS event_link_mode
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
@@ -305,6 +307,7 @@ async def get_conference(
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
     d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
+    d["link_mode"] = d.pop("event_link_mode") or "miniapp"
     # event_landing_url — для шаблонов рассылок и превью; conf_conferences.landing_url
     # (если осталось) — это устаревший шаблон встроенного лендинга, не путать.
     d["event_landing_url"] = d.pop("event_landing_url") or ""
@@ -349,7 +352,7 @@ async def update_conference(
         "primary_chat_platform",
         "stream_url", "vip_url", "vip_button_label",
         "chat_button_label", "accent_button", "hide_stream_button",
-        "telegram_chat_ids",
+        "telegram_chat_ids", "link_mode",
     )
     sent = data.model_dump(exclude_unset=True)
     event_updates: dict = {}
@@ -400,7 +403,8 @@ async def update_conference(
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
-               e.telegram_chat_ids AS event_telegram_chat_ids
+               e.telegram_chat_ids AS event_telegram_chat_ids,
+               e.link_mode AS event_link_mode
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
         WHERE cc.event_id = $1
@@ -421,6 +425,7 @@ async def update_conference(
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
     d["event_landing_url"] = d.pop("event_landing_url") or ""
     d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
+    d["link_mode"] = d.pop("event_link_mode") or "miniapp"
     return {"conference": d}
 
 
