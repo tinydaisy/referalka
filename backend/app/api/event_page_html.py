@@ -1792,12 +1792,12 @@ def render_register_page(event, client, poster_url) -> str:
         contact_id: CONTACT_ID ? parseInt(CONTACT_ID, 10) : null,
         email: email, step: 'check',
       }});
-      if (res.found) {{
-        // уже есть/слили + зарегали → в кабинет
+      if (res.found && res.registered) {{
+        // контакт найден И уже зарегистрирован на событие → сразу в кабинет
         location.href = res.redirect;
         return;
       }}
-      // не нашли → шаг 2
+      // не нашли ИЛИ нашли но НЕ зарегистрирован → шаг 2 (телефон/имя/согласия)
       document.getElementById('step1').style.display = 'none';
       document.getElementById('step2').style.display = 'block';
     }} catch (e) {{
@@ -1971,6 +1971,38 @@ async def event_register_submit(slug: str, request: Request,
                     client_id=client_id)
             except Exception:
                 pass  # мердж не критичен — берём найденный
+
+        # Уже зарегистрирован на это событие? → просто пускаем в кабинет.
+        already = await db.fetchval(
+            """SELECT is_registered FROM event_participants
+                WHERE event_id = $1 AND contact_id = $2 LIMIT 1""",
+            event_id, target_cid,
+        )
+        if already:
+            return JSONResponse({
+                "found": True, "registered": True, "contact_id": target_cid,
+                "redirect": f"/event/{real_slug}?c={target_cid}",
+            })
+
+        # Контакт найден, но НЕ зарегистрирован на событие.
+        # Шаг 1 (проверка email) → просим дозаполнить (телефон/имя/согласия).
+        if step == "check":
+            return JSONResponse({
+                "found": True, "registered": False, "contact_id": target_cid,
+            })
+
+        # Шаг 2 (create): дозаполняем телефон/имя и регистрируем.
+        await db.execute(
+            """UPDATE contacts
+                  SET name  = COALESCE($2, name),
+                      phone = COALESCE($3, phone),
+                      updated_at = NOW()
+                WHERE id = $1""",
+            target_cid, name, phone,
+        )
+        await _set_consents(
+            db, target_cid, request,
+            bool(body.get("consent_pd")), bool(body.get("consent_marketing")))
         await _register(target_cid)
         return JSONResponse({
             "found": True, "registered": True, "contact_id": target_cid,
