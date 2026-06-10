@@ -318,3 +318,90 @@ async def widget_program(
         "days":     [_ser_day(r) for r in days],
         "sessions": [_ser_session(r) for r in sessions],
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Telegram-никнеймы участников события (для отдачи на сторону)
+#
+# Отдаёт ТОЛЬКО Telegram-username участников конкретного события —
+# зарегистрированных ИЛИ незарегистрированных (параметр `registered`).
+# Исключает всех коллабораторов ЭТОГО события (организаторы, жюри, спикеры,
+# хедлайнеры, партнёры) и рабочий/личный аккаунт клиента.
+#
+# Персональные данные (телефон, email, числовые id) НЕ отдаются — только @ник.
+# ─────────────────────────────────────────────────────────────────────────────
+@router.options("/events/{slug}/participants-tg")
+async def participants_tg_options(slug: str, response: Response):
+    _set_cors(response)
+    return {}
+
+
+@router.get("/events/{slug}/participants-tg")
+async def participants_tg(
+    slug: str,
+    response: Response,
+    registered: str = "yes",   # yes | no | all
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Telegram-никнеймы участников события.
+
+    - `registered=yes`  — только зарегистрированные (default)
+    - `registered=no`   — только незарегистрированные
+    - `registered=all`  — все
+
+    Из выдачи исключены коллабораторы этого события (любая роль) и рабочие
+    аккаунты клиента. Возвращаются только TG-username (без @ в поле `username`,
+    плюс готовая ссылка `tg_url`). Никаких персональных данных.
+    """
+    _set_cors(response)
+
+    event = await _resolve_event(db, slug)
+    if not event:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    event_id = event["id"]
+
+    reg_filter = ""
+    if registered == "yes":
+        reg_filter = "AND ep.is_registered = TRUE"
+    elif registered == "no":
+        reg_filter = "AND ep.is_registered = FALSE"
+
+    rows = await db.fetch(
+        f"""
+        SELECT DISTINCT pu.username
+        FROM event_participants ep
+        JOIN contacts c        ON c.id = ep.contact_id
+        JOIN platform_users pu ON pu.contact_id = c.id AND pu.platform_slug = 'telegram'
+        WHERE ep.event_id = $1
+          {reg_filter}
+          AND pu.username IS NOT NULL AND pu.username <> ''
+          AND pu.platform_user_id ~ '^[0-9]+$'          -- только реальные tg_id, не пустышки @username
+          -- исключаем коллабораторов ЭТОГО события (любая роль)
+          AND c.id NOT IN (
+                SELECT col.contact_id
+                FROM event_collaborators ec
+                JOIN collaborators col ON col.id = ec.speaker_id
+                WHERE ec.event_id = $1
+          )
+          -- исключаем рабочий/личный аккаунт клиента
+          AND lower(pu.username) NOT IN (
+                SELECT lower(u) FROM (
+                  SELECT unnest(ARRAY[work_tg_username, telegram_username]) AS u
+                  FROM clients WHERE id = (SELECT client_id FROM events WHERE id = $1)
+                ) t WHERE u IS NOT NULL AND u <> ''
+          )
+        ORDER BY pu.username
+        """,
+        event_id,
+    )
+
+    usernames = [r["username"] for r in rows]
+    return {
+        "event_slug": event["slug"],
+        "event_id": event_id,
+        "registered": registered,
+        "count": len(usernames),
+        "usernames": usernames,                                  # ["nick1", "nick2", ...]
+        "tg_urls": [f"https://t.me/{u}" for u in usernames],     # готовые ссылки
+        "mentions": [f"@{u}" for u in usernames],                # ["@nick1", "@nick2", ...]
+    }
