@@ -1626,10 +1626,23 @@ def _register_not_found_page() -> str:
 <p>Ссылка устарела или событие ещё не опубликовано.</p></div></body></html>"""
 
 
-def render_register_page(event, client, poster_url) -> str:
-    """Серверная HTML-страница формы регистрации на событие."""
+def render_register_page(event, client, poster_url, prefill=None) -> str:
+    """Серверная HTML-страница формы регистрации на событие.
+
+    prefill: None → форма с email-проверкой (контакт неизвестен, ?c отсутствует).
+             dict {contact_id, email, phone, name, telegram_username} →
+             известный незарегистрированный контакт; сразу полная форма
+             с автозаполнением, без шага проверки email.
+    """
     title = esc(event.get("title") or event.get("slug"))
     slug = esc(event.get("slug") or "")
+    prefill = prefill or {}
+    has_prefill = bool(prefill.get("contact_id"))
+    pf_email = esc(prefill.get("email") or "")
+    pf_phone = esc(prefill.get("phone") or "")
+    pf_name = esc(prefill.get("name") or "")
+    pf_tg = esc(prefill.get("telegram_username") or "")
+    pf_contact_id = prefill.get("contact_id")
     client_id = event.get("client_id")
     brand_raw = ((client["brand_name"] if client else None)
                  or (client["name"] if client else None) or "организатора")
@@ -1725,19 +1738,24 @@ def render_register_page(event, client, poster_url) -> str:
 
       <!-- ШАГ 2: данные + согласия -->
       <div class="step2" id="step2">
-        <p class="lead">Новый участник. Заполните данные, чтобы организатор мог
+        <p class="lead">Заполните данные, чтобы организатор мог
           прислать материалы и подтвердить регистрацию.</p>
         <div class="field">
+          <label>Email</label>
+          <input type="email" id="f-email2" placeholder="you@example.com"
+                 autocomplete="email" value="{pf_email}">
+        </div>
+        <div class="field">
           <label>Имя</label>
-          <input type="text" id="f-name" placeholder="Ваше имя">
+          <input type="text" id="f-name" placeholder="Ваше имя" value="{pf_name}">
         </div>
         <div class="field">
           <label>Телефон</label>
-          <input type="tel" id="f-phone" placeholder="+7 999 123-45-67">
+          <input type="tel" id="f-phone" placeholder="+7 999 123-45-67" value="{pf_phone}">
         </div>
         <div class="field">
           <label>Telegram-ник (необязательно)</label>
-          <input type="text" id="f-tg" placeholder="@username">
+          <input type="text" id="f-tg" placeholder="@username" value="{pf_tg}">
         </div>
         <div class="consents">
           <label class="consent">
@@ -1759,7 +1777,10 @@ def render_register_page(event, client, poster_url) -> str:
 <script>
   var SLUG = {json.dumps(slug)};
   var qs = new URLSearchParams(location.search);
-  var CONTACT_ID = qs.get('c') || null;
+  var cParam = qs.get('c');
+  // contact_id из ?c=… (или из серверного prefill — известный контакт).
+  var CONTACT_ID = (cParam && /^\\d+$/.test(cParam)) ? parseInt(cParam, 10) : {json.dumps(pf_contact_id)};
+  var HAS_PREFILL = {json.dumps(has_prefill)};
 
   function isEmail(s) {{ return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s); }}
   function isPhone(s) {{ return s.replace(/\\D/g,'').length >= 10; }}
@@ -1780,36 +1801,50 @@ def render_register_page(event, client, poster_url) -> str:
     return data;
   }}
 
-  // ШАГ 1 — проверка email
-  var btnCheck = document.getElementById('btn-check');
-  btnCheck.addEventListener('click', async function() {{
-    var email = (document.getElementById('f-email').value || '').trim();
-    if (!isEmail(email)) {{ showErr('err1', 'Email указан неверно'); return; }}
-    showErr('err1', '');
-    btnCheck.disabled = true; btnCheck.textContent = 'Проверяем...';
-    try {{
-      var res = await post({{
-        contact_id: CONTACT_ID ? parseInt(CONTACT_ID, 10) : null,
-        email: email, step: 'check',
-      }});
-      if (res.found && res.registered) {{
-        // контакт найден И уже зарегистрирован на событие → сразу в кабинет
-        location.href = res.redirect;
-        return;
-      }}
-      // не нашли ИЛИ нашли но НЕ зарегистрирован → шаг 2 (телефон/имя/согласия)
-      document.getElementById('step1').style.display = 'none';
-      document.getElementById('step2').style.display = 'block';
-    }} catch (e) {{
-      showErr('err1', e.message || 'Не удалось проверить email');
-      btnCheck.disabled = false; btnCheck.textContent = 'Продолжить';
-    }}
-  }});
+  // Известный контакт (?c=… или prefill) → сразу полная форма, без проверки email.
+  if (HAS_PREFILL || CONTACT_ID) {{
+    document.getElementById('step1').style.display = 'none';
+    document.getElementById('step2').style.display = 'block';
+  }}
 
-  // ШАГ 2 — создание + регистрация
+  // ШАГ 1 — проверка email (только когда контакт неизвестен)
+  var btnCheck = document.getElementById('btn-check');
+  if (btnCheck) {{
+    btnCheck.addEventListener('click', async function() {{
+      var email = (document.getElementById('f-email').value || '').trim();
+      if (!isEmail(email)) {{ showErr('err1', 'Email указан неверно'); return; }}
+      showErr('err1', '');
+      btnCheck.disabled = true; btnCheck.textContent = 'Проверяем...';
+      try {{
+        var res = await post({{ email: email, step: 'check' }});
+        if (res.found && res.registered && res.redirect) {{
+          // контакт найден И уже зарегистрирован на событие → сразу в кабинет
+          location.href = res.redirect;
+          return;
+        }}
+        // не нашли ИЛИ нашли но НЕ зарегистрирован → шаг 2 (дозаполнение)
+        if (res.found) {{
+          CONTACT_ID = res.contact_id || CONTACT_ID;
+          if (res.email) document.getElementById('f-email2').value = res.email;
+          if (res.name) document.getElementById('f-name').value = res.name;
+          if (res.phone) document.getElementById('f-phone').value = res.phone;
+        }} else {{
+          // новый — переносим введённый email в форму регистрации
+          document.getElementById('f-email2').value = email;
+        }}
+        document.getElementById('step1').style.display = 'none';
+        document.getElementById('step2').style.display = 'block';
+      }} catch (e) {{
+        showErr('err1', e.message || 'Не удалось проверить email');
+        btnCheck.disabled = false; btnCheck.textContent = 'Продолжить';
+      }}
+    }});
+  }}
+
+  // ШАГ 2 — регистрация
   var btnCreate = document.getElementById('btn-create');
   btnCreate.addEventListener('click', async function() {{
-    var email = (document.getElementById('f-email').value || '').trim();
+    var email = (document.getElementById('f-email2').value || '').trim();
     var name = (document.getElementById('f-name').value || '').trim();
     var phone = (document.getElementById('f-phone').value || '').trim();
     var tg = (document.getElementById('f-tg').value || '').trim();
@@ -1823,10 +1858,10 @@ def render_register_page(event, client, poster_url) -> str:
     btnCreate.disabled = true; btnCreate.textContent = 'Регистрируем...';
     try {{
       var res = await post({{
-        contact_id: CONTACT_ID ? parseInt(CONTACT_ID, 10) : null,
-        email: email, name: name, phone: phone,
+        contact_id: CONTACT_ID || null,
+        email: email || null, name: name, phone: phone,
         telegram_username: tg || null,
-        consent_pd: true, consent_marketing: true, step: 'create',
+        consent_pd: true, consent_marketing: true, step: 'register',
       }});
       if (res.redirect) {{ location.href = res.redirect; return; }}
       location.reload();
@@ -1845,14 +1880,15 @@ def render_register_page(event, client, poster_url) -> str:
 async def event_register_page(slug: str, c: str = "",
                               db: asyncpg.Connection = Depends(get_db)):
     event = await _resolve_event(db, slug)
-    if not event or event["status"] == "draft":
+    if not event or event["status"] != "published":
         return HTMLResponse(content=_register_not_found_page(), status_code=404)
     ev = dict(event)
 
     contact_id = int(c) if c and c.isdigit() else None
 
-    # Если контакт уже зарегистрирован на это событие → сразу в кабинет.
+    prefill = None
     if contact_id:
+        # ВЕТКА 1: уже зарегистрирован на это событие → сразу в кабинет.
         is_reg = await db.fetchval(
             """SELECT TRUE FROM event_participants
                 WHERE event_id = $1 AND contact_id = $2 AND is_registered = TRUE
@@ -1863,10 +1899,41 @@ async def event_register_page(slug: str, c: str = "",
             return RedirectResponse(
                 url=f"/event/{ev['slug']}?c={contact_id}", status_code=302)
 
+        # ВЕТКА 2: контакт известен, не зареган → форма с автозаполнением.
+        row = await db.fetchrow(
+            """SELECT
+                   c.name,
+                   c.phone,
+                   (SELECT pe.platform_user_id FROM platform_users pe
+                      WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                      LIMIT 1) AS email,
+                   (SELECT pt.username FROM platform_users pt
+                      WHERE pt.contact_id = c.id AND pt.platform_slug = 'telegram'
+                      LIMIT 1) AS tg_username
+                 FROM contacts c
+                WHERE c.id = $1 AND c.client_id = $2 AND c.merged_into IS NULL
+                LIMIT 1""",
+            contact_id, ev["client_id"],
+        )
+        if row:
+            prefill = {
+                "contact_id": contact_id,
+                "email": row["email"] or "",
+                "phone": row["phone"] or "",
+                "name": row["name"] or "",
+                "telegram_username": (
+                    ("@" + row["tg_username"].lstrip("@"))
+                    if row["tg_username"] else ""),
+            }
+        else:
+            # ?c=… указывает на несуществующий/чужой контакт — как будто его нет.
+            prefill = None
+
+    # ВЕТКА 3: contact_id нет (или невалиден) → форма с email-проверкой.
     client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
     poster_url = await _load_event_poster(db, ev["id"])
 
-    html_str = render_register_page(ev, client, poster_url)
+    html_str = render_register_page(ev, client, poster_url, prefill=prefill)
     return HTMLResponse(
         content=html_str,
         headers={"Cache-Control": "no-cache, must-revalidate"},
@@ -1921,32 +1988,59 @@ async def event_register_submit(slug: str, request: Request,
     client_id = event["client_id"]
     real_slug = event["slug"]
 
-    email_raw = (body.get("email") or "").strip()
-    email_norm = normalize_email(email_raw)
-    if not email_norm:
-        return JSONResponse({"detail": "Укажите корректный email"},
-                            status_code=400)
-
     step = body.get("step") or "check"
+
     link_cid = body.get("contact_id")
     try:
         link_cid = int(link_cid) if link_cid is not None else None
     except (ValueError, TypeError):
         link_cid = None
+
+    email_raw = (body.get("email") or "").strip()
+    email_norm = normalize_email(email_raw)
     name = (body.get("name") or "").strip() or None
     phone = (body.get("phone") or "").strip() or None
     tg_username = (body.get("telegram_username") or "").strip() or None
 
-    # Поиск контакта по email-идентичности у этого клиента
-    found_cid = await db.fetchval(
-        """SELECT c.id FROM contacts c
-             JOIN platform_users pu ON pu.contact_id = c.id
-              AND pu.platform_slug = 'email'
-              AND pu.platform_user_id = $2
-            WHERE c.client_id = $1 AND c.merged_into IS NULL
-            LIMIT 1""",
-        client_id, email_norm,
-    )
+    async def _find_by_email(en):
+        """contact_id по email-идентичности у этого клиента (или None)."""
+        if not en:
+            return None
+        return await db.fetchval(
+            """SELECT c.id FROM contacts c
+                 JOIN platform_users pu ON pu.contact_id = c.id
+                  AND pu.platform_slug = 'email'
+                  AND pu.platform_user_id = $2
+                WHERE c.client_id = $1 AND c.merged_into IS NULL
+                LIMIT 1""",
+            client_id, en,
+        )
+
+    async def _attach_tg(target_cid):
+        """Опциональный TG-ник → псевдо-идентичность (если ещё нет telegram)."""
+        if not tg_username:
+            return
+        uname = tg_username.lstrip("@")
+        if not uname:
+            return
+        try:
+            exists = await db.fetchval(
+                """SELECT 1 FROM platform_users
+                    WHERE contact_id = $1 AND platform_slug = 'telegram'
+                    LIMIT 1""",
+                target_cid,
+            )
+            if not exists:
+                await db.execute(
+                    """INSERT INTO platform_users
+                           (client_id, contact_id, platform_slug,
+                            platform_user_id, username)
+                         VALUES ($1, $2, 'telegram', $3, $4)
+                         ON CONFLICT DO NOTHING""",
+                    client_id, target_cid, "@" + uname, uname,
+                )
+        except Exception:
+            pass
 
     async def _register(target_cid):
         """UPSERT участника is_registered=TRUE + финализация."""
@@ -1960,107 +2054,90 @@ async def event_register_submit(slug: str, request: Request,
         await finalize_participant_registration(
             db, event_id=event_id, contact_id=target_cid)
 
-    # ── EMAIL НАЙДЕН ──
-    if found_cid:
-        target_cid = found_cid
-        # Слить контакт из ссылки в найденный (найденный старше, у него email)
-        if link_cid and link_cid != found_cid:
+    # ── ШАГ CHECK: только проверка email (контакт неизвестен) ──
+    if step == "check":
+        if not email_norm:
+            return JSONResponse({"detail": "Укажите корректный email"},
+                                status_code=400)
+        found_cid = await _find_by_email(email_norm)
+        if not found_cid:
+            return JSONResponse({"found": False})
+
+        already = await db.fetchval(
+            """SELECT is_registered FROM event_participants
+                WHERE event_id = $1 AND contact_id = $2 LIMIT 1""",
+            event_id, found_cid,
+        )
+        if already:
+            return JSONResponse({
+                "found": True, "registered": True, "contact_id": found_cid,
+                "redirect": f"/event/{real_slug}?c={found_cid}",
+            })
+        # Найден, не зареган → отдаём данные для автозаполнения формы.
+        info = await db.fetchrow(
+            """SELECT
+                   c.name, c.phone,
+                   (SELECT pe.platform_user_id FROM platform_users pe
+                      WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                      LIMIT 1) AS email
+                 FROM contacts c WHERE c.id = $1 LIMIT 1""",
+            found_cid,
+        )
+        return JSONResponse({
+            "found": True, "registered": False, "contact_id": found_cid,
+            "name": (info["name"] if info else None),
+            "phone": (info["phone"] if info else None),
+            "email": (info["email"] if info else None) or email_norm,
+        })
+
+    # ── ШАГ REGISTER: финальная регистрация ──
+    # Определяем целевой контакт.
+    found_cid = await _find_by_email(email_norm) if email_norm else None
+
+    if link_cid:
+        target_cid = link_cid
+        # Email введён и принадлежит ДРУГОМУ контакту → слить (найденный старше).
+        if found_cid and found_cid != link_cid:
             try:
                 await merge_contacts(
                     db, primary_id=found_cid, secondary_id=link_cid,
                     client_id=client_id)
+                target_cid = found_cid
             except Exception:
-                pass  # мердж не критичен — берём найденный
-
-        # Уже зарегистрирован на это событие? → просто пускаем в кабинет.
-        already = await db.fetchval(
-            """SELECT is_registered FROM event_participants
-                WHERE event_id = $1 AND contact_id = $2 LIMIT 1""",
-            event_id, target_cid,
-        )
-        if already:
-            return JSONResponse({
-                "found": True, "registered": True, "contact_id": target_cid,
-                "redirect": f"/event/{real_slug}?c={target_cid}",
-            })
-
-        # Контакт найден, но НЕ зарегистрирован на событие.
-        # Шаг 1 (проверка email) → просим дозаполнить (телефон/имя/согласия).
-        if step == "check":
-            return JSONResponse({
-                "found": True, "registered": False, "contact_id": target_cid,
-            })
-
-        # Шаг 2 (create): дозаполняем телефон/имя и регистрируем.
-        await db.execute(
-            """UPDATE contacts
-                  SET name  = COALESCE($2, name),
-                      phone = COALESCE($3, phone),
-                      updated_at = NOW()
-                WHERE id = $1""",
-            target_cid, name, phone,
-        )
-        await _set_consents(
-            db, target_cid, request,
-            bool(body.get("consent_pd")), bool(body.get("consent_marketing")))
-        await _register(target_cid)
-        return JSONResponse({
-            "found": True, "registered": True, "contact_id": target_cid,
-            "redirect": f"/event/{real_slug}?c={target_cid}",
-        })
-
-    # ── EMAIL НЕ НАЙДЕН ──
-    if step == "check":
-        # Только проверка email (шаг 1) — пока ничего не создаём
-        return JSONResponse({"found": False})
-
-    # step == 'create' — создаём/дозаполняем + регистрируем
-    if link_cid:
-        # Используем контакт из ссылки: добавляем email + дозаполняем
-        target_cid = link_cid
-        await sync_email_identity_and_subscription(
-            db, client_id=client_id, contact_id=target_cid,
-            email=email_norm, first_name=name)
-        await db.execute(
-            """UPDATE contacts
-                  SET name  = COALESCE(name, $2),
-                      phone = COALESCE(phone, $3),
-                      updated_at = NOW()
-                WHERE id = $1""",
-            target_cid, name, phone,
-        )
-        # Опциональный TG-ник → псевдо-идентичность (если ещё нет telegram)
-        if tg_username:
-            uname = tg_username.lstrip("@")
-            if uname:
-                try:
-                    exists = await db.fetchval(
-                        """SELECT 1 FROM platform_users
-                            WHERE contact_id = $1 AND platform_slug = 'telegram'
-                            LIMIT 1""",
-                        target_cid,
-                    )
-                    if not exists:
-                        await db.execute(
-                            """INSERT INTO platform_users
-                                   (client_id, contact_id, platform_slug,
-                                    platform_user_id, username)
-                                 VALUES ($1, $2, 'telegram', $3, $4)
-                                 ON CONFLICT DO NOTHING""",
-                            client_id, target_cid, "@" + uname, uname,
-                        )
-                except Exception:
-                    pass
+                target_cid = link_cid  # мердж не критичен — берём из ссылки
+    elif found_cid:
+        target_cid = found_cid
     else:
-        # Новый контакт
+        # Контакта нет — создаём.
         target_cid, _is_new = await find_or_create_contact(
-            db, client_id=client_id, name=name, email=email_raw, phone=phone)
+            db, client_id=client_id, name=name, email=email_raw or None,
+            phone=phone)
 
+    # Привязать email-идентичность, если введён.
+    if email_norm:
+        try:
+            await sync_email_identity_and_subscription(
+                db, client_id=client_id, contact_id=target_cid,
+                email=email_norm, first_name=name)
+        except Exception:
+            pass
+
+    # Обновить данные: введённое — записываем, пустое — не трогаем.
+    await db.execute(
+        """UPDATE contacts
+              SET name  = COALESCE($2, name),
+                  phone = COALESCE($3, phone),
+                  updated_at = NOW()
+            WHERE id = $1""",
+        target_cid, name, phone,
+    )
+
+    await _attach_tg(target_cid)
     await _set_consents(
         db, target_cid, request,
         bool(body.get("consent_pd")), bool(body.get("consent_marketing")))
     await _register(target_cid)
     return JSONResponse({
-        "found": False, "registered": True, "contact_id": target_cid,
+        "registered": True, "contact_id": target_cid,
         "redirect": f"/event/{real_slug}?c={target_cid}",
     })
