@@ -723,6 +723,26 @@ async def event_analytics(
     }
 
 
+@router.post("/{event_id}/check-chats", summary="Проверить, кто из участников в Telegram-чате")
+async def check_chats(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Массово проверяет членство участников в TG-чате события (events.telegram_chat_ids)
+    через бот-админа. Пишет event_participants.is_in_chat + chat_check_at.
+    ВК/МАХ-беседы платформы проверить не дают — фича пока только Telegram."""
+    client_id = int(client["sub"])
+    event = await db.fetchrow(
+        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+    )
+    if not event:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+
+    from app.services.chat_membership import check_event_chat_membership
+    return await check_event_chat_membership(db, event_id, client_id)
+
+
 @router.get("/{event_id}/participants", summary="Список участников события")
 async def event_participants(
     event_id: int,
@@ -748,7 +768,7 @@ async def event_participants(
                   c.id AS contact_id,
                   c.ref_code, ep.referrer_ref_code,
                   ep.is_registered, ep.is_in_chat, ep.registered_at,
-                  ep.link_clicked_at,
+                  ep.link_clicked_at, ep.chat_check_at,
                   c.name AS contact_name,
                   (SELECT pe.platform_user_id FROM platform_users pe
                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'

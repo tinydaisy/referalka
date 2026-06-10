@@ -130,6 +130,9 @@ export const api = {
       request(`/api/v1/events/${id}/participants/${participantId}`, {
         method: 'DELETE',
       }),
+    // Массовая проверка членства участников в Telegram-чате события (только TG).
+    checkChats: (id: number) =>
+      request(`/api/v1/events/${id}/check-chats`, { method: 'POST' }),
     addParticipantFromContact: (id: number, contactId: number, isRegistered = false) =>
       request(`/api/v1/events/${id}/participants/from-contact`, {
         method: 'POST',

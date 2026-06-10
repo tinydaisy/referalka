@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle } from 'lucide-react'
+import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle, MessagesSquare } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useMe } from '@/hooks/useMe'
@@ -21,6 +21,7 @@ interface Participant {
   is_unsubscribed?: boolean
   registered_at: string | null
   link_clicked_at: string | null
+  chat_check_at: string | null
   contact_name: string | null
   first_name: string | null
   last_name: string | null
@@ -362,6 +363,29 @@ function ContactCard({
           </span>
         </div>
 
+        {/* Колонка «В чате» — read-only, ставится кнопкой «Проверить чаты» (только TG) */}
+        <div className="w-24 flex justify-center shrink-0">
+          {p.chat_check_at ? (
+            <span
+              title={`Проверено ${new Date(p.chat_check_at).toLocaleString('ru')} — ${p.is_in_chat ? 'в чате' : 'не в чате'}`}
+              className={`w-6 h-6 rounded-md border flex items-center justify-center ${
+                p.is_in_chat
+                  ? 'bg-blue-500 border-blue-500 text-white'
+                  : 'bg-white border-gray-300 text-gray-300'
+              }`}
+            >
+              {p.is_in_chat ? <Check size={14} strokeWidth={3} /> : <X size={14} strokeWidth={3} />}
+            </span>
+          ) : (
+            <span
+              title="Ещё не проверяли. Нажмите «Проверить чаты» вверху."
+              className="w-6 h-6 rounded-md border border-gray-200 flex items-center justify-center text-gray-300 text-xs"
+            >
+              ?
+            </span>
+          )}
+        </div>
+
         {/* Колонка «Подписан / Отписан» — read-only */}
         <div className="w-24 flex justify-center shrink-0">
           {p.is_unsubscribed ? (
@@ -460,6 +484,7 @@ function ListHeader({ clickLabel }: { clickLabel: string }) {
       <div className="w-24 text-center">Регистрация</div>
       <div className="w-24 text-center">Зарегистр.</div>
       <div className="w-24 text-center">{clickLabel}</div>
+      <div className="w-24 text-center">В чате</div>
       <div className="w-24 text-center">Подписка</div>
       <div className="w-8" />
       <div className="w-4" />
@@ -637,6 +662,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
   // Фильтр по площадке × этапу (управляется кликами по таблице статистики)
   const [pFilter, setPFilter] = useState<ParticipantFilter>({ platform: 'all', stage: 'landed' })
   const [showAdd, setShowAdd] = useState(false)
+  const [checkingChats, setCheckingChats] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -696,6 +722,32 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
       setParticipants(prev)
       setCounts(prevCounts)
       alert(e?.message || 'Не удалось удалить участника')
+    }
+  }
+
+  async function checkChats() {
+    if (checkingChats) return
+    setCheckingChats(true)
+    try {
+      const r: any = await api.events.checkChats(eventId)
+      if (!r?.ok) {
+        alert(r?.message || 'Не удалось проверить чаты.')
+        return
+      }
+      // Перезагружаем список — обновятся is_in_chat + chat_check_at
+      await load()
+      const parts: string[] = [
+        `Проверено: ${r.checked}`,
+        `в чате: ${r.in_chat}`,
+        `не в чате: ${r.not_in_chat}`,
+      ]
+      if (r.skipped_no_tg) parts.push(`без Telegram (пропущено): ${r.skipped_no_tg}`)
+      if (r.undetermined) parts.push(`не удалось определить (бот не админ?): ${r.undetermined}`)
+      alert(`Готово.\n\n${parts.join('\n')}`)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось проверить чаты.')
+    } finally {
+      setCheckingChats(false)
     }
   }
 
@@ -793,7 +845,16 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
             сбросить
           </button>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={checkChats}
+            disabled={checkingChats}
+            title="Проверить, кто из участников состоит в Telegram-чате события. Бот должен быть админом чата."
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {checkingChats ? <Spinner className="text-gray-500 text-base" /> : <MessagesSquare size={15} />}
+            {checkingChats ? 'Проверяю…' : 'Проверить чаты'}
+          </button>
           <button onClick={() => setShowAdd(true)}
             className="btn-gold inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
             <Plus size={15} /> Добавить из контактов
