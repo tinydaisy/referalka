@@ -14,8 +14,8 @@
 collaborator_sort.order_by_sql для порядка спикеров, share_links.build_share_links
 для реф-ссылок кабинета.
 """
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from app.database import get_db
 from app.services.collaborator_sort import order_by_sql
 import asyncpg
@@ -264,6 +264,22 @@ async def _load_ref_cabinet(db, event, contact_id):
 async def _load_client(db, client_id):
     return await db.fetchrow(
         "SELECT name, brand_name FROM clients WHERE id = $1", client_id)
+
+
+async def _load_event_poster(db, event_id):
+    """Лучшая афиша события (square > horizontal > vertical) — как в send_event_menu."""
+    return await db.fetchval(
+        """SELECT url FROM event_posters
+            WHERE event_id = $1
+            ORDER BY CASE orientation
+                       WHEN 'square'     THEN 1
+                       WHEN 'horizontal' THEN 2
+                       WHEN 'vertical'   THEN 3
+                       ELSE 4
+                     END, sort, id
+            LIMIT 1""",
+        event_id,
+    )
 
 
 async def _load_venue(db, client_id):
@@ -535,60 +551,75 @@ def _program_panel(event, collabs, days, stages, sessions) -> str:
     if dpr.strip():
         out += f'<div class="desc">{dpr}</div>'
 
-    # Программа по дням/сессиям
-    if days:
-        # этапы по id (для турнира)
-        stage_map = {s["id"]: dict(s) for s in stages}
-        prog = ""
-        rendered_stage_ids = set()
-        for day in days:
-            dn = day.get("day_number")
-            stage_id = day.get("stage_id")
-            # Заголовок этапа (один раз перед первым его днём)
-            if stage_id and stage_id in stage_map and stage_id not in rendered_stage_ids:
-                rendered_stage_ids.add(stage_id)
-                st = stage_map[stage_id]
-                st_title = esc(st.get("title") or "Этап")
-                st_sub = esc(st.get("subtitle") or "")
-                sub_html = f'<div class="stage-sub">{st_sub}</div>' if st_sub else ""
-                prog += f'<div class="stage-h">{st_title}{sub_html}</div>'
-            dtitle = esc(day.get("title") or (f"День {dn}" if dn else "День"))
-            ddate = esc(str(day.get("day_date") or ""))
-            day_sessions = [s for s in sessions if s.get("day") == dn]
-            rows = ""
-            for s in day_sessions:
-                tm = _fmt_time_range(s.get("start_time"), s.get("end_time"))
-                stitle = esc(s.get("title") or "")
-                spk = esc(s.get("sp_name") or "")
-                sp_ec = s.get("sp_ec_id")
-                sp_photo = esc(s.get("sp_photo") or "")
-                if spk:
-                    # Мини-карточка спикера сессии (как в Mini App): аватар 32px +
-                    # имя + «Карточка →». Кликабельна → вкладка Спикеры к карточке.
-                    if sp_photo:
-                        av = (f'<span class="ss-ava" style="background-image:'
-                              f"url('{sp_photo}')\"></span>")
-                    else:
-                        inits = "".join([w[0] for w in spk.split()[:2]]).upper()
-                        av = f'<span class="ss-ava ss-ava-empty">{inits}</span>'
-                    arrow = '<span class="ss-go">Карточка →</span>' if sp_ec else ""
-                    tag = "a" if sp_ec else "div"
-                    attrs = (f'href="#speakers" data-speaker="{sp_ec}"'
-                             if sp_ec else "")
-                    spk_html = (f'<{tag} class="ss-card" {attrs}>{av}'
-                                f'<span class="ss-name">{spk}</span>{arrow}</{tag}>')
+    # Программа: ВСЕ этапы (даже без дней — с описанием/датами, как в Mini App),
+    # внутри каждого — его дни; дни без этапа — отдельным блоком в конце.
+    def _render_day(day):
+        dn = day.get("day_number")
+        dtitle = esc(day.get("title") or (f"День {dn}" if dn else "День"))
+        ddate = esc(str(day.get("day_date") or ""))
+        day_sessions = [s for s in sessions if s.get("day") == dn]
+        rows = ""
+        for s in day_sessions:
+            tm = _fmt_time_range(s.get("start_time"), s.get("end_time"))
+            stitle = esc(s.get("title") or "")
+            spk = esc(s.get("sp_name") or "")
+            sp_ec = s.get("sp_ec_id")
+            sp_photo = esc(s.get("sp_photo") or "")
+            if spk:
+                if sp_photo:
+                    av = (f'<span class="ss-ava" style="background-image:'
+                          f"url('{sp_photo}')\"></span>")
                 else:
-                    spk_html = ""
-                time_html = f'<div class="s-time">{tm}</div>' if tm else ""
-                rows += (
-                    f'<div class="s-row">{time_html}'
-                    f'<div class="s-main"><div class="s-title">{stitle}</div>'
-                    f'{spk_html}</div></div>'
-                )
-            date_sfx = f' · {ddate}' if ddate else ""
-            body = rows if rows else '<div class="empty-sm">—</div>'
-            prog += (f'<div class="day"><div class="day-h">{dtitle}{date_sfx}</div>'
-                     f'{body}</div>')
+                    inits = "".join([w[0] for w in spk.split()[:2]]).upper()
+                    av = f'<span class="ss-ava ss-ava-empty">{inits}</span>'
+                arrow = '<span class="ss-go">Карточка →</span>' if sp_ec else ""
+                tag = "a" if sp_ec else "div"
+                attrs = (f'href="#speakers" data-speaker="{sp_ec}"'
+                         if sp_ec else "")
+                spk_html = (f'<{tag} class="ss-card" {attrs}>{av}'
+                            f'<span class="ss-name">{spk}</span>{arrow}</{tag}>')
+            else:
+                spk_html = ""
+            time_html = f'<div class="s-time">{tm}</div>' if tm else ""
+            rows += (
+                f'<div class="s-row">{time_html}'
+                f'<div class="s-main"><div class="s-title">{stitle}</div>'
+                f'{spk_html}</div></div>'
+            )
+        date_sfx = f' · {ddate}' if ddate else ""
+        body = rows if rows else '<div class="empty-sm">—</div>'
+        return (f'<div class="day"><div class="day-h">{dtitle}{date_sfx}</div>'
+                f'{body}</div>')
+
+    def _stage_header(st):
+        st_title = esc(st.get("title") or "Этап")
+        st_sub = esc(st.get("subtitle") or "")
+        sub_html = f'<div class="stage-sub">{st_sub}</div>' if st_sub else ""
+        # Диапазон дат этапа
+        sd = str(st.get("start_date") or "")
+        ed = str(st.get("end_date") or "")
+        date_html = ""
+        if sd or ed:
+            rng = f"{sd} – {ed}" if (sd and ed and sd != ed) else (sd or ed)
+            date_html = f'<div class="stage-date">{esc(rng)}</div>'
+        desc = (st.get("description") or "").strip()
+        desc_html = f'<div class="stage-desc">{desc}</div>' if desc else ""
+        return (f'<div class="stage-h">{st_title}{sub_html}{date_html}</div>'
+                f'{desc_html}')
+
+    if days or stages:
+        days_by_stage = {}
+        for d in days:
+            days_by_stage.setdefault(d.get("stage_id"), []).append(d)
+        prog = ""
+        # Этапы по порядку (все, даже без дней)
+        for st in stages:
+            prog += _stage_header(dict(st))
+            for d in days_by_stage.get(st["id"], []):
+                prog += _render_day(d)
+        # Дни без этапа (stage_id IS NULL) — в конце
+        for d in days_by_stage.get(None, []):
+            prog += _render_day(d)
         out += '<h2 class="sec-h">Программа</h2>' + prog
     elif not dpr.strip() and not vip_url:
         out += '<div class="empty">Программа пока не опубликована</div>'
@@ -1163,6 +1194,9 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .stage-h {{ background: linear-gradient(45deg,#25455D,#0a1520); color:#fff; border-radius:12px;
     padding:12px 14px; margin: 14px 0 10px; font-weight:700; font-size:15px; }}
   .stage-sub {{ font-size:12px; color:#FFCFA4; margin-top:3px; font-weight:500; }}
+  .stage-date {{ font-size:11.5px; color:#FFCFA4; margin-top:4px; opacity:.85; }}
+  .stage-desc {{ font-size:13px; color:#41566a; line-height:1.5; margin:-4px 2px 12px;
+    padding:0 2px; white-space:pre-wrap; }}
   .day {{ background:#fff; border-radius:14px; padding:14px; margin-bottom:12px; box-shadow:0 1px 4px rgba(0,0,0,.06); }}
   .day-h {{ font-weight:700; color:#25455D; margin-bottom:10px; font-size:15px; }}
   .s-row {{ display:flex; gap:10px; padding:8px 0; border-top:1px solid #f0f3f6; }}
@@ -1564,3 +1598,436 @@ async def event_page(slug: str, c: str = "", db: asyncpg.Connection = Depends(ge
         content=html_str,
         headers={"Cache-Control": "no-cache, must-revalidate"},
     )
+
+
+# ── Внутренний веб-лендинг регистрации ─────────────────────────────────────
+# Отдельная страница `pluson.ru/event/{slug}/register?c={contact_id}` + JSON-эндпоинт.
+# Полностью изолировано от Mini App и от participants.register_participant:
+# главный идентификатор — contact_id (tg_id НЕ используется). Шаг 1 — email
+# (проверка «не регались ли раньше с другой соцсети»), шаг 2 — поля + согласия.
+
+
+def _register_not_found_page() -> str:
+    """Заглушка «событие не найдено» в бренд-стиле."""
+    return f"""<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Событие не найдено</title>
+<style>
+  html,body {{ margin:0; padding:0; min-height:100vh; font-family:'Roboto',-apple-system,sans-serif;
+    background:linear-gradient(45deg,#25455D,#0a1520); color:#fff;
+    display:flex; align-items:center; justify-content:center; }}
+  .box {{ text-align:center; padding:30px; max-width:340px; }}
+  .box h1 {{ font-size:20px; margin:0 0 10px; }}
+  .box p {{ font-size:14px; color:rgba(255,255,255,.7); line-height:1.5; }}
+</style></head>
+<body><div class="box"><h1>Событие не найдено</h1>
+<p>Ссылка устарела или событие ещё не опубликовано.</p></div></body></html>"""
+
+
+def render_register_page(event, client, poster_url) -> str:
+    """Серверная HTML-страница формы регистрации на событие."""
+    title = esc(event.get("title") or event.get("slug"))
+    slug = esc(event.get("slug") or "")
+    client_id = event.get("client_id")
+    brand_raw = ((client["brand_name"] if client else None)
+                 or (client["name"] if client else None) or "организатора")
+    brand = esc(brand_raw)
+    brand_block = f'<div class="brand">{brand}</div>' if brand and brand != "организатора" else ""
+
+    poster_html = ""
+    if poster_url:
+        poster_html = (f'<div class="poster" style="background:center/cover '
+                       f'url(\'{esc(poster_url)}\')"></div>')
+
+    # Ссылка на политику клиента (как в RegistrationFlow)
+    if client_id:
+        pd_link = (f'<a href="https://pluson.ru/c/{int(client_id)}/privacy" '
+                   f'target="_blank" rel="noopener">Политикой обработки '
+                   f'персональных данных</a>')
+    else:
+        pd_link = "Политикой обработки персональных данных"
+
+    # Favicon — первая буква названия события (как на странице события)
+    _ev_title_raw = (event.get("title") or event.get("slug") or "•").strip()
+    fav_letter = _html.escape(_ev_title_raw[0].upper() if _ev_title_raw else "•")
+    favicon_svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        "<rect width='64' height='64' rx='14' fill='#25455D'/>"
+        "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
+        f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>"
+    )
+    import urllib.parse as _up
+    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Регистрация · {title}</title>
+<link rel="icon" href="{favicon_uri}">
+<style>
+  * {{ box-sizing:border-box; }}
+  html,body {{ margin:0; padding:0; font-family:'Roboto',-apple-system,BlinkMacSystemFont,sans-serif;
+    background:linear-gradient(45deg,#25455D,#0a1520); background-attachment:fixed; color:#1f2d3a; }}
+  .wrap {{ max-width:480px; margin:0 auto; min-height:100vh; background:#f7f8fa;
+    box-shadow:0 0 40px rgba(0,0,0,.35); display:flex; flex-direction:column; }}
+  .hero {{ background:linear-gradient(45deg,#25455D,#0a1520); color:#fff; padding:22px 18px 16px; }}
+  .hero .brand {{ font-size:12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:6px; }}
+  .hero h1 {{ font-size:21px; margin:0; line-height:1.25; }}
+  .poster {{ width:100%; aspect-ratio:16/9; border-radius:0; }}
+  .content {{ flex:1; padding:18px 16px 40px; }}
+  .card {{ background:#fff; border-radius:16px; padding:18px; box-shadow:0 2px 10px rgba(37,69,93,.08); }}
+  .lead {{ font-size:13px; color:#6b7c8e; line-height:1.45; margin:0 0 16px; }}
+  .field {{ margin-bottom:14px; }}
+  .field label {{ display:block; font-size:12px; font-weight:700; color:#25455D; margin-bottom:6px; }}
+  .field input {{ width:100%; border:1.5px solid #dde4ea; background:#f7f8fa; border-radius:10px;
+    padding:11px 12px; font-size:14px; color:#1a2a3a; font-family:inherit; }}
+  .field input:focus {{ outline:none; border-color:#FFCFA4; background:#fff; }}
+  .consents {{ margin:14px 0 4px; display:flex; flex-direction:column; gap:10px; }}
+  .consent {{ display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.4; color:#6b7c8e; }}
+  .consent input {{ margin-top:3px; flex-shrink:0; width:16px; height:16px; }}
+  .consent a {{ color:#b86b00; text-decoration:underline; }}
+  .btn {{ width:100%; padding:14px 16px; border:none; border-radius:12px; font-size:15px; font-weight:800;
+    cursor:pointer; font-family:inherit; background:linear-gradient(135deg,#FFCFA4,#f5b97e); color:#25455D;
+    box-shadow:0 2px 8px rgba(255,207,164,.4); margin-top:8px; }}
+  .btn:disabled {{ opacity:.6; cursor:default; }}
+  .err {{ color:#d9483b; font-size:13px; margin:10px 0 0; line-height:1.4; }}
+  .step2 {{ display:none; }}
+  .ok-box {{ text-align:center; padding:30px 10px; }}
+  .ok-box .tick {{ font-size:56px; margin-bottom:10px; }}
+  .ok-box h2 {{ color:#25455D; margin:0; }}
+  .ok-box p {{ color:#6b7c8e; font-size:14px; margin-top:10px; }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    {brand_block}
+    <h1>{title}</h1>
+  </div>
+  {poster_html}
+  <div class="content">
+    <div class="card" id="form-card">
+      <!-- ШАГ 1: email -->
+      <div class="step1" id="step1">
+        <p class="lead">Введите email — мы проверим, не регистрировались ли вы
+          ранее с другой соцсети или мессенджера.</p>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="f-email" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <button class="btn" id="btn-check" type="button">Продолжить</button>
+        <p class="err" id="err1" style="display:none"></p>
+      </div>
+
+      <!-- ШАГ 2: данные + согласия -->
+      <div class="step2" id="step2">
+        <p class="lead">Новый участник. Заполните данные, чтобы организатор мог
+          прислать материалы и подтвердить регистрацию.</p>
+        <div class="field">
+          <label>Имя</label>
+          <input type="text" id="f-name" placeholder="Ваше имя">
+        </div>
+        <div class="field">
+          <label>Телефон</label>
+          <input type="tel" id="f-phone" placeholder="+7 999 123-45-67">
+        </div>
+        <div class="field">
+          <label>Telegram-ник (необязательно)</label>
+          <input type="text" id="f-tg" placeholder="@username">
+        </div>
+        <div class="consents">
+          <label class="consent">
+            <input type="checkbox" id="c-pd">
+            <span>Я согласен на обработку моих персональных данных. С {pd_link} ознакомлен.</span>
+          </label>
+          <label class="consent">
+            <input type="checkbox" id="c-mkt">
+            <span>Я согласен на получение информационных и маркетинговых рассылок
+              от {brand}. Вы в любой момент можете отказаться от получения писем.</span>
+          </label>
+        </div>
+        <button class="btn" id="btn-create" type="button">Зарегистрироваться</button>
+        <p class="err" id="err2" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  var SLUG = {json.dumps(slug)};
+  var qs = new URLSearchParams(location.search);
+  var CONTACT_ID = qs.get('c') || null;
+
+  function isEmail(s) {{ return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s); }}
+  function isPhone(s) {{ return s.replace(/\\D/g,'').length >= 10; }}
+  function showErr(id, msg) {{
+    var el = document.getElementById(id);
+    el.textContent = msg; el.style.display = msg ? 'block' : 'none';
+  }}
+
+  async function post(body) {{
+    var r = await fetch('/event/' + encodeURIComponent(SLUG) + '/register-submit', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify(body),
+    }});
+    var data = {{}};
+    try {{ data = await r.json(); }} catch (e) {{}}
+    if (!r.ok) {{ throw new Error((data && data.detail) || 'Ошибка регистрации'); }}
+    return data;
+  }}
+
+  // ШАГ 1 — проверка email
+  var btnCheck = document.getElementById('btn-check');
+  btnCheck.addEventListener('click', async function() {{
+    var email = (document.getElementById('f-email').value || '').trim();
+    if (!isEmail(email)) {{ showErr('err1', 'Email указан неверно'); return; }}
+    showErr('err1', '');
+    btnCheck.disabled = true; btnCheck.textContent = 'Проверяем...';
+    try {{
+      var res = await post({{
+        contact_id: CONTACT_ID ? parseInt(CONTACT_ID, 10) : null,
+        email: email, step: 'check',
+      }});
+      if (res.found) {{
+        // уже есть/слили + зарегали → в кабинет
+        location.href = res.redirect;
+        return;
+      }}
+      // не нашли → шаг 2
+      document.getElementById('step1').style.display = 'none';
+      document.getElementById('step2').style.display = 'block';
+    }} catch (e) {{
+      showErr('err1', e.message || 'Не удалось проверить email');
+      btnCheck.disabled = false; btnCheck.textContent = 'Продолжить';
+    }}
+  }});
+
+  // ШАГ 2 — создание + регистрация
+  var btnCreate = document.getElementById('btn-create');
+  btnCreate.addEventListener('click', async function() {{
+    var email = (document.getElementById('f-email').value || '').trim();
+    var name = (document.getElementById('f-name').value || '').trim();
+    var phone = (document.getElementById('f-phone').value || '').trim();
+    var tg = (document.getElementById('f-tg').value || '').trim();
+    var pd = document.getElementById('c-pd').checked;
+    var mkt = document.getElementById('c-mkt').checked;
+    if (!name) {{ showErr('err2', 'Укажите имя'); return; }}
+    if (!isPhone(phone)) {{ showErr('err2', 'Телефон указан неверно'); return; }}
+    if (!pd) {{ showErr('err2', 'Без согласия на обработку персональных данных регистрация невозможна (152-ФЗ)'); return; }}
+    if (!mkt) {{ showErr('err2', 'Без согласия на маркетинговые рассылки регистрация невозможна'); return; }}
+    showErr('err2', '');
+    btnCreate.disabled = true; btnCreate.textContent = 'Регистрируем...';
+    try {{
+      var res = await post({{
+        contact_id: CONTACT_ID ? parseInt(CONTACT_ID, 10) : null,
+        email: email, name: name, phone: phone,
+        telegram_username: tg || null,
+        consent_pd: true, consent_marketing: true, step: 'create',
+      }});
+      if (res.redirect) {{ location.href = res.redirect; return; }}
+      location.reload();
+    }} catch (e) {{
+      showErr('err2', e.message || 'Не удалось зарегистрировать');
+      btnCreate.disabled = false; btnCreate.textContent = 'Зарегистрироваться';
+    }}
+  }});
+</script>
+</body>
+</html>"""
+
+
+@router.get("/event/{slug}/register", response_class=HTMLResponse,
+            include_in_schema=False)
+async def event_register_page(slug: str, c: str = "",
+                              db: asyncpg.Connection = Depends(get_db)):
+    event = await _resolve_event(db, slug)
+    if not event or event["status"] == "draft":
+        return HTMLResponse(content=_register_not_found_page(), status_code=404)
+    ev = dict(event)
+
+    contact_id = int(c) if c and c.isdigit() else None
+
+    # Если контакт уже зарегистрирован на это событие → сразу в кабинет.
+    if contact_id:
+        is_reg = await db.fetchval(
+            """SELECT TRUE FROM event_participants
+                WHERE event_id = $1 AND contact_id = $2 AND is_registered = TRUE
+                LIMIT 1""",
+            ev["id"], contact_id,
+        )
+        if is_reg:
+            return RedirectResponse(
+                url=f"/event/{ev['slug']}?c={contact_id}", status_code=302)
+
+    client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
+    poster_url = await _load_event_poster(db, ev["id"])
+
+    html_str = render_register_page(ev, client, poster_url)
+    return HTMLResponse(
+        content=html_str,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
+async def _set_consents(db, contact_id, request, consent_pd, consent_marketing):
+    """Фиксируем согласия 152-ФЗ (как в participants.register_participant)."""
+    ip = (request.client.host if request and request.client else "") or ""
+    if consent_pd is True:
+        await db.execute(
+            """UPDATE contacts
+                  SET consent_pd_at = COALESCE(consent_pd_at, NOW()),
+                      consent_pd_ip = COALESCE(consent_pd_ip, $2),
+                      consent_pd_policy_ver = COALESCE(consent_pd_policy_ver, 0)
+                WHERE id = $1""",
+            contact_id, ip[:64],
+        )
+    if consent_marketing is True:
+        await db.execute(
+            """UPDATE contacts
+                  SET consent_marketing_at = COALESCE(consent_marketing_at, NOW()),
+                      consent_marketing_ip = COALESCE(consent_marketing_ip, $2),
+                      consent_marketing_policy_ver = COALESCE(consent_marketing_policy_ver, 0)
+                WHERE id = $1""",
+            contact_id, ip[:64],
+        )
+
+
+@router.post("/event/{slug}/register-submit", include_in_schema=False)
+async def event_register_submit(slug: str, request: Request,
+                                db: asyncpg.Connection = Depends(get_db)):
+    from app.services.contact_merge import (
+        normalize_email, find_or_create_contact, merge_contacts,
+        sync_email_identity_and_subscription,
+    )
+    from app.services.participant_registration import (
+        finalize_participant_registration,
+    )
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    event = await _resolve_event(db, slug)
+    if not event or event["status"] != "published":
+        return JSONResponse({"detail": "Событие не найдено"}, status_code=404)
+    event_id = event["id"]
+    client_id = event["client_id"]
+    real_slug = event["slug"]
+
+    email_raw = (body.get("email") or "").strip()
+    email_norm = normalize_email(email_raw)
+    if not email_norm:
+        return JSONResponse({"detail": "Укажите корректный email"},
+                            status_code=400)
+
+    step = body.get("step") or "check"
+    link_cid = body.get("contact_id")
+    try:
+        link_cid = int(link_cid) if link_cid is not None else None
+    except (ValueError, TypeError):
+        link_cid = None
+    name = (body.get("name") or "").strip() or None
+    phone = (body.get("phone") or "").strip() or None
+    tg_username = (body.get("telegram_username") or "").strip() or None
+
+    # Поиск контакта по email-идентичности у этого клиента
+    found_cid = await db.fetchval(
+        """SELECT c.id FROM contacts c
+             JOIN platform_users pu ON pu.contact_id = c.id
+              AND pu.platform_slug = 'email'
+              AND pu.platform_user_id = $2
+            WHERE c.client_id = $1 AND c.merged_into IS NULL
+            LIMIT 1""",
+        client_id, email_norm,
+    )
+
+    async def _register(target_cid):
+        """UPSERT участника is_registered=TRUE + финализация."""
+        await db.execute(
+            """INSERT INTO event_participants (event_id, contact_id, is_registered)
+                 VALUES ($1, $2, TRUE)
+                 ON CONFLICT (event_id, contact_id)
+                 DO UPDATE SET is_registered = TRUE""",
+            event_id, target_cid,
+        )
+        await finalize_participant_registration(
+            db, event_id=event_id, contact_id=target_cid)
+
+    # ── EMAIL НАЙДЕН ──
+    if found_cid:
+        target_cid = found_cid
+        # Слить контакт из ссылки в найденный (найденный старше, у него email)
+        if link_cid and link_cid != found_cid:
+            try:
+                await merge_contacts(
+                    db, primary_id=found_cid, secondary_id=link_cid,
+                    client_id=client_id)
+            except Exception:
+                pass  # мердж не критичен — берём найденный
+        await _register(target_cid)
+        return JSONResponse({
+            "found": True, "registered": True, "contact_id": target_cid,
+            "redirect": f"/event/{real_slug}?c={target_cid}",
+        })
+
+    # ── EMAIL НЕ НАЙДЕН ──
+    if step == "check":
+        # Только проверка email (шаг 1) — пока ничего не создаём
+        return JSONResponse({"found": False})
+
+    # step == 'create' — создаём/дозаполняем + регистрируем
+    if link_cid:
+        # Используем контакт из ссылки: добавляем email + дозаполняем
+        target_cid = link_cid
+        await sync_email_identity_and_subscription(
+            db, client_id=client_id, contact_id=target_cid,
+            email=email_norm, first_name=name)
+        await db.execute(
+            """UPDATE contacts
+                  SET name  = COALESCE(name, $2),
+                      phone = COALESCE(phone, $3),
+                      updated_at = NOW()
+                WHERE id = $1""",
+            target_cid, name, phone,
+        )
+        # Опциональный TG-ник → псевдо-идентичность (если ещё нет telegram)
+        if tg_username:
+            uname = tg_username.lstrip("@")
+            if uname:
+                try:
+                    exists = await db.fetchval(
+                        """SELECT 1 FROM platform_users
+                            WHERE contact_id = $1 AND platform_slug = 'telegram'
+                            LIMIT 1""",
+                        target_cid,
+                    )
+                    if not exists:
+                        await db.execute(
+                            """INSERT INTO platform_users
+                                   (client_id, contact_id, platform_slug,
+                                    platform_user_id, username)
+                                 VALUES ($1, $2, 'telegram', $3, $4)
+                                 ON CONFLICT DO NOTHING""",
+                            client_id, target_cid, "@" + uname, uname,
+                        )
+                except Exception:
+                    pass
+    else:
+        # Новый контакт
+        target_cid, _is_new = await find_or_create_contact(
+            db, client_id=client_id, name=name, email=email_raw, phone=phone)
+
+    await _set_consents(
+        db, target_cid, request,
+        bool(body.get("consent_pd")), bool(body.get("consent_marketing")))
+    await _register(target_cid)
+    return JSONResponse({
+        "found": False, "registered": True, "contact_id": target_cid,
+        "redirect": f"/event/{real_slug}?c={target_cid}",
+    })
