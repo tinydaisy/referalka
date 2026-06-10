@@ -1159,15 +1159,12 @@ async def send_vk_event_funnel(
         "Добрейшего-богатейшего! 🤝\n\n"
         "Здесь вы можете зарегистрироваться на наше событие:\n"
         f"«{title}»\n\n"
-        "Нажмите на кнопку ниже — ту, которая у вас сработает с учётом скорости "
-        f"вашего интернета.{support}"
+        f"Нажмите кнопку ниже, чтобы зарегистрироваться.{support}"
     )
 
-    # Кнопка «Мини-Апп» — полный VK Mini App события (старый ref_pg-путь).
-    mini_app_link = build_vk_link(slug, app_id=client_vk_app_id, partner_id=pid or None,
-                                  contact_id=contact_id or None)
-
-    # Кнопка «Веб-версия» — сторонний лендинг (если задан и опубликован), иначе внутренний веб.
+    # Одна кнопка «Зарегистрироваться» → сторонний лендинг (если задан и
+    # опубликован) ЛИБО встроенный веб pluson.ru/event/{slug} — с передачей
+    # contact_id, pid, utm, external_ref_param рефовода и полей контакта.
     internal_web = (f"https://pluson.ru/event/{slug}?c={contact_id}"
                     if contact_id else f"https://pluson.ru/event/{slug}")
     landing_url = (event_row["landing_url"] or "").strip()
@@ -1187,8 +1184,7 @@ async def send_vk_event_funnel(
         web_url = internal_web
 
     keyboard = tg_inline_to_vk_keyboard([
-        [{"text": "Открыть в Мини-Апп", "url": mini_app_link}],
-        [{"text": "Открыть в Веб-версии", "url": web_url}],
+        [{"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url}],
     ])
     mid = await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
     return bool(mid)

@@ -979,9 +979,11 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             web_url = internal_web
             reg_url = internal_web
 
+    # Одна кнопка «Зарегистрироваться» → сторонний лендинг (если задан и
+    # опубликован) ЛИБО встроенный веб pluson.ru/event/{slug} — с передачей
+    # contact_id, pid, utm, external_ref_param рефовода и полей контакта.
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Открыть в Мини-Апп", url=mini_app_link)],
-        [InlineKeyboardButton(text="Открыть в Веб-версии", url=web_url)],
+        [InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=web_url)],
     ])
 
     # Если у события есть афиша — шлём фото с подписью; иначе обычный текст.
