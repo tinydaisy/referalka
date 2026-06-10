@@ -30,6 +30,9 @@ export default function PublicLinks({
   eventStatus?: 'draft' | 'published' | 'ended' | null
   /** Текущий тип ссылок события: 'miniapp' (Mini App) | 'bot' (через ботов). */
   linkMode?: 'miniapp' | 'bot' | null
+  /** Если передан — управляемый режим: радио НЕ сохраняет сразу, а зовёт callback
+   *  (сохранение делает общая кнопка «Сохранить» на странице). Иначе — авто-сохранение. */
+  onLinkModeChange?: (mode: 'miniapp' | 'bot') => void
 }) {
   const isDraft = eventStatus === 'draft'
   const [copied, setCopied] = useState<string | null>(null)
@@ -76,9 +79,18 @@ export default function PublicLinks({
     }
   }
 
-  // Смена активного режима ссылок (радиокнопка) → PATCH events.link_mode.
+  // Смена активного режима ссылок (радиокнопка).
+  // Управляемый режим (onLinkModeChange передан) — только меняем локально и
+  // сообщаем родителю; сохранение делает общая кнопка «Сохранить».
+  // Иначе (legacy) — сразу PATCH events.link_mode.
   async function changeMode(next: 'miniapp' | 'bot') {
-    if (next === mode || !editable) { setMode(next); return }
+    if (next === mode) return
+    if (onLinkModeChange) {
+      setMode(next)
+      onLinkModeChange(next)
+      return
+    }
+    if (!editable) { setMode(next); return }
     const prev = mode
     setMode(next); setModeSaving(true)
     try {

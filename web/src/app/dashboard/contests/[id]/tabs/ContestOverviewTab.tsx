@@ -28,6 +28,7 @@ export default function ContestOverviewTab({
   })
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
+  const [linkMode, setLinkMode] = useState<'miniapp' | 'bot'>(event.link_mode === 'bot' ? 'bot' : 'miniapp')
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -67,6 +68,7 @@ export default function ContestOverviewTab({
       const endIso = endAt ? new Date(endAt).toISOString() : null
       const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
       if (endIso !== eventEndIso)                               payload.end_at = endIso
+      if (linkMode !== (event.link_mode === 'bot' ? 'bot' : 'miniapp')) payload.link_mode = linkMode
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -141,7 +143,17 @@ export default function ContestOverviewTab({
         </div>
       </div>
 
-      {/* Save bar */}
+      {/* 3) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}
+      <PublicLinks
+        slug={event?.slug}
+        eventId={eventId}
+        onSlugSaved={onReload}
+        eventStatus={event?.status}
+        linkMode={linkMode}
+        onLinkModeChange={setLinkMode}
+      />
+
+      {/* Save bar — в самом низу страницы */}
       {err && <div className="text-sm text-red-600">{err}</div>}
       <div className="flex items-center gap-3">
         <button onClick={handleSave} disabled={saving}
@@ -152,9 +164,6 @@ export default function ContestOverviewTab({
         </button>
         {savedFlash && <span className="text-sm text-green-600">Сохранено ✓</span>}
       </div>
-
-      {/* 3) ПУБЛИЧНЫЕ ССЫЛКИ */}
-      <PublicLinks slug={event?.slug} eventId={eventId} onSlugSaved={onReload} eventStatus={event?.status} linkMode={event?.link_mode} />
 
       <style jsx>{`
         .input {
