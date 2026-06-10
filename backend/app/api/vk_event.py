@@ -1174,11 +1174,133 @@ async def send_vk_event_funnel(
     await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
 
 
+async def _vk_event_landing_background(body: VkEventLandingRequest, vk_user_id: int) -> None:
+    """Тяжёлая часть event-landing В ФОНЕ (после ответа фронту): upsert контакта,
+    подписка, рефовод, participant, отправка ЛС с афишей (upload на VK), nurture,
+    уведомление организатору. Берёт СВОЙ коннект из пула — коннект запроса уже
+    вернулся в пул к моменту запуска фона."""
+    pool = await get_pool()
+    if not pool:
+        return
+    try:
+        async with pool.acquire() as conn:
+            ev = await conn.fetchrow(
+                f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e WHERE e.slug = $1 LIMIT 1",
+                body.slug,
+            )
+            if not ev:
+                return
+            client_id = ev["client_id"]
+
+            chan = await conn.fetchrow(
+                """SELECT ch.bot_token,
+                          (ch.platform_meta->>'vk_app_id')::int AS vk_app_id
+                     FROM client_channels cc
+                     JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.client_id = $1 AND cc.is_active = TRUE
+                      AND ch.platform_slug = 'vk' AND ch.is_system = FALSE
+                    LIMIT 1""",
+                client_id,
+            )
+            client_token = chan["bot_token"] if chan else None
+            client_vk_app_id = chan["vk_app_id"] if chan else None
+
+            contact_id, pu_id, is_new = await upsert_contact_with_identity(
+                conn,
+                client_id=client_id,
+                platform_slug="vk",
+                platform_user_id=str(vk_user_id),
+                username=body.username or None,
+                first_name=body.first_name or None,
+                last_name=body.last_name or None,
+                utm_source=body.utm_source or None,
+                known_contact_id=body.contact_id or None,
+            )
+
+            try:
+                from app.services.channels import register_platform_channel_subscription
+                await register_platform_channel_subscription(client_id, "vk", pu_id, conn)
+            except Exception as e:
+                logger.warning(f"VK event-landing channel subscription failed (pu={pu_id}): {e}")
+
+            resolved_ref_code = None
+            referrer_contact_id = None
+            if body.partner_id:
+                resolved_ref_code, referrer_contact_id = await resolve_ref_code(
+                    conn, body.partner_id, client_id=client_id,
+                )
+
+            referrer_participant_id = None
+            if referrer_contact_id:
+                referrer_participant_id = await conn.fetchval(
+                    "SELECT id FROM event_participants WHERE contact_id = $1 AND event_id = $2 LIMIT 1",
+                    referrer_contact_id, ev["id"],
+                )
+            inserted = await conn.fetchval(
+                """INSERT INTO event_participants
+                      (event_id, contact_id, referrer_participant_id, referrer_ref_code)
+                   VALUES ($1, $2, $3, $4)
+                   ON CONFLICT (event_id, contact_id) DO NOTHING
+                   RETURNING id""",
+                ev["id"], contact_id, referrer_participant_id, resolved_ref_code,
+            )
+            is_registered = bool(await conn.fetchval(
+                "SELECT is_registered FROM event_participants WHERE event_id=$1 AND contact_id=$2",
+                ev["id"], contact_id,
+            ))
+
+            try:
+                await send_vk_event_funnel(
+                    conn,
+                    vk_user_id=vk_user_id,
+                    token=client_token,
+                    client_vk_app_id=client_vk_app_id,
+                    event_row=ev,
+                    contact_id=contact_id,
+                    is_registered=is_registered,
+                    pid=body.partner_id,
+                    utm_source=body.utm_source,
+                    first_name=body.first_name,
+                )
+            except Exception as e:
+                logger.warning(f"VK event-landing funnel message failed (vk={vk_user_id}): {e}")
+
+            try:
+                from app.api.event_nurture import start_nurture_run_if_eligible
+                await start_nurture_run_if_eligible(
+                    conn, event_id=ev["id"], contact_id=contact_id, is_registered=is_registered,
+                )
+            except Exception as e:
+                logger.warning(f"VK event-landing nurture failed: {e}")
+
+            if inserted:
+                try:
+                    await _send_event_organizer_notification(
+                        conn,
+                        client_id=client_id,
+                        event_id=ev["id"],
+                        event_title=ev["title"],
+                        contact_id=contact_id,
+                        platform_slug="vk",
+                        referrer_contact_id=referrer_contact_id,
+                        tg_id=None,
+                    )
+                except Exception as e:
+                    logger.warning(f"VK event-landing organizer notification failed: {e}")
+    except Exception as e:
+        logger.warning(f"VK event-landing background failed (vk={vk_user_id}): {e}")
+
+
 @router.post("/vk/event-landing", summary="Лёгкая заглушка открытия события в VK (evl_)")
 async def vk_event_landing(body: VkEventLandingRequest):
     """Открыта альтернативная VK-ссылка события `vk.com/app{aid}#evl_<slug>`.
-    Регистрируем контакт/подписку/участие и шлём в ЛС порт TG-воронки события.
+
+    Отвечаем фронту МГНОВЕННО (group_id + афиша + title для лёгкого экрана), а всю
+    тяжёлую работу (регистрация контакта/подписки/участия + отправка ЛС с upload
+    афиши на VK + nurture + уведомление) выполняем В ФОНЕ. Раньше фронт ждал весь
+    этот блок (~до 30с из-за upload афиши) — отсюда долгое открытие экрана.
     Старый полный Mini App (`#ref_pg`, /vk/event) не затрагивается."""
+    import asyncio
     vk_app_id_raw = body.launch_params.get("vk_app_id")
 
     pool = await get_pool()
@@ -1199,122 +1321,32 @@ async def vk_event_landing(body: VkEventLandingRequest):
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="vk_user_id must be int")
 
-        # Событие + клиент по slug.
+        # Быстрый резолв для ОТВЕТА: событие + group_id + афиша (без тяжёлой работы).
         ev = await conn.fetchrow(
-            f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e WHERE e.slug = $1 LIMIT 1",
+            """SELECT e.id, e.title,
+                      (SELECT url FROM event_posters
+                         WHERE event_id = e.id
+                         ORDER BY CASE orientation
+                                    WHEN 'horizontal' THEN 1 WHEN 'square' THEN 2
+                                    WHEN 'vertical' THEN 3 ELSE 4 END, sort, id
+                         LIMIT 1) AS poster_url,
+                      e.client_id
+                 FROM events e WHERE e.slug = $1 LIMIT 1""",
             body.slug,
         )
         if not ev:
             raise HTTPException(status_code=404, detail="Событие не найдено")
-        client_id = ev["client_id"]
-
-        # Канал/токен/group_id/vk_app_id клиентского VK-сообщества.
-        chan = await conn.fetchrow(
-            """SELECT ch.bot_token,
-                      (ch.platform_meta->>'vk_group_id')::int AS vk_group_id,
-                      (ch.platform_meta->>'vk_app_id')::int  AS vk_app_id
-                 FROM client_channels cc
-                 JOIN channels ch ON ch.id = cc.channel_id
-                WHERE cc.client_id = $1
-                  AND cc.is_active = TRUE
-                  AND ch.platform_slug = 'vk'
-                  AND ch.is_system = FALSE
+        group_id = await conn.fetchval(
+            """SELECT (ch.platform_meta->>'vk_group_id')::int
+                 FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1 AND cc.is_active = TRUE
+                  AND ch.platform_slug = 'vk' AND ch.is_system = FALSE
                 LIMIT 1""",
-            client_id,
-        )
-        client_token = chan["bot_token"] if chan else None
-        client_vk_app_id = chan["vk_app_id"] if chan else None
-        group_id = chan["vk_group_id"] if chan else 0
+            ev["client_id"],
+        ) or 0
 
-        # Контакт + идентичность (vk).
-        contact_id, pu_id, is_new = await upsert_contact_with_identity(
-            conn,
-            client_id=client_id,
-            platform_slug="vk",
-            platform_user_id=str(vk_user_id),
-            username=body.username or None,
-            first_name=body.first_name or None,
-            last_name=body.last_name or None,
-            utm_source=body.utm_source or None,
-            known_contact_id=body.contact_id or None,
-        )
-
-        # Подписка на главный VK-канал клиента (наполняем базу рассылок).
-        try:
-            from app.services.channels import register_platform_channel_subscription
-            await register_platform_channel_subscription(client_id, "vk", pu_id, conn)
-        except Exception as e:
-            logger.warning(f"VK event-landing channel subscription failed (pu={pu_id}): {e}")
-
-        # Рефовод по pid.
-        resolved_ref_code = None
-        referrer_contact_id = None
-        if body.partner_id:
-            resolved_ref_code, referrer_contact_id = await resolve_ref_code(
-                conn, body.partner_id, client_id=client_id,
-            )
-
-        # event_participants.
-        referrer_participant_id = None
-        if referrer_contact_id:
-            referrer_participant_id = await conn.fetchval(
-                "SELECT id FROM event_participants WHERE contact_id = $1 AND event_id = $2 LIMIT 1",
-                referrer_contact_id, ev["id"],
-            )
-        inserted = await conn.fetchval(
-            """INSERT INTO event_participants
-                  (event_id, contact_id, referrer_participant_id, referrer_ref_code)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (event_id, contact_id) DO NOTHING
-               RETURNING id""",
-            ev["id"], contact_id, referrer_participant_id, resolved_ref_code,
-        )
-        is_registered = bool(await conn.fetchval(
-            "SELECT is_registered FROM event_participants WHERE event_id=$1 AND contact_id=$2",
-            ev["id"], contact_id,
-        ))
-
-        # ЛС-воронка события (порт TG).
-        try:
-            await send_vk_event_funnel(
-                conn,
-                vk_user_id=vk_user_id,
-                token=client_token,
-                client_vk_app_id=client_vk_app_id,
-                event_row=ev,
-                contact_id=contact_id,
-                is_registered=is_registered,
-                pid=body.partner_id,
-                utm_source=body.utm_source,
-                first_name=body.first_name,
-            )
-        except Exception as e:
-            logger.warning(f"VK event-landing funnel message failed (vk={vk_user_id}): {e}")
-
-        # Nurture-воронка (запуск/останов).
-        try:
-            from app.api.event_nurture import start_nurture_run_if_eligible
-            await start_nurture_run_if_eligible(
-                conn, event_id=ev["id"], contact_id=contact_id, is_registered=is_registered,
-            )
-        except Exception as e:
-            logger.warning(f"VK event-landing nurture failed: {e}")
-
-        # Уведомление организатору — только при первом INSERT.
-        if inserted:
-            try:
-                await _send_event_organizer_notification(
-                    conn,
-                    client_id=client_id,
-                    event_id=ev["id"],
-                    event_title=ev["title"],
-                    contact_id=contact_id,
-                    platform_slug="vk",
-                    referrer_contact_id=referrer_contact_id,
-                    tg_id=None,
-                )
-            except Exception as e:
-                logger.warning(f"VK event-landing organizer notification failed: {e}")
+    # Тяжёлую часть — в фон, фронту отвечаем сразу.
+    asyncio.create_task(_vk_event_landing_background(body, vk_user_id))
 
     return {
         "ok": True,
