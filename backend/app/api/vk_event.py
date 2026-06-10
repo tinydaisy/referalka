@@ -21,7 +21,11 @@ from ..config import settings
 from ..database import get_pool
 from ..services.contact_merge import upsert_contact_with_identity, resolve_ref_code
 from ..services.vk_auth import validate_vk_launch_params
-from ..services.vk_api import send_message as vk_send_message, tg_inline_to_vk_keyboard
+from ..services.vk_api import (
+    send_message as vk_send_message,
+    tg_inline_to_vk_keyboard,
+    upload_photo_to_messages,
+)
 from ..services.share_links import vk_link as build_vk_link
 from ..services.event_welcome import _send_event_organizer_notification
 
@@ -63,6 +67,25 @@ class VkFunnelLandingRequest(BaseModel):
 class VkFunnelStartRequest(BaseModel):
     launch_params: dict[str, str]
     run_id: int
+
+
+class VkEventLandingRequest(BaseModel):
+    """Лёгкая заглушка открытия СОБЫТИЯ в VK (альтернатива полному Mini App).
+
+    Открывается по `vk.com/app{aid}#evl_<slug>[_pid<ref>][_src<utm>][_ct<id>]`.
+    Mini App показывает лёгкий экран «подробности в чате», вызывает write_access +
+    join_group и шлёт сюда. Бэк регистрирует контакт/подписку/рефовода/участие и
+    отправляет в ЛС сообщества ПОЛНЫЙ порт TG-воронки события (приветствие с афишей
+    и кнопками для незарег. / меню кабинета для зарег.). Старый `#ref_pg<slug>`
+    (полный Mini App через /vk/event) продолжает работать без изменений."""
+    launch_params: dict[str, str]
+    slug: str
+    partner_id: str = ""
+    utm_source: str = ""
+    contact_id: int = 0  # сквозной contact_id (из startapp ct<N>) — против дублей
+    first_name: str = ""
+    last_name: str = ""
+    username: str = ""
 
 
 @router.post("/vk/funnel-landing", summary="Прямая landing-воронка из VK Mini App (по slug)")
@@ -971,4 +994,331 @@ async def handle_vk_event(body: VkEventRequest):
         "event_title": event_title,
         "has_email": has_email,
         "has_phone": has_phone,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VK event-landing: лёгкая заглушка открытия события (альтернатива Mini App).
+# Маркер `evl_<slug>`. Бэк регистрирует контакт/подписку/участие и шлёт в ЛС
+# ПОЛНЫЙ порт TG-воронки события (start.py:_handle_ref_event_bot_flow / send_event_menu).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Поля события, нужные для порта ЛС-воронки (зеркало SELECT'ов в TG-боте).
+_EVENT_FUNNEL_FIELDS = """
+    e.id, e.client_id, e.slug, e.title, e.module_slug, e.status,
+    e.landing_url, e.vip_url, e.vip_button_label,
+    e.chat_url_tg, e.chat_url_vk, e.chat_url_max,
+    (SELECT url FROM event_posters
+       WHERE event_id = e.id
+       ORDER BY CASE orientation
+                  WHEN 'horizontal' THEN 1
+                  WHEN 'square'     THEN 2
+                  WHEN 'vertical'   THEN 3
+                  ELSE 4
+                END, sort, id
+       LIMIT 1) AS poster_url
+"""
+
+
+async def _resolve_vk_secure_key(conn, vk_app_id_raw) -> str | None:
+    """Возвращает secure_key для валидации launch_params: клиентский (из
+    channels.platform_meta) если vk_app_id ≠ системного, иначе системный.
+    Повторяет логику /vk/event и /vk/funnel-landing — вынесено, чтобы не дублировать."""
+    secure_key: str | None = settings.vk_app_secure_key
+    try:
+        if vk_app_id_raw and int(vk_app_id_raw) != int(getattr(settings, "vk_app_id", "0") or 0):
+            row = await conn.fetchrow(
+                """SELECT platform_meta->>'vk_secure_key' AS sk
+                     FROM channels
+                    WHERE platform_slug = 'vk'
+                      AND (platform_meta->>'vk_app_id')::int = $1
+                    LIMIT 1""",
+                int(vk_app_id_raw),
+            )
+            if row and row["sk"]:
+                secure_key = row["sk"]
+    except Exception as e:
+        logger.warning(f"VK secure_key lookup failed for app_id={vk_app_id_raw}: {e}")
+    return secure_key
+
+
+async def send_vk_event_funnel(
+    conn,
+    *,
+    vk_user_id: int,
+    token: str | None,
+    client_vk_app_id: int | None,
+    event_row,
+    contact_id: int,
+    is_registered: bool,
+    pid: str = "",
+    utm_source: str = "",
+    first_name: str = "",
+) -> None:
+    """Порт TG-воронки события (start.py) в VK ЛС 1:1.
+
+    НЕ зарегистрирован → приветствие с афишей + 2 кнопки (Мини-Апп / Веб-версия).
+    Зарегистрирован → меню кабинета (VIP / Чат / Кабинет / Эфир / Программа).
+    Чат и Эфир — callback-кнопки (evchat_/evlive_), их ловит vk_main.py.
+    """
+    from ..services.external_landing import (
+        get_contact_landing_params,
+        resolve_referrer_external_ref_param,
+        build_external_landing_url,
+        enrich_external_url,
+    )
+
+    slug = event_row["slug"]
+    event_id = event_row["id"]
+    client_id = event_row["client_id"]
+    title = event_row["title"] or ""
+    poster_url = (event_row["poster_url"] or "").strip()
+    cid_q = f"?c={contact_id}" if contact_id else ""
+
+    # Афишу грузим один раз → attachment (graceful: нет/упало → без фото).
+    attachment = None
+    if poster_url and token:
+        try:
+            attachment = await upload_photo_to_messages(poster_url, peer_id=vk_user_id, token=token)
+        except Exception as e:
+            logger.warning(f"VK event-funnel poster upload failed ({poster_url}): {e}")
+
+    # ── Зарегистрирован → меню кабинета (порт send_event_menu) ────────────────
+    if is_registered:
+        text = (
+            f"Вы зарегистрированы на событие:\n«{title}»\n\n"
+            "Это ваше меню — выбирайте, что нужно 👇"
+        )
+        rows: list[list[dict]] = []
+
+        # 1. VIP — только если задан vip_url.
+        vip_url = (event_row["vip_url"] or "").strip()
+        if vip_url:
+            contact_params = await get_contact_landing_params(conn, contact_id) if contact_id else {}
+            erp = await resolve_referrer_external_ref_param(conn, client_id, contact_id=contact_id)
+            vip_target = enrich_external_url(
+                vip_url,
+                pluson_contact_id=contact_id,
+                event_slug=slug,
+                external_ref_param=erp,
+                **contact_params,
+            )
+            vip_label = (event_row["vip_button_label"] or "").strip() or "Выбрать формат участия"
+            rows.append([{"text": vip_label, "url": vip_target}])
+
+        # 2. Вступить в Чат — callback (если есть хоть одна chat-ссылка).
+        has_chat = bool((event_row["chat_url_tg"] or "").strip()
+                        or (event_row["chat_url_vk"] or "").strip()
+                        or (event_row["chat_url_max"] or "").strip())
+        if has_chat:
+            rows.append([{"text": "📝 Вступить в Чат", "callback_data": f"evchat_{event_id}"}])
+
+        # 3. Кабинет и подарки → веб-страница, вкладка кабинета.
+        rows.append([{"text": "🎁 Кабинет и подарки",
+                      "url": f"https://pluson.ru/event/{slug}{cid_q}#cabinet"}])
+
+        # 4. Ссылка на эфир — callback.
+        rows.append([{"text": "📺 Ссылка на эфир", "callback_data": f"evlive_{event_id}"}])
+
+        # 5. Программа (+ спикеры для конф/турниров).
+        prog_label = ("Программа и Спикеры"
+                      if event_row["module_slug"] in ("conference", "turnir")
+                      else "Программа")
+        rows.append([{"text": prog_label,
+                      "url": f"https://pluson.ru/event/{slug}{cid_q}#program"}])
+
+        keyboard = tg_inline_to_vk_keyboard(rows)
+        await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
+        return
+
+    # ── НЕ зарегистрирован → приветствие + 2 кнопки (порт _handle_ref_event_bot_flow) ──
+    work_tg = await conn.fetchval(
+        "SELECT work_tg_username FROM clients WHERE id = $1", client_id
+    ) or ""
+    support = f"\n\nЕсть вопрос? Напишите @{work_tg}" if work_tg else ""
+    text = (
+        "Добрейшего-богатейшего! 🤝\n\n"
+        "Здесь вы можете зарегистрироваться на наше событие:\n"
+        f"«{title}»\n\n"
+        "Нажмите на кнопку ниже — ту, которая у вас сработает с учётом скорости "
+        f"вашего интернета.{support}"
+    )
+
+    # Кнопка «Мини-Апп» — полный VK Mini App события (старый ref_pg-путь).
+    mini_app_link = build_vk_link(slug, app_id=client_vk_app_id, partner_id=pid or None,
+                                  contact_id=contact_id or None)
+
+    # Кнопка «Веб-версия» — сторонний лендинг (если задан и опубликован), иначе внутренний веб.
+    internal_web = (f"https://pluson.ru/event/{slug}?c={contact_id}"
+                    if contact_id else f"https://pluson.ru/event/{slug}")
+    landing_url = (event_row["landing_url"] or "").strip()
+    if landing_url and event_row["status"] == "published":
+        contact_params = await get_contact_landing_params(conn, contact_id) if contact_id else {}
+        erp = await resolve_referrer_external_ref_param(conn, client_id, pid=pid or None, contact_id=contact_id)
+        web_url = build_external_landing_url(
+            landing_url,
+            event_slug=slug,
+            contact_id=contact_id,
+            pid=pid or None,
+            utm_source=utm_source or None,
+            external_ref_param=erp,
+            **contact_params,
+        )
+    else:
+        web_url = internal_web
+
+    keyboard = tg_inline_to_vk_keyboard([
+        [{"text": "Открыть в Мини-Апп", "url": mini_app_link}],
+        [{"text": "Открыть в Веб-версии", "url": web_url}],
+    ])
+    await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
+
+
+@router.post("/vk/event-landing", summary="Лёгкая заглушка открытия события в VK (evl_)")
+async def vk_event_landing(body: VkEventLandingRequest):
+    """Открыта альтернативная VK-ссылка события `vk.com/app{aid}#evl_<slug>`.
+    Регистрируем контакт/подписку/участие и шлём в ЛС порт TG-воронки события.
+    Старый полный Mini App (`#ref_pg`, /vk/event) не затрагивается."""
+    vk_app_id_raw = body.launch_params.get("vk_app_id")
+
+    pool = await get_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="db not available")
+
+    async with pool.acquire() as conn:
+        # Валидация подписи нужным ключом (клиентский Mini App имеет свой secure_key).
+        secure_key = await _resolve_vk_secure_key(conn, vk_app_id_raw)
+        if not secure_key or not validate_vk_launch_params(body.launch_params, secure_key):
+            raise HTTPException(status_code=403, detail="Invalid VK launch params signature")
+
+        vk_user_id_raw = body.launch_params.get("vk_user_id")
+        if not vk_user_id_raw:
+            raise HTTPException(status_code=400, detail="vk_user_id required")
+        try:
+            vk_user_id = int(vk_user_id_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="vk_user_id must be int")
+
+        # Событие + клиент по slug.
+        ev = await conn.fetchrow(
+            f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e WHERE e.slug = $1 LIMIT 1",
+            body.slug,
+        )
+        if not ev:
+            raise HTTPException(status_code=404, detail="Событие не найдено")
+        client_id = ev["client_id"]
+
+        # Канал/токен/group_id/vk_app_id клиентского VK-сообщества.
+        chan = await conn.fetchrow(
+            """SELECT ch.bot_token,
+                      (ch.platform_meta->>'vk_group_id')::int AS vk_group_id,
+                      (ch.platform_meta->>'vk_app_id')::int  AS vk_app_id
+                 FROM client_channels cc
+                 JOIN channels ch ON ch.id = cc.channel_id
+                WHERE cc.client_id = $1
+                  AND cc.is_active = TRUE
+                  AND ch.platform_slug = 'vk'
+                  AND ch.is_system = FALSE
+                LIMIT 1""",
+            client_id,
+        )
+        client_token = chan["bot_token"] if chan else None
+        client_vk_app_id = chan["vk_app_id"] if chan else None
+        group_id = chan["vk_group_id"] if chan else 0
+
+        # Контакт + идентичность (vk).
+        contact_id, pu_id, is_new = await upsert_contact_with_identity(
+            conn,
+            client_id=client_id,
+            platform_slug="vk",
+            platform_user_id=str(vk_user_id),
+            username=body.username or None,
+            first_name=body.first_name or None,
+            last_name=body.last_name or None,
+            utm_source=body.utm_source or None,
+            known_contact_id=body.contact_id or None,
+        )
+
+        # Подписка на главный VK-канал клиента (наполняем базу рассылок).
+        try:
+            from app.services.channels import register_platform_channel_subscription
+            await register_platform_channel_subscription(client_id, "vk", pu_id, conn)
+        except Exception as e:
+            logger.warning(f"VK event-landing channel subscription failed (pu={pu_id}): {e}")
+
+        # Рефовод по pid.
+        resolved_ref_code = None
+        referrer_contact_id = None
+        if body.partner_id:
+            resolved_ref_code, referrer_contact_id = await resolve_ref_code(
+                conn, body.partner_id, client_id=client_id,
+            )
+
+        # event_participants.
+        referrer_participant_id = None
+        if referrer_contact_id:
+            referrer_participant_id = await conn.fetchval(
+                "SELECT id FROM event_participants WHERE contact_id = $1 AND event_id = $2 LIMIT 1",
+                referrer_contact_id, ev["id"],
+            )
+        inserted = await conn.fetchval(
+            """INSERT INTO event_participants
+                  (event_id, contact_id, referrer_participant_id, referrer_ref_code)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (event_id, contact_id) DO NOTHING
+               RETURNING id""",
+            ev["id"], contact_id, referrer_participant_id, resolved_ref_code,
+        )
+        is_registered = bool(await conn.fetchval(
+            "SELECT is_registered FROM event_participants WHERE event_id=$1 AND contact_id=$2",
+            ev["id"], contact_id,
+        ))
+
+        # ЛС-воронка события (порт TG).
+        try:
+            await send_vk_event_funnel(
+                conn,
+                vk_user_id=vk_user_id,
+                token=client_token,
+                client_vk_app_id=client_vk_app_id,
+                event_row=ev,
+                contact_id=contact_id,
+                is_registered=is_registered,
+                pid=body.partner_id,
+                utm_source=body.utm_source,
+                first_name=body.first_name,
+            )
+        except Exception as e:
+            logger.warning(f"VK event-landing funnel message failed (vk={vk_user_id}): {e}")
+
+        # Nurture-воронка (запуск/останов).
+        try:
+            from app.api.event_nurture import start_nurture_run_if_eligible
+            await start_nurture_run_if_eligible(
+                conn, event_id=ev["id"], contact_id=contact_id, is_registered=is_registered,
+            )
+        except Exception as e:
+            logger.warning(f"VK event-landing nurture failed: {e}")
+
+        # Уведомление организатору — только при первом INSERT.
+        if inserted:
+            try:
+                await _send_event_organizer_notification(
+                    conn,
+                    client_id=client_id,
+                    event_id=ev["id"],
+                    event_title=ev["title"],
+                    contact_id=contact_id,
+                    platform_slug="vk",
+                    referrer_contact_id=referrer_contact_id,
+                    tg_id=None,
+                )
+            except Exception as e:
+                logger.warning(f"VK event-landing organizer notification failed: {e}")
+
+    return {
+        "ok": True,
+        "group_id": group_id,
+        "poster_url": (ev["poster_url"] or "").strip(),
+        "event_title": ev["title"],
     }

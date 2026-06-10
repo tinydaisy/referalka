@@ -619,6 +619,31 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             await _send_event_answer("Не вижу подписки. Смотрите сообщение в чате.")
         else:
             await _send_event_answer("Что-то пошло не так. Попробуйте позже.")
+        return
+
+    # Меню события (порт TG evchat_/evmenu_/evlive_ из handlers/funnel.py).
+    if cb.startswith("evchat_") or cb.startswith("evmenu_") or cb.startswith("evlive_"):
+        prefix, _, id_raw = cb.partition("_")
+        try:
+            ev_id = int(id_raw)
+        except ValueError:
+            await _send_event_answer("Ошибка кнопки")
+            return
+        from bot.vk_event_menu import (
+            handle_vk_event_chat, handle_vk_event_menu_back, handle_vk_event_live,
+        )
+        try:
+            if prefix == "evchat":
+                await handle_vk_event_chat(ev_id, int(user_id), db, ctx)
+            elif prefix == "evmenu":
+                await handle_vk_event_menu_back(ev_id, int(user_id), db, ctx)
+            elif prefix == "evlive":
+                await handle_vk_event_live(ev_id, int(user_id), db, ctx)
+            await _send_event_answer("Готово 👇")
+        except Exception as e:
+            logger.warning(f"VK event menu callback '{cb}' failed: {e}")
+            await _send_event_answer("Что-то пошло не так. Попробуйте позже.")
+        return
 
 
 async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:

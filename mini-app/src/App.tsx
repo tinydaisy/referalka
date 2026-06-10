@@ -84,12 +84,77 @@ async function handleVkFunnelIfNeeded(
   setFunnelStatus: (s: 'ok' | 'fail' | null) => void,
   setFunnelGroupId: (n: number) => void,
   setLoading: (b: boolean) => void,
-  setFunnelKind: (k: 'leadmagnet' | 'speaker' | 'partner') => void,
+  setFunnelKind: (k: 'leadmagnet' | 'speaker' | 'partner' | 'event') => void,
+  setFunnelEventTitle: (s: string) => void,
+  setFunnelPosterUrl: (s: string) => void,
 ): Promise<boolean> {
   if (adapter.name !== 'vk') return false
   const sp = adapter.startParam
   if (!sp) return false
   const lp = adapter.launchParams
+
+  // Лёгкая заглушка открытия СОБЫТИЯ: `evl_<slug>[_pid..][_src..][_ct..]`.
+  // Альтернатива полному Mini App (`ref_pg`): показываем лёгкий экран
+  // «подробности в чате», бэк шлёт в ЛС порт TG-воронки события.
+  if (sp.startsWith('evl_')) {
+    const rest = sp.slice(4)
+    const parts = rest.split('_')
+    const slug = parts[0] || ''
+    let pid = '', src = '', ct = 0
+    for (const chunk of parts.slice(1)) {
+      if (chunk.startsWith('pid')) pid = chunk.slice(3)
+      else if (chunk.startsWith('src')) src = chunk.slice(3)
+      else if (chunk.startsWith('ct')) { const n = Number(chunk.slice(2)); if (Number.isFinite(n) && n > 0) ct = n }
+    }
+    setFunnelKind('event')
+    let ok = false
+    let groupId = 0
+    if (slug && lp.vk_user_id) {
+      let gid = Number(lp.vk_group_id || 0)
+      if (!gid && lp.vk_app_id) {
+        try {
+          const g: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/group-for-app?app_id=${lp.vk_app_id}`)
+            .then(x => x.ok ? x.json() : null)
+          if (g?.group_id) gid = Number(g.group_id)
+        } catch (_) {}
+      }
+      // Разрешение на ЛС + подписка на сообщество (как у m_/p_).
+      await new Promise<void>((resolve) => {
+        if (!gid) return resolve()
+        adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
+      })
+      if (adapter.joinGroup && gid) {
+        try { adapter.joinGroup({ vkGroupId: gid }, () => {}) } catch (_) {}
+      }
+      const user = adapter.user
+      try {
+        const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/event-landing`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            launch_params: lp,
+            slug,
+            partner_id: pid,
+            utm_source: src,
+            contact_id: ct,
+            first_name: user?.first_name || '',
+            last_name:  user?.last_name  || '',
+            username:   user?.username   || '',
+          }),
+        }).then(x => x.ok ? x.json() : null)
+        if (r?.ok) {
+          ok = true
+          groupId = Number(r.group_id || gid || 0)
+          if (r.event_title) setFunnelEventTitle(String(r.event_title))
+          if (r.poster_url) setFunnelPosterUrl(String(r.poster_url))
+        }
+      } catch (e) { console.warn('vk event-landing failed', e) }
+    }
+    setFunnelStatus(ok ? 'ok' : 'fail')
+    setFunnelGroupId(groupId)
+    setLoading(false)
+    return true
+  }
 
   // Новый формат `m_<slug>[_pid_src]` / `p_<slug>[_pid_src]`
   const funnelMatch = /^([mp])_([^_]+)((?:_pid[^_]+)?(?:_src[^_]+)?(?:_pid[^_]+)?(?:_src[^_]+)?)$/.exec(sp)
@@ -421,10 +486,12 @@ export default function App() {
   const [noLanding, setNoLanding] = useState<boolean>(false)
   const [initialTab, setInitialTab] = useState<string | undefined>()
   const [pendingOpen, setPendingOpen] = useState<boolean>(false)
-  // VK-only: экран статуса после m_/p_/fnl_/spkinv_/prt_ landing
+  // VK-only: экран статуса после m_/p_/fnl_/spkinv_/prt_/evl_ landing
   const [funnelStatus, setFunnelStatus] = useState<'ok' | 'fail' | null>(null)
   const [funnelGroupId, setFunnelGroupId] = useState<number>(0)
-  const [funnelKind, setFunnelKind] = useState<'leadmagnet' | 'speaker' | 'partner'>('leadmagnet')
+  const [funnelKind, setFunnelKind] = useState<'leadmagnet' | 'speaker' | 'partner' | 'event'>('leadmagnet')
+  const [funnelEventTitle, setFunnelEventTitle] = useState<string>('')
+  const [funnelPosterUrl, setFunnelPosterUrl] = useState<string>('')
 
   useEffect(() => {
     (async () => {
@@ -452,7 +519,7 @@ export default function App() {
 
       // VK-only: воронка лид-магнита по startparam (m_/p_/fnl_).
       // Если сработала — показываем FunnelStatusScreen и прерываем стандартный flow.
-      const handled = await handleVkFunnelIfNeeded(adapter, setFunnelStatus, setFunnelGroupId, setLoading, setFunnelKind)
+      const handled = await handleVkFunnelIfNeeded(adapter, setFunnelStatus, setFunnelGroupId, setLoading, setFunnelKind, setFunnelEventTitle, setFunnelPosterUrl)
       if (handled) return
 
       // Флаг ?_reg=1 — пришли с /r/{slug} в fallback-режиме.
@@ -570,7 +637,8 @@ export default function App() {
 
   // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку)
   if (funnelStatus) {
-    return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} kind={funnelKind} />
+    return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} kind={funnelKind}
+                               eventTitle={funnelEventTitle} posterUrl={funnelPosterUrl} />
   }
 
   if (eventSlug) {
@@ -612,10 +680,12 @@ export default function App() {
 
 // VK-only экран: после успешного запуска воронки лид-магнита (или после фейла).
 // Текст 1 уехал в личку сообщества — пользователю остаётся открыть чат.
-function FunnelStatusScreen({ status, groupId, kind }: {
+function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl }: {
   status: 'ok' | 'fail';
   groupId: number;
-  kind?: 'leadmagnet' | 'speaker' | 'partner';
+  kind?: 'leadmagnet' | 'speaker' | 'partner' | 'event';
+  eventTitle?: string;
+  posterUrl?: string;
 }) {
   const chatUrl = groupId ? `https://vk.com/im?sel=-${groupId}` : ''
   function close() {
@@ -629,16 +699,19 @@ function FunnelStatusScreen({ status, groupId, kind }: {
     leadmagnet: 'Подарки уже в чате',
     speaker:    'Код доступа уже в чате',
     partner:    'Инструкция уже в чате',
+    event:      eventTitle ? `«${eventTitle}»` : 'Подробности в чате',
   }
   const BODY: Record<string, string> = {
     leadmagnet: 'Откройте диалог с сообществом — там лежит сообщение со списком ваших подарков и кнопкой «ГОТОВО».',
     speaker:    'Откройте диалог с сообществом — там сообщение с кодом доступа и кнопкой «Открыть мой кабинет», чтобы заполнить информацию о себе.',
     partner:    'Откройте диалог с сообществом — там сообщение с кнопкой для регистрации вас как партнёра.',
+    event:      'Подробности о событии и кнопки отправлены вам в чат сообщества. Откройте диалог, чтобы продолжить.',
   }
   const BTN: Record<string, string> = {
     leadmagnet: 'Открыть чат',
     speaker:    'Открыть чат',
     partner:    'Открыть чат',
+    event:      'Открыть чат',
   }
   if (status === 'ok') {
     return (
@@ -650,15 +723,22 @@ function FunnelStatusScreen({ status, groupId, kind }: {
         padding: 24,
       }}>
         <div style={{ maxWidth: 420, textAlign: 'center' }}>
-          <div style={{
-            width: 72, height: 72, borderRadius: '50%', background: '#FFCFA4',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 24px',
-          }}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#25455D" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </div>
+          {variant === 'event' && posterUrl ? (
+            <img src={posterUrl} alt="" style={{
+              width: '100%', maxWidth: 340, borderRadius: 16, marginBottom: 20,
+              boxShadow: '0 6px 24px rgba(0,0,0,0.3)',
+            }} />
+          ) : (
+            <div style={{
+              width: 72, height: 72, borderRadius: '50%', background: '#FFCFA4',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 24px',
+            }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#25455D" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+          )}
           <h1 style={{ color: '#FFCFA4', fontSize: 24, margin: '0 0 12px', fontWeight: 700 }}>
             {TITLE[variant]}
           </h1>
