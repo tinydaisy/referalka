@@ -81,10 +81,34 @@ function PlatformBadge({
 
 type RegisteredFilter = 'all' | 'yes' | 'no'
 
+type PlatformKey = 'all' | 'telegram' | 'vk' | 'max'
+type StageKey = 'landed' | 'registered' | 'attended'
+interface ParticipantFilter {
+  platform: PlatformKey
+  stage: StageKey
+}
+
 interface Counts {
   total: number
   registered: number
   not_registered: number
+}
+
+// У участника есть идентичность на платформе?
+function hasPlatform(p: Participant, plat: PlatformKey): boolean {
+  if (plat === 'all') return true
+  if (plat === 'telegram') return !!(p.tg_id || p.tg_username)
+  if (plat === 'vk') return !!(p.vk_id || p.vk_username)
+  if (plat === 'max') return !!(p.max_id || p.max_username)
+  return true
+}
+
+// Участник попадает в этап воронки?
+function matchStage(p: Participant, stage: StageKey): boolean {
+  if (stage === 'landed') return true
+  if (stage === 'registered') return !!p.is_registered
+  if (stage === 'attended') return !!p.link_clicked_at
+  return true
 }
 
 interface PlatformStat {
@@ -98,11 +122,19 @@ interface Stats {
   by_platform: Partial<Record<'telegram' | 'vk' | 'max', PlatformStat>>
 }
 
-// Блок статистики «зашло / зарегано / на эфире» с конверсиями, разбивка по площадкам
-function StatsBlock({ stats, clickLabel }: { stats: Stats; clickLabel: string }) {
+// Блок статистики «зашло / зарегано / на эфире» с конверсиями, разбивка по площадкам.
+// Каждая числовая ячейка + название площадки — кнопка-фильтр списка ниже.
+function StatsBlock({
+  stats, clickLabel, filter, onPick,
+}: {
+  stats: Stats
+  clickLabel: string
+  filter: ParticipantFilter
+  onPick: (platform: PlatformKey, stage: StageKey) => void
+}) {
   const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0)
-  const rows: { key: string; label: string; color: string; s: PlatformStat }[] = [
-    { key: 'total', label: 'Всего', color: '#25455D', s: stats.total },
+  const rows: { key: PlatformKey; label: string; color: string; s: PlatformStat }[] = [
+    { key: 'all', label: 'Всего', color: '#25455D', s: stats.total },
   ]
   const platMeta: { slug: 'telegram' | 'vk' | 'max'; label: string; color: string }[] = [
     { slug: 'telegram', label: 'Telegram', color: '#229ED9' },
@@ -116,42 +148,65 @@ function StatsBlock({ stats, clickLabel }: { stats: Stats; clickLabel: string })
     }
   }
 
+  // Кликабельная числовая ячейка
+  const NumCell = ({ platform, stage, value }: { platform: PlatformKey; stage: StageKey; value: number }) => {
+    const active = filter.platform === platform && filter.stage === stage
+    return (
+      <td className="py-1.5 px-2 text-center">
+        <button
+          onClick={() => onPick(platform, stage)}
+          className={`w-full min-w-[44px] py-1.5 px-2 rounded-lg text-sm tabular-nums font-semibold transition ${
+            active
+              ? 'text-white'
+              : 'text-gray-900 hover:bg-gray-100'
+          }`}
+          style={active ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : undefined}
+        >
+          {value}
+        </button>
+      </td>
+    )
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
-      <h3 className="text-sm font-bold text-gray-900 mb-3">Регистрации по площадкам</h3>
+      <h3 className="text-sm font-bold text-gray-900 mb-1">Регистрации по площадкам</h3>
+      <p className="text-xs text-gray-400 mb-3">Нажмите на число, чтобы отфильтровать список ниже</p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[520px]">
           <thead>
             <tr className="text-left text-gray-400 text-xs">
               <th className="font-medium pb-2 pr-3">Площадка</th>
-              <th className="font-medium pb-2 px-3 text-center">Зашло</th>
-              <th className="font-medium pb-2 px-3 text-center">Зарегано</th>
-              <th className="font-medium pb-2 px-3 text-center">{clickLabel}</th>
+              <th className="font-medium pb-2 px-2 text-center">Зашло</th>
+              <th className="font-medium pb-2 px-2 text-center">Зарегано</th>
+              <th className="font-medium pb-2 px-2 text-center">{clickLabel}</th>
               <th className="font-medium pb-2 pl-3 text-center">Конверсия</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
-              <tr key={r.key} className="border-t border-gray-50">
-                <td className="py-2.5 pr-3">
-                  <span className="inline-flex items-center gap-2 font-semibold" style={{ color: r.color }}>
-                    <span className="inline-block w-2 h-2 rounded-full" style={{ background: r.color }} />
-                    {r.label}
-                  </span>
-                </td>
-                <td className="py-2.5 px-3 text-center tabular-nums text-gray-900">{r.s.landed}</td>
-                <td className="py-2.5 px-3 text-center tabular-nums text-gray-900">{r.s.registered}</td>
-                <td className="py-2.5 px-3 text-center tabular-nums text-gray-900">{r.s.attended}</td>
-                <td className="py-2.5 pl-3 text-center">
-                  <span
-                    className="inline-block px-2 py-0.5 rounded-md text-xs font-bold"
-                    style={{ background: '#FFCFA4', color: '#25455D' }}
-                  >
-                    {pct(r.s.registered, r.s.landed)}%
-                  </span>
-                </td>
-              </tr>
-            ))}
+            {rows.map(r => {
+              return (
+                <tr key={r.key} className="border-t border-gray-50">
+                  <td className="py-1.5 pr-3">
+                    <span className="inline-flex items-center gap-2 font-semibold" style={{ color: r.color }}>
+                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: r.color }} />
+                      {r.label}
+                    </span>
+                  </td>
+                  <NumCell platform={r.key} stage="landed" value={r.s.landed} />
+                  <NumCell platform={r.key} stage="registered" value={r.s.registered} />
+                  <NumCell platform={r.key} stage="attended" value={r.s.attended} />
+                  <td className="py-1.5 pl-3 text-center">
+                    <span
+                      className="inline-block px-2 py-0.5 rounded-md text-xs font-bold"
+                      style={{ background: '#FFCFA4', color: '#25455D' }}
+                    >
+                      {pct(r.s.registered, r.s.landed)}%
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -423,32 +478,6 @@ function Field({ label, value, mono, highlight }: { label: string; value: string
   )
 }
 
-function FilterPill({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string
-  count: number
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-        active
-          ? 'bg-gray-900 text-white'
-          : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
-      }`}
-    >
-      {label} <span className={active ? 'text-white/70' : 'text-gray-400'}>{count}</span>
-    </button>
-  )
-}
-
 function AddFromContactModal({
   eventId,
   existingContactIds,
@@ -605,13 +634,15 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<RegisteredFilter>('all')
+  // Фильтр по площадке × этапу (управляется кликами по таблице статистики)
+  const [pFilter, setPFilter] = useState<ParticipantFilter>({ platform: 'all', stage: 'landed' })
   const [showAdd, setShowAdd] = useState(false)
 
-  async function load(f: RegisteredFilter) {
+  async function load() {
     setLoading(true)
     try {
-      const r = await api.events.participants(eventId, f)
+      // Грузим всех участников разом — фильтрация по площадке/этапу на фронте
+      const r = await api.events.participants(eventId, 'all')
       setParticipants(r.participants || [])
       setCounts(r.counts || { total: 0, registered: 0, not_registered: 0 })
       if (r.stats) setStats(r.stats)
@@ -623,9 +654,9 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
   }
 
   useEffect(() => {
-    load(filter)
+    load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId, filter])
+  }, [eventId])
 
   async function toggleRegistered(participantId: number, next: boolean) {
     // Оптимистичное обновление + откат при ошибке
@@ -641,10 +672,6 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
     }))
     try {
       await api.events.setRegistered(eventId, participantId, next)
-      // Если активный фильтр исключает новый статус — убрать строку
-      if ((filter === 'yes' && !next) || (filter === 'no' && next)) {
-        setParticipants(list => list.filter(p => p.id !== participantId))
-      }
     } catch (e: any) {
       setParticipants(prev)
       setCounts(prevCounts)
@@ -679,8 +706,11 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return participants
     return participants.filter(p => {
+      // Фильтр по площадке × этапу (клик в таблице статистики)
+      if (!hasPlatform(p, pFilter.platform)) return false
+      if (!matchStage(p, pFilter.stage)) return false
+      if (!q) return true
       const name = [p.first_name, p.last_name].filter(Boolean).join(' ').toLowerCase()
       const username = (p.username || '').toLowerCase().replace(/^@+/, '')
       const refCode = (p.ref_code || '').toLowerCase()
@@ -694,7 +724,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
         (p.salebot_id || '').includes(q)
       )
     })
-  }, [participants, search])
+  }, [participants, search, pFilter])
 
   if (loading && participants.length === 0) {
     return <div className="flex justify-center py-12"><Spinner className="text-brand text-2xl" /></div>
@@ -721,7 +751,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
             eventId={eventId}
             existingContactIds={existingContactIds}
             onClose={() => setShowAdd(false)}
-            onAdded={() => load(filter)}
+            onAdded={() => load()}
           />
         )}
       </div>
@@ -730,14 +760,39 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
 
   return (
     <div>
-      {/* Статистика по площадкам */}
-      {stats && <StatsBlock stats={stats} clickLabel={clickLabel} />}
+      {/* Статистика по площадкам — кликабельные ячейки = фильтр списка */}
+      {stats && (
+        <StatsBlock
+          stats={stats}
+          clickLabel={clickLabel}
+          filter={pFilter}
+          onPick={(platform, stage) => setPFilter({ platform, stage })}
+        />
+      )}
 
-      {/* Фильтр-таблетки + кнопка добавления */}
+      {/* Активный фильтр + кнопка добавления */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <FilterPill label="Все" count={counts.total} active={filter === 'all'} onClick={() => setFilter('all')} />
-        <FilterPill label="Зарегистрированы" count={counts.registered} active={filter === 'yes'} onClick={() => setFilter('yes')} />
-        <FilterPill label="Не зарегистрированы" count={counts.not_registered} active={filter === 'no'} onClick={() => setFilter('no')} />
+        <span className="text-sm text-gray-500">
+          Показаны:{' '}
+          <span className="font-semibold text-gray-900">
+            {pFilter.platform === 'all' ? 'все площадки'
+              : pFilter.platform === 'telegram' ? 'Telegram'
+              : pFilter.platform === 'vk' ? 'VK' : 'MAX'}
+            {' · '}
+            {pFilter.stage === 'landed' ? 'зашло'
+              : pFilter.stage === 'registered' ? 'зарегано'
+              : clickLabel.toLowerCase()}
+          </span>{' '}
+          <span className="text-gray-400">({filtered.length})</span>
+        </span>
+        {(pFilter.platform !== 'all' || pFilter.stage !== 'landed') && (
+          <button
+            onClick={() => setPFilter({ platform: 'all', stage: 'landed' })}
+            className="text-xs text-brand hover:underline"
+          >
+            сбросить
+          </button>
+        )}
         <div className="ml-auto">
           <button onClick={() => setShowAdd(true)}
             className="btn-gold inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
@@ -791,7 +846,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
           eventId={eventId}
           existingContactIds={existingContactIds}
           onClose={() => setShowAdd(false)}
-          onAdded={() => load(filter)}
+          onAdded={() => load()}
         />
       )}
     </div>
