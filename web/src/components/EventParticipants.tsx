@@ -87,6 +87,82 @@ interface Counts {
   not_registered: number
 }
 
+interface PlatformStat {
+  landed: number
+  registered: number
+  attended: number
+}
+
+interface Stats {
+  total: PlatformStat
+  by_platform: Partial<Record<'telegram' | 'vk' | 'max', PlatformStat>>
+}
+
+// Блок статистики «зашло / зарегано / на эфире» с конверсиями, разбивка по площадкам
+function StatsBlock({ stats, clickLabel }: { stats: Stats; clickLabel: string }) {
+  const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0)
+  const rows: { key: string; label: string; color: string; s: PlatformStat }[] = [
+    { key: 'total', label: 'Всего', color: '#25455D', s: stats.total },
+  ]
+  const platMeta: { slug: 'telegram' | 'vk' | 'max'; label: string; color: string }[] = [
+    { slug: 'telegram', label: 'Telegram', color: '#229ED9' },
+    { slug: 'vk', label: 'VK', color: '#0077FF' },
+    { slug: 'max', label: 'MAX', color: '#C79A5B' },
+  ]
+  for (const m of platMeta) {
+    const s = stats.by_platform[m.slug]
+    if (s && (s.landed > 0 || s.registered > 0 || s.attended > 0)) {
+      rows.push({ key: m.slug, label: m.label, color: m.color, s })
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
+      <h3 className="text-sm font-bold text-gray-900 mb-3">Регистрации по площадкам</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[520px]">
+          <thead>
+            <tr className="text-left text-gray-400 text-xs">
+              <th className="font-medium pb-2 pr-3">Площадка</th>
+              <th className="font-medium pb-2 px-3 text-center">Зашло</th>
+              <th className="font-medium pb-2 px-3 text-center">Зарегано</th>
+              <th className="font-medium pb-2 px-3 text-center">{clickLabel}</th>
+              <th className="font-medium pb-2 pl-3 text-center">Конверсия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.key} className="border-t border-gray-50">
+                <td className="py-2.5 pr-3">
+                  <span className="inline-flex items-center gap-2 font-semibold" style={{ color: r.color }}>
+                    <span className="inline-block w-2 h-2 rounded-full" style={{ background: r.color }} />
+                    {r.label}
+                  </span>
+                </td>
+                <td className="py-2.5 px-3 text-center tabular-nums text-gray-900">{r.s.landed}</td>
+                <td className="py-2.5 px-3 text-center tabular-nums text-gray-900">{r.s.registered}</td>
+                <td className="py-2.5 px-3 text-center tabular-nums text-gray-900">{r.s.attended}</td>
+                <td className="py-2.5 pl-3 text-center">
+                  <span
+                    className="inline-block px-2 py-0.5 rounded-md text-xs font-bold"
+                    style={{ background: '#FFCFA4', color: '#25455D' }}
+                  >
+                    {pct(r.s.registered, r.s.landed)}%
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-gray-400 mt-3">
+        Зашло — открыли событие. Зарегано — завершили регистрацию. {clickLabel} — дошли до эфира/действия.
+        Конверсия = зарегано ÷ зашло. Один человек попадает в строку каждой своей площадки, поэтому сумма по площадкам может быть больше «Всего».
+      </p>
+    </div>
+  )
+}
+
 function referrerLabel(p: Participant): string {
   if (!p.referrer_ref_code) return '—'
   const username = p.referrer_username ? `@${p.referrer_username.replace(/^@+/, '')}` : ''
@@ -526,6 +602,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
   const clickLabel = moduleSlug === 'contest' ? 'Проголосовал' : 'Был в эфире'
   const [participants, setParticipants] = useState<Participant[]>([])
   const [counts, setCounts] = useState<Counts>({ total: 0, registered: 0, not_registered: 0 })
+  const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<RegisteredFilter>('all')
@@ -537,6 +614,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
       const r = await api.events.participants(eventId, f)
       setParticipants(r.participants || [])
       setCounts(r.counts || { total: 0, registered: 0, not_registered: 0 })
+      if (r.stats) setStats(r.stats)
     } catch {
       // ignore
     } finally {
@@ -652,6 +730,9 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
 
   return (
     <div>
+      {/* Статистика по площадкам */}
+      {stats && <StatsBlock stats={stats} clickLabel={clickLabel} />}
+
       {/* Фильтр-таблетки + кнопка добавления */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <FilterPill label="Все" count={counts.total} active={filter === 'all'} onClick={() => setFilter('all')} />

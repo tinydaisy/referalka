@@ -839,9 +839,44 @@ async def event_participants(
            FROM event_participants WHERE event_id = $1""",
         event_id
     )
+
+    # Разбивка по площадкам. Участник засчитывается в платформу, если у его
+    # контакта есть идентичность на этой платформе (один контакт с TG+VK
+    # попадёт в обе строки — это честный охват площадки).
+    # Для каждой платформы: landed (все участники), registered (is_registered),
+    # attended (дошли до эфира/действия — link_clicked_at не пуст).
+    platform_rows = await db.fetch(
+        """SELECT p.slug AS platform,
+                  COUNT(DISTINCT ep.id) AS landed,
+                  COUNT(DISTINCT ep.id) FILTER (WHERE ep.is_registered) AS registered,
+                  COUNT(DISTINCT ep.id) FILTER (WHERE ep.link_clicked_at IS NOT NULL) AS attended
+             FROM event_participants ep
+             JOIN platform_users pu ON pu.contact_id = ep.contact_id
+             JOIN platforms p ON p.slug = pu.platform_slug
+            WHERE ep.event_id = $1
+              AND p.slug IN ('telegram', 'vk', 'max')
+            GROUP BY p.slug""",
+        event_id
+    )
+    by_platform = {r["platform"]: dict(r) for r in platform_rows}
+
+    # Итог по всем участникам (без разбивки): landed / registered / attended
+    totals = await db.fetchrow(
+        """SELECT
+             COUNT(*) AS landed,
+             COUNT(*) FILTER (WHERE is_registered) AS registered,
+             COUNT(*) FILTER (WHERE link_clicked_at IS NOT NULL) AS attended
+           FROM event_participants WHERE event_id = $1""",
+        event_id
+    )
+
     return {
         "participants": [dict(r) for r in rows],
         "counts": dict(counts) if counts else {"total": 0, "registered": 0, "not_registered": 0},
+        "stats": {
+            "total": dict(totals) if totals else {"landed": 0, "registered": 0, "attended": 0},
+            "by_platform": by_platform,
+        },
     }
 
 
