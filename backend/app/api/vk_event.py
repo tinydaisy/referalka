@@ -1128,8 +1128,8 @@ async def send_vk_event_funnel(
                       "url": f"https://pluson.ru/event/{slug}{cid_q}#program"}])
 
         keyboard = tg_inline_to_vk_keyboard(rows)
-        await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
-        return
+        mid = await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
+        return bool(mid)
 
     # ── НЕ зарегистрирован → приветствие + 2 кнопки (порт _handle_ref_event_bot_flow) ──
     work_tg = await conn.fetchval(
@@ -1171,7 +1171,8 @@ async def send_vk_event_funnel(
         [{"text": "Открыть в Мини-Апп", "url": mini_app_link}],
         [{"text": "Открыть в Веб-версии", "url": web_url}],
     ])
-    await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
+    mid = await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
+    return bool(mid)
 
 
 async def _vk_event_landing_background(body: VkEventLandingRequest, vk_user_id: int) -> None:
@@ -1249,21 +1250,37 @@ async def _vk_event_landing_background(body: VkEventLandingRequest, vk_user_id: 
                 ev["id"], contact_id,
             ))
 
-            try:
-                await send_vk_event_funnel(
-                    conn,
-                    vk_user_id=vk_user_id,
-                    token=client_token,
-                    client_vk_app_id=client_vk_app_id,
-                    event_row=ev,
-                    contact_id=contact_id,
-                    is_registered=is_registered,
-                    pid=body.partner_id,
-                    utm_source=body.utm_source,
-                    first_name=body.first_name,
-                )
-            except Exception as e:
-                logger.warning(f"VK event-landing funnel message failed (vk={vk_user_id}): {e}")
+            # Отправка ЛС-воронки с RETRY на «нет разрешения» (VK error 901).
+            # Свежеподписавшийся: VK проставляет разрешение на ЛС с задержкой —
+            # первая попытка (сразу) может упасть 901 (и текст, и upload афиши).
+            # Ждём и повторяем, пока разрешение не проставится. Регистрация
+            # (контакт/участие) уже сделана выше — повтор досылает только сообщение.
+            import asyncio as _asyncio
+            delays = [0, 3, 6, 12]  # сразу, затем +3/+6/+12с
+            for attempt, delay in enumerate(delays):
+                if delay:
+                    await _asyncio.sleep(delay)
+                try:
+                    sent = await send_vk_event_funnel(
+                        conn,
+                        vk_user_id=vk_user_id,
+                        token=client_token,
+                        client_vk_app_id=client_vk_app_id,
+                        event_row=ev,
+                        contact_id=contact_id,
+                        is_registered=is_registered,
+                        pid=body.partner_id,
+                        utm_source=body.utm_source,
+                        first_name=body.first_name,
+                    )
+                    if sent:
+                        break
+                    logger.info(
+                        f"VK event-landing send not delivered (vk={vk_user_id}), "
+                        f"попытка {attempt+1}/{len(delays)} — ждём разрешение на ЛС"
+                    )
+                except Exception as e:
+                    logger.warning(f"VK event-landing funnel message failed (vk={vk_user_id}): {e}")
 
             try:
                 from app.api.event_nurture import start_nurture_run_if_eligible
