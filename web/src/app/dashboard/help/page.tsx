@@ -13,6 +13,7 @@ interface Article {
   emoji: string
   isPublic?: boolean
   publicNote?: string
+  group?: string
 }
 
 interface Section {
@@ -68,15 +69,17 @@ const SECTIONS: Section[] = [
     id: 'api',
     title: 'API-функции для интеграции со сторонними сервисами',
     emoji: '🔌',
-    hint: 'Получение и передача данных события во внешние системы',
+    hint: 'Получение и передача данных события во внешние системы, GetCourse',
     articles: [
       {
+        group: 'Выгрузка и API',
         href: '/dashboard/help/participants-export',
         title: 'Выгрузка участников события (зарегистрированные / незарегистрированные)',
         description: 'Два готовых запроса: список зарегистрированных и список незарегистрированных участников события — без организаторов, жюри, спикеров и партнёров. JSON с именем, email, телефоном, реф-кодом, UTM и аккаунтами в Telegram/VK/MAX. Для своих рассылок, аналитики, импорта в CRM',
         emoji: '📤',
       },
       {
+        group: 'Выгрузка и API',
         href: '/docs/api',
         title: 'API iViSiON: ПЛЮСОНа для интеграции с конструкторами чат-ботов',
         description: 'Salebot, BotHelp, SendPulse, n8n, Make, любой webhook. Регистрация участника, программа конференции, спикеры и регалии, каналы, проверка подписки, билет розыгрыша. Есть отдельная секция как настроить блок HTTP-запрос в Salebot и как читать ответ.',
@@ -84,41 +87,29 @@ const SECTIONS: Section[] = [
         isPublic: true,
         publicNote: 'Публичная страница — ссылку можно дать стороннему разработчику или сценаристу бота, авторизация не нужна',
       },
-    ],
-  },
-  {
-    id: 'getcourse',
-    title: 'Интеграция с GetCourse',
-    emoji: '🎓',
-    hint: 'Регистрация участников и передача партнёрских кодов из GetCourse',
-    articles: [
       {
+        group: '🎓 Интеграция с GetCourse',
         href: '/dashboard/help/getcourse-register',
         title: 'Как регистрировать участников со стороннего лендинга (GetCourse)',
         description: 'Настройка формы GetCourse + Процесса с webhook в ПЛЮСОН: при отправке формы участник автоматически помечается зарегистрированным на событие, email и телефон обновляются в его карточке',
         emoji: '📝',
       },
       {
+        group: '🎓 Интеграция с GetCourse',
         href: '/dashboard/help/getcourse-partner',
         title: 'Как передавать партнёрский код из GetCourse в ПЛЮСОН',
         description: 'Замыкаем круг «гость → партнёр»: на лендинге GetCourse человек получает свой партнёрский код, через webhook он сохраняется в ПЛЮСОН, и теперь его ссылки автоматически дописывают этот код к лендингу. Внутри — отдельный раздел про настройку виджетов оплаты с JS-скриптом',
         emoji: '🤝',
       },
-    ],
-  },
-  {
-    id: 'external-data',
-    title: 'Передача данных события для внешних сайтов',
-    emoji: '🌐',
-    hint: 'Программа и люди события — JSON-данные для вашего лендинга',
-    articles: [
       {
+        group: '🌐 Передача данных события для внешних сайтов',
         href: '/dashboard/help/landing-widgets-program',
         title: 'Передача данных: «Программа события» для своего лендинга',
         description: 'Этапы, дни, сессии со спикерами — на ваш лендинг через один JSON-запрос. Время в формате HH:MM МСК. Есть готовый промпт для нейросети — копируйте и отдавайте Claude/ChatGPT, она сама подключит',
         emoji: '📅',
       },
       {
+        group: '🌐 Передача данных события для внешних сайтов',
         href: '/dashboard/help/landing-widgets-people',
         title: 'Передача данных: «Люди события» для своего лендинга',
         description: 'Спикеры, жюри, организаторы, партнёры со всеми данными (фото, регалии, должность, медийные активы) — на ваш лендинг через один JSON-запрос. Есть готовый промпт для нейросети — копируйте и отдавайте Claude/ChatGPT, она сама подключит',
@@ -192,7 +183,19 @@ function SectionBlock({ section, defaultOpen }: { section: Section; defaultOpen?
 
       {open && (
         <div className="px-3 pb-3 pt-1 space-y-2 border-t border-gray-50">
-          {section.articles.map(a => <ArticleCard key={a.href} article={a} />)}
+          {section.articles.map((a, idx) => {
+            const showGroup = a.group && a.group !== section.articles[idx - 1]?.group
+            return (
+              <div key={a.href}>
+                {showGroup && (
+                  <div className="text-xs font-bold uppercase tracking-wide text-gray-400 mt-3 mb-1.5 px-1">
+                    {a.group}
+                  </div>
+                )}
+                <ArticleCard article={a} />
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
