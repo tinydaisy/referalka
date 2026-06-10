@@ -22,6 +22,7 @@ export default function PublicLinks({
   onSlugSaved,
   eventStatus,
   linkMode,
+  onLinkModeChange,
 }: {
   slug: string | null | undefined
   eventId?: number
