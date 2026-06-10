@@ -955,9 +955,10 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         )
 
         # Веб-ссылка/ссылка регистрации: сторонний лендинг (если задан и опубликован),
-        # иначе внутренний веб pluson.ru/event/{slug}?c={contact_id}.
+        # иначе ВНУТРЕННИЙ ЛЕНДИНГ РЕГИСТРАЦИИ pluson.ru/event/{slug}/register?c={cid}
+        # (страница сама решает: зареган → кабинет, не зареган → форма).
         landing_url = (ev["landing_url"] or "").strip()
-        internal_web = f"https://pluson.ru/event/{slug}?c={contact_id}" if contact_id else f"https://pluson.ru/event/{slug}"
+        internal_web = f"https://pluson.ru/event/{slug}/register?c={contact_id}" if contact_id else f"https://pluson.ru/event/{slug}/register"
         if landing_url and ev["status"] == "published":
             contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
             erp = await resolve_referrer_external_ref_param(
