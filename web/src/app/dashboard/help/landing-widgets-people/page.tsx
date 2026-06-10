@@ -357,6 +357,58 @@ GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/collaborators`}
           </div>
         </section>
 
+        {/* Эндпоинт: TG-никнеймы участников */}
+        <section className="bg-white rounded-2xl border-2 shadow-sm p-6" style={{ borderColor: PEACH }}>
+          <h2 className="font-bold text-lg mb-1" style={{ color: BRAND }}>
+            Отдельный эндпоинт: Telegram-никнеймы участников
+          </h2>
+          <p className="text-sm text-gray-700 leading-relaxed mb-3">
+            Если нужен список <b>участников</b> события (не коллабораторов) в Telegram —
+            например, чтобы упомянуть их в чате или отдать на свою сторону. Отдаёт
+            <b> только @-никнеймы Telegram</b>, без телефонов, email и числовых ID.
+            Из списка <b>автоматически исключены</b> организаторы, жюри, спикеры, хедлайнеры,
+            партнёры этого события и ваши рабочие аккаунты.
+          </p>
+          <CodeBlock
+            code={`# зарегистрированные (по умолчанию):
+GET https://pluson.ru/api/v1/public/landing-widget/events/24/participants-tg
+
+# можно выбрать аудиторию параметром registered:
+GET https://pluson.ru/api/v1/public/landing-widget/events/24/participants-tg?registered=yes   # зарегистрированные
+GET https://pluson.ru/api/v1/public/landing-widget/events/24/participants-tg?registered=no    # незарегистрированные
+GET https://pluson.ru/api/v1/public/landing-widget/events/24/participants-tg?registered=all   # все
+
+# по slug тоже работает:
+GET https://pluson.ru/api/v1/public/landing-widget/events/cygum/participants-tg?registered=yes`}
+            lang="GET"
+          />
+          <p className="text-xs text-gray-500 mb-2">Ответ:</p>
+          <CodeBlock
+            code={`{
+  "event_slug": "cygum",
+  "event_id": 24,
+  "registered": "yes",
+  "count": 57,
+  "usernames": ["nick1", "nick2", "nick3"],            // без @
+  "tg_urls":   ["https://t.me/nick1", "..."],          // готовые ссылки
+  "mentions":  ["@nick1", "@nick2", "@nick3"]          // готовые упоминания
+}`}
+            lang="JSON"
+          />
+          <div className="text-xs text-gray-600 space-y-1.5 mt-2">
+            <div>
+              <b style={{ color: BRAND }}>Параметр registered:</b>{' '}
+              <code className="bg-gray-100 px-1 rounded">yes</code> (по умолчанию) — только зарегистрированные,{' '}
+              <code className="bg-gray-100 px-1 rounded">no</code> — только незарегистрированные,{' '}
+              <code className="bg-gray-100 px-1 rounded">all</code> — все.
+            </div>
+            <div>
+              <b style={{ color: BRAND }}>Без персональных данных.</b> Отдаются только Telegram-никнеймы.
+              Авторизация не нужна, но ссылку лучше не публиковать открыто.
+            </div>
+          </div>
+        </section>
+
       </div>
     </div>
   )
