@@ -814,6 +814,59 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
                 logger.warning(f"VK fnl_check via message payload failed: {e}")
             return  # payload-action обработан, в #user_message не дублируем
 
+    # Досыл event-воронки (evl_): если человек открыл событие через лёгкую
+    # заглушку, но ЛС не дошло из-за задержки разрешения VK — а теперь он САМ
+    # написал боту (его явный «отправить» = разрешение точно есть), досылаем
+    # воронку. Аналог «свежего landed-забега» у лид-магнита. Берём последнее
+    # событие, открытое этим vk-контактом за 30 минут.
+    try:
+        recent_ev = await db.fetchval(
+            """SELECT ep.event_id
+                 FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                                       AND pu.platform_slug = 'vk'
+                                       AND pu.platform_user_id = $1
+                 JOIN events e ON e.id = ep.event_id AND e.client_id = $2
+                WHERE ep.last_open_msg_at > NOW() - INTERVAL '30 minutes'
+                ORDER BY ep.last_open_msg_at DESC
+                LIMIT 1""",
+            str(from_id), ctx.client_id,
+        )
+        if recent_ev:
+            from app.api.vk_event import send_vk_event_funnel, _EVENT_FUNNEL_FIELDS
+            ev_row = await db.fetchrow(
+                f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e WHERE e.id = $1 LIMIT 1",
+                recent_ev,
+            )
+            if ev_row:
+                cinfo = await db.fetchrow(
+                    """SELECT ep.contact_id, ep.is_registered,
+                              (SELECT (ch.platform_meta->>'vk_app_id')::int
+                                 FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                                WHERE cc.client_id = $2 AND cc.is_active = TRUE
+                                  AND ch.platform_slug = 'vk' AND ch.is_system = FALSE LIMIT 1) AS vk_app_id
+                         FROM event_participants ep
+                        WHERE ep.event_id = $1
+                          AND ep.contact_id = (SELECT contact_id FROM platform_users
+                                                WHERE platform_slug='vk' AND platform_user_id=$3
+                                                  AND client_id=$2 LIMIT 1)
+                        LIMIT 1""",
+                    recent_ev, ctx.client_id, str(from_id),
+                )
+                if cinfo:
+                    await send_vk_event_funnel(
+                        db,
+                        vk_user_id=int(from_id),
+                        token=ctx.token,
+                        client_vk_app_id=cinfo["vk_app_id"],
+                        event_row=ev_row,
+                        contact_id=cinfo["contact_id"],
+                        is_registered=bool(cinfo["is_registered"]),
+                    )
+                    return
+    except Exception as e:
+        logger.warning("VK message_new event-funnel resend failed: %s", e)
+
     # Свободный текст. Игнорируем служебные старты (action: chat_invite_user и т.п.)
     text = (message.get("text") or "").strip()
     if not text:

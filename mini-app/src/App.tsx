@@ -87,6 +87,7 @@ async function handleVkFunnelIfNeeded(
   setFunnelKind: (k: 'leadmagnet' | 'speaker' | 'partner' | 'event') => void,
   setFunnelEventTitle: (s: string) => void,
   setFunnelPosterUrl: (s: string) => void,
+  setFunnelGroupScreen: (s: string) => void,
 ): Promise<boolean> {
   if (adapter.name !== 'vk') return false
   const sp = adapter.startParam
@@ -147,6 +148,7 @@ async function handleVkFunnelIfNeeded(
           groupId = Number(r.group_id || gid || 0)
           if (r.event_title) setFunnelEventTitle(String(r.event_title))
           if (r.poster_url) setFunnelPosterUrl(String(r.poster_url))
+          if (r.group_screen) setFunnelGroupScreen(String(r.group_screen))
         }
       } catch (e) { console.warn('vk event-landing failed', e) }
     }
@@ -179,6 +181,10 @@ async function handleVkFunnelIfNeeded(
         if (!gid) return resolve()
         adapter.requestWriteAccess({ vkGroupId: gid }, () => resolve())
       })
+      // Подписка на само сообщество (стену) — отдельное действие от AllowMessages.
+      if (adapter.joinGroup && gid) {
+        try { adapter.joinGroup({ vkGroupId: gid }, () => {}) } catch (_) {}
+      }
       try {
         const r: any = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/vk/funnel-landing`, {
           method: 'POST',
@@ -492,6 +498,7 @@ export default function App() {
   const [funnelKind, setFunnelKind] = useState<'leadmagnet' | 'speaker' | 'partner' | 'event'>('leadmagnet')
   const [funnelEventTitle, setFunnelEventTitle] = useState<string>('')
   const [funnelPosterUrl, setFunnelPosterUrl] = useState<string>('')
+  const [funnelGroupScreen, setFunnelGroupScreen] = useState<string>('')
 
   useEffect(() => {
     (async () => {
@@ -519,7 +526,7 @@ export default function App() {
 
       // VK-only: воронка лид-магнита по startparam (m_/p_/fnl_).
       // Если сработала — показываем FunnelStatusScreen и прерываем стандартный flow.
-      const handled = await handleVkFunnelIfNeeded(adapter, setFunnelStatus, setFunnelGroupId, setLoading, setFunnelKind, setFunnelEventTitle, setFunnelPosterUrl)
+      const handled = await handleVkFunnelIfNeeded(adapter, setFunnelStatus, setFunnelGroupId, setLoading, setFunnelKind, setFunnelEventTitle, setFunnelPosterUrl, setFunnelGroupScreen)
       if (handled) return
 
       // Флаг ?_reg=1 — пришли с /r/{slug} в fallback-режиме.
@@ -638,7 +645,8 @@ export default function App() {
   // VK-only: экран статуса воронки лид-магнита (Текст 1 уехал в личку)
   if (funnelStatus) {
     return <FunnelStatusScreen status={funnelStatus} groupId={funnelGroupId} kind={funnelKind}
-                               eventTitle={funnelEventTitle} posterUrl={funnelPosterUrl} />
+                               eventTitle={funnelEventTitle} posterUrl={funnelPosterUrl}
+                               groupScreen={funnelGroupScreen} />
   }
 
   if (eventSlug) {
@@ -680,21 +688,29 @@ export default function App() {
 
 // VK-only экран: после успешного запуска воронки лид-магнита (или после фейла).
 // Текст 1 уехал в личку сообщества — пользователю остаётся открыть чат.
-function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl }: {
+function FunnelStatusScreen({ status, groupId, kind, eventTitle, posterUrl, groupScreen }: {
   status: 'ok' | 'fail';
   groupId: number;
   kind?: 'leadmagnet' | 'speaker' | 'partner' | 'event';
   eventTitle?: string;
   posterUrl?: string;
+  groupScreen?: string;
 }) {
-  const chatUrl = groupId ? `https://vk.com/im?sel=-${groupId}` : ''
+  const variant = kind || 'leadmagnet'
+  // Для события — кнопка ведёт в чат с ПРЕДЗАПОЛНЕННЫМ текстом (vk.me/{handle}?text=),
+  // чтобы человек нажал «отправить» → VK гарантированно регистрирует разрешение на
+  // ЛС, и бот сразу отвечает воронкой (страховка от задержки AllowMessages).
+  const PREFILL = 'Здравствуйте! Хочу участвовать в событии'
+  const chatUrl =
+    variant === 'event' && groupScreen
+      ? `https://vk.me/${groupScreen}?text=${encodeURIComponent(PREFILL)}`
+      : groupId ? `https://vk.com/im?sel=-${groupId}` : ''
   function close() {
     getPlatform().close()
     if (chatUrl) {
       try { window.top!.location.href = chatUrl } catch { window.location.href = chatUrl }
     }
   }
-  const variant = kind || 'leadmagnet'
   const TITLE: Record<string, string> = {
     leadmagnet: 'Подарки уже в чате',
     speaker:    'Код доступа уже в чате',

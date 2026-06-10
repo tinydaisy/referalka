@@ -1250,6 +1250,14 @@ async def _vk_event_landing_background(body: VkEventLandingRequest, vk_user_id: 
                 ev["id"], contact_id,
             ))
 
+            # Маркер «недавно открыл событие через evl_» — по нему handle_message_new
+            # в vk_main.py досылает воронку, если человек сам написал боту (когда
+            # разрешение на ЛС появилось только после его сообщения).
+            await conn.execute(
+                "UPDATE event_participants SET last_open_msg_at = NOW() WHERE event_id=$1 AND contact_id=$2",
+                ev["id"], contact_id,
+            )
+
             # Отправка ЛС-воронки с RETRY на «нет разрешения» (VK error 901).
             # Свежеподписавшийся: VK проставляет разрешение на ЛС с задержкой —
             # первая попытка (сразу) может упасть 901 (и текст, и upload афиши).
@@ -1353,14 +1361,16 @@ async def vk_event_landing(body: VkEventLandingRequest):
         )
         if not ev:
             raise HTTPException(status_code=404, detail="Событие не найдено")
-        group_id = await conn.fetchval(
-            """SELECT (ch.platform_meta->>'vk_group_id')::int
+        chan = await conn.fetchrow(
+            """SELECT (ch.platform_meta->>'vk_group_id')::int AS group_id, ch.handle
                  FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
                 WHERE cc.client_id = $1 AND cc.is_active = TRUE
                   AND ch.platform_slug = 'vk' AND ch.is_system = FALSE
                 LIMIT 1""",
             ev["client_id"],
-        ) or 0
+        )
+        group_id = (chan["group_id"] if chan else 0) or 0
+        group_screen = ((chan["handle"] if chan else "") or "").lstrip("@")
 
     # Тяжёлую часть — в фон, фронту отвечаем сразу.
     asyncio.create_task(_vk_event_landing_background(body, vk_user_id))
@@ -1368,6 +1378,7 @@ async def vk_event_landing(body: VkEventLandingRequest):
     return {
         "ok": True,
         "group_id": group_id,
+        "group_screen": group_screen,
         "poster_url": (ev["poster_url"] or "").strip(),
         "event_title": ev["title"],
     }
