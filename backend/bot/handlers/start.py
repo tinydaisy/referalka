@@ -765,6 +765,29 @@ async def handle_start(message: Message, command: CommandObject):
     #                   если лендинг пуст — фолбэк на Mini App;
     #   • `_nolend`   → передаём флаг дальше в Mini App, чтобы внутри не уводило
     #                   на сторонний лендинг (вариант 3 в бот-флоу).
+    # Deeplink-слово в start-параметре: `?start=menu24` / `?start=event24` /
+    # `?start=ивент24` — то же, что напечатать слово в чат. Резолвим slug по id
+    # события и делегируем общему бот-флоу (он сам: не зареган → приглашение,
+    # зареган → меню кабинета).
+    import re as _re_start
+    _ev_word = _re_start.match(r"(?i)^(?:ивент|event|menu)\s*(\d+)$", args)
+    if _ev_word:
+        try:
+            event_id = int(_ev_word.group(1))
+            pool = await get_pool()
+            async with pool.acquire() as db:
+                slug = await db.fetchval(
+                    "SELECT slug FROM events WHERE id = $1 LIMIT 1", event_id
+                )
+            if slug:
+                if await _handle_ref_event_bot_flow(message, f"ref_pg{slug}"):
+                    return
+            else:
+                await message.answer("Событие не найдено. Проверьте номер.")
+                return
+        except Exception as e:
+            log.exception("menu<id> deeplink handler failed: %s", e)
+
     if args.startswith("ref_pg"):
         try:
             if await _handle_ref_event_bot_flow(message, args):

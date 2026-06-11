@@ -322,6 +322,24 @@ async def _process_start(
     last_name = " ".join(name.split()[1:]) if len(name.split()) > 1 else ""
     username = sender.get("username", "") or ""
 
+    # Deeplink-слово в start-параметре: `?start=menu24`/`event24`/`ивент24`
+    # (max.ru/{bot}?start=menu24). Резолвим slug по id события и подменяем payload
+    # на ref_pg{slug} — дальше штатная ветка решит регистрация/меню.
+    import re as _re_max
+    _ev_m = _re_max.match(r"(?i)^(?:ивент|event|menu)\s*(\d+)$", (payload or "").strip())
+    if _ev_m:
+        _ev_pool = await get_pool()
+        if _ev_pool:
+            async with _ev_pool.acquire() as _db:
+                _slug = await _db.fetchval(
+                    "SELECT slug FROM events WHERE id = $1 LIMIT 1", int(_ev_m.group(1))
+                )
+            if _slug:
+                payload = f"ref_pg{_slug}"
+            else:
+                await max_send_message(chat_id, "Событие не найдено. Проверьте номер.", token=bot_token)
+                return
+
     # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>
     if payload and payload.startswith("spkinv_"):
         access_code = payload.removeprefix("spkinv_").strip()
