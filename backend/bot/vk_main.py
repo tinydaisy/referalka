@@ -660,6 +660,14 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     if not from_id or from_id < 0:  # отрицательные = от сообщества
         return
 
+    # Обрабатываем ТОЛЬКО личку с сообществом (один на один). Сообщения из
+    # беседы/мультичата сообщества (peer_id = 2000000000 + chat_id) игнорируем —
+    # иначе бот реагирует на каждую реплику в общем чате (досылает воронку,
+    # пересылает организатору и т.п.). В личке VK всегда peer_id == from_id.
+    peer_id = message.get("peer_id")
+    if peer_id is not None and int(peer_id) != int(from_id):
+        return
+
     # Диагностика для spkinv: логируем что VK прислал в ref-полях.
     try:
         diag_ref = message.get("ref") or message.get("ref_source") or event_obj.get("ref")
