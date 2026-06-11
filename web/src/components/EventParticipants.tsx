@@ -231,13 +231,17 @@ function referrerLabel(p: Participant): string {
 
 function ContactCard({
   p,
+  eventId,
   onToggleRegistered,
   onDelete,
+  onReferrerChanged,
   clickLabel,
 }: {
   p: Participant
+  eventId: number
   onToggleRegistered: (next: boolean) => void
   onDelete: () => void
+  onReferrerChanged: () => void
   clickLabel: string
 }) {
   const { isAssistant } = useMe()
@@ -458,6 +462,11 @@ function ContactCard({
             <Field label="Зарегистрирован" value={p.is_registered ? 'Да' : 'Нет'} />
             <Field label="В чате" value={p.is_in_chat ? 'Да' : 'Нет'} />
           </div>
+          {!isAssistant && (
+            <div className="pt-3 mt-3 border-t border-gray-200">
+              <ReferrerEditor eventId={eventId} p={p} onChanged={onReferrerChanged} />
+            </div>
+          )}
           {p.contact_id ? (
             <div className="pt-3 mt-3 border-t border-gray-200">
               <a
@@ -488,6 +497,125 @@ function ListHeader({ clickLabel }: { clickLabel: string }) {
       <div className="w-24 text-center">Подписка</div>
       <div className="w-8" />
       <div className="w-4" />
+    </div>
+  )
+}
+
+// Редактор реферера участника — только для владельца кабинета.
+// Поиск по контактам клиента; выбранный контакт становится реферером (по его ref_code).
+function ReferrerEditor({
+  eventId,
+  p,
+  onChanged,
+}: {
+  eventId: number
+  p: Participant
+  onChanged: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!editing) return
+    const q = query.trim()
+    const t = setTimeout(() => {
+      setSearching(true)
+      api.contacts.list(q, 20, 0, false)
+        .then((r: any) => setResults(r.contacts || r.items || []))
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [query, editing])
+
+  async function pick(contactId: number | null) {
+    if (saving) return
+    setSaving(true)
+    try {
+      await api.events.setReferrer(eventId, p.id, { referrer_contact_id: contactId })
+      setEditing(false)
+      setQuery('')
+      setResults([])
+      onChanged()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сменить реферера')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="text-[11px] font-semibold text-[#25455D] hover:underline"
+      >
+        {p.referrer_ref_code ? 'Сменить реферера' : 'Указать реферера'}
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 max-w-md">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] font-semibold text-gray-600">Кто привёл участника</span>
+        <button
+          type="button"
+          onClick={() => { setEditing(false); setQuery(''); setResults([]) }}
+          className="text-gray-400 hover:text-gray-700"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <div className="relative">
+        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Имя, @ник, email…"
+          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-gray-200 focus:border-[#25455D] focus:outline-none"
+        />
+      </div>
+      <div className="mt-2 max-h-48 overflow-y-auto">
+        {searching ? (
+          <p className="text-[11px] text-gray-400 py-2 text-center">Ищем…</p>
+        ) : results.length === 0 ? (
+          <p className="text-[11px] text-gray-400 py-2 text-center">Никого не найдено</p>
+        ) : (
+          results
+            .filter((c) => c.id !== p.contact_id)
+            .map((c) => {
+              const nm = c.name || c.username || c.email || `#${c.id}`
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  disabled={saving}
+                  onClick={() => pick(c.id)}
+                  className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                >
+                  <span className="text-xs text-gray-800 truncate">{nm}</span>
+                  {c.ref_code && <span className="text-[10px] text-gray-400 font-mono ml-auto">{c.ref_code}</span>}
+                </button>
+              )
+            })
+        )}
+      </div>
+      {p.referrer_ref_code && (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => pick(null)}
+          className="mt-2 w-full text-center text-[11px] text-red-500 hover:text-red-600 py-1.5 disabled:opacity-50"
+        >
+          Снять реферера (пришёл сам)
+        </button>
+      )}
     </div>
   )
 }
@@ -891,8 +1019,10 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
               <ContactCard
                 key={p.id}
                 p={p}
+                eventId={eventId}
                 onToggleRegistered={(next) => toggleRegistered(p.id, next)}
                 onDelete={() => deleteParticipant(p.id)}
+                onReferrerChanged={load}
                 clickLabel={clickLabel}
               />
             ))}

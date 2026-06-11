@@ -919,6 +919,13 @@ async def event_participants(
 
 class UpdateParticipantRequest(BaseModel):
     is_registered: Optional[bool] = None
+    # Смена реферера участника. Можно передать любой ОДИН из вариантов:
+    #   referrer_ref_code — реф-код реферера (из contacts.ref_code)
+    #   referrer_contact_id — id контакта-реферера (резолвится в его ref_code)
+    # Пустая строка / 0 в referrer_ref_code => снять реферера ("пришёл сам").
+    # Доступно только владельцу кабинета (не ассистенту).
+    referrer_ref_code: Optional[str] = None
+    referrer_contact_id: Optional[int] = None
 
 
 @router.patch("/{event_id}/participants/{participant_id}", summary="Обновить статус участника (вручную)")
@@ -931,7 +938,7 @@ async def update_event_participant(
 ):
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        """SELECT ep.id FROM event_participants ep
+        """SELECT ep.id, ep.contact_id FROM event_participants ep
            JOIN events e ON e.id = ep.event_id
            WHERE ep.id = $1 AND ep.event_id = $2 AND e.client_id = $3""",
         participant_id, event_id, client_id
@@ -939,14 +946,68 @@ async def update_event_participant(
     if not row:
         raise HTTPException(status_code=404, detail="Участник не найден")
 
-    if data.is_registered is None:
+    fields = data.model_dump(exclude_unset=True)
+    if not fields:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
 
-    await db.execute(
-        "UPDATE event_participants SET is_registered = $1 WHERE id = $2",
-        data.is_registered, participant_id
-    )
-    return {"id": participant_id, "is_registered": data.is_registered}
+    result: dict = {"id": participant_id}
+
+    if data.is_registered is not None:
+        await db.execute(
+            "UPDATE event_participants SET is_registered = $1 WHERE id = $2",
+            data.is_registered, participant_id
+        )
+        result["is_registered"] = data.is_registered
+
+    # --- Смена реферера — только владелец кабинета ---
+    if "referrer_ref_code" in fields or "referrer_contact_id" in fields:
+        if client.get("role") == "assistant":
+            raise HTTPException(
+                status_code=403,
+                detail="Сменить реферера может только владелец кабинета."
+            )
+
+        new_ref_code: Optional[str] = None
+
+        if data.referrer_contact_id:
+            ref_row = await db.fetchrow(
+                "SELECT ref_code FROM contacts WHERE id = $1 AND client_id = $2",
+                data.referrer_contact_id, client_id
+            )
+            if not ref_row or not ref_row["ref_code"]:
+                raise HTTPException(status_code=404, detail="Контакт-реферер не найден")
+            new_ref_code = ref_row["ref_code"]
+        elif data.referrer_ref_code:
+            code = data.referrer_ref_code.strip()
+            if code:
+                # Проверяем, что такой реф-код есть у контакта этого клиента
+                ref_row = await db.fetchrow(
+                    """SELECT id FROM contacts
+                       WHERE client_id = $1
+                         AND (ref_code = $2 OR merged_ref_codes ? $2)
+                       LIMIT 1""",
+                    client_id, code
+                )
+                if not ref_row:
+                    raise HTTPException(status_code=404, detail=f"Контакт с реф-кодом {code} не найден")
+                new_ref_code = code
+        # иначе (пустая строка / None при явной передаче) — снимаем реферера
+
+        # Запрет указывать самого себя рефером
+        if new_ref_code:
+            self_ref = await db.fetchrow(
+                "SELECT ref_code FROM contacts WHERE id = $1", row["contact_id"]
+            )
+            if self_ref and self_ref["ref_code"] == new_ref_code:
+                raise HTTPException(status_code=400, detail="Участник не может быть реферером самому себе")
+
+        await db.execute(
+            "UPDATE event_participants SET referrer_ref_code = $1 WHERE id = $2",
+            new_ref_code, participant_id
+        )
+        result["referrer_ref_code"] = new_ref_code
+
+    return result
 
 
 @router.delete("/{event_id}/participants/{participant_id}", summary="Удалить участника из события")

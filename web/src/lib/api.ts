@@ -133,6 +133,17 @@ export const api = {
       request(`/api/v1/events/${id}/participants/${participantId}`, {
         method: 'DELETE',
       }),
+    // Сменить реферера участника (только владелец кабинета).
+    // Передаём referrer_contact_id (выбран из контактов) или пустое — снять реферера.
+    setReferrer: (
+      id: number,
+      participantId: number,
+      payload: { referrer_contact_id?: number | null; referrer_ref_code?: string | null },
+    ) =>
+      request(`/api/v1/events/${id}/participants/${participantId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
     // Массовая проверка членства участников в Telegram-чате события (только TG).
     checkChats: (id: number) =>
       request(`/api/v1/events/${id}/check-chats`, { method: 'POST' }),
