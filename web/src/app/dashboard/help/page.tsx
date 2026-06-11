@@ -43,6 +43,12 @@ const SECTIONS: Section[] = [
         description: 'Создание сообщества, Mini App в dev.vk.com, токены сообщества и Secure key, настройка Long Poll и Menu в группе — пошагово со скриншотами',
         emoji: '🟦',
       },
+      {
+        href: '/dashboard/help/max-setup',
+        title: 'Как подключить своего бота в MAX',
+        description: 'Создание бота через @MasterBot, получение токена и подключение к ПЛЮСОНу через раздел «Каналы» — чтобы воронки и рассылки в MAX шли от вашего имени',
+        emoji: '🟣',
+      },
     ],
   },
   {
