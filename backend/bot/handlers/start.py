@@ -964,10 +964,18 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             erp = await resolve_referrer_external_ref_param(
                 db, ev["client_id"], pid=pid, contact_id=contact_id,
             )
+            # participant_id ОБЯЗАТЕЛЕН в URL: GetCourse/Tilda присылают его обратно
+            # в webhook (getcourse/register по participant_id). Без него регистрация
+            # на лендинге не привязывается к участию — is_registered не проставляется.
+            participant_id = await db.fetchval(
+                "SELECT id FROM event_participants WHERE event_id = $1 AND contact_id = $2 LIMIT 1",
+                ev["id"], contact_id,
+            ) if contact_id else None
             landing_target = build_external_landing_url(
                 landing_url,
                 event_slug=slug,
                 contact_id=contact_id,
+                participant_id=participant_id,
                 pid=pid,
                 utm_source=utm_source,
                 external_ref_param=erp,

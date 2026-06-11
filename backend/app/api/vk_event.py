@@ -1246,10 +1246,19 @@ async def send_vk_event_funnel(
     if landing_url and event_row["status"] == "published":
         contact_params = await get_contact_landing_params(conn, contact_id) if contact_id else {}
         erp = await resolve_referrer_external_ref_param(conn, client_id, pid=pid or None, contact_id=contact_id)
+        # participant_id ОБЯЗАТЕЛЕН в URL: GetCourse/Tilda кладут его в скрытое
+        # поле формы и присылают обратно в webhook (getcourse/register по
+        # participant_id). Без него лендинг регистрирует «вслепую» и наш webhook
+        # не привязывает регистрацию к участию — is_registered не проставляется.
+        participant_id = await conn.fetchval(
+            "SELECT id FROM event_participants WHERE event_id = $1 AND contact_id = $2 LIMIT 1",
+            event_id, contact_id,
+        ) if contact_id else None
         web_url = build_external_landing_url(
             landing_url,
             event_slug=slug,
             contact_id=contact_id,
+            participant_id=participant_id,
             pid=pid or None,
             utm_source=utm_source or None,
             external_ref_param=erp,
