@@ -607,6 +607,32 @@ export default function App() {
     setPendingOpen(true)
     try {
       const tgId = tgUser?.id ? String(tgUser.id) : ''
+
+      // Уже зарегистрированного НЕ редиректим на внешний лендинг регистрации —
+      // открываем встроенный экран события (кабинет/программа/игра). Внешний
+      // landing-redirect ниже — только для НЕзарегистрированных. Проверка по
+      // platform_user_id (tg_id/vk_id) — тот же эндпоинт, что и в EventPage.
+      if (tgId) {
+        try {
+          const plat = getPlatformName()
+          const pq = (plat === 'telegram' || plat === 'web') ? '' : `?platform=${plat}`
+          const pr = await fetch(
+            `${import.meta.env.VITE_API_URL}/api/v1/participants/event/${encodeURIComponent(slug)}/user/${encodeURIComponent(tgId)}${pq}`,
+            { cache: 'no-store' },
+          )
+          if (pr.ok) {
+            const pd = await pr.json()
+            if (pd?.participant?.is_registered && !pd?.participant?.email_unsubscribed) {
+              // Зареган → встроенный экран, минуя внешний лендинг.
+              window.history.pushState({}, '', eventPath(clientId, slug))
+              setEventSlug(slug)
+              setPendingOpen(false)
+              return
+            }
+          }
+        } catch (_) { /* проверка не удалась → обычный flow ниже */ }
+      }
+
       const qs = new URLSearchParams()
       if (tgId) {
         // На бэке landing-redirect принимает И tg_id, И vk_id.
