@@ -246,6 +246,12 @@ def enrich_external_url(
 
     _put("pluson_contact_id", pluson_contact_id)
     _put("pluson_participant_id", pluson_participant_id)
+    # Legacy-дубль под старым именем: многие лендинги (GetCourse/Tilda) настроены
+    # ловить скрытое поле «participant_id» БЕЗ префикса pluson_ (так было до
+    # 24.05.2026). Дублируем значение, чтобы webhook getcourse/register получил
+    # его независимо от того, под каким именем настроено скрытое поле формы.
+    _put("participant_id", pluson_participant_id)
+    _put("contact_id", pluson_contact_id)
     _put("tg_id", tg_id)
     _put("vk_id", vk_id)
     _put("email", email)

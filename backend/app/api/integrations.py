@@ -701,11 +701,25 @@ async def salebot_get_user(
 class GetCourseRegisterRequest(BaseModel):
     client_id: int
     secret: Optional[str] = None
-    participant_id: int       # ID записи event_participants — содержит и контакт, и событие
+    # participant_id может прийти ПУСТОЙ строкой (GetCourse шлёт скрытое поле
+    # даже когда не подставил значение) — поэтому Optional[str], а не int.
+    # Пустое/нечисловое → None, дальше fallback по email/phone.
+    participant_id: Optional[str] = None  # event_participants.id — содержит контакт и событие
+    pluson_participant_id: Optional[str] = None  # алиас (новое имя в URL с 24.05.2026)
     email: Optional[str] = None
     phone: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+
+    def resolved_participant_id(self) -> Optional[int]:
+        """participant_id или pluson_participant_id → int, либо None если пусто/мусор."""
+        raw = (self.participant_id if self.participant_id not in (None, "") else self.pluson_participant_id)
+        if raw in (None, ""):
+            return None
+        try:
+            return int(str(raw).strip())
+        except (ValueError, TypeError):
+            return None
 
 
 async def _register_by_participant(
@@ -715,22 +729,55 @@ async def _register_by_participant(
     # 1. Авторизация
     await _authorize(data.secret, data.client_id, db)
 
-    # 2. Резолв participant — берём contact_id и event_id, проверяем клиента
-    prow = await db.fetchrow(
-        """SELECT ep.id, ep.event_id, ep.contact_id, e.client_id
-             FROM event_participants ep
-             JOIN events e ON e.id = ep.event_id
-            WHERE ep.id = $1""",
-        data.participant_id,
-    )
-    if not prow:
-        raise HTTPException(status_code=404, detail=f"Участник {data.participant_id} не найден")
-    if prow["client_id"] != data.client_id:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Участник {data.participant_id} принадлежит другому клиенту",
-        )
+    pid_int = data.resolved_participant_id()
 
+    # 2. Резолв participant. Если participant_id передан — самый точный путь.
+    # Если пуст (GetCourse не подставил значение в скрытое поле) — fallback:
+    # ищем участника по email-идентичности контакта у этого клиента. Так
+    # регистрация закрывается даже без participant_id (главное — есть email).
+    prow = None
+    if pid_int is not None:
+        prow = await db.fetchrow(
+            """SELECT ep.id, ep.event_id, ep.contact_id, e.client_id
+                 FROM event_participants ep
+                 JOIN events e ON e.id = ep.event_id
+                WHERE ep.id = $1""",
+            pid_int,
+        )
+        if not prow:
+            raise HTTPException(status_code=404, detail=f"Участник {pid_int} не найден")
+        if prow["client_id"] != data.client_id:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Участник {pid_int} принадлежит другому клиенту",
+            )
+    else:
+        # Fallback по email: находим контакт клиента → его последнее участие.
+        email_norm = (data.email or "").strip().lower() or None
+        if not email_norm:
+            raise HTTPException(
+                status_code=400,
+                detail="Не передан participant_id и нет email для поиска участника",
+            )
+        prow = await db.fetchrow(
+            """SELECT ep.id, ep.event_id, ep.contact_id, e.client_id
+                 FROM platform_users pu
+                 JOIN contacts c ON c.id = pu.contact_id
+                 JOIN event_participants ep ON ep.contact_id = c.id
+                 JOIN events e ON e.id = ep.event_id AND e.client_id = $1
+                WHERE pu.client_id = $1 AND pu.platform_slug = 'email'
+                  AND LOWER(pu.platform_user_id) = $2
+                ORDER BY ep.id DESC
+                LIMIT 1""",
+            data.client_id, email_norm,
+        )
+        if not prow:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Участник по email {email_norm} не найден у клиента {data.client_id}",
+            )
+
+    pid_int = prow["id"]
     contact_id = prow["contact_id"]
 
     # 3. Обновляем поля контакта. Email/phone перезатираем (свежее значение
@@ -761,7 +808,7 @@ async def _register_by_participant(
     # 4. Помечаем регистрацию (только в сторону TRUE, назад не откатываем)
     await db.execute(
         "UPDATE event_participants SET is_registered = TRUE WHERE id = $1",
-        data.participant_id,
+        pid_int,
     )
 
     # 5. Финализация (welcome-email + nurture-стоп + re-opt-in)
@@ -772,7 +819,7 @@ async def _register_by_participant(
 
     return {
         "ok": True,
-        "participant_id": data.participant_id,
+        "participant_id": pid_int,
         "contact_id": contact_id,
         "event_id": prow["event_id"],
         "is_registered": True,
@@ -800,7 +847,8 @@ async def getcourse_register_post(
 async def getcourse_register_get(
     client_id: int,
     secret: str,
-    participant_id: int,
+    participant_id: Optional[str] = None,        # может прийти ПУСТОЙ строкой — не падаем
+    pluson_participant_id: Optional[str] = None, # алиас (новое имя в URL)
     email: Optional[str] = None,
     phone: Optional[str] = None,
     first_name: Optional[str] = None,
@@ -811,6 +859,7 @@ async def getcourse_register_get(
         client_id=client_id,
         secret=secret,
         participant_id=participant_id,
+        pluson_participant_id=pluson_participant_id,
         email=email,
         phone=phone,
         first_name=first_name,
