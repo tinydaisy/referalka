@@ -1437,39 +1437,37 @@ function JudgingTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [stageId, setStageId] = useState<number | null>(null)
-  const [open, setOpen] = useState<number | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
     fetch(`${API}/api/v1/public/tournament-jury/me${stageId ? `?stage_id=${stageId}` : ''}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then(r => r.json())
-      .then(d => setData(d))
-      .finally(() => setLoading(false))
+      .then(r => r.json()).then(d => setData(d)).finally(() => setLoading(false))
   }, [token, stageId])
   useEffect(() => { load() }, [load])
 
-  const scoreVal = (criterionId: number, subjectId: number): string => {
-    const s = (data?.my_scores || []).find((x: any) => x.criterion_id === criterionId && x.subject_ec_id === subjectId)
+  const scoreVal = (criterionId: number, key: string): string => {
+    const s = (data?.my_scores || []).find((x: any) => x.criterion_id === criterionId && x.key === key)
     return s ? String(s.value_number) : ''
   }
-  const fbVal = (subjectId: number): string => {
-    const f = (data?.my_feedback || []).find((x: any) => x.subject_ec_id === subjectId && (stageId ? x.stage_id === stageId : x.stage_id == null))
+  const fbVal = (key: string): string => {
+    const f = (data?.my_feedback || []).find((x: any) => x.key === key && (stageId ? x.stage_id === stageId : x.stage_id == null))
     return f ? f.body : ''
   }
-  const saveScore = async (criterionId: number, subjectId: number, value: string) => {
+  const saveScore = async (criterionId: number, key: string, value: string) => {
     if (value === '') return
     await fetch(`${API}/api/v1/public/tournament-jury/score`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ criterion_id: criterionId, subject_ec_id: subjectId, value: Number(value) }),
+      body: JSON.stringify({ criterion_id: criterionId, key, value: Number(value) }),
     })
     load()
   }
-  const saveFb = async (subjectId: number, body: string) => {
+  const saveFb = async (key: string, body: string) => {
     await fetch(`${API}/api/v1/public/tournament-jury/feedback`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject_ec_id: subjectId, body, stage_id: stageId }),
+      body: JSON.stringify({ key, body, stage_id: stageId }),
     })
   }
 
@@ -1477,7 +1475,7 @@ function JudgingTab({ token }: { token: string }) {
   if (!data?.subjects?.length) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Вам пока не назначили участников для оценки. Обратитесь к организатору.</div>
 
   const done = (data.subjects || []).filter((s: any) =>
-    (data.criteria || []).some((c: any) => scoreVal(c.id, s.subject_ec_id) !== '')
+    (data.criteria || []).some((c: any) => scoreVal(c.id, s.key) !== '')
   ).length
 
   return (
@@ -1492,12 +1490,12 @@ function JudgingTab({ token }: { token: string }) {
       <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 12 }}>Оценено: {done} из {data.subjects.length}</div>
 
       {data.subjects.map((s: any) => {
-        const material = s.video_url || s.video_folder_url
-        const isOpen = open === s.subject_ec_id
-        const scored = (data.criteria || []).some((c: any) => scoreVal(c.id, s.subject_ec_id) !== '')
+        const material = s.material
+        const isOpen = open === s.key
+        const scored = (data.criteria || []).some((c: any) => scoreVal(c.id, s.key) !== '')
         return (
-          <div key={s.subject_ec_id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12, background: '#fff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setOpen(isOpen ? null : s.subject_ec_id)}>
+          <div key={s.key} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12, background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setOpen(isOpen ? null : s.key)}>
               <b style={{ color: DARK }}>{s.name}</b>
               <span style={{ fontSize: 12, color: scored ? '#16a34a' : '#94a3b8' }}>{scored ? '✓ оценено' : '○ не оценен'}</span>
               <span style={{ marginLeft: 'auto', color: '#94a3b8' }}>{isOpen ? '▲' : '▼'}</span>
@@ -1510,19 +1508,20 @@ function JudgingTab({ token }: { token: string }) {
                     🔗 Смотреть материалы участника
                   </a>
                 )}
+                {data.criteria.length === 0 && <div style={{ fontSize: 13, color: '#94a3b8' }}>На этом этапе нет критериев для оценки жюри.</div>}
                 {data.criteria.map((c: any) => (
                   <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                     <span style={{ flex: 1, fontSize: 14 }}>{c.title}{c.description ? <span style={{ color: '#94a3b8', fontSize: 12 }}> — {c.description}</span> : ''}</span>
-                    <input type="number" min={0} max={c.scale_max} defaultValue={scoreVal(c.id, s.subject_ec_id)}
-                      onBlur={(e) => saveScore(c.id, s.subject_ec_id, e.target.value)}
+                    <input type="number" min={0} max={c.scale_max} defaultValue={scoreVal(c.id, s.key)}
+                      onBlur={(e) => saveScore(c.id, s.key, e.target.value)}
                       style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center' }} />
                     <span style={{ color: '#94a3b8', fontSize: 13 }}>/ {c.scale_max}</span>
                   </div>
                 ))}
                 <div style={{ marginTop: 10 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 4 }}>💬 Обратная связь участнику</div>
-                  <textarea defaultValue={fbVal(s.subject_ec_id)} placeholder="Почему такие оценки и что рекомендую развивать…"
-                    onBlur={(e) => saveFb(s.subject_ec_id, e.target.value)}
+                  <textarea defaultValue={fbVal(s.key)} placeholder="Почему такие оценки и что рекомендую развивать…"
+                    onBlur={(e) => saveFb(s.key, e.target.value)}
                     style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit' }} />
                 </div>
               </div>
@@ -1557,17 +1556,15 @@ function MyResultsTab({ token }: { token: string }) {
         <div style={{ fontSize: 14, opacity: 0.8, marginTop: 6 }}>Итоговый балл: <b style={{ color: PEACH }}>{data.total}</b></div>
       </div>
 
-      {(data.packages || []).map((pkg: any) => (
-        <div key={pkg.package_id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>{pkg.title} <span style={{ color: '#94a3b8', fontWeight: 400 }}>(балл {pkg.score})</span></div>
-          {(pkg.criteria || []).map((c: any) => (
-            <div key={c.criterion_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '3px 0' }}>
-              <span>{c.title}</span>
-              <b>{c.value ?? '—'}</b>
-            </div>
-          ))}
-        </div>
-      ))}
+      <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>Ваши оценки</div>
+        {(data.columns || []).map((c: any) => (
+          <div key={c.criterion_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '3px 0' }}>
+            <span>{c.title} <span style={{ color: '#94a3b8', fontSize: 12 }}>· {c.package_title}</span></span>
+            <b>{data.cells?.[String(c.criterion_id)] ?? '—'}</b>
+          </div>
+        ))}
+      </div>
 
       {data.feedback?.length > 0 && (
         <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>

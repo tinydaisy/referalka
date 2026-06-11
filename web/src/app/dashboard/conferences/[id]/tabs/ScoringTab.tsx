@@ -2,27 +2,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
-import { Plus, Trash2, ChevronDown, ChevronRight, Save, Camera } from 'lucide-react'
-
-const DARK = '#25455D'
-const PEACH = '#FFCFA4'
+import { Plus, Trash2, ChevronDown, ChevronRight, Camera } from 'lucide-react'
 
 type SubTab = 'criteria' | 'assignments' | 'leaderboard' | 'reports'
 
-const SCORER_LABELS: Record<string, string> = {
-  jury: 'Жюри', vote: 'Народное', manual: 'Ручной', auto: 'Авто',
-}
-
 export default function ScoringTab({ eventId }: { eventId: number }) {
   const [sub, setSub] = useState<SubTab>('criteria')
-
   const tabs: { id: SubTab; label: string }[] = [
     { id: 'criteria', label: 'Критерии' },
     { id: 'assignments', label: 'Распределение' },
     { id: 'leaderboard', label: 'Турнирная таблица' },
     { id: 'reports', label: 'Отчёты' },
   ]
-
   return (
     <div>
       <div className="border-b border-gray-200 mb-6 flex items-center gap-1 -mt-2 overflow-x-auto">
@@ -54,31 +45,26 @@ function CriteriaSub({ eventId }: { eventId: number }) {
     setLoading(true)
     try {
       const r = await api.tournament.criteria(eventId)
-      setPackages(r.packages || [])
-      setStages(r.stages || [])
+      setPackages(r.packages || []); setStages(r.stages || [])
     } finally { setLoading(false) }
   }, [eventId])
   useEffect(() => { load() }, [load])
 
   const addPackage = async () => {
-    const title = prompt('Название пакета (например «Оценка жюри»):')
+    const title = prompt('Название пакета (например «Оценка жюри», «Вовлечение»):')
     if (!title?.trim()) return
     await api.tournament.createPackage(eventId, { title: title.trim(), sort_order: packages.length })
     load()
   }
 
   if (loading) return <Spinner />
-
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">
-        Пакет — это смысловая группа критериев со своим весом. Внутри пакета у каждого критерия указывается, кто ставит балл.
+        Пакет — смысловая группа критериев со своим весом. У каждого критерия выбираете, кто ставит балл и к какому этапу он относится.
       </p>
-      {packages.map(pkg => (
-        <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} onChange={load} />
-      ))}
-      <button onClick={addPackage}
-        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90">
+      {packages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} onChange={load} />)}
+      <button onClick={addPackage} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90">
         <Plus size={16} /> Добавить пакет
       </button>
     </div>
@@ -88,16 +74,11 @@ function CriteriaSub({ eventId }: { eventId: number }) {
 function PackageCard({ eventId, pkg, stages, onChange }: any) {
   const [weight, setWeight] = useState(String(pkg.weight))
   const [normalize, setNormalize] = useState(!!pkg.normalize)
-  const [stageId, setStageId] = useState<string>(pkg.stage_id ? String(pkg.stage_id) : '')
 
-  const savePkg = async (patch: any) => {
-    await api.tournament.updatePackage(eventId, pkg.id, patch)
-    onChange()
-  }
+  const savePkg = async (patch: any) => { await api.tournament.updatePackage(eventId, pkg.id, patch); onChange() }
   const delPkg = async () => {
     if (!confirm(`Удалить пакет «${pkg.title}» со всеми критериями и оценками?`)) return
-    await api.tournament.deletePackage(eventId, pkg.id)
-    onChange()
+    await api.tournament.deletePackage(eventId, pkg.id); onChange()
   }
   const addCrit = async () => {
     const title = prompt('Название критерия:')
@@ -112,27 +93,18 @@ function PackageCard({ eventId, pkg, stages, onChange }: any) {
         <input className="font-semibold text-[#25455D] border-b border-transparent hover:border-gray-300 focus:border-[#FFCFA4] outline-none px-1"
           defaultValue={pkg.title}
           onBlur={(e) => e.target.value.trim() && e.target.value !== pkg.title && savePkg({ title: e.target.value.trim() })} />
-        <label className="text-xs text-gray-500 flex items-center gap-1">
-          вес
+        <label className="text-xs text-gray-500 flex items-center gap-1">вес
           <input type="number" step="0.1" className="w-14 border rounded px-1.5 py-0.5 text-sm" value={weight}
-            onChange={(e) => setWeight(e.target.value)}
-            onBlur={() => savePkg({ weight: Number(weight) || 0 })} />
+            onChange={(e) => setWeight(e.target.value)} onBlur={() => savePkg({ weight: Number(weight) || 0 })} />
         </label>
         <label className="text-xs text-gray-500 flex items-center gap-1" title="Привести критерии к доле от лучшего результата. Включайте, если в пакете критерии с разными масштабами (например голоса в сотнях и баллы жюри до 10) — тогда большие числа не задавят маленькие.">
           <input type="checkbox" checked={normalize} onChange={(e) => { setNormalize(e.target.checked); savePkg({ normalize: e.target.checked }) }} />
           нормализовать (?)
         </label>
-        <select className="text-xs border rounded px-1.5 py-1" value={stageId}
-          onChange={(e) => { setStageId(e.target.value); savePkg({ stage_id: e.target.value ? Number(e.target.value) : null }) }}>
-          <option value="">Весь турнир</option>
-          {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
-        </select>
         <button onClick={delPkg} className="ml-auto text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
       </div>
       <div className="space-y-2">
-        {(pkg.criteria || []).map((c: any) => (
-          <CriterionRow key={c.id} eventId={eventId} crit={c} onChange={onChange} />
-        ))}
+        {(pkg.criteria || []).map((c: any) => <CriterionRow key={c.id} eventId={eventId} crit={c} stages={stages} onChange={onChange} />)}
       </div>
       <button onClick={addCrit} className="mt-3 flex items-center gap-1.5 text-sm text-[#25455D] hover:opacity-70">
         <Plus size={14} /> Добавить критерий
@@ -141,29 +113,30 @@ function PackageCard({ eventId, pkg, stages, onChange }: any) {
   )
 }
 
-function CriterionRow({ eventId, crit, onChange }: any) {
+function CriterionRow({ eventId, crit, stages, onChange }: any) {
   const save = async (patch: any) => { await api.tournament.updateCriterion(eventId, crit.id, patch); onChange() }
   const del = async () => { if (confirm('Удалить критерий?')) { await api.tournament.deleteCriterion(eventId, crit.id); onChange() } }
-
   return (
     <div className="flex flex-wrap items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
-      <input className="flex-1 min-w-[160px] bg-transparent text-sm outline-none border-b border-transparent hover:border-gray-300 focus:border-[#FFCFA4]"
+      <input className="flex-1 min-w-[150px] bg-transparent text-sm outline-none border-b border-transparent hover:border-gray-300 focus:border-[#FFCFA4]"
         defaultValue={crit.title}
         onBlur={(e) => e.target.value.trim() && e.target.value !== crit.title && save({ title: e.target.value.trim() })} />
-      <select className="text-xs border rounded px-1.5 py-1" value={crit.scorer}
-        onChange={(e) => save({ scorer: e.target.value })}>
+      <select className="text-xs border rounded px-1.5 py-1" value={crit.scorer} onChange={(e) => save({ scorer: e.target.value })}>
         <option value="jury">Ставит: Жюри</option>
         <option value="vote">Ставит: Народное</option>
         <option value="manual">Ставит: Ручной</option>
         <option value="auto">Ставит: Авто</option>
       </select>
       {crit.scorer === 'auto' && (
-        <select className="text-xs border rounded px-1.5 py-1" value={crit.auto_kind || 'referrals'}
-          onChange={(e) => save({ auto_kind: e.target.value })}>
+        <select className="text-xs border rounded px-1.5 py-1" value={crit.auto_kind || 'referrals'} onChange={(e) => save({ auto_kind: e.target.value })}>
           <option value="referrals">Привёл по реф-ссылке</option>
           <option value="lead_magnet">Пришло в лид-магнит</option>
         </select>
       )}
+      <select className="text-xs border rounded px-1.5 py-1" value={crit.stage_id ?? ''} onChange={(e) => save({ stage_id: e.target.value ? Number(e.target.value) : null })} title="Этап, к которому относится критерий">
+        <option value="">Весь турнир</option>
+        {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
+      </select>
       {crit.scorer === 'jury' && (
         <label className="text-xs text-gray-400 flex items-center gap-1">макс
           <input type="number" className="w-12 border rounded px-1 py-0.5 text-xs" defaultValue={crit.scale_max}
@@ -190,54 +163,56 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
     setLoading(true)
     try {
       const r = await api.tournament.assignments(eventId)
-      setData(r)
-      setPairs(new Set((r.pairs || []).map((p: any) => `${p.juror_ec_id}_${p.subject_ec_id}`)))
+      setData(r); setPairs(new Set((r.pairs || []).map((p: any) => `${p.juror_ec_id}|${p.key}`)))
     } finally { setLoading(false) }
   }, [eventId])
   useEffect(() => { load() }, [load])
 
-  const toggle = async (juror: number, subject: number) => {
-    const key = `${juror}_${subject}`
-    const assigned = !pairs.has(key)
-    const next = new Set(pairs)
-    assigned ? next.add(key) : next.delete(key)
-    setPairs(next)
-    await api.tournament.setAssignment(eventId, { juror_ec_id: juror, subject_ec_id: subject, assigned })
+  const toggle = async (juror: number, key: string) => {
+    const k = `${juror}|${key}`
+    const assigned = !pairs.has(k)
+    const next = new Set(pairs); assigned ? next.add(k) : next.delete(k); setPairs(next)
+    await api.tournament.setAssignment(eventId, { juror_ec_id: juror, key, assigned })
   }
-  const allAll = async (clear: boolean) => {
-    await api.tournament.setAllAssignments(eventId, clear)
-    load()
-  }
+  const allAll = async (clear: boolean) => { await api.tournament.setAllAssignments(eventId, clear); load() }
 
   if (loading) return <Spinner />
   if (!data?.jurors?.length) return <p className="text-sm text-gray-500">Нет жюри. Добавьте коллабораторов с ролью «Жюри» на вкладке «Спикеры».</p>
-  if (!data?.subjects?.length) return <p className="text-sm text-gray-500">Нет участников (спикеров) для оценки.</p>
+  if (!data?.subjects?.length) return <p className="text-sm text-gray-500">Нет участников и спикеров для оценки.</p>
+
+  const speakers = data.subjects.filter((s: any) => s.is_speaker)
+  const participants = data.subjects.filter((s: any) => !s.is_speaker)
+
+  const rowGroup = (title: string, list: any[]) => list.length > 0 && (
+    <>
+      <tr><td colSpan={data.jurors.length + 1} className="px-3 py-1.5 text-xs font-semibold text-gray-400 bg-gray-50 uppercase">{title}</td></tr>
+      {list.map((s: any) => (
+        <tr key={s.key} className="border-t">
+          <td className="px-3 py-2 sticky left-0 bg-white whitespace-nowrap">{s.name}</td>
+          {data.jurors.map((j: any) => (
+            <td key={j.juror_ec_id} className="text-center px-3 py-2">
+              <input type="checkbox" checked={pairs.has(`${j.juror_ec_id}|${s.key}`)} onChange={() => toggle(j.juror_ec_id, s.key)} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  )
 
   return (
     <div>
-      <p className="text-sm text-gray-500 mb-3">Отметьте, кого оценивает каждое жюри. Жюри видит в кабинете только привязанных к нему участников.</p>
+      <p className="text-sm text-gray-500 mb-3">Отметьте, кого оценивает каждое жюри. Жюри видит в кабинете только привязанных к нему.</p>
       <div className="overflow-x-auto border rounded-xl">
         <table className="text-sm">
           <thead>
             <tr className="bg-gray-50">
               <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-10">Участник</th>
-              {data.jurors.map((j: any) => (
-                <th key={j.juror_ec_id} className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap">{j.name}</th>
-              ))}
+              {data.jurors.map((j: any) => <th key={j.juror_ec_id} className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap">{j.name}</th>)}
             </tr>
           </thead>
           <tbody>
-            {data.subjects.map((s: any) => (
-              <tr key={s.subject_ec_id} className="border-t">
-                <td className="px-3 py-2 sticky left-0 bg-white whitespace-nowrap">{s.name}</td>
-                {data.jurors.map((j: any) => (
-                  <td key={j.juror_ec_id} className="text-center px-3 py-2">
-                    <input type="checkbox" checked={pairs.has(`${j.juror_ec_id}_${s.subject_ec_id}`)}
-                      onChange={() => toggle(j.juror_ec_id, s.subject_ec_id)} />
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {rowGroup('Спикеры', speakers)}
+            {rowGroup('Участники', participants)}
           </tbody>
         </table>
       </div>
@@ -257,7 +232,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
   const [stages, setStages] = useState<any[]>([])
   const [board, setBoard] = useState<any>(null)
   const [feedback, setFeedback] = useState<any[]>([])
-  const [expanded, setExpanded] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
@@ -277,14 +252,30 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
     const title = prompt('Название отчёта (например «После 2 этапа»):', '')
     if (title === null) return
     setSaving(true)
-    try {
-      await api.tournament.createSnapshot(eventId, { title, stage_id: stageId })
-      alert('Отчёт сохранён. Смотрите во вкладке «Отчёты».')
-    } finally { setSaving(false) }
+    try { await api.tournament.createSnapshot(eventId, { title, stage_id: stageId }); alert('Отчёт сохранён — смотрите во вкладке «Отчёты».') }
+    finally { setSaving(false) }
+  }
+  const setManual = async (criterionId: number, key: string, value: string) => {
+    if (value === '') return
+    await api.tournament.manualScore(eventId, { criterion_id: criterionId, key, value: Number(value) })
+    load()
   }
 
   if (loading) return <Spinner />
-  if (!board?.table?.length) return <p className="text-sm text-gray-500">Нет участников или критериев. Заведите критерии и спикеров.</p>
+  if (!board?.table?.length) return <p className="text-sm text-gray-500">Нет участников/спикеров или критериев. Заведите критерии; участники появятся после регистрации, спикеры — на вкладке «Спикеры».</p>
+
+  const cols: any[] = board.columns || []
+  // группировка колонок по пакетам для шапки
+  const groups: { title: string; weight: number; span: number }[] = []
+  cols.forEach((c) => {
+    const last = groups[groups.length - 1]
+    if (last && last.title === c.package_title) last.span++
+    else {
+      const pkg = board.packages.find((p: any) => p.id === c.package_id)
+      groups.push({ title: c.package_title, weight: pkg?.weight ?? 1, span: 1 })
+    }
+  })
+  const scorerOf = (cid: number) => cols.find(c => c.criterion_id === cid)?.scorer
 
   return (
     <div>
@@ -301,45 +292,68 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
         <table className="text-sm w-full">
           <thead>
             <tr className="bg-gray-50 text-gray-600">
-              <th className="px-3 py-2 text-left">Место</th>
-              <th className="px-3 py-2 text-left">Участник</th>
-              <th className="px-3 py-2">Готово</th>
-              {board.packages.map((p: any) => (
-                <th key={p.id} className="px-3 py-2 whitespace-nowrap">{p.title} <span className="text-gray-400">×{p.weight}</span></th>
+              <th rowSpan={2} className="px-3 py-2 text-left">Место</th>
+              <th rowSpan={2} className="px-3 py-2 text-left">Участник</th>
+              <th rowSpan={2} className="px-3 py-2">Готово</th>
+              {groups.map((g, i) => <th key={i} colSpan={g.span} className="px-3 py-1.5 text-center border-l">{g.title} <span className="text-gray-400">×{g.weight}</span></th>)}
+              <th rowSpan={2} className="px-3 py-2 font-semibold text-[#25455D] border-l">ИТОГ</th>
+              <th rowSpan={2} className="px-3 py-2 border-l">Детализация</th>
+            </tr>
+            <tr className="bg-gray-50 text-gray-500 text-xs">
+              {cols.map((c, i) => (
+                <th key={c.criterion_id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`} title={c.scorer}>{c.title}</th>
               ))}
-              <th className="px-3 py-2 font-semibold text-[#25455D]">ИТОГ</th>
-              <th className="px-3 py-2">Жюри</th>
             </tr>
           </thead>
           <tbody>
             {board.table.map((row: any) => {
-              const fbs = feedback.filter((f: any) => f.subject_ec_id === row.subject_ec_id)
-              const isOpen = expanded === row.subject_ec_id
+              const fbs = feedback.filter((f: any) => f.key === row.key)
+              const isOpen = expanded === row.key
               return (
                 <>
-                  <tr key={row.subject_ec_id} className="border-t hover:bg-gray-50">
+                  <tr key={row.key} className="border-t hover:bg-gray-50">
                     <td className="px-3 py-2">{row.place <= 3 ? ['🥇','🥈','🥉'][row.place-1] : row.place}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.name}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}</td>
                     <td className="px-3 py-2 text-center text-xs">{row.assigned_jury ? `${row.done_jury}/${row.assigned_jury}${row.done_jury < row.assigned_jury ? ' ⚠' : ' ✓'}` : '—'}</td>
-                    {row.packages.map((pkg: any) => (
-                      <td key={pkg.package_id} className="px-3 py-2 text-center">{pkg.score}</td>
-                    ))}
-                    <td className="px-3 py-2 text-center font-semibold text-[#25455D]">{row.total}</td>
-                    <td className="px-3 py-2 text-center">
-                      {fbs.length > 0 ? (
-                        <button onClick={() => setExpanded(isOpen ? null : row.subject_ec_id)} className="flex items-center gap-1 text-xs text-[#25455D]">
-                          {isOpen ? <ChevronDown size={14}/> : <ChevronRight size={14}/>} {fbs.length} коммент.
+                    {cols.map((c, i) => {
+                      const val = row.cells[String(c.criterion_id)]
+                      const editable = c.scorer === 'vote' || c.scorer === 'manual'
+                      return (
+                        <td key={c.criterion_id} className={`px-2 py-2 text-center ${i===0?'border-l':''}`}>
+                          {editable ? (
+                            <input type="number" className="w-16 border rounded px-1 py-0.5 text-sm text-center" defaultValue={val ?? ''}
+                              onBlur={(e) => setManual(c.criterion_id, row.key, e.target.value)} />
+                          ) : (val == null ? <span className="text-gray-300">—</span> : val)}
+                        </td>
+                      )
+                    })}
+                    <td className="px-3 py-2 text-center font-semibold text-[#25455D] border-l">{row.total}</td>
+                    <td className="px-3 py-2 text-center border-l">
+                      {(Object.keys(row.jury_detail).length > 0 || fbs.length > 0) ? (
+                        <button onClick={() => setExpanded(isOpen ? null : row.key)} className="flex items-center gap-1 text-xs text-[#25455D] mx-auto">
+                          {isOpen ? <ChevronDown size={14}/> : <ChevronRight size={14}/>} подробно
                         </button>
                       ) : <span className="text-gray-300">—</span>}
                     </td>
                   </tr>
                   {isOpen && (
                     <tr className="bg-gray-50">
-                      <td colSpan={5 + board.packages.length} className="px-4 py-3">
-                        <div className="space-y-2">
-                          {fbs.map((f: any, i: number) => (
-                            <div key={i} className="text-sm"><b className="text-[#25455D]">{f.juror_name}:</b> {f.body}</div>
+                      <td colSpan={5 + cols.length} className="px-4 py-3">
+                        <div className="space-y-2 text-sm">
+                          {cols.filter(c => row.jury_detail[String(c.criterion_id)]).map(c => (
+                            <div key={c.criterion_id}>
+                              <b className="text-[#25455D]">{c.title}:</b>{' '}
+                              {row.jury_detail[String(c.criterion_id)].map((d: any, i: number) => (
+                                <span key={i} className="text-gray-600">{d.juror_name} = {d.value}{i < row.jury_detail[String(c.criterion_id)].length-1 ? ', ' : ''}</span>
+                              ))}
+                            </div>
                           ))}
+                          {fbs.length > 0 && (
+                            <div className="pt-2 border-t">
+                              <div className="text-xs text-gray-400 mb-1">Обратная связь жюри:</div>
+                              {fbs.map((f: any, i: number) => <div key={i}><b className="text-[#25455D]">{f.juror_name}:</b> {f.body}</div>)}
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -350,59 +364,11 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
           </tbody>
         </table>
       </div>
-      <ManualScoreBlock eventId={eventId} board={board} onSaved={load} />
     </div>
   )
 }
 
-function ManualScoreBlock({ eventId, board, onSaved }: any) {
-  // Критерии vote/manual — поля для ручного ввода организатором
-  const manualCrits: any[] = []
-  board.table[0]?.packages.forEach((p: any) => {
-    p.criteria.forEach((c: any) => {
-      if (c.scorer === 'vote' || c.scorer === 'manual') manualCrits.push({ ...c, package: p.title })
-    })
-  })
-  if (!manualCrits.length) return null
-
-  const setVal = async (criterionId: number, subjectId: number, value: string) => {
-    if (value === '') return
-    await api.tournament.manualScore(eventId, { criterion_id: criterionId, subject_ec_id: subjectId, value: Number(value) })
-    onSaved()
-  }
-
-  return (
-    <div className="mt-6">
-      <h4 className="text-sm font-semibold text-[#25455D] mb-2">Ручной / народный ввод</h4>
-      <div className="overflow-x-auto border rounded-xl">
-        <table className="text-sm">
-          <thead><tr className="bg-gray-50 text-gray-600">
-            <th className="px-3 py-2 text-left">Участник</th>
-            {manualCrits.map(c => <th key={c.criterion_id} className="px-3 py-2 whitespace-nowrap">{c.title}</th>)}
-          </tr></thead>
-          <tbody>
-            {board.table.map((row: any) => (
-              <tr key={row.subject_ec_id} className="border-t">
-                <td className="px-3 py-2 whitespace-nowrap">{row.name}</td>
-                {manualCrits.map(c => {
-                  const cur = row.packages.flatMap((p: any) => p.criteria).find((cc: any) => cc.criterion_id === c.criterion_id)
-                  return (
-                    <td key={c.criterion_id} className="px-3 py-2 text-center">
-                      <input type="number" className="w-20 border rounded px-1.5 py-0.5 text-sm" defaultValue={cur?.value ?? ''}
-                        onBlur={(e) => setVal(c.criterion_id, row.subject_ec_id, e.target.value)} />
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────── Отчёты (снимки) ───────────────────────
+// ─────────────────────── Отчёты ───────────────────────
 
 function ReportsSub({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
@@ -411,20 +377,18 @@ function ReportsSub({ eventId }: { eventId: number }) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await api.tournament.snapshots(eventId); setSnaps(r.snapshots || []) }
-    finally { setLoading(false) }
+    try { const r = await api.tournament.snapshots(eventId); setSnaps(r.snapshots || []) } finally { setLoading(false) }
   }, [eventId])
   useEffect(() => { load() }, [load])
 
-  const view = async (id: number) => { setOpen(await api.tournament.getSnapshot(eventId, id)) }
+  const view = async (id: number) => setOpen(await api.tournament.getSnapshot(eventId, id))
   const del = async (id: number) => { if (confirm('Удалить отчёт?')) { await api.tournament.deleteSnapshot(eventId, id); setOpen(null); load() } }
 
   if (loading) return <Spinner />
-
   return (
     <div>
-      <p className="text-sm text-gray-500 mb-3">Сохранённые снимки результатов на даты. Открывайте, чтобы смотреть динамику — старые отчёты не меняются.</p>
-      {!snaps.length && <p className="text-sm text-gray-400">Пока нет сохранённых отчётов. Сохраните их во вкладке «Турнирная таблица».</p>}
+      <p className="text-sm text-gray-500 mb-3">Снимки результатов на даты — для динамики. Старые отчёты не меняются.</p>
+      {!snaps.length && <p className="text-sm text-gray-400">Пока нет отчётов. Сохраните их во вкладке «Турнирная таблица».</p>}
       <div className="space-y-2">
         {snaps.map(s => (
           <div key={s.id} className="flex items-center gap-3 border rounded-lg px-3 py-2 bg-white">
