@@ -140,9 +140,12 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
   const del = async () => { if (confirm('Удалить критерий?')) { await api.tournament.deleteCriterion(eventId, crit.id); onChange() } }
   return (
     <div className="flex flex-wrap items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
-      <input className="flex-1 min-w-[150px] bg-transparent text-sm outline-none border-b border-transparent hover:border-gray-300 focus:border-[#FFCFA4]"
-        defaultValue={crit.title}
-        onBlur={(e) => e.target.value.trim() && e.target.value !== crit.title && save({ title: e.target.value.trim() })} />
+      <div className="flex items-center gap-1.5 flex-1 min-w-[150px]">
+        <Pencil size={12} className="text-gray-400 shrink-0" />
+        <input className="flex-1 bg-white border border-gray-200 rounded-md px-2 py-1 text-sm outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
+          defaultValue={crit.title} title="Нажмите, чтобы переименовать критерий" placeholder="Название критерия"
+          onBlur={(e) => e.target.value.trim() && e.target.value !== crit.title && save({ title: e.target.value.trim() })} />
+      </div>
       <select className="text-xs border rounded px-1.5 py-1" value={crit.scorer} onChange={(e) => save({ scorer: e.target.value })}>
         <option value="jury">Ставит: Жюри</option>
         <option value="vote">Ставит: Народное</option>
