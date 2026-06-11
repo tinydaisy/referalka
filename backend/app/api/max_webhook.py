@@ -201,6 +201,32 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         )
         return
 
+    # Слово `ивент<id>` (как в ВК, без зависимости от регистра: «ивент24»,
+    # «Ивент24», «ИВЕНТ 24») → открыть событие: не зареган → приглашение,
+    # зареган → меню кабинета. Резолвим slug по id и делегируем _process_start
+    # с payload ref_pg{slug} (он сам решает регистрация/меню по user_id).
+    import re as _re
+    m = _re.match(r"(?i)^\s*ивент\s*(\d+)\s*$", text)
+    if m:
+        event_id = int(m.group(1))
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            slug = await db.fetchval(
+                "SELECT slug FROM events WHERE id = $1 LIMIT 1", event_id
+            )
+        if not slug:
+            await max_send_message(chat_id, "Событие не найдено. Проверьте номер.", token=bot_token)
+            return
+        await _process_start(
+            user_id=user_id,
+            chat_id=chat_id,
+            sender=sender,
+            payload=f"ref_pg{slug}",
+            bot_token=bot_token,
+            client_id_override=client_id_override,
+        )
+        return
+
     # Любое другое сообщение — лёгкий ответ-эхо чтобы не молчать
     await max_send_message(
         chat_id,

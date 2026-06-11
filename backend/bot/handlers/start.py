@@ -1289,6 +1289,32 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         return False
 
 
+@router.message(F.text.regexp(r"(?i)^\s*ивент\s*\d+\s*$"))
+async def handle_event_word_command(message: Message):
+    """Слово `ивент<id>` (как в ВК, без зависимости от регистра: `ивент24`,
+    `Ивент24`, `ИВЕНТ 24`) → открыть событие в чат-боте: не зареган → приглашение
+    на регистрацию, зареган → меню кабинета. Переиспользует общий бот-флоу
+    `_handle_ref_event_bot_flow` (он сам решает регистрация/меню по tg_id)."""
+    user = message.from_user
+    if not user:
+        return
+    import re as _re
+    m = _re.match(r"(?i)^\s*ивент\s*(\d+)\s*$", (message.text or "").strip())
+    if not m:
+        return
+    event_id = int(m.group(1))
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        slug = await db.fetchval(
+            "SELECT slug FROM events WHERE id = $1 LIMIT 1", event_id
+        )
+    if not slug:
+        await message.answer("Событие не найдено. Проверьте номер.")
+        return
+    # Делегируем общему флоу — он сам отправит приглашение или меню.
+    await _handle_ref_event_bot_flow(message, f"ref_pg{slug}")
+
+
 @router.message(F.text.regexp(r"^/menu\d+"))
 async def handle_event_menu_command(message: Message):
     """Команда `/menu{event_id}` — показать меню кабинета участника события.

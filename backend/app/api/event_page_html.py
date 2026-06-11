@@ -992,7 +992,7 @@ def _offering_card(o) -> str:
 def _venue_panel(profile, offerings) -> str:
     """Вкладка «О площадке» = копия EcosystemTab + OwnerPage."""
     if not profile:
-        return '<div class="empty">Нет данных о площадке.</div>'
+        return '<div class="empty">Нет данных об экосистеме.</div>'
     brand = esc(profile["brand_name"] or profile["name"] or "")
     brand_role = esc(profile["positioning"] or "")
     brand_ach = _parse_jsonb(profile["achievements"])[:4]
@@ -1116,8 +1116,8 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         tabs.append(("speakers", "Спикеры"))
     if cabinet_html:
         tabs.append(("cabinet", "Подарки"))
-    # Вкладка «О площадке» — всегда (последней)
-    tabs.append(("venue", "🏛 О площадке"))
+    # Вкладка «Экосистема» (раньше «О площадке») — всегда (последней)
+    tabs.append(("venue", "🌐 Экосистема"))
     if not tabs:
         # совсем пустое событие — хотя бы программа-заглушка
         tabs.append(("program", "Программа"))
