@@ -858,7 +858,13 @@ async def handle_vk_event(body: VkEventRequest):
     if not pool:
         return {"ok": True, "warning": "db not available", "vk_user_id": vk_user_id}
 
-    # Определяем client_id: 1) явный из startapp 2) из event_slug 3) системный клиент (ПЛЮСОН Сервис)
+    # Определяем client_id: 1) явный из startapp 2) из event_slug
+    #   3) ПО vk_app_id — владелец Mini App (КЛЮЧЕВОЕ против дублей: даже при
+    #      потерянном hash приложение открыто в КОНКРЕТНОМ сообществе клиента,
+    #      его app_id VK передаёт всегда; берём client_id владельца этого app_id,
+    #      а не системного — тогда контакт сядет на правильного клиента и
+    #      совпадёт со старой vk-идентичностью по UNIQUE, дубль не плодится)
+    #   4) системный клиент (ПЛЮСОН Сервис) — только если app_id системный/неизвестен.
     async with pool.acquire() as conn:
         client_id = body.client_id
         if not client_id and body.event_slug:
@@ -866,12 +872,28 @@ async def handle_vk_event(body: VkEventRequest):
             if row:
                 client_id = row["client_id"]
         # «Слепое» открытие: VK не пробросил hash (#evl_/#ref_pg…) в iframe → фронт
-        # ушёл в /vk/event без slug и без client_id. Человек при этом мог реально
-        # регистрироваться (VK прислал email/phone) — но привязки к событию нет,
-        # контакт сядет на системного клиента, реферер потеряется. Это баг VK
-        # (см. фолбэк startParam в mini-app/src/platform/vk.ts). Фиксируем факт
-        # и шлём тебе уведомление в TG-канал ошибок.
+        # ушёл в /vk/event без slug и без client_id. Фиксируем ФАКТ потери hash
+        # ДО резолва по app_id (для уведомления об ошибке привязки к СОБЫТИЮ —
+        # клиент-то теперь определится, а вот какое событие открыть — нет).
         blind_open = (not client_id) and (not body.event_slug)
+        # Резолв по vk_app_id — владелец клиентского (НЕ системного) Mini App.
+        if not client_id and vk_app_id_raw:
+            try:
+                if int(vk_app_id_raw) != int(getattr(settings, "vk_app_id", "0") or 0):
+                    row = await conn.fetchrow(
+                        """SELECT cc.client_id
+                             FROM channels ch
+                             JOIN client_channels cc ON cc.channel_id = ch.id
+                            WHERE ch.platform_slug = 'vk'
+                              AND ch.is_system = FALSE
+                              AND (ch.platform_meta->>'vk_app_id')::int = $1
+                            LIMIT 1""",
+                        int(vk_app_id_raw),
+                    )
+                    if row and row["client_id"]:
+                        client_id = row["client_id"]
+            except Exception as e:
+                logger.warning(f"VK /vk/event client_id by app_id failed (app={vk_app_id_raw}): {e}")
         if not client_id:
             # системный клиент «ПЛЮСОН Сервис» — для трафика без контекста
             row = await conn.fetchrow("SELECT id FROM clients WHERE email = $1", "system@pluson.ru")
