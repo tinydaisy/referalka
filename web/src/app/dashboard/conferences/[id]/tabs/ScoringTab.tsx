@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
-import { Plus, Trash2, ChevronDown, ChevronRight, Camera } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil } from 'lucide-react'
 
 type SubTab = 'criteria' | 'assignments' | 'leaderboard' | 'reports'
 
@@ -109,9 +109,12 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
   return (
     <div className="border rounded-xl p-4 bg-white">
       <div className="flex flex-wrap items-center gap-3 mb-3">
-        <input className="font-semibold text-[#25455D] border-b border-transparent hover:border-gray-300 focus:border-[#FFCFA4] outline-none px-1"
-          defaultValue={pkg.title}
-          onBlur={(e) => e.target.value.trim() && e.target.value !== pkg.title && savePkg({ title: e.target.value.trim() })} />
+        <div className="flex items-center gap-1.5">
+          <Pencil size={13} className="text-gray-400 shrink-0" />
+          <input className="font-semibold text-[#25455D] border border-gray-200 rounded-lg px-2 py-1 hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] outline-none"
+            defaultValue={pkg.title} title="Нажмите, чтобы переименовать пакет" placeholder="Название пакета"
+            onBlur={(e) => e.target.value.trim() && e.target.value !== pkg.title && savePkg({ title: e.target.value.trim() })} />
+        </div>
         <label className="text-xs text-gray-500 flex items-center gap-1">вес
           <input type="number" step="0.1" className="w-14 border rounded px-1.5 py-0.5 text-sm" value={weight}
             onChange={(e) => setWeight(e.target.value)} onBlur={() => savePkg({ weight: Number(weight) || 0 })} />
