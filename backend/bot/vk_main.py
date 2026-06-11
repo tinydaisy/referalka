@@ -848,6 +848,69 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
                 logger.warning(f"VK fnl_check via message payload failed: {e}")
             return  # payload-action обработан, в #user_message не дублируем
 
+    # Триггер «ИВЕНТ<id>» — человек написал в личку слово вроде «ИВЕНТ24».
+    # Шлём воронку события №24 (незарег → 2 кнопки, зарег → меню кабинета).
+    # ВАЖНО: этот блок ВЫШЕ «досыла evl_» ниже — явный номер от пользователя
+    # имеет приоритет над «угадай по недавней активности» (иначе бот пришлёт
+    # последнее открытое событие, а не запрошенное).
+    # Событие обязано принадлежать ЭТОМУ клиенту (нельзя дёрнуть чужой ивент
+    # из чужого сообщества). Нет такого события → честно говорим, что не нашли.
+    trigger_text = (message.get("text") or "").strip()
+    trigger_event_id = _extract_event_trigger_id(trigger_text)
+    if trigger_event_id is not None:
+        try:
+            from app.api.vk_event import send_vk_event_funnel, _EVENT_FUNNEL_FIELDS
+            from app.services.external_landing import resolve_or_create_participant
+
+            ev_row = await db.fetchrow(
+                f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e "
+                f"WHERE e.id = $1 AND e.client_id = $2 LIMIT 1",
+                trigger_event_id, ctx.client_id,
+            )
+            if not ev_row:
+                # Нет события с таким номером у этого клиента — не молчим.
+                await vk_send_message(
+                    int(from_id),
+                    f"Не нашёл событие №{trigger_event_id} 🤔\n\n"
+                    "Возможно, в номере опечатка — проверьте и напишите ещё раз.",
+                    token=ctx.token,
+                )
+                return
+
+            _pid, contact_id = await resolve_or_create_participant(
+                db, client_id=ctx.client_id, event_id=ev_row["id"],
+                platform_slug="vk", platform_user_id=str(from_id),
+            )
+            is_registered = bool(await db.fetchval(
+                "SELECT is_registered FROM event_participants "
+                "WHERE event_id = $1 AND contact_id = $2",
+                ev_row["id"], contact_id,
+            )) if contact_id else False
+
+            client_vk_app_id = await db.fetchval(
+                """SELECT (ch.platform_meta->>'vk_app_id')::int
+                     FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.client_id = $1 AND cc.is_active = TRUE
+                      AND ch.platform_slug = 'vk' AND ch.is_system = FALSE LIMIT 1""",
+                ctx.client_id,
+            )
+
+            await send_vk_event_funnel(
+                db,
+                vk_user_id=int(from_id),
+                token=ctx.token,
+                client_vk_app_id=client_vk_app_id,
+                event_row=ev_row,
+                contact_id=contact_id,
+                is_registered=is_registered,
+            )
+            return
+        except Exception as e:
+            logger.warning("VK message_new event-trigger (ИВЕНТ%s) failed: %s",
+                           trigger_event_id, e)
+            # Падать молча не хотим, но и спамить ошибкой юзеру незачем —
+            # дальше пойдёт обычная обработка.
+
     # Досыл event-воронки (evl_): если человек открыл событие через лёгкую
     # заглушку, но ЛС не дошло из-за задержки разрешения VK — а теперь он САМ
     # написал боту (его явный «отправить» = разрешение точно есть), досылаем
@@ -905,68 +968,6 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     text = (message.get("text") or "").strip()
     if not text:
         return
-
-    # Триггер «ИВЕНТ<id>» — человек написал в личку слово вроде «ИВЕНТ24».
-    # Шлём воронку события №24 (незарег → 2 кнопки, зарег → меню кабинета).
-    # Событие обязано принадлежать ЭТОМУ клиенту (нельзя дёрнуть чужой ивент
-    # из чужого сообщества). Нет такого события → честно говорим, что не нашли.
-    trigger_event_id = _extract_event_trigger_id(text)
-    if trigger_event_id is not None:
-        try:
-            from app.api.vk_event import send_vk_event_funnel, _EVENT_FUNNEL_FIELDS
-            from app.services.external_landing import resolve_or_create_participant
-
-            ev_row = await db.fetchrow(
-                f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e "
-                f"WHERE e.id = $1 AND e.client_id = $2 LIMIT 1",
-                trigger_event_id, ctx.client_id,
-            )
-            if not ev_row:
-                # Нет события с таким номером у этого клиента — не молчим.
-                await vk_send_message(
-                    int(from_id),
-                    f"Не нашёл событие №{trigger_event_id} 🤔\n\n"
-                    "Возможно, в номере опечатка — проверьте и напишите ещё раз.",
-                    token=ctx.token,
-                )
-                return
-
-            # Резолвим/создаём участника, чтобы получить contact_id для ссылок
-            # и статус регистрации.
-            _pid, contact_id = await resolve_or_create_participant(
-                db, client_id=ctx.client_id, event_id=ev_row["id"],
-                platform_slug="vk", platform_user_id=str(from_id),
-            )
-            is_registered = bool(await db.fetchval(
-                "SELECT is_registered FROM event_participants "
-                "WHERE event_id = $1 AND contact_id = $2",
-                ev_row["id"], contact_id,
-            )) if contact_id else False
-
-            # vk_app_id клиентского Mini App для веб-ссылок воронки.
-            client_vk_app_id = await db.fetchval(
-                """SELECT (ch.platform_meta->>'vk_app_id')::int
-                     FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
-                    WHERE cc.client_id = $1 AND cc.is_active = TRUE
-                      AND ch.platform_slug = 'vk' AND ch.is_system = FALSE LIMIT 1""",
-                ctx.client_id,
-            )
-
-            await send_vk_event_funnel(
-                db,
-                vk_user_id=int(from_id),
-                token=ctx.token,
-                client_vk_app_id=client_vk_app_id,
-                event_row=ev_row,
-                contact_id=contact_id,
-                is_registered=is_registered,
-            )
-            return
-        except Exception as e:
-            logger.warning("VK message_new event-trigger (ИВЕНТ%s) failed: %s",
-                           trigger_event_id, e)
-            # Падать молча не хотим — но и спамить ошибкой юзеру незачем,
-            # дальше пойдёт обычный ответ.
 
     # Уведомление организатору шлём ТОЛЬКО для VIP-сообществ. В системном
     # сообществе @pluson_bot/ivision_pluson мы не знаем, какому организатору
