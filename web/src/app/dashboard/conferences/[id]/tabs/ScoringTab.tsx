@@ -50,6 +50,8 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   }, [eventId])
   useEffect(() => { load() }, [load])
 
+  const [stageFilter, setStageFilter] = useState<number | 'all'>('all')
+
   const addPackage = async () => {
     const title = prompt('Название пакета (например «Оценка жюри», «Вовлечение»):')
     if (!title?.trim()) return
@@ -58,12 +60,29 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   }
 
   if (loading) return <Spinner />
+
+  // фильтр критериев по выбранному этапу (общие критерии stage_id=null показываем всегда)
+  const matchStage = (c: any) => stageFilter === 'all' || c.stage_id === stageFilter || c.stage_id == null
+  const visiblePackages = packages
+    .map(p => ({ ...p, criteria: (p.criteria || []).filter(matchStage) }))
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">
         Пакет — смысловая группа критериев со своим весом. У каждого критерия выбираете, кто ставит балл и к какому этапу он относится.
       </p>
-      {packages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} onChange={load} />)}
+      {stages.length > 0 && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-500">Этап:</span>
+          <select className="border rounded-lg px-2 py-1.5" value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+            <option value="all">Все этапы</option>
+            {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
+          </select>
+          <span className="text-xs text-gray-400">— показаны критерии выбранного этапа (и общие «весь турнир»)</span>
+        </div>
+      )}
+      {visiblePackages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} defaultStage={stageFilter === 'all' ? null : stageFilter} onChange={load} />)}
       <button onClick={addPackage} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90">
         <Plus size={16} /> Добавить пакет
       </button>
@@ -71,7 +90,7 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   )
 }
 
-function PackageCard({ eventId, pkg, stages, onChange }: any) {
+function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
   const [weight, setWeight] = useState(String(pkg.weight))
   const [normalize, setNormalize] = useState(!!pkg.normalize)
 
@@ -83,7 +102,7 @@ function PackageCard({ eventId, pkg, stages, onChange }: any) {
   const addCrit = async () => {
     const title = prompt('Название критерия:')
     if (!title?.trim()) return
-    await api.tournament.createCriterion(eventId, { package_id: pkg.id, title: title.trim(), scorer: 'jury', scale_max: 10, weight: 1, sort_order: (pkg.criteria?.length || 0) })
+    await api.tournament.createCriterion(eventId, { package_id: pkg.id, title: title.trim(), scorer: 'jury', stage_id: defaultStage ?? null, scale_max: 10, weight: 1, sort_order: (pkg.criteria?.length || 0) })
     onChange()
   }
 
@@ -291,15 +310,22 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
       <div className="overflow-x-auto border rounded-xl">
         <table className="text-sm w-full">
           <thead>
+            {/* верхняя строка шапки: группировки */}
             <tr className="bg-gray-50 text-gray-600">
               <th rowSpan={2} className="px-3 py-2 text-left">Место</th>
               <th rowSpan={2} className="px-3 py-2 text-left">Участник</th>
               <th rowSpan={2} className="px-3 py-2">Готово</th>
-              {groups.map((g, i) => <th key={i} colSpan={g.span} className="px-3 py-1.5 text-center border-l">{g.title} <span className="text-gray-400">×{g.weight}</span></th>)}
               <th rowSpan={2} className="px-3 py-2 font-semibold text-[#25455D] border-l">ИТОГ</th>
+              {/* итоговые баллы пакетов */}
+              <th colSpan={board.packages.length} className="px-3 py-1.5 text-center border-l">Баллы по пакетам</th>
+              {/* критерии, сгруппированные по пакетам */}
+              {groups.map((g, i) => <th key={i} colSpan={g.span} className="px-3 py-1.5 text-center border-l">{g.title} <span className="text-gray-400">×{g.weight}</span></th>)}
               <th rowSpan={2} className="px-3 py-2 border-l">Детализация</th>
             </tr>
             <tr className="bg-gray-50 text-gray-500 text-xs">
+              {board.packages.map((p: any, i: number) => (
+                <th key={p.id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`}>{p.title}</th>
+              ))}
               {cols.map((c, i) => (
                 <th key={c.criterion_id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`} title={c.scorer}>{c.title}</th>
               ))}
@@ -315,6 +341,12 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                     <td className="px-3 py-2">{row.place <= 3 ? ['🥇','🥈','🥉'][row.place-1] : row.place}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}</td>
                     <td className="px-3 py-2 text-center text-xs">{row.assigned_jury ? `${row.done_jury}/${row.assigned_jury}${row.done_jury < row.assigned_jury ? ' ⚠' : ' ✓'}` : '—'}</td>
+                    <td className="px-3 py-2 text-center font-semibold text-[#25455D] border-l">{row.total}</td>
+                    {/* баллы пакетов */}
+                    {board.packages.map((p: any, i: number) => (
+                      <td key={p.id} className={`px-2 py-2 text-center text-gray-700 ${i===0?'border-l':''}`}>{row.package_scores?.[String(p.id)] ?? '—'}</td>
+                    ))}
+                    {/* критерии */}
                     {cols.map((c, i) => {
                       const val = row.cells[String(c.criterion_id)]
                       const editable = c.scorer === 'vote' || c.scorer === 'manual'
@@ -327,7 +359,6 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                         </td>
                       )
                     })}
-                    <td className="px-3 py-2 text-center font-semibold text-[#25455D] border-l">{row.total}</td>
                     <td className="px-3 py-2 text-center border-l">
                       {(Object.keys(row.jury_detail).length > 0 || fbs.length > 0) ? (
                         <button onClick={() => setExpanded(isOpen ? null : row.key)} className="flex items-center gap-1 text-xs text-[#25455D] mx-auto">
@@ -338,7 +369,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                   </tr>
                   {isOpen && (
                     <tr className="bg-gray-50">
-                      <td colSpan={5 + cols.length} className="px-4 py-3">
+                      <td colSpan={4 + board.packages.length + cols.length + 1} className="px-4 py-3">
                         <div className="space-y-2 text-sm">
                           {cols.filter(c => row.jury_detail[String(c.criterion_id)]).map(c => (
                             <div key={c.criterion_id}>

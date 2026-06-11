@@ -127,12 +127,18 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
         out.append({"kind": "ec", "sid": d["sid"], "key": _skey("ec", d["sid"]),
                     "name": d["name"] or "Без имени", "ref_code": d["ref_code"], "contact_id": d["contact_id"],
                     "material": d["video_url"] or d["video_folder_url"], "is_speaker": True})
-    # зарегистрированные участники
+    # зарегистрированные участники — БЕЗ тех, кто является коллаборатором события
+    # (жюри, организаторы, партнёры, спикеры) — их в таблице оцениваемых быть не должно.
     ep_rows = await db.fetch(
         """SELECT ep.id AS sid, ct.name, ct.ref_code, ct.id AS contact_id
              FROM event_participants ep
              JOIN contacts ct ON ct.id = ep.contact_id
             WHERE ep.event_id = $1 AND ep.is_registered = TRUE
+              AND NOT EXISTS (
+                SELECT 1 FROM event_collaborators ec2
+                 JOIN collaborators c2 ON c2.id = ec2.speaker_id
+                WHERE ec2.event_id = ep.event_id AND c2.contact_id = ct.id
+              )
             ORDER BY ct.name, ep.id""",
         event_id,
     )
@@ -252,8 +258,9 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
 
     table = []
     for subj in subjects:
-        cells = {}      # criterion_id -> value (для колонок)
-        jury_detail = {}  # criterion_id -> [{juror_name, value}]
+        cells = {}            # criterion_id -> value (для колонок-критериев)
+        jury_detail = {}      # criterion_id -> [{juror_name, value}]
+        package_scores = {}   # package_id -> балл пакета
         total = 0.0
         for p in pkgs:
             weighted_sum = 0.0; weight_total = 0.0
@@ -278,6 +285,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                     if det:
                         jury_detail[c["id"]] = det
             pkg_score = (weighted_sum / weight_total) if weight_total > 0 else 0.0
+            package_scores[p["id"]] = round(pkg_score, 3)
             total += pkg_score * float(p["weight"])
         # прогресс жюри
         assigned = assigned_by.get(subj["key"], set())
@@ -290,6 +298,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             "subject_kind": subj["kind"], "subject_id": subj["sid"], "key": subj["key"],
             "name": subj["name"], "is_speaker": subj["is_speaker"],
             "cells": {str(k): v for k, v in cells.items()},
+            "package_scores": {str(k): v for k, v in package_scores.items()},
             "jury_detail": {str(k): v for k, v in jury_detail.items()},
             "total": round(total, 3), "assigned_jury": len(assigned), "done_jury": done,
         })
