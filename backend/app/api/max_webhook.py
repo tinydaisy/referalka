@@ -201,12 +201,12 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         )
         return
 
-    # Слово `ивент<id>` (как в ВК, без зависимости от регистра: «ивент24»,
-    # «Ивент24», «ИВЕНТ 24») → открыть событие: не зареган → приглашение,
-    # зареган → меню кабинета. Резолвим slug по id и делегируем _process_start
-    # с payload ref_pg{slug} (он сам решает регистрация/меню по user_id).
+    # Слово-открыватель события (как в ВК, без зависимости от регистра):
+    # русское «ивент<id>» и английские «event<id>» / «menu<id>» → открыть
+    # событие: не зареган → приглашение, зареган → меню кабинета. Резолвим slug
+    # по id и делегируем _process_start с payload ref_pg{slug}.
     import re as _re
-    m = _re.match(r"(?i)^\s*ивент\s*(\d+)\s*$", text)
+    m = _re.match(r"(?i)^\s*(?:ивент|event|menu)\s*(\d+)\s*$", text)
     if m:
         event_id = int(m.group(1))
         pool = await get_pool()

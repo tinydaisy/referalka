@@ -1289,17 +1289,19 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         return False
 
 
-@router.message(F.text.regexp(r"(?i)^\s*ивент\s*\d+\s*$"))
+@router.message(F.text.regexp(r"(?i)^\s*(?:ивент|event|menu)\s*\d+\s*$"))
 async def handle_event_word_command(message: Message):
-    """Слово `ивент<id>` (как в ВК, без зависимости от регистра: `ивент24`,
-    `Ивент24`, `ИВЕНТ 24`) → открыть событие в чат-боте: не зареган → приглашение
+    """Слово-открыватель события (как в ВК, без зависимости от регистра):
+    русское `ивент<id>` и английские `event<id>` / `menu<id>` — `ивент24`,
+    `Event24`, `MENU 24`. Открывает событие в чат-боте: не зареган → приглашение
     на регистрацию, зареган → меню кабинета. Переиспользует общий бот-флоу
-    `_handle_ref_event_bot_flow` (он сам решает регистрация/меню по tg_id)."""
+    `_handle_ref_event_bot_flow` (он сам решает регистрация/меню по tg_id).
+    Команда `/menu<id>` (со слешем) — отдельный обработчик ниже, сюда не попадает."""
     user = message.from_user
     if not user:
         return
     import re as _re
-    m = _re.match(r"(?i)^\s*ивент\s*(\d+)\s*$", (message.text or "").strip())
+    m = _re.match(r"(?i)^\s*(?:ивент|event|menu)\s*(\d+)\s*$", (message.text or "").strip())
     if not m:
         return
     event_id = int(m.group(1))
