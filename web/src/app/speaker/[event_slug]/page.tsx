@@ -122,7 +122,7 @@ type SpeakerMaterials = {
   placeholders: { link: string; event: string; date: string; brand: string }
 }
 
-type CabinetTab = 'profile' | 'materials'
+type CabinetTab = 'profile' | 'materials' | 'judging' | 'myresults'
 
 export default function SpeakerCabinetPage() {
   const params = useParams<{ event_slug: string }>()
@@ -553,6 +553,8 @@ export default function SpeakerCabinetPage() {
           {([
             { key: 'profile'   as CabinetTab, label: 'Профиль' },
             { key: 'materials' as CabinetTab, label: 'Материалы' },
+            ...(me.role === 'jury' ? [{ key: 'judging' as CabinetTab, label: 'Оценка участников' }] : []),
+            ...(me.role !== 'jury' ? [{ key: 'myresults' as CabinetTab, label: 'Мои результаты' }] : []),
           ]).map(t => (
             <button
               key={t.key}
@@ -583,6 +585,9 @@ export default function SpeakerCabinetPage() {
             setLightbox={setLightbox}
           />
         )}
+
+        {activeTab === 'judging' && token && <JudgingTab token={token} />}
+        {activeTab === 'myresults' && token && <MyResultsTab token={token} />}
 
         {activeTab === 'profile' && <>
         <Section title="Профиль">
@@ -1420,6 +1425,156 @@ function PlatformAccountField({
       {locked && (
         <div style={{ fontSize: 11, color: '#7a8c9c', marginTop: 2 }}>
           Этот аккаунт привязан автоматически — изменить его нельзя.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────── Вкладка ЖЮРИ: оценка участников ───────────────────────
+
+function JudgingTab({ token }: { token: string }) {
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any>(null)
+  const [stageId, setStageId] = useState<number | null>(null)
+  const [open, setOpen] = useState<number | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch(`${API}/api/v1/public/tournament-jury/me${stageId ? `?stage_id=${stageId}` : ''}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(d => setData(d))
+      .finally(() => setLoading(false))
+  }, [token, stageId])
+  useEffect(() => { load() }, [load])
+
+  const scoreVal = (criterionId: number, subjectId: number): string => {
+    const s = (data?.my_scores || []).find((x: any) => x.criterion_id === criterionId && x.subject_ec_id === subjectId)
+    return s ? String(s.value_number) : ''
+  }
+  const fbVal = (subjectId: number): string => {
+    const f = (data?.my_feedback || []).find((x: any) => x.subject_ec_id === subjectId && (stageId ? x.stage_id === stageId : x.stage_id == null))
+    return f ? f.body : ''
+  }
+  const saveScore = async (criterionId: number, subjectId: number, value: string) => {
+    if (value === '') return
+    await fetch(`${API}/api/v1/public/tournament-jury/score`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ criterion_id: criterionId, subject_ec_id: subjectId, value: Number(value) }),
+    })
+    load()
+  }
+  const saveFb = async (subjectId: number, body: string) => {
+    await fetch(`${API}/api/v1/public/tournament-jury/feedback`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject_ec_id: subjectId, body, stage_id: stageId }),
+    })
+  }
+
+  if (loading) return <div style={{ padding: 20, textAlign: 'center', color: '#7a8c9c' }}>Загрузка…</div>
+  if (!data?.subjects?.length) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Вам пока не назначили участников для оценки. Обратитесь к организатору.</div>
+
+  const done = (data.subjects || []).filter((s: any) =>
+    (data.criteria || []).some((c: any) => scoreVal(c.id, s.subject_ec_id) !== '')
+  ).length
+
+  return (
+    <div>
+      {data.stages?.length > 0 && (
+        <select value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}
+          style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d4dee5', marginBottom: 12, fontSize: 14 }}>
+          <option value="">Все этапы</option>
+          {data.stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
+        </select>
+      )}
+      <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 12 }}>Оценено: {done} из {data.subjects.length}</div>
+
+      {data.subjects.map((s: any) => {
+        const material = s.video_url || s.video_folder_url
+        const isOpen = open === s.subject_ec_id
+        const scored = (data.criteria || []).some((c: any) => scoreVal(c.id, s.subject_ec_id) !== '')
+        return (
+          <div key={s.subject_ec_id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12, background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setOpen(isOpen ? null : s.subject_ec_id)}>
+              <b style={{ color: DARK }}>{s.name}</b>
+              <span style={{ fontSize: 12, color: scored ? '#16a34a' : '#94a3b8' }}>{scored ? '✓ оценено' : '○ не оценен'}</span>
+              <span style={{ marginLeft: 'auto', color: '#94a3b8' }}>{isOpen ? '▲' : '▼'}</span>
+            </div>
+            {isOpen && (
+              <div style={{ marginTop: 12 }}>
+                {material && (
+                  <a href={material} target="_blank" rel="noreferrer"
+                    style={{ display: 'inline-block', marginBottom: 12, color: DARK, fontWeight: 600, fontSize: 14 }}>
+                    🔗 Смотреть материалы участника
+                  </a>
+                )}
+                {data.criteria.map((c: any) => (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    <span style={{ flex: 1, fontSize: 14 }}>{c.title}{c.description ? <span style={{ color: '#94a3b8', fontSize: 12 }}> — {c.description}</span> : ''}</span>
+                    <input type="number" min={0} max={c.scale_max} defaultValue={scoreVal(c.id, s.subject_ec_id)}
+                      onBlur={(e) => saveScore(c.id, s.subject_ec_id, e.target.value)}
+                      style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center' }} />
+                    <span style={{ color: '#94a3b8', fontSize: 13 }}>/ {c.scale_max}</span>
+                  </div>
+                ))}
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 4 }}>💬 Обратная связь участнику</div>
+                  <textarea defaultValue={fbVal(s.subject_ec_id)} placeholder="Почему такие оценки и что рекомендую развивать…"
+                    onBlur={(e) => saveFb(s.subject_ec_id, e.target.value)}
+                    style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit' }} />
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─────────────────────── Вкладка УЧАСТНИКА: мои результаты ───────────────────────
+
+function MyResultsTab({ token }: { token: string }) {
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any>(null)
+
+  useEffect(() => {
+    fetch(`${API}/api/v1/public/tournament-jury/my-results`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => setData(d)).finally(() => setLoading(false))
+  }, [token])
+
+  if (loading) return <div style={{ padding: 20, textAlign: 'center', color: '#7a8c9c' }}>Загрузка…</div>
+  if (!data?.is_tournament) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Это событие — не турнир.</div>
+  if (!data?.has_results) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Результатов пока нет — жюри ещё не выставило оценки.</div>
+
+  return (
+    <div>
+      <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', borderRadius: 14, padding: 18, color: '#fff', marginBottom: 16 }}>
+        <div style={{ fontSize: 14, opacity: 0.8 }}>Ваше место</div>
+        <div style={{ fontSize: 28, fontWeight: 800 }}>{data.place <= 3 ? ['🥇','🥈','🥉'][data.place-1] : '#'+data.place} {data.place}</div>
+        <div style={{ fontSize: 14, opacity: 0.8, marginTop: 6 }}>Итоговый балл: <b style={{ color: PEACH }}>{data.total}</b></div>
+      </div>
+
+      {(data.packages || []).map((pkg: any) => (
+        <div key={pkg.package_id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>{pkg.title} <span style={{ color: '#94a3b8', fontWeight: 400 }}>(балл {pkg.score})</span></div>
+          {(pkg.criteria || []).map((c: any) => (
+            <div key={c.criterion_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '3px 0' }}>
+              <span>{c.title}</span>
+              <b>{c.value ?? '—'}</b>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {data.feedback?.length > 0 && (
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>
+          <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>💬 Обратная связь жюри</div>
+          {data.feedback.map((f: any, i: number) => (
+            <div key={i} style={{ fontSize: 14, marginBottom: 8 }}><b style={{ color: DARK }}>{f.juror_name}:</b> {f.body}</div>
+          ))}
         </div>
       )}
     </div>

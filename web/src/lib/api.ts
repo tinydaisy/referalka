@@ -642,6 +642,39 @@ export const api = {
     saveAgreement: (eventId: number, data: any) =>
       request(`/api/v1/events/${eventId}/announcement-tracker/agreement`, { method: 'PUT', body: JSON.stringify(data) }),
   },
+  // Оценки участников турнира жюри (миграция 132)
+  tournament: {
+    criteria: (eventId: number) => request(`/api/v1/events/${eventId}/tournament/criteria`),
+    createPackage: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tournament/packages`, { method: 'POST', body: JSON.stringify(data) }),
+    updatePackage: (eventId: number, id: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tournament/packages/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deletePackage: (eventId: number, id: number) =>
+      request(`/api/v1/events/${eventId}/tournament/packages/${id}`, { method: 'DELETE' }),
+    createCriterion: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tournament/criteria`, { method: 'POST', body: JSON.stringify(data) }),
+    updateCriterion: (eventId: number, id: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tournament/criteria/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    deleteCriterion: (eventId: number, id: number) =>
+      request(`/api/v1/events/${eventId}/tournament/criteria/${id}`, { method: 'DELETE' }),
+    assignments: (eventId: number) => request(`/api/v1/events/${eventId}/tournament/assignments`),
+    setAssignment: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tournament/assignments`, { method: 'POST', body: JSON.stringify(data) }),
+    setAllAssignments: (eventId: number, clear: boolean) =>
+      request(`/api/v1/events/${eventId}/tournament/assignments/all?clear=${clear}`, { method: 'POST' }),
+    leaderboard: (eventId: number, stageId?: number | null) =>
+      request(`/api/v1/events/${eventId}/tournament/leaderboard${stageId ? `?stage_id=${stageId}` : ''}`),
+    manualScore: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tournament/manual-score`, { method: 'POST', body: JSON.stringify(data) }),
+    feedback: (eventId: number) => request(`/api/v1/events/${eventId}/tournament/feedback`),
+    snapshots: (eventId: number) => request(`/api/v1/events/${eventId}/tournament/snapshots`),
+    createSnapshot: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tournament/snapshots`, { method: 'POST', body: JSON.stringify(data) }),
+    getSnapshot: (eventId: number, id: number) =>
+      request(`/api/v1/events/${eventId}/tournament/snapshots/${id}`),
+    deleteSnapshot: (eventId: number, id: number) =>
+      request(`/api/v1/events/${eventId}/tournament/snapshots/${id}`, { method: 'DELETE' }),
+  },
   raffle: {
     settings: {
       get:  (eventId: number) => request(`/api/v1/events/${eventId}/raffle/settings`),

@@ -6,7 +6,7 @@ from app.config import settings
 from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
-from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, event_page_html
+from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, event_page_html, tournament
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
 from app.api import broadcasts_general
@@ -105,6 +105,8 @@ app.include_router(subscriptions.admin_router,   prefix="/api/v1")              
 app.include_router(referrals.router,             prefix="/api/v1")              # /api/v1/referrals/me, /withdraw — реф-программа (миграции 125-126)
 app.include_router(referrals.pay_router,         prefix="/api/v1")              # /api/v1/subscriptions/pay-with-bonus — оплата бонусами
 app.include_router(referrals.admin_router,       prefix="/api/v1")              # /api/v1/admin/withdrawals — обработка заявок
+app.include_router(tournament.router,            prefix="/api/v1")              # /api/v1/events/{id}/tournament — оценки участников турнира (миграция 132)
+app.include_router(tournament.jury_router)                                      # /api/v1/public/tournament-jury — кабинет жюри (миграция 132)
 
 
 @app.get("/", tags=["health"])
