@@ -391,8 +391,14 @@ async def preview(
         btn_text=None, btn_url="", event_id=None, session_id=None,
         fire_at=row["fire_at"], tz=tz, template_id=None, snapshot=snap,
     )
+    # Заголовок (subject) для TG/VK/MAX уходит первой жирной строкой — показываем
+    # это в превью ровно так, как получит подписчик (см. tasks/broadcast.py).
+    body_text = content["text"]
+    subject_val = (row.get("snapshot_subject") or "").strip()
+    preview_text = f"<b>{subject_val}</b>\n\n{body_text}" if subject_val else body_text
     return {
-        "text": content["text"],
+        "subject": subject_val or None,
+        "text": preview_text,
         "photo": content["photo"],
         "video": content.get("video"),
         "media_type": content.get("media_type"),

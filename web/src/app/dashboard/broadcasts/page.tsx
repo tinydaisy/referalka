@@ -369,6 +369,9 @@ export default function GeneralBroadcastsPage() {
                             <span className="text-xs text-gray-400">· кнопок: {s.buttons_count}</span>
                           )}
                         </div>
+                        {s.snapshot_subject && (
+                          <p className="text-sm font-semibold text-gray-900 mb-0.5 truncate">{s.snapshot_subject}</p>
+                        )}
                         {preview && (
                           <p className="text-sm text-gray-700 mb-1 truncate">{preview}{(s.snapshot_text || '').length > 80 ? '…' : ''}</p>
                         )}
