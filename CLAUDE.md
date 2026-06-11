@@ -20,10 +20,11 @@
 
 ## Правила работы
 
-> ### ⚠️ СЕРВЕР ПО УМОЛЧАНИЮ — DEV
-> **Все правки и эксперименты идут на DEV-сервер `62.113.98.30` (dev.pluson.ru, старый dev.pluson.margoforbs.ru работает параллельно).**
-> **Прод `194.156.119.17` (pluson.ru / www.pluson.ru, старый pluson.margoforbs.ru работает параллельно) — ТОЛЬКО по явной команде пользователя** («деплой на прод», «выкати на продакшн» и т.п.).
-> Не переспрашивать каждый раз — реквизиты и пароли в `memory/dev_server.md` и `memory/server_access.md`.
+> ### ⚠️ СЕРВЕР ПО УМОЛЧАНИЮ — ПРОД (с 2026-06-10)
+> **Все правки идут сразу на ПРОД `194.156.119.17` (pluson.ru / www.pluson.ru).** Пользователь работает напрямую на проде — не переспрашивать, не гонять сначала на dev.
+> Dev-сервер `62.113.98.30` (dev.pluson.ru) остаётся доступен для отдельных экспериментов, но только если пользователь явно попросит «на dev».
+> Не переспрашивать каждый раз — реквизиты и пароли в `memory/server_access.md` (прод) и `memory/dev_server.md` (dev).
+> ⚠️ Имена celery-сервисов на проде: `plusson-celery` + `plusson-celery-beat` (БЕЗ `-worker`). После правок backend рестартить `plusson-api plusson-celery plusson-celery-beat` (+ `plusson-bot plusson-vk-bot` если затронуты).
 
 - Всегда отвечать на **русском языке**
 - Это **no-code / AI-driven разработка** — весь код пишет Claude, пользователь не программист
@@ -122,6 +123,26 @@
 **⚠️ Privacy mode у бота** — у каждого бота в @BotFather → Bot Settings → Group Privacy → **Disable**. Без этого Telegram присылает только сообщения с упоминанием, гейт не работает. В UI этот пункт подсвечен жёлтым баннером.
 
 **⚠️ Не путать с `subscription_check.py`** — там проверка подписки на каналы **спикеров** события через `collaborators.tg_channel_id` (для входа в чат события из Mini App). Это другая фича, не трогаем.
+
+### Оценка участников турнира жюри — универсальные пакеты/критерии (миграция 132 от 2026-06-11)
+
+**Зачем.** Жюри оценивают участников турнира по настраиваемым критериям. Только `module_slug='turnir'`. Сделано целиком на dev (НЕ на проде).
+
+**Модель «Пакеты → Критерии → Баллы»** (8 таблиц):
+- `tournament_packages` — смысловая группа критериев: `title`, `weight` (вес в итоге), `normalize` (галочка — привести критерии к доле от лучшего, для разных масштабов), `stage_id` (FK `conf_stages`, NULL = весь турнир).
+- `tournament_criteria` — внутри пакета, всегда даёт число. `scorer` ∈ `jury|vote|manual|auto`. `auto_kind` ∈ `referrals` (через `event_participants.referrer_ref_code`) | `lead_magnet` (через `funnel_runs.referrer_contact_id`). `scale_max`, `weight` (внутри пакета).
+- `tournament_scores` — сырые баллы. `jury` → строка на каждое жюри (балл критерия = AVG). `vote`/`manual` → одна строка `juror_ec_id=NULL`. `scorer` денормализован в строку + `CHECK ((scorer='jury')=(juror_ec_id IS NOT NULL))`. **Частичные UNIQUE** (обычный с NULL не защищает): `WHERE juror_ec_id IS NOT NULL` для жюри + `WHERE juror_ec_id IS NULL` для остальных.
+- `tournament_jury_assignments` — many-to-many жюри↔участник. Жюри видит в кабинете **ТОЛЬКО** привязанных (нет записей → не видит никого).
+- `tournament_feedback` — обратная связь жюри→участник (текст), один на (juror, subject, stage). Видят организатор + участник.
+- `tournament_snapshots`+`_rows`+`_scores` — снимки отчётов по кнопке «Сохранить отчёт»: замораживают итоги + баллы пакетов + каждый сырой балл жюри + комментарии на дату. Старые не меняются → динамика.
+
+**⚠️ ID:** `subject_ec_id`/`juror_ec_id` = `event_collaborators.id` (коллаб-в-событии), НЕ `collaborators.id`. Оцениваемые = `role IN ('speaker','headliner')`, жюри = `role='jury'` (заводятся как обычные коллабораторы). Участники турнира = коллабораторы, не `event_participants` (обычных участников оценивать — отложено).
+
+**Расчёт** (`_compute` в [tournament.py](backend/app/api/tournament.py)): балл критерия (jury=AVG, vote/manual=число, auto=из БД) → балл пакета (normalize=TRUE: каждый критерий=доля от лучшего, потом взвеш.среднее; иначе взвеш.среднее сырых) → итог = `Σ(балл пакета × вес пакета)`, сортировка убыванием. Прогресс `done_jury/assigned_jury`.
+
+**Бэкенд** [backend/app/api/tournament.py](backend/app/api/tournament.py): `router` (клиент, `/api/v1/events/{id}/tournament/*`) + `jury_router` (кабинет жюри, `/api/v1/public/tournament-jury/*`, JWT кабинета спикера). Auto-seed `_seed_defaults_if_empty` при первом GET `/criteria` — пакет «Оценка жюри» (вес 3, 6 критериев экспертизы) + «Вовлечение» (вес 1, normalize, 2 авто).
+
+**Фронт:** дашборд — вкладка «Оценки» ТОЛЬКО при `isTournament` ([ScoringTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ScoringTab.tsx), 4 подвкладки: Критерии/Распределение/Турнирная таблица/Отчёты). Кабинет [/speaker/[event_slug]](web/src/app/speaker/%5Bevent_slug%5D/page.tsx): «Оценка участников» (только `role='jury'`) + «Мои результаты» (для оцениваемых). Материалы для жюри = `collaborators.video_url`/`video_folder_url` участника. api-группа `api.tournament.*`.
 
 ### Кнопка «Проверить чаты» на странице участников — членство в TG-чате (миграция 130 от 2026-06-10)
 
