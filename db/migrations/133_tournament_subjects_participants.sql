@@ -12,6 +12,11 @@
 -- Целостность поддерживаем в коде. Старые строки (если были) = 'ec'.
 
 -- ───────────── tournament_scores ─────────────
+-- старая колонка subject_ec_id теперь легаси (пишем в subject_kind/subject_id) — снять NOT NULL
+ALTER TABLE tournament_scores            ALTER COLUMN subject_ec_id DROP NOT NULL;
+ALTER TABLE tournament_jury_assignments  ALTER COLUMN subject_ec_id DROP NOT NULL;
+ALTER TABLE tournament_feedback          ALTER COLUMN subject_ec_id DROP NOT NULL;
+
 ALTER TABLE tournament_scores
     ADD COLUMN IF NOT EXISTS subject_kind TEXT NOT NULL DEFAULT 'ec'
     CHECK (subject_kind IN ('ec', 'ep'));
