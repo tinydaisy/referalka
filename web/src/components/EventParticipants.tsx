@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle, MessagesSquare } from 'lucide-react'
+import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle, MessagesSquare, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useMe } from '@/hooks/useMe'
@@ -248,6 +248,7 @@ function ContactCard({
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [editingRef, setEditingRef] = useState(false)
   const name = p.contact_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || p.username || 'Без имени'
   const initial = name[0]?.toUpperCase() || '?'
 
@@ -449,12 +450,24 @@ function ContactCard({
               value={referrerLabel(p)}
               highlight={!!p.referrer_ref_code}
             />
-            <Field
-              label="Реф-код реферера"
-              value={p.referrer_ref_code || '—'}
-              mono
-              highlight={!!p.referrer_ref_code}
-            />
+            <div>
+              <p className="text-gray-400 mb-0.5">Реф-код реферера</p>
+              <div className="flex items-center gap-1.5">
+                <span className={`font-mono break-all ${p.referrer_ref_code ? 'text-brand font-medium' : 'text-gray-700'}`}>
+                  {p.referrer_ref_code || '—'}
+                </span>
+                {!isAssistant && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingRef(v => !v)}
+                    title={p.referrer_ref_code ? 'Сменить реферера' : 'Указать реферера'}
+                    className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-[#25455D] hover:bg-gray-200 transition-colors shrink-0"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
             <Field label="Telegram ID" value={p.platform_user_id || '—'} />
             <Field label="Salebot ID" value={p.salebot_id || '—'} />
             <Field label="Телефон" value={p.phone || '—'} />
@@ -462,9 +475,14 @@ function ContactCard({
             <Field label="Зарегистрирован" value={p.is_registered ? 'Да' : 'Нет'} />
             <Field label="В чате" value={p.is_in_chat ? 'Да' : 'Нет'} />
           </div>
-          {!isAssistant && (
+          {!isAssistant && editingRef && (
             <div className="pt-3 mt-3 border-t border-gray-200">
-              <ReferrerEditor eventId={eventId} p={p} onChanged={onReferrerChanged} />
+              <ReferrerEditor
+                eventId={eventId}
+                p={p}
+                onChanged={() => { setEditingRef(false); onReferrerChanged() }}
+                onClose={() => setEditingRef(false)}
+              />
             </div>
           )}
           {p.contact_id ? (
@@ -507,19 +525,19 @@ function ReferrerEditor({
   eventId,
   p,
   onChanged,
+  onClose,
 }: {
   eventId: number
   p: Participant
   onChanged: () => void
+  onClose: () => void
 }) {
-  const [editing, setEditing] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<any[]>([])
   const [searching, setSearching] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (!editing) return
     const q = query.trim()
     const t = setTimeout(() => {
       setSearching(true)
@@ -529,16 +547,13 @@ function ReferrerEditor({
         .finally(() => setSearching(false))
     }, 300)
     return () => clearTimeout(t)
-  }, [query, editing])
+  }, [query])
 
   async function pick(contactId: number | null) {
     if (saving) return
     setSaving(true)
     try {
       await api.events.setReferrer(eventId, p.id, { referrer_contact_id: contactId })
-      setEditing(false)
-      setQuery('')
-      setResults([])
       onChanged()
     } catch (e: any) {
       alert(e?.message || 'Не удалось сменить реферера')
@@ -547,25 +562,13 @@ function ReferrerEditor({
     }
   }
 
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="text-[11px] font-semibold text-[#25455D] hover:underline"
-      >
-        {p.referrer_ref_code ? 'Сменить реферера' : 'Указать реферера'}
-      </button>
-    )
-  }
-
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 max-w-md">
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px] font-semibold text-gray-600">Кто привёл участника</span>
         <button
           type="button"
-          onClick={() => { setEditing(false); setQuery(''); setResults([]) }}
+          onClick={onClose}
           className="text-gray-400 hover:text-gray-700"
         >
           <X size={14} />
