@@ -36,7 +36,9 @@ RU_MONTHS = ["", "января", "февраля", "марта", "апреля",
 async def _resolve_event(db: asyncpg.Connection, ref: str):
     cols = ("id, slug, title, module_slug, status, description, "
             "description_post_register, vip_url, vip_button_label, "
-            "client_id, landing_url, start_at, end_at, link_mode")
+            "client_id, landing_url, start_at, end_at, link_mode, "
+            "chat_url, chat_url_tg, chat_url_vk, chat_url_max, "
+            "primary_chat_platform, chat_button_label")
     if ref.isdigit():
         ev = await db.fetchrow(
             f"SELECT {cols} FROM events WHERE id = $1", int(ref))
@@ -547,6 +549,40 @@ def _program_panel(event, collabs, days, stages, sessions) -> str:
         out += (f'<a class="vip-btn" href="{esc(vip_url)}" '
                 f'target="_blank" rel="noopener">{vip_label}</a>')
 
+    # Чаты события (прямые ссылки, без проверки подписки — как просили).
+    # Главный по primary_chat_platform — сверху и подписан «(главный)».
+    chats = []
+    chat_map = {
+        "telegram": (event.get("chat_url_tg"), "Telegram"),
+        "vk": (event.get("chat_url_vk"), "VK"),
+        "max": (event.get("chat_url_max"), "MAX"),
+    }
+    primary = event.get("primary_chat_platform") or "telegram"
+    # сначала главный, потом остальные
+    order = [primary] + [p for p in ("telegram", "vk", "max") if p != primary]
+    for plat in order:
+        url, plat_name = chat_map.get(plat, (None, ""))
+        url = (url or "").strip()
+        if url:
+            chats.append((url, plat_name, plat == primary))
+    # legacy одиночное поле chat_url — если ни одного платформенного нет
+    if not chats:
+        legacy = (event.get("chat_url") or "").strip()
+        if legacy:
+            chats.append((legacy, "", True))
+
+    if chats:
+        base_label = esc(event.get("chat_button_label") or "Чат события")
+        rows = ""
+        for url, plat_name, is_primary in chats:
+            sfx = ""
+            if plat_name:
+                sfx = f' · {esc(plat_name)}'
+            main = ' <span class="chat-main">(главный)</span>' if (is_primary and len(chats) > 1) else ""
+            rows += (f'<a class="chat-btn" href="{esc(url)}" target="_blank" '
+                     f'rel="noopener">💬 {base_label}{sfx}{main}</a>')
+        out += f'<div class="chats">{rows}</div>'
+
     # Описание после регистрации (HTML как есть)
     dpr = event.get("description_post_register") or ""
     if dpr.strip():
@@ -661,6 +697,33 @@ def _people_dm_link(slug_platform, pu_id, username):
             return "https://max.ru/" + str(username).lstrip("@")
         return None
     return None
+
+
+def _cabinet_email_gate(event) -> str:
+    """Форма ввода email, когда кабинет ещё не определён.
+
+    Человек вводит свой email → JS находит contact_id → перезагрузка
+    страницы с ?c={id} и запоминание email в localStorage (дальше
+    открывается автоматически). Если email не найден — предлагаем
+    зарегистрироваться.
+    """
+    slug = esc(event.get("slug") or "")
+    reg_url = f"/event/{slug}/register"
+    return (
+        '<div class="email-gate">'
+        '<div class="eg-icon">🎁</div>'
+        '<div class="eg-title">Ваши подарки за приглашённых друзей</div>'
+        '<div class="eg-sub">Введите email, который указывали при '
+        'регистрации, — откроем ваш кабинет с подарками и реф-ссылками.</div>'
+        '<input type="email" id="eg-email" class="eg-input" '
+        'placeholder="you@example.com" autocomplete="email" '
+        'inputmode="email">'
+        '<button id="eg-btn" class="eg-btn">Открыть подарки</button>'
+        '<div id="eg-err" class="eg-err"></div>'
+        f'<div class="eg-reg">Ещё не регистрировались? '
+        f'<a href="{reg_url}">Зарегистрироваться на событие</a></div>'
+        '</div>'
+    )
 
 
 def _cabinet_panel(rc, event, gifts, share_texts, share_images,
@@ -1105,6 +1168,10 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         cabinet_html = _cabinet_panel(
             ref_cabinet, event, gifts, share_texts, share_images,
             ref_enabled, brand_raw, event.get("title") or "", start_at)
+    elif ref_enabled:
+        # Кабинет неизвестен (нет ?c / ?email не нашёл) — показываем форму
+        # ввода email, чтобы человек открыл свои подарки без реф-ссылки.
+        cabinet_html = _cabinet_email_gate(event)
     venue_html = _venue_panel(venue_profile, venue_offerings or [])
 
     # ── Вкладки ──
@@ -1184,6 +1251,14 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     margin: 8px 0 14px; padding: 14px 16px; border-radius: 14px; font-size:15px; font-weight:800;
     color:#fff; background: linear-gradient(135deg, #7f1d1d, #ef4444);
     box-shadow: 0 4px 14px rgba(239,68,68,.3); }}
+
+  /* Чаты события */
+  .chats {{ display:flex; flex-direction:column; gap:8px; margin: 8px 0 14px; }}
+  .chat-btn {{ display:block; width:100%; text-align:center; text-decoration:none;
+    padding: 13px 16px; border-radius: 12px; font-size:14.5px; font-weight:700;
+    color:#FFCFA4; background: linear-gradient(135deg, #25455D, #0a1520);
+    box-shadow: 0 2px 8px rgba(37,69,93,.2); }}
+  .chat-main {{ font-weight:600; color:rgba(255,207,164,.7); font-size:12px; }}
 
   /* Описание */
   .desc {{ background:#fff; border-radius:14px; padding:16px; line-height:1.6; font-size:14.5px;
@@ -1365,6 +1440,23 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .mat-body {{ font-size:13px; color:#1a2a3a; white-space:pre-wrap; line-height:1.55;
     margin-bottom:10px; word-break:break-word; }}
   .mat-copy {{ width:100%; padding:10px 14px; font-size:13px; }}
+
+  /* Email-gate: форма входа в кабинет подарков */
+  .email-gate {{ background:#fff; border-radius:14px; padding:26px 20px; text-align:center;
+    border:1px solid #f0f0f0; box-shadow:0 1px 6px rgba(37,69,93,.06); }}
+  .eg-icon {{ font-size:40px; line-height:1; margin-bottom:10px; }}
+  .eg-title {{ font-size:17px; font-weight:800; color:#25455D; line-height:1.25; margin-bottom:8px; }}
+  .eg-sub {{ font-size:13px; color:#6b7c8e; line-height:1.5; margin-bottom:18px; }}
+  .eg-input {{ width:100%; padding:13px 14px; font-size:15px; border:1.5px solid #d7dee5;
+    border-radius:10px; outline:none; font-family:inherit; }}
+  .eg-input:focus {{ border-color:#25455D; }}
+  .eg-btn {{ width:100%; margin-top:12px; padding:13px 14px; font-size:15px; font-weight:700;
+    border:none; border-radius:10px; cursor:pointer; color:#FFCFA4;
+    background:linear-gradient(135deg,#25455D,#0a1520); font-family:inherit; }}
+  .eg-btn:disabled {{ opacity:.6; cursor:default; }}
+  .eg-err {{ font-size:13px; color:#c0392b; margin-top:10px; min-height:1px; line-height:1.4; }}
+  .eg-reg {{ font-size:12.5px; color:#6b7c8e; margin-top:18px; line-height:1.5; }}
+  .eg-reg a {{ color:#25455D; font-weight:700; }}
 
   /* Вкладка «О площадке» */
   .venue-head {{ display:flex; gap:14px; align-items:center; padding:18px 16px;
@@ -1561,13 +1653,87 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     }}
   }});
   showTab(currentTab());
+
+  // ── Кабинет подарков по email (когда нет ?c в ссылке) ──
+  (function() {{
+    var EV_SLUG = {json.dumps(event.get("slug") or "")};
+    var LS_KEY = 'pluson_email_' + EV_SLUG;
+    var hasC = /[?&]c=\\d+/.test(location.search);
+    var triedAuto = /[?&]ea=1/.test(location.search);
+
+    function gotoCabinet(cid, email) {{
+      try {{ if (email) localStorage.setItem(LS_KEY, email); }} catch (e) {{}}
+      var sep = location.pathname + '?c=' + cid;
+      location.replace(sep + '#cabinet');
+    }}
+
+    async function findByEmail(email) {{
+      var r = await fetch('/event/' + encodeURIComponent(EV_SLUG) + '/find-by-email', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ email: email }}),
+      }});
+      var data = {{}};
+      try {{ data = await r.json(); }} catch (e) {{}}
+      return {{ ok: r.ok, data: data }};
+    }}
+
+    // Авто-вход: если ?c нет, но email запомнен — тихо открываем кабинет.
+    // Флаг ?ea=1 защищает от петли, если email больше не находится.
+    if (!hasC && !triedAuto) {{
+      var saved = '';
+      try {{ saved = localStorage.getItem(LS_KEY) || ''; }} catch (e) {{}}
+      if (saved) {{
+        findByEmail(saved).then(function(res) {{
+          if (res.ok && res.data && res.data.found && res.data.contact_id) {{
+            gotoCabinet(res.data.contact_id, saved);
+          }} else {{
+            try {{ localStorage.removeItem(LS_KEY); }} catch (e) {{}}
+          }}
+        }}).catch(function() {{}});
+      }}
+    }}
+
+    // Форма ввода email на вкладке «Подарки».
+    var egBtn = document.getElementById('eg-btn');
+    if (egBtn) {{
+      var egInput = document.getElementById('eg-email');
+      var egErr = document.getElementById('eg-err');
+      // Подставить запомненный email в поле (если есть).
+      try {{ if (egInput && !egInput.value) egInput.value = localStorage.getItem(LS_KEY) || ''; }} catch (e) {{}}
+      function isEmail(s) {{ return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s); }}
+      async function submitEmail() {{
+        var email = (egInput.value || '').trim();
+        if (!isEmail(email)) {{ egErr.textContent = 'Email указан неверно'; return; }}
+        egErr.textContent = '';
+        egBtn.disabled = true; egBtn.textContent = 'Открываем...';
+        try {{
+          var res = await findByEmail(email);
+          if (res.ok && res.data && res.data.found && res.data.contact_id) {{
+            gotoCabinet(res.data.contact_id, email);
+            return;
+          }}
+          egErr.innerHTML = 'Не нашли регистрацию с таким email. ' +
+            '<a href="/event/' + encodeURIComponent(EV_SLUG) + '/register">Зарегистрироваться</a>';
+        }} catch (e) {{
+          egErr.textContent = 'Не удалось проверить email, попробуйте ещё раз';
+        }}
+        egBtn.disabled = false; egBtn.textContent = 'Открыть подарки';
+      }}
+      egBtn.addEventListener('click', submitEmail);
+      egInput.addEventListener('keydown', function(e) {{
+        if (e.key === 'Enter') {{ e.preventDefault(); submitEmail(); }}
+      }});
+    }}
+  }})();
 </script>
 </body>
 </html>"""
 
 
 @router.get("/event/{slug}", response_class=HTMLResponse, include_in_schema=False)
-async def event_page(slug: str, c: str = "", db: asyncpg.Connection = Depends(get_db)):
+async def event_page(slug: str, c: str = "", email: str = "",
+                     db: asyncpg.Connection = Depends(get_db)):
     event = await _resolve_event(db, slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -1587,6 +1753,21 @@ async def event_page(slug: str, c: str = "", db: asyncpg.Connection = Depends(ge
 
     # ?c={contact_id} — реф-кабинет конкретного человека. Битый/пустой → None.
     contact_id = int(c) if c and c.isdigit() else None
+    # ?email={email} — fallback: находим contact_id по email-идентичности.
+    # Так человек без ссылки с contact_id может открыть свой кабинет подарков.
+    if not contact_id and email:
+        from app.services.contact_merge import normalize_email
+        email_norm = normalize_email(email.strip())
+        if email_norm and ev.get("client_id"):
+            contact_id = await db.fetchval(
+                """SELECT c.id FROM contacts c
+                     JOIN platform_users pu ON pu.contact_id = c.id
+                      AND pu.platform_slug = 'email'
+                      AND pu.platform_user_id = $2
+                    WHERE c.client_id = $1 AND c.merged_into IS NULL
+                    LIMIT 1""",
+                ev["client_id"], email_norm,
+            )
     ref_cabinet = await _load_ref_cabinet(db, ev, contact_id) if contact_id else None
 
     html_str = render_page(
@@ -1599,6 +1780,41 @@ async def event_page(slug: str, c: str = "", db: asyncpg.Connection = Depends(ge
         content=html_str,
         headers={"Cache-Control": "no-cache, must-revalidate"},
     )
+
+
+@router.post("/event/{slug}/find-by-email", include_in_schema=False)
+async def event_find_by_email(slug: str, request: Request,
+                              db: asyncpg.Connection = Depends(get_db)):
+    """Поиск contact_id по email для открытия кабинета подарков.
+
+    Возвращает {found, contact_id} — фронт перезагружает страницу с ?c={id}
+    и запоминает email в localStorage, чтобы дальше открывать без ввода.
+    """
+    from app.services.contact_merge import normalize_email
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    email_norm = normalize_email((body.get("email") or "").strip())
+    if not email_norm:
+        return JSONResponse({"found": False, "detail": "Укажите корректный email"},
+                            status_code=400)
+    event = await _resolve_event(db, slug)
+    if not event:
+        return JSONResponse({"found": False, "detail": "Событие не найдено"},
+                            status_code=404)
+    found_cid = await db.fetchval(
+        """SELECT c.id FROM contacts c
+             JOIN platform_users pu ON pu.contact_id = c.id
+              AND pu.platform_slug = 'email'
+              AND pu.platform_user_id = $2
+            WHERE c.client_id = $1 AND c.merged_into IS NULL
+            LIMIT 1""",
+        event["client_id"], email_norm,
+    )
+    if not found_cid:
+        return JSONResponse({"found": False})
+    return JSONResponse({"found": True, "contact_id": found_cid})
 
 
 # ── Внутренний веб-лендинг регистрации ─────────────────────────────────────
