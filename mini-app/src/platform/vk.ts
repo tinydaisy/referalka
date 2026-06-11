@@ -17,8 +17,20 @@ export async function initPlatform(): Promise<PlatformAdapter> {
   const isVk = !!(launchParams.vk_user_id && launchParams.sign)
   if (!isVk) return webFallback()
 
+  // Глубокая ссылка `vk.com/app{id}#evl_...` приходит в hash. НО VK далеко не
+  // всегда пробрасывает hash в iframe приложения (особенно при «холодном»
+  // открытии из ссылки в сообщении/посте). В этом случае оригинальный
+  // start-payload VK кладёт в launch-параметр `vk_ref` (либо в query `?hash=` /
+  // `?startapp=`). Без фолбэка startParam оказывался пустым → ветка evl_/m_/p_
+  // не срабатывала → приложение шло в дефолтный /vk/event без slug/pid и
+  // теряло привязку к событию и реферера (баг Анжелики Степчук, 2026-06-10).
   const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
-  const startParam = hash || undefined
+  const startParam =
+    hash ||
+    launchParams.vk_ref ||
+    launchParams.hash ||
+    launchParams.startapp ||
+    undefined
 
   try { await bridge.send('VKWebAppInit') } catch (e) { console.warn('VKWebAppInit failed', e) }
 

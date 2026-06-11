@@ -25,6 +25,7 @@ from ..services.vk_api import (
     send_message as vk_send_message,
     tg_inline_to_vk_keyboard,
     upload_photo_to_messages,
+    get_user_info,
 )
 from ..services.share_links import vk_link as build_vk_link
 from ..services.event_welcome import _send_event_organizer_notification
@@ -864,6 +865,13 @@ async def handle_vk_event(body: VkEventRequest):
             row = await conn.fetchrow("SELECT client_id FROM events WHERE slug = $1", body.event_slug)
             if row:
                 client_id = row["client_id"]
+        # «Слепое» открытие: VK не пробросил hash (#evl_/#ref_pg…) в iframe → фронт
+        # ушёл в /vk/event без slug и без client_id. Человек при этом мог реально
+        # регистрироваться (VK прислал email/phone) — но привязки к событию нет,
+        # контакт сядет на системного клиента, реферер потеряется. Это баг VK
+        # (см. фолбэк startParam в mini-app/src/platform/vk.ts). Фиксируем факт
+        # и шлём тебе уведомление в TG-канал ошибок.
+        blind_open = (not client_id) and (not body.event_slug)
         if not client_id:
             # системный клиент «ПЛЮСОН Сервис» — для трафика без контекста
             row = await conn.fetchrow("SELECT id FROM clients WHERE email = $1", "system@pluson.ru")
@@ -871,14 +879,32 @@ async def handle_vk_event(body: VkEventRequest):
         if not client_id:
             return {"ok": False, "error": "no_client_resolved"}
 
+        # Имя/ник могли НЕ прийти с фронта (VKWebAppGetUserInfo не успел отработать
+        # при холодном открытии) → контакт сохранялся «Без имени» без ника, хотя в
+        # VK у человека имя и screen_name есть. Дотягиваем их по vk_id через VK API
+        # (тот же get_user_info, что использует group_join). Иначе в списке
+        # участников появляется мусорное «Без имени».
+        vk_first = body.first_name or None
+        vk_last = body.last_name or None
+        vk_username = body.username or None
+        if not (vk_first or vk_username):
+            try:
+                ui = await get_user_info(int(vk_user_id))
+                if ui:
+                    vk_first = vk_first or ui.get("first_name") or None
+                    vk_last = vk_last or ui.get("last_name") or None
+                    vk_username = vk_username or ui.get("screen_name") or None
+            except Exception as e:
+                logger.warning(f"VK /vk/event get_user_info failed (vk={vk_user_id}): {e}")
+
         contact_id, pu_id, is_new = await upsert_contact_with_identity(
             conn,
             client_id=client_id,
             platform_slug="vk",
             platform_user_id=str(vk_user_id),
-            username=body.username or None,
-            first_name=body.first_name or None,
-            last_name=body.last_name or None,
+            username=vk_username,
+            first_name=vk_first,
+            last_name=vk_last,
             email=body.email or None,    # автомердж по email — если в TG-базе уже есть «Марго Форбс с email» → склеит
             phone=body.phone or None,    # то же по phone (8/+7-нормализация на стороне contact_merge)
             utm_source=body.utm_source or None,
@@ -893,6 +919,55 @@ async def handle_vk_event(body: VkEventRequest):
             await register_platform_channel_subscription(client_id, "vk", pu_id, conn)
         except Exception as e:
             logger.warning(f"VK register channel subscription failed (pu={pu_id}): {e}")
+
+        # Слепое открытие + признак реальной регистрации (email/phone) → шлём
+        # уведомление об ошибке привязки. Канал — notifications_telegram_chat_id
+        # клиента VK-сообщества, через которое открыли (резолвим по vk_app_id),
+        # иначе системному некуда слать.
+        if blind_open and (body.email or body.phone):
+            logger.warning(
+                f"VK /vk/event BLIND OPEN: no slug/client, vk_user={vk_user_id} "
+                f"email={'yes' if body.email else 'no'} phone={'yes' if body.phone else 'no'} "
+                f"contact={contact_id} → сел на системного client={client_id}, участие НЕ создано"
+            )
+            try:
+                vk_app_id_for_chat = body.launch_params.get("vk_app_id")
+                err_chat_id = None
+                if vk_app_id_for_chat:
+                    err_chat_id = await conn.fetchval(
+                        """SELECT cl.notifications_telegram_chat_id
+                             FROM channels ch
+                             JOIN client_channels cc ON cc.channel_id = ch.id
+                             JOIN clients cl ON cl.id = cc.client_id
+                            WHERE ch.platform_slug = 'vk'
+                              AND (ch.platform_meta->>'vk_app_id')::int = $1
+                              AND cl.notifications_telegram_chat_id IS NOT NULL
+                            LIMIT 1""",
+                        int(vk_app_id_for_chat),
+                    )
+                if err_chat_id:
+                    from app.services.event_welcome import send_event_binding_error_notification
+                    full_name = " ".join(
+                        x for x in [vk_first or "", vk_last or ""] if x
+                    ).strip()
+                    await send_event_binding_error_notification(
+                        conn,
+                        chat_id=err_chat_id,
+                        title="VK Mini App открылся без привязки к событию",
+                        details={
+                            "Что случилось": "VK не передал ссылку события (#evl_/#ref_pg) — человек открыл приложение, ввёл данные, но участие на событие НЕ создалось",
+                            "Кто": full_name or "—",
+                            "Никнейм": ("@" + vk_username) if vk_username else "—",
+                            "VK ID": vk_user_id,
+                            "Email": body.email or "—",
+                            "Телефон": body.phone or "—",
+                            "ID контакта": f"#{contact_id}",
+                            "Карточка": f"{settings.frontend_url}/dashboard/clients?contact={contact_id}",
+                            "Что делать": "Проверьте ссылку и при необходимости зарегистрируйте вручную на нужное событие с реферером",
+                        },
+                    )
+            except Exception as e:
+                logger.warning(f"VK blind-open notify failed (vk={vk_user_id}): {e}")
 
         # Реферер — если в startapp передан pid (ref_code партнёра)
         resolved_ref_code = None

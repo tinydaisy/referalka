@@ -164,6 +164,45 @@ async def _send_event_organizer_notification(
         logger.warning(f"event organizer notify error client={client_id} event={event_id}: {e}")
 
 
+async def send_event_binding_error_notification(
+    conn,
+    *,
+    chat_id: str | int,
+    title: str,
+    details: dict,
+) -> None:
+    """Уведомление в TG-канал ошибок: что-то пошло не так при привязке человека к
+    событию (например, VK Mini App открылся без slug → fallback на системного
+    клиента, участие не создалось). Шлёт от @pluson_bot. `details` — пары
+    «label → value», выводятся списком «что/как/с кем».
+    """
+    if not chat_id:
+        return
+    token = settings.telegram_bot_token
+    if not token:
+        return
+    when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+    parts = [f"⚠️ <b>ОШИБКА: {title}</b>", "", f"<b>Когда:</b> {when_str}", ""]
+    for label, value in details.items():
+        parts.append(f"<b>{label}:</b> {value if value not in (None, '') else '—'}")
+    text = "\n".join(parts)
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+            )
+            if r.status_code != 200:
+                logger.warning(f"binding-error notify failed: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        logger.warning(f"binding-error notify error: {e}")
+
+
 def _fmt_event_period(start_at, end_at, is_conference: bool) -> str:
     """Человеческий период события для бот-сообщений.
 
