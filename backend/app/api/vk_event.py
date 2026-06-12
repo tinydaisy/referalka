@@ -868,7 +868,7 @@ async def handle_vk_event(body: VkEventRequest):
     async with pool.acquire() as conn:
         client_id = body.client_id
         if not client_id and body.event_slug:
-            row = await conn.fetchrow("SELECT client_id FROM events WHERE slug = $1", body.event_slug)
+            row = await conn.fetchrow("SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = (SELECT id FROM events WHERE slug=$1) AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id", body.event_slug)
             if row:
                 client_id = row["client_id"]
         # «Слепое» открытие: VK не пробросил hash (#evl_/#ref_pg…) в iframe → фронт
@@ -1003,7 +1003,7 @@ async def handle_vk_event(body: VkEventRequest):
         event_title = None
         if body.event_slug:
             ev = await conn.fetchrow(
-                "SELECT id, title, status FROM events WHERE slug = $1 AND client_id = $2",
+                "SELECT id, title, status FROM events WHERE slug = $1 AND $2 = ANY(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted')",
                 body.event_slug, client_id,
             )
             if ev:
@@ -1121,7 +1121,7 @@ async def handle_vk_event(body: VkEventRequest):
 
 # Поля события, нужные для порта ЛС-воронки (зеркало SELECT'ов в TG-боте).
 _EVENT_FUNNEL_FIELDS = """
-    e.id, e.client_id, e.slug, e.title, e.module_slug, e.status,
+    e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.module_slug, e.status,
     e.landing_url, e.vip_url, e.vip_button_label,
     e.chat_url_tg, e.chat_url_vk, e.chat_url_max,
     (SELECT url FROM event_posters
@@ -1476,7 +1476,7 @@ async def vk_event_landing(body: VkEventLandingRequest):
                                     WHEN 'horizontal' THEN 1 WHEN 'square' THEN 2
                                     WHEN 'vertical' THEN 3 ELSE 4 END, sort, id
                          LIMIT 1) AS poster_url,
-                      e.client_id
+                      (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
                  FROM events e WHERE e.slug = $1 LIMIT 1""",
             body.slug,
         )

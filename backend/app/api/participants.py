@@ -80,7 +80,7 @@ async def register_participant(
     db: asyncpg.Connection = Depends(get_db)
 ):
     event = await db.fetchrow(
-        "SELECT id, client_id FROM events WHERE slug = $1 AND status = 'published'",
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 AND status = 'published'",
         data.event_slug
     )
     if not event:
@@ -353,7 +353,7 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                WHERE pu.platform_slug = $2 AND pu.platform_user_id = $1
            ),
            relevant_clients AS (
-              SELECT DISTINCT e.client_id AS id
+              SELECT DISTINCT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS id
                 FROM events e
                 JOIN participant_events pe ON pe.event_id = e.id
               UNION
@@ -428,10 +428,10 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                   cl.profile_photo_url AS client_photo_url,
                   cl.positioning       AS client_positioning
              FROM events e
-             JOIN clients cl ON cl.id = e.client_id
+             JOIN clients cl ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
              LEFT JOIN participant_events pe ON pe.event_id = e.id
              LEFT JOIN conf_dates cd ON cd.event_id = e.id
-            WHERE e.client_id IN (SELECT id FROM allowed_clients)
+            WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' AND eo.client_id IN (SELECT id FROM allowed_clients))
               AND e.status IN ('published', 'ended')
               AND (
                 -- будущие/идущие опубликованные — все, как промо
@@ -442,7 +442,7 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                 -- прошедшие — только если пользователь был участником
                 OR pe.event_id IS NOT NULL
                 -- владелец клиента — все опубликованные/завершённые
-                OR e.client_id IN (SELECT id FROM owned_clients)
+                OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' AND eo.client_id IN (SELECT id FROM owned_clients))
               )""",
         str(tg_id),
         platform,
@@ -552,12 +552,12 @@ async def get_miniapp_me_leaders(
 
     rows = await db.fetch(
         """WITH ep_clients AS (
-              SELECT DISTINCT e.client_id AS id, MAX(ep.registered_at) AS last_at
+              SELECT DISTINCT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS id, MAX(ep.registered_at) AS last_at
                 FROM event_participants ep
                 JOIN events e          ON e.id = ep.event_id
                 JOIN platform_users pu ON pu.contact_id = ep.contact_id
                WHERE pu.platform_slug = $2 AND pu.platform_user_id = $1
-               GROUP BY e.client_id
+               GROUP BY (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
            ),
            fr_clients AS (
               SELECT DISTINCT fr.client_id AS id, MAX(fr.landed_at) AS last_at
@@ -592,7 +592,7 @@ async def get_miniapp_me_leaders(
                   cl.positioning       AS client_positioning,
                   l.last_at,
                   (SELECT COUNT(*) FROM events e
-                    WHERE e.client_id = cl.id AND e.status IN ('published','ended')) AS events_total,
+                    WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=cl.id AND eo.status='accepted') AND e.status IN ('published','ended')) AS events_total,
                   EXISTS (
                     SELECT 1 FROM funnel_runs fr
                       JOIN platform_users pu ON pu.contact_id = fr.contact_id
@@ -656,7 +656,7 @@ async def get_participant_card(
     # Зрителем может быть только участник того же события (или владелец клиента).
     # Иначе любой посторонний мог бы вытащить контакты всей базы клиента.
     target = await db.fetchrow(
-        """SELECT ep.id, ep.contact_id, e.client_id,
+        """SELECT ep.id, ep.contact_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
                   COALESCE(
                     NULLIF(TRIM(CONCAT_WS(' ',
                       (SELECT pu.first_name FROM platform_users pu
@@ -759,7 +759,7 @@ async def get_participant_in_event(
                      ORDER BY pe.id LIMIT 1) AS email,
                   c.phone, c.name
              FROM events e
-             JOIN platform_users pu ON pu.client_id = e.client_id
+             JOIN platform_users pu ON pu.client_id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
                                     AND pu.platform_slug = $3
                                     AND pu.platform_user_id = $2
              JOIN contacts c ON c.id = pu.contact_id

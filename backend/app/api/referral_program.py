@@ -140,7 +140,7 @@ async def list_import_sources(
         """SELECT e.id, e.title, e.module_slug,
                   (SELECT COUNT(*) FROM event_referral_thresholds WHERE event_id = e.id) AS thresholds_count
            FROM events e
-           WHERE e.client_id = $1
+           WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted')
              AND e.id <> $2
              AND (
                EXISTS (SELECT 1 FROM event_referral_thresholds   WHERE event_id = e.id) OR

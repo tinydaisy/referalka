@@ -172,7 +172,7 @@ async def salebot_register(
         # Прямой путь: participant уже создан Mini App'ом. Содержит и event_id
         # и contact_id — получаем оба + одновременно помечаем is_registered=true.
         prow = await db.fetchrow(
-            """SELECT ep.id, ep.event_id, ep.contact_id, e.client_id
+            """SELECT ep.id, ep.event_id, ep.contact_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
                  FROM event_participants ep
                  JOIN events e ON e.id = ep.event_id
                 WHERE ep.id = $1""",
@@ -738,7 +738,7 @@ async def _register_by_participant(
     prow = None
     if pid_int is not None:
         prow = await db.fetchrow(
-            """SELECT ep.id, ep.event_id, ep.contact_id, e.client_id
+            """SELECT ep.id, ep.event_id, ep.contact_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
                  FROM event_participants ep
                  JOIN events e ON e.id = ep.event_id
                 WHERE ep.id = $1""",
@@ -760,11 +760,11 @@ async def _register_by_participant(
                 detail="Не передан participant_id и нет email для поиска участника",
             )
         prow = await db.fetchrow(
-            """SELECT ep.id, ep.event_id, ep.contact_id, e.client_id
+            """SELECT ep.id, ep.event_id, ep.contact_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
                  FROM platform_users pu
                  JOIN contacts c ON c.id = pu.contact_id
                  JOIN event_participants ep ON ep.contact_id = c.id
-                 JOIN events e ON e.id = ep.event_id AND e.client_id = $1
+                 JOIN events e ON e.id = ep.event_id AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted')
                 WHERE pu.client_id = $1 AND pu.platform_slug = 'email'
                   AND LOWER(pu.platform_user_id) = $2
                 ORDER BY ep.id DESC

@@ -193,9 +193,8 @@ async def list_events(
         FROM events e
         LEFT JOIN event_participants ep ON ep.event_id = e.id
     """
-    # co-ownership (миграция 134): событие видно владельцу либо через events.client_id, либо через event_owners
-    owned = ("e.id IN (SELECT id FROM events WHERE client_id=$1 "
-             "UNION SELECT event_id FROM event_owners WHERE client_id=$1 AND status='accepted')")
+    # co-ownership: событие видно владельцу через event_owners (источник истины)
+    owned = "e.id IN (SELECT event_id FROM event_owners WHERE client_id=$1 AND status='accepted')"
     if module_slug:
         events = await db.fetch(
             base_select + f" WHERE {owned} AND e.module_slug = $2 GROUP BY e.id ORDER BY e.created_at DESC",
@@ -330,7 +329,7 @@ async def get_event(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1 AND (e.client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $2 AND eo.status='accepted'))",
+        f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1 AND (EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$2 AND eo.status='accepted') OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $2 AND eo.status='accepted'))",
         event_id, client_id
     )
     if not event:
@@ -945,7 +944,7 @@ async def update_event_participant(
         """SELECT ep.id, ep.contact_id FROM event_participants ep
            JOIN events e ON e.id = ep.event_id
            WHERE ep.id = $1 AND ep.event_id = $2
-             AND (e.client_id = $3 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted'))""",
+             AND (EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted') OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted'))""",
         participant_id, event_id, client_id
     )
     if not row:
@@ -1038,7 +1037,7 @@ async def delete_event_participant(
         """SELECT ep.id FROM event_participants ep
            JOIN events e ON e.id = ep.event_id
            WHERE ep.id = $1 AND ep.event_id = $2
-             AND (e.client_id = $3 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted'))""",
+             AND (EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted') OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted'))""",
         participant_id, event_id, client_id
     )
     if not row:
@@ -1254,7 +1253,7 @@ async def remove_event_collaborator(
     row = await db.fetchrow(
         """SELECT ec.id FROM event_collaborators ec
              JOIN events e ON e.id = ec.event_id
-            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
         ec_id, event_id, client_id
     )
     if not row:
@@ -1275,7 +1274,7 @@ async def reorder_event_collaborator(
     row = await db.fetchrow(
         """SELECT ec.id FROM event_collaborators ec
              JOIN events e ON e.id = ec.event_id
-            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
         ec_id, event_id, client_id
     )
     if not row:
@@ -1305,7 +1304,7 @@ async def update_event_collaborator(
     row = await db.fetchrow(
         """SELECT ec.id FROM event_collaborators ec
              JOIN events e ON e.id = ec.event_id
-            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
         ec_id, event_id, client_id
     )
     if not row:
@@ -1359,7 +1358,7 @@ async def verify_event_collaborator_channel(
              JOIN collaborators co ON co.id = ec.speaker_id
              LEFT JOIN platform_users pu_tg
                ON pu_tg.contact_id = co.contact_id AND pu_tg.platform_slug = 'telegram'
-            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
         ec_id, event_id, client_id
     )
     if not row:

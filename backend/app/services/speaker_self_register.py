@@ -60,7 +60,7 @@ async def find_existing_speaker(
              FROM collaborators c
              JOIN event_collaborators ec ON ec.speaker_id = c.id
              JOIN events e ON e.id = ec.event_id
-            WHERE c.contact_id = $1 AND ec.event_id = $2 AND e.client_id = $3
+            WHERE c.contact_id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')
             LIMIT 1""",
         contact_id, event_id, client_id,
     )
