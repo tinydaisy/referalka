@@ -141,24 +141,36 @@ async def event_owners(event_id: int, client=Depends(get_current_client), db: as
 # ═══════════════════════════════════════════════════════════════
 @router.get("/matchmaker")
 async def matchmaker(client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    """Подбор 3-5 партнёров: моя ниша → близкие, сопоставимая медийность, лучше рейтинг. Не я."""
+    """Подбор 3-5 партнёров-организаторов: моя ниша → близкие, лучше рейтинг. Не я. Данные из clients."""
     me = int(client["sub"])
-    mine = await db.fetchrow(
-        """SELECT hub_niche, hub_city, media_assets FROM collaborators
-            WHERE created_by_client_id=$1 AND is_published_in_hub=TRUE
-            ORDER BY hub_published_at DESC NULLS LAST LIMIT 1""", me)
+    mine = await db.fetchrow("SELECT hub_niche, hub_city FROM clients WHERE id=$1", me)
     niche = mine["hub_niche"] if mine else None
-    # кандидаты: опубликованы, не я; приоритет — та же ниша, тот же город, больше коллабов
     rows = await db.fetch(
-        """SELECT c.id AS collaborator_id, c.created_by_client_id AS client_id, c.name, c.title,
-                  c.photo_url, c.hub_category, c.hub_niche, c.hub_city, c.media_assets,
-                  (SELECT count(*) FROM hub_collab_history h WHERE h.client_id=c.created_by_client_id) AS collabs_count,
-                  (c.hub_niche IS NOT DISTINCT FROM $2) AS same_niche
-             FROM collaborators c
-            WHERE c.is_published_in_hub=TRUE AND c.created_by_client_id<>$1
-            ORDER BY (c.hub_niche IS NOT DISTINCT FROM $2) DESC, collabs_count DESC NULLS LAST, c.hub_published_at DESC NULLS LAST
+        """SELECT cl.id AS client_id, COALESCE(cl.brand_name,cl.name) AS name,
+                  COALESCE(cl.owner_photo_url,cl.profile_photo_url) AS photo_url,
+                  cl.hub_category, cl.hub_niche, cl.hub_city, cl.media_assets,
+                  (SELECT count(*) FROM hub_collab_history h WHERE h.client_id=cl.id) AS collabs_count,
+                  (cl.hub_niche IS NOT DISTINCT FROM $2) AS same_niche
+             FROM clients cl
+            WHERE cl.is_published_in_hub=TRUE AND cl.id<>$1
+            ORDER BY (cl.hub_niche IS NOT DISTINCT FROM $2) DESC, collabs_count DESC NULLS LAST, cl.hub_published_at DESC NULLS LAST
             LIMIT 5""", me, niche)
-    return {"my_niche": niche, "suggestions": [dict(r) for r in rows]}
+    out = []
+    for r in rows:
+        d = dict(r)
+        d['media_tier'] = _media_tier_from(d.pop('media_assets', None))
+        out.append(d)
+    return {"my_niche": niche, "suggestions": out}
+
+
+def _media_tier_from(ma) -> str:
+    import json as _j
+    try:
+        arr = ma if isinstance(ma, list) else (_j.loads(ma) if ma else [])
+        s = sum(int(a.get('subscribers') or 0) for a in arr if isinstance(a, dict))
+    except Exception:
+        s = 0
+    return 'over_10k' if s>=10000 else '5k_10k' if s>=5000 else '1k_5k' if s>=1000 else 'under_1k'
 
 
 # ═══════════════════════════════════════════════════════════════
