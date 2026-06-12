@@ -15,9 +15,11 @@ from pydantic import BaseModel
 from typing import Optional
 from app.auth import get_current_client
 from app.database import get_db
+from app.api.collab_hub import require_collab_hub
 import asyncpg
 
-router = APIRouter(prefix="/collab", tags=["Коллаборации"])
+router = APIRouter(prefix="/collab", tags=["Коллаборации"],
+                   dependencies=[Depends(require_collab_hub)])
 
 
 async def _client_telegram(db, client_id: int) -> Optional[str]:

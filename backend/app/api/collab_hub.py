@@ -14,10 +14,20 @@ from pydantic import BaseModel
 from typing import Optional, List
 from app.auth import get_current_client
 from app.database import get_db
+from app.services.features import client_has_feature
 import asyncpg
 import json
 
-router = APIRouter(prefix="/collab-hub", tags=["Коллабораторная (Хаб)"])
+
+async def require_collab_hub(client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Гейт: Коллабораторная доступна только со 2-го тарифа (фича collab_hub — pro/vip/trial, не start)."""
+    if not await client_has_feature(db, int(client["sub"]), "collab_hub"):
+        raise HTTPException(403, "Коллабораторная доступна на тарифе ПРОФИ и выше")
+    return client
+
+
+router = APIRouter(prefix="/collab-hub", tags=["Коллабораторная (Хаб)"],
+                   dependencies=[Depends(require_collab_hub)])
 
 HUB_CATEGORIES = ['offline_business', 'online_business', 'freelancer', 'expert']
 

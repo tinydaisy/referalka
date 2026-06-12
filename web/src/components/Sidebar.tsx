@@ -25,6 +25,7 @@ export default function Sidebar() {
   const features = me?.features || []
   const hasConference = features.includes('conference')
   const hasContests = features.includes('contests')
+  const hasCollabHub = features.includes('collab_hub')
   const isAssistant = me?.role === 'assistant'
 
   function isActive(href: string, exact?: boolean) {
@@ -52,8 +53,8 @@ export default function Sidebar() {
         ...(hasConference ? [{ href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy }] : []),
         // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
         ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
-        // Коллабораторная (Хаб) — биржа коллабораций между клиентами (миграция 134)
-        { href: '/dashboard/collab-hub', label: 'Коллабораторная', icon: Handshake },
+        // Коллабораторная (Хаб) — биржа коллабораций. Только со 2-го тарифа (pro/vip/trial), не start (фича collab_hub)
+        ...(hasCollabHub ? [{ href: '/dashboard/collab-hub', label: 'Коллабораторная', icon: Handshake }] : []),
       ],
     },
     {
