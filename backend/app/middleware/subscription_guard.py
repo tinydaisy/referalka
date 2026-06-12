@@ -39,6 +39,7 @@ PASSTHROUGH_PREFIXES = (
     "/api/v1/vk/",    # VK Mini App callbacks + webhook
     "/api/v1/max/",   # MAX Mini App callbacks + webhook
     "/api/v1/referral",
+    "/api/v1/collab",      # Коллабораторная: запросы/принятие/публикация — участие в нетворке доступно даже при истёкшей подписке (путь обратно к оплате)
     "/r/",
     "/m/",
     "/p/",
