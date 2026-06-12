@@ -405,31 +405,49 @@ export function MyCardView() {
 export function CollabEventsView() {
   const [events, setEvents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  useEffect(() => {
+  const load = () => {
     api.events.list().then((r: any) => {
       const all = Array.isArray(r) ? r : (r.events || [])
       setEvents(all.filter((e: any) => e.is_collab))
       setLoading(false)
     }).catch(() => { setEvents([]); setLoading(false) })
-  }, [])
-  if (loading) return <div className="text-gray-400 py-10 text-center">Загрузка…</div>
-  if (events.length === 0) return (
-    <div className="text-gray-400 py-10 text-center">
-      Совместных событий пока нет.<br />
-      <span className="text-sm">Они появятся, когда вы примете запрос на коллаборацию или ваш будет принят.</span>
-    </div>
-  )
+  }
+  useEffect(() => { load() }, [])
+
   return (
-    <div className="space-y-2">
-      {events.map(e => (
-        <a key={e.id} href={`/dashboard/events/${e.id}`} className="block border rounded-2xl p-4 bg-white hover:shadow-md transition">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-gray-400" />
-            <span className="font-medium" style={{ color: DARK }}>{e.title}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ background: PEACH, color: DARK }}>Совместное</span>
-          </div>
+    <div>
+      <div className="rounded-2xl p-4 mb-5 border bg-white">
+        <div className="font-medium mb-1" style={{ color: DARK }}>Как создать совместное событие</div>
+        <p className="text-sm text-gray-500 mb-3">
+          1) Создайте обычное событие в разделе <a href="/dashboard/events" className="underline">«Мои события»</a>.
+          2) В <a href="/dashboard/collab-hub" className="underline">Каталоге</a> найдите партнёра и нажмите «Предложить» — выберите это событие.
+          3) Когда партнёр примет — событие станет совместным и появится здесь у вас обоих.
+          Чтобы добавить третьего — отправьте ещё одно приглашение по этому же событию.
+        </p>
+        <a href="/dashboard/events" className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl text-white" style={{ background: DARK }}>
+          <Calendar className="w-4 h-4" />Создать событие
         </a>
-      ))}
+      </div>
+
+      {loading ? <div className="text-gray-400 py-10 text-center">Загрузка…</div>
+        : events.length === 0 ? (
+          <div className="text-gray-400 py-10 text-center">
+            Совместных событий пока нет.<br />
+            <span className="text-sm">Появятся, когда вы примете запрос на коллаборацию или ваш будет принят.</span>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {events.map(e => (
+              <a key={e.id} href={`/dashboard/events/${e.id}`} className="block border rounded-2xl p-4 bg-white hover:shadow-md transition">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-gray-400" />
+                  <span className="font-medium" style={{ color: DARK }}>{e.title}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ background: PEACH, color: DARK }}>Совместное</span>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
     </div>
   )
 }

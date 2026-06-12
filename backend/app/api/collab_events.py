@@ -112,13 +112,19 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
         "UPDATE hub_collab_requests SET status=$2, responded_at=NOW() WHERE id=$1",
         request_id, new_status)
     if accept and req["event_id"]:
-        # добавляем меня как co_owner события → событие становится коллаб
-        await db.execute(
-            """INSERT INTO event_owners (event_id, client_id, status, role, invited_by_client_id, responded_at)
-               VALUES ($1,$2,'accepted','co_owner',$3,NOW())
-               ON CONFLICT (event_id, client_id) DO UPDATE SET status='accepted', responded_at=NOW()""",
-            req["event_id"], me, req["from_client_id"])
-        await db.execute("UPDATE events SET is_collab=TRUE WHERE id=$1", req["event_id"])
+        # Кто кого добавляем в co_owner — зависит от того, чьё событие.
+        # Событие принадлежит ВЛАДЕЛЬЦУ; второй организатор (партнёр) присоединяется.
+        ev = await db.fetchrow("SELECT client_id FROM events WHERE id=$1", req["event_id"])
+        owner_cid = ev["client_id"] if ev else None
+        # партнёр = тот из двоих (from/to), кто НЕ владелец события
+        partner_cid = req["from_client_id"] if owner_cid == req["to_client_id"] else req["to_client_id"]
+        if partner_cid and partner_cid != owner_cid:
+            await db.execute(
+                """INSERT INTO event_owners (event_id, client_id, status, role, invited_by_client_id, responded_at)
+                   VALUES ($1,$2,'accepted','co_owner',$3,NOW())
+                   ON CONFLICT (event_id, client_id) DO UPDATE SET status='accepted', role='co_owner', responded_at=NOW()""",
+                req["event_id"], partner_cid, owner_cid)
+            await db.execute("UPDATE events SET is_collab=TRUE WHERE id=$1", req["event_id"])
     return {"ok": True, "status": new_status}
 
 
