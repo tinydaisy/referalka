@@ -52,13 +52,20 @@ def _sum_subscribers(media_assets) -> int:
         return 0
 
 
+def _parse_json(v, default):
+    """JSONB из asyncpg часто приходит строкой — парсим в list/dict для фронта."""
+    if v is None:
+        return default
+    if isinstance(v, str):
+        try: return json.loads(v)
+        except Exception: return default
+    return v
+
+
 def _client_card(row) -> dict:
     """Собирает карточку организатора из строки clients."""
     d = dict(row)
-    ma = d.get('media_assets')
-    if isinstance(ma, str):
-        try: ma = json.loads(ma)
-        except Exception: ma = []
+    ma = _parse_json(d.get('media_assets'), [])
     name = d.get('brand_name') or d.get('name')
     return {
         'client_id': d.get('id'),
@@ -67,8 +74,8 @@ def _client_card(row) -> dict:
         'photo_url': d.get('owner_photo_url') or d.get('profile_photo_url'),
         'bio': d.get('bio'),
         'positioning': d.get('owner_positioning') or d.get('positioning'),
-        'achievements': d.get('owner_achievements'),
-        'social_links': d.get('social_links'),
+        'achievements': _parse_json(d.get('owner_achievements'), []),
+        'social_links': _parse_json(d.get('social_links'), {}),
         'media_assets': ma or [],
         'media_tier': _media_tier(_sum_subscribers(ma)),
         'is_published_in_hub': d.get('is_published_in_hub'),
