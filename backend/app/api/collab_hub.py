@@ -176,7 +176,22 @@ async def catalog(
         if media_tier and card['media_tier'] != media_tier:
             continue
         out.append(card)
-    return {"items": out, "total": len(out)}
+    # Моя собственная карточка — показывается ВВЕРХУ списка, подсвеченная (даже если не опубликована — видна только мне)
+    me_row = await db.fetchrow(
+        f"""SELECT {_CLIENT_COLS},
+               (SELECT count(*) FROM hub_collab_history h WHERE h.client_id=cl.id) AS collabs_count,
+               (SELECT round(avg(CASE WHEN h.participants_total>0 THEN 100.0*h.brought_live/h.participants_total ELSE 0 END))
+                  FROM hub_collab_history h WHERE h.client_id=cl.id) AS avg_contribution,
+               (SELECT round(avg(rating),1) FROM hub_reviews rv WHERE rv.client_id=cl.id) AS avg_rating
+          FROM clients cl WHERE cl.id=$1""", int(client["sub"]))
+    me_card = None
+    if me_row:
+        me_card = _client_card(me_row)
+        me_card['collabs_count'] = me_row['collabs_count']
+        me_card['avg_contribution'] = me_row['avg_contribution']
+        me_card['avg_rating'] = me_row['avg_rating']
+        me_card['is_me'] = True
+    return {"me": me_card, "items": out, "total": len(out)}
 
 
 @router.get("/profile/{client_id}")

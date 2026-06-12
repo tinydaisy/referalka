@@ -7,7 +7,7 @@ export const ru = {
     myConferences: 'Мои конференции',
     events: 'Мероприятия',
     base: 'БАЗА',
-    eventsSection: 'СОБЫТИЯ',
+    eventsSection: 'МОИ СОБЫТИЯ',
     collaborations: 'Коллаборации',
     clients: 'Контакты',
     leadMagnets: 'Лид-магниты',

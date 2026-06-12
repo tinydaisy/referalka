@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -53,10 +53,19 @@ export default function Sidebar() {
         ...(hasConference ? [{ href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy }] : []),
         // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
         ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
-        // Коллабораторная (Хаб) — биржа коллабораций. Только со 2-го тарифа (pro/vip/trial), не start (фича collab_hub)
-        ...(hasCollabHub ? [{ href: '/dashboard/collab-hub', label: 'Коллабораторная', icon: Handshake }] : []),
       ],
     },
+    // Коллабораторная (Хаб) — отдельная секция с подпунктами. Только со 2-го тарифа (pro/vip/trial), не start.
+    ...(hasCollabHub ? [{
+      label: 'КОЛЛАБОРАТОРНАЯ (ХАБ)',
+      items: [
+        { href: '/dashboard/collab-hub', label: 'Каталог', icon: Search, exact: true },
+        { href: '/dashboard/collab-hub/events', label: 'Совместные события', icon: Calendar },
+        { href: '/dashboard/collab-hub/requests', label: 'Запросы', icon: Inbox },
+        { href: '/dashboard/collab-hub/matchmaker', label: 'Умный сват', icon: Sparkles },
+        { href: '/dashboard/collab-hub/card', label: 'Моя карточка', icon: Star },
+      ],
+    }] : []),
     {
       label: t.nav.base,
       items: [
