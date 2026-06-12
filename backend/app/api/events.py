@@ -4,6 +4,7 @@ from typing import Optional
 from app.auth import get_current_client
 from app.database import get_db
 from app.services import collaborator_sort
+from app.services.event_access import is_collab_event
 import asyncpg
 import re
 import secrets
@@ -192,14 +193,17 @@ async def list_events(
         FROM events e
         LEFT JOIN event_participants ep ON ep.event_id = e.id
     """
+    # co-ownership (миграция 134): событие видно владельцу либо через events.client_id, либо через event_owners
+    owned = ("e.id IN (SELECT id FROM events WHERE client_id=$1 "
+             "UNION SELECT event_id FROM event_owners WHERE client_id=$1 AND status='accepted')")
     if module_slug:
         events = await db.fetch(
-            base_select + " WHERE e.client_id = $1 AND e.module_slug = $2 GROUP BY e.id ORDER BY e.created_at DESC",
+            base_select + f" WHERE {owned} AND e.module_slug = $2 GROUP BY e.id ORDER BY e.created_at DESC",
             client_id, module_slug
         )
     else:
         events = await db.fetch(
-            base_select + " WHERE e.client_id = $1 GROUP BY e.id ORDER BY e.created_at DESC",
+            base_select + f" WHERE {owned} GROUP BY e.id ORDER BY e.created_at DESC",
             client_id
         )
     return {"events": [dict(e) for e in events]}
@@ -326,7 +330,7 @@ async def get_event(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1 AND e.client_id = $2",
+        f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1 AND (e.client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $2 AND eo.status='accepted'))",
         event_id, client_id
     )
     if not event:
@@ -343,7 +347,7 @@ async def update_event(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -437,7 +441,7 @@ async def copy_event(
 ):
     client_id = int(client["sub"])
     src = await db.fetchrow(
-        "SELECT * FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "SELECT * FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
     )
     if not src:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -695,7 +699,7 @@ async def event_analytics(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -751,7 +755,7 @@ async def check_chats(
     ВК/МАХ-беседы платформы проверить не дают — фича пока только Telegram."""
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -769,7 +773,7 @@ async def event_participants(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -940,7 +944,8 @@ async def update_event_participant(
     row = await db.fetchrow(
         """SELECT ep.id, ep.contact_id FROM event_participants ep
            JOIN events e ON e.id = ep.event_id
-           WHERE ep.id = $1 AND ep.event_id = $2 AND e.client_id = $3""",
+           WHERE ep.id = $1 AND ep.event_id = $2
+             AND (e.client_id = $3 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted'))""",
         participant_id, event_id, client_id
     )
     if not row:
@@ -965,6 +970,12 @@ async def update_event_participant(
             raise HTTPException(
                 status_code=403,
                 detail="Сменить реферера может только владелец кабинета."
+            )
+        # В совместном (коллаб) событии рефовод фиксируется автоматически — read-only (защита рейтинга, миграция 134)
+        if await is_collab_event(db, event_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Это совместное событие — реферера менять нельзя (защита подсчёта вклада). Обратитесь в поддержку."
             )
 
         new_ref_code: Optional[str] = None
@@ -1026,11 +1037,19 @@ async def delete_event_participant(
     row = await db.fetchrow(
         """SELECT ep.id FROM event_participants ep
            JOIN events e ON e.id = ep.event_id
-           WHERE ep.id = $1 AND ep.event_id = $2 AND e.client_id = $3""",
+           WHERE ep.id = $1 AND ep.event_id = $2
+             AND (e.client_id = $3 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted'))""",
         participant_id, event_id, client_id
     )
     if not row:
         raise HTTPException(status_code=404, detail="Участник не найден")
+
+    # В совместном (коллаб) событии состав участников фиксирован — удалять нельзя (защита рейтинга, миграция 134)
+    if await is_collab_event(db, event_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Это совместное событие — удалять участников нельзя (защита подсчёта вклада). Обратитесь в поддержку."
+        )
 
     async with db.transaction():
         await db.execute(
@@ -1066,7 +1085,7 @@ async def add_event_participant_from_contact(
     """
     client_id = int(client["sub"])
     event = await db.fetchval(
-        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -1119,7 +1138,7 @@ async def list_event_collaborators(
     client_id = int(client["sub"])
     # Проверяем что event принадлежит клиенту
     own = await db.fetchval(
-        "SELECT 1 FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT 1 FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))",
         event_id, client_id
     )
     if not own:
@@ -1172,7 +1191,7 @@ async def add_event_collaborator(
 ):
     client_id = int(client["sub"])
     own = await db.fetchval(
-        "SELECT 1 FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT 1 FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))",
         event_id, client_id
     )
     if not own:
