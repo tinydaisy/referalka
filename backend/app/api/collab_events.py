@@ -198,7 +198,15 @@ async def my_collabs(client=Depends(get_current_client), db: asyncpg.Connection 
              JOIN event_owners o ON o.event_id=e.id AND o.client_id=$1 AND o.status='accepted'
             WHERE e.is_collab=TRUE
             ORDER BY e.created_at DESC""", me)
-    return {"collabs": [dict(r) for r in rows]}
+    import json as _json
+    out = []
+    for r in rows:
+        d = dict(r)
+        if isinstance(d.get("organizers"), str):
+            try: d["organizers"] = _json.loads(d["organizers"])
+            except Exception: d["organizers"] = []
+        out.append(d)
+    return {"collabs": out}
 
 
 # ═══════════════════════════════════════════════════════════════
