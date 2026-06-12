@@ -83,7 +83,7 @@ async def complete_speaker_self_register(
     возвращаем те же данные (access_code позволит спикеру повторно войти).
     """
     ev_row = await db.fetchrow(
-        "SELECT slug FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT slug FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id,
     )
     if not ev_row:

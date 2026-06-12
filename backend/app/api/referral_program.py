@@ -50,12 +50,12 @@ async def import_referral_program(
     client_id = int(client["sub"])
     # Проверяем что и источник, и приёмник принадлежат клиенту
     src = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND client_id = $2", data.from_event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')", data.from_event_id, client_id
     )
     if not src:
         raise HTTPException(status_code=404, detail="Событие-источник не найдено")
     dst = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')", event_id, client_id
     )
     if not dst:
         raise HTTPException(status_code=404, detail="Событие-приёмник не найдено")
@@ -156,7 +156,7 @@ async def list_import_sources(
 
 async def _check_event_owned(event_id: int, client_id: int, db: asyncpg.Connection) -> dict:
     event = await db.fetchrow(
-        "SELECT id, client_id FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT id, client_id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id
     )
     if not event:
@@ -328,7 +328,7 @@ async def _check_lead_magnet_owned(lead_magnet_id: int, client_id: int, db: asyn
     if lead_magnet_id is None:
         return
     ok = await db.fetchval(
-        "SELECT 1 FROM lead_magnets WHERE id = $1 AND client_id = $2",
+        "SELECT 1 FROM lead_magnets WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         lead_magnet_id, client_id
     )
     if not ok:
@@ -747,7 +747,7 @@ async def export_speaker_materials(
     client_id = int(client["sub"])
     ev = await db.fetchrow(
         """SELECT id, slug, title, client_id, module_slug, start_at, link_mode
-             FROM events WHERE id = $1 AND client_id = $2""",
+             FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')""",
         event_id, client_id,
     )
     if not ev:

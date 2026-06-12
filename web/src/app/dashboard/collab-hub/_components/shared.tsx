@@ -193,121 +193,54 @@ export function CatalogView() {
 }
 
 export function RequestsView() {
-  // tab: pending (ждут моего/их ответа) | accepted (договорённости — принятые, неважно кто инициатор)
-  const [tab, setTab] = useState<'pending' | 'accepted'>('pending')
-  const [incoming, setIncoming] = useState<any[]>([])
-  const [outgoing, setOutgoing] = useState<any[]>([])
+  const [dir, setDir] = useState<'incoming' | 'outgoing'>('incoming')
+  const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const load = async () => {
     setLoading(true)
-    try {
-      const [inc, out]: any = await Promise.all([api.collabHub.requests('incoming'), api.collabHub.requests('outgoing')])
-      setIncoming(inc.requests || []); setOutgoing(out.requests || [])
-    } catch { setIncoming([]); setOutgoing([]) }
+    try { const r: any = await api.collabHub.requests(dir); setRows(r.requests || []) } catch { setRows([]) }
     setLoading(false)
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [dir])
   const respond = async (id: number, accept: boolean) => { await api.collabHub.respondRequest(id, accept); load() }
-
-  // Договорённости = принятые из обоих направлений, с пометкой кто инициатор
-  const deals = [
-    ...incoming.filter(r => r.status === 'accepted').map(r => ({ ...r, initiator: 'them' })),
-    ...outgoing.filter(r => r.status === 'accepted').map(r => ({ ...r, initiator: 'me' })),
-  ]
-  // Ждут ответа: входящие pending (мне решать) + отправленные pending (жду их)
-  const pendingIn = incoming.filter(r => r.status === 'pending')
-  const pendingOut = outgoing.filter(r => r.status === 'pending')
+  const chip = (s: string) => { const m: any = { pending: ['Ждёт ответа', 'bg-gray-200 text-gray-600'], accepted: ['Принято', 'bg-green-100 text-green-700'], declined: ['Отклонено', 'bg-red-100 text-red-600'] }; const [t, c] = m[s] || [s, 'bg-gray-100']; return <span className={`text-xs px-2 py-0.5 rounded-full ${c}`}>{t}</span> }
 
   const Avatar = ({ r }: { r: any }) => r.other_photo
     ? <img src={r.other_photo} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
     : <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 shrink-0"><Users className="w-5 h-5" /></div>
 
-  const Contacts = ({ r }: { r: any }) => (
-    <div className="flex items-center gap-2 mt-2">
-      <a href={`/dashboard/collab-hub/org/${r.other_client_id}`} className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 hover:bg-gray-50">
-        <ExternalLink className="w-3 h-3" />Профиль
-      </a>
-      {r.other_tg && <a href={`https://t.me/${r.other_tg.replace('@', '')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 text-blue-600">
-        <Send className="w-3 h-3" />Написать в Telegram
-      </a>}
-    </div>
-  )
-
-  if (loading) return <div className="text-gray-400 py-10 text-center">Загрузка…</div>
   return (
     <div>
       <div className="flex gap-2 mb-4">
-        <button onClick={() => setTab('pending')} className={`px-4 py-2 rounded-xl text-sm ${tab === 'pending' ? 'text-white' : 'border'}`} style={tab === 'pending' ? { background: DARK } : {}}>
-          Ждут ответа {(pendingIn.length + pendingOut.length) > 0 && `(${pendingIn.length + pendingOut.length})`}
-        </button>
-        <button onClick={() => setTab('accepted')} className={`px-4 py-2 rounded-xl text-sm ${tab === 'accepted' ? 'text-white' : 'border'}`} style={tab === 'accepted' ? { background: DARK } : {}}>
-          Договорённости {deals.length > 0 && `(${deals.length})`}
-        </button>
+        <button onClick={() => setDir('incoming')} className={`px-4 py-2 rounded-xl text-sm ${dir === 'incoming' ? 'text-white' : 'border'}`} style={dir === 'incoming' ? { background: DARK } : {}}>Входящие</button>
+        <button onClick={() => setDir('outgoing')} className={`px-4 py-2 rounded-xl text-sm ${dir === 'outgoing' ? 'text-white' : 'border'}`} style={dir === 'outgoing' ? { background: DARK } : {}}>Отправленные</button>
       </div>
-
-      {tab === 'pending' ? (
-        <div className="space-y-4">
-          {pendingIn.length > 0 && <div>
-            <div className="text-xs font-semibold text-gray-400 uppercase mb-2">Вам предложили</div>
-            <div className="space-y-2">{pendingIn.map(r => (
-              <div key={r.id} className="border rounded-2xl p-4 flex items-start justify-between gap-3 bg-white">
-                <div className="flex items-start gap-3 min-w-0">
-                  <Avatar r={r} />
-                  <div className="min-w-0">
-                    <div className="font-medium" style={{ color: DARK }}>{r.other_name}</div>
-                    {r.event_title && <div className="text-xs text-gray-500">Событие: {r.event_title}</div>}
-                    {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
-                    <Contacts r={r} />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => respond(r.id, true)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
-                  <button onClick={() => respond(r.id, false)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
-                </div>
+      {loading ? <div className="text-gray-400 py-10 text-center">Загрузка…</div>
+        : rows.length === 0 ? <div className="text-gray-400 py-10 text-center">{dir === 'incoming' ? 'Входящих запросов нет.' : 'Вы пока никому не предлагали коллаборацию.'}</div>
+        : <div className="space-y-2">{rows.map(r => (
+          <div key={r.id} className="border rounded-2xl p-4 flex items-start gap-3 bg-white">
+            <Avatar r={r} />
+            <div className="min-w-0 flex-1">
+              <div className="font-medium" style={{ color: DARK }}>{r.other_name}</div>
+              {r.event_title && <div className="text-xs text-gray-500">Коллаба: {r.event_title}</div>}
+              {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
+              <div className="mt-1 flex items-center gap-2 flex-wrap">
+                {chip(r.status)}
+                {r.status === 'accepted' && r.event_id && <a href={`/dashboard/events/${r.event_id}`} className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1" style={{ color: '#C77B3B', borderColor: PEACH }}>Перейти в коллабу →</a>}
+                <a href={`/dashboard/collab-hub/org/${r.other_client_id}`} className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 hover:bg-gray-50"><ExternalLink className="w-3 h-3" />Профиль</a>
+                {r.other_tg && <a href={`https://t.me/${(r.other_tg||'').replace('@','')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 text-blue-600"><Send className="w-3 h-3" />Написать в Telegram</a>}
               </div>
-            ))}</div>
-          </div>}
-          {pendingOut.length > 0 && <div>
-            <div className="text-xs font-semibold text-gray-400 uppercase mb-2">Вы предложили (ждёте ответа)</div>
-            <div className="space-y-2">{pendingOut.map(r => (
-              <div key={r.id} className="border rounded-2xl p-4 flex items-start gap-3 bg-white">
-                <Avatar r={r} />
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium" style={{ color: DARK }}>{r.other_name}</div>
-                  {r.event_title && <div className="text-xs text-gray-500">Событие: {r.event_title}</div>}
-                  {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 inline-block mt-1">Ждёт ответа</span>
-                  <Contacts r={r} />
-                </div>
-              </div>
-            ))}</div>
-          </div>}
-          {pendingIn.length === 0 && pendingOut.length === 0 && <div className="text-gray-400 py-10 text-center">Нет запросов, ждущих ответа.</div>}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {deals.length === 0 ? <div className="text-gray-400 py-10 text-center">Принятых коллабораций пока нет.</div>
-            : deals.map(r => (
-              <div key={r.id} className="border rounded-2xl p-4 flex items-start gap-3 bg-white">
-                <Avatar r={r} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium" style={{ color: DARK }}>{r.other_name}</span>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>
-                      {r.initiator === 'me' ? 'инициатор — вы' : 'инициатор — партнёр'}
-                    </span>
-                  </div>
-                  {r.event_title && <div className="text-xs text-gray-500">Событие: {r.event_title}</div>}
-                  {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
-                  <Contacts r={r} />
-                </div>
-              </div>
-            ))}
-        </div>
-      )}
+            </div>
+            {dir === 'incoming' && r.status === 'pending' && <div className="flex items-center gap-2 shrink-0">
+              <button onClick={() => respond(r.id, true)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
+              <button onClick={() => respond(r.id, false)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
+            </div>}
+          </div>
+        ))}</div>}
     </div>
   )
 }
+
 
 export function MatchmakerView() {
   const [data, setData] = useState<any>(null)
@@ -402,52 +335,49 @@ export function MyCardView() {
 }
 
 // Совместные события — где клиент co_owner (>1 владелец)
-export function CollabEventsView() {
-  const [events, setEvents] = useState<any[]>([])
+// Коллабы — совместные события, где я владелец. С ФИО организаторов + выход из коллабы.
+export function CollabsView() {
+  const [collabs, setCollabs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const load = () => {
-    api.events.list().then((r: any) => {
-      const all = Array.isArray(r) ? r : (r.events || [])
-      setEvents(all.filter((e: any) => e.is_collab))
-      setLoading(false)
-    }).catch(() => { setEvents([]); setLoading(false) })
-  }
+  const load = () => { api.collabHub.collabs().then((r: any) => { setCollabs(r.collabs || []); setLoading(false) }).catch(() => { setCollabs([]); setLoading(false) }) }
   useEffect(() => { load() }, [])
-
+  const leave = async (eventId: number) => {
+    if (!confirm('Выйти из этой коллабы? Вы перестанете быть её организатором.')) return
+    try { await api.collabHub.leaveCollab(eventId); load() } catch (e: any) { alert(e?.message || 'Не удалось выйти') }
+  }
+  if (loading) return <div className="text-gray-400 py-10 text-center">Загрузка…</div>
+  if (collabs.length === 0) return (
+    <div className="text-gray-400 py-10 text-center">
+      Коллаб пока нет.<br />
+      <span className="text-sm">Коллаба появится, когда вы примете запрос на коллаборацию или ваш будет принят.</span>
+    </div>
+  )
   return (
-    <div>
-      <div className="rounded-2xl p-4 mb-5 border bg-white">
-        <div className="font-medium mb-1" style={{ color: DARK }}>Как создать совместное событие</div>
-        <p className="text-sm text-gray-500 mb-3">
-          1) Создайте обычное событие в разделе <a href="/dashboard/events" className="underline">«Мои события»</a>.
-          2) В <a href="/dashboard/collab-hub" className="underline">Каталоге</a> найдите партнёра и нажмите «Предложить» — выберите это событие.
-          3) Когда партнёр примет — событие станет совместным и появится здесь у вас обоих.
-          Чтобы добавить третьего — отправьте ещё одно приглашение по этому же событию.
-        </p>
-        <a href="/dashboard/events" className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl text-white" style={{ background: DARK }}>
-          <Calendar className="w-4 h-4" />Создать событие
-        </a>
-      </div>
-
-      {loading ? <div className="text-gray-400 py-10 text-center">Загрузка…</div>
-        : events.length === 0 ? (
-          <div className="text-gray-400 py-10 text-center">
-            Совместных событий пока нет.<br />
-            <span className="text-sm">Появятся, когда вы примете запрос на коллаборацию или ваш будет принят.</span>
+    <div className="space-y-2">
+      {collabs.map(c => {
+        const orgs: any[] = c.organizers || []
+        return (
+          <div key={c.event_id} className="border rounded-2xl p-4 bg-white">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              <a href={`/dashboard/events/${c.event_id}`} className="font-medium hover:underline" style={{ color: DARK }}>{c.title}</a>
+              <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ background: PEACH, color: DARK }}>Коллаба</span>
+            </div>
+            {/* ФИО организаторов */}
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {orgs.map((o: any) => (
+                <a key={o.client_id} href={`/dashboard/collab-hub/org/${o.client_id}`} className="text-xs px-2 py-1 rounded-lg bg-gray-50 hover:bg-gray-100" style={{ color: DARK }}>
+                  {o.name}{o.role === 'owner' ? ' (создатель)' : ''}
+                </a>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-3">
+              <a href={`/dashboard/events/${c.event_id}`} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: DARK }}>Открыть событие</a>
+              <button onClick={() => leave(c.event_id)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500">Выйти из коллабы</button>
+            </div>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {events.map(e => (
-              <a key={e.id} href={`/dashboard/events/${e.id}`} className="block border rounded-2xl p-4 bg-white hover:shadow-md transition">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-gray-400" />
-                  <span className="font-medium" style={{ color: DARK }}>{e.title}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ background: PEACH, color: DARK }}>Совместное</span>
-                </div>
-              </a>
-            ))}
-          </div>
-        )}
+        )
+      })}
     </div>
   )
 }

@@ -519,6 +519,9 @@ export const api = {
     respondRequest: (id: number, accept: boolean) =>
       request(`/api/v1/collab/requests/${id}/respond`, { method: 'POST', body: JSON.stringify({ accept }) }),
     eventOwners: (eventId: number) => request(`/api/v1/collab/events/${eventId}/owners`),
+    collabs: () => request('/api/v1/collab/collabs'),
+    leaveCollab: (eventId: number) =>
+      request(`/api/v1/collab/events/${eventId}/leave`, { method: 'POST' }),
     addReview: (data: any) =>
       request('/api/v1/collab/reviews', { method: 'POST', body: JSON.stringify(data) }),
   },

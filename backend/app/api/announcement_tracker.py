@@ -27,7 +27,7 @@ DEFAULT_COLUMNS = 3
 
 async def _check_event_owned(event_id: int, client_id: int, db: asyncpg.Connection):
     ev = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')", event_id, client_id
     )
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")

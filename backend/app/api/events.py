@@ -684,7 +684,7 @@ async def delete_event(
 ):
     client_id = int(client["sub"])
     result = await db.execute(
-        "DELETE FROM events WHERE id = $1 AND client_id = $2", event_id, client_id
+        "DELETE FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')", event_id, client_id
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -982,7 +982,7 @@ async def update_event_participant(
 
         if data.referrer_contact_id:
             ref_row = await db.fetchrow(
-                "SELECT ref_code FROM contacts WHERE id = $1 AND client_id = $2",
+                "SELECT ref_code FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
                 data.referrer_contact_id, client_id
             )
             if not ref_row or not ref_row["ref_code"]:
@@ -1091,7 +1091,7 @@ async def add_event_participant_from_contact(
         raise HTTPException(status_code=404, detail="Событие не найдено")
 
     contact_ok = await db.fetchval(
-        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+        "SELECT 1 FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         data.contact_id, client_id
     )
     if not contact_ok:

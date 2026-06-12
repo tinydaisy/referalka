@@ -56,7 +56,7 @@ def _human_bytes(n: int) -> str:
 
 
 async def _check_event_belongs(event_id: int, client_id: int, db: asyncpg.Connection):
-    row = await db.fetchrow("SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id)
+    row = await db.fetchrow("SELECT id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')", event_id, client_id)
     if not row:
         raise HTTPException(status_code=403, detail="Событие не принадлежит клиенту")
 
@@ -199,7 +199,7 @@ async def delete_file(
 ):
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        "SELECT id, r2_key, size_bytes FROM client_files WHERE id = $1 AND client_id = $2",
+        "SELECT id, r2_key, size_bytes FROM client_files WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         file_id, client_id,
     )
     if not row:

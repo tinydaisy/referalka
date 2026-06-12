@@ -93,7 +93,7 @@ DEFAULT_STEPS = [
 async def _assert_event_belongs_to_client(db, event_id: int, client_id: int):
     """403 если событие не принадлежит этому клиенту."""
     ok = await db.fetchval(
-        "SELECT 1 FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT 1 FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id,
     )
     if not ok:
@@ -131,7 +131,7 @@ async def nurture_preview_urls(
     в шагах воронки. Учитывает VIP-канал клиента (если есть)."""
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        "SELECT slug, title FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT slug, title FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id,
     )
     if not row:

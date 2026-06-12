@@ -856,7 +856,7 @@ async def create_and_add_speaker(
     # Если клиент сразу указал existing_contact_id — проверяем что он его
     if contact_id is not None:
         own = await db.fetchval(
-            "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
+            "SELECT 1 FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted') AND merged_into IS NULL",
             contact_id, client_id
         )
         if not own:
@@ -2682,7 +2682,7 @@ async def send_speaker_to_telegram(
     import httpx, os
 
     # Определяем клиента по событию
-    event_row = await db.fetchrow("SELECT client_id FROM events WHERE id = $1", event_id)
+    event_row = await db.fetchrow("SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1", event_id)
     if not event_row:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
@@ -2866,7 +2866,7 @@ async def send_schedule_to_telegram(
     import httpx, os
 
     # Получаем client_id из события
-    event_row = await db.fetchrow("SELECT client_id FROM events WHERE id = $1", event_id)
+    event_row = await db.fetchrow("SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1", event_id)
     if not event_row:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
@@ -3017,7 +3017,7 @@ async def send_raffle_gifts_to_telegram(
     import httpx, os
 
     # Получаем client_id из события
-    event_row = await db.fetchrow("SELECT client_id FROM events WHERE id = $1", event_id)
+    event_row = await db.fetchrow("SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1", event_id)
     if not event_row:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     client_id = event_row["client_id"]
@@ -3259,7 +3259,7 @@ async def create_report(
                   pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, ct.id AS contact_id
            FROM event_participants ep2
            JOIN contacts ct ON ct.ref_code = ep2.referrer_ref_code AND ct.client_id = (
-               SELECT client_id FROM events WHERE id = $1
+               SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1
            )
            LEFT JOIN platform_users pu ON pu.contact_id = ct.id AND pu.platform_slug = 'telegram'
            WHERE ep2.event_id = $1
@@ -3314,7 +3314,7 @@ async def create_report(
                   pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username, ct.id AS contact_id
            FROM event_participants ep2
            JOIN contacts ct ON ct.ref_code = ep2.referrer_ref_code AND ct.client_id = (
-               SELECT client_id FROM events WHERE id = $1
+               SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1
            )
            LEFT JOIN platform_users pu ON pu.contact_id = ct.id AND pu.platform_slug = 'telegram'
            WHERE ep2.event_id = $1

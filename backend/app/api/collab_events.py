@@ -61,6 +61,8 @@ async def create_request(data: CollabRequestIn, client=Depends(get_current_clien
         me, data.to_client_id, data.event_id)
     if dup:
         raise HTTPException(409, "Запрос уже отправлен и ждёт ответа")
+    # event_id опционален: NULL → коллаба-событие создастся ТОЛЬКО при принятии (не плодим пустые события).
+    # event_id задан → присоединяем партнёра к существующей коллабе.
     rid = await db.fetchval(
         """INSERT INTO hub_collab_requests (from_client_id, to_client_id, event_id, message)
            VALUES ($1,$2,$3,$4) RETURNING id""",
@@ -97,9 +99,25 @@ async def list_requests(direction: str = "incoming", client=Depends(get_current_
     return {"requests": [dict(r) for r in rows], "direction": direction}
 
 
+def _surname(name):
+    if not name: return "?"
+    parts = name.strip().split()
+    return parts[-1] if parts else name
+
+import secrets as _secrets
+_SLUG_AB = '23456789abcdefghjkmnpqrstuvwxyz'
+async def _make_collab_slug(db):
+    while True:
+        s = ''.join(_secrets.choice(_SLUG_AB) for _ in range(6))
+        if not await db.fetchval("SELECT 1 FROM events WHERE slug=$1", s):
+            return s
+
+
 @router.post("/requests/{request_id}/respond")
 async def respond_request(request_id: int, body: dict, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
-    """Принять/отклонить входящий запрос. accept=true → стать co_owner события (если запрос к событию)."""
+    """Принять/отклонить запрос. accept=true:
+      - есть event_id → присоединяю партнёра к существующей коллабе (co_owner).
+      - нет event_id → СОЗДАЮ коллабу-событие (название из фамилий). Пустые события заранее НЕ плодим."""
     me = int(client["sub"])
     accept = bool(body.get("accept"))
     req = await db.fetchrow("SELECT * FROM hub_collab_requests WHERE id=$1", request_id)
@@ -108,24 +126,38 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
     if req["status"] != "pending":
         raise HTTPException(409, "Запрос уже обработан")
     new_status = "accepted" if accept else "declined"
-    await db.execute(
-        "UPDATE hub_collab_requests SET status=$2, responded_at=NOW() WHERE id=$1",
-        request_id, new_status)
-    if accept and req["event_id"]:
-        # Кто кого добавляем в co_owner — зависит от того, чьё событие.
-        # Событие принадлежит ВЛАДЕЛЬЦУ; второй организатор (партнёр) присоединяется.
-        ev = await db.fetchrow("SELECT client_id FROM events WHERE id=$1", req["event_id"])
-        owner_cid = ev["client_id"] if ev else None
-        # партнёр = тот из двоих (from/to), кто НЕ владелец события
-        partner_cid = req["from_client_id"] if owner_cid == req["to_client_id"] else req["to_client_id"]
-        if partner_cid and partner_cid != owner_cid:
-            await db.execute(
-                """INSERT INTO event_owners (event_id, client_id, status, role, invited_by_client_id, responded_at)
-                   VALUES ($1,$2,'accepted','co_owner',$3,NOW())
-                   ON CONFLICT (event_id, client_id) DO UPDATE SET status='accepted', role='co_owner', responded_at=NOW()""",
-                req["event_id"], partner_cid, owner_cid)
-            await db.execute("UPDATE events SET is_collab=TRUE WHERE id=$1", req["event_id"])
-    return {"ok": True, "status": new_status}
+    created_event_id = None
+    async with db.transaction():
+        await db.execute("UPDATE hub_collab_requests SET status=$2, responded_at=NOW() WHERE id=$1", request_id, new_status)
+        if accept:
+            initiator, acceptor = req["from_client_id"], req["to_client_id"]
+            if req["event_id"]:
+                ev = await db.fetchrow("SELECT client_id FROM event_owners WHERE event_id=$1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1", req["event_id"])
+                owner_cid = ev["client_id"] if ev else None
+                partner_cid = initiator if owner_cid == acceptor else acceptor
+                if partner_cid and partner_cid != owner_cid:
+                    await db.execute(
+                        """INSERT INTO event_owners (event_id, client_id, status, role, invited_by_client_id, responded_at)
+                           VALUES ($1,$2,'accepted','co_owner',$3,NOW())
+                           ON CONFLICT (event_id, client_id) DO UPDATE SET status='accepted', role='co_owner', responded_at=NOW()""",
+                        req["event_id"], partner_cid, owner_cid)
+                await db.execute("UPDATE events SET is_collab=TRUE WHERE id=$1", req["event_id"])
+                created_event_id = req["event_id"]
+            else:
+                names = await db.fetch("SELECT id, COALESCE(brand_name,name) AS name FROM clients WHERE id=ANY($1)", [initiator, acceptor])
+                nm = {r["id"]: r["name"] for r in names}
+                title = f"{_surname(nm.get(initiator))} · {_surname(nm.get(acceptor))}"
+                slug = await _make_collab_slug(db)
+                ev = await db.fetchrow(
+                    "INSERT INTO events (client_id, slug, title, module_slug, status, is_collab) VALUES ($1,$2,$3,'base','draft',TRUE) RETURNING id",
+                    initiator, slug, title)
+                created_event_id = ev["id"]
+                await db.execute(
+                    """INSERT INTO event_owners (event_id, client_id, status, role, invited_by_client_id, responded_at)
+                       VALUES ($1,$2,'accepted','co_owner',$3,NOW()) ON CONFLICT (event_id, client_id) DO NOTHING""",
+                    created_event_id, acceptor, initiator)
+                await db.execute("UPDATE hub_collab_requests SET event_id=$2 WHERE id=$1", request_id, created_event_id)
+    return {"ok": True, "status": new_status, "event_id": created_event_id}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -146,6 +178,47 @@ async def event_owners(event_id: int, client=Depends(get_current_client), db: as
              FROM event_owners o LEFT JOIN clients c ON c.id=o.client_id
             WHERE o.event_id=$1 ORDER BY o.role='owner' DESC, o.created_at""", event_id)
     return {"owners": [dict(r) for r in rows]}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Коллабы — список совместных событий, где я владелец (с ФИО организаторов)
+# ═══════════════════════════════════════════════════════════════
+@router.get("/collabs")
+async def my_collabs(client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Мои коллабы (совместные события). С названием и ФИО всех организаторов."""
+    me = int(client["sub"])
+    rows = await db.fetch(
+        """SELECT e.id AS event_id, e.title, e.status, e.is_collab,
+                  (SELECT json_agg(json_build_object('client_id', o2.client_id,
+                          'name', COALESCE(c2.brand_name,c2.name), 'role', o2.role)
+                          ORDER BY (o2.role='owner') DESC, o2.id)
+                     FROM event_owners o2 JOIN clients c2 ON c2.id=o2.client_id
+                    WHERE o2.event_id=e.id AND o2.status='accepted') AS organizers
+             FROM events e
+             JOIN event_owners o ON o.event_id=e.id AND o.client_id=$1 AND o.status='accepted'
+            WHERE e.is_collab=TRUE
+            ORDER BY e.created_at DESC""", me)
+    return {"collabs": [dict(r) for r in rows]}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Отзыв согласия — выйти из коллабы
+# ═══════════════════════════════════════════════════════════════
+@router.post("/events/{event_id}/leave")
+async def leave_collab(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Отозвать согласие / выйти из коллабы. Owner (создатель) выйти не может — он распускает коллабу удалением события."""
+    me = int(client["sub"])
+    row = await db.fetchrow("SELECT role FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'", event_id, me)
+    if not row:
+        raise HTTPException(404, "Вы не участник этой коллабы")
+    if row["role"] == 'owner':
+        raise HTTPException(403, "Вы создатель коллабы — чтобы распустить, удалите событие. Выйти может только присоединившийся.")
+    await db.execute("DELETE FROM event_owners WHERE event_id=$1 AND client_id=$2", event_id, me)
+    # если остался 1 владелец — событие перестаёт быть коллабой
+    cnt = await db.fetchval("SELECT count(*) FROM event_owners WHERE event_id=$1 AND status='accepted'", event_id)
+    if (cnt or 0) <= 1:
+        await db.execute("UPDATE events SET is_collab=FALSE WHERE id=$1", event_id)
+    return {"ok": True}
 
 
 # ═══════════════════════════════════════════════════════════════

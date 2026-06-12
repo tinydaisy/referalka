@@ -41,7 +41,7 @@ router = APIRouter(prefix="/events/{event_id}/raffle", tags=["Розыгрыш �
 
 
 async def _check_event_access(db, client_id: int, event_id: int):
-    row = await db.fetchrow("SELECT id FROM events WHERE id = $1 AND client_id = $2", event_id, client_id)
+    row = await db.fetchrow("SELECT id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')", event_id, client_id)
     if not row:
         raise HTTPException(status_code=404, detail="Событие не найдено или нет доступа")
 

@@ -53,7 +53,7 @@ DEFAULT_EXPERTISE_CRITERIA = [
 
 async def _check_access(event_id: int, client_id: int, db: asyncpg.Connection):
     ev = await db.fetchrow(
-        "SELECT id, module_slug FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT id, module_slug FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id,
     )
     if not ev:

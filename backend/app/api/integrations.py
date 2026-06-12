@@ -329,7 +329,7 @@ async def salebot_register(
         event_id_int = int(effective_event_id)
         # Проверяем событие принадлежит этому клиенту
         event = await db.fetchrow(
-            "SELECT id FROM events WHERE id = $1 AND client_id = $2",
+            "SELECT id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
             event_id_int, data.client_id
         )
         if not event:

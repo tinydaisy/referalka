@@ -60,7 +60,7 @@ export default function Sidebar() {
       label: 'КОЛЛАБОРАТОРНАЯ (ХАБ)',
       items: [
         { href: '/dashboard/collab-hub', label: 'Каталог', icon: Search, exact: true },
-        { href: '/dashboard/collab-hub/events', label: 'Совместные события', icon: Calendar },
+        { href: '/dashboard/collab-hub/events', label: 'Коллабы', icon: Calendar },
         { href: '/dashboard/collab-hub/requests', label: 'Запросы', icon: Inbox },
         { href: '/dashboard/collab-hub/matchmaker', label: 'Умный сват', icon: Sparkles },
         { href: '/dashboard/collab-hub/card', label: 'Моя карточка', icon: Star },

@@ -387,7 +387,7 @@ async def participants_tg(
           AND lower(pu.username) NOT IN (
                 SELECT lower(u) FROM (
                   SELECT unnest(ARRAY[work_tg_username, telegram_username]) AS u
-                  FROM clients WHERE id = (SELECT client_id FROM events WHERE id = $1)
+                  FROM clients WHERE id = (SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1)
                 ) t WHERE u IS NOT NULL AND u <> ''
           )
         ORDER BY pu.username

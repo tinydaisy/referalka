@@ -153,7 +153,7 @@ async def _fetch_participants(
 
 
 async def _assert_event_belongs(db, event_id: int, client_id: int) -> None:
-    owner = await db.fetchval("SELECT client_id FROM events WHERE id = $1", event_id)
+    owner = await db.fetchval("SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1", event_id)
     if owner is None:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     if owner != client_id:

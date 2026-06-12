@@ -81,7 +81,7 @@ async def check_event_chat_membership(db, event_id: int, client_id: int) -> dict
     Возвращает сводку для UI.
     """
     chat_ids_raw = await db.fetchval(
-        "SELECT telegram_chat_ids FROM events WHERE id = $1 AND client_id = $2",
+        "SELECT telegram_chat_ids FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id,
     )
     chat_ids = _parse_chat_ids(chat_ids_raw)
