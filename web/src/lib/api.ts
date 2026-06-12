@@ -509,7 +509,7 @@ export const api = {
       const qs = params ? '?' + new URLSearchParams(params).toString() : ''
       return request(`/api/v1/collab-hub/catalog${qs}`)
     },
-    profile: (collaboratorId: number) => request(`/api/v1/collab-hub/profile/${collaboratorId}`),
+    profile: (clientId: number) => request(`/api/v1/collab-hub/profile/${clientId}`),
     // запросы / co-ownership / сват / отзывы
     matchmaker: () => request('/api/v1/collab/matchmaker'),
     requests: (direction: 'incoming' | 'outgoing' = 'incoming') =>

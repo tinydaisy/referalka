@@ -1,10 +1,20 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil } from 'lucide-react'
+import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export const PEACH = '#FFCFA4'
 export const DARK = '#25455D'
+
+// Лайтбокс для фото
+export function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-6" onClick={onClose}>
+      <img src={src} alt="" className="max-w-full max-h-full rounded-2xl object-contain" onClick={e => e.stopPropagation()} />
+      <button onClick={onClose} className="absolute top-4 right-4 text-white/80 hover:text-white"><X className="w-7 h-7" /></button>
+    </div>
+  )
+}
 
 export const CATEGORIES: Record<string, string> = {
   offline_business: 'Офлайн-бизнес', online_business: 'Онлайн-бизнес', freelancer: 'Фрилансер', expert: 'Эксперт',
@@ -29,27 +39,41 @@ export function MediaTierBadge({ tier }: { tier?: string }) {
 
 export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => void }) {
   const isMe = item.is_me
-  // Вклад в аудиторию = средняя доля приведённых им на совместные события. Прочерк если коллабораций ещё не было.
   const hadCollabs = (item.collabs_count || 0) > 0
   const contribution = hadCollabs && item.avg_contribution != null ? `${item.avg_contribution}%` : '—'
   const achievements: any[] = Array.isArray(item.achievements) ? item.achievements : []
+  const [bioOpen, setBioOpen] = useState(false)
+  const [lightbox, setLightbox] = useState(false)
+  const bio = item.bio || ''
+  const bioLong = bio.length > 120
   return (
     <div className={`rounded-2xl p-4 transition flex flex-col ${isMe ? 'border-2' : 'border bg-white hover:shadow-md'}`}
          style={isMe ? { borderColor: PEACH, background: '#FFF8F1' } : {}}>
       {isMe && <div className="text-[11px] font-semibold mb-2 inline-flex items-center gap-1" style={{ color: '#C77B3B' }}><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />ВАША КАРТОЧКА</div>}
       <div className="flex items-start gap-3">
-        {item.photo_url ? <img src={item.photo_url} alt="" className="w-14 h-14 rounded-xl object-cover" />
+        {item.photo_url
+          ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" />
           : <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400"><Users className="w-6 h-6" /></div>}
         <div className="flex-1 min-w-0">
-          <div className="font-semibold truncate" style={{ color: DARK }}>{item.name}</div>
-          {item.positioning && <div className="text-xs text-gray-500 truncate">{item.positioning}</div>}
+          <div className="font-semibold" style={{ color: DARK }}>{item.name}</div>
+          {/* позиционирование — полностью, без обрезки */}
+          {item.positioning && <div className="text-xs text-gray-500">{item.positioning}</div>}
           <div className="flex flex-wrap gap-1 mt-1">
             {item.hub_category && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>{CATEGORIES[item.hub_category] || item.hub_category}</span>}
             <MediaTierBadge tier={item.media_tier} />
           </div>
         </div>
       </div>
-      {item.hub_about && <p className="text-sm text-gray-600 mt-3 line-clamp-2">{item.hub_about}</p>}
+      {item.hub_about && <p className="text-sm text-gray-600 mt-3">{item.hub_about}</p>}
+      {/* Био — разворачиваемое */}
+      {bio && (
+        <div className="mt-2">
+          <p className={`text-sm text-gray-500 ${bioOpen ? '' : 'line-clamp-2'}`}>{bio}</p>
+          {bioLong && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
+            {bioOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
+          </button>}
+        </div>
+      )}
       {achievements.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
           {achievements.slice(0, 4).map((a: any, i: number) => (
@@ -59,7 +83,6 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
           ))}
         </div>
       )}
-      {/* Рейтинг: коллаборации + вклад в аудиторию */}
       <div className="grid grid-cols-2 gap-2 mt-3">
         <div className="rounded-xl bg-gray-50 p-2 text-center">
           <div className="font-bold text-sm" style={{ color: DARK }}>{item.collabs_count ?? 0}</div>
@@ -74,8 +97,15 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
         {item.hub_city && <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" />{item.hub_city}</span>}
         {item.avg_rating && <span className="inline-flex items-center gap-1"><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />{item.avg_rating}</span>}
       </div>
-      {isMe ? <a href="/dashboard/collab-hub/card" className="mt-3 w-full text-sm py-2 rounded-xl border text-center" style={{ borderColor: PEACH, color: '#C77B3B' }}>Редактировать карточку</a>
-        : onRequest && <button onClick={onRequest} className="mt-3 w-full text-sm py-2 rounded-xl text-white" style={{ background: DARK }}>Предложить коллаборацию</button>}
+      {isMe ? (
+        <a href="/dashboard/collab-hub/card" className="mt-3 w-full text-sm py-2 rounded-xl border text-center" style={{ borderColor: PEACH, color: '#C77B3B' }}>Редактировать карточку</a>
+      ) : (
+        <div className="flex gap-2 mt-3">
+          <a href={`/dashboard/collab-hub/org/${item.client_id}`} className="flex-1 text-sm py-2 rounded-xl border text-center hover:bg-gray-50">Профиль</a>
+          {onRequest && <button onClick={onRequest} className="flex-1 text-sm py-2 rounded-xl text-white" style={{ background: DARK }}>Предложить</button>}
+        </div>
+      )}
+      {lightbox && item.photo_url && <Lightbox src={item.photo_url} onClose={() => setLightbox(false)} />}
     </div>
   )
 }
@@ -163,38 +193,118 @@ export function CatalogView() {
 }
 
 export function RequestsView() {
-  const [dir, setDir] = useState<'incoming' | 'outgoing'>('incoming')
-  const [rows, setRows] = useState<any[]>([])
+  // tab: pending (ждут моего/их ответа) | accepted (договорённости — принятые, неважно кто инициатор)
+  const [tab, setTab] = useState<'pending' | 'accepted'>('pending')
+  const [incoming, setIncoming] = useState<any[]>([])
+  const [outgoing, setOutgoing] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const load = async () => { setLoading(true); try { const r: any = await api.collabHub.requests(dir); setRows(r.requests || []) } catch { setRows([]) } setLoading(false) }
-  useEffect(() => { load() }, [dir])
+  const load = async () => {
+    setLoading(true)
+    try {
+      const [inc, out]: any = await Promise.all([api.collabHub.requests('incoming'), api.collabHub.requests('outgoing')])
+      setIncoming(inc.requests || []); setOutgoing(out.requests || [])
+    } catch { setIncoming([]); setOutgoing([]) }
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])
   const respond = async (id: number, accept: boolean) => { await api.collabHub.respondRequest(id, accept); load() }
-  const chip = (s: string) => { const m: any = { pending: ['Ждёт ответа', 'bg-gray-200 text-gray-600'], accepted: ['Принято', 'bg-green-100 text-green-700'], declined: ['Отклонено', 'bg-red-100 text-red-600'] }; const [t, c] = m[s] || [s, 'bg-gray-100']; return <span className={`text-xs px-2 py-0.5 rounded-full ${c}`}>{t}</span> }
+
+  // Договорённости = принятые из обоих направлений, с пометкой кто инициатор
+  const deals = [
+    ...incoming.filter(r => r.status === 'accepted').map(r => ({ ...r, initiator: 'them' })),
+    ...outgoing.filter(r => r.status === 'accepted').map(r => ({ ...r, initiator: 'me' })),
+  ]
+  // Ждут ответа: входящие pending (мне решать) + отправленные pending (жду их)
+  const pendingIn = incoming.filter(r => r.status === 'pending')
+  const pendingOut = outgoing.filter(r => r.status === 'pending')
+
+  const Avatar = ({ r }: { r: any }) => r.other_photo
+    ? <img src={r.other_photo} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+    : <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 shrink-0"><Users className="w-5 h-5" /></div>
+
+  const Contacts = ({ r }: { r: any }) => (
+    <div className="flex items-center gap-2 mt-2">
+      <a href={`/dashboard/collab-hub/org/${r.other_client_id}`} className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 hover:bg-gray-50">
+        <ExternalLink className="w-3 h-3" />Профиль
+      </a>
+      {r.other_tg && <a href={`https://t.me/${r.other_tg.replace('@', '')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 text-blue-600">
+        <Send className="w-3 h-3" />Написать в Telegram
+      </a>}
+    </div>
+  )
+
+  if (loading) return <div className="text-gray-400 py-10 text-center">Загрузка…</div>
   return (
     <div>
       <div className="flex gap-2 mb-4">
-        <button onClick={() => setDir('incoming')} className={`px-4 py-2 rounded-xl text-sm ${dir === 'incoming' ? 'text-white' : 'border'}`} style={dir === 'incoming' ? { background: DARK } : {}}>Входящие</button>
-        <button onClick={() => setDir('outgoing')} className={`px-4 py-2 rounded-xl text-sm ${dir === 'outgoing' ? 'text-white' : 'border'}`} style={dir === 'outgoing' ? { background: DARK } : {}}>Отправленные</button>
+        <button onClick={() => setTab('pending')} className={`px-4 py-2 rounded-xl text-sm ${tab === 'pending' ? 'text-white' : 'border'}`} style={tab === 'pending' ? { background: DARK } : {}}>
+          Ждут ответа {(pendingIn.length + pendingOut.length) > 0 && `(${pendingIn.length + pendingOut.length})`}
+        </button>
+        <button onClick={() => setTab('accepted')} className={`px-4 py-2 rounded-xl text-sm ${tab === 'accepted' ? 'text-white' : 'border'}`} style={tab === 'accepted' ? { background: DARK } : {}}>
+          Договорённости {deals.length > 0 && `(${deals.length})`}
+        </button>
       </div>
-      {loading ? <div className="text-gray-400 py-10 text-center">Загрузка…</div>
-        : rows.length === 0 ? <div className="text-gray-400 py-10 text-center">{dir === 'incoming' ? 'Входящих запросов нет.' : 'Вы пока никому не предлагали коллаборацию.'}</div>
-        : <div className="space-y-2">{rows.map(r => (
-          <div key={r.id} className="border rounded-2xl p-4 flex items-center justify-between gap-3 bg-white">
-            <div className="min-w-0">
-              <div className="font-medium" style={{ color: DARK }}>{r.other_name}</div>
-              {r.event_title && <div className="text-xs text-gray-500">Событие: {r.event_title}</div>}
-              {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
-              <div className="mt-1">{chip(r.status)}</div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {r.other_tg && <a href={`https://t.me/${r.other_tg.replace('@', '')}`} target="_blank" rel="noreferrer" className="text-sm px-3 py-1.5 rounded-xl border inline-flex items-center gap-1"><Send className="w-3.5 h-3.5" />Telegram</a>}
-              {dir === 'incoming' && r.status === 'pending' && <>
-                <button onClick={() => respond(r.id, true)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
-                <button onClick={() => respond(r.id, false)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
-              </>}
-            </div>
-          </div>
-        ))}</div>}
+
+      {tab === 'pending' ? (
+        <div className="space-y-4">
+          {pendingIn.length > 0 && <div>
+            <div className="text-xs font-semibold text-gray-400 uppercase mb-2">Вам предложили</div>
+            <div className="space-y-2">{pendingIn.map(r => (
+              <div key={r.id} className="border rounded-2xl p-4 flex items-start justify-between gap-3 bg-white">
+                <div className="flex items-start gap-3 min-w-0">
+                  <Avatar r={r} />
+                  <div className="min-w-0">
+                    <div className="font-medium" style={{ color: DARK }}>{r.other_name}</div>
+                    {r.event_title && <div className="text-xs text-gray-500">Событие: {r.event_title}</div>}
+                    {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
+                    <Contacts r={r} />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => respond(r.id, true)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
+                  <button onClick={() => respond(r.id, false)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
+                </div>
+              </div>
+            ))}</div>
+          </div>}
+          {pendingOut.length > 0 && <div>
+            <div className="text-xs font-semibold text-gray-400 uppercase mb-2">Вы предложили (ждёте ответа)</div>
+            <div className="space-y-2">{pendingOut.map(r => (
+              <div key={r.id} className="border rounded-2xl p-4 flex items-start gap-3 bg-white">
+                <Avatar r={r} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium" style={{ color: DARK }}>{r.other_name}</div>
+                  {r.event_title && <div className="text-xs text-gray-500">Событие: {r.event_title}</div>}
+                  {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 inline-block mt-1">Ждёт ответа</span>
+                  <Contacts r={r} />
+                </div>
+              </div>
+            ))}</div>
+          </div>}
+          {pendingIn.length === 0 && pendingOut.length === 0 && <div className="text-gray-400 py-10 text-center">Нет запросов, ждущих ответа.</div>}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {deals.length === 0 ? <div className="text-gray-400 py-10 text-center">Принятых коллабораций пока нет.</div>
+            : deals.map(r => (
+              <div key={r.id} className="border rounded-2xl p-4 flex items-start gap-3 bg-white">
+                <Avatar r={r} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium" style={{ color: DARK }}>{r.other_name}</span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: PEACH, color: DARK }}>
+                      {r.initiator === 'me' ? 'инициатор — вы' : 'инициатор — партнёр'}
+                    </span>
+                  </div>
+                  {r.event_title && <div className="text-xs text-gray-500">Событие: {r.event_title}</div>}
+                  {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
+                  <Contacts r={r} />
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   )
 }

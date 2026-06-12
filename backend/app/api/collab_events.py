@@ -74,7 +74,9 @@ async def list_requests(direction: str = "incoming", client=Depends(get_current_
     me = int(client["sub"])
     if direction == "outgoing":
         rows = await db.fetch(
-            """SELECT r.id, r.to_client_id AS other_client_id, tc.name AS other_name,
+            """SELECT r.id, r.to_client_id AS other_client_id, COALESCE(tc.brand_name,tc.name) AS other_name,
+                      COALESCE(tc.owner_photo_url,tc.profile_photo_url) AS other_photo,
+                      tc.is_published_in_hub AS other_published,
                       tc.telegram_username AS other_tg, r.event_id, e.title AS event_title,
                       r.status, r.message, r.created_at
                  FROM hub_collab_requests r
@@ -83,7 +85,9 @@ async def list_requests(direction: str = "incoming", client=Depends(get_current_
                 WHERE r.from_client_id=$1 ORDER BY r.created_at DESC""", me)
     else:
         rows = await db.fetch(
-            """SELECT r.id, r.from_client_id AS other_client_id, fc.name AS other_name,
+            """SELECT r.id, r.from_client_id AS other_client_id, COALESCE(fc.brand_name,fc.name) AS other_name,
+                      COALESCE(fc.owner_photo_url,fc.profile_photo_url) AS other_photo,
+                      fc.is_published_in_hub AS other_published,
                       fc.telegram_username AS other_tg, r.event_id, e.title AS event_title,
                       r.status, r.message, r.created_at
                  FROM hub_collab_requests r

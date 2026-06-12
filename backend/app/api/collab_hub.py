@@ -202,12 +202,22 @@ async def catalog(
 
 
 @router.get("/profile/{client_id}")
-async def hub_profile(client_id: int, db: asyncpg.Connection = Depends(get_db)):
-    """Публичная карточка организатора в Хабе + рейтинг + история + отзывы."""
+async def hub_profile(client_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Карточка организатора в Хабе + рейтинг + история + отзывы + контакты для связи.
+    Виден если опубликован ИЛИ между нами есть запрос на коллаборацию."""
+    me = int(client["sub"])
     row = await db.fetchrow(
-        f"SELECT {_CLIENT_COLS} FROM clients WHERE id=$1 AND is_published_in_hub=TRUE", client_id)
+        f"SELECT {_CLIENT_COLS}, telegram_username FROM clients WHERE id=$1", client_id)
     if not row:
-        raise HTTPException(404, "Карточка не опубликована")
+        raise HTTPException(404, "Организатор не найден")
+    has_link = await db.fetchval(
+        """SELECT 1 FROM hub_collab_requests
+            WHERE (from_client_id=$1 AND to_client_id=$2) OR (from_client_id=$2 AND to_client_id=$1) LIMIT 1""",
+        me, client_id)
+    if not row["is_published_in_hub"] and not has_link and me != client_id:
+        raise HTTPException(403, "Карточка не опубликована")
+    my_review = await db.fetchrow(
+        "SELECT rating, text FROM hub_reviews WHERE client_id=$1 AND author_client_id=$2", client_id, me)
     history = await db.fetch(
         """SELECT h.event_id, e.title AS event_title, h.partner_client_id,
                   COALESCE(pc.brand_name,pc.name) AS partner_name, h.participants_total, h.brought_live, h.created_at
@@ -223,9 +233,13 @@ async def hub_profile(client_id: int, db: asyncpg.Connection = Depends(get_db)):
         """SELECT count(*) AS collabs,
                   round(avg(CASE WHEN participants_total>0 THEN 100.0*brought_live/participants_total ELSE 0 END)) AS avg_contribution
              FROM hub_collab_history WHERE client_id=$1""", client_id)
+    card = _client_card(row)
+    card['telegram_username'] = row.get('telegram_username')
     return {
-        "card": _client_card(row),
+        "card": card,
         "rating": {"collabs_count": rating["collabs"], "avg_contribution": rating["avg_contribution"]},
         "history": [dict(h) for h in history],
         "reviews": [dict(r) for r in reviews],
+        "my_review": dict(my_review) if my_review else None,
+        "is_me": me == client_id,
     }
