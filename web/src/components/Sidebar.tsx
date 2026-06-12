@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -52,6 +52,8 @@ export default function Sidebar() {
         ...(hasConference ? [{ href: '/dashboard/tournaments', label: 'Премии/Турниры', icon: Trophy }] : []),
         // Конкурсы — для тарифов с фичей 'contests' (старт и выше)
         ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
+        // Коллабораторная (Хаб) — биржа коллабораций между клиентами (миграция 134)
+        { href: '/dashboard/collab-hub', label: 'Коллабораторная', icon: Handshake },
       ],
     },
     {

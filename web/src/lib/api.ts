@@ -500,6 +500,28 @@ export const api = {
     analytics: (id: number) =>
       request(`/api/v1/lead-magnets/${id}/analytics`),
   },
+  collabHub: {
+    niches: () => request('/api/v1/collab-hub/niches'),
+    myCard: () => request('/api/v1/collab-hub/me/card'),
+    publishCard: (data: any) =>
+      request('/api/v1/collab-hub/me/card', { method: 'POST', body: JSON.stringify(data) }),
+    catalog: (params?: Record<string, string>) => {
+      const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+      return request(`/api/v1/collab-hub/catalog${qs}`)
+    },
+    profile: (collaboratorId: number) => request(`/api/v1/collab-hub/profile/${collaboratorId}`),
+    // запросы / co-ownership / сват / отзывы
+    matchmaker: () => request('/api/v1/collab/matchmaker'),
+    requests: (direction: 'incoming' | 'outgoing' = 'incoming') =>
+      request(`/api/v1/collab/requests?direction=${direction}`),
+    createRequest: (data: any) =>
+      request('/api/v1/collab/requests', { method: 'POST', body: JSON.stringify(data) }),
+    respondRequest: (id: number, accept: boolean) =>
+      request(`/api/v1/collab/requests/${id}/respond`, { method: 'POST', body: JSON.stringify({ accept }) }),
+    eventOwners: (eventId: number) => request(`/api/v1/collab/events/${eventId}/owners`),
+    addReview: (data: any) =>
+      request('/api/v1/collab/reviews', { method: 'POST', body: JSON.stringify(data) }),
+  },
   leadMagnetPackages: {
     list: () => request('/api/v1/lead-magnet-packages'),
     counts: () => request('/api/v1/lead-magnet-packages/counts'),
