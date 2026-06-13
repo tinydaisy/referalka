@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
-import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check } from 'lucide-react'
 
 type SubTab = 'criteria' | 'assignments' | 'leaderboard' | 'reports'
 
@@ -251,9 +251,30 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
 
 // ─────────────────────── Турнирная таблица ───────────────────────
 
+function PublicTableLink({ eventId, stageId, stageTitle }: { eventId: number; stageId: number; stageTitle?: string }) {
+  const [copied, setCopied] = useState(false)
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://pluson.ru'
+  const url = `${origin}/t/${eventId}/${stageId}`
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
+  }
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2 text-sm bg-[#FFF7F0] border border-[#FFCFA4] rounded-lg px-3 py-2">
+      <span className="text-gray-600">Публичная страница{stageTitle ? ` — ${stageTitle}` : ''} (видна всем, для прозрачности):</span>
+      <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[#25455D] font-medium underline break-all">
+        {url} <ExternalLink size={13} />
+      </a>
+      <button onClick={copy} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#25455D] text-[#FFCFA4] text-xs">
+        {copied ? <><Check size={12} /> Скопировано</> : <><Copy size={12} /> Копировать</>}
+      </button>
+    </div>
+  )
+}
+
 function LeaderboardSub({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [stageId, setStageId] = useState<number | null>(null)
+  const [stagesInit, setStagesInit] = useState(false)
   const [stages, setStages] = useState<any[]>([])
   const [board, setBoard] = useState<any>(null)
   const [feedback, setFeedback] = useState<any[]>([])
@@ -268,9 +289,15 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
         api.tournament.criteria(eventId),
         api.tournament.feedback(eventId),
       ])
-      setBoard(b); setStages(c.stages || []); setFeedback(f.feedback || [])
+      const st = c.stages || []
+      setBoard(b); setStages(st); setFeedback(f.feedback || [])
+      // по умолчанию выбираем первый этап (без варианта «Все этапы»)
+      if (!stagesInit) {
+        setStagesInit(true)
+        if (st.length > 0 && stageId == null) setStageId(st[0].id)
+      }
     } finally { setLoading(false) }
-  }, [eventId, stageId])
+  }, [eventId, stageId, stagesInit])
   useEffect(() => { load() }, [load])
 
   const snapshot = async () => {
@@ -291,28 +318,36 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
 
   const cols: any[] = board.columns || []
   // группировка колонок по пакетам для шапки
-  const groups: { title: string; weight: number; span: number }[] = []
+  const groups: { title: string; weight: number; span: number; normalize: boolean }[] = []
   cols.forEach((c) => {
     const last = groups[groups.length - 1]
     if (last && last.title === c.package_title) last.span++
     else {
       const pkg = board.packages.find((p: any) => p.id === c.package_id)
-      groups.push({ title: c.package_title, weight: pkg?.weight ?? 1, span: 1 })
+      groups.push({ title: c.package_title, weight: pkg?.weight ?? 1, span: 1, normalize: !!pkg?.normalize })
     }
   })
   const scorerOf = (cid: number) => cols.find(c => c.criterion_id === cid)?.scorer
+  const normalizeOf = (cid: number) => {
+    const c = cols.find(x => x.criterion_id === cid)
+    return !!board.packages.find((p: any) => p.id === c?.package_id)?.normalize
+  }
+  const NormBadge = () => <span className="ml-1 align-middle text-[9px] font-bold text-amber-700 bg-amber-50 border border-[#FFCFA4] rounded px-1" title="Критерий нормализуется: баллы приводятся к доле от лучшего результата">норм.</span>
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-2">
         <select className="text-sm border rounded-lg px-2 py-1.5" value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}>
-          <option value="">Все этапы</option>
+          {stages.length === 0 && <option value="">Весь турнир</option>}
           {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
         </select>
         <button onClick={snapshot} disabled={saving} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-[#25455D] text-[#FFCFA4] disabled:opacity-50">
           <Camera size={14} /> Сохранить отчёт
         </button>
       </div>
+      {stageId != null && (
+        <PublicTableLink eventId={eventId} stageId={stageId} stageTitle={stages.find((s: any) => s.id === stageId)?.title} />
+      )}
       <div className="overflow-x-auto border rounded-xl">
         <table className="text-sm w-full">
           <thead>
@@ -325,15 +360,15 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
               {/* итоговые баллы пакетов */}
               <th colSpan={board.packages.length} className="px-3 py-1.5 text-center border-l">Баллы по пакетам</th>
               {/* критерии, сгруппированные по пакетам */}
-              {groups.map((g, i) => <th key={i} colSpan={g.span} className="px-3 py-1.5 text-center border-l">{g.title} <span className="text-gray-400">×{g.weight}</span></th>)}
+              {groups.map((g, i) => <th key={i} colSpan={g.span} className="px-3 py-1.5 text-center border-l">{g.title} <span className="text-gray-400">×{g.weight}</span>{g.normalize && <NormBadge />}</th>)}
               <th rowSpan={2} className="px-3 py-2 border-l">Детализация</th>
             </tr>
             <tr className="bg-gray-50 text-gray-500 text-xs">
               {board.packages.map((p: any, i: number) => (
-                <th key={p.id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`}>{p.title}</th>
+                <th key={p.id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`}>{p.title}{p.normalize && <NormBadge />}</th>
               ))}
               {cols.map((c, i) => (
-                <th key={c.criterion_id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`} title={c.scorer}>{c.title}</th>
+                <th key={c.criterion_id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`} title={c.scorer}>{c.title}{normalizeOf(c.criterion_id) && <NormBadge />}</th>
               ))}
             </tr>
           </thead>

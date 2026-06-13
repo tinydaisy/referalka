@@ -2357,3 +2357,210 @@ async def event_register_submit(slug: str, request: Request,
         "registered": True, "contact_id": target_cid,
         "redirect": f"/event/{real_slug}?c={target_cid}",
     })
+
+
+# ════════════════ Публичная турнирная таблица: /t/{slug}/{stage_id} ════════════════
+
+PLUSON_LOGO_URL = "https://pluson.ru/images/logo_no_ivision_wwhite.png"
+
+
+def _fmt_num(v):
+    """Число без хвостовых нулей: 5.0 -> 5, 3.25 -> 3.25, None -> ''."""
+    if v is None:
+        return ""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return esc(str(v))
+    if f == int(f):
+        return str(int(f))
+    return ("%.3f" % f).rstrip("0").rstrip(".")
+
+
+@router.get("/t/{slug}/{stage_id}", response_class=HTMLResponse, include_in_schema=False)
+async def public_tournament_table(slug: str, stage_id: int,
+                                  db: asyncpg.Connection = Depends(get_db)):
+    from app.api.tournament import _compute  # локальный импорт против циклов
+
+    event = await _resolve_event(db, slug)
+    if not event or (event.get("module_slug") != "turnir"):
+        raise HTTPException(status_code=404, detail="Турнир не найден")
+    event_id = event["id"]
+
+    stage = await db.fetchrow(
+        "SELECT id, title, subtitle FROM conf_stages WHERE id=$1 AND event_id=$2",
+        stage_id, event_id)
+    if not stage:
+        raise HTTPException(status_code=404, detail="Этап не найден")
+
+    data = await _compute(event_id, stage_id, db)
+    columns = data.get("columns") or []
+    table = data.get("table") or []
+    packages = data.get("packages") or []
+    pkg_by_id = {p["id"]: p for p in packages}
+
+    # бренд клиента + его реф-ссылка на платформу ПЛЮСОН
+    cli = await db.fetchrow(
+        "SELECT name, brand_name, brand_logo_url, referral_code FROM clients WHERE id=$1",
+        event["client_id"]) if event.get("client_id") else None
+    brand_name = ((cli["brand_name"] if cli else None)
+                  or (cli["name"] if cli else None) or "")
+    brand = esc(brand_name)
+    brand_logo = (cli["brand_logo_url"] if cli else None) or ""
+    ref_code = (cli["referral_code"] if cli else None) or ""
+    pluson_ref_url = f"https://pluson.ru/?pid={esc(ref_code)}" if ref_code else "https://pluson.ru/"
+
+    title = esc(event.get("title") or event.get("slug"))
+    stage_title = esc(stage["title"] or "")
+
+    # Favicon — буква названия
+    _t = (event.get("title") or event.get("slug") or "•").strip()
+    fav_letter = _html.escape(_t[0].upper() if _t else "•")
+    favicon_svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        "<rect width='64' height='64' rx='14' fill='#25455D'/>"
+        "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
+        f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>")
+    import urllib.parse as _up
+    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+
+    # ── Шапка таблицы: группировка колонок по пакетам ──
+    groups = []  # [{pkg_id, title, weight, normalize, span}]
+    for c in columns:
+        if groups and groups[-1]["pkg_id"] == c["package_id"]:
+            groups[-1]["span"] += 1
+        else:
+            p = pkg_by_id.get(c["package_id"], {})
+            groups.append({"pkg_id": c["package_id"], "title": c["package_title"],
+                           "weight": p.get("weight", 1),
+                           "normalize": bool(p.get("normalize")), "span": 1})
+
+    NORM_BADGE = "<span class='norm' title='Критерий нормализуется: баллы приводятся к доле от лучшего результата'>норм.</span>"
+
+    thead_grp = "<th rowspan='2' class='c-place'>Место</th><th rowspan='2' class='c-name'>Участник</th>"
+    thead_grp += "<th rowspan='2' class='c-total'>ИТОГ</th>"
+    for g in groups:
+        gn = NORM_BADGE if g["normalize"] else ""
+        thead_grp += (f"<th colspan='{g['span']}' class='c-grp'>{esc(g['title'])}"
+                      f"<span class='w'>вес {_fmt_num(g['weight'])}{(' · ' if g['normalize'] else '')}"
+                      f"{('норм.' if g['normalize'] else '')}</span></th>")
+    thead_crit = ""
+    for c in columns:
+        p = pkg_by_id.get(c["package_id"], {})
+        badge = NORM_BADGE if p.get("normalize") else ""
+        thead_crit += f"<th class='c-crit'>{esc(c['title'])}{badge}</th>"
+
+    rows_html = ""
+    if not table:
+        rows_html = (f"<tr><td colspan='{3 + len(columns)}' class='empty'>"
+                     "Пока нет участников или оценок на этом этапе.</td></tr>")
+    for r in table:
+        cells = ""
+        for c in columns:
+            v = r["cells"].get(str(c["criterion_id"]))
+            cells += f"<td class='val'>{_fmt_num(v)}</td>"
+        place = r["place"]
+        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(place, "")
+        rows_html += (
+            f"<tr><td class='c-place'>{medal or place}</td>"
+            f"<td class='c-name'>{esc(r['name'])}</td>"
+            f"<td class='c-total'>{_fmt_num(r['total'])}</td>{cells}</tr>")
+
+    # ── Блок бренда (логотип клиента справа в шапке) ──
+    brand_logo_html = (f"<img class='brand-logo' src='{esc(brand_logo)}' alt='{brand}'>"
+                       if brand_logo else "")
+    brand_name_html = f"<div class='brand'>{brand}</div>" if brand else ""
+
+    # ── Плашка ПЛЮСОН (слева сверху, ведёт по реф-ссылке клиента) ──
+    pluson_badge = (
+        f"<a class='pluson-badge' href='{pluson_ref_url}' target='_blank' rel='noopener noreferrer'>"
+        f"<img src='{PLUSON_LOGO_URL}' alt='ПЛЮСОН'>"
+        f"<span>Отчёт сформирован в Платформе ПЛЮСОН<br>для экспертов и организаторов</span>"
+        f"</a>")
+
+    has_norm = any(g["normalize"] for g in groups)
+    norm_note = ("<p class='note'>«норм.» — критерий нормализуется: баллы приводятся к доле "
+                 "от лучшего результата (для честного сравнения разных шкал).</p>") if has_norm else ""
+
+    return HTMLResponse(content=f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Турнирная таблица — {title}</title>
+<link rel="icon" href="{favicon_uri}">
+<style>
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin:0; padding:0; font-family:'Roboto',-apple-system,BlinkMacSystemFont,sans-serif;
+    background: linear-gradient(45deg, #25455D, #0a1520); background-attachment: fixed; color:#1f2d3a; }}
+  .wrap {{ max-width: 1100px; margin: 0 auto; min-height: 100vh; background:#f7f8fa;
+    box-shadow: 0 0 40px rgba(0,0,0,.35); }}
+  .topbar {{ background: linear-gradient(45deg, #25455D, #0a1520); padding: 12px 18px; }}
+  .pluson-badge {{ display:inline-flex; align-items:center; gap:10px; text-decoration:none; }}
+  .pluson-badge img {{ height: 30px; width:auto; display:block; }}
+  .pluson-badge span {{ font-size:11px; line-height:1.3; color:rgba(255,255,255,.78); }}
+  .hero {{ background: linear-gradient(45deg, #25455D, #0a1520); color:#fff;
+    padding: 8px 18px 20px; display:flex; align-items:center; gap:14px; border-top:1px solid rgba(255,255,255,.08); }}
+  .hero .info {{ flex:1; min-width:0; }}
+  .hero .brand {{ font-size:12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:4px; }}
+  .hero h1 {{ font-size:22px; margin:0 0 4px; line-height:1.25; }}
+  .hero .stage {{ font-size:14px; color:#FFCFA4; font-weight:600; }}
+  .brand-logo {{ height:54px; width:auto; max-width:120px; object-fit:contain; border-radius:10px;
+    background:#fff; padding:6px; flex:0 0 auto; }}
+  .content {{ padding: 16px; }}
+  .note {{ font-size:12.5px; color:#6b7c8e; margin: 0 0 12px; }}
+  .scroll {{ overflow-x:auto; border:1px solid #e6eaee; border-radius:12px; background:#fff; }}
+  table {{ border-collapse:collapse; width:100%; font-size:13px; }}
+  th, td {{ padding:8px 10px; border-bottom:1px solid #eef1f4; text-align:center; white-space:nowrap; }}
+  thead th {{ background:#f1f4f7; color:#41566a; font-weight:700; position:sticky; top:0; }}
+  .c-grp {{ border-left:1px solid #dfe5ea; color:#25455D; }}
+  .c-grp .w {{ display:block; font-size:10.5px; font-weight:500; color:#8593a1; }}
+  .c-crit {{ font-weight:500; color:#5b6b7a; font-size:11.5px; max-width:130px; white-space:normal; }}
+  .norm {{ display:inline-block; margin-left:4px; font-size:9.5px; font-weight:700; color:#b45309;
+    background:#FFF3E0; border:1px solid #FFCFA4; border-radius:5px; padding:0 4px; vertical-align:middle; }}
+  .c-place {{ text-align:center; font-weight:700; color:#25455D; width:54px; }}
+  .c-name {{ text-align:left; font-weight:600; color:#1f2d3a; position:sticky; left:0; background:#fff; }}
+  thead .c-name {{ background:#f1f4f7; }}
+  .c-total {{ font-weight:800; color:#25455D; border-left:2px solid #FFCFA4; background:#FFF7F0; }}
+  thead .c-total {{ background:#FFEFE0; }}
+  .val {{ color:#41566a; }}
+  tbody tr:nth-child(even) td {{ background:#fafbfc; }}
+  tbody tr:nth-child(even) .c-name {{ background:#fafbfc; }}
+  tbody tr:nth-child(even) .c-total {{ background:#FFF2E6; }}
+  .empty {{ color:#8593a1; padding:24px; text-align:center !important; }}
+  .foot {{ font-size:11.5px; color:#9aa7b4; text-align:center; padding:18px 12px 30px; }}
+  .foot a {{ color:#25455D; font-weight:600; text-decoration:none; }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">{pluson_badge}</div>
+  <div class="hero">
+    <div class="info">
+      {brand_name_html}
+      <h1>{title}</h1>
+      <div class="stage">{stage_title} · турнирная таблица</div>
+    </div>
+    {brand_logo_html}
+  </div>
+  <div class="content">
+    <p class="note">Открытый рейтинг для всех участников. Сортировка — по итоговому баллу. Обновляется автоматически.</p>
+    {norm_note}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>{thead_grp}</tr>
+          <tr>{thead_crit}</tr>
+        </thead>
+        <tbody>
+          {rows_html}
+        </tbody>
+      </table>
+    </div>
+    <div class="foot">
+      Сделано на <a href="{pluson_ref_url}" target="_blank" rel="noopener noreferrer">Платформе ПЛЮСОН</a> — для экспертов и организаторов
+    </div>
+  </div>
+</div>
+</body>
+</html>""")
