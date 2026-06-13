@@ -90,14 +90,35 @@ async def register_participant(
     # Создаём/находим контакт + идентичность (автомердж по email/phone).
     # platform — 'telegram'/'vk'/'max'. VK Mini App шлёт platform='vk' и в tg_id
     # сидит vk_user_id (это исторически имя поля, не привязка к платформе).
+    #
+    # Имя/ник могли НЕ прийти с фронта: VK Mini App не всегда успевает получить
+    # VKWebAppGetUserInfo к моменту сабмита формы (или открылся без hash) → контакт
+    # сохранялся «Без имени» без ника, хотя в VK имя и screen_name есть. Дотягиваем
+    # их по vk_id через VK API (та же страховка, что в /vk/event и group_join).
+    reg_first = data.first_name or None
+    reg_last = data.last_name or None
+    reg_username = data.username or None
+    if data.platform == "vk" and not (reg_first or reg_username):
+        try:
+            from app.services.vk_api import get_user_info as vk_get_user_info
+            ui = await vk_get_user_info(int(data.tg_id))
+            if ui:
+                reg_first = reg_first or ui.get("first_name") or None
+                reg_last = reg_last or ui.get("last_name") or None
+                reg_username = reg_username or ui.get("screen_name") or None
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"VK /participants/register get_user_info failed (vk={data.tg_id}): {e}"
+            )
     contact_id, _platform_user_id, _is_new_contact = await upsert_contact_with_identity(
         db,
         client_id=event["client_id"],
         platform_slug=data.platform,
         platform_user_id=str(data.tg_id),
-        username=data.username,
-        first_name=data.first_name,
-        last_name=data.last_name,
+        username=reg_username,
+        first_name=reg_first,
+        last_name=reg_last,
         email=data.email,
         phone=data.phone,
         known_contact_id=data.contact_id,

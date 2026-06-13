@@ -275,14 +275,34 @@ async def salebot_register(
         # привяжется к известному контакту, дубль не плодится. В этой ветке
         # data.contact_id обычно None (иначе сработала бы ветка выше) — тогда
         # это no-op и поведение не меняется.
+        #
+        # VK-имя могло не прийти с фронта (VKWebAppGetUserInfo не успел) → дотягиваем
+        # по vk_id через VK API, как в /vk/event и /participants/register. Иначе в
+        # списке участников появляется «Без имени».
+        wh_first = data.first_name
+        wh_last = data.last_name
+        wh_username = data.username
+        if data.platform == "vk" and not (wh_first or wh_username):
+            try:
+                from app.services.vk_api import get_user_info as vk_get_user_info
+                ui = await vk_get_user_info(int(data.platform_user_id))
+                if ui:
+                    wh_first = wh_first or ui.get("first_name") or None
+                    wh_last = wh_last or ui.get("last_name") or None
+                    wh_username = wh_username or ui.get("screen_name") or None
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"webhook register get_user_info failed (vk={data.platform_user_id}): {e}"
+                )
         contact_id, pluson_id, is_new_user = await upsert_contact_with_identity(
             db,
             client_id=data.client_id,
             platform_slug=data.platform,
             platform_user_id=data.platform_user_id,
-            username=data.username,
-            first_name=data.first_name,
-            last_name=data.last_name,
+            username=wh_username,
+            first_name=wh_first,
+            last_name=wh_last,
             email=data.email,
             phone=data.phone,
             salebot_id=data.salebot_id,
