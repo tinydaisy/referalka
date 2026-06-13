@@ -307,19 +307,17 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         })
 
     table.sort(key=lambda r: r["total"], reverse=True)
-    # Соревновательное ранжирование: одинаковый ИТОГ → одно и то же место.
-    # (1,1,3 — два первых, следующий получает 3-е). Сравниваем по округлённому
+    # Плотное ранжирование: одинаковый ИТОГ → одно место, БЕЗ пропусков.
+    # (1,1,2,3,4 — два первых, следующий второй). Сравниваем по округлённому
     # значению, как показывается в таблице.
     prev_total = None
-    prev_place = 0
-    for i, r in enumerate(table):
+    place = 0
+    for r in table:
         cur = round(r["total"], 3)
-        if prev_total is not None and cur == prev_total:
-            r["place"] = prev_place  # делят место с предыдущим
-        else:
-            r["place"] = i + 1
-            prev_place = i + 1
+        if prev_total is None or cur != prev_total:
+            place += 1
             prev_total = cur
+        r["place"] = place
 
     return {
         "packages": [{"id": p["id"], "title": p["title"], "weight": float(p["weight"]), "normalize": p["normalize"]} for p in pkgs],
