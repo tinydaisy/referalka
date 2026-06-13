@@ -137,14 +137,6 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
           <input type="checkbox" checked={normalize} onChange={(e) => { setNormalize(e.target.checked); savePkg({ normalize: e.target.checked }) }} />
           нормализовать (?)
         </label>
-        {stages.length > 0 && (
-          <label className="text-xs text-gray-500 flex items-center gap-1" title="Этап, к которому относится весь пакет. «Весь турнир» — пакет считается на каждом этапе.">этап
-            <select className="text-xs border rounded px-1.5 py-1" value={pkg.stage_id ?? ''} onChange={(e) => savePkg({ stage_id: e.target.value ? Number(e.target.value) : null })}>
-              <option value="">Весь турнир</option>
-              {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
-            </select>
-          </label>
-        )}
         <button onClick={delPkg} className="ml-auto text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
       </div>
       <div className="space-y-2">
