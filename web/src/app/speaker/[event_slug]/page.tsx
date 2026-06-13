@@ -1444,7 +1444,11 @@ function JudgingTab({ token }: { token: string }) {
     fetch(`${API}/api/v1/public/tournament-jury/me${stageId ? `?stage_id=${stageId}` : ''}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then(r => r.json()).then(d => setData(d)).finally(() => setLoading(false))
+      .then(r => r.json()).then(d => {
+        setData(d)
+        // по умолчанию первый этап (без варианта «Все этапы»)
+        if (stageId == null && d?.stages?.length > 0) setStageId(d.stages[0].id)
+      }).finally(() => setLoading(false))
   }, [token, stageId])
   useEffect(() => { load() }, [load])
 
@@ -1483,7 +1487,6 @@ function JudgingTab({ token }: { token: string }) {
       {data.stages?.length > 0 && (
         <select value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}
           style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d4dee5', marginBottom: 12, fontSize: 14 }}>
-          <option value="">Все этапы</option>
           {data.stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
         </select>
       )}

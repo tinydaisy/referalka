@@ -2507,8 +2507,7 @@ async def public_tournament_table(slug: str, stage_id: int,
   .hero .stage {{ font-size:14px; color:#FFCFA4; font-weight:600; }}
   .reg-link {{ display:inline-block; margin-top:8px; font-size:13px; color:#fff;
     text-decoration:underline; opacity:.85; }}
-  .brand-logo {{ height:54px; width:auto; max-width:120px; object-fit:contain; border-radius:10px;
-    background:#fff; padding:6px; flex:0 0 auto; }}
+  .brand-logo {{ height:54px; width:auto; max-width:120px; object-fit:contain; flex:0 0 auto; }}
   .content {{ padding: 16px; }}
   .note {{ font-size:12.5px; color:#6b7c8e; margin: 0 0 12px; }}
   .scroll {{ overflow-x:auto; border:1px solid #e6eaee; border-radius:12px; background:#fff; }}
@@ -2726,7 +2725,7 @@ async def public_tournament_reglament(slug: str, stage_id: int,
   .hero .brand {{ font-size:12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:4px; }}
   .hero h1 {{ font-size:22px; margin:0 0 4px; line-height:1.25; }}
   .hero .stage {{ font-size:14px; color:#FFCFA4; font-weight:600; }}
-  .brand-logo {{ height:54px; width:auto; max-width:120px; object-fit:contain; border-radius:10px; background:#fff; padding:6px; flex:0 0 auto; }}
+  .brand-logo {{ height:54px; width:auto; max-width:120px; object-fit:contain; flex:0 0 auto; }}
   .content {{ padding: 18px; }}
   .lead {{ font-size:14px; color:#41566a; line-height:1.6; margin: 0 0 18px; }}
   .pkg {{ background:#fff; border:1px solid #e6eaee; border-radius:14px; padding:16px; margin-bottom:14px; }}

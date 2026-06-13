@@ -341,8 +341,8 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
         <span className="text-emerald-600 font-semibold"> без конфликта</span> /
         <span className="text-red-500 font-semibold"> привели его</span>. Красная цифра — жюри, которое само привело участника по реф-ссылке.
       </p>
-      <div className="overflow-x-auto border rounded-xl">
-        <table className="text-sm">
+      <div className="overflow-x-auto border rounded-xl" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <table className="text-sm min-w-max">
           <thead>
             <tr className="bg-gray-50">
               <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-10">Участник</th>
