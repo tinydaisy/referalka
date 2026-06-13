@@ -288,21 +288,25 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
 
   const rowGroup = (title: string, list: any[]) => list.length > 0 && (
     <>
-      <tr><td colSpan={data.jurors.length + 2} className="px-3 py-1.5 text-xs font-semibold text-[#25455D] bg-[#FFCFA4] uppercase">{title}</td></tr>
+      <tr>
+        <td className="px-3 py-1.5 text-xs font-semibold text-[#25455D] bg-[#FFCFA4] uppercase sticky left-0 z-20">{title}</td>
+        <td className="bg-[#FFCFA4] sticky left-[220px] z-20"></td>
+        <td colSpan={data.jurors.length} className="bg-[#FFCFA4]"></td>
+      </tr>
       {list.map((s: any) => {
         const c = counts(s)
         return (
         <tr key={s.key} className="border-t">
-          <td className="px-3 py-2 sticky left-0 bg-white whitespace-nowrap">
-            {s.name}
+          <td className="px-3 py-2 sticky left-0 bg-white z-10 w-[220px] min-w-[220px] max-w-[220px]">
+            <div className="font-medium text-gray-800 truncate" title={s.name}>{s.name}</div>
             {s.referrer_name && (
-              <span className={`ml-1 text-xs ${s.referrer_juror_ec_ids?.length ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-                (привёл: {s.referrer_name})
-              </span>
+              <div className={`text-[11px] leading-tight truncate ${s.referrer_juror_ec_ids?.length ? 'text-red-500' : 'text-gray-400'}`} title={`Привёл: ${s.referrer_name}`}>
+                привёл: {s.referrer_name}
+              </div>
             )}
           </td>
-          {/* счётчик жюри: всего / не-конфликт / конфликт */}
-          <td className="px-3 py-2 text-center whitespace-nowrap tabular-nums font-semibold">
+          {/* счётчик жюри: всего / не-конфликт / конфликт — закреплён */}
+          <td className="px-3 py-2 text-center whitespace-nowrap tabular-nums font-semibold sticky left-[220px] bg-white z-10 border-r">
             <span className="text-[#229ED9]" title="Всего жюри назначено">{c.total}</span>
             <span className="text-gray-300 mx-0.5">/</span>
             <span className="text-emerald-600" title="Без конфликта">{c.normal}</span>
@@ -337,8 +341,8 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
         <table className="text-sm min-w-max">
           <thead>
             <tr className="bg-gray-50">
-              <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-10">Участник</th>
-              <th className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap text-center">Жюри</th>
+              <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-20 w-[220px] min-w-[220px] max-w-[220px]">Участник</th>
+              <th className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap text-center sticky left-[220px] bg-gray-50 z-20 border-r">Жюри</th>
               {data.jurors.map((j: any) => <th key={j.juror_ec_id} className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap">{j.name}</th>)}
             </tr>
           </thead>
