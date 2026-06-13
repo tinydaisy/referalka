@@ -152,9 +152,10 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
 
 async def _jurors(event_id: int, db: asyncpg.Connection) -> List[dict]:
     rows = await db.fetch(
-        """SELECT cse.id AS juror_ec_id, c.name
+        """SELECT cse.id AS juror_ec_id, c.name, ct.ref_code
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
+             LEFT JOIN contacts ct ON ct.id = c.contact_id
             WHERE cse.event_id = $1 AND cse.role = 'jury'
             ORDER BY split_part(c.name, ' ', 1), c.name, cse.id""",
         event_id,
@@ -306,8 +307,19 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         })
 
     table.sort(key=lambda r: r["total"], reverse=True)
+    # Соревновательное ранжирование: одинаковый ИТОГ → одно и то же место.
+    # (1,1,3 — два первых, следующий получает 3-е). Сравниваем по округлённому
+    # значению, как показывается в таблице.
+    prev_total = None
+    prev_place = 0
     for i, r in enumerate(table):
-        r["place"] = i + 1
+        cur = round(r["total"], 3)
+        if prev_total is not None and cur == prev_total:
+            r["place"] = prev_place  # делят место с предыдущим
+        else:
+            r["place"] = i + 1
+            prev_place = i + 1
+            prev_total = cur
 
     return {
         "packages": [{"id": p["id"], "title": p["title"], "weight": float(p["weight"]), "normalize": p["normalize"]} for p in pkgs],
@@ -456,8 +468,53 @@ async def get_assignments(event_id: int, client=Depends(get_current_client), db:
     jurors = await _jurors(event_id, db)
     rows = await db.fetch("SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1", event_id)
     pairs = {(r["juror_ec_id"], _skey(r["subject_kind"], r["subject_id"])) for r in rows}
+
+    # «Кого привело жюри»: реферер участника (event_participants.referrer_ref_code)
+    # совпал с ref_code контакта какого-то жюри → конфликт интересов.
+    # ref_code жюри → его juror_ec_id (у одного контакта-жюри один ref_code).
+    juror_refcode_to_ec: dict[str, int] = {}
+    for j in jurors:
+        rc = j.get("ref_code")
+        if rc:
+            juror_refcode_to_ec[rc] = j["juror_ec_id"]
+
+    # реферер каждого ep-участника + имя реферера
+    ep_ids = [s["sid"] for s in subjects if s["kind"] == "ep"]
+    referrer_by_sid: dict[int, dict] = {}
+    if ep_ids:
+        ref_rows = await db.fetch(
+            """SELECT ep.id AS sid, ep.referrer_ref_code,
+                      rc.name AS referrer_name, ep.referrer_ref_code AS rcode
+                 FROM event_participants ep
+                 LEFT JOIN contacts rc
+                   ON rc.ref_code = ep.referrer_ref_code
+                  AND rc.merged_into IS NULL
+                WHERE ep.id = ANY($1::int[])""",
+            ep_ids,
+        )
+        for r in ref_rows:
+            if r["referrer_ref_code"]:
+                referrer_by_sid[r["sid"]] = {
+                    "name": r["referrer_name"],
+                    "ref_code": r["referrer_ref_code"],
+                }
+
+    # обогащаем subjects: имя реферода + список жюри-рефоводов (конфликтных)
+    subjects_out = []
+    for s in subjects:
+        item = {"key": s["key"], "name": s["name"], "is_speaker": s["is_speaker"],
+                "referrer_name": None, "referrer_juror_ec_ids": []}
+        if s["kind"] == "ep":
+            ref = referrer_by_sid.get(s["sid"])
+            if ref:
+                item["referrer_name"] = ref["name"]
+                jec = juror_refcode_to_ec.get(ref["ref_code"])
+                if jec is not None:
+                    item["referrer_juror_ec_ids"] = [jec]
+        subjects_out.append(item)
+
     return {
-        "subjects": [{"key": s["key"], "name": s["name"], "is_speaker": s["is_speaker"]} for s in subjects],
+        "subjects": subjects_out,
         "jurors": [{"juror_ec_id": j["juror_ec_id"], "name": j["name"]} for j in jurors],
         "pairs": [{"juror_ec_id": p[0], "key": p[1]} for p in pairs],
     }
@@ -500,6 +557,116 @@ async def set_all_assignments(event_id: int, client=Depends(get_current_client),
     return {"ok": True}
 
 
+class AutoAssignIn(BaseModel):
+    include_speakers: bool = False
+    include_participants: bool = True
+    per_juror: Optional[int] = None  # сколько субъектов на 1 жюри; None → авто-рекомендация
+
+
+@router.get("/assignments/auto-suggest", summary="Рекомендация по распределению")
+async def auto_assign_suggest(event_id: int, include_speakers: bool = False,
+                              include_participants: bool = True,
+                              client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    await _check_access(event_id, int(client["sub"]), db)
+    subjects = await _subjects(event_id, db)
+    jurors = await _jurors(event_id, db)
+    pool = [s for s in subjects
+            if (s["is_speaker"] and include_speakers) or (not s["is_speaker"] and include_participants)]
+    n_subj = len(pool)
+    n_jury = len(jurors)
+    import math
+    # рекомендация: чтобы каждого субъекта оценило ~3 жюри (или меньше, если жюри мало)
+    target_views = min(3, n_jury) if n_jury else 0
+    per_juror = math.ceil(n_subj * target_views / n_jury) if n_jury else 0
+    return {
+        "subjects_count": n_subj, "jurors_count": n_jury,
+        "recommended_per_juror": per_juror,
+        "recommended_views_per_subject": target_views,
+    }
+
+
+@router.post("/assignments/auto", summary="Автораспределение участников по жюри")
+async def auto_assign(event_id: int, data: AutoAssignIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    await _check_access(event_id, int(client["sub"]), db)
+    subjects = await _subjects(event_id, db)
+    jurors = await _jurors(event_id, db)
+    if not jurors:
+        raise HTTPException(status_code=400, detail="Нет жюри для распределения")
+
+    pool = [s for s in subjects
+            if (s["is_speaker"] and data.include_speakers) or (not s["is_speaker"] and data.include_participants)]
+    if not pool:
+        raise HTTPException(status_code=400, detail="Не выбраны типы участников или их нет")
+
+    # ref_code жюри → ec_id (для избегания конфликта «жюри оценивает того, кого привело»)
+    juror_refcode_to_ec = {j["ref_code"]: j["juror_ec_id"] for j in jurors if j.get("ref_code")}
+    # реферер каждого ep-субъекта
+    ep_ids = [s["sid"] for s in pool if s["kind"] == "ep"]
+    conflict_juror_by_key: dict[str, set] = {}
+    if ep_ids:
+        ref_rows = await db.fetch(
+            "SELECT id AS sid, referrer_ref_code FROM event_participants WHERE id = ANY($1::int[])",
+            ep_ids)
+        for r in ref_rows:
+            jec = juror_refcode_to_ec.get(r["referrer_ref_code"])
+            if jec is not None:
+                conflict_juror_by_key[_skey("ep", r["sid"])] = {jec}
+
+    import math
+    n_subj = len(pool); n_jury = len(jurors)
+    per_juror = data.per_juror
+    if not per_juror or per_juror <= 0:
+        target_views = min(3, n_jury)
+        per_juror = math.ceil(n_subj * target_views / n_jury)
+    cap = n_subj  # жюри не может оценить больше, чем есть субъектов
+    per_juror = min(per_juror, cap)
+
+    # Сносим прежнее распределение ТОЛЬКО для выбранных типов.
+    kinds_to_clear = []
+    if data.include_speakers: kinds_to_clear.append("ec")
+    if data.include_participants: kinds_to_clear.append("ep")
+    await db.execute(
+        "DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND subject_kind = ANY($2::text[])",
+        event_id, kinds_to_clear)
+
+    # Жадное равномерное распределение: для каждого жюри добираем per_juror субъектов,
+    # выбирая тех, у кого меньше всего назначений, пропуская конфликтных (если есть выбор).
+    load_by_key = {s["key"]: 0 for s in pool}
+    assignments: list[tuple[int, str, int]] = []  # (juror_ec_id, kind, sid)
+    for j in jurors:
+        jec = j["juror_ec_id"]
+        chosen = 0
+        # кандидаты — без конфликта, отсортированы по текущей нагрузке
+        def pick_candidates(allow_conflict: bool):
+            cands = []
+            for s in pool:
+                if allow_conflict is False and jec in conflict_juror_by_key.get(s["key"], set()):
+                    continue
+                cands.append(s)
+            return sorted(cands, key=lambda s: load_by_key[s["key"]])
+        used_keys = set()
+        for allow_conflict in (False, True):  # сначала без конфликта, потом если не хватило
+            for s in pick_candidates(allow_conflict):
+                if chosen >= per_juror:
+                    break
+                if s["key"] in used_keys:
+                    continue
+                used_keys.add(s["key"])
+                assignments.append((jec, s["kind"], s["sid"]))
+                load_by_key[s["key"]] += 1
+                chosen += 1
+            if chosen >= per_juror:
+                break
+
+    for jec, kind, sid in assignments:
+        await db.execute(
+            "INSERT INTO tournament_jury_assignments (event_id, juror_ec_id, subject_kind, subject_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+            event_id, jec, kind, sid)
+
+    return {"ok": True, "per_juror": per_juror, "assigned_pairs": len(assignments),
+            "subjects_count": n_subj, "jurors_count": n_jury}
+
+
 # ── Турнирная таблица ──
 
 @router.get("/leaderboard", summary="Турнирная таблица (живой расчёт)")
@@ -519,6 +686,8 @@ class ManualScoreIn(BaseModel):
 @router.post("/manual-score", summary="Ручной/народный балл (организатор)")
 async def set_manual_score(event_id: int, data: ManualScoreIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
+    if data.value < 0:
+        raise HTTPException(status_code=422, detail="Балл не может быть отрицательным")
     crit = await db.fetchrow("SELECT scorer FROM tournament_criteria WHERE id=$1 AND event_id=$2", data.criterion_id, event_id)
     if not crit:
         raise HTTPException(status_code=404, detail="Критерий не найден")
@@ -697,6 +866,8 @@ class JuryScoreIn(BaseModel):
 async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), db: asyncpg.Connection = Depends(get_db)):
     juror = await _ensure_juror(session, db)
     event_id = juror["event_id"]; juror_ec_id = juror["id"]
+    if data.value < 0:
+        raise HTTPException(status_code=422, detail="Балл не может быть отрицательным")
     crit = await db.fetchrow("SELECT scorer FROM tournament_criteria WHERE id=$1 AND event_id=$2", data.criterion_id, event_id)
     if not crit or crit["scorer"] != "jury":
         raise HTTPException(status_code=422, detail="Критерий не для оценки жюри")

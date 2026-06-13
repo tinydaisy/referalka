@@ -41,23 +41,28 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   const [packages, setPackages] = useState<any[]>([])
   const [stages, setStages] = useState<any[]>([])
 
+  const [stageFilter, setStageFilter] = useState<number | null>(null)
+  const [stagesInit, setStagesInit] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const r = await api.tournament.criteria(eventId)
-      setPackages(r.packages || []); setStages(r.stages || [])
+      const st = r.stages || []
+      setPackages(r.packages || []); setStages(st)
+      if (!stagesInit) {
+        setStagesInit(true)
+        if (st.length > 0 && stageFilter == null) setStageFilter(st[0].id)
+      }
     } finally { setLoading(false) }
-  }, [eventId])
+  }, [eventId, stagesInit, stageFilter])
   useEffect(() => { load() }, [load])
-
-  const [stageFilter, setStageFilter] = useState<number | 'all'>('all')
 
   const addPackage = async () => {
     const title = prompt('Название пакета (например «Оценка жюри», «Вовлечение»):')
     if (!title?.trim()) return
-    // новый пакет наследует выбранный в фильтре этап (NULL = весь турнир)
-    const stage_id = stageFilter === 'all' ? null : stageFilter
-    await api.tournament.createPackage(eventId, { title: title.trim(), sort_order: packages.length, stage_id })
+    // новый пакет наследует выбранный этап
+    await api.tournament.createPackage(eventId, { title: title.trim(), sort_order: packages.length, stage_id: stageFilter })
     load()
   }
 
@@ -66,7 +71,7 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   // Этап — на уровне ПАКЕТА (как в БД). Показываем пакеты выбранного этапа
   // + общие (stage_id=null, «весь турнир»). Критерии внутри пакета не фильтруем.
   const visiblePackages = packages.filter(
-    (p: any) => stageFilter === 'all' || p.stage_id === stageFilter || p.stage_id == null
+    (p: any) => p.stage_id === stageFilter || p.stage_id == null
   )
 
   return (
@@ -77,12 +82,11 @@ function CriteriaSub({ eventId }: { eventId: number }) {
       {stages.length > 0 && (
         <div className="flex items-center gap-2 text-sm">
           <span className="text-gray-500">Этап:</span>
-          <select className="border rounded-lg px-2 py-1.5" value={stageFilter}
-            onChange={(e) => setStageFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
-            <option value="all">Все этапы</option>
+          <select className="border rounded-lg px-2 py-1.5" value={stageFilter ?? ''}
+            onChange={(e) => setStageFilter(e.target.value ? Number(e.target.value) : null)}>
             {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
           </select>
-          <span className="text-xs text-gray-400">— показаны критерии выбранного этапа (и общие «весь турнир»)</span>
+          <span className="text-xs text-gray-400">— пакеты выбранного этапа (и общие «весь турнир»)</span>
         </div>
       )}
       {visiblePackages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} defaultStage={stageFilter === 'all' ? null : stageFilter} onChange={load} />)}
@@ -191,6 +195,12 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [pairs, setPairs] = useState<Set<string>>(new Set())
+  const [autoOpen, setAutoOpen] = useState(false)
+  const [autoSpeakers, setAutoSpeakers] = useState(false)
+  const [autoParticipants, setAutoParticipants] = useState(true)
+  const [perJuror, setPerJuror] = useState<string>('')
+  const [suggest, setSuggest] = useState<any>(null)
+  const [autoBusy, setAutoBusy] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -201,13 +211,63 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
   }, [eventId])
   useEffect(() => { load() }, [load])
 
-  const toggle = async (juror: number, key: string) => {
+  // конфликт: данное жюри привело этого участника (referrer_ref_code = ref_code жюри)
+  const isConflict = (s: any, juror: number) =>
+    Array.isArray(s.referrer_juror_ec_ids) && s.referrer_juror_ec_ids.includes(juror)
+
+  const toggle = async (s: any, juror: number) => {
+    const key = s.key
     const k = `${juror}|${key}`
     const assigned = !pairs.has(k)
+    // Предупреждение только при НАЗНАЧЕНИИ жюри, которое ПРИВЕЛО этого участника.
+    if (assigned && isConflict(s, juror)) {
+      const jname = data.jurors.find((j: any) => j.juror_ec_id === juror)?.name || 'это жюри'
+      const ok = confirm(
+        `⚠️ Конфликт интересов\n\n«${jname}» привёл участника «${s.name}» по своей реф-ссылке.\n\n` +
+        `Если жюри оценивает того, кого само привело — это может повлиять на объективность.\n\nВсё равно назначить?`
+      )
+      if (!ok) return
+    }
     const next = new Set(pairs); assigned ? next.add(k) : next.delete(k); setPairs(next)
     await api.tournament.setAssignment(eventId, { juror_ec_id: juror, key, assigned })
   }
   const allAll = async (clear: boolean) => { await api.tournament.setAllAssignments(eventId, clear); load() }
+
+  // открыть модалку автораспределения + подтянуть рекомендацию
+  const openAuto = async () => {
+    setAutoOpen(true); setSuggest(null)
+    try {
+      const s = await api.tournament.autoAssignSuggest(eventId, autoSpeakers, autoParticipants)
+      setSuggest(s); if (!perJuror) setPerJuror(String(s.recommended_per_juror || ''))
+    } catch {}
+  }
+  // пересчитать рекомендацию при смене типов
+  const refreshSuggest = async (sp: boolean, pa: boolean) => {
+    try {
+      const s = await api.tournament.autoAssignSuggest(eventId, sp, pa)
+      setSuggest(s); setPerJuror(String(s.recommended_per_juror || ''))
+    } catch {}
+  }
+  const runAuto = async () => {
+    if (!autoSpeakers && !autoParticipants) { alert('Выберите хотя бы один тип: спикеры или участники.'); return }
+    const n = perJuror ? Number(perJuror) : null
+    const msg = n
+      ? `Распределить по ${n} ${n === 1 ? 'участнику' : 'участников'} на каждое жюри? Текущее распределение для выбранных типов будет заменено.`
+      : 'Распределить автоматически (по рекомендации)? Текущее распределение для выбранных типов будет заменено.'
+    if (!confirm(msg)) return
+    setAutoBusy(true)
+    try {
+      const r: any = await api.tournament.autoAssign(eventId, {
+        include_speakers: autoSpeakers, include_participants: autoParticipants,
+        per_juror: n,
+      })
+      setAutoOpen(false)
+      await load()
+      alert(`Готово. По ${r.per_juror} на жюри · назначено пар: ${r.assigned_pairs} · участников: ${r.subjects_count} · жюри: ${r.jurors_count}.`)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось распределить.')
+    } finally { setAutoBusy(false) }
+  }
 
   if (loading) return <Spinner />
   if (!data?.jurors?.length) return <p className="text-sm text-gray-500">Нет жюри. Добавьте коллабораторов с ролью «Жюри» на вкладке «Спикеры».</p>
@@ -216,30 +276,71 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
   const speakers = data.subjects.filter((s: any) => s.is_speaker)
   const participants = data.subjects.filter((s: any) => !s.is_speaker)
 
+  // счётчик жюри у участника: всего / не-конфликтные / конфликтные (привели)
+  const counts = (s: any) => {
+    let total = 0, conflict = 0
+    for (const j of data.jurors) {
+      if (pairs.has(`${j.juror_ec_id}|${s.key}`)) {
+        total++
+        if (isConflict(s, j.juror_ec_id)) conflict++
+      }
+    }
+    return { total, normal: total - conflict, conflict }
+  }
+
   const rowGroup = (title: string, list: any[]) => list.length > 0 && (
     <>
-      <tr><td colSpan={data.jurors.length + 1} className="px-3 py-1.5 text-xs font-semibold text-gray-400 bg-gray-50 uppercase">{title}</td></tr>
-      {list.map((s: any) => (
+      <tr><td colSpan={data.jurors.length + 2} className="px-3 py-1.5 text-xs font-semibold text-[#25455D] bg-[#FFCFA4] uppercase">{title}</td></tr>
+      {list.map((s: any) => {
+        const c = counts(s)
+        return (
         <tr key={s.key} className="border-t">
-          <td className="px-3 py-2 sticky left-0 bg-white whitespace-nowrap">{s.name}</td>
-          {data.jurors.map((j: any) => (
-            <td key={j.juror_ec_id} className="text-center px-3 py-2">
-              <input type="checkbox" checked={pairs.has(`${j.juror_ec_id}|${s.key}`)} onChange={() => toggle(j.juror_ec_id, s.key)} />
-            </td>
-          ))}
+          <td className="px-3 py-2 sticky left-0 bg-white whitespace-nowrap">
+            {s.name}
+            {s.referrer_name && (
+              <span className={`ml-1 text-xs ${s.referrer_juror_ec_ids?.length ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
+                (привёл: {s.referrer_name})
+              </span>
+            )}
+          </td>
+          {/* счётчик жюри: всего / не-конфликт / конфликт */}
+          <td className="px-3 py-2 text-center whitespace-nowrap tabular-nums font-semibold">
+            <span className="text-[#229ED9]" title="Всего жюри назначено">{c.total}</span>
+            <span className="text-gray-300 mx-0.5">/</span>
+            <span className="text-emerald-600" title="Без конфликта">{c.normal}</span>
+            <span className="text-gray-300 mx-0.5">/</span>
+            <span className="text-red-500" title="Привели этого участника (конфликт)">{c.conflict}</span>
+          </td>
+          {data.jurors.map((j: any) => {
+            const checked = pairs.has(`${j.juror_ec_id}|${s.key}`)
+            const conflict = isConflict(s, j.juror_ec_id)
+            return (
+              <td key={j.juror_ec_id} className={`text-center px-3 py-2 ${checked && conflict ? 'bg-red-50' : ''}`}>
+                <input type="checkbox" className={conflict ? 'accent-red-500' : ''}
+                  checked={checked} onChange={() => toggle(s, j.juror_ec_id)} />
+              </td>
+            )
+          })}
         </tr>
-      ))}
+        )
+      })}
     </>
   )
 
   return (
     <div>
       <p className="text-sm text-gray-500 mb-3">Отметьте, кого оценивает каждое жюри. Жюри видит в кабинете только привязанных к нему.</p>
+      <p className="text-xs text-gray-400 mb-3">
+        Счётчик у участника: <span className="text-[#229ED9] font-semibold">всего</span> /
+        <span className="text-emerald-600 font-semibold"> без конфликта</span> /
+        <span className="text-red-500 font-semibold"> привели его</span>. Красная цифра — жюри, которое само привело участника по реф-ссылке.
+      </p>
       <div className="overflow-x-auto border rounded-xl">
         <table className="text-sm">
           <thead>
             <tr className="bg-gray-50">
               <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-10">Участник</th>
+              <th className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap text-center">Жюри</th>
               {data.jurors.map((j: any) => <th key={j.juror_ec_id} className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap">{j.name}</th>)}
             </tr>
           </thead>
@@ -249,10 +350,53 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
           </tbody>
         </table>
       </div>
-      <div className="flex gap-2 mt-3">
+      <div className="flex flex-wrap gap-2 mt-3">
+        <button onClick={openAuto} className="px-3 py-1.5 rounded-lg text-sm bg-[#FFCFA4] text-[#25455D] font-medium">✨ Автораспределение</button>
         <button onClick={() => allAll(false)} className="px-3 py-1.5 rounded-lg text-sm bg-[#25455D] text-[#FFCFA4]">Назначить всех всем</button>
         <button onClick={() => allAll(true)} className="px-3 py-1.5 rounded-lg text-sm border text-gray-600">Очистить</button>
       </div>
+
+      {autoOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !autoBusy && setAutoOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold text-[#25455D] mb-1">Автораспределение по жюри</h3>
+            <p className="text-xs text-gray-500 mb-4">Система раскидает выбранных участников по жюри равномерно, стараясь не назначать жюри тех, кого оно само привело.</p>
+
+            <div className="space-y-2 mb-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={autoParticipants} onChange={(e) => { setAutoParticipants(e.target.checked); refreshSuggest(autoSpeakers, e.target.checked) }} />
+                Участники
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={autoSpeakers} onChange={(e) => { setAutoSpeakers(e.target.checked); refreshSuggest(e.target.checked, autoParticipants) }} />
+                Спикеры
+              </label>
+            </div>
+
+            {suggest && (
+              <div className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3 mb-3">
+                Участников к распределению: <b>{suggest.subjects_count}</b> · жюри: <b>{suggest.jurors_count}</b>.<br />
+                {suggest.jurors_count > 0 && suggest.subjects_count > suggest.jurors_count
+                  ? <>Участников больше, чем жюри. Рекомендуем минимум <b>{suggest.recommended_per_juror}</b> на каждое жюри (чтобы каждого оценило ~{suggest.recommended_views_per_subject} жюри).</>
+                  : <>Рекомендуем <b>{suggest.recommended_per_juror}</b> на каждое жюри.</>}
+              </div>
+            )}
+
+            <label className="block text-sm mb-1 text-gray-600">Участников на 1 жюри</label>
+            <input type="number" min={1} value={perJuror} onChange={(e) => setPerJuror(e.target.value)}
+              placeholder={suggest ? String(suggest.recommended_per_juror) : 'авто'}
+              className="w-full border rounded-lg px-3 py-2 text-sm mb-1" />
+            <p className="text-xs text-gray-400 mb-4">Пусто — система сама подберёт по рекомендации.</p>
+
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setAutoOpen(false)} disabled={autoBusy} className="px-3 py-1.5 rounded-lg text-sm border text-gray-600 disabled:opacity-50">Отмена</button>
+              <button onClick={runAuto} disabled={autoBusy} className="px-4 py-1.5 rounded-lg text-sm bg-[#25455D] text-[#FFCFA4] disabled:opacity-50">
+                {autoBusy ? 'Распределяю…' : 'Распределить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -317,7 +461,9 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
   }
   const setManual = async (criterionId: number, key: string, value: string) => {
     if (value === '') return
-    await api.tournament.manualScore(eventId, { criterion_id: criterionId, key, value: Number(value) })
+    const num = Number(value)
+    if (isNaN(num) || num < 0) { alert('Балл не может быть отрицательным.'); load(); return }
+    await api.tournament.manualScore(eventId, { criterion_id: criterionId, key, value: num })
     load()
   }
 
@@ -402,7 +548,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                       return (
                         <td key={c.criterion_id} className={`px-2 py-2 text-center ${i===0?'border-l':''}`}>
                           {editable ? (
-                            <input type="number" className="w-16 border rounded px-1 py-0.5 text-sm text-center" defaultValue={val ?? ''}
+                            <input type="number" min={0} className="w-16 border rounded px-1 py-0.5 text-sm text-center" defaultValue={val ?? ''}
                               onBlur={(e) => setManual(c.criterion_id, row.key, e.target.value)} />
                           ) : (val == null ? <span className="text-gray-300">—</span> : val)}
                         </td>

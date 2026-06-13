@@ -689,6 +689,10 @@ export const api = {
       request(`/api/v1/events/${eventId}/tournament/assignments`, { method: 'POST', body: JSON.stringify(data) }),
     setAllAssignments: (eventId: number, clear: boolean) =>
       request(`/api/v1/events/${eventId}/tournament/assignments/all?clear=${clear}`, { method: 'POST' }),
+    autoAssignSuggest: (eventId: number, includeSpeakers: boolean, includeParticipants: boolean) =>
+      request(`/api/v1/events/${eventId}/tournament/assignments/auto-suggest?include_speakers=${includeSpeakers}&include_participants=${includeParticipants}`),
+    autoAssign: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tournament/assignments/auto`, { method: 'POST', body: JSON.stringify(data) }),
     leaderboard: (eventId: number, stageId?: number | null) =>
       request(`/api/v1/events/${eventId}/tournament/leaderboard${stageId ? `?stage_id=${stageId}` : ''}`),
     manualScore: (eventId: number, data: any) =>
