@@ -116,6 +116,7 @@ interface PlatformStat {
   landed: number
   registered: number
   attended: number
+  in_chat?: number
 }
 
 interface Stats {
@@ -181,6 +182,7 @@ function StatsBlock({
               <th className="font-medium pb-2 px-2 text-center">Зашло</th>
               <th className="font-medium pb-2 px-2 text-center">Зарегано</th>
               <th className="font-medium pb-2 px-2 text-center">{clickLabel}</th>
+              <th className="font-medium pb-2 px-2 text-center">В чате</th>
               <th className="font-medium pb-2 pl-3 text-center">Конверсия</th>
             </tr>
           </thead>
@@ -197,6 +199,11 @@ function StatsBlock({
                   <NumCell platform={r.key} stage="landed" value={r.s.landed} />
                   <NumCell platform={r.key} stage="registered" value={r.s.registered} />
                   <NumCell platform={r.key} stage="attended" value={r.s.attended} />
+                  <td className="py-1.5 px-2 text-center">
+                    <span className="inline-block min-w-[44px] py-1.5 px-2 text-sm tabular-nums font-semibold text-gray-900">
+                      {r.s.in_chat ?? 0}
+                    </span>
+                  </td>
                   <td className="py-1.5 pl-3 text-center">
                     <span
                       className="inline-block px-2 py-0.5 rounded-md text-xs font-bold"
@@ -213,6 +220,7 @@ function StatsBlock({
       </div>
       <p className="text-xs text-gray-400 mt-3">
         Зашло — открыли событие. Зарегано — завершили регистрацию. {clickLabel} — дошли до эфира/действия.
+        В чате — состоят в Telegram-чате события (обновляется по кнопке «Проверить чаты»).
         Конверсия = зарегано ÷ зашло. Один человек попадает в строку каждой своей площадки, поэтому сумма по площадкам может быть больше «Всего».
       </p>
     </div>

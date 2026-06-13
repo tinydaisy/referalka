@@ -182,22 +182,24 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str, db: a
 # ───────────────────────── расчёт leaderboard ─────────────────────────
 
 async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connection) -> dict:
-    pkgs = [dict(p) for p in await db.fetch(
-        "SELECT * FROM tournament_packages WHERE event_id=$1 AND is_active ORDER BY sort_order, id", event_id)]
+    # Этап живёт на уровне ПАКЕТА (tournament_packages.stage_id):
+    #   • выбран конкретный этап → пакеты этого этапа + общие (stage_id IS NULL);
+    #   • stage_id is None («весь турнир») → все пакеты.
+    if stage_id is None:
+        pkgs = [dict(p) for p in await db.fetch(
+            "SELECT * FROM tournament_packages WHERE event_id=$1 AND is_active ORDER BY sort_order, id", event_id)]
+    else:
+        pkgs = [dict(p) for p in await db.fetch(
+            "SELECT * FROM tournament_packages WHERE event_id=$1 AND is_active AND (stage_id=$2 OR stage_id IS NULL) ORDER BY sort_order, id",
+            event_id, stage_id)]
     pkg_ids = [p["id"] for p in pkgs]
 
     crits = []
     if pkg_ids:
-        if stage_id is None:
-            crit_rows = await db.fetch(
-                "SELECT * FROM tournament_criteria WHERE package_id = ANY($1::bigint[]) AND is_active ORDER BY sort_order, id", pkg_ids)
-        else:
-            # критерии этого этапа + общие (stage_id IS NULL)
-            crit_rows = await db.fetch(
-                "SELECT * FROM tournament_criteria WHERE package_id = ANY($1::bigint[]) AND is_active AND (stage_id=$2 OR stage_id IS NULL) ORDER BY sort_order, id",
-                pkg_ids, stage_id)
+        crit_rows = await db.fetch(
+            "SELECT * FROM tournament_criteria WHERE package_id = ANY($1::bigint[]) AND is_active ORDER BY sort_order, id", pkg_ids)
         crits = [dict(c) for c in crit_rows]
-    # пакеты, у которых есть критерии на этом этапе
+    # пакеты, у которых есть хотя бы один критерий
     used_pkg_ids = {c["package_id"] for c in crits}
     pkgs = [p for p in pkgs if p["id"] in used_pkg_ids]
     crits_by_pkg = {}
@@ -337,6 +339,7 @@ class PackageIn(BaseModel):
     weight: float = 1
     normalize: bool = False
     sort_order: int = 0
+    stage_id: Optional[int] = None  # этап пакета (NULL = весь турнир)
 
 
 @router.post("/packages", summary="Создать пакет")
@@ -345,9 +348,9 @@ async def create_package(event_id: int, data: PackageIn, client=Depends(get_curr
     if not data.title.strip():
         raise HTTPException(status_code=422, detail="Название пакета обязательно")
     p = await db.fetchrow(
-        """INSERT INTO tournament_packages (event_id, title, weight, normalize, sort_order)
-           VALUES ($1,$2,$3,$4,$5) RETURNING *""",
-        event_id, data.title.strip(), data.weight, data.normalize, data.sort_order)
+        """INSERT INTO tournament_packages (event_id, title, weight, normalize, sort_order, stage_id)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
+        event_id, data.title.strip(), data.weight, data.normalize, data.sort_order, data.stage_id)
     return {"package": dict(p)}
 
 
@@ -356,6 +359,7 @@ class PackageUpdate(BaseModel):
     weight: Optional[float] = None
     normalize: Optional[bool] = None
     sort_order: Optional[int] = None
+    stage_id: Optional[int] = None
 
 
 @router.patch("/packages/{package_id}", summary="Обновить пакет")
@@ -652,18 +656,18 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
     all_subjects = await _subjects(event_id, db)
     subjects = [s for s in all_subjects if s["key"] in assigned_keys]
 
-    # jury-критерии (по этапу)
-    pkgs = await db.fetch("SELECT id FROM tournament_packages WHERE event_id=$1 AND is_active", event_id)
+    # jury-критерии: пакеты выбранного этапа (+ общие stage_id IS NULL), затем их jury-критерии
+    if stage_id is None:
+        pkgs = await db.fetch("SELECT id FROM tournament_packages WHERE event_id=$1 AND is_active", event_id)
+    else:
+        pkgs = await db.fetch(
+            "SELECT id FROM tournament_packages WHERE event_id=$1 AND is_active AND (stage_id=$2 OR stage_id IS NULL)",
+            event_id, stage_id)
     pkg_ids = [p["id"] for p in pkgs]
     jcrits = []
     if pkg_ids:
-        if stage_id is None:
-            jcrits = await db.fetch(
-                "SELECT id, title, description, scale_max FROM tournament_criteria WHERE package_id=ANY($1::bigint[]) AND is_active AND scorer='jury' ORDER BY sort_order, id", pkg_ids)
-        else:
-            jcrits = await db.fetch(
-                "SELECT id, title, description, scale_max FROM tournament_criteria WHERE package_id=ANY($1::bigint[]) AND is_active AND scorer='jury' AND (stage_id=$2 OR stage_id IS NULL) ORDER BY sort_order, id",
-                pkg_ids, stage_id)
+        jcrits = await db.fetch(
+            "SELECT id, title, description, scale_max FROM tournament_criteria WHERE package_id=ANY($1::bigint[]) AND is_active AND scorer='jury' ORDER BY sort_order, id", pkg_ids)
 
     my_scores = await db.fetch(
         "SELECT criterion_id, subject_kind, subject_id, value_number FROM tournament_scores WHERE event_id=$1 AND juror_ec_id=$2",

@@ -55,21 +55,24 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   const addPackage = async () => {
     const title = prompt('Название пакета (например «Оценка жюри», «Вовлечение»):')
     if (!title?.trim()) return
-    await api.tournament.createPackage(eventId, { title: title.trim(), sort_order: packages.length })
+    // новый пакет наследует выбранный в фильтре этап (NULL = весь турнир)
+    const stage_id = stageFilter === 'all' ? null : stageFilter
+    await api.tournament.createPackage(eventId, { title: title.trim(), sort_order: packages.length, stage_id })
     load()
   }
 
   if (loading) return <Spinner />
 
-  // фильтр критериев по выбранному этапу (общие критерии stage_id=null показываем всегда)
-  const matchStage = (c: any) => stageFilter === 'all' || c.stage_id === stageFilter || c.stage_id == null
-  const visiblePackages = packages
-    .map(p => ({ ...p, criteria: (p.criteria || []).filter(matchStage) }))
+  // Этап — на уровне ПАКЕТА (как в БД). Показываем пакеты выбранного этапа
+  // + общие (stage_id=null, «весь турнир»). Критерии внутри пакета не фильтруем.
+  const visiblePackages = packages.filter(
+    (p: any) => stageFilter === 'all' || p.stage_id === stageFilter || p.stage_id == null
+  )
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">
-        Пакет — смысловая группа критериев со своим весом. У каждого критерия выбираете, кто ставит балл и к какому этапу он относится.
+        Пакет — смысловая группа критериев со своим весом. Этап выбирается у пакета: пакет считается на своём этапе («Весь турнир» — на каждом). У критерия выбираете, кто ставит балл.
       </p>
       {stages.length > 0 && (
         <div className="flex items-center gap-2 text-sm">
@@ -102,7 +105,8 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
   const addCrit = async () => {
     const title = prompt('Название критерия:')
     if (!title?.trim()) return
-    await api.tournament.createCriterion(eventId, { package_id: pkg.id, title: title.trim(), scorer: 'jury', stage_id: defaultStage ?? null, scale_max: 10, weight: 1, sort_order: (pkg.criteria?.length || 0) })
+    // этап у пакета — критерий привязки к этапу не имеет
+    await api.tournament.createCriterion(eventId, { package_id: pkg.id, title: title.trim(), scorer: 'jury', scale_max: 10, weight: 1, sort_order: (pkg.criteria?.length || 0) })
     onChange()
   }
 
@@ -123,6 +127,14 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
           <input type="checkbox" checked={normalize} onChange={(e) => { setNormalize(e.target.checked); savePkg({ normalize: e.target.checked }) }} />
           нормализовать (?)
         </label>
+        {stages.length > 0 && (
+          <label className="text-xs text-gray-500 flex items-center gap-1" title="Этап, к которому относится весь пакет. «Весь турнир» — пакет считается на каждом этапе.">этап
+            <select className="text-xs border rounded px-1.5 py-1" value={pkg.stage_id ?? ''} onChange={(e) => savePkg({ stage_id: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">Весь турнир</option>
+              {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
+            </select>
+          </label>
+        )}
         <button onClick={delPkg} className="ml-auto text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
       </div>
       <div className="space-y-2">
@@ -158,10 +170,6 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
           <option value="lead_magnet">Пришло в лид-магнит</option>
         </select>
       )}
-      <select className="text-xs border rounded px-1.5 py-1" value={crit.stage_id ?? ''} onChange={(e) => save({ stage_id: e.target.value ? Number(e.target.value) : null })} title="Этап, к которому относится критерий">
-        <option value="">Весь турнир</option>
-        {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
-      </select>
       {crit.scorer === 'jury' && (
         <label className="text-xs text-gray-400 flex items-center gap-1">макс
           <input type="number" className="w-12 border rounded px-1 py-0.5 text-xs" defaultValue={crit.scale_max}

@@ -894,7 +894,8 @@ async def event_participants(
         """SELECT p.slug AS platform,
                   COUNT(DISTINCT ep.id) AS landed,
                   COUNT(DISTINCT ep.id) FILTER (WHERE ep.is_registered) AS registered,
-                  COUNT(DISTINCT ep.id) FILTER (WHERE ep.link_clicked_at IS NOT NULL) AS attended
+                  COUNT(DISTINCT ep.id) FILTER (WHERE ep.link_clicked_at IS NOT NULL) AS attended,
+                  COUNT(DISTINCT ep.id) FILTER (WHERE ep.is_in_chat) AS in_chat
              FROM event_participants ep
              JOIN platform_users pu ON pu.contact_id = ep.contact_id
              JOIN platforms p ON p.slug = pu.platform_slug
@@ -910,7 +911,8 @@ async def event_participants(
         """SELECT
              COUNT(*) AS landed,
              COUNT(*) FILTER (WHERE is_registered) AS registered,
-             COUNT(*) FILTER (WHERE link_clicked_at IS NOT NULL) AS attended
+             COUNT(*) FILTER (WHERE link_clicked_at IS NOT NULL) AS attended,
+             COUNT(*) FILTER (WHERE is_in_chat) AS in_chat
            FROM event_participants WHERE event_id = $1""",
         event_id
     )
