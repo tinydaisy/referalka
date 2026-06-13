@@ -216,7 +216,7 @@ async def update_nurture_step(
 ):
     # Проверяем принадлежность через event_id шага
     row = await db.fetchrow(
-        """SELECT s.event_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+        """SELECT s.event_id, e.client_id
              FROM event_nurture_steps s
              JOIN events e ON e.id = s.event_id
             WHERE s.id = $1""",
@@ -254,7 +254,7 @@ async def delete_nurture_step(
     db=Depends(get_db),
 ):
     row = await db.fetchrow(
-        """SELECT s.event_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+        """SELECT s.event_id, e.client_id
              FROM event_nurture_steps s
              JOIN events e ON e.id = s.event_id
             WHERE s.id = $1""",

@@ -897,7 +897,7 @@ async def collaborator_invite_message(
              FROM collaborators c
              JOIN event_collaborators ec ON ec.speaker_id = c.id
              JOIN events e ON e.id = ec.event_id
-            WHERE c.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
+            WHERE c.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
         collaborator_id, event_id, client_id
     )
     if not row:

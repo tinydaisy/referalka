@@ -252,7 +252,7 @@ async def get_my_raffle(slug: str, tg_id: int):
 
     async with pool.acquire() as conn:
         ev = await conn.fetchrow(
-            "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1",
+            "SELECT id, client_id FROM events WHERE slug = $1",
             slug,
         )
         if not ev:

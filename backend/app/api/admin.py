@@ -94,7 +94,7 @@ async def list_clients(
             WHERE tf.tariff_id = cs.tariff_id
               AND cs.status = 'active'
               AND cs.expires_at > NOW()) AS features,
-          (SELECT COUNT(*) FROM events e WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=c.id AND eo.status='accepted')) AS events_count,
+          (SELECT COUNT(*) FROM events e WHERE e.client_id = c.id) AS events_count,
           (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id AND ct.is_active = TRUE) AS contacts_count,
           (SELECT COUNT(*) FROM client_channels cc
             JOIN channels ch ON ch.id = cc.channel_id
@@ -131,7 +131,7 @@ async def get_client(
         """
         SELECT c.*, COUNT(DISTINCT e.id) as events_count
         FROM clients c
-        LEFT JOIN events e ON EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=c.id AND eo.status='accepted')
+        LEFT JOIN events e ON e.client_id = c.id
         WHERE c.id = $1
         GROUP BY c.id
         """,

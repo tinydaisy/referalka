@@ -92,7 +92,7 @@ async def _send_broadcast(schedule_id: int):
     try:
         schedule = await conn.fetchrow(
             """
-            SELECT bs.*, COALESCE((SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1), bs.client_id) AS client_id,
+            SELECT bs.*, COALESCE(e.client_id, bs.client_id) AS client_id,
                    COALESCE(bs.audience_include, 'all_event') as audience_include,
                    COALESCE(bs.audience_exclude, 'none') as audience_exclude
             FROM broadcast_schedules bs

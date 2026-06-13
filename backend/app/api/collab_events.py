@@ -49,6 +49,9 @@ async def create_request(data: CollabRequestIn, client=Depends(get_current_clien
             "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'",
             data.event_id, me)
         if not owns:
+            # fallback на старое поле events.client_id
+            owns = await db.fetchval("SELECT 1 FROM events WHERE id=$1 AND client_id=$2", data.event_id, me)
+        if not owns:
             raise HTTPException(403, "Это не ваше событие")
     # не плодим дубль pending к тому же человеку по тому же событию
     dup = await db.fetchval(
@@ -165,7 +168,9 @@ async def event_owners(event_id: int, client=Depends(get_current_client), db: as
     """Организаторы события (статусы серый/зелёный). Видит любой из владельцев."""
     me = int(client["sub"])
     iam = await db.fetchval(
-        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'", event_id, me)
+        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2", event_id, me)
+    if not iam:
+        iam = await db.fetchval("SELECT 1 FROM events WHERE id=$1 AND client_id=$2", event_id, me)
     if not iam:
         raise HTTPException(403, "Вы не организатор этого события")
     rows = await db.fetch(

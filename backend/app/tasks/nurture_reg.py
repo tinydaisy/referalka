@@ -323,7 +323,7 @@ async def _tick():
     try:
         rows = await db.fetch(
             """SELECT r.id, r.event_id, r.contact_id, r.started_at, r.last_step_index,
-                      e.title AS event_title, e.slug, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.status, e.start_at, e.end_at
+                      e.title AS event_title, e.slug, e.client_id, e.status, e.start_at, e.end_at
                  FROM event_nurture_reg_runs r
                  JOIN events e ON e.id = r.event_id
                 WHERE r.finished_at IS NULL"""

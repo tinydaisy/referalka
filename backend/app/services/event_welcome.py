@@ -267,7 +267,7 @@ async def send_event_open_message(
             ev = await conn.fetchrow(
                 """
                 SELECT e.id, e.slug, e.title, e.module_slug, e.status,
-                       (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
+                       e.client_id,
                        CASE WHEN e.module_slug IN ('conference','turnir') THEN
                          (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
                                   AT TIME ZONE 'Europe/Moscow'
@@ -438,7 +438,7 @@ async def send_event_open_message(
                              ELSE e.end_at
                            END AS effective_end_at
                       FROM events e
-                     WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted')
+                     WHERE e.client_id = $1
                        AND e.status = 'published'
                        AND e.id <> $2
                 ) t

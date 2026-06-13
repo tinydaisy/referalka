@@ -12,9 +12,12 @@ import asyncpg
 
 
 async def is_event_owner(db: asyncpg.Connection, event_id: int, client_id: int) -> bool:
-    """True если клиент — владелец события (есть accepted-запись в event_owners)."""
+    """True если клиент — владелец события (старое client_id ИЛИ accepted co_owner)."""
     row = await db.fetchval(
-        "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted' LIMIT 1",
+        """SELECT 1 FROM events WHERE id=$1 AND client_id=$2
+            UNION
+           SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'
+           LIMIT 1""",
         event_id, client_id
     )
     return bool(row)
@@ -31,6 +34,8 @@ async def assert_event_owner(db: asyncpg.Connection, event_id: int, client_id: i
 # Использование: f"WHERE e.id IN ({OWNED_EVENT_IDS_SQL})" с параметром client_id.
 def owned_event_ids_sql(client_param: str = "$1") -> str:
     return (
+        f"SELECT id FROM events WHERE client_id={client_param} "
+        f"UNION "
         f"SELECT event_id FROM event_owners WHERE client_id={client_param} AND status='accepted'"
     )
 

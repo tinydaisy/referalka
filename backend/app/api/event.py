@@ -103,7 +103,7 @@ async def share_to_bot(body: ShareToBotRequest):
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1",
+            "SELECT id, client_id FROM events WHERE slug = $1 LIMIT 1",
             body.event_slug,
         )
     if not row:
@@ -236,7 +236,7 @@ async def mark_link_click(body: LinkClickRequest):
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1",
+            "SELECT id, client_id FROM events WHERE slug = $1 LIMIT 1",
             body.event_slug,
         )
         if not row:
