@@ -54,6 +54,39 @@ def normalize_landing_flags(raw) -> list[str]:
     return out
 
 
+def parse_landing_flag_pairs(raw) -> list[tuple[str, str | None]]:
+    """Разбирает флаги в пары (key, value|None) с сохранением значения.
+
+    Каждый флаг приходит РОВНО как задан клиентом в ссылке:
+      • `shwt`     → ("shwt", None)   → на лендинге голый `?shwt`
+      • `shwt=1`   → ("shwt", "1")    → на лендинге `?shwt=1`
+      • `vip=gold` → ("vip", "gold")  → на лендинге `?vip=gold`
+    Валидируется только ключ (алфавит `[a-z0-9-]`, длина 1..16, до 5 шт).
+    Значение оставляем как есть (отрезаем только пробелы).
+    """
+    if not raw:
+        return []
+    items = raw.split(",") if isinstance(raw, str) else list(raw)
+    out: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    for s in items:
+        raw_item = (s or "").strip()
+        if not raw_item:
+            continue
+        if "=" in raw_item:
+            key, val = raw_item.split("=", 1)
+            key = key.strip().lower()
+            val = val.strip()
+        else:
+            key, val = raw_item.lower(), None
+        if key and _LANDING_FLAG_RE.match(key) and key not in seen:
+            seen.add(key)
+            out.append((key, val if val else None))
+        if len(out) >= _LANDING_FLAGS_MAX:
+            break
+    return out
+
+
 async def resolve_external_ref_param(
     db: asyncpg.Connection,
     client_id: int,
@@ -264,14 +297,23 @@ def enrich_external_url(
     if extra:
         for k, v in extra.items():
             _put(k, v)
-    if flags:
-        for k in normalize_landing_flags(flags):
-            qs.setdefault(k, "1")  # не перетираем, если клиент уже передал key через extra
+
+    # Флаги-маркеры тарифа: добавляются РОВНО как задал клиент в ссылке.
+    # `shwt` → голый `?shwt`; `shwt=1` → `?shwt=1`. Голые флаги нельзя выразить
+    # через urlencode (он всегда делает key=value), поэтому собираем их отдельно.
+    flag_tokens: list[str] = []
+    for key, val in parse_landing_flag_pairs(flags):
+        if key in qs:
+            continue  # не перетираем, если клиент уже передал key через extra
+        flag_tokens.append(key if val is None else f"{key}={val}")
 
     sep = "&" if "?" in url else "?"
     out_url = url
     if qs:
         out_url = url + sep + urlencode(qs)
+        sep = "&"
+    for tok in flag_tokens:
+        out_url += sep + tok
         sep = "&"
     if external_ref_param:
         out_url += sep + external_ref_param.lstrip("?&")

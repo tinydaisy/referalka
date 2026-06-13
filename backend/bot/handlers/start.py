@@ -866,6 +866,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     pid: str | None = None
     utm_source: str | None = None
     known_contact_id: int | None = None  # `_ct<N>` — сквозной contact_id против дублей
+    landing_flags: list[str] = []  # `_q<key>` — произвольные маркеры тарифа для лендинга
     for chunk in parts[1:]:
         if chunk == "land":
             want_landing = True
@@ -878,6 +879,10 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         elif chunk.startswith("ct"):
             ct_raw = chunk[2:]
             known_contact_id = int(ct_raw) if ct_raw.isdigit() else None
+        elif chunk.startswith("q") and len(chunk) > 1:
+            # произвольный флаг `_q<key>` или `_q<key>=<value>` — на лендинг
+            # уходит РОВНО как задан: `shwt` (голый) или `shwt=1` (со значением).
+            landing_flags.append(chunk[1:])
 
     # username бота (для t.me-ссылки на Mini App). Системный @pluson_bot открывает
     # Mini App по short-name `/pluson`, VIP-бот — напрямую `t.me/{handle}?startapp=`.
@@ -900,6 +905,8 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
         sa_parts.append(f"src{utm_source}")
     if no_landing:
         sa_parts.append("nolend")
+    for fk in landing_flags:
+        sa_parts.append(f"q{fk}")
     startapp = "_".join(sa_parts)
     app_part = f"/{PLUSON_TG_APP}" if bot_username == PLUSON_TG_HANDLE else ""
     mini_app_link = f"https://t.me/{bot_username}{app_part}?startapp={startapp}"
@@ -960,7 +967,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             _pid_part, contact_id = await resolve_or_create_participant(
                 db, client_id=ev["client_id"], event_id=ev["id"],
                 platform_slug="telegram", platform_user_id=str(user.id),
-                known_contact_id=known_contact_id,
+                known_contact_id=known_contact_id, partner_id=pid,
             )
 
         # ── Зарегистрированный участник → меню кабинета ───────────────────────
@@ -1002,6 +1009,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
                 pid=pid,
                 utm_source=utm_source,
                 external_ref_param=erp,
+                flags=landing_flags,
                 **contact_params,
             )
             web_url = landing_target
