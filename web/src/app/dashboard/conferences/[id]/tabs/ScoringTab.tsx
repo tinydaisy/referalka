@@ -80,16 +80,22 @@ function CriteriaSub({ eventId }: { eventId: number }) {
         Пакет — смысловая группа критериев со своим весом. Этап выбирается у пакета: пакет считается на своём этапе («Весь турнир» — на каждом). У критерия выбираете, кто ставит балл.
       </p>
       {stages.length > 0 && (
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-gray-500">Этап:</span>
           <select className="border rounded-lg px-2 py-1.5" value={stageFilter ?? ''}
             onChange={(e) => setStageFilter(e.target.value ? Number(e.target.value) : null)}>
             {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
           </select>
           <span className="text-xs text-gray-400">— пакеты выбранного этапа (и общие «весь турнир»)</span>
+          {stageFilter != null && (
+            <a href={`/t/${eventId}/${stageFilter}/reglament`} target="_blank" rel="noopener noreferrer"
+              className="ml-auto inline-flex items-center gap-1 text-xs text-[#25455D] underline">
+              📋 Регламент подсчёта (публичная страница)
+            </a>
+          )}
         </div>
       )}
-      {visiblePackages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} defaultStage={stageFilter === 'all' ? null : stageFilter} onChange={load} />)}
+      {visiblePackages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} defaultStage={stageFilter} onChange={load} />)}
       <button onClick={addPackage} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90">
         <Plus size={16} /> Добавить пакет
       </button>

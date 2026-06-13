@@ -2505,6 +2505,8 @@ async def public_tournament_table(slug: str, stage_id: int,
   .hero .brand {{ font-size:12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:4px; }}
   .hero h1 {{ font-size:22px; margin:0 0 4px; line-height:1.25; }}
   .hero .stage {{ font-size:14px; color:#FFCFA4; font-weight:600; }}
+  .reg-link {{ display:inline-block; margin-top:8px; font-size:13px; color:#fff;
+    text-decoration:underline; opacity:.85; }}
   .brand-logo {{ height:54px; width:auto; max-width:120px; object-fit:contain; border-radius:10px;
     background:#fff; padding:6px; flex:0 0 auto; }}
   .content {{ padding: 16px; }}
@@ -2540,6 +2542,7 @@ async def public_tournament_table(slug: str, stage_id: int,
       {brand_name_html}
       <h1>{title}</h1>
       <div class="stage">{stage_title} · турнирная таблица</div>
+      <a class="reg-link" href="/t/{slug}/{stage_id}/reglament">📋 Регламент подсчёта баллов</a>
     </div>
     {brand_logo_html}
   </div>
@@ -2564,3 +2567,200 @@ async def public_tournament_table(slug: str, stage_id: int,
 </div>
 </body>
 </html>""")
+
+
+# ════════════════ Публичный регламент подсчёта: /t/{slug}/{stage_id}/reglament ════════════════
+
+@router.get("/t/{slug}/{stage_id}/reglament", response_class=HTMLResponse, include_in_schema=False)
+async def public_tournament_reglament(slug: str, stage_id: int,
+                                      db: asyncpg.Connection = Depends(get_db)):
+    from app.api.tournament import _compute
+
+    event = await _resolve_event(db, slug)
+    if not event or (event.get("module_slug") != "turnir"):
+        raise HTTPException(status_code=404, detail="Турнир не найден")
+    event_id = event["id"]
+    stage = await db.fetchrow(
+        "SELECT id, title FROM conf_stages WHERE id=$1 AND event_id=$2", stage_id, event_id)
+    if not stage:
+        raise HTTPException(status_code=404, detail="Этап не найден")
+
+    data = await _compute(event_id, stage_id, db)
+    packages = data.get("packages") or []
+    columns = data.get("columns") or []
+    crits_by_pkg: dict = {}
+    for c in columns:
+        crits_by_pkg.setdefault(c["package_id"], []).append(c)
+
+    # бренд + реф-ссылка ПЛЮСОН (как на таблице)
+    cli = await db.fetchrow(
+        "SELECT name, brand_name, brand_logo_url, referral_code FROM clients WHERE id=$1",
+        event["client_id"]) if event.get("client_id") else None
+    brand = esc(((cli["brand_name"] if cli else None) or (cli["name"] if cli else None) or ""))
+    brand_logo = (cli["brand_logo_url"] if cli else None) or ""
+    ref_code = (cli["referral_code"] if cli else None) or ""
+    pluson_ref_url = f"https://pluson.ru/?pid={esc(ref_code)}" if ref_code else "https://pluson.ru/"
+    title = esc(event.get("title") or event.get("slug"))
+    stage_title = esc(stage["title"] or "")
+
+    _t = (event.get("title") or event.get("slug") or "•").strip()
+    fav_letter = _html.escape(_t[0].upper() if _t else "•")
+    favicon_svg = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        "<rect width='64' height='64' rx='14' fill='#25455D'/>"
+        "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
+        f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>")
+    import urllib.parse as _up
+    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+
+    SCORER_RU = {"jury": "среднее по оценкам жюри", "vote": "народное голосование",
+                 "manual": "ручной ввод организатором", "auto": "автоматически из системы"}
+    AUTO_RU = {"referrals": "число приглашённых по реф-ссылке", "lead_magnet": "число пришедших в лид-магнит"}
+
+    def fnum(v):
+        if v == int(v):
+            return str(int(v))
+        return ("%.3f" % v).rstrip("0").rstrip(".")
+
+    # ── Блоки по пакетам ──
+    pkg_blocks = ""
+    total_weight = sum(float(p["weight"]) for p in packages) or 1
+    for p in packages:
+        crits = crits_by_pkg.get(p["id"], [])
+        if not crits:
+            continue
+        w = float(p["weight"])
+        normalize = bool(p["normalize"])
+        # таблица критериев пакета
+        crit_rows = ""
+        for c in crits:
+            scorer = c.get("scorer")
+            src = SCORER_RU.get(scorer, scorer)
+            if scorer == "auto":
+                src = AUTO_RU.get(c.get("auto_kind"), src)
+            crit_rows += (f"<tr><td>{esc(c['title'])}</td>"
+                          f"<td class='c'>{src}</td>"
+                          f"<td class='c'>{fnum(float(c['scale_max']))}</td>"
+                          f"<td class='c'>{fnum(float(c.get('weight', 1)))}</td></tr>")
+
+        # пример расчёта на конкретных критериях пакета
+        ex_crits = crits[:2] if len(crits) >= 2 else crits
+        if normalize:
+            formula = (
+                "<p>Пакет <b>нормализуется</b>. Это значит: по каждому критерию находим "
+                "лучший результат среди всех участников и переводим баллы в долю от него "
+                "(лучший = 1.0). Это уравнивает критерии с разными шкалами, чтобы большие "
+                "числа не задавили маленькие.</p>"
+                "<p><b>Как считается балл пакета:</b><br>"
+                "1) по каждому критерию: <code>доля = балл участника ÷ лучший балл по этому критерию</code>;<br>"
+                "2) балл пакета = взвешенное среднее этих долей по весам критериев.</p>")
+            # числовой пример
+            c0 = ex_crits[0]
+            ex = (f"<p class='ex'><b>Пример.</b> По критерию «{esc(c0['title'])}» лучший участник "
+                  f"набрал, скажем, 10, а наш — 6. Тогда его доля = 6 ÷ 10 = <b>0.6</b>. "
+                  "Так же считаем остальные критерии пакета и берём их взвешенное среднее.</p>")
+        else:
+            formula = (
+                "<p>Пакет <b>без нормализации</b>. Балл пакета = взвешенное среднее сырых "
+                "баллов критериев по их весам:</p>"
+                "<p><code>балл пакета = Σ(балл критерия × вес критерия) ÷ Σ(весов критериев)</code></p>")
+            if len(ex_crits) >= 2:
+                a, b = ex_crits[0], ex_crits[1]
+                wa, wb = float(a.get("weight", 1)), float(b.get("weight", 1))
+                ex = (f"<p class='ex'><b>Пример.</b> Пусть по «{esc(a['title'])}» участник получил 1 "
+                      f"(вес {fnum(wa)}), по «{esc(b['title'])}» — 1 (вес {fnum(wb)}). "
+                      f"Тогда балл пакета = (1×{fnum(wa)} + 1×{fnum(wb)}) ÷ ({fnum(wa)}+{fnum(wb)}) = "
+                      f"<b>{fnum((1*wa + 1*wb)/((wa+wb) or 1))}</b>.</p>")
+            else:
+                a = ex_crits[0]
+                ex = (f"<p class='ex'><b>Пример.</b> Если по «{esc(a['title'])}» участник получил 1, "
+                      "то и балл пакета = <b>1</b> (критерий один).</p>")
+
+        pkg_blocks += f"""
+        <div class="pkg">
+          <div class="pkg-h">{esc(p['title'])} <span class="pkg-w">вес пакета {fnum(w)}{' · нормализуется' if normalize else ''}</span></div>
+          <table class="crit">
+            <thead><tr><th>Критерий</th><th>Кто ставит балл</th><th>Макс</th><th>Вес</th></tr></thead>
+            <tbody>{crit_rows}</tbody>
+          </table>
+          {formula}
+          {ex}
+        </div>"""
+
+    # ── ИТОГ ──
+    weight_terms = " + ".join(
+        f"«{esc(p['title'])}»×{fnum(float(p['weight']))}" for p in packages if crits_by_pkg.get(p["id"]))
+    total_block = (
+        "<div class='pkg'>"
+        "<div class='pkg-h'>Итоговый балл</div>"
+        "<p>Итог участника = сумма баллов всех пакетов, умноженных на вес пакета:</p>"
+        f"<p><code>ИТОГ = {weight_terms or '—'}</code></p>"
+        "<p>Участники сортируются по ИТОГ по убыванию. При равном ИТОГ участники делят одно "
+        "и то же место.</p></div>") if packages else ""
+
+    brand_logo_html = (f"<img class='brand-logo' src='{esc(brand_logo)}' alt='{brand}'>" if brand_logo else "")
+    brand_name_html = f"<div class='brand'>{brand}</div>" if brand else ""
+    pluson_badge = (
+        f"<a class='pluson-badge' href='{pluson_ref_url}' target='_blank' rel='noopener noreferrer'>"
+        f"<img src='{PLUSON_LOGO_URL}' alt='ПЛЮСОН'>"
+        f"<span>Отчёт сформирован в Платформе ПЛЮСОН<br>для экспертов и организаторов</span></a>")
+
+    body = pkg_blocks or "<p class='note'>На этом этапе ещё не настроены критерии оценки.</p>"
+
+    return HTMLResponse(content=f"""<!DOCTYPE html>
+<html lang="ru"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Регламент — {title}</title>
+<link rel="icon" href="{favicon_uri}">
+<style>
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin:0; padding:0; font-family:'Roboto',-apple-system,BlinkMacSystemFont,sans-serif;
+    background: linear-gradient(45deg, #25455D, #0a1520); background-attachment: fixed; color:#1f2d3a; }}
+  .wrap {{ max-width: 760px; margin: 0 auto; min-height: 100vh; background:#f7f8fa; box-shadow: 0 0 40px rgba(0,0,0,.35); }}
+  .topbar {{ background: linear-gradient(45deg, #25455D, #0a1520); padding: 12px 18px; }}
+  .pluson-badge {{ display:inline-flex; align-items:center; gap:10px; text-decoration:none; }}
+  .pluson-badge img {{ height: 30px; width:auto; display:block; }}
+  .pluson-badge span {{ font-size:11px; line-height:1.3; color:rgba(255,255,255,.78); }}
+  .hero {{ background: linear-gradient(45deg, #25455D, #0a1520); color:#fff; padding: 8px 18px 20px;
+    display:flex; align-items:center; gap:14px; border-top:1px solid rgba(255,255,255,.08); }}
+  .hero .info {{ flex:1; min-width:0; }}
+  .hero .brand {{ font-size:12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:4px; }}
+  .hero h1 {{ font-size:22px; margin:0 0 4px; line-height:1.25; }}
+  .hero .stage {{ font-size:14px; color:#FFCFA4; font-weight:600; }}
+  .brand-logo {{ height:54px; width:auto; max-width:120px; object-fit:contain; border-radius:10px; background:#fff; padding:6px; flex:0 0 auto; }}
+  .content {{ padding: 18px; }}
+  .lead {{ font-size:14px; color:#41566a; line-height:1.6; margin: 0 0 18px; }}
+  .pkg {{ background:#fff; border:1px solid #e6eaee; border-radius:14px; padding:16px; margin-bottom:14px; }}
+  .pkg-h {{ font-size:16px; font-weight:700; color:#25455D; margin-bottom:10px; }}
+  .pkg-w {{ font-size:12px; font-weight:500; color:#b45309; background:#FFF3E0; border:1px solid #FFCFA4; border-radius:6px; padding:1px 7px; margin-left:6px; }}
+  table.crit {{ width:100%; border-collapse:collapse; font-size:13px; margin-bottom:12px; }}
+  table.crit th, table.crit td {{ padding:7px 9px; border-bottom:1px solid #eef1f4; text-align:left; }}
+  table.crit th {{ background:#f1f4f7; color:#41566a; font-weight:600; }}
+  table.crit td.c {{ text-align:center; color:#5b6b7a; }}
+  .pkg p {{ font-size:13.5px; color:#41566a; line-height:1.6; margin: 8px 0; }}
+  .pkg code {{ background:#f1f4f7; padding:1px 6px; border-radius:5px; font-size:12.5px; color:#25455D; }}
+  .ex {{ background:#FFF7F0; border-left:3px solid #FFCFA4; padding:8px 12px; border-radius:0 8px 8px 0; }}
+  .note {{ color:#8593a1; font-size:14px; }}
+  .back {{ display:inline-block; margin-bottom:14px; font-size:13px; color:#25455D; text-decoration:underline; }}
+  .foot {{ font-size:11.5px; color:#9aa7b4; text-align:center; padding:18px 12px 30px; }}
+  .foot a {{ color:#25455D; font-weight:600; text-decoration:none; }}
+</style></head>
+<body><div class="wrap">
+  <div class="topbar">{pluson_badge}</div>
+  <div class="hero">
+    <div class="info">
+      {brand_name_html}
+      <h1>{title}</h1>
+      <div class="stage">{stage_title} · регламент подсчёта баллов</div>
+    </div>
+    {brand_logo_html}
+  </div>
+  <div class="content">
+    <a class="back" href="/t/{slug}/{stage_id}">← К турнирной таблице</a>
+    <p class="lead">Это автоматический регламент: он построен по критериям и весам, которые
+    настроены для этапа «{stage_title}». Баллы критериев собираются в баллы пакетов, пакеты
+    с учётом своих весов — в итоговый балл. Ниже — как именно считается каждый пакет, с примерами.</p>
+    {body}
+    {total_block}
+    <div class="foot">Сделано на <a href="{pluson_ref_url}" target="_blank" rel="noopener noreferrer">Платформе ПЛЮСОН</a> — для экспертов и организаторов</div>
+  </div>
+</div></body></html>""")
