@@ -52,7 +52,7 @@ async def _resolve_event_and_contact(conn: asyncpg.Connection, slug: str, user: 
     Возвращает (event_id, client_id, contact_id).
     """
     ev = await conn.fetchrow(
-        "SELECT id, client_id, module_slug FROM events WHERE slug = $1",
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, module_slug FROM events WHERE slug = $1",
         slug,
     )
     if not ev:
@@ -252,7 +252,7 @@ async def get_my_raffle(slug: str, tg_id: int):
 
     async with pool.acquire() as conn:
         ev = await conn.fetchrow(
-            "SELECT id, client_id FROM events WHERE slug = $1",
+            "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1",
             slug,
         )
         if not ev:

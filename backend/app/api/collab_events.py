@@ -49,9 +49,6 @@ async def create_request(data: CollabRequestIn, client=Depends(get_current_clien
             "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2 AND status='accepted'",
             data.event_id, me)
         if not owns:
-            # fallback на старое поле events.client_id
-            owns = await db.fetchval("SELECT 1 FROM events WHERE id=$1 AND client_id=$2", data.event_id, me)
-        if not owns:
             raise HTTPException(403, "Это не ваше событие")
     # не плодим дубль pending к тому же человеку по тому же событию
     dup = await db.fetchval(
@@ -149,9 +146,10 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
                 title = f"{_surname(nm.get(initiator))} · {_surname(nm.get(acceptor))}"
                 slug = await _make_collab_slug(db)
                 ev = await db.fetchrow(
-                    "INSERT INTO events (client_id, slug, title, module_slug, status, is_collab) VALUES ($1,$2,$3,'base','draft',TRUE) RETURNING id",
-                    initiator, slug, title)
+                    "INSERT INTO events (slug, title, module_slug, status, is_collab) VALUES ($1,$2,'base','draft',TRUE) RETURNING id",
+                    slug, title)
                 created_event_id = ev["id"]
+                await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", created_event_id, initiator)
                 await db.execute(
                     """INSERT INTO event_owners (event_id, client_id, status, role, invited_by_client_id, responded_at)
                        VALUES ($1,$2,'accepted','co_owner',$3,NOW()) ON CONFLICT (event_id, client_id) DO NOTHING""",
@@ -169,8 +167,6 @@ async def event_owners(event_id: int, client=Depends(get_current_client), db: as
     me = int(client["sub"])
     iam = await db.fetchval(
         "SELECT 1 FROM event_owners WHERE event_id=$1 AND client_id=$2", event_id, me)
-    if not iam:
-        iam = await db.fetchval("SELECT 1 FROM events WHERE id=$1 AND client_id=$2", event_id, me)
     if not iam:
         raise HTTPException(403, "Вы не организатор этого события")
     rows = await db.fetch(

@@ -140,7 +140,7 @@ async def list_import_sources(
         """SELECT e.id, e.title, e.module_slug,
                   (SELECT COUNT(*) FROM event_referral_thresholds WHERE event_id = e.id) AS thresholds_count
            FROM events e
-           WHERE e.client_id = $1
+           WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted')
              AND e.id <> $2
              AND (
                EXISTS (SELECT 1 FROM event_referral_thresholds   WHERE event_id = e.id) OR
@@ -156,7 +156,7 @@ async def list_import_sources(
 
 async def _check_event_owned(event_id: int, client_id: int, db: asyncpg.Connection) -> dict:
     event = await db.fetchrow(
-        "SELECT id, client_id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id
     )
     if not event:

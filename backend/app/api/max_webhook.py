@@ -441,7 +441,7 @@ async def _process_start(
         # Резолв client_id
         client_id = client_id_override or 0
         if not client_id and event_slug:
-            row = await conn.fetchrow("SELECT client_id FROM events WHERE slug = $1", event_slug)
+            row = await conn.fetchrow("SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", event_slug)
             if row:
                 client_id = row["client_id"]
         if not client_id:
@@ -478,7 +478,7 @@ async def _process_start(
         is_registered = False
         if event_slug:
             ev = await conn.fetchrow(
-                "SELECT id, title, status, landing_url FROM events WHERE slug = $1 AND client_id = $2",
+                "SELECT id, title, status, landing_url FROM events WHERE slug = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
                 event_slug, client_id,
             )
             if ev:

@@ -73,7 +73,7 @@ async def track_speaker_click(
 
     # Проверяем что коллаб реально привязан к этому событию
     coll = await db.fetchrow(
-        """SELECT cse.id, e.client_id
+        """SELECT cse.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
              FROM event_collaborators cse
              JOIN events e ON e.id = cse.event_id
             WHERE cse.id = $1 AND cse.event_id = $2""",
@@ -308,7 +308,7 @@ async def public_client_events(
               FROM events e
               LEFT JOIN conf_dates cd        ON cd.event_id = e.id
               LEFT JOIN user_participation up ON up.event_id = e.id
-             WHERE e.client_id = $1 AND e.status IN ('published','ended')
+             WHERE EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted') AND e.status IN ('published','ended')
              ORDER BY COALESCE(
                         CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END,
                         e.start_at
@@ -430,7 +430,7 @@ async def public_event_landing_redirect(
     параметров. Иначе пустой объект. Используется в mini-app/index.html
     inline-скриптом для мгновенного редиректа на сторонний лендинг."""
     row = await db.fetchrow(
-        "SELECT id, client_id, landing_url, status FROM events WHERE slug = $1 LIMIT 1",
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, landing_url, status FROM events WHERE slug = $1 LIMIT 1",
         slug,
     )
     if not row:
@@ -471,13 +471,13 @@ async def public_event_landing_redirect(
         participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='telegram', platform_user_id=str(tg_id),
-            utm_source=utm_source,
+            utm_source=utm_source, partner_id=pid,
         )
     elif vk_id is not None:
         participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='vk', platform_user_id=str(vk_id),
-            utm_source=utm_source,
+            utm_source=utm_source, partner_id=pid,
         )
 
     # Поля контакта (name/email/phone) + платформенные идентичности (tg/vk/tg_nickname)
@@ -565,13 +565,13 @@ async def public_event_vip_redirect(
         participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='telegram', platform_user_id=str(tg_id),
-            utm_source=utm_source,
+            utm_source=utm_source, partner_id=pid,
         )
     elif vk_id is not None:
         participant_id_out, contact_id_out = await resolve_or_create_participant(
             db, client_id=row["client_id"], event_id=row["id"],
             platform_slug='vk', platform_user_id=str(vk_id),
-            utm_source=utm_source,
+            utm_source=utm_source, partner_id=pid,
         )
 
     contact_params = await get_contact_landing_params(db, contact_id_out) if contact_id_out else {}
@@ -613,7 +613,7 @@ async def public_event_external_ref(
     if not pid:
         return {"external_ref_param": None}
     row = await db.fetchrow(
-        "SELECT client_id FROM events WHERE slug = $1 LIMIT 1", slug,
+        "SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1", slug,
     )
     if not row:
         return {"external_ref_param": None}
@@ -629,7 +629,7 @@ async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(ge
     """Используется страницей /r/{slug} в fallback'е — отдаёт client_id события
     и handle бота (для информации о VIP-статусе)."""
     row = await db.fetchrow(
-        "SELECT client_id FROM events WHERE slug = $1 LIMIT 1", slug,
+        "SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1 LIMIT 1", slug,
     )
     if not row:
         return {"bot_handle": "pluson_bot", "is_vip_bot": False, "client_id": None}
@@ -683,7 +683,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                 FROM conf_days d
                GROUP BY d.event_id
             )
-            SELECT e.id, e.client_id, e.slug, e.title, e.description,
+            SELECT e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.description,
                    e.description_post_register, e.module_slug,
                    (SELECT url FROM event_posters
                      WHERE event_id = e.id
@@ -711,7 +711,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                       FROM channels ch
                       JOIN client_channels cc ON cc.channel_id = ch.id
-                     WHERE cc.client_id = e.client_id
+                     WHERE cc.client_id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
                        AND ch.platform_slug = 'telegram'
                        AND cc.is_active = TRUE
                        AND ch.is_system = FALSE
@@ -722,7 +722,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    COALESCE((SELECT is_enabled FROM event_raffle_settings
                               WHERE event_id = e.id), FALSE) AS raffle_enabled
               FROM events e
-              JOIN clients c ON c.id = e.client_id
+              JOIN clients c ON c.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
               LEFT JOIN cd ON cd.event_id = e.id
              WHERE e.slug = $1""",
         slug
@@ -746,7 +746,7 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
     # остальных модулей — events.start_at. Текущее событие исключаем.
     succ = await db.fetchrow(
         """WITH ev_start AS (
-              SELECT e.id, e.client_id, e.slug, e.title, e.module_slug, e.status,
+              SELECT e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.module_slug, e.status,
                      CASE WHEN e.module_slug IN ('conference','turnir') THEN
                        (SELECT (d.day_date + COALESCE(
                                   NULLIF(d.open_time,'')::time,

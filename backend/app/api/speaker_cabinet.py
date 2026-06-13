@@ -628,7 +628,7 @@ async def get_me_materials(
     base = await db.fetchrow(
         """SELECT e.id AS event_id, e.slug AS event_slug, e.title AS event_title,
                   e.start_at,
-                  e.client_id,
+                  (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
                   e.link_mode,
                   e.video_url AS event_video_url,
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
@@ -649,7 +649,7 @@ async def get_me_materials(
              FROM event_collaborators ec
              JOIN collaborators c    ON c.id = ec.speaker_id
              JOIN events e           ON e.id = ec.event_id
-             JOIN clients cl         ON cl.id = e.client_id
+             JOIN clients cl         ON cl.id = (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
         LEFT JOIN contacts ctc       ON ctc.id = c.contact_id
             WHERE ec.id = $1 AND ec.event_id = $2 AND c.id = $3""",
         se_id, e_id, c_id,

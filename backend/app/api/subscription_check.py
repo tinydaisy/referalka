@@ -97,7 +97,7 @@ async def _check_one_channel(
 
 async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     event = await db.fetchrow(
-        "SELECT id, client_id, require_subscription FROM events WHERE id = $1", event_id
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, require_subscription FROM events WHERE id = $1", event_id
     )
     if not event:
         return {"status": 0, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}

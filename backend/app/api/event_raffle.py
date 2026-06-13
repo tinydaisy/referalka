@@ -486,7 +486,7 @@ async def draw_winner(
             (SELECT pu.username FROM platform_users pu
               WHERE pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
               ORDER BY pu.id LIMIT 1) AS speaker_tg_username,
-            e.client_id
+            (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
           FROM event_raffle_winners w
           JOIN event_raffle_tickets t ON t.id = w.ticket_id
           JOIN contacts c ON c.id = t.contact_id

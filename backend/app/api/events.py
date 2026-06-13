@@ -193,9 +193,8 @@ async def list_events(
         FROM events e
         LEFT JOIN event_participants ep ON ep.event_id = e.id
     """
-    # co-ownership (миграция 134): событие видно владельцу либо через events.client_id, либо через event_owners
-    owned = ("e.id IN (SELECT id FROM events WHERE client_id=$1 "
-             "UNION SELECT event_id FROM event_owners WHERE client_id=$1 AND status='accepted')")
+    # co-ownership: событие видно владельцу через event_owners (источник истины)
+    owned = "e.id IN (SELECT event_id FROM event_owners WHERE client_id=$1 AND status='accepted')"
     if module_slug:
         events = await db.fetch(
             base_select + f" WHERE {owned} AND e.module_slug = $2 GROUP BY e.id ORDER BY e.created_at DESC",
@@ -228,18 +227,22 @@ async def create_event(
 
     event = await db.fetchrow(
         """
-        INSERT INTO events (client_id, slug, title, description, landing_url, address,
+        INSERT INTO events (slug, title, description, landing_url, address,
                             start_at, end_at, webhook_url,
                             module_slug, points_free, points_paid, require_subscription,
                             skip_contact_form, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'draft')
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft')
         RETURNING *
         """,
-        client_id, slug, data.title, data.description, data.landing_url, data.address,
+        slug, data.title, data.description, data.landing_url, data.address,
         _parse_dt(data.start_at), _parse_dt(data.end_at), data.webhook_url,
         data.module_slug, data.points_free, data.points_paid, data.require_subscription,
         default_skip_contact_form,
     )
+    # владелец события — в event_owners (источник истины)
+    await db.execute(
+        "INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING",
+        event["id"], client_id)
 
     # Конференции и турниры используют те же таблицы conf_* (программа, спикеры).
     # Создаём запись в conf_conferences для обоих типов.
@@ -285,7 +288,7 @@ async def get_event_share_links_by_slug(
     db: asyncpg.Connection = Depends(get_db),
 ):
     from ..services.share_links import build_share_links
-    ev = await db.fetchrow("SELECT id, slug, client_id, link_mode FROM events WHERE slug = $1", slug)
+    ev = await db.fetchrow("SELECT id, slug, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE slug = $1", slug)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     # mode из query (для дашборда — оба набора) или актуальный режим события.
@@ -312,7 +315,7 @@ async def get_event_share_links(
     актуальный режим события `events.link_mode`.
     """
     from ..services.share_links import build_share_links
-    ev = await db.fetchrow("SELECT slug, client_id, link_mode FROM events WHERE id = $1", event_id)
+    ev = await db.fetchrow("SELECT slug, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE id = $1", event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     lm = mode if mode in ("miniapp", "bot") else (ev["link_mode"] or "miniapp")
@@ -330,7 +333,7 @@ async def get_event(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1 AND (e.client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $2 AND eo.status='accepted'))",
+        f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $2 AND eo.status='accepted')",
         event_id, client_id
     )
     if not event:
@@ -347,7 +350,7 @@ async def update_event(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -441,7 +444,7 @@ async def copy_event(
 ):
     client_id = int(client["sub"])
     src = await db.fetchrow(
-        "SELECT * FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
+        "SELECT * FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')", event_id, client_id
     )
     if not src:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -457,7 +460,7 @@ async def copy_event(
         # всегда задаются заново у копии.
         new_event = await db.fetchrow(
             """INSERT INTO events
-                 (client_id, slug, title, description, description_post_register,
+                 (slug, title, description, description_post_register,
                   landing_url, address,
                   start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
@@ -467,17 +470,17 @@ async def copy_event(
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
                   skip_contact_form)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,
+               VALUES ($0,$1,$2,$3,$4,$5,$6,
                        NULL,NULL,
-                       $8,$9,$10,$11,$12,
-                       $13,'draft',
-                       $14,$15,$16,$17,$18,
-                       $19,$20,$21,
-                       $22,$23,
-                       $24,$25,
-                       $26)
+                       $7,$8,$9,$10,$11,
+                       $12,'draft',
+                       $13,$14,$15,$16,$17,
+                       $18,$19,$20,
+                       $21,$22,
+                       $23,$24,
+                       $25)
                RETURNING *""",
-            client_id, new_slug, new_title, src['description'],
+            new_slug, new_title, src['description'],
             src.get('description_post_register'),
             src['landing_url'],
             src.get('address'),
@@ -496,6 +499,7 @@ async def copy_event(
             src.get('skip_contact_form') or False,
         )
         new_id = new_event['id']
+        await db.execute("INSERT INTO event_owners (event_id, client_id, status, role) VALUES ($1,$2,'accepted','owner') ON CONFLICT DO NOTHING", new_id, client_id)
 
         # event_posters: копируем + строим map старый_id → новый_id для materials
         poster_id_map: dict = {}
@@ -699,7 +703,7 @@ async def event_analytics(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -755,7 +759,7 @@ async def check_chats(
     ВК/МАХ-беседы платформы проверить не дают — фича пока только Telegram."""
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -773,7 +777,7 @@ async def event_participants(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -945,7 +949,7 @@ async def update_event_participant(
         """SELECT ep.id, ep.contact_id FROM event_participants ep
            JOIN events e ON e.id = ep.event_id
            WHERE ep.id = $1 AND ep.event_id = $2
-             AND (e.client_id = $3 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted'))""",
+             AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted')""",
         participant_id, event_id, client_id
     )
     if not row:
@@ -1038,7 +1042,7 @@ async def delete_event_participant(
         """SELECT ep.id FROM event_participants ep
            JOIN events e ON e.id = ep.event_id
            WHERE ep.id = $1 AND ep.event_id = $2
-             AND (e.client_id = $3 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted'))""",
+             AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $3 AND eo.status='accepted')""",
         participant_id, event_id, client_id
     )
     if not row:
@@ -1085,7 +1089,7 @@ async def add_event_participant_from_contact(
     """
     client_id = int(client["sub"])
     event = await db.fetchval(
-        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))", event_id, client_id
+        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -1138,7 +1142,7 @@ async def list_event_collaborators(
     client_id = int(client["sub"])
     # Проверяем что event принадлежит клиенту
     own = await db.fetchval(
-        "SELECT 1 FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))",
+        "SELECT 1 FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')",
         event_id, client_id
     )
     if not own:
@@ -1191,7 +1195,7 @@ async def add_event_collaborator(
 ):
     client_id = int(client["sub"])
     own = await db.fetchval(
-        "SELECT 1 FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))",
+        "SELECT 1 FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')",
         event_id, client_id
     )
     if not own:
@@ -1254,7 +1258,7 @@ async def remove_event_collaborator(
     row = await db.fetchrow(
         """SELECT ec.id FROM event_collaborators ec
              JOIN events e ON e.id = ec.event_id
-            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
         ec_id, event_id, client_id
     )
     if not row:
@@ -1275,7 +1279,7 @@ async def reorder_event_collaborator(
     row = await db.fetchrow(
         """SELECT ec.id FROM event_collaborators ec
              JOIN events e ON e.id = ec.event_id
-            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
         ec_id, event_id, client_id
     )
     if not row:
@@ -1305,7 +1309,7 @@ async def update_event_collaborator(
     row = await db.fetchrow(
         """SELECT ec.id FROM event_collaborators ec
              JOIN events e ON e.id = ec.event_id
-            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
         ec_id, event_id, client_id
     )
     if not row:
@@ -1359,7 +1363,7 @@ async def verify_event_collaborator_channel(
              JOIN collaborators co ON co.id = ec.speaker_id
              LEFT JOIN platform_users pu_tg
                ON pu_tg.contact_id = co.contact_id AND pu_tg.platform_slug = 'telegram'
-            WHERE ec.id = $1 AND ec.event_id = $2 AND e.client_id = $3""",
+            WHERE ec.id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')""",
         ec_id, event_id, client_id
     )
     if not row:

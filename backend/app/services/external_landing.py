@@ -326,6 +326,7 @@ async def resolve_or_create_participant(
     username: Optional[str] = None,
     utm_source: Optional[str] = None,
     known_contact_id: Optional[int] = None,
+    partner_id: Optional[str] = None,
 ) -> tuple[Optional[int], Optional[int]]:
     """Находит (или создаёт) event_participants.id для пары
     (платформенный пользователь, событие). Возвращает (participant_id, contact_id).
@@ -368,13 +369,89 @@ async def resolve_or_create_participant(
                 known_contact_id=known_contact_id,
             )
 
+        # Резолвим реферера из pid (если пришёл по реф-ссылке) — нормализуем
+        # legacy/смерженные коды через resolve_ref_code.
+        resolved_ref_code = None
+        referrer_contact_id = None
+        if partner_id:
+            from app.services.contact_merge import resolve_ref_code
+            resolved_ref_code, referrer_contact_id = await resolve_ref_code(
+                db, partner_id, client_id=client_id,
+            )
+
+        # Вставляем привязку к событию. ON CONFLICT DO NOTHING → RETURNING вернёт
+        # id ТОЛЬКО при реальной первой вставке. По этому признаку шлём
+        # организатору уведомление «Новый интерес» РОВНО ОДИН РАЗ на
+        # (человек × событие) — независимо от пути (бот /start, форма, лендинг,
+        # webhook): все они проходят через эту единую функцию.
         pid = await db.fetchval(
-            """INSERT INTO event_participants (event_id, contact_id, is_registered)
-               VALUES ($1, $2, FALSE)
-               ON CONFLICT (event_id, contact_id) DO UPDATE SET event_id = EXCLUDED.event_id
+            """INSERT INTO event_participants (event_id, contact_id, is_registered, referrer_ref_code)
+               VALUES ($1, $2, FALSE, $3)
+               ON CONFLICT (event_id, contact_id) DO NOTHING
                RETURNING id""",
-            event_id, contact_id,
+            event_id, contact_id, resolved_ref_code,
         )
+        is_first = pid is not None
+        if not is_first:
+            # Запись уже была — достаём её id (нужен для ссылок), уведомление НЕ шлём.
+            pid = await db.fetchval(
+                "SELECT id FROM event_participants WHERE event_id = $1 AND contact_id = $2 LIMIT 1",
+                event_id, contact_id,
+            )
+
+        if is_first:
+            await _notify_organizer_new_interest(
+                db,
+                client_id=client_id,
+                event_id=event_id,
+                contact_id=contact_id,
+                platform_slug=platform_slug,
+                platform_user_id=str(platform_user_id),
+                referrer_contact_id=referrer_contact_id,
+            )
+
         return pid, contact_id
     except Exception:
         return None, None
+
+
+async def _notify_organizer_new_interest(
+    db,
+    *,
+    client_id: int,
+    event_id: int,
+    contact_id: int,
+    platform_slug: str,
+    platform_user_id: str,
+    referrer_contact_id: Optional[int] = None,
+) -> None:
+    """Шлёт организатору уведомление «Новый интерес» о только что созданной
+    привязке участника к событию. Вызывается из resolve_or_create_participant
+    при ПЕРВОЙ вставке. Реферер передаётся явно (резолвлен из pid) или, если
+    не передан, дотягивается из записи участника по referrer_ref_code.
+    Любая ошибка — молча проглатывается (не должна ломать создание участника)."""
+    try:
+        event_title = await db.fetchval("SELECT title FROM events WHERE id = $1", event_id) or ""
+        if referrer_contact_id is None:
+            referrer_contact_id = await db.fetchval(
+                """SELECT ct.id
+                     FROM event_participants ep
+                     JOIN contacts ct ON ct.ref_code = ep.referrer_ref_code
+                    WHERE ep.event_id = $1 AND ep.contact_id = $2
+                      AND ep.referrer_ref_code IS NOT NULL AND ep.referrer_ref_code <> ''
+                    LIMIT 1""",
+                event_id, contact_id,
+            )
+        from app.services.event_welcome import _send_event_organizer_notification
+        await _send_event_organizer_notification(
+            db,
+            client_id=client_id,
+            event_id=event_id,
+            event_title=event_title,
+            contact_id=contact_id,
+            platform_slug=platform_slug,
+            referrer_contact_id=referrer_contact_id,
+            tg_id=platform_user_id if platform_slug == "telegram" else None,
+        )
+    except Exception:
+        pass

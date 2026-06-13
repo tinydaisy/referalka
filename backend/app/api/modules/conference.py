@@ -3133,7 +3133,7 @@ async def add_raffle_ticket_public(
 ):
     # Проверяем что событие существует и является конференцией
     event = await db.fetchrow(
-        "SELECT id, client_id FROM events WHERE id = $1 AND module_slug IN ('conference','turnir')", event_id
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE id = $1 AND module_slug IN ('conference','turnir')", event_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Конференция не найдена")

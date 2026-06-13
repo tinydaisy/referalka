@@ -38,7 +38,7 @@ async def get_event_for_self_register(
     клиент сам делится ссылкой, если событие не публикуется, спикер всё
     равно может зарегистрироваться."""
     row = await db.fetchrow(
-        "SELECT id, client_id, slug, title FROM events WHERE id = $1",
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, slug, title FROM events WHERE id = $1",
         event_id,
     )
     return dict(row) if row else None
@@ -60,7 +60,7 @@ async def find_existing_speaker(
              FROM collaborators c
              JOIN event_collaborators ec ON ec.speaker_id = c.id
              JOIN events e ON e.id = ec.event_id
-            WHERE c.contact_id = $1 AND ec.event_id = $2 AND e.client_id = $3
+            WHERE c.contact_id = $1 AND ec.event_id = $2 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$3 AND eo.status='accepted')
             LIMIT 1""",
         contact_id, event_id, client_id,
     )

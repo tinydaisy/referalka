@@ -78,7 +78,7 @@ async def handle_max_event(body: MaxEventRequest):
         # Резолв client_id: 1) явный из тела 2) из event_slug 3) системный «ПЛЮСОН Сервис»
         client_id = body.client_id
         if not client_id and body.event_slug:
-            row = await conn.fetchrow("SELECT client_id FROM events WHERE slug = $1", body.event_slug)
+            row = await conn.fetchrow("SELECT (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id FROM events WHERE slug = $1", body.event_slug)
             if row:
                 client_id = row["client_id"]
         if not client_id:
@@ -111,7 +111,7 @@ async def handle_max_event(body: MaxEventRequest):
         event_title = None
         if body.event_slug:
             ev = await conn.fetchrow(
-                "SELECT id, title, status FROM events WHERE slug = $1 AND client_id = $2",
+                "SELECT id, title, status FROM events WHERE slug = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
                 body.event_slug, client_id,
             )
             if ev:

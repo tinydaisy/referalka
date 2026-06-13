@@ -78,7 +78,7 @@ async def _resubscribe_email(db, *, contact_id: int, event_id: int) -> None:
                   FROM platform_user_channels puc
                   JOIN platform_users pu ON pu.id = puc.platform_user_id
                   JOIN client_channels cc ON cc.id = puc.client_channel_id
-                  JOIN events e ON e.client_id = cc.client_id
+                  JOIN events e ON EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=cc.client_id AND eo.status='accepted')
                  WHERE pu.contact_id = $1
                    AND pu.platform_slug = 'email'
                    AND e.id = $2

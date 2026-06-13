@@ -45,7 +45,7 @@ async def send_welcome_email_if_needed(
     - У контакта подписка на email-канал клиента НЕ помечена is_unsubscribed
     """
     event = await db.fetchrow(
-        """SELECT e.id, e.title, e.slug, e.start_at, e.client_id,
+        """SELECT e.id, e.title, e.slug, e.start_at, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
                   e.welcome_enabled, e.welcome_text, e.welcome_email_subject
              FROM events e WHERE e.id = $1""",
         event_id,
