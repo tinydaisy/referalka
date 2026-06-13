@@ -52,6 +52,15 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
 
   useEffect(() => { load() }, [eventId])
 
+  // Владельцы коллаборации (event_owners) — клиенты-организаторы совместного события.
+  // Это ДРУГОЙ слой, чем спикеры-коллабораторы ниже.
+  const [collabOwners, setCollabOwners] = useState<any[]>([])
+  useEffect(() => {
+    api.collabHub.eventOwners(eventId)
+      .then((r: any) => setCollabOwners((r.owners || []).filter((o: any) => o.status === 'accepted')))
+      .catch(() => setCollabOwners([]))
+  }, [eventId])
+
   async function handleAdd(collaboratorId: number) {
     await api.events.addCollaborator(eventId, collaboratorId, 'organizer')
     setShowPicker(false)
@@ -73,10 +82,25 @@ export default function CoOrganizersTab({ eventId, requireSubscription = false }
 
   return (
     <div className="space-y-4">
+      {/* Организаторы коллаборации (клиенты-совладельцы из Коллабораторной) */}
+      {collabOwners.length > 1 && (
+        <div className="bg-white rounded-2xl border-2 shadow-sm p-6" style={{ borderColor: '#FFCFA4' }}>
+          <h3 className="font-semibold text-gray-800 mb-1">Организаторы коллаборации</h3>
+          <p className="text-sm text-gray-500 mb-3">Это совместное событие. Каждый из организаторов ведёт свою аудиторию.</p>
+          <div className="flex flex-wrap gap-2">
+            {collabOwners.map((o: any) => (
+              <div key={o.client_id} className="px-3 py-1.5 rounded-xl bg-gray-50 text-sm" style={{ color: '#25455D' }}>
+                {o.name}{o.role === 'owner' ? ' (создатель)' : ''}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
           <div>
-            <h3 className="font-semibold text-gray-800">Организаторы</h3>
+            <h3 className="font-semibold text-gray-800">Спикеры / соорганизаторы</h3>
             <p className="text-sm text-gray-500 mt-1">
               Кто ещё ведёт это мероприятие — отображается на странице события в Mini App.
               Берётся из общей базы Коллаборации.
