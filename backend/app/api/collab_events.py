@@ -120,8 +120,9 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
     req = await db.fetchrow("SELECT * FROM hub_collab_requests WHERE id=$1", request_id)
     if not req or req["to_client_id"] != me:
         raise HTTPException(404, "Запрос не найден")
-    if req["status"] != "pending":
-        raise HTTPException(409, "Запрос уже обработан")
+    # accepted менять нельзя (коллаба уже создана). pending и declined — можно (передумать).
+    if req["status"] == "accepted":
+        raise HTTPException(409, "Запрос уже принят — коллаба создана")
     new_status = "accepted" if accept else "declined"
     created_event_id = None
     async with db.transaction():
@@ -141,9 +142,11 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
                 await db.execute("UPDATE events SET is_collab=TRUE WHERE id=$1", req["event_id"])
                 created_event_id = req["event_id"]
             else:
-                names = await db.fetch("SELECT id, COALESCE(brand_name,name) AS name FROM clients WHERE id=ANY($1)", [initiator, acceptor])
+                # Название по умолчанию: «Событие между {основатель1} и {основатель2}».
+                # Берём ИМЯ ОСНОВАТЕЛЯ (clients.name), НЕ бренд.
+                names = await db.fetch("SELECT id, name FROM clients WHERE id=ANY($1)", [initiator, acceptor])
                 nm = {r["id"]: r["name"] for r in names}
-                title = f"{_surname(nm.get(initiator))} · {_surname(nm.get(acceptor))}"
+                title = f"Событие между {nm.get(initiator) or '?'} и {nm.get(acceptor) or '?'}"
                 slug = await _make_collab_slug(db)
                 ev = await db.fetchrow(
                     "INSERT INTO events (slug, title, module_slug, status, is_collab) VALUES ($1,$2,'base','draft',TRUE) RETURNING id",
@@ -156,6 +159,19 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
                     created_event_id, acceptor, initiator)
                 await db.execute("UPDATE hub_collab_requests SET event_id=$2 WHERE id=$1", request_id, created_event_id)
     return {"ok": True, "status": new_status, "event_id": created_event_id}
+
+
+@router.delete("/requests/{request_id}")
+async def delete_request(request_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Удалить СВОЙ отправленный запрос (только инициатор, только пока не принят)."""
+    me = int(client["sub"])
+    req = await db.fetchrow("SELECT from_client_id, status FROM hub_collab_requests WHERE id=$1", request_id)
+    if not req or req["from_client_id"] != me:
+        raise HTTPException(404, "Запрос не найден или не ваш")
+    if req["status"] == "accepted":
+        raise HTTPException(409, "Запрос уже принят — коллаба создана, удалить нельзя")
+    await db.execute("DELETE FROM hub_collab_requests WHERE id=$1", request_id)
+    return {"ok": True}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -186,7 +202,7 @@ async def my_collabs(client=Depends(get_current_client), db: asyncpg.Connection 
     rows = await db.fetch(
         """SELECT e.id AS event_id, e.title, e.status, e.is_collab,
                   (SELECT json_agg(json_build_object('client_id', o2.client_id,
-                          'name', COALESCE(c2.brand_name,c2.name), 'role', o2.role)
+                          'name', c2.name, 'role', o2.role)
                           ORDER BY (o2.role='owner') DESC, o2.id)
                      FROM event_owners o2 JOIN clients c2 ON c2.id=o2.client_id
                     WHERE o2.event_id=e.id AND o2.status='accepted') AS organizers

@@ -518,6 +518,8 @@ export const api = {
       request('/api/v1/collab/requests', { method: 'POST', body: JSON.stringify(data) }),
     respondRequest: (id: number, accept: boolean) =>
       request(`/api/v1/collab/requests/${id}/respond`, { method: 'POST', body: JSON.stringify({ accept }) }),
+    deleteRequest: (id: number) =>
+      request(`/api/v1/collab/requests/${id}`, { method: 'DELETE' }),
     eventOwners: (eventId: number) => request(`/api/v1/collab/events/${eventId}/owners`),
     collabs: () => request('/api/v1/collab/collabs'),
     leaveCollab: (eventId: number) =>

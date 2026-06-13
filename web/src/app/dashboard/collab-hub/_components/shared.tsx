@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { Search, Star, Send, MapPin, Check, X, Sparkles, Users, Calendar, Pencil, ChevronDown, ChevronUp, ExternalLink, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export const PEACH = '#FFCFA4'
@@ -49,7 +49,10 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
   return (
     <div className={`rounded-2xl p-4 transition flex flex-col ${isMe ? 'border-2' : 'border bg-white hover:shadow-md'}`}
          style={isMe ? { borderColor: PEACH, background: '#FFF8F1' } : {}}>
-      {isMe && <div className="text-[11px] font-semibold mb-2 inline-flex items-center gap-1" style={{ color: '#C77B3B' }}><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />ВАША КАРТОЧКА</div>}
+      {isMe && <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <span className="text-[11px] font-semibold inline-flex items-center gap-1" style={{ color: '#C77B3B' }}><Star className="w-3 h-3" fill={PEACH} stroke={PEACH} />ВАША КАРТОЧКА</span>
+        {item.is_published_in_hub === false && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600">не опубликована</span>}
+      </div>}
       <div className="flex items-start gap-3">
         {item.photo_url
           ? <img src={item.photo_url} alt="" onClick={() => setLightbox(true)} className="w-14 h-14 rounded-xl object-cover cursor-zoom-in hover:opacity-90" />
@@ -65,10 +68,20 @@ export function CollabCard({ item, onRequest }: { item: any; onRequest?: () => v
         </div>
       </div>
       {item.hub_about && <p className="text-sm text-gray-600 mt-3">{item.hub_about}</p>}
-      {/* Био — разворачиваемое */}
+      {/* Био — разворачиваемое. Если внутри есть «•» — рендерим списком с маркерами по строке. */}
       {bio && (
         <div className="mt-2">
-          <p className={`text-sm text-gray-500 ${bioOpen ? '' : 'line-clamp-2'}`}>{bio}</p>
+          {bio.includes('•') ? (
+            bioOpen ? (
+              <ul className="text-sm text-gray-500 space-y-1 list-none">
+                {bio.split('•').map((s: string) => s.trim()).filter(Boolean).map((line: string, i: number) => (
+                  <li key={i} className="flex gap-1.5"><span style={{ color: PEACH }}>•</span><span>{line}</span></li>
+                ))}
+              </ul>
+            ) : <p className="text-sm text-gray-500 line-clamp-2">{bio.replace(/•/g, '·')}</p>
+          ) : (
+            <p className={`text-sm text-gray-500 ${bioOpen ? '' : 'line-clamp-2'}`}>{bio}</p>
+          )}
           {bioLong && <button onClick={() => setBioOpen(!bioOpen)} className="text-xs mt-1 inline-flex items-center gap-0.5" style={{ color: '#C77B3B' }}>
             {bioOpen ? <>Свернуть <ChevronUp className="w-3 h-3" /></> : <>Подробнее <ChevronDown className="w-3 h-3" /></>}
           </button>}
@@ -202,7 +215,14 @@ export function RequestsView() {
     setLoading(false)
   }
   useEffect(() => { load() }, [dir])
-  const respond = async (id: number, accept: boolean) => { await api.collabHub.respondRequest(id, accept); load() }
+  const [busy, setBusy] = useState<number | null>(null)
+  const respond = async (id: number, accept: boolean) => {
+    setBusy(id)
+    try { await api.collabHub.respondRequest(id, accept); await load() }
+    catch (e: any) { alert(e?.message || 'Не удалось') }
+    finally { setBusy(null) }
+  }
+  const del = async (id: number) => { if (!confirm('Удалить этот запрос?')) return; try { await api.collabHub.deleteRequest(id); load() } catch (e: any) { alert(e?.message || 'Не удалось') } }
   const chip = (s: string) => { const m: any = { pending: ['Ждёт ответа', 'bg-gray-200 text-gray-600'], accepted: ['Принято', 'bg-green-100 text-green-700'], declined: ['Отклонено', 'bg-red-100 text-red-600'] }; const [t, c] = m[s] || [s, 'bg-gray-100']; return <span className={`text-xs px-2 py-0.5 rounded-full ${c}`}>{t}</span> }
 
   const Avatar = ({ r }: { r: any }) => r.other_photo
@@ -231,10 +251,18 @@ export function RequestsView() {
                 {r.other_tg && <a href={`https://t.me/${(r.other_tg||'').replace('@','')}?text=Здравствуйте! По коллаборации в ПЛЮСОН`} target="_blank" rel="noreferrer" className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 text-blue-600"><Send className="w-3 h-3" />Написать в Telegram</a>}
               </div>
             </div>
-            {dir === 'incoming' && r.status === 'pending' && <div className="flex items-center gap-2 shrink-0">
-              <button onClick={() => respond(r.id, true)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
-              <button onClick={() => respond(r.id, false)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
-            </div>}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Входящие: pending — принять/отклонить; declined — передумать (принять) */}
+              {dir === 'incoming' && r.status === 'pending' && (busy === r.id
+                ? <span className="text-xs text-gray-500 px-2">Создаём коллабу…</span>
+                : <>
+                  <button onClick={() => respond(r.id, true)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
+                  <button onClick={() => respond(r.id, false)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
+                </>)}
+              {dir === 'incoming' && r.status === 'declined' && <button onClick={() => respond(r.id, true)} className="text-xs px-3 py-1.5 rounded-xl border" style={{ color: '#16a34a', borderColor: '#16a34a' }}>Передумать — принять</button>}
+              {/* Отправленные: удалить свой запрос (если не принят) */}
+              {dir === 'outgoing' && r.status !== 'accepted' && <button onClick={() => del(r.id)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500" title="Удалить запрос"><Trash2 className="w-4 h-4" /></button>}
+            </div>
           </div>
         ))}</div>}
     </div>

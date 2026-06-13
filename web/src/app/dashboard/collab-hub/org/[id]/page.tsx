@@ -57,7 +57,13 @@ export default function OrgProfilePage() {
           </div>
         </div>
 
-        {c.bio && <p className="text-gray-600 mt-5 whitespace-pre-wrap">{c.bio}</p>}
+        {c.bio && (c.bio.includes('•')
+          ? <ul className="text-gray-600 mt-5 space-y-1.5 list-none">
+              {c.bio.split('•').map((s: string) => s.trim()).filter(Boolean).map((line: string, i: number) => (
+                <li key={i} className="flex gap-2"><span style={{ color: PEACH }}>•</span><span>{line}</span></li>
+              ))}
+            </ul>
+          : <p className="text-gray-600 mt-5 whitespace-pre-wrap">{c.bio}</p>)}
 
         {achievements.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-5">

@@ -149,7 +149,7 @@ async def list_events(
     #   end   = последний день + (close_time посл. дня ИЛИ MAX(end_time) сессий посл. дня)
     # если ничего не задано — fallback на day_date 00:00 / 23:59 чтобы вообще что-то показать.
     base_select = """
-        SELECT e.id, e.slug, e.title, e.module_slug, e.status,
+        SELECT e.id, e.slug, e.title, e.module_slug, e.status, e.is_collab,
                (SELECT url FROM event_posters
                  WHERE event_id = e.id
                  ORDER BY CASE orientation
