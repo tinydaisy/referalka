@@ -470,7 +470,7 @@ async def copy_event(
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
                   skip_contact_form)
-               VALUES ($0,$1,$2,$3,$4,$5,$6,
+               VALUES ($1,$2,$3,$4,$5,$6,
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
                        $12,'draft',
