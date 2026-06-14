@@ -1,13 +1,12 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { BookOpen, ExternalLink, Copy, Check } from 'lucide-react'
-import { api } from '@/lib/api'
+import { BookOpen, ExternalLink } from 'lucide-react'
 
 const BRAND = '#25455D'
 const PEACH = '#FFCFA4'
 
-export default function ConnectMaxBotInstructionPage() {
+export default function ConnectMaxChannelInstructionPage() {
   const [origin, setOrigin] = useState(process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru')
 
   useEffect(() => {
@@ -23,7 +22,7 @@ export default function ConnectMaxBotInstructionPage() {
         <span className="text-gray-300">/</span>
         <Link href="/dashboard/help" className="text-sm text-gray-400 hover:text-gray-700">Инструкции</Link>
         <span className="text-gray-300">/</span>
-        <span className="text-sm text-gray-700">Подключение своего бота в MAX</span>
+        <span className="text-sm text-gray-700">Как создать открытый канал в MAX</span>
       </div>
 
       <div className="flex items-start gap-3 mb-6">
@@ -31,144 +30,147 @@ export default function ConnectMaxBotInstructionPage() {
           <BookOpen size={22} />
         </div>
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: BRAND }}>Подключение своего бота в MAX</h1>
+          <h1 className="text-2xl font-bold" style={{ color: BRAND }}>Как создать открытый канал в MAX</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Пошаговая инструкция: создать своего бота в MAX и подключить его к iViSiON: ПЛЮСОН,
-            чтобы воронки событий и рассылки шли от вашего имени, а не от общего бота сервиса.
+            Пошаговый гайд: создаём именно <strong>открытый</strong> канал, видимый для всех — через платформу
+            «Партнёры МАХ». Весь процесс — около 15–20 минут без учёта верификации.
           </p>
         </div>
       </div>
 
-      {/* Текущая среда */}
-      <div className={`rounded-xl border p-4 mb-6 flex items-start gap-3 ${
-        isDev ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'
-      }`}>
-        <div className="text-xl flex-shrink-0">{isDev ? '🧪' : '🚀'}</div>
-        <div>
-          <div className="text-sm font-semibold text-gray-800">
-            {isDev ? 'Вы в DEV-окружении' : 'Вы в PRODUCTION-окружении'}
+      {isDev && (
+        <div className="rounded-xl border p-4 mb-6 flex items-start gap-3 bg-amber-50 border-amber-200">
+          <div className="text-xl flex-shrink-0">🧪</div>
+          <div>
+            <div className="text-sm font-semibold text-gray-800">Вы в DEV-окружении</div>
+            <p className="text-xs text-gray-600 mt-0.5">Инструкция одинакова для dev и прода — она про сам MAX.</p>
           </div>
-          <p className="text-xs text-gray-600 mt-0.5">
-            Текущий домен:{' '}
-            <code className="bg-white px-1.5 py-0.5 rounded">{origin}</code>
-          </p>
         </div>
-      </div>
+      )}
 
-      {/* Что вы получите */}
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 mb-6">
-        <div className="text-sm font-semibold text-gray-800 mb-1">Зачем подключать свой MAX-бот</div>
-        <p className="text-sm text-gray-600">
-          Без своего бота воронки событий и рассылки в MAX идут от общего бота сервиса
-          (<code>id890306512862_1_bot</code>). Когда вы подключаете <strong>свой</strong> бот —
-          участники видят ваше имя, а реф-ссылки в MAX получаются вида
-          <code className="mx-1 break-all">max.ru/ваш_бот?start=ref_pgСОБЫТИЕ</code>.
-        </p>
-      </div>
-
-      <Section step="1" title="Создайте бота в MAX через @MasterBot">
+      <Section step="!" title="Кто может создать открытый канал в MAX">
         <p className="text-sm text-gray-700 mb-3">
-          Боты в MAX создаются их официальным служебным ботом — так же, как в Telegram через @BotFather.
+          В MAX бывает два типа каналов — открытые и приватные. Раньше создавать их могли только аккаунты
+          с 10 000+ подписчиков в соцсетях, теперь это ограничение снято. Но открытый канал доступен только
+          для бизнеса:
         </p>
-        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
-          <li>Откройте в MAX служебного бота <a href="https://max.ru/masterbot" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">@MasterBot <ExternalLink size={12}/></a></li>
-          <li>Отправьте команду <code>/create</code> (или нажмите «Создать бота»)</li>
-          <li>Придумайте имя бота и его адрес (username)</li>
-          <li><strong>MasterBot пришлёт токен</strong> — длинную строку. Скопируйте её целиком</li>
-        </ol>
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
-          💡 Если бот уже создан — пропустите этот шаг. Токен можно получить заново в @MasterBot:
-          выберите бота → <strong>«Токен»</strong> / <strong>«Получить токен»</strong>.
-        </div>
-      </Section>
-
-      <Section step="2" title="Включите доступ к личным сообщениям">
-        <p className="text-sm text-gray-700 mb-3">
-          Чтобы бот мог писать воронки и рассылки в личку участникам, у него должна быть включена
-          возможность получать и отправлять сообщения.
-        </p>
-        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5">
-          <li>В @MasterBot выберите вашего бота</li>
-          <li>Откройте его настройки</li>
-          <li>Убедитесь, что бот может <strong>принимать сообщения от пользователей</strong> (не «только по приглашению»)</li>
-        </ol>
-      </Section>
-
-      <Section step="3" title="Добавьте токен в раздел «Каналы»">
-        <p className="text-sm text-gray-700 mb-3">
-          Теперь подключаем бота к iViSiON: ПЛЮСОН. Webhook и приём сообщений сервис настроит сам —
-          вам нужно только вставить токен.
-        </p>
-        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
-          <li>Откройте раздел <Link href="/dashboard/channels" className="text-blue-600 hover:underline font-medium">«Каналы»</Link> в кабинете</li>
-          <li>Нажмите <strong>«Добавить канал»</strong></li>
-          <li>В поле <strong>«Платформа»</strong> выберите <strong>MAX</strong></li>
-          <li><strong>Название</strong> — любое понятное вам (например «MAX-бот мероприятия»)</li>
-          <li><strong>Адрес (username)</strong> — username вашего бота из MAX (без <code>@</code>)</li>
-          <li><strong>Bot Token</strong> — вставьте токен из @MasterBot</li>
-          <li>Включите тумблер <strong>«Активный»</strong> и сохраните</li>
-        </ol>
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
-          💡 На каждой платформе (Telegram / VK / MAX) активным может быть только <strong>один канал</strong> на клиента.
-          Если хотите сменить MAX-бот — деактивируйте старый и добавьте новый.
-        </div>
-      </Section>
-
-      <Section step="4" title="Проверьте, что бот отвечает">
-        <p className="text-sm text-gray-700 mb-3">
-          После сохранения канала откройте вашего бота в MAX и отправьте ему <code>/start</code>.
-          Бот должен ответить. Если ответа нет — значит токен введён неверно или доступ к сообщениям
-          выключен (вернитесь к шагам 1–2).
-        </p>
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
-          ⏱ После добавления токена webhook поднимается в течение минуты. Если бот не ответил сразу —
-          подождите немного и попробуйте <code>/start</code> ещё раз.
-        </div>
-      </Section>
-
-      <Section step="●" title="Где взять готовую MAX-ссылку для шеринга">
-        <p className="text-sm text-gray-700 mb-3">
-          Ссылки руками собирать не нужно — iViSiON: ПЛЮСОН делает их сам и уже подставляет
-          вашего бота вместо общего. Откройте карточку события и скопируйте готовую MAX-ссылку:
-        </p>
-        <ul className="text-sm text-gray-700 space-y-2 list-disc pl-5 mb-3">
-          <li>
-            Для конференции/турнира: <Link href="/dashboard/conferences" className="text-blue-600 hover:underline font-medium">Дашборд → Конференции</Link>
-            {' '}→ выбрать событие → блок «Публичные ссылки» → MAX
-          </li>
-          <li>
-            Для других событий: <Link href="/dashboard/events" className="text-blue-600 hover:underline font-medium">Дашборд → Мероприятия</Link>
-            {' '}→ выбрать событие → «Публичные ссылки» → MAX
-          </li>
+        <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5 mb-3">
+          <li>ИП (включая ИП на НПД)</li>
+          <li>ООО и другие формы организаций</li>
         </ul>
-        <p className="text-sm text-gray-700">
-          Пока свой MAX-бот не подключён, эти ссылки ведут на общий бот сервиса. Как только бот
-          подключён и активен — ссылки автоматически начинают вести на него.
-        </p>
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900 mb-3">
+          💡 Если у вас самозанятость — без паники. Просто перейдите на ИП с НПД: ставка та же, лимит тот же,
+          зато возможностей больше.
+        </div>
+        <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 text-sm text-rose-900">
+          ⚠️ Физлица и нерезиденты — пока вне игры. Открытый канал для них недоступен.
+        </div>
       </Section>
 
-      <Section step="?" title="Если что-то не работает">
+      <Section step="1" title="Регистрация на платформе «Партнёры МАХ»">
+        <p className="text-sm text-gray-700 mb-3">
+          Всё начинается с платформы «Партнёры МАХ». Откройте{' '}
+          <a href="https://business.max.ru" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline font-medium inline-flex items-center gap-1">
+            business.max.ru <ExternalLink size={12}/>
+          </a>
+        </p>
+        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
+          <li>Введите номер телефона</li>
+          <li>Получите SMS-код</li>
+          <li>Введите код — вы в системе</li>
+        </ol>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
+          ⚠️ <strong>Один номер = один профиль компании.</strong> К нему привязываются каналы, боты и
+          мини-приложения. Сразу вводите рабочий номер.
+        </div>
+      </Section>
+
+      <Section step="2" title="Добавляем организацию и проходим верификацию">
+        <p className="text-sm text-gray-700 mb-3">
+          Введите ИНН организации (10 или 12 цифр) → нажмите «Далее». Система найдёт компанию — подтверждаете.
+        </p>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 mb-3">
+          ⭐ Дальше нужна верификация. Пройти её может <strong>только владелец организации</strong>.
+        </div>
+        <p className="text-sm font-semibold text-gray-800 mb-2">Способы подтверждения:</p>
+        <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5 mb-3">
+          <li>Госуслуги</li>
+          <li>Банковские сервисы: Alfa ID, T-Business ID, СберБизнес ID — как правило, быстрее</li>
+        </ul>
+        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
+          <li>Выберите сервис → нажмите «Подключить»</li>
+          <li>Авторизуйтесь</li>
+          <li>Подтвердите передачу данных через SMS</li>
+        </ol>
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
+          💡 Совет: если не хотите мучиться с Госуслугами — попробуйте через банк, где у вас уже есть
+          бизнес-аккаунт. Там обычно всё проходит в пару кликов. Для подтверждения через провайдера банка
+          потребуется открытый расчётный счёт в нём.
+        </div>
+      </Section>
+
+      <Section step="3" title="Создаём канал">
+        <p className="text-sm text-gray-700 mb-3">
+          После успешной верификации возвращайтесь на платформу и выбирайте <strong>«Канал»</strong> в списке
+          сервисов → нажмите «Создать».
+        </p>
+        <p className="text-sm font-semibold text-gray-800 mb-2">Вам предложат два варианта ника:</p>
+        <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5">
+          <li>Сохранить ник из Telegram (если есть отметка A+)</li>
+          <li>Создать канал с автоматическим ником (формат: <code>idИНН_biz</code>)</li>
+        </ul>
+      </Section>
+
+      <Section step="4" title="Выбираете вариант канала — переходите к созданию">
+        <p className="text-sm text-gray-700 mb-3">
+          MAX спросит, как вы хотите создать канал:
+        </p>
+        <ul className="text-sm text-gray-700 space-y-1.5 list-disc pl-5 mb-3">
+          <li><strong>Создать канал с ником из другого мессенджера или соцсети</strong> — если у вас есть регистрация в РКН</li>
+          <li><strong>Создать новый канал для бизнеса</strong></li>
+        </ul>
+        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5 mb-3">
+          <li>Сканируете QR-код — перейдёте в приложение MAX (войдите тем же номером, что используете на платформе)</li>
+          <li>Задаёте название канала</li>
+        </ol>
+        <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-sm text-green-900">
+          ✅ <strong>Открытый канал в MAX активирован!</strong> Теперь вас можно найти через поиск.
+        </div>
+      </Section>
+
+      <Section step="●" title="Что дальше — подключить канал к ПЛЮСОНу">
+        <p className="text-sm text-gray-700 mb-3">
+          Когда открытый канал в MAX создан, добавьте его в раздел{' '}
+          <Link href="/dashboard/channels" className="text-blue-600 hover:underline font-medium">«Каналы»</Link> кабинета —
+          платформа MAX. После этого реф-ссылки и материалы событий смогут вести на ваш канал в MAX.
+        </p>
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
+          💡 Весь процесс создания канала — около 15–20 минут без учёта верификации. Самый непростой этап —
+          подтверждение. С этой инструкцией вы пройдёте его значительно быстрее.
+        </div>
+      </Section>
+
+      <Section step="?" title="Если что-то не получается">
         <ul className="text-sm text-gray-700 space-y-2 list-disc pl-5">
           <li>
-            <strong>Бот молчит на <code>/start</code></strong> → неверный токен или выключен приём
-            сообщений. Перепроверьте шаги 1–3.
+            <strong>Нет кнопки «Создать канал»</strong> → не пройдена верификация организации (этап 2).
+            Её проходит только владелец.
           </li>
           <li>
-            <strong>Ссылка в MAX ведёт на чужой/общий бот</strong> → ваш MAX-канал не активен.
-            Откройте <Link href="/dashboard/channels" className="text-blue-600 hover:underline font-medium">«Каналы»</Link> и
-            включите тумблер «Активный» у вашего MAX-бота.
+            <strong>Самозанятость / физлицо</strong> → открытый канал недоступен. Нужен ИП (можно на НПД)
+            или ООО.
           </li>
           <li>
-            <strong>«Платформа MAX недоступна»</strong> → подключение своего бота на MAX доступно
-            не на всех тарифах. Проверьте свой тариф в Настройках.
+            <strong>Верификация через Госуслуги зависает</strong> → попробуйте банковский сервис
+            (Alfa ID / T-Business ID / СберБизнес ID), где у вас уже есть бизнес-аккаунт.
           </li>
         </ul>
 
         <div className="mt-5 p-4 bg-gray-50 rounded-xl border border-gray-200">
           <div className="text-sm font-semibold text-gray-800 mb-1">Не получилось?</div>
           <p className="text-sm text-gray-600">
-            Напишите разработчику —{' '}
-            <a href="https://t.me/margo_forbs?text=Вопрос_по_подключению_MAX-бота"
+            Напишите в поддержку —{' '}
+            <a href="https://t.me/margo_forbs?text=Вопрос_по_созданию_канала_в_MAX"
                target="_blank" rel="noopener noreferrer"
                className="text-blue-600 hover:underline inline-flex items-center gap-1">
               открыть чат в Telegram <ExternalLink size={12}/>
