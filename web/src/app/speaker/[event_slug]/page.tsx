@@ -1460,13 +1460,19 @@ function JudgingTab({ token }: { token: string }) {
     const f = (data?.my_feedback || []).find((x: any) => x.key === key && (stageId ? x.stage_id === stageId : x.stage_id == null))
     return f ? f.body : ''
   }
-  const saveScore = async (criterionId: number, key: string, value: string) => {
+  const saveScore = async (criterionId: number, key: string, value: string, scaleMax: number, inputEl?: HTMLInputElement) => {
     if (value === '') return
+    let num = Number(value)
+    if (isNaN(num)) return
+    // нельзя ниже 0 и выше максимума критерия
+    if (num < 0) num = 0
+    if (num > scaleMax) num = scaleMax
+    if (inputEl && String(num) !== value) inputEl.value = String(num)  // поправить поле визуально
     await fetch(`${API}/api/v1/public/tournament-jury/score`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ criterion_id: criterionId, key, value: Number(value) }),
+      body: JSON.stringify({ criterion_id: criterionId, key, value: num }),
     })
-    load()
+    // НЕ перезагружаем страницу — балл уже сохранён, чтобы не сбивать фокус/скролл при вводе.
   }
   const saveFb = async (key: string, body: string) => {
     await fetch(`${API}/api/v1/public/tournament-jury/feedback`, {
@@ -1474,16 +1480,18 @@ function JudgingTab({ token }: { token: string }) {
       body: JSON.stringify({ key, body, stage_id: stageId }),
     })
   }
-  const locked = !!data?.locked
+  const lockedKeys: string[] = data?.locked_keys || []
+  const isLocked = (key: string) => lockedKeys.includes(key)
   const myAvg = (key: string): string => {
     const v = data?.my_avg_by_key?.[key]
     return v == null ? '—' : String(v)
   }
-  const lockStage = async () => {
-    if (!confirm('Зафиксировать ваши оценки за этот этап? После фиксации править оценки будет НЕЛЬЗЯ.')) return
+  // Фиксация оценки ОДНОГО участника (можно одного утром, другого вечером).
+  const lockSubject = async (key: string, name: string) => {
+    if (!confirm(`Зафиксировать оценку участнику «${name}»? После фиксации править её будет НЕЛЬЗЯ.`)) return
     await fetch(`${API}/api/v1/public/tournament-jury/lock`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stage_id: stageId }),
+      body: JSON.stringify({ key, stage_id: stageId }),
     })
     load()
   }
@@ -1503,23 +1511,27 @@ function JudgingTab({ token }: { token: string }) {
           {data.stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
         </select>
       )}
-      <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 12 }}>Оценено: {done} из {data.subjects.length}</div>
 
-      {locked && (
-        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#047857' }}>
-          🔒 Вы зафиксировали оценки за этот этап. Править их больше нельзя.
+      {(data.criteria || []).length === 0 ? (
+        <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14, background: '#f8fafc', borderRadius: 10 }}>
+          На этом этапе нет критериев оценки жюри — оценивать нечего.
         </div>
-      )}
+      ) : (
+       <>
+      <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 12 }}>Оценено: {done} из {data.subjects.length}</div>
 
       {data.subjects.map((s: any) => {
         const material = s.material
         const isOpen = open === s.key
+        const locked = isLocked(s.key)
         const scored = (data.criteria || []).some((c: any) => scoreVal(c.id, s.key) !== '')
         return (
           <div key={s.key} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12, background: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setOpen(isOpen ? null : s.key)}>
               <b style={{ color: DARK }}>{s.name}</b>
-              <span style={{ fontSize: 12, color: scored ? '#16a34a' : '#94a3b8' }}>{scored ? '✓ оценено' : '○ не оценен'}</span>
+              {locked
+                ? <span style={{ fontSize: 12, color: '#047857', fontWeight: 700 }}>🔒 зафиксировано</span>
+                : <span style={{ fontSize: 12, color: scored ? '#16a34a' : '#94a3b8' }}>{scored ? '✓ оценено' : '○ не оценен'}</span>}
               {scored && <span style={{ fontSize: 12, color: DARK, fontWeight: 700 }}>· моя оценка: {myAvg(s.key)}</span>}
               <span style={{ marginLeft: 'auto', color: '#94a3b8' }}>{isOpen ? '▲' : '▼'}</span>
             </div>
@@ -1540,8 +1552,8 @@ function JudgingTab({ token }: { token: string }) {
                         <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.4, whiteSpace: 'pre-line', marginTop: 2 }}>{c.description}</div>
                       )}
                     </div>
-                    <input type="number" min={0} max={c.scale_max} defaultValue={scoreVal(c.id, s.key)} disabled={locked}
-                      onBlur={(e) => saveScore(c.id, s.key, e.target.value)}
+                    <input type="number" min={0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)} disabled={locked}
+                      onBlur={(e) => saveScore(c.id, s.key, e.target.value, Number(c.scale_max), e.target)}
                       style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0, background: locked ? '#f1f5f9' : '#fff' }} />
                     <span style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0, paddingTop: 8 }}>/ {c.scale_max}</span>
                   </div>
@@ -1552,17 +1564,21 @@ function JudgingTab({ token }: { token: string }) {
                     onBlur={(e) => saveFb(s.key, e.target.value)}
                     style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit', background: locked ? '#f1f5f9' : '#fff' }} />
                 </div>
+                {/* фиксация ОТДЕЛЬНО по этому участнику */}
+                {locked ? (
+                  <div style={{ marginTop: 10, fontSize: 13, color: '#047857', fontWeight: 600 }}>🔒 Оценка зафиксирована — править нельзя.</div>
+                ) : (
+                  <button onClick={() => lockSubject(s.key, s.name)}
+                    style={{ marginTop: 10, width: '100%', padding: '10px 16px', borderRadius: 10, border: 'none', background: DARK, color: PEACH, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                    🔒 Зафиксировать оценку этого участника
+                  </button>
+                )}
               </div>
             )}
           </div>
         )
       })}
-
-      {!locked && (
-        <button onClick={lockStage}
-          style={{ marginTop: 8, width: '100%', padding: '12px 16px', borderRadius: 10, border: 'none', background: DARK, color: PEACH, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
-          🔒 Зафиксировать результат за этап
-        </button>
+       </>
       )}
     </div>
   )
@@ -1592,9 +1608,15 @@ function MyResultsTab({ token }: { token: string }) {
       {(data.stages || []).map((st: any) => (
         <div key={String(st.stage_id)} style={{ marginBottom: 22 }}>
           {/* заголовок этапа */}
-          <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 10, paddingBottom: 6, borderBottom: `2px solid ${PEACH}` }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: PEACH, background: 'linear-gradient(45deg, #25455D, #0a1520)', marginBottom: 8, padding: '10px 14px', borderRadius: 10 }}>
             {st.stage_title}
           </div>
+          {st.stage_id && data.event_id && (
+            <a href={`/t/${data.event_id}/${st.stage_id}/reglament`} target="_blank" rel="noreferrer"
+              style={{ display: 'inline-block', marginBottom: 12, fontSize: 13, color: DARK, textDecoration: 'underline' }}>
+              📋 Регламент подсчёта баллов
+            </a>
+          )}
 
           {!st.has_results ? (
             <div style={{ fontSize: 14, color: '#94a3b8', padding: '4px 0 8px' }}>За этот этап оценок пока нет.</div>
@@ -1613,20 +1635,41 @@ function MyResultsTab({ token }: { token: string }) {
                 </div>
               </div>
 
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 10 }}>
-                <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>Оценки по критериям</div>
-                {(st.columns || []).map((c: any) => (
-                  <div key={c.criterion_id} style={{ padding: '4px 0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-                      <span>{c.title} <span style={{ color: '#94a3b8', fontSize: 12 }}>· {c.package_title}</span></span>
-                      <b>{st.cells?.[String(c.criterion_id)] ?? '—'}</b>
+              {/* Оценки сгруппированы ПО ПАКЕТАМ: заголовок пакета (вес + нормализация + балл пакета), затем критерии */}
+              {(st.packages || []).map((pkg: any) => {
+                const pkgCols = (st.columns || []).filter((c: any) => c.package_id === pkg.id)
+                if (pkgCols.length === 0) return null
+                const pkgScore = st.package_scores?.[String(pkg.id)]
+                return (
+                  <div key={pkg.id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div style={{ fontWeight: 700, color: DARK }}>
+                        {pkg.title}
+                        <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>вес {pkg.weight}</span>
+                        {pkg.normalize && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: '#FFF3E0', border: '1px solid #FFCFA4', borderRadius: 5, padding: '1px 5px', marginLeft: 6 }}
+                            title="Нормализация: баллы критериев приводятся к доле от лучшего результата">норм.</span>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 10, color: '#94a3b8' }}>балл пакета</div>
+                        <b style={{ color: DARK }}>{pkgScore ?? '—'}</b>
+                      </div>
                     </div>
-                    {c.description && (
-                      <div style={{ color: '#b0bcc8', fontSize: 11, lineHeight: 1.3, whiteSpace: 'pre-line', marginTop: 1 }}>{c.description}</div>
-                    )}
+                    {pkgCols.map((c: any) => (
+                      <div key={c.criterion_id} style={{ padding: '4px 0', borderTop: '1px solid #f1f5f9' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                          <span>{c.title}</span>
+                          <b>{st.cells?.[String(c.criterion_id)] ?? '—'}</b>
+                        </div>
+                        {c.description && (
+                          <div style={{ color: '#b0bcc8', fontSize: 11, lineHeight: 1.3, whiteSpace: 'pre-line', marginTop: 1 }}>{c.description}</div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )
+              })}
 
               {st.feedback?.length > 0 && (
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>

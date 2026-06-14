@@ -202,6 +202,8 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [pairs, setPairs] = useState<Set<string>>(new Set())
+  const [stageId, setStageId] = useState<number | null>(null)
+  const [stagesInit, setStagesInit] = useState(false)
   const [autoOpen, setAutoOpen] = useState(false)
   const [autoSpeakers, setAutoSpeakers] = useState(false)
   const [autoParticipants, setAutoParticipants] = useState(true)
@@ -212,10 +214,15 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await api.tournament.assignments(eventId)
+      const r = await api.tournament.assignments(eventId, stageId)
       setData(r); setPairs(new Set((r.pairs || []).map((p: any) => `${p.juror_ec_id}|${p.key}`)))
+      // дефолт — первый этап (распределение всегда в рамках этапа)
+      if (!stagesInit) {
+        setStagesInit(true)
+        if ((r.stages || []).length > 0 && stageId == null) setStageId(r.stages[0].id)
+      }
     } finally { setLoading(false) }
-  }, [eventId])
+  }, [eventId, stageId, stagesInit])
   useEffect(() => { load() }, [load])
 
   // конфликт: данное жюри привело этого участника (referrer_ref_code = ref_code жюри)
@@ -236,9 +243,9 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
       if (!ok) return
     }
     const next = new Set(pairs); assigned ? next.add(k) : next.delete(k); setPairs(next)
-    await api.tournament.setAssignment(eventId, { juror_ec_id: juror, key, assigned })
+    await api.tournament.setAssignment(eventId, { juror_ec_id: juror, key, assigned, stage_id: stageId })
   }
-  const allAll = async (clear: boolean) => { await api.tournament.setAllAssignments(eventId, clear); load() }
+  const allAll = async (clear: boolean) => { await api.tournament.setAllAssignments(eventId, clear, stageId); load() }
 
   // открыть модалку автораспределения + подтянуть рекомендацию
   const openAuto = async () => {
@@ -266,7 +273,7 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
     try {
       const r: any = await api.tournament.autoAssign(eventId, {
         include_speakers: autoSpeakers, include_participants: autoParticipants,
-        per_juror: n,
+        per_juror: n, stage_id: stageId,
       })
       setAutoOpen(false)
       await load()
@@ -340,15 +347,24 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
 
   return (
     <div>
-      <p className="text-sm text-gray-500 mb-3">Отметьте, кого оценивает каждое жюри. Жюри видит в кабинете только привязанных к нему.</p>
+      <p className="text-sm text-gray-500 mb-2">Отметьте, кого оценивает каждое жюри на выбранном этапе. Жюри видит в кабинете только привязанных к нему.</p>
+      {(data.stages || []).length > 0 && (
+        <div className="flex items-center gap-2 text-sm mb-2">
+          <span className="text-gray-500">Этап:</span>
+          <select className="border rounded-lg px-2 py-1.5" value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}>
+            {data.stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
+          </select>
+          <span className="text-xs text-gray-400">— распределение отдельное на каждом этапе</span>
+        </div>
+      )}
       <p className="text-xs text-gray-400 mb-3">
         Счётчик у участника: <span className="text-[#229ED9] font-semibold">всего</span> /
         <span className="text-emerald-600 font-semibold"> без конфликта</span> /
         <span className="text-red-500 font-semibold"> привели его</span>. Красная цифра — жюри, которое само привело участника по реф-ссылке.
       </p>
-      <div className="overflow-x-auto border rounded-xl" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <div className="overflow-auto border rounded-xl" style={{ WebkitOverflowScrolling: 'touch', maxHeight: '70vh' }}>
         <table className="text-sm min-w-max">
-          <thead>
+          <thead className="sticky top-0 z-30">
             <tr className="bg-gray-50">
               <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-20 w-[220px] min-w-[220px] max-w-[220px]">Участник</th>
               <th className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap text-center sticky left-[220px] bg-gray-50 z-20 border-r">Жюри</th>

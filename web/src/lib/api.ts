@@ -686,11 +686,12 @@ export const api = {
       request(`/api/v1/events/${eventId}/tournament/criteria/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     deleteCriterion: (eventId: number, id: number) =>
       request(`/api/v1/events/${eventId}/tournament/criteria/${id}`, { method: 'DELETE' }),
-    assignments: (eventId: number) => request(`/api/v1/events/${eventId}/tournament/assignments`),
+    assignments: (eventId: number, stageId?: number | null) =>
+      request(`/api/v1/events/${eventId}/tournament/assignments${stageId ? `?stage_id=${stageId}` : ''}`),
     setAssignment: (eventId: number, data: any) =>
       request(`/api/v1/events/${eventId}/tournament/assignments`, { method: 'POST', body: JSON.stringify(data) }),
-    setAllAssignments: (eventId: number, clear: boolean) =>
-      request(`/api/v1/events/${eventId}/tournament/assignments/all?clear=${clear}`, { method: 'POST' }),
+    setAllAssignments: (eventId: number, clear: boolean, stageId?: number | null) =>
+      request(`/api/v1/events/${eventId}/tournament/assignments/all?clear=${clear}${stageId ? `&stage_id=${stageId}` : ''}`, { method: 'POST' }),
     autoAssignSuggest: (eventId: number, includeSpeakers: boolean, includeParticipants: boolean) =>
       request(`/api/v1/events/${eventId}/tournament/assignments/auto-suggest?include_speakers=${includeSpeakers}&include_participants=${includeParticipants}`),
     autoAssign: (eventId: number, data: any) =>
