@@ -311,17 +311,25 @@ async def list_thresholds(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
+    # owner_name/owner_client_id — чей это подарок (через лид-магнит → его клиент).
+    # Нужно для пометки «чей подарок» в дашборде коллаб-события. У обычного события
+    # и в Mini App участника пометка не показывается (решает фронт по is_collab).
     rows = await db.fetch(
         """SELECT t.id, t.threshold_count, t.lead_magnet_id, t.certificate_url,
                   t.gift_template_text, t.sort,
-                  lm.name AS lead_magnet_name, lm.url AS lead_magnet_url
+                  lm.name AS lead_magnet_name, lm.url AS lead_magnet_url,
+                  lm.client_id AS owner_client_id,
+                  COALESCE(oc.brand_name, oc.name) AS owner_name
            FROM event_referral_thresholds t
            LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
+           LEFT JOIN clients oc ON oc.id = lm.client_id
            WHERE t.event_id = $1
            ORDER BY t.threshold_count""",
         event_id
     )
-    return {"items": [dict(r) for r in rows]}
+    from app.services.event_access import is_collab_event
+    is_collab = await is_collab_event(db, event_id)
+    return {"items": [dict(r) for r in rows], "is_collab": is_collab}
 
 
 async def _check_lead_magnet_owned(lead_magnet_id: int, client_id: int, db: asyncpg.Connection):

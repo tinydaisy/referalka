@@ -215,14 +215,20 @@ function GiftsSection({ eventId, moduleSlug }: { eventId: number; moduleSlug?: s
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<any>(null)
   const [creating, setCreating] = useState(false)
+  // Коллаб-событие (несколько организаторов) — показываем «чей подарок».
+  // У обычного события пометки нет. Участнику в Mini App пометка тоже не видна.
+  const [isCollab, setIsCollab] = useState(false)
 
   async function load() {
     setLoading(true)
+    // api.leadMagnets.list() отдаёт лид-магниты ТЕКУЩЕГО клиента (по JWT) — значит
+    // каждый организатор в форме «Добавить» видит только свои. Фильтр автоматический.
     const [r, lm] = await Promise.all([
       api.referralProgram.thresholds.list(eventId),
       api.leadMagnets.list(),
     ])
     setItems(r.items || [])
+    setIsCollab(!!r.is_collab)
     setLeadMagnets(lm.items || [])
     setLoading(false)
   }
@@ -284,6 +290,12 @@ function GiftsSection({ eventId, moduleSlug }: { eventId: number; moduleSlug?: s
                   <div className="text-sm text-gray-700 mt-0.5">🎁 {t.lead_magnet_name}</div>
                 ) : (
                   <div className="text-xs text-orange-600 mt-0.5">⚠️ Лид-магнит не выбран</div>
+                )}
+                {/* Чей подарок — только в коллаб-событии (для организаторов). В Mini App участник этого не видит. */}
+                {isCollab && t.owner_name && (
+                  <div className="inline-flex items-center mt-1 text-[11px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">
+                    от: {t.owner_name}
+                  </div>
                 )}
                 {t.gift_template_text && (
                   <div className="text-xs text-gray-500 mt-1 line-clamp-2">{t.gift_template_text}</div>
