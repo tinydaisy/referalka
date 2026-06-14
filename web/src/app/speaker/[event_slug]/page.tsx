@@ -553,8 +553,8 @@ export default function SpeakerCabinetPage() {
           {([
             { key: 'profile'   as CabinetTab, label: 'Профиль' },
             { key: 'materials' as CabinetTab, label: 'Материалы' },
-            ...(me.role === 'jury' ? [{ key: 'judging' as CabinetTab, label: 'Оценка участников' }] : []),
-            ...(me.role !== 'jury' ? [{ key: 'myresults' as CabinetTab, label: 'Мои результаты' }] : []),
+            ...((me.role === 'jury' || me.role === 'organizer') ? [{ key: 'judging' as CabinetTab, label: 'Оценка участников' }] : []),
+            ...((me.role !== 'jury' && me.role !== 'organizer') ? [{ key: 'myresults' as CabinetTab, label: 'Мои результаты' }] : []),
           ]).map(t => (
             <button
               key={t.key}
@@ -1474,6 +1474,19 @@ function JudgingTab({ token }: { token: string }) {
       body: JSON.stringify({ key, body, stage_id: stageId }),
     })
   }
+  const locked = !!data?.locked
+  const myAvg = (key: string): string => {
+    const v = data?.my_avg_by_key?.[key]
+    return v == null ? '—' : String(v)
+  }
+  const lockStage = async () => {
+    if (!confirm('Зафиксировать ваши оценки за этот этап? После фиксации править оценки будет НЕЛЬЗЯ.')) return
+    await fetch(`${API}/api/v1/public/tournament-jury/lock`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage_id: stageId }),
+    })
+    load()
+  }
 
   if (loading) return <div style={{ padding: 20, textAlign: 'center', color: '#7a8c9c' }}>Загрузка…</div>
   if (!data?.subjects?.length) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Вам пока не назначили участников для оценки. Обратитесь к организатору.</div>
@@ -1492,6 +1505,12 @@ function JudgingTab({ token }: { token: string }) {
       )}
       <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 12 }}>Оценено: {done} из {data.subjects.length}</div>
 
+      {locked && (
+        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#047857' }}>
+          🔒 Вы зафиксировали оценки за этот этап. Править их больше нельзя.
+        </div>
+      )}
+
       {data.subjects.map((s: any) => {
         const material = s.material
         const isOpen = open === s.key
@@ -1501,6 +1520,7 @@ function JudgingTab({ token }: { token: string }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setOpen(isOpen ? null : s.key)}>
               <b style={{ color: DARK }}>{s.name}</b>
               <span style={{ fontSize: 12, color: scored ? '#16a34a' : '#94a3b8' }}>{scored ? '✓ оценено' : '○ не оценен'}</span>
+              {scored && <span style={{ fontSize: 12, color: DARK, fontWeight: 700 }}>· моя оценка: {myAvg(s.key)}</span>}
               <span style={{ marginLeft: 'auto', color: '#94a3b8' }}>{isOpen ? '▲' : '▼'}</span>
             </div>
             {isOpen && (
@@ -1520,23 +1540,30 @@ function JudgingTab({ token }: { token: string }) {
                         <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.4, whiteSpace: 'pre-line', marginTop: 2 }}>{c.description}</div>
                       )}
                     </div>
-                    <input type="number" min={0} max={c.scale_max} defaultValue={scoreVal(c.id, s.key)}
+                    <input type="number" min={0} max={c.scale_max} defaultValue={scoreVal(c.id, s.key)} disabled={locked}
                       onBlur={(e) => saveScore(c.id, s.key, e.target.value)}
-                      style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0 }} />
+                      style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0, background: locked ? '#f1f5f9' : '#fff' }} />
                     <span style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0, paddingTop: 8 }}>/ {c.scale_max}</span>
                   </div>
                 ))}
                 <div style={{ marginTop: 10 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 4 }}>💬 Обратная связь участнику</div>
-                  <textarea defaultValue={fbVal(s.key)} placeholder="Почему такие оценки и что рекомендую развивать…"
+                  <textarea defaultValue={fbVal(s.key)} placeholder="Почему такие оценки и что рекомендую развивать…" disabled={locked}
                     onBlur={(e) => saveFb(s.key, e.target.value)}
-                    style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit' }} />
+                    style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit', background: locked ? '#f1f5f9' : '#fff' }} />
                 </div>
               </div>
             )}
           </div>
         )
       })}
+
+      {!locked && (
+        <button onClick={lockStage}
+          style={{ marginTop: 8, width: '100%', padding: '12px 16px', borderRadius: 10, border: 'none', background: DARK, color: PEACH, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
+          🔒 Зафиксировать результат за этап
+        </button>
+      )}
     </div>
   )
 }
@@ -1556,32 +1583,63 @@ function MyResultsTab({ token }: { token: string }) {
   if (!data?.is_tournament) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Это событие — не турнир.</div>
   if (!data?.has_results) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Результатов пока нет — жюри ещё не выставило оценки.</div>
 
+  const medal = (p: number | null) => p == null ? '' : (p <= 3 ? ['🥇','🥈','🥉'][p-1] : '#'+p)
+
   return (
     <div>
-      <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', borderRadius: 14, padding: 18, color: '#fff', marginBottom: 16 }}>
-        <div style={{ fontSize: 14, opacity: 0.8 }}>Ваше место</div>
-        <div style={{ fontSize: 28, fontWeight: 800 }}>{data.place <= 3 ? ['🥇','🥈','🥉'][data.place-1] : '#'+data.place} {data.place}</div>
-        <div style={{ fontSize: 14, opacity: 0.8, marginTop: 6 }}>Итоговый балл: <b style={{ color: PEACH }}>{data.total}</b></div>
-      </div>
+      <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 14 }}>Ваши оценки по всем этапам — полная прозрачность, с комментариями жюри.</div>
 
-      <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12 }}>
-        <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>Ваши оценки</div>
-        {(data.columns || []).map((c: any) => (
-          <div key={c.criterion_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '3px 0' }}>
-            <span>{c.title} <span style={{ color: '#94a3b8', fontSize: 12 }}>· {c.package_title}</span></span>
-            <b>{data.cells?.[String(c.criterion_id)] ?? '—'}</b>
+      {(data.stages || []).map((st: any) => (
+        <div key={String(st.stage_id)} style={{ marginBottom: 22 }}>
+          {/* заголовок этапа */}
+          <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 10, paddingBottom: 6, borderBottom: `2px solid ${PEACH}` }}>
+            {st.stage_title}
           </div>
-        ))}
-      </div>
 
-      {data.feedback?.length > 0 && (
-        <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>
-          <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>💬 Обратная связь жюри</div>
-          {data.feedback.map((f: any, i: number) => (
-            <div key={i} style={{ fontSize: 14, marginBottom: 8 }}><b style={{ color: DARK }}>{f.juror_name}:</b> {f.body}</div>
-          ))}
+          {!st.has_results ? (
+            <div style={{ fontSize: 14, color: '#94a3b8', padding: '4px 0 8px' }}>За этот этап оценок пока нет.</div>
+          ) : (
+            <>
+              <div style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)', borderRadius: 14, padding: 16, color: '#fff', marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 13, opacity: 0.8 }}>Место на этапе</div>
+                    <div style={{ fontSize: 24, fontWeight: 800 }}>{medal(st.place)} {st.place}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 13, opacity: 0.8 }}>Итог этапа</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: PEACH }}>{st.total}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 10 }}>
+                <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>Оценки по критериям</div>
+                {(st.columns || []).map((c: any) => (
+                  <div key={c.criterion_id} style={{ padding: '4px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                      <span>{c.title} <span style={{ color: '#94a3b8', fontSize: 12 }}>· {c.package_title}</span></span>
+                      <b>{st.cells?.[String(c.criterion_id)] ?? '—'}</b>
+                    </div>
+                    {c.description && (
+                      <div style={{ color: '#b0bcc8', fontSize: 11, lineHeight: 1.3, whiteSpace: 'pre-line', marginTop: 1 }}>{c.description}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {st.feedback?.length > 0 && (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>
+                  <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>💬 Обратная связь жюри</div>
+                  {st.feedback.map((f: any, i: number) => (
+                    <div key={i} style={{ fontSize: 14, marginBottom: 8 }}><b style={{ color: DARK }}>{f.juror_name}:</b> {f.body}</div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
-      )}
+      ))}
     </div>
   )
 }

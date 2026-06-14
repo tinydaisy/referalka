@@ -151,12 +151,13 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
 
 
 async def _jurors(event_id: int, db: asyncpg.Connection) -> List[dict]:
+    # Оценщики = жюри И организаторы (организатор тоже выставляет баллы).
     rows = await db.fetch(
-        """SELECT cse.id AS juror_ec_id, c.name, ct.ref_code
+        """SELECT cse.id AS juror_ec_id, c.name, ct.ref_code, cse.role
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
              LEFT JOIN contacts ct ON ct.id = c.contact_id
-            WHERE cse.event_id = $1 AND cse.role = 'jury'
+            WHERE cse.event_id = $1 AND cse.role IN ('jury', 'organizer')
             ORDER BY split_part(c.name, ' ', 1), c.name, cse.id""",
         event_id,
     )
@@ -806,8 +807,8 @@ async def _ensure_juror(session: dict, db: asyncpg.Connection) -> dict:
             WHERE cse.id = $1""", se_id)
     if not row:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    if row["role"] != "jury":
-        raise HTTPException(status_code=403, detail="Этот раздел только для жюри")
+    if row["role"] not in ("jury", "organizer"):
+        raise HTTPException(status_code=403, detail="Этот раздел только для жюри и организаторов")
     return dict(row)
 
 
@@ -845,6 +846,27 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
         event_id, juror_ec_id)
     stages = await db.fetch("SELECT id, title FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
 
+    # зафиксирован ли этот этап у этого жюри (после фиксации править нельзя)
+    if stage_id is None:
+        locked = await db.fetchval(
+            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id IS NULL",
+            event_id, juror_ec_id)
+    else:
+        locked = await db.fetchval(
+            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id=$3",
+            event_id, juror_ec_id, stage_id)
+
+    # итоговая средняя по каждому участнику = среднее моих баллов по jury-критериям этапа
+    crit_ids = {c["id"] for c in jcrits}
+    avg_by_key: dict = {}
+    tmp: dict = {}
+    for s in my_scores:
+        if s["criterion_id"] in crit_ids:
+            k = _skey(s["subject_kind"], s["subject_id"])
+            tmp.setdefault(k, []).append(float(s["value_number"]))
+    for k, vals in tmp.items():
+        avg_by_key[k] = round(sum(vals) / len(vals), 2) if vals else None
+
     return {
         "juror_name": juror["name"],
         "subjects": [{"key": s["key"], "name": s["name"], "material": s["material"]} for s in subjects],
@@ -852,6 +874,8 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
         "my_scores": [{"criterion_id": s["criterion_id"], "key": _skey(s["subject_kind"], s["subject_id"]), "value_number": float(s["value_number"])} for s in my_scores],
         "my_feedback": [{"key": _skey(f["subject_kind"], f["subject_id"]), "body": f["body"], "stage_id": f["stage_id"]} for f in my_fb],
         "stages": [dict(s) for s in stages],
+        "locked": bool(locked),
+        "my_avg_by_key": avg_by_key,
     }
 
 
@@ -867,9 +891,26 @@ async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), d
     event_id = juror["event_id"]; juror_ec_id = juror["id"]
     if data.value < 0:
         raise HTTPException(status_code=422, detail="Балл не может быть отрицательным")
-    crit = await db.fetchrow("SELECT scorer FROM tournament_criteria WHERE id=$1 AND event_id=$2", data.criterion_id, event_id)
+    crit = await db.fetchrow(
+        """SELECT cr.scorer, p.stage_id
+             FROM tournament_criteria cr
+             JOIN tournament_packages p ON p.id = cr.package_id
+            WHERE cr.id=$1 AND cr.event_id=$2""",
+        data.criterion_id, event_id)
     if not crit or crit["scorer"] != "jury":
         raise HTTPException(status_code=422, detail="Критерий не для оценки жюри")
+    # если жюри уже зафиксировал этот этап — править нельзя
+    cr_stage = crit["stage_id"]
+    if cr_stage is None:
+        locked = await db.fetchval(
+            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id IS NULL",
+            event_id, juror_ec_id)
+    else:
+        locked = await db.fetchval(
+            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id=$3",
+            event_id, juror_ec_id, cr_stage)
+    if locked:
+        raise HTTPException(status_code=403, detail="Вы уже зафиксировали оценки за этот этап — править нельзя")
     kind, sid = data.key.split(":", 1)
     ok = await db.fetchval(
         "SELECT 1 FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4",
@@ -883,6 +924,21 @@ async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), d
            DO UPDATE SET value_number = EXCLUDED.value_number, updated_at = now()""",
         event_id, data.criterion_id, kind, int(sid), juror_ec_id, data.value)
     return {"ok": True}
+
+
+class JuryLockIn(BaseModel):
+    stage_id: Optional[int] = None
+
+
+@jury_router.post("/lock", summary="Кабинет жюри: зафиксировать оценки за этап")
+async def jury_lock(data: JuryLockIn, session: dict = Depends(_cab_session), db: asyncpg.Connection = Depends(get_db)):
+    juror = await _ensure_juror(session, db)
+    event_id = juror["event_id"]; juror_ec_id = juror["id"]
+    await db.execute(
+        """INSERT INTO tournament_jury_locks (event_id, juror_ec_id, stage_id)
+           VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
+        event_id, juror_ec_id, data.stage_id)
+    return {"ok": True, "locked": True}
 
 
 class JuryFeedbackIn(BaseModel):
@@ -918,25 +974,51 @@ async def jury_feedback(data: JuryFeedbackIn, session: dict = Depends(_cab_sessi
     return {"ok": True}
 
 
-@jury_router.get("/my-results", summary="Кабинет спикера: мои оценки и комментарии")
+@jury_router.get("/my-results", summary="Кабинет спикера: мои оценки и комментарии по этапам")
 async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connection = Depends(get_db)):
     se_id = int(session["se_id"]); event_id = int(session["e_id"])
     ev = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
     if not ev or ev["module_slug"] != "turnir":
         return {"is_tournament": False}
-    result = await _compute(event_id, None, db)
     mykey = _skey("ec", se_id)
-    me = next((r for r in result["table"] if r["key"] == mykey), None)
-    if not me:
-        return {"is_tournament": True, "has_results": False}
-    fb = await db.fetch(
-        """SELECT f.body, jc.name AS juror_name
+
+    # все этапы события (+ виртуальный «весь турнир» если этапов нет)
+    stages = await db.fetch("SELECT id, title FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
+    stage_list = [{"id": s["id"], "title": s["title"]} for s in stages] or [{"id": None, "title": "Турнир"}]
+
+    # комментарии жюри (с привязкой к этапу)
+    fb_rows = await db.fetch(
+        """SELECT f.body, f.stage_id, jc.name AS juror_name
              FROM tournament_feedback f
              JOIN event_collaborators jec ON jec.id = f.juror_ec_id
              JOIN collaborators jc ON jc.id = jec.speaker_id
             WHERE f.event_id=$1 AND f.subject_kind='ec' AND f.subject_id=$2""",
         event_id, se_id)
-    # колонки с названиями
-    cols = [{"criterion_id": c["criterion_id"], "title": c["title"], "package_title": c["package_title"]} for c in result["columns"]]
-    return {"is_tournament": True, "has_results": True, "place": me["place"], "total": me["total"],
-            "cells": me["cells"], "columns": cols, "feedback": [dict(f) for f in fb]}
+    fb_by_stage: dict = {}
+    for f in fb_rows:
+        fb_by_stage.setdefault(f["stage_id"], []).append({"juror_name": f["juror_name"], "body": f["body"]})
+
+    # по каждому этапу считаем мою строку
+    stages_out = []
+    any_results = False
+    for st in stage_list:
+        result = await _compute(event_id, st["id"], db)
+        me = next((r for r in result["table"] if r["key"] == mykey), None)
+        cols = [{"criterion_id": c["criterion_id"], "title": c["title"],
+                 "package_title": c["package_title"], "description": c.get("description")}
+                for c in result["columns"]]
+        has = me is not None and (me["total"] or any(v for v in (me["cells"] or {}).values()))
+        if has:
+            any_results = True
+        stages_out.append({
+            "stage_id": st["id"], "stage_title": st["title"],
+            "has_results": bool(has),
+            "place": me["place"] if me else None,
+            "total": me["total"] if me else None,
+            "cells": me["cells"] if me else {},
+            "jury_detail": me.get("jury_detail") if me else {},
+            "columns": cols,
+            "feedback": fb_by_stage.get(st["id"], []),
+        })
+
+    return {"is_tournament": True, "has_results": any_results, "stages": stages_out}
