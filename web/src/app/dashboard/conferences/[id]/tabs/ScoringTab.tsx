@@ -501,6 +501,9 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
     if (value === '') return
     const num = Number(value)
     if (isNaN(num) || num < 0) { alert('Балл не может быть отрицательным.'); load(); return }
+    const col = (board?.columns || []).find((c: any) => c.criterion_id === criterionId)
+    const mx = col ? Number(col.scale_max) : null
+    if (mx != null && !isNaN(mx) && num > mx) { alert(`Балл не может быть больше максимума (${mx}).`); load(); return }
     await api.tournament.manualScore(eventId, { criterion_id: criterionId, key, value: num })
     load()
   }
@@ -510,15 +513,22 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
 
   const cols: any[] = board.columns || []
   // группировка колонок по пакетам для шапки
-  const groups: { title: string; weight: number; span: number; normalize: boolean }[] = []
+  const groups: { title: string; weight: number; span: number; normalize: boolean; aggregate: string }[] = []
   cols.forEach((c) => {
     const last = groups[groups.length - 1]
     if (last && last.title === c.package_title) last.span++
     else {
       const pkg = board.packages.find((p: any) => p.id === c.package_id)
-      groups.push({ title: c.package_title, weight: pkg?.weight ?? 1, span: 1, normalize: !!pkg?.normalize })
+      groups.push({ title: c.package_title, weight: pkg?.weight ?? 1, span: 1, normalize: !!pkg?.normalize, aggregate: pkg?.aggregate || 'avg' })
     }
   })
+  // подпись режима пакета: вес, сумма/среднее, нормализация
+  const pkgMode = (p: any) => {
+    const parts: string[] = [`вес ×${p.weight ?? 1}`]
+    parts.push((p.aggregate || 'avg') === 'sum' ? 'сумма' : 'среднее')
+    if (p.normalize) parts.push('норм. 0–1')
+    return parts.join(' · ')
+  }
   const scorerOf = (cid: number) => cols.find(c => c.criterion_id === cid)?.scorer
   const normalizeOf = (cid: number) => {
     const c = cols.find(x => x.criterion_id === cid)
@@ -551,17 +561,26 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
               <th rowSpan={2} className="px-3 py-2 font-semibold text-[#25455D] border-l">ИТОГ</th>
               {/* итоговые баллы пакетов */}
               <th colSpan={board.packages.length} className="px-3 py-1.5 text-center border-l">Баллы по пакетам</th>
-              {/* критерии, сгруппированные по пакетам */}
-              {groups.map((g, i) => <th key={i} colSpan={g.span} className="px-3 py-1.5 text-center border-l">{g.title} <span className="text-gray-400">×{g.weight}</span>{g.normalize && <NormBadge />}</th>)}
+              {/* критерии, сгруппированные по пакетам — с режимом расчёта */}
+              {groups.map((g, i) => (
+                <th key={i} colSpan={g.span} className="px-2 py-1.5 text-center border-l align-top">
+                  <div>{g.title}</div>
+                  <div className="text-[10px] font-normal text-gray-400 normal-case">{pkgMode(g)}</div>
+                </th>
+              ))}
               <th rowSpan={2} className="px-3 py-2 border-l">Детализация</th>
             </tr>
             <tr className="bg-gray-50 text-gray-500 text-xs">
               {board.packages.map((p: any, i: number) => (
-                <th key={p.id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`}>{p.title}{p.normalize && <NormBadge />}</th>
+                <th key={p.id} className={`px-2 py-1.5 font-medium align-top ${i===0?'border-l':''}`} style={{ minWidth: 70, maxWidth: 110 }}>
+                  <div className="whitespace-normal break-words leading-tight">{p.title}</div>
+                  <div className="text-[10px] font-normal text-gray-400 normal-case">{pkgMode(p)}</div>
+                </th>
               ))}
               {cols.map((c, i) => (
-                <th key={c.criterion_id} className={`px-2 py-1.5 align-top font-medium max-w-[160px] ${i===0?'border-l':''}`} title={c.scorer}>
-                  <div className="whitespace-nowrap">{c.title}{normalizeOf(c.criterion_id) && <NormBadge />}</div>
+                <th key={c.criterion_id} className={`px-1.5 py-1.5 align-top font-medium ${i===0?'border-l':''}`} style={{ minWidth: 64, maxWidth: 90 }} title={c.scorer}>
+                  <div className="whitespace-normal break-words leading-tight">{c.title}{normalizeOf(c.criterion_id) && <NormBadge />}</div>
+                  <div className="text-[10px] font-normal text-gray-400">×{c.weight ?? 1}</div>
                   {c.description && (
                     <div className="text-[10px] font-normal text-gray-400 leading-tight whitespace-pre-line mt-0.5 normal-case">{c.description}</div>
                   )}
