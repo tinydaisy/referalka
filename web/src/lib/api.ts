@@ -520,6 +520,8 @@ export const api = {
       request(`/api/v1/collab/requests/${id}/respond`, { method: 'POST', body: JSON.stringify({ accept, reason }) }),
     deleteRequest: (id: number) =>
       request(`/api/v1/collab/requests/${id}`, { method: 'DELETE' }),
+    reconsiderRequest: (id: number) =>
+      request(`/api/v1/collab/requests/${id}/reconsider`, { method: 'POST' }),
     eventOwners: (eventId: number) => request(`/api/v1/collab/events/${eventId}/owners`),
     collabs: () => request('/api/v1/collab/collabs'),
     leaveCollab: (eventId: number) =>

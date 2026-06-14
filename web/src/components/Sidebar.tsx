@@ -10,6 +10,7 @@ export default function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})  // свёрнутые секции по label
   const [me, setMe] = useState<{ name?: string; email?: string; features?: string[]; role?: string } | null>(null)
   const { t } = useLang()
 
@@ -55,17 +56,6 @@ export default function Sidebar() {
         ...(hasContests ? [{ href: '/dashboard/contests', label: 'Участие в конкурсах', icon: Vote }] : []),
       ],
     },
-    // Коллабораторная (Хаб) — отдельная секция с подпунктами. Только со 2-го тарифа (pro/vip/trial), не start.
-    ...(hasCollabHub ? [{
-      label: 'КОЛЛАБОРАТОРНАЯ (ХАБ)',
-      items: [
-        { href: '/dashboard/collab-hub', label: 'Каталог', icon: Search, exact: true },
-        { href: '/dashboard/collab-hub/events', label: 'Коллабы', icon: Calendar },
-        { href: '/dashboard/collab-hub/requests', label: 'Запросы', icon: Inbox },
-        { href: '/dashboard/collab-hub/matchmaker', label: 'Умный сват', icon: Sparkles },
-        { href: '/dashboard/collab-hub/card', label: 'Моя карточка', icon: Star },
-      ],
-    }] : []),
     {
       label: t.nav.base,
       items: [
@@ -80,6 +70,19 @@ export default function Sidebar() {
         ...(isAssistant ? [] : [{ href: '/dashboard/partner-program', label: 'Партнёрская', icon: Wallet }]),
       ],
     },
+    // Коллабораторная (Хаб) — ВНЕШНИЙ раздел (другие клиенты ПЛЮСОНа). Под Базой, выделен оттенком + рамкой.
+    // Только со 2-го тарифа (pro/vip/trial), не start.
+    ...(hasCollabHub ? [{
+      label: 'КОЛЛАБОРАТОРНАЯ (ХАБ)',
+      external: true,
+      items: [
+        { href: '/dashboard/collab-hub', label: 'Каталог', icon: Search, exact: true },
+        { href: '/dashboard/collab-hub/events', label: 'Коллабы', icon: Calendar },
+        { href: '/dashboard/collab-hub/requests', label: 'Запросы', icon: Inbox },
+        { href: '/dashboard/collab-hub/matchmaker', label: 'Умный сват', icon: Sparkles },
+        { href: '/dashboard/collab-hub/card', label: 'Моя карточка', icon: Star },
+      ],
+    }] : []),
   ]
 
   const content = (
@@ -98,14 +101,22 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 overflow-y-auto">
-        {sections.map((section, si) => (
-          <div key={si} className={si > 0 ? 'mt-4' : ''}>
+        {sections.map((section: any, si: number) => {
+          const isCollapsed = section.label ? !!collapsed[section.label] : false
+          const isExternal = !!section.external
+          return (
+          <div key={si} className={`${si > 0 ? 'mt-4' : ''} ${isExternal ? 'rounded-xl border border-[#FFCFA4]/30 bg-[#3a5f7d]/40 p-2' : ''}`}>
             {section.label && (
-              <p className="px-3 pb-1.5 text-[10px] font-semibold tracking-widest text-white/35 uppercase">
+              <button
+                onClick={() => setCollapsed(c => ({ ...c, [section.label]: !c[section.label] }))}
+                className="w-full flex items-center gap-1.5 px-2 pb-1.5 text-[10px] font-semibold tracking-widest uppercase hover:text-white/60"
+                style={{ color: isExternal ? '#FFCFA4' : 'rgba(255,255,255,0.35)' }}
+              >
+                <ChevronDown size={12} className={`transition-transform ${isCollapsed ? '-rotate-90' : ''}`} />
                 {section.label}
-              </p>
+              </button>
             )}
-            <div className="space-y-0.5">
+            {!isCollapsed && <div className="space-y-0.5">
               {section.items.map(({ href, label, icon: Icon, exact }: { href: string; label: string; icon: any; exact?: boolean }) => {
                 const active = isActive(href, exact)
                 const isComingSoon = href === '#'
@@ -132,9 +143,10 @@ export default function Sidebar() {
                   </Link>
                 )
               })}
-            </div>
+            </div>}
           </div>
-        ))}
+          )
+        })}
       </nav>
 
       {/* Bottom */}

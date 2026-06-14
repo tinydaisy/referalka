@@ -235,6 +235,7 @@ export function RequestsView() {
     catch (e: any) { alert(e?.message || 'Не удалось') }
   }
   const del = async (id: number) => { if (!confirm('Удалить этот запрос?')) return; try { await api.collabHub.deleteRequest(id); load() } catch (e: any) { alert(e?.message || 'Не удалось') } }
+  const reconsider = async (id: number) => { if (!confirm('Передумать? Вы выйдете из коллабы, запрос вернётся в «ждёт ответа».')) return; try { await api.collabHub.reconsiderRequest(id); load() } catch (e: any) { alert(e?.message || 'Не удалось') } }
   const chip = (s: string) => { const m: any = { pending: ['Ждёт ответа', 'bg-gray-200 text-gray-600'], accepted: ['Принято', 'bg-green-100 text-green-700'], declined: ['Отклонено', 'bg-red-100 text-red-600'] }; const [t, c] = m[s] || [s, 'bg-gray-100']; return <span className={`text-xs px-2 py-0.5 rounded-full ${c}`}>{t}</span> }
   const fmtDate = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
 
@@ -282,6 +283,7 @@ export function RequestsView() {
                   <button onClick={() => setDeclineId(r.id)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
                 </>)}
               {dir === 'incoming' && r.status === 'declined' && <button onClick={() => accept(r.id)} className="text-xs px-3 py-1.5 rounded-xl border" style={{ color: '#16a34a', borderColor: '#16a34a' }}>Передумать — принять</button>}
+              {dir === 'incoming' && r.status === 'accepted' && <button onClick={() => reconsider(r.id)} className="text-xs px-3 py-1.5 rounded-xl border text-gray-500" title="Выйти и вернуть в «ждёт ответа»">Передумать</button>}
               {dir === 'outgoing' && r.status !== 'accepted' && <button onClick={() => del(r.id)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500" title="Удалить запрос"><Trash2 className="w-4 h-4" /></button>}
             </div>
           </div>

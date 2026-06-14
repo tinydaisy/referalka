@@ -60,9 +60,13 @@ export default function EventPage() {
 
   return (
     <div>
-      {/* Breadcrumb */}
+      {/* Breadcrumb — для коллаб-события ведёт в Коллабораторную, не в Мероприятия */}
       <div className="flex items-center gap-2 text-sm text-gray-400 mb-4">
-        <Link href="/dashboard/events" className="hover:text-gray-700">Мероприятия</Link>
+        {event.is_collab ? (
+          <Link href="/dashboard/collab-hub/events" className="hover:text-gray-700">Коллабораторная · Коллабы</Link>
+        ) : (
+          <Link href="/dashboard/events" className="hover:text-gray-700">Мероприятия</Link>
+        )}
         <span>/</span>
         <span className="text-gray-700">{event.title}</span>
       </div>

@@ -162,6 +162,35 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
     return {"ok": True, "status": new_status, "event_id": created_event_id}
 
 
+@router.post("/requests/{request_id}/reconsider")
+async def reconsider_request(request_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Передумать по СВОЕМУ ответу (я — получатель). Возвращает запрос в pending («думаю»).
+    Если был accepted и коллаба создалась этим запросом — выхожу из неё (co_owner удаляется);
+    если коллаба-событие осталось без второго владельца и было создано этим запросом — удаляется."""
+    me = int(client["sub"])
+    req = await db.fetchrow("SELECT * FROM hub_collab_requests WHERE id=$1", request_id)
+    if not req or req["to_client_id"] != me:
+        raise HTTPException(404, "Запрос не найден")
+    if req["status"] == "pending":
+        return {"ok": True, "status": "pending"}  # уже думаю
+    async with db.transaction():
+        if req["status"] == "accepted" and req["event_id"]:
+            ev_id = req["event_id"]
+            # я (acceptor) выхожу из коллабы
+            await db.execute("DELETE FROM event_owners WHERE event_id=$1 AND client_id=$2 AND role='co_owner'", ev_id, me)
+            cnt = await db.fetchval("SELECT count(*) FROM event_owners WHERE event_id=$1 AND status='accepted'", ev_id)
+            if (cnt or 0) <= 1:
+                await db.execute("UPDATE events SET is_collab=FALSE WHERE id=$1", ev_id)
+            # если событие было создано ЭТИМ запросом (название «Событие между …») и без участников — удаляем, чтобы не висело пустым
+            has_parts = await db.fetchval("SELECT EXISTS(SELECT 1 FROM event_participants WHERE event_id=$1)", ev_id)
+            ev = await db.fetchrow("SELECT title, status FROM events WHERE id=$1", ev_id)
+            if ev and not has_parts and (ev["title"] or "").startswith("Событие между ") and ev["status"] == "draft":
+                await db.execute("DELETE FROM events WHERE id=$1", ev_id)
+                await db.execute("UPDATE hub_collab_requests SET event_id=NULL WHERE id=$1", request_id)
+        await db.execute("UPDATE hub_collab_requests SET status='pending', responded_at=NULL, decline_reason=NULL WHERE id=$1", request_id)
+    return {"ok": True, "status": "pending"}
+
+
 @router.delete("/requests/{request_id}")
 async def delete_request(request_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     """Удалить СВОЙ отправленный запрос (только инициатор, только пока не принят)."""
