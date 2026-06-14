@@ -293,7 +293,10 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                             det.append({"juror_name": jr["name"], "value": jv})
                     if det:
                         jury_detail[c["id"]] = det
-            pkg_score = (weighted_sum / weight_total) if weight_total > 0 else 0.0
+            if p.get("aggregate") == "sum":
+                pkg_score = weighted_sum  # складываем взвешенные баллы критериев, без усреднения
+            else:
+                pkg_score = (weighted_sum / weight_total) if weight_total > 0 else 0.0
             package_scores[p["id"]] = round(pkg_score, 3)
             total += pkg_score * float(p["weight"])
         # прогресс жюри
@@ -326,7 +329,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         r["place"] = place
 
     return {
-        "packages": [{"id": p["id"], "title": p["title"], "weight": float(p["weight"]), "normalize": p["normalize"]} for p in pkgs],
+        "packages": [{"id": p["id"], "title": p["title"], "weight": float(p["weight"]), "normalize": p["normalize"], "aggregate": p.get("aggregate", "avg")} for p in pkgs],
         "columns": columns,
         "jurors": [{"juror_ec_id": j["juror_ec_id"], "name": j["name"]} for j in jurors],
         "table": table,
@@ -354,6 +357,7 @@ class PackageIn(BaseModel):
     title: str
     weight: float = 1
     normalize: bool = False
+    aggregate: str = "avg"  # 'avg' — усреднять критерии, 'sum' — складывать
     sort_order: int = 0
     stage_id: Optional[int] = None  # этап пакета (NULL = весь турнир)
 
@@ -363,10 +367,12 @@ async def create_package(event_id: int, data: PackageIn, client=Depends(get_curr
     await _check_access(event_id, int(client["sub"]), db)
     if not data.title.strip():
         raise HTTPException(status_code=422, detail="Название пакета обязательно")
+    if data.aggregate not in ("avg", "sum"):
+        raise HTTPException(status_code=422, detail="aggregate должен быть avg или sum")
     p = await db.fetchrow(
-        """INSERT INTO tournament_packages (event_id, title, weight, normalize, sort_order, stage_id)
-           VALUES ($1,$2,$3,$4,$5,$6) RETURNING *""",
-        event_id, data.title.strip(), data.weight, data.normalize, data.sort_order, data.stage_id)
+        """INSERT INTO tournament_packages (event_id, title, weight, normalize, aggregate, sort_order, stage_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""",
+        event_id, data.title.strip(), data.weight, data.normalize, data.aggregate, data.sort_order, data.stage_id)
     return {"package": dict(p)}
 
 
@@ -374,6 +380,7 @@ class PackageUpdate(BaseModel):
     title: Optional[str] = None
     weight: Optional[float] = None
     normalize: Optional[bool] = None
+    aggregate: Optional[str] = None
     sort_order: Optional[int] = None
     stage_id: Optional[int] = None
 
@@ -382,6 +389,8 @@ class PackageUpdate(BaseModel):
 async def update_package(event_id: int, package_id: int, data: PackageUpdate, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
     payload = data.model_dump(exclude_unset=True)
+    if payload.get("aggregate") and payload["aggregate"] not in ("avg", "sum"):
+        raise HTTPException(status_code=422, detail="aggregate должен быть avg или sum")
     if payload:
         cols = list(payload.keys())
         sets = ", ".join(f"{c} = ${i+3}" for i, c in enumerate(cols))
@@ -548,6 +557,20 @@ async def set_assignment(event_id: int, data: AssignIn, client=Depends(get_curre
                VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING""",
             event_id, data.juror_ec_id, kind, int(sid), data.stage_id)
     else:
+        # ЗАПРЕТ снимать жюри с участника, если оно уже поставило балл по критерию
+        # этого этапа — иначе балл «осиротеет» (останется в scores, но без назначения).
+        already = await db.fetchval(
+            """SELECT 1
+                 FROM tournament_scores ts
+                 JOIN tournament_criteria cr ON cr.id = ts.criterion_id
+                 JOIN tournament_packages p  ON p.id = cr.package_id
+                WHERE ts.event_id=$1 AND ts.juror_ec_id=$2
+                  AND ts.subject_kind=$3 AND ts.subject_id=$4
+                  AND ($5::bigint IS NOT DISTINCT FROM p.stage_id)
+                LIMIT 1""",
+            event_id, data.juror_ec_id, kind, int(sid), data.stage_id)
+        if already:
+            raise HTTPException(status_code=409, detail="Это жюри уже выставило оценку этому участнику — снять с распределения нельзя. Сначала удалите его оценку.")
         if data.stage_id is None:
             await db.execute(
                 "DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id IS NULL",

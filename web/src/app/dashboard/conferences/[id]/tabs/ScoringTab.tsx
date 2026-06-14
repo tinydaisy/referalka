@@ -106,6 +106,7 @@ function CriteriaSub({ eventId }: { eventId: number }) {
 function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
   const [weight, setWeight] = useState(String(pkg.weight))
   const [normalize, setNormalize] = useState(!!pkg.normalize)
+  const [sumMode, setSumMode] = useState(pkg.aggregate === 'sum')
 
   const savePkg = async (patch: any) => { await api.tournament.updatePackage(eventId, pkg.id, patch); onChange() }
   const delPkg = async () => {
@@ -136,6 +137,10 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
         <label className="text-xs text-gray-500 flex items-center gap-1" title="Привести критерии к доле от лучшего результата. Включайте, если в пакете критерии с разными масштабами (например голоса в сотнях и баллы жюри до 10) — тогда большие числа не задавят маленькие.">
           <input type="checkbox" checked={normalize} onChange={(e) => { setNormalize(e.target.checked); savePkg({ normalize: e.target.checked }) }} />
           нормализовать (?)
+        </label>
+        <label className="text-xs text-gray-500 flex items-center gap-1" title="Складывать баллы критериев, а не усреднять. По умолчанию балл пакета = среднее по критериям. Включите, если хотите, чтобы баллы за задания суммировались (6 заданий по 6 → 36, а не 6).">
+          <input type="checkbox" checked={sumMode} onChange={(e) => { setSumMode(e.target.checked); savePkg({ aggregate: e.target.checked ? 'sum' : 'avg' }) }} />
+          складывать, не усреднять (?)
         </label>
         <button onClick={delPkg} className="ml-auto text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
       </div>
@@ -243,7 +248,13 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
       if (!ok) return
     }
     const next = new Set(pairs); assigned ? next.add(k) : next.delete(k); setPairs(next)
-    await api.tournament.setAssignment(eventId, { juror_ec_id: juror, key, assigned, stage_id: stageId })
+    try {
+      await api.tournament.setAssignment(eventId, { juror_ec_id: juror, key, assigned, stage_id: stageId })
+    } catch (e: any) {
+      // запрет снятия жюри, которое уже выставило оценку — откатываем галочку
+      const revert = new Set(pairs); assigned ? revert.delete(k) : revert.add(k); setPairs(revert)
+      alert(e?.message || 'Не удалось изменить распределение.')
+    }
   }
   const allAll = async (clear: boolean) => { await api.tournament.setAllAssignments(eventId, clear, stageId); load() }
 
