@@ -34,6 +34,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def _max_image_attachment_from_url(image_url: str, bot_token: str) -> dict | None:
+    """Скачать картинку по URL (афиша в R2) во временный файл и загрузить в MAX.
+
+    MAX `upload_media` принимает только локальный файл (двухшаговая загрузка),
+    а афиши хранятся как URL в R2 — поэтому качаем во временный файл, грузим,
+    удаляем. Возвращает attachment-dict для send_message.attachments или None.
+    """
+    import os
+    import tempfile
+    import httpx
+    from urllib.parse import urlparse
+    from ..services.max_api import upload_media
+
+    ext = os.path.splitext(urlparse(image_url).path)[1].lower() or ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        ext = ".jpg"
+    tmp_path = None
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as cli:
+            resp = await cli.get(image_url)
+        if resp.status_code != 200 or not resp.content:
+            logger.warning(f"MAX poster download failed status={resp.status_code} url={image_url}")
+            return None
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tf:
+            tf.write(resp.content)
+            tmp_path = tf.name
+        return await upload_media(tmp_path, token=bot_token, kind="image")
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 def webhook_secret_for_token(token: str) -> str:
     """Детерминированный secret для URL webhook'а. Меняется при ротации токена."""
     if not token:
@@ -476,9 +511,22 @@ async def _process_start(
         event_status = None
         event_landing_url = ""
         is_registered = False
+        event_poster_url = ""
         if event_slug:
             ev = await conn.fetchrow(
-                "SELECT id, title, status, landing_url FROM events WHERE slug = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+                """SELECT id, title, status, landing_url,
+                          (SELECT url FROM event_posters
+                             WHERE event_id = events.id
+                             ORDER BY CASE orientation
+                                        WHEN 'square'     THEN 1
+                                        WHEN 'horizontal' THEN 2
+                                        WHEN 'vertical'   THEN 3
+                                        ELSE 4
+                                      END, sort, id
+                             LIMIT 1) AS poster_url
+                     FROM events
+                    WHERE slug = $1
+                      AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')""",
                 event_slug, client_id,
             )
             if ev:
@@ -486,6 +534,7 @@ async def _process_start(
                 event_id = ev["id"]
                 event_status = ev["status"]
                 event_landing_url = (ev["landing_url"] or "").strip()
+                event_poster_url = (ev["poster_url"] or "").strip()
                 referrer_participant_id = None
                 if referrer_contact_id:
                     referrer_participant_id = await conn.fetchval(
@@ -535,17 +584,45 @@ async def _process_start(
                 except Exception as e:
                     logger.warning(f"MAX event menu failed for user={user_id}: {e}")
                 return
-            # НЕ зарегистрирован → 3 кнопки (Мини-Апп / Веб / Регистрация).
-            mini_app_link = build_max_link(event_slug, partner_id=partner_ref_code or None)
+            # НЕ зарегистрирован → 1 кнопка «ЗАРЕГИСТРИРОВАТЬСЯ» + афиша (как в TG).
+            # Веб-ссылка: сторонний лендинг (если задан и опубликован) с ПОЛНЫМ
+            # набором параметров (pluson_contact_id, pluson_participant_id, pid,
+            # utm, external_ref_param рефовода, поля контакта) — иначе встроенный
+            # веб pluson.ru/event/{slug}/register?c={contact_id}.
+            # participant_id ОБЯЗАТЕЛЕН: GetCourse/Tilda присылают его обратно в
+            # webhook getcourse/register — без него регистрация на лендинге не
+            # привязывается к участию (is_registered не проставляется).
             internal_web = (
-                f"https://pluson.ru/event/{event_slug}?c={contact_id}"
-                if contact_id else f"https://pluson.ru/event/{event_slug}"
+                f"https://pluson.ru/event/{event_slug}/register?c={contact_id}"
+                if contact_id else f"https://pluson.ru/event/{event_slug}/register"
             )
-            web_url = (
-                event_landing_url
-                if (event_landing_url and event_status == "published")
-                else internal_web
-            )
+            if event_landing_url and event_status == "published":
+                from app.services.external_landing import (
+                    build_external_landing_url,
+                    get_contact_landing_params,
+                    resolve_referrer_external_ref_param,
+                )
+                participant_id = await conn.fetchval(
+                    "SELECT id FROM event_participants WHERE event_id = $1 AND contact_id = $2 LIMIT 1",
+                    event_id, contact_id,
+                ) if contact_id else None
+                contact_params = await get_contact_landing_params(conn, contact_id) if contact_id else {}
+                erp = await resolve_referrer_external_ref_param(
+                    conn, client_id, pid=partner_ref_code or None, contact_id=contact_id,
+                )
+                web_url = build_external_landing_url(
+                    event_landing_url,
+                    event_slug=event_slug,
+                    contact_id=contact_id,
+                    participant_id=participant_id,
+                    pid=partner_ref_code or None,
+                    utm_source=utm_source or None,
+                    external_ref_param=erp,
+                    flags=parsed.get("flags"),
+                    **contact_params,
+                )
+            else:
+                web_url = internal_web
             support_footer = (
                 f"\n\nЕсть вопросы по регистрации? Напишите: https://t.me/{work_tg.lstrip('@')}"
                 if work_tg else ""
@@ -554,17 +631,26 @@ async def _process_start(
                 "Добрейшего-богатейшего! 🤝\n\n"
                 "Здесь вы можете зарегистрироваться на наше событие:\n"
                 f"{event_title}\n\n"
-                "Нажмите на кнопку ниже — ту, которая у вас сработает с учётом "
-                "скорости вашего интернета."
+                "Нажмите на кнопку ниже."
                 f"{support_footer}"
             )
             buttons = tg_inline_to_max_keyboard([
-                [{"text": "Открыть в Мини-Апп", "url": mini_app_link}],
-                [{"text": "Открыть в Веб-версии", "url": web_url}],
                 [{"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url}],
             ])
+            # Афиша события — грузим в MAX и шлём вложением (как фото с подписью в TG).
+            attachments = None
+            if event_poster_url:
+                try:
+                    att = await _max_image_attachment_from_url(event_poster_url, bot_token)
+                    if att:
+                        attachments = [att]
+                except Exception as e:
+                    logger.warning(f"MAX poster attach failed ({event_poster_url}): {e}")
             try:
-                await max_send_message(chat_id, msg_text, token=bot_token, buttons=buttons)
+                await max_send_message(
+                    chat_id, msg_text, token=bot_token,
+                    buttons=buttons, attachments=attachments,
+                )
             except Exception as e:
                 logger.warning(f"MAX welcome failed for user={user_id}: {e}")
             return

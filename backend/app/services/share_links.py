@@ -235,15 +235,23 @@ async def build_funnel_landing_links(
     if tg_handle:
         result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
 
-    # VK: ТОЛЬКО собственное сообщество клиента (нужен его vk_app_id из platform_meta)
+    # VK: собственное сообщество клиента (его vk_app_id), либо системный VK
+    # Mini App ПЛЮСОНа (если выведен клиентам, is_test=FALSE). Системный VK Mini App
+    # парсит `m_<slug>`/`p_<slug>` в hash и сам запускает воронку — для этого ему
+    # не нужно писать в личку (в отличие от событий). Аналогично TG.
     if handles.get("vk"):
         vk_app_id = await get_client_vk_app_id(db, client_id)
         if vk_app_id:
             result["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
+    elif await _has_system_channel(db, "vk", allow_test=False):
+        result["vk"] = f"https://vk.com/app{PLUSON_VK_APP_ID}#{payload}"
 
-    # MAX: ТОЛЬКО собственный MAX-бот клиента
+    # MAX: собственный MAX-бот клиента, либо системный MAX-бот ПЛЮСОНа
+    # (если выведен клиентам, is_test=FALSE).
     if handles.get("max"):
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
+    elif await _has_system_channel(db, "max", allow_test=False):
+        result["max"] = f"https://max.ru/{PLUSON_MAX_HANDLE}?start={payload}"
 
     return result
 
