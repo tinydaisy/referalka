@@ -412,10 +412,20 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
     if not user_id:
         return
 
+    _ref = event.get("ref") or event.get("ref_source")
     try:
         logger.info(
             "VK message_allow group=%s user=%s ref=%r",
-            ctx.group_id, user_id, event.get("ref") or event.get("ref_source"),
+            ctx.group_id, user_id, _ref,
+        )
+    except Exception:
+        pass
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — ref из vk.me?ref=... приходит сюда при первом разрешении ЛС.
+    try:
+        from app.services.entry_link_log import log_entry_link
+        await log_entry_link(
+            db, platform="vk", platform_user_id=user_id, raw_param=_ref,
+            launch_params={"src": "message_allow", "group_id": ctx.group_id},
         )
     except Exception:
         pass
@@ -702,6 +712,18 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             "VK message_new group=%s from=%s ref=%r payload=%r text=%r",
             ctx.group_id, from_id, diag_ref, diag_payload,
             (message.get("text") or "")[:50],
+        )
+    except Exception:
+        pass
+
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — ref/payload из входящего сообщения (vk.me?ref=evl_..._pid...).
+    try:
+        from app.services.entry_link_log import log_entry_link
+        _ref_new = message.get("ref") or message.get("ref_source") or event_obj.get("ref")
+        await log_entry_link(
+            db, platform="vk", platform_user_id=from_id, raw_param=_ref_new,
+            launch_params={"src": "message_new", "group_id": ctx.group_id,
+                           "payload": message.get("payload"), "text": (message.get("text") or "")[:80]},
         )
     except Exception:
         pass
@@ -1169,6 +1191,18 @@ async def handle_group_join(event: dict, db, ctx: GroupCtx) -> None:
         return
     join_type = event.get("join_type")  # join | unsure | accepted | approved | request
     logger.info("VK group_join group=%s user=%s type=%s", ctx.group_id, user_id, join_type)
+
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — фиксируем вступление в сообщество и весь event (вдруг ref).
+    try:
+        from app.services.entry_link_log import log_entry_link
+        await log_entry_link(
+            db, platform="vk", platform_user_id=user_id,
+            raw_param=event.get("ref") or event.get("ref_source"),
+            launch_params={"src": "group_join", "group_id": ctx.group_id,
+                           "join_type": join_type, "event": {k: v for k, v in event.items() if k != "user_id"}},
+        )
+    except Exception:
+        pass
 
     try:
         user_info = await get_user_info(int(user_id))

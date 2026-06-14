@@ -193,6 +193,22 @@ async def handle_start(message: Message, command: CommandObject):
     args = (command.args or "").strip()
     user = message.from_user
 
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — сырой /start-аргумент ПЕРВЫМ делом, до любой обработки.
+    if args:
+        try:
+            from app.services.entry_link_log import log_entry_link
+            _pool = await get_pool()
+            if _pool:
+                async with _pool.acquire() as _logc:
+                    await log_entry_link(
+                        _logc,
+                        platform="telegram",
+                        platform_user_id=(user.id if user else None),
+                        raw_param=args,
+                    )
+        except Exception:
+            pass
+
     # Регистрируем подписку — для счётчика подписчиков канала и базы контактов
     await _record_subscription(message)
 

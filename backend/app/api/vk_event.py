@@ -29,6 +29,7 @@ from ..services.vk_api import (
 )
 from ..services.share_links import vk_link as build_vk_link
 from ..services.event_welcome import _send_event_organizer_notification
+from ..services.entry_link_log import log_entry_link
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -857,6 +858,22 @@ async def handle_vk_event(body: VkEventRequest):
     pool = await get_pool()
     if not pool:
         return {"ok": True, "warning": "db not available", "vk_user_id": vk_user_id}
+
+    # ЛОГ ССЫЛКИ ПЕРЕХОДА — пишем сырьё ПЕРВЫМ делом, до создания контакта/участия.
+    # Видно по факту: довёз ли VK slug/pid (event_slug/partner_id) или потерял hash.
+    try:
+        async with pool.acquire() as _logc:
+            await log_entry_link(
+                _logc,
+                platform="vk",
+                platform_user_id=vk_user_id,
+                raw_param=(body.event_slug or "") + (f"_pid{body.partner_id}" if body.partner_id else ""),
+                launch_params=body.launch_params,
+                parsed_slug=body.event_slug or None,
+                parsed_pid=body.partner_id or None,
+            )
+    except Exception:
+        pass
 
     # Определяем client_id: 1) явный из startapp 2) из event_slug
     #   3) ПО vk_app_id — владелец Mini App (КЛЮЧЕВОЕ против дублей: даже при
