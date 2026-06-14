@@ -2643,40 +2643,63 @@ async def public_tournament_reglament(slug: str, stage_id: int,
 
         # пример расчёта на конкретных критериях пакета
         ex_crits = crits[:2] if len(crits) >= 2 else crits
-        if normalize:
+        is_sum = (p.get("aggregate") == "sum")
+        agg_word = "складываются" if is_sum else "усредняются"
+        # описание нормализации (если включена)
+        norm_note = (
+            "<p>Пакет <b>нормализуется</b>: по каждому критерию находим лучший результат "
+            "среди всех участников и переводим балл в долю от него (лучший = 1.0). "
+            "Это уравнивает критерии с разными шкалами.</p>" if normalize else "")
+        base_word = "доля от лучшего по критерию" if normalize else "балл критерия"
+        if is_sum:
             formula = (
-                "<p>Пакет <b>нормализуется</b>. Это значит: по каждому критерию находим "
-                "лучший результат среди всех участников и переводим баллы в долю от него "
-                "(лучший = 1.0). Это уравнивает критерии с разными шкалами, чтобы большие "
-                "числа не задавили маленькие.</p>"
-                "<p><b>Как считается балл пакета:</b><br>"
-                "1) по каждому критерию: <code>доля = балл участника ÷ лучший балл по этому критерию</code>;<br>"
-                "2) балл пакета = взвешенное среднее этих долей по весам критериев.</p>")
-            # числовой пример
-            c0 = ex_crits[0]
-            ex = (f"<p class='ex'><b>Пример.</b> По критерию «{esc(c0['title'])}» лучший участник "
-                  f"набрал, скажем, 10, а наш — 6. Тогда его доля = 6 ÷ 10 = <b>0.6</b>. "
-                  "Так же считаем остальные критерии пакета и берём их взвешенное среднее.</p>")
+                norm_note +
+                f"<p><b>Баллы критериев {agg_word}</b> (с учётом веса каждого), без усреднения:</p>"
+                f"<p><code>балл пакета = Σ({base_word} × вес критерия)</code></p>")
         else:
             formula = (
-                "<p>Пакет <b>без нормализации</b>. Балл пакета = взвешенное среднее сырых "
-                "баллов критериев по их весам:</p>"
-                "<p><code>балл пакета = Σ(балл критерия × вес критерия) ÷ Σ(весов критериев)</code></p>")
-            if len(ex_crits) >= 2:
-                a, b = ex_crits[0], ex_crits[1]
-                wa, wb = float(a.get("weight", 1)), float(b.get("weight", 1))
-                ex = (f"<p class='ex'><b>Пример.</b> Пусть по «{esc(a['title'])}» участник получил 1 "
-                      f"(вес {fnum(wa)}), по «{esc(b['title'])}» — 1 (вес {fnum(wb)}). "
+                norm_note +
+                f"<p><b>Баллы критериев {agg_word}</b> — берётся взвешенное среднее по весам:</p>"
+                f"<p><code>балл пакета = Σ({base_word} × вес критерия) ÷ Σ(весов критериев)</code></p>")
+        # числовой пример
+        if normalize:
+            c0 = ex_crits[0]
+            w0 = float(c0.get("weight", 1))
+            if is_sum:
+                ex = (f"<p class='ex'><b>Пример.</b> По критерию «{esc(c0['title'])}» лучший "
+                      f"набрал 10, а наш — 6 → доля 0.6 (вес {fnum(w0)}). Доли всех критериев "
+                      f"умножаются на веса и складываются.</p>")
+            else:
+                ex = (f"<p class='ex'><b>Пример.</b> По критерию «{esc(c0['title'])}» лучший "
+                      f"набрал 10, а наш — 6 → доля 0.6. Так считаем по всем критериям и берём "
+                      f"их взвешенное среднее.</p>")
+        elif len(ex_crits) >= 2:
+            a, b = ex_crits[0], ex_crits[1]
+            wa, wb = float(a.get("weight", 1)), float(b.get("weight", 1))
+            if is_sum:
+                ex = (f"<p class='ex'><b>Пример.</b> Пусть по «{esc(a['title'])}» балл 1 "
+                      f"(вес {fnum(wa)}), по «{esc(b['title'])}» балл 1 (вес {fnum(wb)}). "
+                      f"Тогда балл пакета = 1×{fnum(wa)} + 1×{fnum(wb)} = <b>{fnum(wa+wb)}</b>.</p>")
+            else:
+                ex = (f"<p class='ex'><b>Пример.</b> Пусть по «{esc(a['title'])}» балл 1 "
+                      f"(вес {fnum(wa)}), по «{esc(b['title'])}» балл 1 (вес {fnum(wb)}). "
                       f"Тогда балл пакета = (1×{fnum(wa)} + 1×{fnum(wb)}) ÷ ({fnum(wa)}+{fnum(wb)}) = "
                       f"<b>{fnum((1*wa + 1*wb)/((wa+wb) or 1))}</b>.</p>")
+        else:
+            a = ex_crits[0]
+            wa = float(a.get("weight", 1))
+            if is_sum:
+                ex = (f"<p class='ex'><b>Пример.</b> Если по «{esc(a['title'])}» балл 1 "
+                      f"(вес {fnum(wa)}), то балл пакета = 1×{fnum(wa)} = <b>{fnum(wa)}</b>.</p>")
             else:
-                a = ex_crits[0]
-                ex = (f"<p class='ex'><b>Пример.</b> Если по «{esc(a['title'])}» участник получил 1, "
+                ex = (f"<p class='ex'><b>Пример.</b> Если по «{esc(a['title'])}» балл 1, "
                       "то и балл пакета = <b>1</b> (критерий один).</p>")
+        agg_badge = "сумма критериев" if is_sum else "среднее критериев"
+        norm_badge = " · нормализуется" if normalize else ""
 
         pkg_blocks += f"""
         <div class="pkg">
-          <div class="pkg-h">{esc(p['title'])} <span class="pkg-w">вес пакета {fnum(w)}{' · нормализуется' if normalize else ''}</span></div>
+          <div class="pkg-h">{esc(p['title'])} <span class="pkg-w">вес пакета {fnum(w)} · {agg_badge}{norm_badge}</span></div>
           <table class="crit">
             <thead><tr><th>Критерий</th><th>Кто ставит балл</th><th>Макс</th><th>Вес</th></tr></thead>
             <tbody>{crit_rows}</tbody>
