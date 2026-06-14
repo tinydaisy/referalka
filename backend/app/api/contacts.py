@@ -927,6 +927,23 @@ async def delete_contact(
     if not own:
         raise HTTPException(status_code=404, detail="Контакт не найден")
 
+    # Карточка основателя (self_collaborator, миграция 141) — удалять нельзя:
+    # это собственная карточка клиента, добавляемая организатором в события.
+    is_self = await db.fetchval(
+        """SELECT 1 FROM clients cl
+            JOIN collaborators co ON co.id = cl.self_collaborator_id
+           WHERE cl.id = $1 AND co.contact_id = $2""",
+        client_id, contact_id,
+    )
+    if is_self:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Это ваша карточка организатора — её нельзя удалить. "
+                "Она используется как карточка в событиях и Коллабораторной."
+            ),
+        )
+
     # Если этот контакт — коллаборатор (спикер/соорганизатор), блокируем
     # удаление с понятным русским сообщением. У collaborators нет
     # client_id — привязка к клиенту идёт через contact_id → contacts.client_id,

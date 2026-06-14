@@ -157,6 +157,12 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
             client["id"]
         )
 
+        # Коллабораторная: сразу заводим клиенту его карточку-коллаб (contact + collaborator
+        # из профиля) и пишем clients.self_collaborator_id (миграция 141). Эту карточку
+        # можно добавлять организатором/спикером в любые события без дублей.
+        from app.services.self_collaborator import ensure_self_collaborator
+        await ensure_self_collaborator(db, client["id"])
+
     token = create_token({"sub": str(client["id"]), "email": client["email"], "role": "client"})
 
     return {
