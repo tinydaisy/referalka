@@ -98,7 +98,10 @@ export default function ChannelsPage() {
       </div>
 
       {!isVip ? (
-        <NonVipView onUpgrade={() => { window.location.href = '/dashboard/subscription' }} />
+        <NonVipView
+          channels={channels}
+          onUpgrade={() => { window.location.href = '/dashboard/subscription' }}
+        />
       ) : (
         <VipView
           channels={channels}
@@ -159,23 +162,29 @@ export default function ChannelsPage() {
 }
 
 /* ─────── Не-VIP: read-only + апсейл ─────── */
-function NonVipView({ onUpgrade }: { onUpgrade: () => void }) {
+function NonVipView({ channels, onUpgrade }: { channels: Channel[]; onUpgrade: () => void }) {
+  // Не-VIP клиенту доступны общие системные каналы сервиса (TG / VK / MAX / Email).
+  // Берём их из реального списка с бэка — НЕ хардкодим, чтобы фронт не расходился
+  // с тем, что по API доступно клиенту. Редактировать/удалять их нельзя
+  // (это видно по плашке «Системный» внутри ChannelCard).
+  const systemChannels = channels.filter(c => c.is_system)
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-        <PlatformBadge slug="telegram" color="#0088CC" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900">@pluson_bot</h3>
-            <span className="text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium">
-              активен
-            </span>
-          </div>
-          <p className="text-xs text-gray-500 mt-1">
-            Общий бот iViSiON: ПЛЮСОНа — отправляет рассылки и приветствия от вашего имени
-          </p>
+      {systemChannels.length > 0 ? (
+        systemChannels.map(ch => (
+          <ChannelCard
+            key={ch.id}
+            channel={ch}
+            onEdit={() => {}}
+            onDelete={() => {}}
+            onImport={() => {}}
+          />
+        ))
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 text-sm text-gray-500">
+          Общие каналы сервиса пока не подключены к вашему кабинету.
         </div>
-      </div>
+      )}
 
       <div
         className="rounded-2xl p-6 text-white relative overflow-hidden"
