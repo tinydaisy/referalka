@@ -77,7 +77,7 @@ async def list_requests(direction: str = "incoming", client=Depends(get_current_
                       COALESCE(tc.owner_photo_url,tc.profile_photo_url) AS other_photo,
                       tc.is_published_in_hub AS other_published,
                       tc.telegram_username AS other_tg, r.event_id, e.title AS event_title,
-                      r.status, r.message, r.created_at
+                      r.status, r.message, r.created_at, r.responded_at, r.decline_reason
                  FROM hub_collab_requests r
                  LEFT JOIN clients tc ON tc.id=r.to_client_id
                  LEFT JOIN events e ON e.id=r.event_id
@@ -88,7 +88,7 @@ async def list_requests(direction: str = "incoming", client=Depends(get_current_
                       COALESCE(fc.owner_photo_url,fc.profile_photo_url) AS other_photo,
                       fc.is_published_in_hub AS other_published,
                       fc.telegram_username AS other_tg, r.event_id, e.title AS event_title,
-                      r.status, r.message, r.created_at
+                      r.status, r.message, r.created_at, r.responded_at, r.decline_reason
                  FROM hub_collab_requests r
                  LEFT JOIN clients fc ON fc.id=r.from_client_id
                  LEFT JOIN events e ON e.id=r.event_id
@@ -124,9 +124,10 @@ async def respond_request(request_id: int, body: dict, client=Depends(get_curren
     if req["status"] == "accepted":
         raise HTTPException(409, "Запрос уже принят — коллаба создана")
     new_status = "accepted" if accept else "declined"
+    reason = (body.get("reason") or "").strip() or None if not accept else None
     created_event_id = None
     async with db.transaction():
-        await db.execute("UPDATE hub_collab_requests SET status=$2, responded_at=NOW() WHERE id=$1", request_id, new_status)
+        await db.execute("UPDATE hub_collab_requests SET status=$2, responded_at=NOW(), decline_reason=$3 WHERE id=$1", request_id, new_status, reason)
         if accept:
             initiator, acceptor = req["from_client_id"], req["to_client_id"]
             if req["event_id"]:

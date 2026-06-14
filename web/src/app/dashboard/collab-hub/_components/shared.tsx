@@ -129,7 +129,13 @@ export function RequestModal({ target, onClose }: { target: any; onClose: () => 
   const [msg, setMsg] = useState('')
   const [sent, setSent] = useState(false)
   const [err, setErr] = useState('')
-  useEffect(() => { api.events.list().then((r: any) => setEvents(Array.isArray(r) ? r : (r.events || []))).catch(() => {}) }, [])
+  // В списке — только мои СУЩЕСТВУЮЩИЕ коллабы (is_collab), куда можно добавить ещё партнёра.
+  // Обычные/прошедшие события сюда не идут — для новой коллабы выбирают «Без события».
+  useEffect(() => {
+    api.collabHub.collabs()
+      .then((r: any) => setEvents((r.collabs || []).map((c: any) => ({ id: c.event_id, title: c.title }))))
+      .catch(() => setEvents([]))
+  }, [])
   const send = async () => {
     setErr('')
     try { await api.collabHub.createRequest({ to_client_id: target.client_id, event_id: eventId ? Number(eventId) : null, message: msg || null }); setSent(true) }
@@ -151,9 +157,9 @@ export function RequestModal({ target, onClose }: { target: any; onClose: () => 
         ) : (
           <>
             <p className="text-sm text-gray-600 mb-3">Кому: <b>{target.name}</b></p>
-            <label className="block text-sm text-gray-500 mb-1">К какому вашему событию (необязательно)</label>
+            <label className="block text-sm text-gray-500 mb-1">Присоединить к коллабе</label>
             <select value={eventId} onChange={e => setEventId(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm mb-3">
-              <option value="">Без события (общее знакомство)</option>
+              <option value="">Новая коллаба (создастся при принятии)</option>
               {events.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
             </select>
             <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Сообщение (необязательно)" className="w-full border rounded-xl px-3 py-2 text-sm mb-3" rows={3} />
@@ -215,15 +221,22 @@ export function RequestsView() {
     setLoading(false)
   }
   useEffect(() => { load() }, [dir])
-  const [busy, setBusy] = useState<number | null>(null)
-  const respond = async (id: number, accept: boolean) => {
+  const [busy, setBusy] = useState<number | null>(null)   // только для accept (долгое создание коллабы)
+  const [declineId, setDeclineId] = useState<number | null>(null)  // открыта модалка причины отклонения
+  const accept = async (id: number) => {
     setBusy(id)
-    try { await api.collabHub.respondRequest(id, accept); await load() }
+    try { await api.collabHub.respondRequest(id, true); await load() }
     catch (e: any) { alert(e?.message || 'Не удалось') }
     finally { setBusy(null) }
   }
+  const doDecline = async (id: number, reason: string) => {
+    setDeclineId(null)
+    try { await api.collabHub.respondRequest(id, false, reason); await load() }
+    catch (e: any) { alert(e?.message || 'Не удалось') }
+  }
   const del = async (id: number) => { if (!confirm('Удалить этот запрос?')) return; try { await api.collabHub.deleteRequest(id); load() } catch (e: any) { alert(e?.message || 'Не удалось') } }
   const chip = (s: string) => { const m: any = { pending: ['Ждёт ответа', 'bg-gray-200 text-gray-600'], accepted: ['Принято', 'bg-green-100 text-green-700'], declined: ['Отклонено', 'bg-red-100 text-red-600'] }; const [t, c] = m[s] || [s, 'bg-gray-100']; return <span className={`text-xs px-2 py-0.5 rounded-full ${c}`}>{t}</span> }
+  const fmtDate = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
 
   const Avatar = ({ r }: { r: any }) => r.other_photo
     ? <img src={r.other_photo} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
@@ -241,9 +254,19 @@ export function RequestsView() {
           <div key={r.id} className="border rounded-2xl p-4 flex items-start gap-3 bg-white">
             <Avatar r={r} />
             <div className="min-w-0 flex-1">
-              <div className="font-medium" style={{ color: DARK }}>{r.other_name}</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium" style={{ color: DARK }}>{r.other_name}</span>
+                <span className="text-xs text-gray-400">{fmtDate(r.created_at)}</span>
+              </div>
               {r.event_title && <div className="text-xs text-gray-500">Коллаба: {r.event_title}</div>}
               {r.message && <div className="text-sm text-gray-600 mt-1">{r.message}</div>}
+              {/* Причина отклонения — видна обеим сторонам */}
+              {r.status === 'declined' && (
+                <div className="text-xs text-red-500 mt-1">
+                  Причина отказа: {r.decline_reason || 'Причина не указана'}
+                  {r.responded_at && <span className="text-gray-400"> · {fmtDate(r.responded_at)}</span>}
+                </div>
+              )}
               <div className="mt-1 flex items-center gap-2 flex-wrap">
                 {chip(r.status)}
                 {r.status === 'accepted' && r.event_id && <a href={`/dashboard/events/${r.event_id}`} className="text-xs px-2.5 py-1 rounded-lg border inline-flex items-center gap-1" style={{ color: '#C77B3B', borderColor: PEACH }}>Перейти в коллабу →</a>}
@@ -252,19 +275,38 @@ export function RequestsView() {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {/* Входящие: pending — принять/отклонить; declined — передумать (принять) */}
               {dir === 'incoming' && r.status === 'pending' && (busy === r.id
                 ? <span className="text-xs text-gray-500 px-2">Создаём коллабу…</span>
                 : <>
-                  <button onClick={() => respond(r.id, true)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
-                  <button onClick={() => respond(r.id, false)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
+                  <button onClick={() => accept(r.id)} className="text-sm px-3 py-1.5 rounded-xl text-white" style={{ background: '#16a34a' }}><Check className="w-4 h-4" /></button>
+                  <button onClick={() => setDeclineId(r.id)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500"><X className="w-4 h-4" /></button>
                 </>)}
-              {dir === 'incoming' && r.status === 'declined' && <button onClick={() => respond(r.id, true)} className="text-xs px-3 py-1.5 rounded-xl border" style={{ color: '#16a34a', borderColor: '#16a34a' }}>Передумать — принять</button>}
-              {/* Отправленные: удалить свой запрос (если не принят) */}
+              {dir === 'incoming' && r.status === 'declined' && <button onClick={() => accept(r.id)} className="text-xs px-3 py-1.5 rounded-xl border" style={{ color: '#16a34a', borderColor: '#16a34a' }}>Передумать — принять</button>}
               {dir === 'outgoing' && r.status !== 'accepted' && <button onClick={() => del(r.id)} className="text-sm px-3 py-1.5 rounded-xl border text-red-500" title="Удалить запрос"><Trash2 className="w-4 h-4" /></button>}
             </div>
           </div>
         ))}</div>}
+      {declineId !== null && <DeclineModal onClose={() => setDeclineId(null)} onSubmit={(reason) => doDecline(declineId, reason)} />}
+    </div>
+  )
+}
+
+function DeclineModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (reason: string) => void }) {
+  const [reason, setReason] = useState('')
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="font-bold text-lg" style={{ color: DARK }}>Отклонить запрос</h3>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+        <label className="block text-sm text-gray-500 mb-1">Причина отказа (необязательно)</label>
+        <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Например: не совпадает ниша / нет времени" className="w-full border rounded-xl px-3 py-2 text-sm mb-4" rows={3} />
+        <div className="flex gap-2">
+          <button onClick={() => onSubmit(reason)} className="flex-1 py-2.5 rounded-xl text-white font-medium" style={{ background: '#ef4444' }}>Отклонить</button>
+          <button onClick={onClose} className="px-5 py-2.5 rounded-xl border">Отмена</button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -516,8 +516,8 @@ export const api = {
       request(`/api/v1/collab/requests?direction=${direction}`),
     createRequest: (data: any) =>
       request('/api/v1/collab/requests', { method: 'POST', body: JSON.stringify(data) }),
-    respondRequest: (id: number, accept: boolean) =>
-      request(`/api/v1/collab/requests/${id}/respond`, { method: 'POST', body: JSON.stringify({ accept }) }),
+    respondRequest: (id: number, accept: boolean, reason?: string) =>
+      request(`/api/v1/collab/requests/${id}/respond`, { method: 'POST', body: JSON.stringify({ accept, reason }) }),
     deleteRequest: (id: number) =>
       request(`/api/v1/collab/requests/${id}`, { method: 'DELETE' }),
     eventOwners: (eventId: number) => request(`/api/v1/collab/events/${eventId}/owners`),
