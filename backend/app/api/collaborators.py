@@ -222,7 +222,7 @@ async def create_collaborator(
     client_id = int(client["sub"])
     # Проверяем что contact_id принадлежит этому клиенту и не помечен мерджем
     contact = await db.fetchrow(
-        "SELECT id, name FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted') AND merged_into IS NULL",
+        "SELECT id, name FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
         data.contact_id, client_id
     )
     if not contact:
@@ -566,7 +566,7 @@ async def update_collaborator(
     media_assets_in = _normalize_media_assets(updates_full.pop("media_assets", None))
     if "contact_id" in updates_full:
         own = await db.fetchval(
-            "SELECT 1 FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted') AND merged_into IS NULL",
+            "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
             updates_full["contact_id"], client_id
         )
         if not own:
@@ -665,7 +665,7 @@ async def create_collaborator_quick(
     contact_id: Optional[int] = data.existing_contact_id
     if contact_id is not None:
         own = await db.fetchval(
-            "SELECT 1 FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted') AND merged_into IS NULL",
+            "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
             contact_id, client_id
         )
         if not own:

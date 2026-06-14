@@ -1051,7 +1051,7 @@ async def delete_offering(
     db: asyncpg.Connection = Depends(get_db),
 ):
     res = await db.execute(
-        "DELETE FROM client_offerings WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "DELETE FROM client_offerings WHERE id = $1 AND client_id = $2",
         offering_id, int(client["sub"])
     )
     if res == "DELETE 0":

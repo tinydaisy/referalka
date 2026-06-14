@@ -856,7 +856,7 @@ async def create_and_add_speaker(
     # Если клиент сразу указал existing_contact_id — проверяем что он его
     if contact_id is not None:
         own = await db.fetchval(
-            "SELECT 1 FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted') AND merged_into IS NULL",
+            "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",
             contact_id, client_id
         )
         if not own:

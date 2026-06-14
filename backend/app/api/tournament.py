@@ -245,9 +245,13 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         nums = [v for v in vals.values() if v is not None]
         crit_max[cid] = max(nums) if nums else 0.0
 
-    # распределение жюри
-    assigns = await db.fetch(
-        "SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1", event_id)
+    # распределение жюри (по выбранному этапу)
+    if stage_id is None:
+        assigns = await db.fetch(
+            "SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id IS NULL", event_id)
+    else:
+        assigns = await db.fetch(
+            "SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id=$2", event_id, stage_id)
     assigned_by = {}
     for a in assigns:
         assigned_by.setdefault(_skey(a["subject_kind"], a["subject_id"]), set()).add(a["juror_ec_id"])
@@ -461,12 +465,17 @@ async def delete_criterion(event_id: int, criterion_id: int, client=Depends(get_
 
 # ── Распределение ──
 
-@router.get("/assignments", summary="Матрица распределения участников по жюри")
-async def get_assignments(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+@router.get("/assignments", summary="Матрица распределения участников по жюри (по этапу)")
+async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
     subjects = await _subjects(event_id, db)
     jurors = await _jurors(event_id, db)
-    rows = await db.fetch("SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1", event_id)
+    if stage_id is None:
+        rows = await db.fetch(
+            "SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id IS NULL", event_id)
+    else:
+        rows = await db.fetch(
+            "SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id=$2", event_id, stage_id)
     pairs = {(r["juror_ec_id"], _skey(r["subject_kind"], r["subject_id"])) for r in rows}
 
     # «Кого привело жюри»: реферер участника (event_participants.referrer_ref_code)
@@ -513,10 +522,12 @@ async def get_assignments(event_id: int, client=Depends(get_current_client), db:
                     item["referrer_juror_ec_ids"] = [jec]
         subjects_out.append(item)
 
+    stages = await db.fetch("SELECT id, title FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
     return {
         "subjects": subjects_out,
         "jurors": [{"juror_ec_id": j["juror_ec_id"], "name": j["name"]} for j in jurors],
         "pairs": [{"juror_ec_id": p[0], "key": p[1]} for p in pairs],
+        "stages": [dict(s) for s in stages],
     }
 
 
@@ -524,36 +535,50 @@ class AssignIn(BaseModel):
     juror_ec_id: int
     key: str
     assigned: bool
+    stage_id: Optional[int] = None
 
 
-@router.post("/assignments", summary="Назначить/снять одну пару")
+@router.post("/assignments", summary="Назначить/снять одну пару (на этапе)")
 async def set_assignment(event_id: int, data: AssignIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
     kind, sid = data.key.split(":", 1)
     if data.assigned:
         await db.execute(
-            """INSERT INTO tournament_jury_assignments (event_id, juror_ec_id, subject_kind, subject_id)
-               VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING""",
-            event_id, data.juror_ec_id, kind, int(sid))
+            """INSERT INTO tournament_jury_assignments (event_id, juror_ec_id, subject_kind, subject_id, stage_id)
+               VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING""",
+            event_id, data.juror_ec_id, kind, int(sid), data.stage_id)
     else:
-        await db.execute(
-            "DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4",
-            event_id, data.juror_ec_id, kind, int(sid))
+        if data.stage_id is None:
+            await db.execute(
+                "DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id IS NULL",
+                event_id, data.juror_ec_id, kind, int(sid))
+        else:
+            await db.execute(
+                "DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id=$5",
+                event_id, data.juror_ec_id, kind, int(sid), data.stage_id)
     return {"ok": True}
 
 
-@router.post("/assignments/all", summary="Назначить всех всем / очистить")
-async def set_all_assignments(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db), clear: bool = False):
+class AssignAllIn(BaseModel):
+    stage_id: Optional[int] = None
+    clear: bool = False
+
+
+@router.post("/assignments/all", summary="Назначить всех всем / очистить (на этапе)")
+async def set_all_assignments(event_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db), clear: bool = False, stage_id: Optional[int] = None):
     await _check_access(event_id, int(client["sub"]), db)
-    await db.execute("DELETE FROM tournament_jury_assignments WHERE event_id=$1", event_id)
+    if stage_id is None:
+        await db.execute("DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id IS NULL", event_id)
+    else:
+        await db.execute("DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id=$2", event_id, stage_id)
     if not clear:
         subjects = await _subjects(event_id, db)
         jurors = await _jurors(event_id, db)
         for j in jurors:
             for s in subjects:
                 await db.execute(
-                    "INSERT INTO tournament_jury_assignments (event_id, juror_ec_id, subject_kind, subject_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
-                    event_id, j["juror_ec_id"], s["kind"], s["sid"])
+                    "INSERT INTO tournament_jury_assignments (event_id, juror_ec_id, subject_kind, subject_id, stage_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+                    event_id, j["juror_ec_id"], s["kind"], s["sid"], stage_id)
     return {"ok": True}
 
 
@@ -561,6 +586,7 @@ class AutoAssignIn(BaseModel):
     include_speakers: bool = False
     include_participants: bool = True
     per_juror: Optional[int] = None  # сколько субъектов на 1 жюри; None → авто-рекомендация
+    stage_id: Optional[int] = None   # этап, на котором распределяем
 
 
 @router.get("/assignments/auto-suggest", summary="Рекомендация по распределению")
@@ -621,13 +647,18 @@ async def auto_assign(event_id: int, data: AutoAssignIn, client=Depends(get_curr
     cap = n_subj  # жюри не может оценить больше, чем есть субъектов
     per_juror = min(per_juror, cap)
 
-    # Сносим прежнее распределение ТОЛЬКО для выбранных типов.
+    # Сносим прежнее распределение ТОЛЬКО для выбранных типов НА ЭТОМ ЭТАПЕ.
     kinds_to_clear = []
     if data.include_speakers: kinds_to_clear.append("ec")
     if data.include_participants: kinds_to_clear.append("ep")
-    await db.execute(
-        "DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND subject_kind = ANY($2::text[])",
-        event_id, kinds_to_clear)
+    if data.stage_id is None:
+        await db.execute(
+            "DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND subject_kind = ANY($2::text[]) AND stage_id IS NULL",
+            event_id, kinds_to_clear)
+    else:
+        await db.execute(
+            "DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND subject_kind = ANY($2::text[]) AND stage_id=$3",
+            event_id, kinds_to_clear, data.stage_id)
 
     # Жадное равномерное распределение: для каждого жюри добираем per_juror субъектов,
     # выбирая тех, у кого меньше всего назначений, пропуская конфликтных (если есть выбор).
@@ -660,8 +691,8 @@ async def auto_assign(event_id: int, data: AutoAssignIn, client=Depends(get_curr
 
     for jec, kind, sid in assignments:
         await db.execute(
-            "INSERT INTO tournament_jury_assignments (event_id, juror_ec_id, subject_kind, subject_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
-            event_id, jec, kind, sid)
+            "INSERT INTO tournament_jury_assignments (event_id, juror_ec_id, subject_kind, subject_id, stage_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+            event_id, jec, kind, sid, data.stage_id)
 
     return {"ok": True, "per_juror": per_juror, "assigned_pairs": len(assignments),
             "subjects_count": n_subj, "jurors_count": n_jury}
@@ -817,10 +848,26 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
     juror = await _ensure_juror(session, db)
     event_id = juror["event_id"]; juror_ec_id = juror["id"]
 
-    # привязанные субъекты (ec + ep)
-    assigns = await db.fetch(
-        "SELECT subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2",
+    # Этапы, на которых у ЭТОГО жюри есть назначенные люди (задача: пустые этапы не показываем).
+    stage_rows = await db.fetch(
+        """SELECT DISTINCT a.stage_id, cs.title, cs.sort_order
+             FROM tournament_jury_assignments a
+             LEFT JOIN conf_stages cs ON cs.id = a.stage_id
+            WHERE a.event_id=$1 AND a.juror_ec_id=$2 AND a.stage_id IS NOT NULL
+            ORDER BY cs.sort_order, a.stage_id""",
         event_id, juror_ec_id)
+    stages = [{"id": r["stage_id"], "title": r["title"]} for r in stage_rows]
+    # если назначений вообще нет — этапов нет (фронт покажет «нет участников»)
+
+    # привязанные субъекты НА ВЫБРАННОМ ЭТАПЕ
+    if stage_id is None:
+        assigns = await db.fetch(
+            "SELECT subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id IS NULL",
+            event_id, juror_ec_id)
+    else:
+        assigns = await db.fetch(
+            "SELECT subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id=$3",
+            event_id, juror_ec_id, stage_id)
     assigned_keys = {_skey(a["subject_kind"], a["subject_id"]) for a in assigns}
     all_subjects = await _subjects(event_id, db)
     subjects = [s for s in all_subjects if s["key"] in assigned_keys]
@@ -844,17 +891,17 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
     my_fb = await db.fetch(
         "SELECT subject_kind, subject_id, body, stage_id FROM tournament_feedback WHERE event_id=$1 AND juror_ec_id=$2",
         event_id, juror_ec_id)
-    stages = await db.fetch("SELECT id, title FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
 
-    # зафиксирован ли этот этап у этого жюри (после фиксации править нельзя)
+    # фиксация по КАЖДОМУ участнику на этом этапе (locked_keys — set ключей)
     if stage_id is None:
-        locked = await db.fetchval(
-            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id IS NULL",
+        lock_rows = await db.fetch(
+            "SELECT subject_kind, subject_id FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id IS NULL AND subject_id IS NOT NULL",
             event_id, juror_ec_id)
     else:
-        locked = await db.fetchval(
-            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id=$3",
+        lock_rows = await db.fetch(
+            "SELECT subject_kind, subject_id FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id=$3 AND subject_id IS NOT NULL",
             event_id, juror_ec_id, stage_id)
+    locked_keys = [_skey(r["subject_kind"], r["subject_id"]) for r in lock_rows]
 
     # итоговая средняя по каждому участнику = среднее моих баллов по jury-критериям этапа
     crit_ids = {c["id"] for c in jcrits}
@@ -873,8 +920,8 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
         "criteria": [{**dict(c), "scale_max": float(c["scale_max"])} for c in jcrits],
         "my_scores": [{"criterion_id": s["criterion_id"], "key": _skey(s["subject_kind"], s["subject_id"]), "value_number": float(s["value_number"])} for s in my_scores],
         "my_feedback": [{"key": _skey(f["subject_kind"], f["subject_id"]), "body": f["body"], "stage_id": f["stage_id"]} for f in my_fb],
-        "stages": [dict(s) for s in stages],
-        "locked": bool(locked),
+        "stages": stages,
+        "locked_keys": locked_keys,
         "my_avg_by_key": avg_by_key,
     }
 
@@ -892,26 +939,31 @@ async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), d
     if data.value < 0:
         raise HTTPException(status_code=422, detail="Балл не может быть отрицательным")
     crit = await db.fetchrow(
-        """SELECT cr.scorer, p.stage_id
+        """SELECT cr.scorer, cr.scale_max, p.stage_id
              FROM tournament_criteria cr
              JOIN tournament_packages p ON p.id = cr.package_id
             WHERE cr.id=$1 AND cr.event_id=$2""",
         data.criterion_id, event_id)
     if not crit or crit["scorer"] != "jury":
         raise HTTPException(status_code=422, detail="Критерий не для оценки жюри")
-    # если жюри уже зафиксировал этот этап — править нельзя
+    # балл не может быть выше максимума критерия
+    _sm = float(crit["scale_max"])
+    if data.value > _sm:
+        _sm_str = str(int(_sm)) if _sm == int(_sm) else str(_sm)
+        raise HTTPException(status_code=422, detail=f"Балл не может быть выше {_sm_str}")
+    kind, sid = data.key.split(":", 1)
     cr_stage = crit["stage_id"]
+    # если жюри уже зафиксировал ЭТОГО участника на этом этапе — править нельзя
     if cr_stage is None:
         locked = await db.fetchval(
-            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id IS NULL",
-            event_id, juror_ec_id)
+            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id IS NULL",
+            event_id, juror_ec_id, kind, int(sid))
     else:
         locked = await db.fetchval(
-            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id=$3",
-            event_id, juror_ec_id, cr_stage)
+            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id=$5",
+            event_id, juror_ec_id, kind, int(sid), cr_stage)
     if locked:
-        raise HTTPException(status_code=403, detail="Вы уже зафиксировали оценки за этот этап — править нельзя")
-    kind, sid = data.key.split(":", 1)
+        raise HTTPException(status_code=403, detail="Вы уже зафиксировали оценку этому участнику — править нельзя")
     ok = await db.fetchval(
         "SELECT 1 FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4",
         event_id, juror_ec_id, kind, int(sid))
@@ -927,17 +979,19 @@ async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), d
 
 
 class JuryLockIn(BaseModel):
+    key: str                          # фиксируем оценку КОНКРЕТНОГО участника
     stage_id: Optional[int] = None
 
 
-@jury_router.post("/lock", summary="Кабинет жюри: зафиксировать оценки за этап")
+@jury_router.post("/lock", summary="Кабинет жюри: зафиксировать оценку участнику")
 async def jury_lock(data: JuryLockIn, session: dict = Depends(_cab_session), db: asyncpg.Connection = Depends(get_db)):
     juror = await _ensure_juror(session, db)
     event_id = juror["event_id"]; juror_ec_id = juror["id"]
+    kind, sid = data.key.split(":", 1)
     await db.execute(
-        """INSERT INTO tournament_jury_locks (event_id, juror_ec_id, stage_id)
-           VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
-        event_id, juror_ec_id, data.stage_id)
+        """INSERT INTO tournament_jury_locks (event_id, juror_ec_id, stage_id, subject_kind, subject_id)
+           VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING""",
+        event_id, juror_ec_id, data.stage_id, kind, int(sid))
     return {"ok": True, "locked": True}
 
 
@@ -1005,7 +1059,8 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
         result = await _compute(event_id, st["id"], db)
         me = next((r for r in result["table"] if r["key"] == mykey), None)
         cols = [{"criterion_id": c["criterion_id"], "title": c["title"],
-                 "package_title": c["package_title"], "description": c.get("description")}
+                 "package_id": c["package_id"], "package_title": c["package_title"],
+                 "description": c.get("description")}
                 for c in result["columns"]]
         has = me is not None and (me["total"] or any(v for v in (me["cells"] or {}).values()))
         if has:
@@ -1016,9 +1071,11 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
             "place": me["place"] if me else None,
             "total": me["total"] if me else None,
             "cells": me["cells"] if me else {},
+            "package_scores": me.get("package_scores") if me else {},
             "jury_detail": me.get("jury_detail") if me else {},
             "columns": cols,
+            "packages": result.get("packages", []),
             "feedback": fb_by_stage.get(st["id"], []),
         })
 
-    return {"is_tournament": True, "has_results": any_results, "stages": stages_out}
+    return {"is_tournament": True, "event_id": event_id, "has_results": any_results, "stages": stages_out}

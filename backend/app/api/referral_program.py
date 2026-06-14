@@ -328,7 +328,7 @@ async def _check_lead_magnet_owned(lead_magnet_id: int, client_id: int, db: asyn
     if lead_magnet_id is None:
         return
     ok = await db.fetchval(
-        "SELECT 1 FROM lead_magnets WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "SELECT 1 FROM lead_magnets WHERE id = $1 AND client_id = $2",
         lead_magnet_id, client_id
     )
     if not ok:

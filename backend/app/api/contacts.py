@@ -828,7 +828,7 @@ async def update_contact(
     """Обновить имя/email/phone контакта. Только своих контактов."""
     client_id = int(client["sub"])
     own = await db.fetchval(
-        "SELECT 1 FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
         contact_id, client_id
     )
     if not own:
@@ -921,7 +921,7 @@ async def delete_contact(
     client_id = int(client["sub"])
 
     own = await db.fetchval(
-        "SELECT 1 FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
         contact_id, client_id
     )
     if not own:
@@ -1085,7 +1085,7 @@ async def export_contact_data(
                   utm_source, salebot_id, created_at, updated_at,
                   consent_pd_at, consent_pd_ip, consent_pd_policy_ver,
                   consent_marketing_at, consent_marketing_ip, consent_marketing_policy_ver
-             FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')""",
+             FROM contacts WHERE id = $1 AND client_id = $2""",
         contact_id, client_id,
     )
     if not c:
@@ -1150,7 +1150,7 @@ async def erase_contact_personal_data(
     """
     client_id = int(client["sub"])
     own = await db.fetchval(
-        "SELECT 1 FROM contacts WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
         contact_id, client_id,
     )
     if not own:

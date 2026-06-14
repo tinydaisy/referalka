@@ -151,7 +151,7 @@ async def _load_ref_cabinet(db, event, contact_id):
         return None
     c = await db.fetchrow(
         """SELECT id, ref_code, name FROM contacts
-            WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted') AND merged_into IS NULL""",
+            WHERE id = $1 AND client_id = $2 AND merged_into IS NULL""",
         int(contact_id), event["client_id"],
     )
     if not c or not c["ref_code"]:

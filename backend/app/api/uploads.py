@@ -199,7 +199,7 @@ async def delete_file(
 ):
     client_id = int(client["sub"])
     row = await db.fetchrow(
-        "SELECT id, r2_key, size_bytes FROM client_files WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "SELECT id, r2_key, size_bytes FROM client_files WHERE id = $1 AND client_id = $2",
         file_id, client_id,
     )
     if not row:
