@@ -153,7 +153,8 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
   const save = async (patch: any) => { await api.tournament.updateCriterion(eventId, crit.id, patch); onChange() }
   const del = async () => { if (confirm('Удалить критерий?')) { await api.tournament.deleteCriterion(eventId, crit.id); onChange() } }
   return (
-    <div className="flex flex-wrap items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+   <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center gap-1.5 flex-1 min-w-[150px]">
         <Pencil size={12} className="text-gray-400 shrink-0" />
         <input className="flex-1 bg-white border border-gray-200 rounded-md px-2 py-1 text-sm outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
@@ -184,6 +185,14 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
       </label>
       <button onClick={del} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
     </div>
+    {/* Описание критерия — что это и как оценивать (видят жюри в кабинете) */}
+    <textarea
+      className="w-full bg-white border border-gray-200 rounded-md px-2 py-1 text-xs outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] resize-y"
+      rows={crit.description ? 2 : 1}
+      defaultValue={crit.description || ''}
+      placeholder="Описание критерия — что это, как оценивать (увидят жюри в своём кабинете)"
+      onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.description || '')) save({ description: v || null }) }} />
+   </div>
   )
 }
 
@@ -524,7 +533,12 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                 <th key={p.id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`}>{p.title}{p.normalize && <NormBadge />}</th>
               ))}
               {cols.map((c, i) => (
-                <th key={c.criterion_id} className={`px-2 py-1.5 whitespace-nowrap font-medium ${i===0?'border-l':''}`} title={c.scorer}>{c.title}{normalizeOf(c.criterion_id) && <NormBadge />}</th>
+                <th key={c.criterion_id} className={`px-2 py-1.5 align-top font-medium max-w-[160px] ${i===0?'border-l':''}`} title={c.scorer}>
+                  <div className="whitespace-nowrap">{c.title}{normalizeOf(c.criterion_id) && <NormBadge />}</div>
+                  {c.description && (
+                    <div className="text-[10px] font-normal text-gray-400 leading-tight whitespace-pre-line mt-0.5 normal-case">{c.description}</div>
+                  )}
+                </th>
               ))}
             </tr>
           </thead>

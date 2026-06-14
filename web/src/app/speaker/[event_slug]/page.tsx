@@ -1513,12 +1513,17 @@ function JudgingTab({ token }: { token: string }) {
                 )}
                 {data.criteria.length === 0 && <div style={{ fontSize: 13, color: '#94a3b8' }}>На этом этапе нет критериев для оценки жюри.</div>}
                 {data.criteria.map((c: any) => (
-                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                    <span style={{ flex: 1, fontSize: 14 }}>{c.title}{c.description ? <span style={{ color: '#94a3b8', fontSize: 12 }}> — {c.description}</span> : ''}</span>
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{c.title}</div>
+                      {c.description && (
+                        <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.4, whiteSpace: 'pre-line', marginTop: 2 }}>{c.description}</div>
+                      )}
+                    </div>
                     <input type="number" min={0} max={c.scale_max} defaultValue={scoreVal(c.id, s.key)}
                       onBlur={(e) => saveScore(c.id, s.key, e.target.value)}
-                      style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center' }} />
-                    <span style={{ color: '#94a3b8', fontSize: 13 }}>/ {c.scale_max}</span>
+                      style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0 }} />
+                    <span style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0, paddingTop: 8 }}>/ {c.scale_max}</span>
                   </div>
                 ))}
                 <div style={{ marginTop: 10 }}>

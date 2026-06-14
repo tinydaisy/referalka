@@ -257,6 +257,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         for c in crits_by_pkg.get(p["id"], []):
             columns.append({"criterion_id": c["id"], "title": c["title"], "scorer": c["scorer"],
                             "auto_kind": c["auto_kind"], "scale_max": float(c["scale_max"]),
+                            "description": c.get("description"),
                             "package_id": p["id"], "package_title": p["title"]})
 
     table = []
