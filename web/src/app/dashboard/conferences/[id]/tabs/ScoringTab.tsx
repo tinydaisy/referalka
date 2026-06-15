@@ -550,35 +550,35 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
       {stageId != null && (
         <PublicTableLink eventId={eventId} stageId={stageId} stageTitle={stages.find((s: any) => s.id === stageId)?.title} />
       )}
-      <div className="overflow-x-auto border rounded-xl">
-        <table className="text-sm w-full">
+      <div className="overflow-auto border rounded-xl" style={{ maxHeight: '75vh' }}>
+        <table className="text-sm w-full border-separate" style={{ borderSpacing: 0 }}>
           <thead>
             {/* верхняя строка шапки: группировки */}
             <tr className="bg-gray-50 text-gray-600">
-              <th rowSpan={2} className="px-3 py-2 text-left">Место</th>
-              <th rowSpan={2} className="px-3 py-2 text-left">Участник</th>
-              <th rowSpan={2} className="px-3 py-2">Готово</th>
-              <th rowSpan={2} className="px-3 py-2 font-semibold text-[#25455D] border-l">ИТОГ</th>
+              <th rowSpan={2} className="px-3 py-2 text-left sticky top-0 left-0 z-40 bg-gray-50" style={{ width: 56, minWidth: 56 }}>Место</th>
+              <th rowSpan={2} className="px-3 py-2 text-left sticky top-0 z-40 bg-gray-50 border-r" style={{ left: 56, width: 180, minWidth: 180 }}>Участник</th>
+              <th rowSpan={2} className="px-3 py-2 sticky top-0 z-30 bg-gray-50">Готово</th>
+              <th rowSpan={2} className="px-3 py-2 font-semibold text-[#25455D] border-l sticky top-0 z-30 bg-gray-50">ИТОГ</th>
               {/* итоговые баллы пакетов */}
-              <th colSpan={board.packages.length} className="px-3 py-1.5 text-center border-l">Баллы по пакетам</th>
+              <th colSpan={board.packages.length} className="px-3 py-1.5 text-center border-l sticky top-0 z-30 bg-gray-50">Баллы по пакетам</th>
               {/* критерии, сгруппированные по пакетам — с режимом расчёта */}
               {groups.map((g, i) => (
-                <th key={i} colSpan={g.span} className="px-2 py-1.5 text-center border-l align-top">
+                <th key={i} colSpan={g.span} className="px-2 py-1.5 text-center border-l align-top sticky top-0 z-30 bg-gray-50">
                   <div>{g.title}</div>
                   <div className="text-[10px] font-normal text-gray-400 normal-case">{pkgMode(g)}</div>
                 </th>
               ))}
-              <th rowSpan={2} className="px-3 py-2 border-l">Детализация</th>
+              <th rowSpan={2} className="px-3 py-2 border-l sticky top-0 z-30 bg-gray-50">Детализация</th>
             </tr>
             <tr className="bg-gray-50 text-gray-500 text-xs">
               {board.packages.map((p: any, i: number) => (
-                <th key={p.id} className={`px-2 py-1.5 font-medium align-top ${i===0?'border-l':''}`} style={{ minWidth: 70, maxWidth: 110 }}>
+                <th key={p.id} className={`px-2 py-1.5 font-medium align-top sticky z-30 bg-gray-50 ${i===0?'border-l':''}`} style={{ minWidth: 70, maxWidth: 110, top: 33 }}>
                   <div className="whitespace-normal break-words leading-tight">{p.title}</div>
                   <div className="text-[10px] font-normal text-gray-400 normal-case">{pkgMode(p)}</div>
                 </th>
               ))}
               {cols.map((c, i) => (
-                <th key={c.criterion_id} className={`px-1.5 py-1.5 align-top font-medium ${i===0?'border-l':''}`} style={{ minWidth: 64, maxWidth: 90 }} title={c.scorer}>
+                <th key={c.criterion_id} className={`px-1.5 py-1.5 align-top font-medium sticky z-30 bg-gray-50 ${i===0?'border-l':''}`} style={{ minWidth: 64, maxWidth: 90, top: 33 }} title={c.scorer}>
                   <div className="whitespace-normal break-words leading-tight">{c.title}{normalizeOf(c.criterion_id) && <NormBadge />}</div>
                   <div className="text-[10px] font-normal text-gray-400">×{c.weight ?? 1}</div>
                   {c.description && (
@@ -594,9 +594,9 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
               const isOpen = expanded === row.key
               return (
                 <>
-                  <tr key={row.key} className="border-t hover:bg-gray-50">
-                    <td className="px-3 py-2">{row.place <= 3 ? ['🥇','🥈','🥉'][row.place-1] : row.place}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}</td>
+                  <tr key={row.key} className="border-t hover:bg-gray-50 group">
+                    <td className="px-3 py-2 sticky left-0 z-20 bg-white group-hover:bg-gray-50 border-t" style={{ width: 56, minWidth: 56 }}>{row.place <= 3 ? ['🥇','🥈','🥉'][row.place-1] : row.place}</td>
+                    <td className="px-3 py-2 whitespace-nowrap sticky z-20 bg-white group-hover:bg-gray-50 border-t border-r" style={{ left: 56, width: 180, minWidth: 180 }}>{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}</td>
                     <td className="px-3 py-2 text-center text-xs">{row.assigned_jury ? `${row.done_jury}/${row.assigned_jury}${row.done_jury < row.assigned_jury ? ' ⚠' : ' ✓'}` : '—'}</td>
                     <td className="px-3 py-2 text-center font-semibold text-[#25455D] border-l">{row.total}</td>
                     {/* баллы пакетов */}
