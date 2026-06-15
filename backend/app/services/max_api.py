@@ -62,7 +62,10 @@ async def max_call(
         data = resp.json()
     except Exception:
         raise RuntimeError(f"MAX {method} {path} non-JSON response: {resp.status_code} {resp.text[:200]}")
-    if isinstance(data, dict) and data.get("code") and not data.get("ok", True):
+    # MAX отдаёт ошибки с HTTP 200 + телом {"code": "...", "message": "..."}
+    # (напр. "chat.not.found"). Поле "ok" в ответе MAX отсутствует, поэтому
+    # любое присутствие "code" трактуем как ошибку.
+    if isinstance(data, dict) and data.get("code"):
         raise RuntimeError(f"MAX {method} {path} error {data.get('code')}: {data.get('message')}")
     return data
 
@@ -90,10 +93,17 @@ async def send_message(
     buttons: list[list[dict]] | None = None,
     attachments: list[dict] | None = None,
     parse_mode: str | None = None,
+    recipient_kind: str = "chat",
 ) -> dict[str, Any] | None:
     """Отправить сообщение пользователю или в чат.
 
-    :param chat_id: для приватки = user_id пользователя.
+    :param chat_id: получатель. По умолчанию (recipient_kind='user') трактуется
+        как user_id пользователя для приватного диалога. Если это id беседы/чата
+        (приходит в апдейте вебхука как recipient.chat_id) — передать
+        recipient_kind='chat'.
+    :param recipient_kind: 'user' → шлём через ?user_id=, 'chat' → через ?chat_id=.
+        ВАЖНО: MAX для приватки требует user_id; при chat_id=<user_id> он отвечает
+        200 + {"code":"chat.not.found"} и молча НЕ доставляет.
     :param buttons: матрица MAX-кнопок (см. tg_inline_to_max_keyboard).
     :param attachments: список вложений (видео/фото — см. upload_media + max_attachment).
     :param parse_mode: 'markdown' | 'html' | None.
@@ -110,10 +120,15 @@ async def send_message(
     if combined_attachments:
         payload["attachments"] = combined_attachments
     try:
+        # Для приватного диалога MAX ожидает user_id получателя, НЕ chat_id.
+        # При chat_id=<user_id> MAX отвечает 200 + {"code":"chat.not.found"} и
+        # сообщение молча не доставляется. Для ответа в реальную беседу (id чата
+        # из апдейта вебхука) используем chat_id — recipient_kind='chat'.
+        send_param = {"chat_id": chat_id} if recipient_kind == "chat" else {"user_id": chat_id}
         return await max_call(
             "POST", "/messages",
             token=token,
-            params={"chat_id": chat_id},
+            params=send_param,
             json_body=payload,
         )
     except RuntimeError as e:

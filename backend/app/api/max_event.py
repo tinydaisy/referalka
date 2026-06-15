@@ -169,7 +169,7 @@ async def handle_max_event(body: MaxEventRequest):
                          "url": build_max_link(body.event_slug, bot_handle=bot_handle)},
                     ]])
                     if token:
-                        await max_send_message(max_user_id, msg, token=token, buttons=buttons)
+                        await max_send_message(max_user_id, msg, token=token, buttons=buttons, recipient_kind="user")
                 except Exception as e:
                     logger.warning(f"MAX welcome message failed for max_id={max_user_id}: {e}")
 

@@ -961,7 +961,9 @@ async def _send_broadcast_max_part(
         ok = False
         err: str | None = None
         try:
-            res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons)
+            # Рассылка адресуется по user_id подписчика (platform_users.platform_user_id),
+            # а не по id беседы — иначе MAX отвечает chat.not.found и молча не доставляет.
+            res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons, recipient_kind="user")
             ok = bool(res)
             if not ok:
                 err = "MAX send returned None"
