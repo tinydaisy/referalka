@@ -167,7 +167,7 @@ export default function SubscriptionPage() {
                   <div className="text-[11px] text-gray-400 mt-0.5">за {t.default_duration_days} дн.</div>
 
                   <div className="space-y-1 mt-3 text-xs text-gray-600">
-                    <div>До {t.contact_limit?.toLocaleString('ru-RU')} контактов</div>
+                    <div>До {t.contact_limit?.toLocaleString('ru-RU')} контактов на канал</div>
                     <div>{t.broadcasts_daily_limit ? `${t.broadcasts_daily_limit.toLocaleString('ru-RU')} рассылок/сутки` : 'Безлимит рассылок'}</div>
                     {(t.feature_slugs || []).map((slug: string) => (
                       <div key={slug}>· {featureLabels[slug] || slug}</div>

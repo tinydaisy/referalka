@@ -231,7 +231,7 @@ function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHre
         ))}
         <div className="flex items-start gap-2">
           <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-          <span>До {t.contact_limit?.toLocaleString('ru-RU')} контактов</span>
+          <span>До {t.contact_limit?.toLocaleString('ru-RU')} контактов на канал</span>
         </div>
         <div className="flex items-start gap-2">
           <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />

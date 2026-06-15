@@ -292,7 +292,7 @@ export default function AdminTariffsPage() {
             <div className="space-y-2 mt-4 text-sm text-gray-600">
               <div className="flex items-center gap-2">
                 <span className="text-green-500">✓</span>
-                До {t.contact_limit?.toLocaleString('ru-RU')} контактов
+                До {t.contact_limit?.toLocaleString('ru-RU')} контактов на канал
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-green-500">✓</span>
