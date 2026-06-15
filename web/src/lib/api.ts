@@ -382,7 +382,7 @@ export const api = {
       return res.blob()
     },
     get: (id: number) => request(`/api/v1/contacts/${id}`),
-    update: (id: number, data: { name?: string; email?: string; phone?: string }) =>
+    update: (id: number, data: { name?: string; email?: string; phone?: string; is_staff?: boolean; external_ref_param?: string }) =>
       request(`/api/v1/contacts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request(`/api/v1/contacts/${id}`, { method: 'DELETE' }),
