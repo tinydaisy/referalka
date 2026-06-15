@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react'
 import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Calendar, Globe, Building2, User, ChevronUp, ChevronDown } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
+import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
 import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
@@ -110,6 +111,11 @@ export default function MiniAppSettingsPage() {
   function updateTgChannels(list: FounderTgChannel[]) {
     if (!profile) return
     const next = { ...profile.social_links, telegram_channels: list }
+    update('social_links', next)
+  }
+  function updateMaxChannels(list: FounderMaxChannel[]) {
+    if (!profile) return
+    const next = { ...profile.social_links, max_channels: list }
     update('social_links', next)
   }
   function updateAch(field: 'achievements' | 'owner_achievements', idx: number, key: 'label' | 'value', value: string) {
@@ -404,6 +410,21 @@ export default function MiniAppSettingsPage() {
 
           <Section
             step={5}
+            title="MAX каналы основателя"
+            hint="Список ваших каналов в MAX. Используются для проверки подписки в воронках лид-магнитов в MAX — участник должен быть подписан на ВСЕ каналы из списка."
+          >
+            <div className="max-w-2xl">
+              <FounderMaxChannelsField
+                value={Array.isArray(profile.social_links.max_channels)
+                  ? profile.social_links.max_channels as FounderMaxChannel[]
+                  : []}
+                onChange={updateMaxChannels}
+              />
+            </div>
+          </Section>
+
+          <Section
+            step={6}
             title="Другие соцсети основателя"
             hint="Ряд иконок на странице «Об основателе». Заполняйте только то что хотите показать."
           >

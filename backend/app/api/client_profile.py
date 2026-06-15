@@ -959,6 +959,31 @@ async def resolve_telegram_chat_id(
     return {"chat_id": chat_id, "username": api_id}
 
 
+class ResolveMaxChatIdIn(BaseModel):
+    url: Optional[str] = None
+
+
+@profile_router.post("/profile/resolve-max-chat-id",
+                     summary="Попытаться получить chat_id MAX-канала (если бот — админ)")
+async def resolve_max_chat_id(
+    payload: ResolveMaxChatIdIn = ResolveMaxChatIdIn(),
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Получить chat_id MAX-канала по ссылке.
+
+    ⚠️ У MAX нет публичного метода «getChat по ссылке» как в Telegram. ID канала
+    MAX отдаёт только боту-администратору канала. Надёжно зарезолвить chat_id по
+    одной лишь ссылке нельзя — поэтому endpoint возвращает 400 `not_found`, а
+    клиент вписывает ID вручную (поле в UI есть). Эндпоинт существует, чтобы
+    кнопка «Получить автоматически» давала понятное сообщение, а не падала.
+    """
+    raise HTTPException(
+        status_code=400,
+        detail="not_found",  # фронт показывает «добавьте бота админом / впишите ID вручную»
+    )
+
+
 # ═══════════════════════════════════════════
 # Продукты клиента (CRUD)
 # ═══════════════════════════════════════════

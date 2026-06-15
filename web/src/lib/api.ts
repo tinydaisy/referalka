@@ -567,6 +567,11 @@ export const api = {
           method: 'POST',
           body: JSON.stringify(params || {}),
         }),
+      resolveMaxChatId: (params?: { url?: string }) =>
+        request('/api/v1/clients/me/profile/resolve-max-chat-id', {
+          method: 'POST',
+          body: JSON.stringify(params || {}),
+        }),
     },
     chatGates: {
       list:   () => request('/api/v1/clients/me/chat-gates'),

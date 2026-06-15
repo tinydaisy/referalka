@@ -166,6 +166,41 @@ def normalize_telegram_channels(value) -> list[dict]:
     return out
 
 
+def normalize_max_channels(value) -> list[dict]:
+    """Нормализует массив MAX-каналов основателя `social_links.max_channels`.
+
+    Формат элемента: {"url": "...", "chat_id": "" , "name": "..."}.
+    У MAX нет публичного API для получения chat_id по ссылке (в отличие от TG
+    getChat), поэтому chat_id вводится вручную или остаётся пустым.
+    url нормализуется мягко: trim + https:// если схемы нет; пустой → отбрасывается.
+    Дубли по url убираются, порядок сохраняется (первый = главный).
+    """
+    if not isinstance(value, list):
+        return []
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        url = (item.get("url") or "").strip()
+        if not url:
+            continue
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = "https://" + url.lstrip("/")
+        if url in seen:
+            continue
+        seen.add(url)
+        raw_cid = str(item.get("chat_id") or "").strip()
+        cid = ""
+        if raw_cid:
+            digits = "".join(ch for ch in raw_cid if ch.isdigit())
+            sign = "-" if raw_cid.lstrip().startswith("-") else ""
+            cid = sign + digits if digits else ""
+        name = (item.get("name") or "").strip()[:60]
+        out.append({"url": url, "chat_id": cid, "name": name})
+    return out
+
+
 def get_founder_tg_channels(social: Optional[dict]) -> list[dict]:
     """Достаёт массив TG-каналов основателя из социал-линков клиента.
 
@@ -206,6 +241,8 @@ def normalize_social_links(social: Optional[dict]) -> dict:
     out.pop("telegram_chat_id", None)
     if out.get("telegram_channels") is not None:
         out["telegram_channels"] = normalize_telegram_channels(out["telegram_channels"])
+    if out.get("max_channels") is not None:
+        out["max_channels"] = normalize_max_channels(out["max_channels"])
     if out.get("vk"):
         out["vk"] = normalize_vk_link(out["vk"])
     return out
