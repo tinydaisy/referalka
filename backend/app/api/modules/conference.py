@@ -51,8 +51,9 @@ def _normalize_hhmm(val):
 
 
 async def check_conference_access(event_id: int, client_id: int, db: asyncpg.Connection):
+    # Владелец — только через event_owners (events.client_id удалён миграцией 137).
     event = await db.fetchrow(
-        "SELECT id, module_slug FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))",
+        "SELECT id, module_slug FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status='accepted')",
         event_id, client_id
     )
     if not event:
@@ -591,7 +592,7 @@ async def speaker_self_register_links(
     кнопку «Включить в спикеры», VK/MAX — сразу регистрирует."""
     client_id = int(client["sub"])
     ev = await db.fetchval(
-        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))",
+        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status='accepted')",
         event_id, client_id,
     )
     if not ev:
@@ -612,7 +613,7 @@ async def speaker_self_edit_links(
     (личный TG или assistant_tg_username) и отдаёт его код доступа."""
     client_id = int(client["sub"])
     ev = await db.fetchval(
-        "SELECT id FROM events WHERE id = $1 AND (client_id = $2 OR EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\'))",
+        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status='accepted')",
         event_id, client_id,
     )
     if not ev:
