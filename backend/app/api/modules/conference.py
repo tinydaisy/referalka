@@ -3265,6 +3265,7 @@ async def create_report(
            WHERE ep2.event_id = $1
              AND ep2.referrer_ref_code IS NOT NULL
              AND ep2.referrer_ref_code <> ''
+             AND ct.is_staff = FALSE
              AND NOT EXISTS (
                  SELECT 1 FROM collaborators c
                  JOIN event_collaborators cse ON cse.speaker_id = c.id
@@ -3278,6 +3279,40 @@ async def create_report(
            ORDER BY entered DESC""",
         event_id
     )
+
+    # Сотрудники/лидгены (contacts.is_staff) — их трафик идёт в группу «Организатор»
+    # отдельной именной строкой, а не в раздел «Рефоводы».
+    staff_rows = await db.fetch(
+        """SELECT ep2.referrer_ref_code,
+                  COUNT(ep2.id) AS entered,
+                  COUNT(ep2.id) FILTER (WHERE ep2.is_registered = TRUE) AS registered,
+                  pu.platform_user_id AS tg_id, pu.first_name, pu.last_name, pu.username,
+                  ct.id AS contact_id, ct.name AS ct_name
+           FROM event_participants ep2
+           JOIN contacts ct ON ct.ref_code = ep2.referrer_ref_code AND ct.client_id = (
+               SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1
+           )
+           LEFT JOIN platform_users pu ON pu.contact_id = ct.id AND pu.platform_slug = 'telegram'
+           WHERE ep2.event_id = $1
+             AND ep2.referrer_ref_code IS NOT NULL
+             AND ep2.referrer_ref_code <> ''
+             AND ct.is_staff = TRUE
+           GROUP BY ep2.referrer_ref_code, pu.platform_user_id, pu.first_name, pu.last_name, pu.username, ct.id, ct.name
+           ORDER BY entered DESC""",
+        event_id
+    )
+    staff_data = []
+    for row in staff_rows:
+        name_parts = [row["first_name"] or "", row["last_name"] or ""]
+        name = " ".join(p for p in name_parts if p).strip() or row["ct_name"] or row["username"] or row["referrer_ref_code"] or "—"
+        staff_data.append({
+            "participant_id": row["contact_id"] or 0,
+            "name": name,
+            "username": row["username"] or "",
+            "tg_id": str(row["tg_id"] or ""),
+            "entered": int(row["entered"]),
+            "registered": int(row["registered"]),
+        })
 
     referrals_data = []
     for row in referrals_rows:
@@ -3320,6 +3355,7 @@ async def create_report(
            WHERE ep2.event_id = $1
              AND ep2.referrer_ref_code IS NOT NULL
              AND ep2.referrer_ref_code <> ''
+             AND ct.is_staff = FALSE
              AND NOT EXISTS (
                  SELECT 1 FROM collaborators c
                  JOIN event_collaborators cse ON cse.speaker_id = c.id
@@ -3365,10 +3401,12 @@ async def create_report(
     referrals_registered = sum(r["registered"] for r in referrals_data)
     base_entered = sum(r["entered"] for r in base_data)
     base_registered = sum(r["registered"] for r in base_data)
+    staff_entered = sum(r["entered"] for r in staff_data)
+    staff_registered = sum(r["registered"] for r in staff_data)
     errors_entered = len(errors_data)
     errors_registered = sum(r["registered"] for r in errors_data)
-    total_entered = speakers_entered + referrals_entered + base_entered + errors_entered
-    total_registered = speakers_registered + referrals_registered + base_registered + errors_registered
+    total_entered = speakers_entered + referrals_entered + base_entered + staff_entered + errors_entered
+    total_registered = speakers_registered + referrals_registered + base_registered + staff_registered + errors_registered
 
     report = await db.fetchrow(
         """INSERT INTO conf_reports
@@ -3387,6 +3425,7 @@ async def create_report(
             "referrals": referrals_data,
             "base": base_data,
             "errors": errors_data,
+            "staff": staff_data,
         }, ensure_ascii=False),
     )
 
@@ -3442,10 +3481,12 @@ async def get_report(
         r["referrals_data"] = raw_ref
         r["base_data"] = []
         r["errors_data"] = []
+        r["staff_data"] = []
     else:
         r["referrals_data"] = raw_ref.get("referrals", [])
         r["base_data"] = raw_ref.get("base", [])
         r["errors_data"] = raw_ref.get("errors", [])
+        r["staff_data"] = raw_ref.get("staff", [])
 
     return {"report": r}
 

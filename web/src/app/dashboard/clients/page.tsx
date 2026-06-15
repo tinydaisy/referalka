@@ -23,6 +23,7 @@ interface Contact {
   tags: string[] | null
   ref_code: string | null
   external_ref_param: string | null
+  is_staff?: boolean
   is_unsubscribed: boolean
   last_contact_at: string | null
   created_at: string | null
@@ -663,6 +664,31 @@ export default function ContactsPage() {
                   setSelected((s: any) => s ? { ...s, external_ref_param: v } : s)
                 }}
               />
+
+              {/* Сотрудник / лидген */}
+              <div className="flex items-start gap-2">
+                <Briefcase size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={!!selected.is_staff}
+                      onChange={async (e) => {
+                        const v = e.target.checked
+                        setSelected((s: any) => s ? { ...s, is_staff: v } : s)
+                        try { await api.contacts.update(selected.id, { is_staff: v }) }
+                        catch { setSelected((s: any) => s ? { ...s, is_staff: !v } : s) }
+                      }}
+                      className="w-4 h-4 accent-[#25455D]"
+                    />
+                    <span className="text-sm text-gray-800">Сотрудник / лидген</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Исключается из турнирной таблицы. В отчёте рефоводов его приведённые
+                    суммируются в группу «Организатор».
+                  </p>
+                </div>
+              </div>
 
               {/* Строка 3: Первый контакт | Последний контакт */}
               <div className="flex items-start gap-2">

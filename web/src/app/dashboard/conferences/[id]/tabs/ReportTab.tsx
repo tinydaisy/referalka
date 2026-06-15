@@ -44,6 +44,7 @@ interface ReportDetail extends ReportMeta {
   referrals_data: PersonRow[]
   base_data: PersonRow[]
   errors_data: PersonRow[]
+  staff_data?: PersonRow[]
 }
 
 function pct(num: number, den: number): string {
@@ -296,10 +297,11 @@ function generateReportText(detail: ReportDetail, reportDate: string, announceme
   const allSpk       = detail.speakers_data.filter(s => s.role !== 'organizer').sort(byEntered)
   const baseData     = detail.base_data
   const errorsData   = detail.errors_data
+  const staffData    = detail.staff_data ?? []
   const referrals    = detail.referrals_data
 
-  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0) + errorsData.reduce((s, r) => s + r.entered, 0)
-  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0) + errorsData.reduce((s, r) => s + r.registered, 0)
+  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0) + errorsData.reduce((s, r) => s + r.entered, 0) + staffData.reduce((s, r) => s + r.entered, 0)
+  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0) + errorsData.reduce((s, r) => s + r.registered, 0) + staffData.reduce((s, r) => s + r.registered, 0)
   const spkEntered     = allSpk.reduce((s, r) => s + r.entered, 0)
   const spkRegistered  = allSpk.reduce((s, r) => s + r.registered, 0)
   const refEntered     = referrals.reduce((s, r) => s + r.entered, 0)
@@ -431,13 +433,14 @@ export default function ReportTab({ eventId }: { eventId: number }) {
   const baseData     = detail?.base_data ?? []
   const referrals    = (detail?.referrals_data ?? []).sort(byEntered)
   const errorsData   = detail?.errors_data ?? []
+  const staffData    = (detail?.staff_data ?? []).sort(byEntered)
 
   const T = detail?.total_entered ?? 0
   const TR = detail?.total_registered ?? 0
 
-  // Группа "Организатор" = организаторы + из базы + ошибки распределения
-  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0) + errorsData.reduce((s, r) => s + r.entered, 0)
-  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0) + errorsData.reduce((s, r) => s + r.registered, 0)
+  // Группа "Организатор" = организаторы + сотрудники/лидгены + из базы + ошибки распределения
+  const orgEntered     = organizers.reduce((s, r) => s + r.entered, 0) + staffData.reduce((s, r) => s + r.entered, 0) + baseData.reduce((s, r) => s + r.entered, 0) + errorsData.reduce((s, r) => s + r.entered, 0)
+  const orgRegistered  = organizers.reduce((s, r) => s + r.registered, 0) + staffData.reduce((s, r) => s + r.registered, 0) + baseData.reduce((s, r) => s + r.registered, 0) + errorsData.reduce((s, r) => s + r.registered, 0)
 
   const spkEntered     = regularSpk.reduce((s, r) => s + r.entered, 0)
   const spkRegistered  = regularSpk.reduce((s, r) => s + r.registered, 0)
@@ -560,21 +563,40 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                 )
               })()}
 
-              {/* ОРГАНИЗАТОР + ИЗ БАЗЫ + ОШИБОЧНЫЕ */}
-              {(organizers.length > 0 || baseData.length > 0 || errorsData.length > 0) && (() => {
+              {/* ОРГАНИЗАТОР + СОТРУДНИКИ + ИЗ БАЗЫ + ОШИБОЧНЫЕ */}
+              {(organizers.length > 0 || staffData.length > 0 || baseData.length > 0 || errorsData.length > 0) && (() => {
                 const baseEntered = baseData.reduce((s, r) => s + r.entered, 0)
                 const baseRegistered = baseData.reduce((s, r) => s + r.registered, 0)
                 const errEntered = errorsData.reduce((s, r) => s + r.entered, 0)
                 const errRegistered = errorsData.reduce((s, r) => s + r.registered, 0)
-                const extraRows = (baseData.length > 0 ? 1 : 0) + (errorsData.length > 0 ? 1 : 0)
+                const extraRows = staffData.length + (baseData.length > 0 ? 1 : 0) + (errorsData.length > 0 ? 1 : 0)
                 return (
                   <CollapsibleGroup label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" count={organizers.length + extraRows}>
                     {organizers.map((row, i) => (
                       <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
                     ))}
+                    {staffData.map((row, i) => (
+                      <tr key={`staff-${row.participant_id}-${i}`} className="border-b border-gray-50 last:border-0 bg-amber-50/40">
+                        <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + i + 1}</td>
+                        <td className="px-4 py-1.5">
+                          <span className="font-medium text-[#25455D] text-sm">{row.name || row.username || '—'}</span>
+                          {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
+                          <div className="text-xs text-amber-600 font-normal">сотрудник · трафик в организаторов</div>
+                        </td>
+                        <td className="px-3 py-1.5 text-center">
+                          <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
+                          <span className="text-gray-300 mx-1">/</span>
+                          <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
+                        <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
+                          {pct(row.entered, T)} / {pct(row.registered, TR)}
+                        </td>
+                      </tr>
+                    ))}
                     {baseData.length > 0 && (
                       <tr className="border-b border-gray-50 last:border-0 bg-gray-50/50">
-                        <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + 1}</td>
+                        <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + staffData.length + 1}</td>
                         <td className="px-4 py-1.5">
                           <span className="font-medium text-gray-500 text-sm">Из базы (без реф-кода)</span>
                           <div className="text-xs text-gray-400">{baseData.length} чел.</div>
@@ -592,7 +614,7 @@ export default function ReportTab({ eventId }: { eventId: number }) {
                     )}
                     {errorsData.length > 0 && (
                       <tr className="border-b border-gray-50 last:border-0 bg-red-50/30">
-                        <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + (baseData.length > 0 ? 1 : 0) + 1}</td>
+                        <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{organizers.length + staffData.length + (baseData.length > 0 ? 1 : 0) + 1}</td>
                         <td className="px-4 py-1.5">
                           <span className="font-medium text-red-400 text-sm">Ошибка распределения</span>
                           <div className="text-xs text-gray-400">{errorsData.length} чел.</div>

@@ -598,6 +598,7 @@ async def get_contact(
           c.tags,
           c.ref_code,
           c.external_ref_param,
+          c.is_staff,
           c.salebot_id,
           c.last_contact_at,
           c.created_at,
@@ -816,6 +817,9 @@ class ContactUpdateRequest(BaseModel):
     # Партнёрский параметр во внешней платформе клиента (GetCourse, Bizon360 и т.п.).
     # Опаковая строка "key=value" (например "gcpc=fdd97"). Пустая строка = очистить.
     external_ref_param: Optional[str] = None
+    # Сотрудник/лидген: исключается из турнирной таблицы; в отчёте рефоводов
+    # его трафик уходит в группу «Организатор».
+    is_staff: Optional[bool] = None
 
 
 @router.patch("/contacts/{contact_id}")
@@ -854,6 +858,8 @@ async def update_contact(
         if erp and len(erp) > 500:
             raise HTTPException(status_code=400, detail="Партнёрский параметр слишком длинный (>500 симв.)")
         args.append(erp); sets.append(f"external_ref_param = ${len(args)}")
+    if data.is_staff is not None:
+        args.append(bool(data.is_staff)); sets.append(f"is_staff = ${len(args)}")
 
     # email НЕ пишем в contacts — он живёт как идентичность (platform_users).
     email_change = data.email is not None

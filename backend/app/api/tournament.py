@@ -134,6 +134,7 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
              FROM event_participants ep
              JOIN contacts ct ON ct.id = ep.contact_id
             WHERE ep.event_id = $1 AND ep.is_registered = TRUE
+              AND ct.is_staff = FALSE
               AND NOT EXISTS (
                 SELECT 1 FROM event_collaborators ec2
                  JOIN collaborators c2 ON c2.id = ec2.speaker_id
