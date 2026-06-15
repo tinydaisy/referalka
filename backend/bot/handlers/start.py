@@ -537,6 +537,14 @@ async def handle_start(message: Message, command: CommandObject):
     # код доступа и ссылку на лендинг pluson.ru/speaker/<event_slug>.
     if args.startswith("spkinv_"):
         access_code = args.removeprefix("spkinv_").strip()
+        # Опциональный суффикс `_e<event_id>` — жёсткая привязка к событию,
+        # чтобы ссылка не «уехала» на последнее по ec.id (например, копию-черновик).
+        invite_event_id: int | None = None
+        if "_e" in access_code:
+            base, _, ev_part = access_code.rpartition("_e")
+            if ev_part.isdigit():
+                access_code = base.strip()
+                invite_event_id = int(ev_part)
         if access_code:
             pool = await get_pool()
             try:
@@ -590,15 +598,37 @@ async def handle_start(message: Message, command: CommandObject):
                         )
                         return
 
-                    # Берём первое event_collaborators этого коллаба, чтобы знать slug.
-                    ev = await db.fetchrow(
-                        """SELECT e.slug, e.title
-                             FROM event_collaborators ec
-                             JOIN events e ON e.id = ec.event_id
-                            WHERE ec.speaker_id = $1
-                            ORDER BY ec.id DESC LIMIT 1""",
-                        coll["collaborator_id"],
-                    )
+                    # Какое событие открыть в кабинете спикера:
+                    # 1) если ссылка несёт `_e<event_id>` — строго это событие
+                    #    (он привязан к нему как коллаб);
+                    # 2) иначе — НЕ «последнее по ec.id» (так ссылка уезжала на
+                    #    копию-черновик), а опубликованное/завершённое с приоритетом:
+                    #    published → ended → draft, внутри — позже добавленное.
+                    if invite_event_id:
+                        ev = await db.fetchrow(
+                            """SELECT e.slug, e.title
+                                 FROM event_collaborators ec
+                                 JOIN events e ON e.id = ec.event_id
+                                WHERE ec.speaker_id = $1 AND ec.event_id = $2
+                                LIMIT 1""",
+                            coll["collaborator_id"], invite_event_id,
+                        )
+                    else:
+                        ev = None
+                    if not ev:
+                        ev = await db.fetchrow(
+                            """SELECT e.slug, e.title
+                                 FROM event_collaborators ec
+                                 JOIN events e ON e.id = ec.event_id
+                                WHERE ec.speaker_id = $1
+                                ORDER BY CASE e.status
+                                           WHEN 'published' THEN 0
+                                           WHEN 'ended'     THEN 1
+                                           ELSE 2
+                                         END, ec.id DESC
+                                LIMIT 1""",
+                            coll["collaborator_id"],
+                        )
                     event_slug = ev["slug"] if ev else ""
                     event_title = ev["title"] if ev else "событие"
 
@@ -1226,7 +1256,7 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                              e.end_at
                            ) AS effective_end_at
                       FROM events e
-                     WHERE e.client_id = $1
+                     WHERE e.id IN (SELECT event_id FROM event_owners WHERE client_id = $1 AND status = 'accepted')
                        AND e.status = 'published'
                 ) t
                 WHERE t.effective_start_at IS NOT NULL

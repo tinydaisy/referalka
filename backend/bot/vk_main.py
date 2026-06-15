@@ -981,7 +981,7 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
 
             ev_row = await db.fetchrow(
                 f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e "
-                f"WHERE e.id = $1 AND e.client_id = $2 LIMIT 1",
+                f"WHERE e.id = $1 AND e.id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status = 'accepted') LIMIT 1",
                 trigger_event_id, ctx.client_id,
             )
             if not ev_row:
@@ -1040,7 +1040,8 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id
                                        AND pu.platform_slug = 'vk'
                                        AND pu.platform_user_id = $1
-                 JOIN events e ON e.id = ep.event_id AND e.client_id = $2
+                 JOIN events e ON e.id = ep.event_id
+                                AND e.id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status = 'accepted')
                 WHERE ep.last_open_msg_at > NOW() - INTERVAL '30 minutes'
                 ORDER BY ep.last_open_msg_at DESC
                 LIMIT 1""",
