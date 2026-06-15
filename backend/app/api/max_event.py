@@ -99,6 +99,15 @@ async def handle_max_event(body: MaxEventRequest):
             known_contact_id=body.contact_id or None,
         )
 
+        # Подписка на главный MAX-канал клиента — без этого человек не попадает
+        # в platform_user_channels → не считается подписчиком и не получает
+        # рассылки (зеркало register_telegram_subscription для TG / VK-флоу).
+        try:
+            from app.services.channels import register_platform_channel_subscription
+            await register_platform_channel_subscription(client_id, "max", pu_id, conn)
+        except Exception as e:
+            logger.warning(f"MAX event register channel subscription failed (pu={pu_id}): {e}")
+
         # Реферер из startapp pid
         resolved_ref_code = None
         referrer_contact_id = None

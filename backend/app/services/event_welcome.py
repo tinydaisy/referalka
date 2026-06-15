@@ -126,6 +126,7 @@ async def _send_event_organizer_notification(
         f"<b>Имя:</b> {(contact['name'] if contact else None) or '—'}",
         f"<b>ID контакта:</b> #{contact_id}",
         f"<b>Платформа:</b> {'ВКонтакте' if platform_slug == 'vk' else ('MAX' if platform_slug == 'max' else 'Telegram')}",
+        f"<b>ID в платформе:</b> {(contact['platform_user_id'] if contact else None) or '—'}",
         f"<b>Источник (utm_source):</b> {(contact['utm_source'] if contact else None) or '—'}",
         f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={contact_id}",
         "",

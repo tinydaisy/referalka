@@ -571,6 +571,7 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
         f"<b>Имя:</b> {run['contact_name'] or '—'}",
         f"<b>ID контакта:</b> {('#' + str(run['contact_id'])) if run['contact_id'] else '—'}",
         f"<b>Платформа:</b> {(run['platform_slug'] or '—').title()}",
+        f"<b>ID в платформе:</b> {run['platform_user_id'] or '—'}",
     ]
 
     src = utm.get("utm_source") if isinstance(utm, dict) else None

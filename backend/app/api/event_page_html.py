@@ -2425,7 +2425,7 @@ async def public_tournament_table(slug: str, stage_id: int,
     favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
 
     # ── Шапка таблицы: группировка колонок по пакетам ──
-    groups = []  # [{pkg_id, title, weight, normalize, span}]
+    groups = []  # [{pkg_id, title, weight, normalize, aggregate, span}]
     for c in columns:
         if groups and groups[-1]["pkg_id"] == c["package_id"]:
             groups[-1]["span"] += 1
@@ -2433,32 +2433,44 @@ async def public_tournament_table(slug: str, stage_id: int,
             p = pkg_by_id.get(c["package_id"], {})
             groups.append({"pkg_id": c["package_id"], "title": c["package_title"],
                            "weight": p.get("weight", 1),
-                           "normalize": bool(p.get("normalize")), "span": 1})
+                           "normalize": bool(p.get("normalize")),
+                           "aggregate": p.get("aggregate", "avg"), "span": 1})
+    # +1 колонка "Балл пакета" в конце каждой группы
+    for g in groups:
+        g["span"] += 1
 
     NORM_BADGE = "<span class='norm' title='Критерий нормализуется: баллы приводятся к доле от лучшего результата'>норм.</span>"
 
     thead_grp = "<th rowspan='2' class='c-place'>Место</th><th rowspan='2' class='c-name'>Участник</th>"
     thead_grp += "<th rowspan='2' class='c-total'>ИТОГ</th>"
     for g in groups:
-        gn = NORM_BADGE if g["normalize"] else ""
+        mode = "сумма" if g.get("aggregate") == "sum" else "среднее"
+        extra = (" · норм." if g["normalize"] else "")
         thead_grp += (f"<th colspan='{g['span']}' class='c-grp'>{esc(g['title'])}"
-                      f"<span class='w'>вес {_fmt_num(g['weight'])}{(' · ' if g['normalize'] else '')}"
-                      f"{('норм.' if g['normalize'] else '')}</span></th>")
-    thead_crit = ""
+                      f"<span class='w'>вес ×{_fmt_num(g['weight'])} · {mode}{extra}</span></th>")
+    crit_by_pkg_seq = {}
     for c in columns:
-        p = pkg_by_id.get(c["package_id"], {})
-        badge = NORM_BADGE if p.get("normalize") else ""
-        thead_crit += f"<th class='c-crit'>{esc(c['title'])}{badge}</th>"
+        crit_by_pkg_seq.setdefault(c["package_id"], []).append(c)
+    thead_crit = ""
+    for g in groups:
+        for c in crit_by_pkg_seq.get(g["pkg_id"], []):
+            cw = float(c.get("weight", 1))
+            thead_crit += (f"<th class='c-crit'>{esc(c['title'])}"
+                           f"<span class='cw'>×{_fmt_num(cw)}</span></th>")
+        thead_crit += "<th class='c-pkg'>Балл пакета<span class='cw'>×вес → итог</span></th>"
 
     rows_html = ""
     if not table:
-        rows_html = (f"<tr><td colspan='{3 + len(columns)}' class='empty'>"
+        rows_html = (f"<tr><td colspan='{3 + sum(g['span'] for g in groups)}' class='empty'>"
                      "Пока нет участников или оценок на этом этапе.</td></tr>")
     for r in table:
         cells = ""
-        for c in columns:
-            v = r["cells"].get(str(c["criterion_id"]))
-            cells += f"<td class='val'>{_fmt_num(v)}</td>"
+        for g in groups:
+            for c in crit_by_pkg_seq.get(g["pkg_id"], []):
+                v = r["cells"].get(str(c["criterion_id"]))
+                cells += f"<td class='val'>{_fmt_num(v)}</td>"
+            ps = r.get("package_scores", {}).get(str(g["pkg_id"]))
+            cells += f"<td class='pkg-val'>{_fmt_num(ps)}</td>"
         place = r["place"]
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(place, "")
         rows_html += (
@@ -2516,11 +2528,18 @@ async def public_tournament_table(slug: str, stage_id: int,
   thead th {{ background:#f1f4f7; color:#41566a; font-weight:700; position:sticky; top:0; }}
   .c-grp {{ border-left:1px solid #dfe5ea; color:#25455D; }}
   .c-grp .w {{ display:block; font-size:10.5px; font-weight:500; color:#8593a1; }}
-  .c-crit {{ font-weight:500; color:#5b6b7a; font-size:11.5px; max-width:130px; white-space:normal; }}
+  .c-crit {{ font-weight:500; color:#5b6b7a; font-size:11.5px; min-width:64px; max-width:96px; white-space:normal; word-break:break-word; vertical-align:bottom; }}
+  .c-crit .cw {{ display:block; font-size:10px; font-weight:700; color:#b45309; margin-top:2px; }}
+  .c-pkg {{ font-weight:700; color:#25455D; font-size:11.5px; min-width:72px; max-width:96px; white-space:normal; word-break:break-word; background:#FFF7F0; border-left:1px solid #FFCFA4; vertical-align:bottom; }}
+  .c-pkg .cw {{ display:block; font-size:9.5px; font-weight:600; color:#8593a1; margin-top:2px; }}
+  .pkg-val {{ font-weight:800; color:#25455D; background:#FFF7F0; border-left:1px solid #FFCFA4; }}
+  tbody tr:nth-child(even) .pkg-val {{ background:#FFF2E6; }}
   .norm {{ display:inline-block; margin-left:4px; font-size:9.5px; font-weight:700; color:#b45309;
     background:#FFF3E0; border:1px solid #FFCFA4; border-radius:5px; padding:0 4px; vertical-align:middle; }}
   .c-place {{ text-align:center; font-weight:700; color:#25455D; width:54px; }}
-  .c-name {{ text-align:left; font-weight:600; color:#1f2d3a; position:sticky; left:0; background:#fff; }}
+  .c-name {{ text-align:left; font-weight:600; color:#1f2d3a; position:sticky; left:0; background:#fff;
+    width:200px; min-width:160px; max-width:220px; white-space:normal; word-break:break-word;
+    border-right:2px solid #dfe5ea; }}
   thead .c-name {{ background:#f1f4f7; }}
   .c-total {{ font-weight:800; color:#25455D; border-left:2px solid #FFCFA4; background:#FFF7F0; }}
   thead .c-total {{ background:#FFEFE0; }}

@@ -728,6 +728,30 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
         )
         await db.execute("DELETE FROM platform_users WHERE contact_id = $1", secondary_id)
 
+        # Реферер per-событие при конфликте участий.
+        # Если оба контакта участвуют в ОДНОМ событии, у primary-участия
+        # реферер ПУСТОЙ, а у secondary-участия — заполнен, то перед удалением
+        # secondary's переносим его реферера на выжившее primary-участие.
+        # Правило: «непустой реферер, иначе от самого раннего участия».
+        # primary = самый ранний контакт, поэтому его участие приоритетно;
+        # добираем реферера у secondary только когда у primary его нет.
+        # Переносим ТОЛЬКО referrer_ref_code (строку) — она самодостаточна и
+        # резолвится через resolve_ref_code. referrer_participant_id у secondary
+        # указывает на участие, которое ниже будет удалено → не копируем его,
+        # чтобы не оставить битый FK; он опционален и пересчитывается при выдаче.
+        await db.execute(
+            """UPDATE event_participants ep_primary
+                  SET referrer_ref_code = ep_secondary.referrer_ref_code
+                 FROM event_participants ep_secondary
+                WHERE ep_primary.contact_id = $1
+                  AND ep_secondary.contact_id = $2
+                  AND ep_secondary.event_id = ep_primary.event_id
+                  AND (ep_primary.referrer_ref_code IS NULL OR ep_primary.referrer_ref_code = '')
+                  AND ep_secondary.referrer_ref_code IS NOT NULL
+                  AND ep_secondary.referrer_ref_code <> ''""",
+            primary_id, secondary_id,
+        )
+
         # Перенос участий: если у primary уже есть участие в том же event — пропускаем secondary
         await db.execute(
             """UPDATE event_participants
@@ -826,3 +850,79 @@ async def merge_contacts(db, *, primary_id: int, secondary_id: int, client_id: i
             )
 
     return {"primary_id": primary_id, "secondary_id": secondary_id, "merged_ref_code": secondary_ref}
+
+
+async def merge_contacts_oldest_primary(db, *, contact_a: int, contact_b: int, client_id: int) -> dict:
+    """Слить два контакта, главным выбрав САМЫЙ РАННИЙ (меньший id = создан раньше).
+
+    Возвращает результат merge_contacts + поле `noop=True`, если это один и тот же
+    контакт (уже объединены или одна идентичность). Реферер на событие
+    разруливается внутри merge_contacts по правилу «непустой, иначе от раннего».
+    """
+    if contact_a == contact_b:
+        return {"noop": True, "primary_id": contact_a}
+    primary_id, secondary_id = (contact_a, contact_b) if contact_a < contact_b else (contact_b, contact_a)
+    result = await merge_contacts(
+        db, primary_id=primary_id, secondary_id=secondary_id, client_id=client_id
+    )
+    result["noop"] = False
+    return result
+
+
+async def find_contact_by_identity(db, *, client_id: int, platform_slug: str, platform_user_id: str) -> Optional[int]:
+    """Найти АКТИВНЫЙ contact_id по идентичности (client_id, platform, platform_user_id).
+
+    Если контакт уже смержен (merged_into != NULL) — возвращаем главного.
+    None, если такой идентичности у клиента нет.
+    """
+    row = await db.fetchrow(
+        """SELECT pu.contact_id, c.merged_into
+             FROM platform_users pu
+             JOIN contacts c ON c.id = pu.contact_id
+            WHERE pu.client_id = $1
+              AND pu.platform_slug = $2
+              AND pu.platform_user_id = $3
+            ORDER BY pu.id DESC LIMIT 1""",
+        client_id, platform_slug, str(platform_user_id),
+    )
+    if not row:
+        return None
+    return row["merged_into"] or row["contact_id"]
+
+
+async def merge_my_account_with_identity(
+    db,
+    *,
+    client_id: int,
+    current_contact_id: int,
+    other_platform_slug: str,
+    other_platform_user_id: str,
+) -> dict:
+    """Точка входа «Объединить аккаунты» из любого бота.
+
+    Человек находится в одном боте (current_contact_id — его контакт там), вводит
+    свой ID на другой площадке. Находим контакт той идентичности у ЭТОГО клиента и
+    сливаем, главным оставляя самый ранний контакт.
+
+    Возвращает dict:
+      {"status": "merged", "primary_id": N, "merged_ref_code": "..."}
+      {"status": "already"}                  — это уже один контакт
+      {"status": "not_found"}                — у клиента нет такой идентичности
+    """
+    other_contact_id = await find_contact_by_identity(
+        db, client_id=client_id,
+        platform_slug=other_platform_slug,
+        platform_user_id=other_platform_user_id,
+    )
+    if other_contact_id is None:
+        return {"status": "not_found"}
+    if other_contact_id == current_contact_id:
+        return {"status": "already"}
+    res = await merge_contacts_oldest_primary(
+        db, contact_a=current_contact_id, contact_b=other_contact_id, client_id=client_id
+    )
+    return {
+        "status": "merged",
+        "primary_id": res.get("primary_id"),
+        "merged_ref_code": res.get("merged_ref_code"),
+    }

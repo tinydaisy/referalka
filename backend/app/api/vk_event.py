@@ -1484,6 +1484,20 @@ async def vk_event_landing(body: VkEventLandingRequest):
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="vk_user_id must be int")
 
+        # ЛОГ ССЫЛКИ ПЕРЕХОДА — сюда попадают люди по ссылкам жюри (#evl_<slug>_pid...).
+        try:
+            await log_entry_link(
+                conn,
+                platform="vk",
+                platform_user_id=vk_user_id,
+                raw_param=(body.slug or "") + (f"_pid{body.partner_id}" if body.partner_id else ""),
+                launch_params=body.launch_params,
+                parsed_slug=body.slug or None,
+                parsed_pid=body.partner_id or None,
+            )
+        except Exception:
+            pass
+
         # Быстрый резолв для ОТВЕТА: событие + group_id + афиша (без тяжёлой работы).
         ev = await conn.fetchrow(
             """SELECT e.id, e.title,

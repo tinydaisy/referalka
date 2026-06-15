@@ -682,6 +682,81 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
         return
 
 
+_MERGE_USAGE_VK = (
+    "Объединение аккаунтов\n\n"
+    "Если вы заходили к этому организатору и в ВКонтакте, и в Telegram, и в MAX — "
+    "можно слить всё в один профиль (рефералы, регистрации и подарки сложатся вместе).\n\n"
+    "1. Узнайте свой ID на другой площадке командой /getmyid в её боте.\n"
+    "2. Пришлите сюда:\n"
+    "/merge tg ВАШ_TG_ID\n"
+    "/merge max ВАШ_MAX_ID\n"
+    "/merge vk ВАШ_VK_ID\n\n"
+    "Например: /merge tg 12345678"
+)
+
+
+async def _handle_vk_merge(text: str, from_id: int, db, ctx: GroupCtx) -> None:
+    """Объединить VK-аккаунт человека с его аккаунтом на другой площадке.
+    Главный контакт — самый ранний, реферер на событие — непустой/от раннего."""
+    from app.services.vk_api import send_message as _vk_send
+    from app.services.contact_merge import (
+        merge_my_account_with_identity, find_contact_by_identity,
+    )
+
+    async def _reply(msg: str):
+        try:
+            await _vk_send(from_id, msg, token=ctx.token)
+        except Exception as e:
+            logger.warning(f"VK merge reply failed: {e}")
+
+    parts = text.strip().split()
+    # parts[0] = '/merge'
+    if len(parts) < 3:
+        await _reply(_MERGE_USAGE_VK)
+        return
+    aliases = {"telegram": "telegram", "tg": "telegram", "vk": "vk",
+               "вк": "vk", "max": "max", "макс": "max", "мах": "max"}
+    other_platform = aliases.get(parts[1].lower())
+    other_id_raw = parts[2].lstrip("@").strip()
+    if other_platform not in ("telegram", "vk", "max") or not other_id_raw.isdigit():
+        await _reply(_MERGE_USAGE_VK)
+        return
+
+    if other_platform == "vk" and other_id_raw == str(from_id):
+        await _reply("Это ваш текущий VK-аккаунт — объединять не с чем.")
+        return
+
+    current_contact_id = await find_contact_by_identity(
+        db, client_id=ctx.client_id, platform_slug="vk",
+        platform_user_id=str(from_id),
+    )
+    if not current_contact_id:
+        await _reply(
+            "Сначала зайдите в любое событие этого организатора, "
+            "чтобы создать профиль, потом повторите объединение."
+        )
+        return
+
+    res = await merge_my_account_with_identity(
+        db, client_id=ctx.client_id, current_contact_id=current_contact_id,
+        other_platform_slug=other_platform, other_platform_user_id=other_id_raw,
+    )
+    if res["status"] == "not_found":
+        plat_name = {"telegram": "Telegram", "vk": "ВКонтакте", "max": "MAX"}[other_platform]
+        await _reply(
+            f"😕 Не нашёл аккаунт {plat_name} с ID {other_id_raw} у этого организатора.\n\n"
+            "Проверьте ID (узнайте его командой /getmyid в нужном боте) "
+            "и заходили ли вы к этому организатору с той площадки."
+        )
+    elif res["status"] == "already":
+        await _reply("✅ Эти аккаунты уже объединены — ничего делать не нужно.")
+    else:
+        await _reply(
+            "✅ Готово! Аккаунты объединены в один профиль. "
+            "Рефералы, регистрации и подарки теперь общие."
+        )
+
+
 async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     """message_new: входящее сообщение в личку сообщества.
 
@@ -702,6 +777,26 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     # пересылает организатору и т.п.). В личке VK всегда peer_id == from_id.
     peer_id = message.get("peer_id")
     if peer_id is not None and int(peer_id) != int(from_id):
+        return
+
+    # /getmyid — узнать свой VK ID для поля тестовых ID в Настройках.
+    if (message.get("text") or "").strip().lower().startswith("/getmyid"):
+        try:
+            from app.services.vk_api import send_message as _vk_send
+            await _vk_send(
+                int(from_id),
+                f"Ваш VK ID: {from_id}\n\n"
+                "Вставьте это число в поле тестовых VK-ID в Настройках → Технические, "
+                "чтобы получать тестовые рассылки.",
+                token=ctx.token,
+            )
+        except Exception as e:
+            logger.warning(f"VK /getmyid failed: {e}")
+        return
+
+    # /merge <платформа> <id> — объединить аккаунты с другой площадки.
+    if (message.get("text") or "").strip().lower().startswith("/merge"):
+        await _handle_vk_merge(message.get("text") or "", int(from_id), db, ctx)
         return
 
     # Диагностика для spkinv: логируем что VK прислал в ref-полях.

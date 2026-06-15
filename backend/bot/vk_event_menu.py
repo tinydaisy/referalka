@@ -205,12 +205,6 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
 async def handle_vk_event_menu_back(event_id: int, vk_user_id: int, db, ctx) -> None:
     """«⬅️ Меню события» (VK) — пересобрать меню кабинета зарегистрированного.
     Порт funnel.py:handle_event_menu_back."""
-    contact_id = await db.fetchval(
-        """SELECT contact_id FROM platform_users
-            WHERE platform_slug = 'vk' AND platform_user_id = $1
-            ORDER BY id DESC LIMIT 1""",
-        str(vk_user_id),
-    )
     # Поля события + клиентский vk_app_id для кнопки Мини-Апп (на случай незарег.).
     from app.api.vk_event import send_vk_event_funnel, _EVENT_FUNNEL_FIELDS
     ev = await db.fetchrow(
@@ -220,6 +214,23 @@ async def handle_vk_event_menu_back(event_id: int, vk_user_id: int, db, ctx) -> 
     if not ev:
         await vk_send_message(vk_user_id, "😕 Событие не найдено.", token=ctx.token)
         return
+    # contact_id ищем В КОНТЕКСТЕ КЛИЕНТА события (у человека может быть несколько
+    # vk-идентичностей на разных клиентов; без фильтра по client_id брался чужой
+    # contact_id → is_registered=False → меню как для незарега = баг «ведёт на
+    # регистрацию у зарегистрированного»).
+    contact_id = await db.fetchval(
+        """SELECT contact_id FROM platform_users
+            WHERE platform_slug = 'vk' AND platform_user_id = $1 AND client_id = $2
+            ORDER BY id DESC LIMIT 1""",
+        str(vk_user_id), ev["client_id"],
+    )
+    if not contact_id:
+        contact_id = await db.fetchval(
+            """SELECT contact_id FROM platform_users
+                WHERE platform_slug = 'vk' AND platform_user_id = $1
+                ORDER BY id DESC LIMIT 1""",
+            str(vk_user_id),
+        )
     client_vk_app_id = await db.fetchval(
         """SELECT (ch.platform_meta->>'vk_app_id')::int
              FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id

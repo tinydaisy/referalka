@@ -224,6 +224,24 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         )
         return
 
+    if low.startswith("/getmyid"):
+        await max_send_message(
+            chat_id,
+            f"Ваш MAX ID: {user_id}\n\n"
+            "Вставьте это число в поле тестовых MAX-ID в Настройках → Технические, "
+            "чтобы получать тестовые рассылки. Также используется для объединения "
+            "аккаунтов (/merge) на других площадках.",
+            token=bot_token,
+        )
+        return
+
+    if low.startswith("/merge"):
+        await _handle_max_merge(
+            text=text, user_id=user_id, chat_id=chat_id,
+            bot_token=bot_token, client_id_override=client_id_override,
+        )
+        return
+
     if low.startswith("/start"):
         payload = text[len("/start"):].strip()
         await _process_start(
@@ -340,6 +358,93 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
         return
 
     logger.info(f"MAX message_callback unknown payload={payload!r}")
+
+
+_MERGE_USAGE_MAX = (
+    "Объединение аккаунтов\n\n"
+    "Если вы заходили к этому организатору и в MAX, и в Telegram, и в ВКонтакте — "
+    "можно слить всё в один профиль (рефералы, регистрации и подарки сложатся вместе).\n\n"
+    "1. Узнайте свой ID на другой площадке командой /getmyid в её боте.\n"
+    "2. Пришлите сюда:\n"
+    "/merge tg ВАШ_TG_ID\n"
+    "/merge vk ВАШ_VK_ID\n"
+    "/merge max ВАШ_MAX_ID\n\n"
+    "Например: /merge tg 12345678"
+)
+
+
+async def _handle_max_merge(
+    *, text: str, user_id: int, chat_id: int,
+    bot_token: str, client_id_override: int | None,
+) -> None:
+    """Объединить MAX-аккаунт человека с его аккаунтом на другой площадке.
+    Главный контакт — самый ранний, реферер на событие — непустой/от раннего."""
+    from app.services.contact_merge import (
+        merge_my_account_with_identity, find_contact_by_identity,
+    )
+
+    parts = text.strip().split()
+    if len(parts) < 3:
+        await max_send_message(chat_id, _MERGE_USAGE_MAX, token=bot_token)
+        return
+    aliases = {"telegram": "telegram", "tg": "telegram", "vk": "vk",
+               "вк": "vk", "max": "max", "макс": "max", "мах": "max"}
+    other_platform = aliases.get(parts[1].lower())
+    other_id_raw = parts[2].lstrip("@").strip()
+    if other_platform not in ("telegram", "vk", "max") or not other_id_raw.isdigit():
+        await max_send_message(chat_id, _MERGE_USAGE_MAX, token=bot_token)
+        return
+    if other_platform == "max" and other_id_raw == str(user_id):
+        await max_send_message(chat_id, "Это ваш текущий MAX-аккаунт — объединять не с чем.", token=bot_token)
+        return
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        client_id = client_id_override or 0
+        if not client_id:
+            client_id = await conn.fetchval(
+                "SELECT id FROM clients WHERE email = 'system@pluson.ru' LIMIT 1"
+            ) or 0
+        if not client_id:
+            await max_send_message(chat_id, "😕 Не удалось определить организатора.", token=bot_token)
+            return
+
+        current_contact_id = await find_contact_by_identity(
+            conn, client_id=client_id, platform_slug="max",
+            platform_user_id=str(user_id),
+        )
+        if not current_contact_id:
+            await max_send_message(
+                chat_id,
+                "Сначала зайдите в любое событие этого организатора, "
+                "чтобы создать профиль, потом повторите объединение.",
+                token=bot_token,
+            )
+            return
+
+        res = await merge_my_account_with_identity(
+            conn, client_id=client_id, current_contact_id=current_contact_id,
+            other_platform_slug=other_platform, other_platform_user_id=other_id_raw,
+        )
+
+    if res["status"] == "not_found":
+        plat_name = {"telegram": "Telegram", "vk": "ВКонтакте", "max": "MAX"}[other_platform]
+        await max_send_message(
+            chat_id,
+            f"😕 Не нашёл аккаунт {plat_name} с ID {other_id_raw} у этого организатора.\n\n"
+            "Проверьте ID (узнайте его командой /getmyid в нужном боте) "
+            "и заходили ли вы к этому организатору с той площадки.",
+            token=bot_token,
+        )
+    elif res["status"] == "already":
+        await max_send_message(chat_id, "✅ Эти аккаунты уже объединены — ничего делать не нужно.", token=bot_token)
+    else:
+        await max_send_message(
+            chat_id,
+            "✅ Готово! Аккаунты объединены в один профиль. "
+            "Рефералы, регистрации и подарки теперь общие.",
+            token=bot_token,
+        )
 
 
 async def _process_start(
@@ -497,6 +602,15 @@ async def _process_start(
             utm_source=utm_source or None,
             known_contact_id=known_contact_id,
         )
+
+        # Подписка на главный MAX-канал клиента — без этого человек не попадает
+        # в platform_user_channels → не считается подписчиком и не получает
+        # рассылки (зеркало register_telegram_subscription для TG / VK-флоу).
+        try:
+            from app.services.channels import register_platform_channel_subscription
+            await register_platform_channel_subscription(client_id, "max", _pu_id, conn)
+        except Exception as e:
+            logger.warning(f"MAX register channel subscription failed (pu={_pu_id}): {e}")
 
         # Реферер из startapp pid
         resolved_ref_code = None

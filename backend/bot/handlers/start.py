@@ -1508,6 +1508,115 @@ async def handle_getchatid(message: Message):
     )
 
 
+@router.message(Command(commands=["getmyid"]))
+async def handle_getmyid(message: Message):
+    """Узнать свой Telegram ID — для поля тестовых ID в Настройках → Технические."""
+    uid = message.from_user.id if message.from_user else "?"
+    await message.answer(
+        f"<b>Ваш Telegram ID:</b> <code>{uid}</code>\n\n"
+        "Вставьте это число в поле тестовых Telegram-ID в Настройках → Технические, "
+        "чтобы получать тестовые рассылки.",
+        parse_mode="HTML",
+    )
+
+
+_MERGE_USAGE_TG = (
+    "<b>Объединение аккаунтов</b>\n\n"
+    "Если вы заходили к этому организатору и в Telegram, и в ВКонтакте, и в MAX — "
+    "можно слить всё в один профиль (рефералы, регистрации и подарки сложатся вместе).\n\n"
+    "1. Узнайте свой ID на другой площадке командой <code>/getmyid</code> в её боте/сообществе.\n"
+    "2. Пришлите сюда:\n"
+    "<code>/merge vk ВАШ_VK_ID</code>\n"
+    "<code>/merge max ВАШ_MAX_ID</code>\n"
+    "<code>/merge tg ВАШ_TG_ID</code>\n\n"
+    "Например: <code>/merge vk 12345678</code>"
+)
+
+
+@router.message(Command(commands=["merge"]))
+async def handle_merge(message: Message, command: CommandObject):
+    """Объединить аккаунты с другой площадки в рамках клиента (главный — самый ранний)."""
+    user = message.from_user
+    bot_id = message.bot.id if message.bot else None
+    if not user or not bot_id:
+        return
+
+    args = (command.args or "").strip().split()
+    if len(args) < 2:
+        await message.answer(_MERGE_USAGE_TG, parse_mode="HTML")
+        return
+
+    other_platform = args[0].lower()
+    aliases = {"telegram": "telegram", "tg": "telegram", "vk": "vk",
+               "вк": "vk", "max": "max", "макс": "max", "мах": "max"}
+    other_platform = aliases.get(other_platform)
+    other_id_raw = args[1].lstrip("@").strip()
+    if other_platform not in ("telegram", "vk", "max") or not other_id_raw.isdigit():
+        await message.answer(_MERGE_USAGE_TG, parse_mode="HTML")
+        return
+
+    from app.services.channels import find_channel_by_bot_id
+    from app.services.contact_merge import (
+        merge_my_account_with_identity, find_contact_by_identity,
+    )
+
+    pool = get_pool()
+    async with pool.acquire() as db:
+        ch = await find_channel_by_bot_id(bot_id, db)
+        if not ch:
+            await message.answer("😕 Не удалось определить организатора.")
+            return
+        if ch["is_system"]:
+            client_id = await db.fetchval(
+                "SELECT id FROM clients WHERE email = 'system@pluson.ru' LIMIT 1"
+            )
+        else:
+            client_id = await db.fetchval(
+                """SELECT client_id FROM client_channels
+                    WHERE channel_id = $1 AND is_active = TRUE LIMIT 1""",
+                ch["id"],
+            )
+        if not client_id:
+            await message.answer("😕 Не удалось определить организатора.")
+            return
+
+        if other_platform == "telegram" and other_id_raw == str(user.id):
+            await message.answer("Это ваш текущий Telegram-аккаунт — объединять не с чем.")
+            return
+
+        current_contact_id = await find_contact_by_identity(
+            db, client_id=client_id, platform_slug="telegram",
+            platform_user_id=str(user.id),
+        )
+        if not current_contact_id:
+            await message.answer(
+                "Сначала зайдите в любое событие этого организатора, "
+                "чтобы создать профиль, потом повторите объединение."
+            )
+            return
+
+        res = await merge_my_account_with_identity(
+            db, client_id=client_id, current_contact_id=current_contact_id,
+            other_platform_slug=other_platform, other_platform_user_id=other_id_raw,
+        )
+
+    if res["status"] == "not_found":
+        plat_name = {"telegram": "Telegram", "vk": "ВКонтакте", "max": "MAX"}[other_platform]
+        await message.answer(
+            f"😕 Не нашёл аккаунт {plat_name} с ID <code>{other_id_raw}</code> у этого организатора.\n\n"
+            "Проверьте ID (узнайте его командой /getmyid в нужном боте) "
+            "и заходили ли вы к этому организатору с той площадки.",
+            parse_mode="HTML",
+        )
+    elif res["status"] == "already":
+        await message.answer("✅ Эти аккаунты уже объединены — ничего делать не нужно.")
+    else:
+        await message.answer(
+            "✅ Готово! Аккаунты объединены в один профиль. "
+            "Рефералы, регистрации и подарки теперь общие."
+        )
+
+
 @router.message(
     (F.chat.type == 'private')
     & F.text
