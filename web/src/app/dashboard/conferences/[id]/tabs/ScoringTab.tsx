@@ -556,7 +556,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
             {/* верхняя строка шапки: группировки */}
             <tr className="bg-gray-50 text-gray-600">
               <th rowSpan={2} className="px-3 py-2 text-left sticky top-0 left-0 z-40 bg-gray-50" style={{ width: 56, minWidth: 56 }}>Место</th>
-              <th rowSpan={2} className="px-3 py-2 text-left sticky top-0 z-40 bg-gray-50 border-r" style={{ left: 56, width: 180, minWidth: 180 }}>Участник</th>
+              <th rowSpan={2} className="px-2 py-2 text-left sticky top-0 z-40 bg-gray-50 border-r whitespace-normal break-words" style={{ left: 56, width: 60, minWidth: 60, maxWidth: 60 }}>Участник</th>
               <th rowSpan={2} className="px-3 py-2 sticky top-0 z-30 bg-gray-50">Готово</th>
               <th rowSpan={2} className="px-3 py-2 font-semibold text-[#25455D] border-l sticky top-0 z-30 bg-gray-50">ИТОГ</th>
               {/* итоговые баллы пакетов */}
@@ -596,7 +596,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                 <>
                   <tr key={row.key} className="border-t hover:bg-gray-50 group">
                     <td className="px-3 py-2 sticky left-0 z-20 bg-white group-hover:bg-gray-50 border-t" style={{ width: 56, minWidth: 56 }}>{row.place <= 3 ? ['🥇','🥈','🥉'][row.place-1] : row.place}</td>
-                    <td className="px-3 py-2 whitespace-nowrap sticky z-20 bg-white group-hover:bg-gray-50 border-t border-r" style={{ left: 56, width: 180, minWidth: 180 }}>{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}</td>
+                    <td className="px-2 py-2 whitespace-normal break-words sticky z-20 bg-white group-hover:bg-gray-50 border-t border-r" style={{ left: 56, width: 60, minWidth: 60, maxWidth: 60 }}>{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}</td>
                     <td className="px-3 py-2 text-center text-xs">{row.assigned_jury ? `${row.done_jury}/${row.assigned_jury}${row.done_jury < row.assigned_jury ? ' ⚠' : ' ✓'}` : '—'}</td>
                     <td className="px-3 py-2 text-center font-semibold text-[#25455D] border-l">{row.total}</td>
                     {/* баллы пакетов */}
