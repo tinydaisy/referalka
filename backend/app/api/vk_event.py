@@ -361,6 +361,14 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
         raise HTTPException(status_code=400, detail="vk_user_id must be int")
 
     access_code = (body.access_code or "").strip()
+    # Опциональный суффикс `_e<event_id>` — жёсткая привязка к событию,
+    # чтобы кабинет не открывался на «последнем по ec.id» (копии-черновике).
+    invite_event_id: int | None = None
+    if "_e" in access_code:
+        base, _, ev_part = access_code.rpartition("_e")
+        if ev_part.isdigit():
+            access_code = base.strip()
+            invite_event_id = int(ev_part)
     if not access_code:
         raise HTTPException(status_code=400, detail="access_code required")
 
@@ -410,15 +418,32 @@ async def vk_speaker_invite(body: VkSpeakerInviteRequest):
             except Exception as e:
                 logger.warning(f"VK speaker-invite upsert identity failed: {e}")
 
-        # Подтягиваем ивент-slug для ссылки на кабинет
-        ev = await conn.fetchrow(
-            """SELECT e.slug, e.title
-                 FROM event_collaborators ec
-                 JOIN events e ON e.id = ec.event_id
-                WHERE ec.speaker_id = $1
-                ORDER BY ec.id DESC LIMIT 1""",
-            coll["collaborator_id"],
-        )
+        # Подтягиваем ивент-slug для ссылки на кабинет:
+        # строго из payload (если был `_e<id>`), иначе published → ended → draft.
+        ev = None
+        if invite_event_id:
+            ev = await conn.fetchrow(
+                """SELECT e.slug, e.title
+                     FROM event_collaborators ec
+                     JOIN events e ON e.id = ec.event_id
+                    WHERE ec.speaker_id = $1 AND ec.event_id = $2
+                    LIMIT 1""",
+                coll["collaborator_id"], invite_event_id,
+            )
+        if not ev:
+            ev = await conn.fetchrow(
+                """SELECT e.slug, e.title
+                     FROM event_collaborators ec
+                     JOIN events e ON e.id = ec.event_id
+                    WHERE ec.speaker_id = $1
+                    ORDER BY CASE e.status
+                               WHEN 'published' THEN 0
+                               WHEN 'ended'     THEN 1
+                               ELSE 2
+                             END, ec.id DESC
+                    LIMIT 1""",
+                coll["collaborator_id"],
+            )
         event_slug = ev["slug"] if ev else ""
         event_title = ev["title"] if ev else "событие"
         sp_name = (coll["name"] or "").strip() or "спикер"

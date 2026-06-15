@@ -908,7 +908,7 @@ async def collaborator_invite_message(
     event_title = row["event_title"] or "событие"
     speaker_name = row["name"] or "Спикер"
 
-    links = await build_invite_links_for_collaborator(db, client_id, access_code)
+    links = await build_invite_links_for_collaborator(db, client_id, access_code, event_id)
     landing_url = f"https://pluson.ru/speaker/{event_slug}"
 
     lines = [

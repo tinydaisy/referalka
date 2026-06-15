@@ -260,6 +260,7 @@ async def build_invite_links_for_collaborator(
     db,
     client_id: int,
     access_code: str,
+    event_id: int | None = None,
 ) -> dict[str, str]:
     """Возвращает {platform → deeplink} для invite-ссылок самообслуживания спикера.
 
@@ -267,12 +268,19 @@ async def build_invite_links_for_collaborator(
     соответствующей платформе → бот ловит `spkinv_<access_code>` → шлёт код
     доступа и ссылку на лендинг pluson.ru/speaker/<event_slug>.
 
+    Если передан `event_id`, он зашивается в payload как `spkinv_<code>_e<id>` —
+    бот откроет кабинет ИМЕННО этого события (а не «последнего по ec.id»,
+    которое могло переехать на копию-черновик). Старые ссылки без `_e<id>`
+    продолжают работать по прежней логике (последнее событие коллаба).
+
     Бот выбирается так же, как для лид-магнитов:
       - TG: VIP-бот клиента ИЛИ системный @pluson_bot.
       - VK / MAX: только собственный канал клиента (системные принадлежат
         ПЛЮСОНу и не пишут в личку подписчикам чужих клиентов).
     """
     payload = f"spkinv_{access_code}"
+    if event_id:
+        payload = f"{payload}_e{int(event_id)}"
     handles = await get_client_bot_handles(db, client_id)
     result: dict[str, str] = {}
 

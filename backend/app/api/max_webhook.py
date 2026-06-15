@@ -483,6 +483,14 @@ async def _process_start(
     # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>
     if payload and payload.startswith("spkinv_"):
         access_code = payload.removeprefix("spkinv_").strip()
+        # Опциональный суффикс `_e<event_id>` — жёсткая привязка к событию,
+        # чтобы кабинет не открывался на «последнем по ec.id» (копии-черновике).
+        invite_event_id = None
+        if "_e" in access_code:
+            base, _, ev_part = access_code.rpartition("_e")
+            if ev_part.isdigit():
+                access_code = base.strip()
+                invite_event_id = int(ev_part)
         if access_code:
             try:
                 pool0 = await get_pool()
@@ -531,14 +539,30 @@ async def _process_start(
                             )
                             return
 
-                        ev = await conn0.fetchrow(
-                            """SELECT e.slug, e.title
-                                 FROM event_collaborators ec
-                                 JOIN events e ON e.id = ec.event_id
-                                WHERE ec.speaker_id = $1
-                                ORDER BY ec.id DESC LIMIT 1""",
-                            coll["collaborator_id"],
-                        )
+                        ev = None
+                        if invite_event_id:
+                            ev = await conn0.fetchrow(
+                                """SELECT e.slug, e.title
+                                     FROM event_collaborators ec
+                                     JOIN events e ON e.id = ec.event_id
+                                    WHERE ec.speaker_id = $1 AND ec.event_id = $2
+                                    LIMIT 1""",
+                                coll["collaborator_id"], invite_event_id,
+                            )
+                        if not ev:
+                            ev = await conn0.fetchrow(
+                                """SELECT e.slug, e.title
+                                     FROM event_collaborators ec
+                                     JOIN events e ON e.id = ec.event_id
+                                    WHERE ec.speaker_id = $1
+                                    ORDER BY CASE e.status
+                                               WHEN 'published' THEN 0
+                                               WHEN 'ended'     THEN 1
+                                               ELSE 2
+                                             END, ec.id DESC
+                                    LIMIT 1""",
+                                coll["collaborator_id"],
+                            )
                         event_slug = ev["slug"] if ev else ""
                         event_title = ev["title"] if ev else "событие"
                         sp_name = (coll["name"] or "").strip() or "спикер"
