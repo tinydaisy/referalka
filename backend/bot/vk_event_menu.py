@@ -115,7 +115,10 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
     """«Вступить в Чат» (VK) — проверка подписки на VK-сообщества спикеров, затем
     выдача чат-ссылок. Порт funnel.py:handle_event_chat_join с VK groups.isMember."""
     ev = await db.fetchrow(
-        """SELECT id, client_id, require_subscription,
+        """SELECT id, require_subscription,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                   chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform
              FROM events WHERE id = $1 LIMIT 1""",
         event_id,

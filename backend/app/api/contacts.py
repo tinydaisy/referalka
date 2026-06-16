@@ -548,7 +548,7 @@ async def get_filter_options(
     events = await db.fetch("""
         SELECT id, title, slug
           FROM events
-         WHERE client_id = $1
+         WHERE id IN (SELECT event_id FROM event_owners WHERE client_id = $1 AND status = 'accepted')
          ORDER BY COALESCE(start_at, created_at) DESC NULLS LAST, id DESC
     """, client_id)
 

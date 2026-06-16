@@ -543,7 +543,10 @@ async def public_event_vip_redirect(
     Если у события нет vip_url или vip-тариф выключен — {redirect_url: null}.
     """
     row = await db.fetchrow(
-        """SELECT id, client_id, vip_url
+        """SELECT id, vip_url,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
              FROM events WHERE slug = $1 LIMIT 1""",
         slug,
     )

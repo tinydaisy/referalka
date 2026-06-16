@@ -36,7 +36,9 @@ RU_MONTHS = ["", "января", "февраля", "марта", "апреля",
 async def _resolve_event(db: asyncpg.Connection, ref: str):
     cols = ("id, slug, title, module_slug, status, description, "
             "description_post_register, vip_url, vip_button_label, "
-            "client_id, landing_url, start_at, end_at, link_mode, "
+            "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
+            "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
+            "landing_url, start_at, end_at, link_mode, "
             "chat_url, chat_url_tg, chat_url_vk, chat_url_max, "
             "primary_chat_platform, chat_button_label")
     if ref.isdigit():

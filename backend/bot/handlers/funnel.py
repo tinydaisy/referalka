@@ -113,7 +113,10 @@ async def handle_event_chat_join(callback: CallbackQuery):
     pool = await get_pool()
     async with pool.acquire() as db:
         ev = await db.fetchrow(
-            """SELECT id, client_id, require_subscription,
+            """SELECT id, require_subscription,
+                      (SELECT eo.client_id FROM event_owners eo
+                        WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                        ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                       chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform
                  FROM events WHERE id = $1 LIMIT 1""",
             event_id,

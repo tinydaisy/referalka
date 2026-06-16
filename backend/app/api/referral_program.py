@@ -754,7 +754,7 @@ async def export_speaker_materials(
 ):
     client_id = int(client["sub"])
     ev = await db.fetchrow(
-        """SELECT id, slug, title, client_id, module_slug, start_at, link_mode
+        """SELECT id, slug, title, $2::int AS client_id, module_slug, start_at, link_mode
              FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')""",
         event_id, client_id,
     )
