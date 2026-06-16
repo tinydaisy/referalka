@@ -801,9 +801,9 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
 
     # /vip_link{event_id} — прислать VIP-ссылку события (как кнопка меню).
     _vtext = (message.get("text") or "").strip()
-    if _vtext.lower().startswith("/vip_link"):
+    if _vtext.lower().lstrip("/").startswith("vip_link"):
         import re as _re
-        mvip = _re.match(r"^/vip_link(\d+)", _vtext)
+        mvip = _re.match(r"(?i)^\s*/?vip_link\s*(\d+)", _vtext)
         if not mvip:
             await vk_send_message(int(from_id), "Укажите событие: /vip_link24", token=ctx.token)
             return

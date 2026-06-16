@@ -1453,7 +1453,7 @@ async def handle_event_menu_command(message: Message):
         await send_event_menu(message, event_id, contact_id, db)
 
 
-@router.message(F.text.regexp(r"^/vip_link\d+"))
+@router.message(F.text.regexp(r"(?i)^\s*/?vip_link\s*\d+"))
 async def handle_vip_link_command(message: Message):
     """Команда `/vip_link{event_id}` — прислать VIP-ссылку события с кнопкой.
 
@@ -1464,7 +1464,7 @@ async def handle_vip_link_command(message: Message):
     if not user:
         return
     import re as _re
-    m = _re.match(r"^/vip_link(\d+)", (message.text or "").strip())
+    m = _re.match(r"(?i)^\s*/?vip_link\s*(\d+)", (message.text or "").strip())
     if not m:
         return
     event_id = int(m.group(1))

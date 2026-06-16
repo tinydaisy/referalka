@@ -161,6 +161,33 @@ def _extract_user_and_chat(update: dict) -> tuple[dict, int | None, int | None]:
     return sender, user_id, chat_id
 
 
+async def _resolve_max_contact_id(conn, event_id: int, user_id) -> int | None:
+    """contact_id участника MAX для события. Приоритет:
+    1) участие в ЭТОМ событии по MAX-идентичности;
+    2) fallback — любой контакт этого человека (MAX-идентичность) У КЛИЕНТА-
+       владельца события. Нужно чтобы кнопка «Кабинет и подарки» подставляла
+       ?c={contact_id} даже когда участия в событии ещё нет (иначе веб-кабинет
+       показывает форму ввода email)."""
+    cid = await conn.fetchval(
+        """SELECT ep.contact_id FROM event_participants ep
+             JOIN platform_users pu ON pu.contact_id = ep.contact_id
+              AND pu.platform_slug='max' AND pu.platform_user_id = $2
+            WHERE ep.event_id = $1 LIMIT 1""",
+        event_id, str(user_id))
+    if cid:
+        return cid
+    # fallback: контакт по MAX-идентичности у владельца события
+    return await conn.fetchval(
+        """SELECT pu.contact_id FROM platform_users pu
+             JOIN contacts c ON c.id = pu.contact_id AND c.merged_into IS NULL
+            WHERE pu.platform_slug='max' AND pu.platform_user_id = $1
+              AND c.client_id = (SELECT eo.client_id FROM event_owners eo
+                                   WHERE eo.event_id = $2 AND eo.status='accepted'
+                                   ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1)
+            LIMIT 1""",
+        str(user_id), event_id)
+
+
 async def _handle_bot_stopped(update: dict, *, bot_token: str, client_id_override: int | None) -> None:
     user = update.get("user", {}) or {}
     uid = user.get("user_id")
@@ -249,9 +276,9 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         )
         return
 
-    if low.startswith("/vip_link"):
+    if low.lstrip("/").startswith("vip_link"):
         import re as _re
-        mvip = _re.match(r"^/vip_link(\d+)", text.strip())
+        mvip = _re.match(r"(?i)^\s*/?vip_link\s*(\d+)", text.strip())
         if not mvip:
             await max_send_message(chat_id, "Укажите событие: /vip_link24", token=bot_token)
             return
@@ -388,18 +415,7 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
         if not pool:
             return
         async with pool.acquire() as conn:
-            # Резолвим contact_id участника по MAX user_id.
-            contact_id = await conn.fetchval(
-                """SELECT ep.contact_id
-                     FROM event_participants ep
-                     JOIN platform_users pu
-                       ON pu.contact_id = ep.contact_id
-                      AND pu.platform_slug = 'max'
-                      AND pu.platform_user_id = $2
-                    WHERE ep.event_id = $1
-                    LIMIT 1""",
-                event_id, str(user_id),
-            )
+            contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
             try:
                 await _handle_max_chat_join(chat_id, event_id, contact_id, bot_token, conn)
             except Exception as e:
@@ -416,17 +432,7 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
         if not pool:
             return
         async with pool.acquire() as conn:
-            contact_id = await conn.fetchval(
-                """SELECT ep.contact_id
-                     FROM event_participants ep
-                     JOIN platform_users pu
-                       ON pu.contact_id = ep.contact_id
-                      AND pu.platform_slug = 'max'
-                      AND pu.platform_user_id = $2
-                    WHERE ep.event_id = $1
-                    LIMIT 1""",
-                event_id, str(user_id),
-            )
+            contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
             try:
                 await _send_max_event_menu(chat_id, event_id, contact_id, bot_token, conn)
             except Exception as e:
