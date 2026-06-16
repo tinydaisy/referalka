@@ -781,9 +781,16 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
 
     # Команда /chatid — единственный случай отправки в беседу: числовой chat_id
     # для поля чата ВК у события в дашборде. Только на точное «/chatid».
+    # ⚠️ В беседу шлём через peer_id (НЕ user_id — send_message кладёт в user_id
+    # и для беседы ВК отвечает «incorrect user_id»). Поэтому прямой messages.send.
     if text.strip().lower() == "/chatid":
         try:
-            await vk_send_message(peer_id, f"ID этого чата: {chat_id}", token=ctx.token)
+            import random as _rnd
+            await vk_call("messages.send", {
+                "peer_id": peer_id,
+                "message": f"ID этого чата: {chat_id}",
+                "random_id": _rnd.randint(1, 2**31 - 1),
+            }, token=ctx.token)
         except Exception:  # noqa: BLE001
             pass
         return
@@ -802,11 +809,73 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
         message_ref=str(message.get("conversation_message_id") or message.get("id") or ""),
         sent_at=None,
     )
-    if written:
-        await remember_known_chat(
-            platform="vk", chat_id=chat_id, title=None,
-            bot_id=str(ctx.group_id), client_id=ctx.client_id, can_read=True,
+    if not written:
+        return
+    await remember_known_chat(
+        platform="vk", chat_id=chat_id, title=None,
+        bot_id=str(ctx.group_id), client_id=ctx.client_id, can_read=True,
+    )
+
+    # ── Контроль заданий: ловим кодовые фразы критериев.
+    from app.services.chat_archive import process_task_submissions
+    try:
+        unrecognized = await process_task_submissions(
+            platform="vk",
+            chat_id=chat_id,
+            platform_user_id=str(from_id),
+            username=None,
+            author_name=None,
+            text=text or None,
+            attachments=_vk_attachment_urls(message),
+            message_ref=str(message.get("conversation_message_id") or message.get("id") or ""),
+            sent_at=None,
         )
+        if unrecognized:
+            await _reply_unrecognized_vk(peer_id, from_id, ctx)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"VK task submissions failed: {e}")
+
+
+def _vk_attachment_urls(message: dict) -> list[dict]:
+    """VK-вложения → [{kind, url}]. У VK медиа сразу с URL."""
+    out: list[dict] = []
+    for a in (message.get("attachments") or []):
+        t = a.get("type")
+        obj = a.get(t) or {}
+        url = None
+        if t == "photo":
+            sizes = obj.get("sizes") or []
+            if sizes:
+                url = sizes[-1].get("url")
+        elif t == "video":
+            url = obj.get("player") or f"https://vk.com/video{obj.get('owner_id')}_{obj.get('id')}"
+        elif t == "doc":
+            url = obj.get("url")
+        elif t == "audio_message":
+            url = obj.get("link_mp3") or obj.get("link_ogg")
+        out.append({"kind": {"doc": "document", "audio_message": "voice"}.get(t, t), "url": url})
+    return out
+
+
+async def _reply_unrecognized_vk(peer_id: int, from_id: int, ctx: "GroupCtx") -> None:
+    """Неопознанному автору в беседе — ответ что не зарегистрирован."""
+    try:
+        from app.database import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            support = await db.fetchval(
+                "SELECT work_tg_username FROM clients WHERE id = $1", ctx.client_id
+            )
+        msg = "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано."
+        if support:
+            msg += f" Обратитесь к организатору: @{support.lstrip('@')}"
+        import random as _rnd
+        await vk_call("messages.send", {
+            "peer_id": peer_id, "message": msg,
+            "random_id": _rnd.randint(1, 2**31 - 1),
+        }, token=ctx.token)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"VK reply unrecognized failed: {e}")
 
 
 async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:

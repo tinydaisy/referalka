@@ -24,10 +24,57 @@ from aiogram.types import ChatMemberUpdated, Message
 
 from app.database import get_pool
 from app.services.channels import find_channel_by_bot_id
-from app.services.chat_archive import archive_chat_message, remember_known_chat
+from app.services.chat_archive import (
+    archive_chat_message, remember_known_chat, process_task_submissions,
+)
 
 router = Router()
 log = logging.getLogger(__name__)
+
+
+async def _collect_tg_attachments(message: Message, bot: Bot) -> list[dict]:
+    """Вложения сообщения → [{kind, url}] (ссылки через getFile, действуют ~1ч,
+    но в дашборде ссылка пересобирается по file_id при показе — здесь храним url
+    как быстрый доступ + file_id для долгого)."""
+    out: list[dict] = []
+    items: list[tuple[str, str]] = []
+    if message.video:        items.append(("video", message.video.file_id))
+    if message.video_note:   items.append(("video_note", message.video_note.file_id))
+    if message.document:     items.append(("document", message.document.file_id))
+    if message.photo:        items.append(("photo", message.photo[-1].file_id))
+    if message.audio:        items.append(("audio", message.audio.file_id))
+    if message.voice:        items.append(("voice", message.voice.file_id))
+    if message.animation:    items.append(("animation", message.animation.file_id))
+    for kind, fid in items:
+        url = None
+        try:
+            f = await bot.get_file(fid)
+            url = f"https://api.telegram.org/file/bot{bot.token}/{f.file_path}"
+        except Exception:  # noqa: BLE001
+            pass
+        out.append({"kind": kind, "file_id": fid, "url": url})
+    return out
+
+
+async def _reply_unrecognized_tg(message: Message, info: dict) -> None:
+    """Автор написал кодовую фразу, но не участник турнира — отвечаем ему
+    в чат (reply) что он не зарегистрирован, со ссылкой на поддержку клиента."""
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            support = await db.fetchval(
+                "SELECT work_tg_username FROM clients WHERE id = $1", info.get("client_id")
+            )
+        support_part = (
+            f" Обратитесь к организатору: @{support.lstrip('@')}" if support else
+            " Обратитесь к организатору."
+        )
+        await message.reply(
+            "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано."
+            + support_part
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("reply unrecognized failed: %s", e)
 
 
 async def _client_id_for_bot(bot_id: int, db) -> int | None:
@@ -126,7 +173,30 @@ async def on_group_message(message: Message, bot: Bot):
         message_ref=str(message.message_id),
         sent_at=sent_at,
     )
-    # Если это чат события — заодно держим запись в known_chats свежей.
+    if not written:
+        return
+
+    # ── Контроль заданий: ищем кодовые фразы критериев → балл + лог.
+    atts = await _collect_tg_attachments(message, bot)
+    try:
+        unrecognized = await process_task_submissions(
+            platform="telegram",
+            chat_id=str(message.chat.id),
+            platform_user_id=str(author.id),
+            username=author.username,
+            author_name=author_name,
+            text=text,
+            attachments=atts,
+            message_ref=str(message.message_id),
+            sent_at=sent_at,
+        )
+        # Неопознанным — ответ «вы не регистрировались» (один раз на сообщение).
+        if unrecognized:
+            await _reply_unrecognized_tg(message, unrecognized[0])
+    except Exception as e:  # noqa: BLE001
+        log.warning("chat_listener task submissions failed: %s", e)
+
+    # Держим запись в known_chats свежей.
     if written:
         try:
             pool = await get_pool()

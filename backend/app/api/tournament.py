@@ -351,7 +351,7 @@ async def list_criteria(event_id: int, client=Depends(get_current_client), db: a
         d = dict(p); d["weight"] = float(d["weight"])
         d["criteria"] = [{**dict(c), "scale_max": float(c["scale_max"]), "weight": float(c["weight"])} for c in crits]
         out.append(d)
-    stages = await db.fetch("SELECT id, title FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
+    stages = await db.fetch("SELECT id, title, COALESCE(listen_audience,'viewers') AS listen_audience FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
     return {"packages": out, "stages": [dict(s) for s in stages]}
 
 
@@ -421,6 +421,7 @@ class CriterionIn(BaseModel):
     scale_max: float = 10
     weight: float = 1
     sort_order: int = 0
+    code_phrase: Optional[str] = None  # для manual: кодовая фраза авто-зачёта по чату
 
 
 @router.post("/criteria", summary="Создать критерий")
@@ -434,10 +435,11 @@ async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_
     if not pkg:
         raise HTTPException(status_code=404, detail="Пакет не найден")
     c = await db.fetchrow(
-        """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, weight, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *""",
+        """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, weight, sort_order, code_phrase)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *""",
         data.package_id, event_id, data.title.strip(), data.description, data.scorer,
-        data.auto_kind if data.scorer == "auto" else None, data.stage_id, data.scale_max, data.weight, data.sort_order)
+        data.auto_kind if data.scorer == "auto" else None, data.stage_id, data.scale_max, data.weight, data.sort_order,
+        (data.code_phrase.strip() if (data.code_phrase and data.scorer == "manual") else None))
     return {"criterion": dict(c)}
 
 
@@ -450,6 +452,7 @@ class CriterionUpdate(BaseModel):
     scale_max: Optional[float] = None
     weight: Optional[float] = None
     sort_order: Optional[int] = None
+    code_phrase: Optional[str] = None
 
 
 @router.patch("/criteria/{criterion_id}", summary="Обновить критерий")
@@ -850,6 +853,115 @@ async def get_snapshot(event_id: int, snapshot_id: int, client=Depends(get_curre
 async def delete_snapshot(event_id: int, snapshot_id: int, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
     await db.execute("DELETE FROM tournament_snapshots WHERE id=$1 AND event_id=$2", snapshot_id, event_id)
+    return {"ok": True}
+
+
+# ════════════════════════ КОНТРОЛЬ ЗАДАНИЙ ════════════════════════
+
+async def _chat_listen_status(event_id: int, db: asyncpg.Connection) -> list[dict]:
+    """Статус «умею ли слушать» по каждой соцсети события.
+
+    Умею если: у события задан chat_id этой площадки И у клиента есть бот/сообщество
+    на ней (или системный для TG). Иначе — нет, со ссылкой-подсказкой на настройку.
+    """
+    ev = await db.fetchrow(
+        "SELECT tg_chat_id, vk_chat_id, max_chat_id FROM events WHERE id=$1", event_id)
+    out = []
+    for plat, label, cid in (
+        ("telegram", "Telegram", ev["tg_chat_id"] if ev else None),
+        ("vk", "ВКонтакте", ev["vk_chat_id"] if ev else None),
+        ("max", "MAX", ev["max_chat_id"] if ev else None),
+    ):
+        has_chat = bool((cid or "").strip())
+        out.append({
+            "platform": plat,
+            "label": label,
+            "ok": has_chat,
+            "chat_id": cid or "",
+            "hint": (
+                "" if has_chat else
+                f"Не указан ID чата {label}. Добавьте бота в чат, напишите /chatid и впишите ID в настройках чатов события."
+            ),
+        })
+    return out
+
+
+@router.get("/task-control", summary="Контроль заданий: статус + список выкладок")
+async def task_control(
+    event_id: int,
+    criterion_id: Optional[int] = None,
+    subject: Optional[str] = None,          # 'ec:N' | 'ep:N' — фильтр по участнику
+    recognized: Optional[str] = None,       # 'yes' | 'no' | None
+    sort: str = "date_desc",                # date_desc | date_asc
+    client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db),
+):
+    await _check_access(event_id, int(client["sub"]), db)
+    enabled = await db.fetchval("SELECT task_listen_enabled FROM events WHERE id=$1", event_id)
+    status = await _chat_listen_status(event_id, db)
+
+    where = ["ts.event_id = $1"]
+    params: list = [event_id]
+    if criterion_id:
+        params.append(criterion_id); where.append(f"ts.criterion_id = ${len(params)}")
+    if subject and ":" in subject:
+        sk, sid = subject.split(":", 1)
+        if sk in ("ec", "ep") and sid.isdigit():
+            params.append(sk); where.append(f"ts.subject_kind = ${len(params)}")
+            params.append(int(sid)); where.append(f"ts.subject_id = ${len(params)}")
+    if recognized == "yes":
+        where.append("ts.recognized = TRUE")
+    elif recognized == "no":
+        where.append("ts.recognized = FALSE")
+    order = "ts.sent_at DESC" if sort != "date_asc" else "ts.sent_at ASC"
+
+    rows = await db.fetch(
+        f"""
+        SELECT ts.*, tc.title AS criterion_title,
+               CASE ts.subject_kind
+                 WHEN 'ec' THEN (SELECT c.name FROM event_collaborators ec
+                                   JOIN collaborators c ON c.id=ec.speaker_id WHERE ec.id=ts.subject_id)
+                 WHEN 'ep' THEN (SELECT c.name FROM event_participants ep
+                                   JOIN contacts c ON c.id=ep.contact_id WHERE ep.id=ts.subject_id)
+               END AS participant_name
+          FROM task_submissions ts
+          LEFT JOIN tournament_criteria tc ON tc.id = ts.criterion_id
+         WHERE {' AND '.join(where)}
+         ORDER BY {order}
+         LIMIT 1000
+        """,
+        *params,
+    )
+    items = []
+    for r in rows:
+        d = dict(r)
+        d["sent_at"] = d["sent_at"].isoformat() if d.get("sent_at") else None
+        d["created_at"] = d["created_at"].isoformat() if d.get("created_at") else None
+        items.append(d)
+    return {"enabled": bool(enabled), "channels": status, "submissions": items}
+
+
+class TaskListenToggle(BaseModel):
+    enabled: bool
+
+
+@router.patch("/task-control", summary="Контроль заданий: вкл/выкл слушание")
+async def task_control_toggle(event_id: int, data: TaskListenToggle, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    await _check_access(event_id, int(client["sub"]), db)
+    await db.execute("UPDATE events SET task_listen_enabled=$2 WHERE id=$1", event_id, data.enabled)
+    return {"ok": True, "enabled": data.enabled}
+
+
+class StageAudienceUpdate(BaseModel):
+    listen_audience: str  # viewers | speakers
+
+
+@router.patch("/stages/{stage_id}/listen-audience", summary="Кого слушаем в этапе")
+async def stage_listen_audience(event_id: int, stage_id: int, data: StageAudienceUpdate, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    await _check_access(event_id, int(client["sub"]), db)
+    if data.listen_audience not in ("viewers", "speakers"):
+        raise HTTPException(status_code=422, detail="Неверная аудитория")
+    await db.execute("UPDATE conf_stages SET listen_audience=$3 WHERE id=$1 AND event_id=$2",
+                     stage_id, event_id, data.listen_audience)
     return {"ok": True}
 
 

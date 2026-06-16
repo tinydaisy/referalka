@@ -158,3 +158,191 @@ async def archive_chat_message(
     except Exception as e:  # noqa: BLE001 — слушалка не должна падать
         log.warning("archive_chat_message failed (%s chat=%s): %s", platform, chat_id, e)
         return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# КОНТРОЛЬ ЗАДАНИЙ — ловля кодовых фраз критериев → балл + лог task_submissions
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _resolve_subject_for_audience(
+    db, event_id: int, contact_id: Optional[int], audience: str
+) -> Optional[tuple[str, int]]:
+    """По contact_id и аудитории этапа вернуть (subject_kind, subject_id).
+
+    audience='speakers' → event_collaborators.id (subject_kind='ec'),
+    audience='viewers'  → event_participants.id   (subject_kind='ep').
+    Не нашёл — None (автор не участник турнира в этой роли).
+    """
+    if not contact_id:
+        return None
+    if audience == "speakers":
+        ec_id = await db.fetchval(
+            """SELECT ec.id FROM event_collaborators ec
+                 JOIN collaborators co ON co.id = ec.speaker_id
+                WHERE ec.event_id = $1 AND co.contact_id = $2
+                ORDER BY ec.id LIMIT 1""",
+            event_id, contact_id,
+        )
+        return ("ec", int(ec_id)) if ec_id else None
+    else:  # viewers
+        ep_id = await db.fetchval(
+            """SELECT id FROM event_participants
+                WHERE event_id = $1 AND contact_id = $2
+                ORDER BY id LIMIT 1""",
+            event_id, contact_id,
+        )
+        return ("ep", int(ep_id)) if ep_id else None
+
+
+def _build_message_link(platform: str, chat_id: str, message_ref: Optional[str]) -> Optional[str]:
+    """Ссылка на сообщение в чате, где платформа это позволяет.
+
+    TG: только публичные супергруппы (t.me/c/<internal>/<msg>) — для приватных
+        ссылка может не открыться, но даём как есть.
+    VK/MAX: прямой ссылки на сообщение беседы нет — None.
+    """
+    if platform == "telegram" and message_ref:
+        # chat_id вида -100XXXXXXXXXX → внутренний id = XXXXXXXXXX
+        cid = chat_id.lstrip("-")
+        if cid.startswith("100"):
+            cid = cid[3:]
+        return f"https://t.me/c/{cid}/{message_ref}"
+    return None
+
+
+async def process_task_submissions(
+    *,
+    platform: str,
+    chat_id: str,
+    platform_user_id: str,
+    username: Optional[str],
+    author_name: Optional[str],
+    text: Optional[str],
+    attachments: Optional[list],
+    message_ref: Optional[str],
+    sent_at=None,
+) -> list[dict]:
+    """Ищет кодовые фразы критериев в сообщении чата события и засчитывает.
+
+    Для каждого manual-критерия с непустой code_phrase, чья фраза найдена в тексте
+    (где угодно, без регистра):
+      - резолвит автора по аудитории этапа (speakers→ec / viewers→ep);
+      - опознан → апсертит балл (scale_max) в tournament_scores + лог recognized=true;
+      - не опознан → лог recognized=false (красным в UI) + добавляет в результат
+        «нужно ответить автору».
+
+    Возвращает список dict для бота: [{recognized: bool, ...}] по неопознанным —
+    чтобы бот ответил «вы не регистрировались». Если слушание выключено или
+    фраз нет — пустой список.
+    """
+    if not text:
+        return []
+    chat_id = str(chat_id)
+    platform_user_id = str(platform_user_id)
+    low = text.lower()
+    results: list[dict] = []
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            resolved = await _resolve_event_for_chat(db, platform, chat_id)
+            if not resolved:
+                return []
+            event_id, client_id = resolved
+
+            # Слушание включено?
+            enabled = await db.fetchval(
+                "SELECT task_listen_enabled FROM events WHERE id = $1", event_id
+            )
+            if not enabled:
+                return []
+
+            # Критерии с кодовой фразой (только manual).
+            criteria = await db.fetch(
+                """SELECT tc.id, tc.code_phrase, tc.scale_max, tc.stage_id,
+                          COALESCE(cs.listen_audience, 'viewers') AS audience
+                     FROM tournament_criteria tc
+                     LEFT JOIN conf_stages cs ON cs.id = tc.stage_id
+                    WHERE tc.event_id = $1 AND tc.scorer = 'manual'
+                      AND tc.is_active = TRUE
+                      AND tc.code_phrase IS NOT NULL AND TRIM(tc.code_phrase) <> ''""",
+                event_id,
+            )
+            if not criteria:
+                return []
+
+            contact_id = await _resolve_contact_id(db, client_id, platform, platform_user_id)
+            msg_link = _build_message_link(platform, chat_id, message_ref)
+            atts_json = attachments or []
+
+            matched_any = False
+            unrecognized_phrases: list[str] = []
+
+            for c in criteria:
+                phrase = (c["code_phrase"] or "").strip().lower()
+                if not phrase or phrase not in low:
+                    continue
+                matched_any = True
+                subj = await _resolve_subject_for_audience(
+                    db, event_id, contact_id, c["audience"]
+                )
+                recognized = subj is not None
+                subject_kind = subj[0] if subj else None
+                subject_id = subj[1] if subj else None
+                score_applied = False
+
+                # Опознан → ставим балл (scale_max за выполнение).
+                if recognized:
+                    import json as _json
+                    await db.execute(
+                        """
+                        INSERT INTO tournament_scores
+                            (event_id, criterion_id, subject_kind, subject_id,
+                             juror_ec_id, scorer, value_number)
+                        VALUES ($1, $2, $3, $4, NULL, 'manual', $5)
+                        ON CONFLICT (criterion_id, subject_kind, subject_id)
+                            WHERE juror_ec_id IS NULL
+                        DO UPDATE SET value_number = EXCLUDED.value_number, updated_at = now()
+                        """,
+                        event_id, c["id"], subject_kind, subject_id, c["scale_max"],
+                    )
+                    score_applied = True
+
+                # Лог в task_submissions (дедуп по сообщение×критерий).
+                import json as _json
+                await db.execute(
+                    """
+                    INSERT INTO task_submissions
+                        (event_id, criterion_id, stage_id, code_phrase, platform,
+                         chat_id, platform_user_id, username, author_name,
+                         subject_kind, subject_id, contact_id, recognized,
+                         text, message_link, attachments, score_applied,
+                         message_ref, sent_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+                            COALESCE($19, now()))
+                    ON CONFLICT (event_id, platform, chat_id, message_ref, criterion_id)
+                        WHERE message_ref IS NOT NULL AND criterion_id IS NOT NULL
+                    DO NOTHING
+                    """,
+                    event_id, c["id"], c["stage_id"], c["code_phrase"], platform,
+                    chat_id, platform_user_id, username, author_name,
+                    subject_kind, subject_id, contact_id, recognized,
+                    text, msg_link, _json.dumps(atts_json, ensure_ascii=False),
+                    score_applied, message_ref, sent_at,
+                )
+
+                if not recognized:
+                    unrecognized_phrases.append(c["code_phrase"])
+
+            if matched_any and unrecognized_phrases:
+                results.append({
+                    "recognized": False,
+                    "platform": platform,
+                    "chat_id": chat_id,
+                    "platform_user_id": platform_user_id,
+                    "client_id": client_id,
+                    "event_id": event_id,
+                    "phrases": unrecognized_phrases,
+                })
+    except Exception as e:  # noqa: BLE001 — движок не должен ронять слушалку
+        log.warning("process_task_submissions failed (%s chat=%s): %s", platform, chat_id, e)
+    return results

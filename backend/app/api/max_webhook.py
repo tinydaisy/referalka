@@ -245,6 +245,16 @@ def _max_attachment_info(body: dict) -> tuple[bool, str | None]:
     return True, norm
 
 
+def _max_attachment_urls(body: dict) -> list[dict]:
+    """MAX-вложения → [{kind, url}]. URL берём из payload вложения, если есть."""
+    out: list[dict] = []
+    for a in (body.get("attachments") or []):
+        t = (a or {}).get("type")
+        p = (a or {}).get("payload") or {}
+        out.append({"kind": {"image": "photo", "file": "document"}.get(t, t), "url": p.get("url")})
+    return out
+
+
 async def _archive_max_chat_message(
     msg: dict, body: dict, text: str, chat_id: str, user_id: str,
     *, bot_token: str, client_id_override: int | None,
@@ -284,11 +294,41 @@ async def _archive_max_chat_message(
         message_ref=str(mid) if mid else None,
         sent_at=None,
     )
-    if written:
-        await remember_known_chat(
-            platform="max", chat_id=chat_id, title=None,
-            bot_id=None, client_id=client_id_override, can_read=True,
+    if not written:
+        return
+    await remember_known_chat(
+        platform="max", chat_id=chat_id, title=None,
+        bot_id=None, client_id=client_id_override, can_read=True,
+    )
+
+    # ── Контроль заданий: ловим кодовые фразы критериев.
+    from app.services.chat_archive import process_task_submissions
+    try:
+        unrecognized = await process_task_submissions(
+            platform="max",
+            chat_id=chat_id,
+            platform_user_id=user_id,
+            username=username,
+            author_name=author_name,
+            text=text or None,
+            attachments=_max_attachment_urls(body),
+            message_ref=str(mid) if mid else None,
+            sent_at=None,
         )
+        if unrecognized:
+            info = unrecognized[0]
+            from app.database import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                support = await conn.fetchval(
+                    "SELECT work_tg_username FROM clients WHERE id = $1", info.get("client_id")
+                )
+            m = "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано."
+            if support:
+                m += f" Обратитесь к организатору: @{support.lstrip('@')}"
+            await max_send_message(chat_id, m, token=bot_token)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MAX task submissions failed: {e}")
 
 
 async def _handle_message_created(update: dict, *, bot_token: str, client_id_override: int | None) -> None:
