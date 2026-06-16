@@ -114,7 +114,11 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
     # спикеры/хедлайнеры
     ec_rows = await db.fetch(
         """SELECT cse.id AS sid, c.name, ct.ref_code, ct.id AS contact_id,
-                  c.video_url, c.video_folder_url
+                  c.video_url, c.video_folder_url,
+                  (SELECT pu.username FROM platform_users pu
+                     WHERE pu.contact_id = ct.id AND pu.username IS NOT NULL
+                     ORDER BY CASE pu.platform_slug WHEN 'telegram' THEN 1 WHEN 'vk' THEN 2 WHEN 'max' THEN 3 ELSE 4 END
+                     LIMIT 1) AS username
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
              LEFT JOIN contacts ct ON ct.id = c.contact_id
@@ -125,12 +129,17 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
     for r in ec_rows:
         d = dict(r)
         out.append({"kind": "ec", "sid": d["sid"], "key": _skey("ec", d["sid"]),
-                    "name": d["name"] or "Без имени", "ref_code": d["ref_code"], "contact_id": d["contact_id"],
+                    "name": d["name"] or "Без имени", "username": d.get("username"),
+                    "ref_code": d["ref_code"], "contact_id": d["contact_id"],
                     "material": d["video_url"] or d["video_folder_url"], "is_speaker": True})
     # зарегистрированные участники — БЕЗ тех, кто является коллаборатором события
     # (жюри, организаторы, партнёры, спикеры) — их в таблице оцениваемых быть не должно.
     ep_rows = await db.fetch(
-        """SELECT ep.id AS sid, ct.name, ct.ref_code, ct.id AS contact_id
+        """SELECT ep.id AS sid, ct.name, ct.ref_code, ct.id AS contact_id,
+                  (SELECT pu.username FROM platform_users pu
+                     WHERE pu.contact_id = ct.id AND pu.username IS NOT NULL
+                     ORDER BY CASE pu.platform_slug WHEN 'telegram' THEN 1 WHEN 'vk' THEN 2 WHEN 'max' THEN 3 ELSE 4 END
+                     LIMIT 1) AS username
              FROM event_participants ep
              JOIN contacts ct ON ct.id = ep.contact_id
             WHERE ep.event_id = $1 AND ep.is_registered = TRUE
@@ -146,7 +155,8 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
     for r in ep_rows:
         d = dict(r)
         out.append({"kind": "ep", "sid": d["sid"], "key": _skey("ep", d["sid"]),
-                    "name": d["name"] or "Без имени", "ref_code": d["ref_code"], "contact_id": d["contact_id"],
+                    "name": d["name"] or "Без имени", "username": d.get("username"),
+                    "ref_code": d["ref_code"], "contact_id": d["contact_id"],
                     "material": None, "is_speaker": False})
     return out
 
@@ -310,7 +320,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                 done += 1
         table.append({
             "subject_kind": subj["kind"], "subject_id": subj["sid"], "key": subj["key"],
-            "name": subj["name"], "is_speaker": subj["is_speaker"],
+            "name": subj["name"], "username": subj.get("username"), "is_speaker": subj["is_speaker"],
             "cells": {str(k): v for k, v in cells.items()},
             "package_scores": {str(k): v for k, v in package_scores.items()},
             "jury_detail": {str(k): v for k, v in jury_detail.items()},
@@ -525,7 +535,7 @@ async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=
     # обогащаем subjects: имя реферода + список жюри-рефоводов (конфликтных)
     subjects_out = []
     for s in subjects:
-        item = {"key": s["key"], "name": s["name"], "is_speaker": s["is_speaker"],
+        item = {"key": s["key"], "name": s["name"], "username": s.get("username"), "is_speaker": s["is_speaker"],
                 "referrer_name": None, "referrer_juror_ec_ids": []}
         if s["kind"] == "ep":
             ref = referrer_by_sid.get(s["sid"])
