@@ -160,9 +160,9 @@ async def upload_media(file_path: str | Path, *, token: str, kind: str = "image"
         logger.warning(f"MAX upload step1 failed: {e}")
         return None
     upload_url = step1.get("url")
-    media_token = step1.get("token")
-    if not upload_url or not media_token:
-        logger.warning(f"MAX upload step1 returned no url/token: {step1}")
+    media_token = step1.get("token")  # для image MAX обычно НЕ отдаёт token на шаге 1
+    if not upload_url:
+        logger.warning(f"MAX upload step1 returned no url: {step1}")
         return None
     try:
         async with httpx.AsyncClient(timeout=180.0) as cli:
@@ -172,10 +172,32 @@ async def upload_media(file_path: str | Path, *, token: str, kind: str = "image"
         if resp.status_code != 200:
             logger.warning(f"MAX upload step2 status={resp.status_code} body={resp.text[:200]}")
             return None
+        # Для image токен приходит в ОТВЕТЕ шага 2 (поле photos:{id:{token}}),
+        # для video/file — token был уже на шаге 1. Разбираем оба случая.
+        try:
+            body = resp.json()
+        except Exception:
+            body = {}
+        if kind == "image":
+            photos = (body or {}).get("photos") or {}
+            if isinstance(photos, dict) and photos:
+                first = next(iter(photos.values()))
+                ptok = (first or {}).get("token") if isinstance(first, dict) else None
+                if ptok:
+                    return {"type": "image", "payload": {"photos": photos}}
+            # фолбэк: токен прямо в теле
+            ptok = (body or {}).get("token")
+            if ptok:
+                return {"type": "image", "payload": {"token": ptok}}
+            logger.warning(f"MAX upload image step2 no token in body: {str(body)[:200]}")
+            return None
     except Exception as e:
         logger.warning(f"MAX upload step2 error: {e}")
         return None
-    return {"type": kind if kind != "image" else "image", "payload": {"token": media_token}}
+    if not media_token:
+        logger.warning(f"MAX upload ({kind}) no token after step2")
+        return None
+    return {"type": kind, "payload": {"token": media_token}}
 
 
 def _guess_content_type(path: Path, kind: str) -> str:

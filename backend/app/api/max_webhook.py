@@ -212,6 +212,13 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
     sender, user_id, chat_id = _extract_user_and_chat(update)
     if not user_id or not chat_id:
         return
+    # Обрабатываем ТОЛЬКО личку с ботом (chat_type='dialog'). Сообщения из
+    # групповых чатов/бесед (chat_type='chat') игнорируем полностью — бот не
+    # должен ничего слать в чаты (никаких приветствий/welcome про платформу).
+    recipient = msg.get("recipient") or {}
+    chat_type = (recipient.get("chat_type") or "").strip().lower()
+    if chat_type and chat_type != "dialog":
+        return
     low = text.lower()
 
     if low.startswith("/getchatid"):
@@ -820,19 +827,10 @@ async def _process_start(
                 logger.warning(f"MAX welcome failed for user={user_id}: {e}")
             return
 
-    # ── Событие не задано → общий welcome платформы ─────────────────────────
-    msg_text = (
-        f"👋 Здравствуйте, {first_name}!\n\n"
-        "Добро пожаловать в iViSiON: ПЛЮСОН — платформу для организаторов и экспертов. "
-        "Откройте мини-приложение, чтобы увидеть события и подарки."
-    )
-    buttons = tg_inline_to_max_keyboard([[
-        {"text": "Открыть приложение", "url": f"https://max.ru/{settings.max_system_bot_username}"},
-    ]])
-    try:
-        await max_send_message(chat_id, msg_text, token=bot_token, buttons=buttons)
-    except Exception as e:
-        logger.warning(f"MAX welcome failed for user={user_id}: {e}")
+    # ── Событие не задано → НИЧЕГО не шлём. Общее welcome про «платформу ПЛЮСОН»
+    #    отключено по требованию: бот не должен слать рекламно-платформенные
+    #    сообщения. Реагируем только на конкретное событие/команду.
+    return
 
 
 async def _send_max_event_menu(
