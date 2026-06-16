@@ -825,7 +825,10 @@ async def _send_max_event_menu(
       • «Кабинет и подарки» — внутренний веб события.
     """
     ev = await conn.fetchrow(
-        """SELECT id, client_id, slug, title, module_slug,
+        """SELECT id, slug, title, module_slug,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                   vip_url, vip_button_label,
                   chat_url_tg, chat_url_vk, chat_url_max
              FROM events WHERE id = $1 LIMIT 1""",
