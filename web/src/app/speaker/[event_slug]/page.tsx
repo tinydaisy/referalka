@@ -122,7 +122,7 @@ type SpeakerMaterials = {
   placeholders: { link: string; event: string; date: string; brand: string }
 }
 
-type CabinetTab = 'profile' | 'materials' | 'judging' | 'myresults'
+type CabinetTab = 'profile' | 'materials' | 'judging' | 'myresults' | 'invited'
 
 export default function SpeakerCabinetPage() {
   const params = useParams<{ event_slug: string }>()
@@ -553,6 +553,7 @@ export default function SpeakerCabinetPage() {
           {([
             { key: 'profile'   as CabinetTab, label: 'Профиль' },
             { key: 'materials' as CabinetTab, label: 'Материалы' },
+            { key: 'invited'   as CabinetTab, label: 'Приглашённые' },
             ...((me.role === 'jury' || me.role === 'organizer') ? [{ key: 'judging' as CabinetTab, label: 'Оценка участников' }] : []),
             ...((me.role !== 'jury' && me.role !== 'organizer') ? [{ key: 'myresults' as CabinetTab, label: 'Мои результаты' }] : []),
           ]).map(t => (
@@ -588,6 +589,7 @@ export default function SpeakerCabinetPage() {
 
         {activeTab === 'judging' && token && <JudgingTab token={token} />}
         {activeTab === 'myresults' && token && <MyResultsTab token={token} />}
+        {activeTab === 'invited' && token && <InvitedTab token={token} />}
 
         {activeTab === 'profile' && <>
         <Section title="Профиль">
@@ -1432,6 +1434,106 @@ function PlatformAccountField({
 }
 
 // ─────────────────────── Вкладка ЖЮРИ: оценка участников ───────────────────────
+
+// ─────────────────────── Вкладка ПРИГЛАШЁННЫЕ: реф-статистика спикера ───────────────────────
+function InvitedTab({ token }: { token: string }) {
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any>(null)
+  const [filter, setFilter] = useState<'all' | 'reg' | 'unreg'>('all')
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`${API}/api/v1/public/speaker-cabinet/me/invited`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(r => r.json()).then(setData).finally(() => setLoading(false))
+  }, [token])
+
+  if (loading) return <div style={{ padding: 20, color: '#7a8c9c' }}>Загрузка…</div>
+  if (!data) return <div style={{ padding: 20, color: '#7a8c9c' }}>Не удалось загрузить.</div>
+
+  const people: any[] = data.people || []
+  const shown = people.filter(p =>
+    filter === 'all' ? true : filter === 'reg' ? p.is_registered : !p.is_registered)
+
+  const platLabel = (s: string) => s === 'telegram' ? 'TG' : s === 'vk' ? 'VK' : s === 'max' ? 'MAX' : s === 'email' ? '✉' : ''
+
+  const Stat = ({ label, value }: { label: string; value: number }) => (
+    <div style={{
+      flex: 1, background: '#fff', border: '1px solid #e1e8ee', borderRadius: 12,
+      padding: '14px 10px', textAlign: 'center',
+    }}>
+      <div style={{ fontSize: 26, fontWeight: 800, color: DARK }}>{value}</div>
+      <div style={{ fontSize: 12, color: '#7a8c9c', marginTop: 2 }}>{label}</div>
+    </div>
+  )
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '4px 0 12px' }}>
+        Ваши приглашённые
+      </h2>
+      <p style={{ fontSize: 13, color: '#7a8c9c', margin: '0 0 14px' }}>
+        Люди, которые пришли по вашей реферальной ссылке на это событие.
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <Stat label="Зашли" value={data.entered || 0} />
+        <Stat label="Зарегистрировались" value={data.registered || 0} />
+        <Stat label="В чате" value={data.in_chat || 0} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {([
+          { k: 'all' as const, l: `Все (${people.length})` },
+          { k: 'reg' as const, l: `Зарегистрированы (${people.filter(p => p.is_registered).length})` },
+          { k: 'unreg' as const, l: `Не зарегистрированы (${people.filter(p => !p.is_registered).length})` },
+        ]).map(b => (
+          <button key={b.k} type="button" onClick={() => setFilter(b.k)}
+            style={{
+              padding: '7px 12px', borderRadius: 20, fontSize: 12.5, cursor: 'pointer',
+              border: filter === b.k ? `1px solid ${DARK}` : '1px solid #d4dee5',
+              background: filter === b.k ? DARK : '#fff',
+              color: filter === b.k ? '#fff' : '#5a6b7a', fontWeight: filter === b.k ? 700 : 500,
+            }}>{b.l}</button>
+        ))}
+      </div>
+
+      {shown.length === 0 ? (
+        <div style={{ padding: 24, textAlign: 'center', color: '#9aa9b7', fontSize: 14 }}>
+          Пока никого нет.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {shown.map((p, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              background: '#fff', border: '1px solid #e8eef3', borderRadius: 10, padding: '10px 12px',
+            }}>
+              <div style={{
+                width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
+                background: p.is_registered ? '#2ecc71' : '#cdd6de',
+              }} title={p.is_registered ? 'Зарегистрирован' : 'Не зарегистрирован'} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {p.account_url ? (
+                  <a href={p.account_url} target="_blank" rel="noreferrer"
+                     style={{ color: DARK, fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>
+                    {p.name} ↗
+                  </a>
+                ) : (
+                  <span style={{ color: DARK, fontWeight: 600, fontSize: 14 }}>{p.name}</span>
+                )}
+                <div style={{ fontSize: 11.5, color: '#9aa9b7', marginTop: 1 }}>
+                  {platLabel(p.platform_slug)}{p.username ? ` · @${String(p.username).replace(/^@/, '')}` : ''}
+                  {p.is_in_chat ? ' · в чате' : ''}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function JudgingTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)

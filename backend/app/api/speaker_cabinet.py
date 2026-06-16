@@ -788,3 +788,90 @@ async def get_me_materials(
         ) if show_partner_link else None,
         "placeholders": placeholders,
     }
+
+
+@router.get("/me/invited", summary="Приглашённые спикером люди + его реф-статистика")
+async def get_me_invited(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Личная реф-статистика спикера/жюри по этому событию: кого он привёл.
+
+    Считаем по contacts.ref_code спикера → event_participants.referrer_ref_code.
+    Возвращает счётчики (зашло/зарегано/в чате) + список людей с платформенной
+    идентичностью для перехода в их аккаунт.
+    """
+    event_id = int(session["e_id"])
+    collaborator_id = int(session["c_id"])
+    # ref_code спикера (через его контакт).
+    ref_code = await db.fetchval(
+        """SELECT c.ref_code FROM collaborators co
+             JOIN contacts c ON c.id = co.contact_id
+            WHERE co.id = $1 LIMIT 1""",
+        collaborator_id,
+    )
+    if not ref_code:
+        return {"ref_code": None, "entered": 0, "registered": 0, "in_chat": 0, "people": []}
+
+    entered = await db.fetchval(
+        "SELECT COUNT(*) FROM event_participants WHERE event_id = $1 AND referrer_ref_code = $2",
+        event_id, ref_code,
+    ) or 0
+    registered = await db.fetchval(
+        "SELECT COUNT(*) FROM event_participants WHERE event_id = $1 AND referrer_ref_code = $2 AND is_registered = TRUE",
+        event_id, ref_code,
+    ) or 0
+    in_chat = await db.fetchval(
+        "SELECT COUNT(*) FROM event_participants WHERE event_id = $1 AND referrer_ref_code = $2 AND is_in_chat = TRUE",
+        event_id, ref_code,
+    ) or 0
+
+    rows = await db.fetch(
+        """SELECT ct.name, ep.is_registered, ep.is_in_chat,
+                  pu.platform_slug, pu.platform_user_id, pu.username
+             FROM event_participants ep
+             JOIN contacts ct ON ct.id = ep.contact_id
+             LEFT JOIN LATERAL (
+                 SELECT p.platform_slug, p.platform_user_id, p.username
+                   FROM platform_users p
+                  WHERE p.contact_id = ct.id
+                  ORDER BY CASE p.platform_slug
+                             WHEN 'telegram' THEN 1 WHEN 'vk' THEN 2
+                             WHEN 'max' THEN 3 WHEN 'email' THEN 4 ELSE 5 END, p.id
+                  LIMIT 1
+             ) pu ON TRUE
+            WHERE ep.event_id = $1 AND ep.referrer_ref_code = $2
+            ORDER BY ep.is_registered DESC, ep.id DESC
+            LIMIT 500""",
+        event_id, ref_code,
+    )
+
+    def _account_url(slug, pid, uname):
+        """Прямая ссылка на аккаунт человека в его площадке."""
+        if not pid:
+            return None
+        u = (uname or "").lstrip("@")
+        if slug == "telegram":
+            return f"https://t.me/{u}" if u else None
+        if slug == "vk":
+            return f"https://vk.com/id{pid}" if str(pid).isdigit() else (f"https://vk.com/{u}" if u else None)
+        if slug == "max":
+            return f"https://max.ru/u/{pid}" if pid and not str(pid).startswith("@") else None
+        return None
+
+    people = [{
+        "name": r["name"] or "Без имени",
+        "is_registered": bool(r["is_registered"]),
+        "is_in_chat": bool(r["is_in_chat"]),
+        "platform_slug": r["platform_slug"],
+        "username": r["username"],
+        "account_url": _account_url(r["platform_slug"], r["platform_user_id"], r["username"]),
+    } for r in rows]
+
+    return {
+        "ref_code": ref_code,
+        "entered": entered,
+        "registered": registered,
+        "in_chat": in_chat,
+        "people": people,
+    }
