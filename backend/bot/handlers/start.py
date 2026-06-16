@@ -712,7 +712,11 @@ async def handle_start(message: Message, command: CommandObject):
                 async with pool.acquire() as db:
                     from app.services.contact_merge import upsert_contact_with_identity
                     event = await db.fetchrow(
-                        "SELECT id, client_id, title, slug FROM events WHERE slug=$1 AND status='published'",
+                        """SELECT id, title, slug,
+                                  (SELECT eo.client_id FROM event_owners eo
+                                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
+                             FROM events WHERE slug=$1 AND status='published'""",
                         event_slug,
                     )
                     if event:
@@ -967,7 +971,10 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     pool = await get_pool()
     async with pool.acquire() as db:
         ev = await db.fetchrow(
-            """SELECT id, client_id, title, landing_url, status,
+            """SELECT id, title, landing_url, status,
+                      (SELECT eo.client_id FROM event_owners eo
+                         WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                         ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                       (SELECT url FROM event_posters
                          WHERE event_id = e.id
                          ORDER BY CASE orientation
@@ -1098,7 +1105,10 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
       • «Кабинет и подарки» — внутренний веб события.
     """
     ev = await db.fetchrow(
-        """SELECT id, client_id, slug, title, module_slug,
+        """SELECT id, slug, title, module_slug,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                   vip_url, vip_button_label,
                   chat_url_tg, chat_url_vk, chat_url_max,
                   (SELECT url FROM event_posters
@@ -1412,7 +1422,12 @@ async def handle_event_menu_command(message: Message):
     pool = await get_pool()
     async with pool.acquire() as db:
         ev = await db.fetchrow(
-            "SELECT id, client_id FROM events WHERE id = $1 LIMIT 1", event_id
+            """SELECT id,
+                      (SELECT eo.client_id FROM event_owners eo
+                        WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                        ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
+                 FROM events WHERE id = $1 LIMIT 1""",
+            event_id,
         )
         if not ev:
             await message.answer("Событие не найдено.")
