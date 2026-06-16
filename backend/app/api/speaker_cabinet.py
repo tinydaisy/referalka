@@ -793,11 +793,12 @@ async def get_me_materials(
         # (contacts.external_ref_param). Если есть — кабинет спикера показывает
         # «Вы уже партнёр, ваш код X» вместо ссылок на регистрацию.
         # Скрываем целиком если клиент выключил show_partner_registration_link (миграция 123).
+        # Весь партнёрский блок (и «вы уже партнёр», и регистрация, и кабинет/
+        # оплаты) управляется роль-фильтром partner_visible_roles. Если роль
+        # человека не отмечена галочкой — блок не показываем вообще.
         "speaker_external_ref_param": (
             (base.get("speaker_external_ref_param") or "").strip() or None
-        ) if show_partner_link else None,
-        # URL аффилиат-кабинета во внешней системе клиента (миграция 118).
-        # Кликабельная ссылка для спикера-партнёра, если у него уже есть код.
+        ) if (show_partner_link and role_allows_partner) else None,
         "partner_dashboard_url": (
             (base.get("partner_dashboard_url") or "").strip() or None
         ) if (show_partner_link and role_allows_partner) else None,

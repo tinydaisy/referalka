@@ -1135,12 +1135,6 @@ function MaterialsTab({
     { key: 'max',      label: 'MAX',      url: materials.ref_links.max },
   ].filter(x => !!x.url) as { key: string; label: string; url: string }[]
 
-  const partnerRows = [
-    { key: 'telegram', label: 'Telegram', url: materials.partner_link.telegram },
-    { key: 'vk',       label: 'VK',       url: materials.partner_link.vk },
-    { key: 'max',      label: 'MAX',      url: materials.partner_link.max },
-  ].filter(x => !!x.url) as { key: string; label: string; url: string }[]
-
   // Карточка для видео — превью с native controls + кнопка скачать.
   function VideoCard({ url, alt }: { url: string; alt: string }) {
     return (

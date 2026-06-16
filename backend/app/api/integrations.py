@@ -891,8 +891,25 @@ async def getcourse_register_get(
 class GetCourseExternalRefRequest(BaseModel):
     client_id: int
     secret: Optional[str] = None
-    contact_id: int                          # ID контакта в ПЛЮСОНе
+    # contact_id может прийти ПУСТОЙ строкой (GetCourse шлёт скрытое поле
+    # pluson_cid даже когда не подставил значение) — поэтому Optional[str], а не
+    # int, иначе FastAPI возвращает 422 на "contact_id=" и код теряется.
+    # Пусто → fallback по email/phone/telegram_username.
+    contact_id: Optional[str] = None
+    pluson_cid: Optional[str] = None         # алиас (имя в URL стороннего лендинга)
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    telegram_username: Optional[str] = None
     external_ref_param: Optional[str] = None # партнёрский код типа "gcpc=08cea"
+
+    def resolved_contact_id(self) -> Optional[int]:
+        raw = (self.contact_id if self.contact_id not in (None, "") else self.pluson_cid)
+        if raw in (None, ""):
+            return None
+        try:
+            return int(str(raw).strip())
+        except (ValueError, TypeError):
+            return None
 
 
 async def _update_external_ref(
@@ -902,18 +919,41 @@ async def _update_external_ref(
     # 1. Авторизация
     await _authorize(data.secret, data.client_id, db)
 
-    # 2. Резолв контакта с проверкой клиента + merged_into
-    row = await db.fetchrow(
-        "SELECT id, client_id, merged_into FROM contacts WHERE id = $1",
-        data.contact_id,
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail=f"Контакт {data.contact_id} не найден")
-    if row["client_id"] != data.client_id:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Контакт {data.contact_id} принадлежит другому клиенту",
+    # 2. Резолв контакта: по contact_id, иначе fallback по email/phone/tg-нику
+    #    у этого клиента (GetCourse часто шлёт пустой contact_id).
+    cid_int = data.resolved_contact_id()
+    row = None
+    if cid_int is not None:
+        row = await db.fetchrow(
+            "SELECT id, client_id, merged_into FROM contacts WHERE id = $1", cid_int,
         )
+        if row and row["client_id"] != data.client_id:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Контакт {cid_int} принадлежит другому клиенту",
+            )
+    if row is None:
+        # Fallback по email / phone / telegram_username у клиента.
+        em = (data.email or "").strip().lower()
+        ph = _normalize_phone_for_update(data.phone) if data.phone else None
+        tgu = (data.telegram_username or "").strip().lstrip("@").lower()
+        if em:
+            row = await db.fetchrow(
+                "SELECT id, client_id, merged_into FROM contacts WHERE client_id=$1 AND lower(email)=$2 AND merged_into IS NULL ORDER BY id LIMIT 1",
+                data.client_id, em)
+        if row is None and ph:
+            row = await db.fetchrow(
+                "SELECT id, client_id, merged_into FROM contacts WHERE client_id=$1 AND phone_normalized=$2 AND merged_into IS NULL ORDER BY id LIMIT 1",
+                data.client_id, ph)
+        if row is None and tgu:
+            row = await db.fetchrow(
+                """SELECT c.id, c.client_id, c.merged_into FROM contacts c
+                     JOIN platform_users pu ON pu.contact_id=c.id AND pu.platform_slug='telegram'
+                    WHERE c.client_id=$1 AND lower(pu.username)=$2 AND c.merged_into IS NULL
+                    ORDER BY c.id LIMIT 1""",
+                data.client_id, tgu)
+    if not row:
+        raise HTTPException(status_code=404, detail="Контакт не найден (нет contact_id и не нашёлся по email/phone/tg)")
     target_id = row["merged_into"] or row["id"]
 
     # 3. Пишем external_ref_param ТОЛЬКО непустое валидное "ключ=значение".
@@ -962,7 +1002,11 @@ async def getcourse_external_ref_post(
 async def getcourse_external_ref_get(
     client_id: int,
     secret: str,
-    contact_id: int,
+    contact_id: Optional[str] = None,
+    pluson_cid: Optional[str] = None,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    telegram_username: Optional[str] = None,
     external_ref_param: Optional[str] = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
@@ -970,6 +1014,10 @@ async def getcourse_external_ref_get(
         client_id=client_id,
         secret=secret,
         contact_id=contact_id,
+        pluson_cid=pluson_cid,
+        email=email,
+        phone=phone,
+        telegram_username=telegram_username,
         external_ref_param=external_ref_param,
     )
     return await _update_external_ref(data, db)
