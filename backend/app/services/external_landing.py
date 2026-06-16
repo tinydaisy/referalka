@@ -176,6 +176,48 @@ async def resolve_referrer_external_ref_param(
     return None
 
 
+async def build_event_vip_target(
+    db: asyncpg.Connection,
+    event_id: int,
+    contact_id: Optional[int],
+) -> Optional[dict]:
+    """Собирает VIP-ссылку события с полным набором GET-параметров контакта +
+    внешним партнёрским кодом рефовода — ТА ЖЕ логика, что в кнопке VIP меню.
+
+    Используется командой /vip_link{id} во всех ботах (TG/VK/MAX) и кнопкой
+    «Выбрать формат участия» в меню. Единая точка истины.
+
+    :return: {"vip_target": url, "vip_label": str, "title": str} или None если
+             у события не задан vip_url.
+    """
+    ev = await db.fetchrow(
+        """SELECT id, slug, title, vip_url, vip_button_label,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
+             FROM events WHERE id = $1 LIMIT 1""",
+        event_id,
+    )
+    if not ev:
+        return None
+    vip_url = (ev["vip_url"] or "").strip()
+    if not vip_url:
+        return None
+    contact_params = await get_contact_landing_params(db, contact_id) if contact_id else {}
+    erp = await resolve_referrer_external_ref_param(
+        db, ev["client_id"], contact_id=contact_id,
+    )
+    vip_target = enrich_external_url(
+        vip_url,
+        pluson_contact_id=contact_id,
+        event_slug=ev["slug"],
+        external_ref_param=erp,
+        **contact_params,
+    )
+    vip_label = (ev["vip_button_label"] or "").strip() or "ВЫБРАТЬ ФОРМАТ УЧАСТИЯ"
+    return {"vip_target": vip_target, "vip_label": vip_label, "title": ev["title"] or ""}
+
+
 async def get_contact_landing_params(
     db: asyncpg.Connection,
     contact_id: int,

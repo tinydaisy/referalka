@@ -249,6 +249,48 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         )
         return
 
+    if low.startswith("/vip_link"):
+        import re as _re
+        mvip = _re.match(r"^/vip_link(\d+)", text.strip())
+        if not mvip:
+            await max_send_message(chat_id, "Укажите событие: /vip_link24", token=bot_token)
+            return
+        event_id = int(mvip.group(1))
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            # VIP-бот клиента (client_id_override) видит только свои события;
+            # системный бот (None) — любые.
+            if client_id_override is not None:
+                owns = await conn.fetchval(
+                    """SELECT 1 FROM event_owners
+                        WHERE event_id = $1 AND client_id = $2 AND status='accepted' LIMIT 1""",
+                    event_id, client_id_override)
+                if not owns:
+                    await max_send_message(chat_id, "Неизвестное событие — возможно, вы ошиблись с идентификатором события.", token=bot_token)
+                    return
+            contact_id = await conn.fetchval(
+                """SELECT ep.contact_id FROM event_participants ep
+                     JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                      AND pu.platform_slug='max' AND pu.platform_user_id = $2
+                    WHERE ep.event_id = $1 LIMIT 1""",
+                event_id, str(user_id))
+            from app.services.external_landing import build_event_vip_target
+            vip = await build_event_vip_target(conn, event_id, contact_id)
+            if not vip:
+                ev_exists = await conn.fetchval("SELECT 1 FROM events WHERE id=$1 LIMIT 1", event_id)
+                if not ev_exists:
+                    await max_send_message(chat_id, "Неизвестное событие — возможно, вы ошиблись с идентификатором события.", token=bot_token)
+                else:
+                    await max_send_message(chat_id, "У этого события не настроен формат участия (VIP).", token=bot_token)
+                return
+            msg_text = (
+                f"Выберите формат участия в событии {vip['title']}\n\n"
+                "👇👇👇\n"
+            )
+            btn = tg_inline_to_max_keyboard([[{"text": vip["vip_label"], "url": vip["vip_target"]}]])
+            await max_send_message(chat_id, msg_text, token=bot_token, buttons=btn)
+        return
+
     if low.startswith("/start"):
         payload = text[len("/start"):].strip()
         await _process_start(

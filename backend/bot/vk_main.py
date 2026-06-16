@@ -799,6 +799,47 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
         await _handle_vk_merge(message.get("text") or "", int(from_id), db, ctx)
         return
 
+    # /vip_link{event_id} — прислать VIP-ссылку события (как кнопка меню).
+    _vtext = (message.get("text") or "").strip()
+    if _vtext.lower().startswith("/vip_link"):
+        import re as _re
+        mvip = _re.match(r"^/vip_link(\d+)", _vtext)
+        if not mvip:
+            await vk_send_message(int(from_id), "Укажите событие: /vip_link24", token=ctx.token)
+            return
+        event_id = int(mvip.group(1))
+        # VIP-сообщество клиента видит только свои события; системное — любые.
+        if not ctx.is_system:
+            owns = await db.fetchval(
+                """SELECT 1 FROM event_owners
+                    WHERE event_id = $1 AND client_id = $2 AND status='accepted' LIMIT 1""",
+                event_id, ctx.client_id)
+            if not owns:
+                await vk_send_message(int(from_id), "Неизвестное событие — возможно, вы ошиблись с идентификатором события.", token=ctx.token)
+                return
+        contact_id = await db.fetchval(
+            """SELECT ep.contact_id FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                  AND pu.platform_slug='vk' AND pu.platform_user_id = $2
+                WHERE ep.event_id = $1 LIMIT 1""",
+            event_id, str(from_id))
+        from app.services.external_landing import build_event_vip_target
+        vip = await build_event_vip_target(db, event_id, contact_id)
+        if not vip:
+            ev_exists = await db.fetchval("SELECT 1 FROM events WHERE id=$1 LIMIT 1", event_id)
+            if not ev_exists:
+                await vk_send_message(int(from_id), "Неизвестное событие — возможно, вы ошиблись с идентификатором события.", token=ctx.token)
+            else:
+                await vk_send_message(int(from_id), "У этого события не настроен формат участия (VIP).", token=ctx.token)
+            return
+        msg_text = (
+            f"Выберите формат участия в событии {vip['title']}\n\n"
+            "👇👇👇\n"
+        )
+        kb = tg_inline_to_vk_keyboard([[{"text": vip["vip_label"], "url": vip["vip_target"]}]])
+        await vk_send_message(int(from_id), msg_text, keyboard=kb, token=ctx.token)
+        return
+
     # Диагностика для spkinv: логируем что VK прислал в ref-полях.
     try:
         diag_ref = message.get("ref") or message.get("ref_source") or event_obj.get("ref")

@@ -1453,6 +1453,77 @@ async def handle_event_menu_command(message: Message):
         await send_event_menu(message, event_id, contact_id, db)
 
 
+@router.message(F.text.regexp(r"^/vip_link\d+"))
+async def handle_vip_link_command(message: Message):
+    """Команда `/vip_link{event_id}` — прислать VIP-ссылку события с кнопкой.
+
+    Ссылка обогащается теми же GET-параметрами и внешним партнёрским кодом, что
+    и кнопка «Выбрать формат участия» в меню. Если событие не принадлежит этому
+    боту/клиенту — «Неизвестное событие …»."""
+    user = message.from_user
+    if not user:
+        return
+    import re as _re
+    m = _re.match(r"^/vip_link(\d+)", (message.text or "").strip())
+    if not m:
+        return
+    event_id = int(m.group(1))
+    bot_id = message.bot.id if message.bot else None
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        # client_id этого бота (системный @pluson_bot или VIP-бот клиента).
+        client_id = None
+        if bot_id:
+            from app.services.channels import find_channel_by_bot_id
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if ch:
+                if ch["is_system"]:
+                    client_id = await db.fetchval(
+                        "SELECT id FROM clients WHERE email='system@pluson.ru' AND is_active=TRUE LIMIT 1")
+                else:
+                    client_id = await db.fetchval(
+                        """SELECT client_id FROM client_channels
+                            WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                        ch["id"])
+        # Событие должно принадлежать этому клиенту (для системного @pluson_bot —
+        # любому, т.к. он обслуживает всех; для VIP-бота — только своему).
+        if client_id is not None:
+            owns = await db.fetchval(
+                """SELECT 1 FROM event_owners
+                    WHERE event_id = $1 AND client_id = $2 AND status = 'accepted' LIMIT 1""",
+                event_id, client_id)
+            # Для системного бота владение не ограничиваем (он общий).
+            is_system = bool(ch and ch["is_system"]) if bot_id else False
+            if not owns and not is_system:
+                await message.answer("Неизвестное событие — возможно, вы ошиблись с идентификатором события.")
+                return
+        # contact_id по tg_id.
+        contact_id = await db.fetchval(
+            """SELECT ep.contact_id FROM event_participants ep
+                 JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                  AND pu.platform_slug = 'telegram' AND pu.platform_user_id = $2
+                WHERE ep.event_id = $1 LIMIT 1""",
+            event_id, str(user.id))
+        from app.services.external_landing import build_event_vip_target
+        vip = await build_event_vip_target(db, event_id, contact_id)
+        if not vip:
+            # событие либо не найдено, либо у него нет vip_url
+            ev_exists = await db.fetchval("SELECT 1 FROM events WHERE id = $1 LIMIT 1", event_id)
+            if not ev_exists:
+                await message.answer("Неизвестное событие — возможно, вы ошиблись с идентификатором события.")
+            else:
+                await message.answer("У этого события не настроен формат участия (VIP).")
+            return
+        text = (
+            f"Выберите формат участия в событии {vip['title']}\n\n"
+            "👇👇👇\n"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=vip["vip_label"], url=vip["vip_target"]),
+        ]])
+        await message.answer(text, reply_markup=kb)
+
+
 @router.message(Command(commands=["app"]))
 async def handle_app(message: Message):
     """Команда `/app` — кнопка открыть Mini App (команда сама URL открыть не
