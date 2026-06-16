@@ -951,7 +951,13 @@ async def _send_max_event_menu(
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                   vip_url, vip_button_label,
                   chat_url_tg, chat_url_vk, chat_url_max,
-                  stream_url, hide_stream_button, start_at
+                  stream_url, hide_stream_button, start_at,
+                  (SELECT url FROM event_posters
+                     WHERE event_id = events.id
+                     ORDER BY CASE orientation
+                                WHEN 'square' THEN 1 WHEN 'horizontal' THEN 2
+                                WHEN 'vertical' THEN 3 ELSE 4 END, sort, id
+                     LIMIT 1) AS poster_url
              FROM events WHERE id = $1 LIMIT 1""",
         event_id,
     )
@@ -1020,9 +1026,20 @@ async def _send_max_event_menu(
     tg_rows.append([{"text": "Кабинет и подарки",
                      "url": f"https://pluson.ru/event/{slug}{cid_q}#cabinet"}])
 
+    # Афиша события вложением к меню (как фото с подписью в TG).
+    attachments = None
+    poster_url = ev["poster_url"]
+    if poster_url:
+        try:
+            att = await _max_image_attachment_from_url(poster_url, bot_token)
+            if att:
+                attachments = [att]
+        except Exception as e:
+            logger.warning(f"MAX menu poster failed ({poster_url}): {e}")
     await max_send_message(
         chat_id, text, token=bot_token,
         buttons=tg_inline_to_max_keyboard(tg_rows),
+        attachments=attachments,
     )
 
 
