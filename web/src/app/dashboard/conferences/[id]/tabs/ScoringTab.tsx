@@ -596,7 +596,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                 <>
                   <tr key={row.key} className="border-t hover:bg-gray-50 group">
                     <td className="px-3 py-2 sticky left-0 z-20 bg-white group-hover:bg-gray-50 border-t" style={{ width: 56, minWidth: 56 }}>{row.place <= 3 ? ['🥇','🥈','🥉'][row.place-1] : row.place}</td>
-                    <td className="px-2 py-2 whitespace-normal break-words sticky z-20 bg-white group-hover:bg-gray-50 border-t border-r" style={{ left: 56, width: 180, minWidth: 180, maxWidth: 180 }}>{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}</td>
+                    <td className="px-2 py-2 whitespace-normal break-words sticky z-20 bg-white group-hover:bg-gray-50 border-t border-r" style={{ left: 56, width: 180, minWidth: 180, maxWidth: 180 }}>{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}{row.username && <div className="text-[10px] text-gray-400 leading-tight">@{row.username}</div>}</td>
                     <td className="px-3 py-2 text-center text-xs">{row.assigned_jury ? `${row.done_jury}/${row.assigned_jury}${row.done_jury < row.assigned_jury ? ' ⚠' : ' ✓'}` : '—'}</td>
                     <td className="px-3 py-2 text-center font-semibold text-[#25455D] border-l">{row.total}</td>
                     {/* баллы пакетов */}
