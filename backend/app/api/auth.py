@@ -278,7 +278,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                 c.created_at, c.timezone,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id,
-                c.partner_landing_url, c.partner_dashboard_url, c.partner_payments_url, c.partner_visible_roles,
+                c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
                 c.integration_token,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                    FROM channels ch
@@ -378,7 +378,6 @@ class ProfileUpdate(BaseModel):
     notifications_telegram_chat_id: Optional[int] = None
     partner_landing_url: Optional[str] = None
     partner_dashboard_url: Optional[str] = None
-    partner_payments_url: Optional[str] = None
     partner_visible_roles: Optional[list[str]] = None
 
 
@@ -400,7 +399,7 @@ async def update_me(
                 c.created_at, c.timezone,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id,
-                  c.partner_landing_url, c.partner_dashboard_url, c.partner_payments_url, c.partner_visible_roles
+                  c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles
            FROM clients c WHERE c.id = $1""",
             client_id
         )
@@ -434,7 +433,7 @@ async def update_me(
                   c.created_at, c.timezone,
                   c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id,
-                  c.partner_landing_url, c.partner_dashboard_url, c.partner_payments_url, c.partner_visible_roles
+                  c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles
              FROM clients c WHERE c.id = $1""",
         client_id
     )

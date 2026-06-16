@@ -633,7 +633,7 @@ async def get_me_materials(
                   e.video_url AS event_video_url,
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
                   cl.partner_landing_url, cl.partner_dashboard_url,
-                  cl.partner_payments_url, cl.partner_visible_roles,
+                  cl.partner_visible_roles,
                   ec.role AS ec_role,
                   c.contact_id,
                   c.photo_url AS speaker_photo_url,
@@ -800,11 +800,6 @@ async def get_me_materials(
         # Кликабельная ссылка для спикера-партнёра, если у него уже есть код.
         "partner_dashboard_url": (
             (base.get("partner_dashboard_url") or "").strip() or None
-        ) if (show_partner_link and role_allows_partner) else None,
-        # Ссылка на отслеживание оплат (миграция 148) — показываем по той же
-        # роль-видимости, что и регистрацию партнёром.
-        "partner_payments_url": (
-            (base.get("partner_payments_url") or "").strip() or None
         ) if (show_partner_link and role_allows_partner) else None,
         "placeholders": placeholders,
     }
