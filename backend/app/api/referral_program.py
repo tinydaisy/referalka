@@ -95,14 +95,15 @@ async def import_referral_program(
             )
         # materials — без ссылки на чужие event_posters; всё переводим в source='custom'
         materials = await db.fetch(
-            "SELECT image_url, sort FROM event_referral_materials WHERE event_id = $1 ORDER BY id",
+            "SELECT media_type, image_url, video_url, sort FROM event_referral_materials WHERE event_id = $1 ORDER BY id",
             data.from_event_id
         )
         for m in materials:
             await db.execute(
-                """INSERT INTO event_referral_materials (event_id, image_url, source, source_poster_id, sort)
-                   VALUES ($1, $2, 'custom', NULL, $3)""",
-                event_id, m['image_url'], m['sort']
+                """INSERT INTO event_referral_materials
+                     (event_id, media_type, image_url, video_url, source, source_poster_id, sort)
+                   VALUES ($1, $2, $3, $4, 'custom', NULL, $5)""",
+                event_id, m['media_type'], m['image_url'], m['video_url'], m['sort']
             )
         # share texts
         share_texts = await db.fetch(
@@ -417,7 +418,9 @@ async def delete_threshold(
 # ──────────────────────────────────────────────
 
 class MaterialIn(BaseModel):
-    image_url:        str
+    media_type:       str = "image"    # 'image' | 'video'
+    image_url:        Optional[str] = None  # для картинки (или обложки видео)
+    video_url:        Optional[str] = None  # для видео
     source:           str = "custom"   # 'event_poster' | 'custom'
     source_poster_id: Optional[int] = None
     sort:             int = 0
@@ -431,7 +434,7 @@ async def list_materials(
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
     rows = await db.fetch(
-        """SELECT id, image_url, source, source_poster_id, sort, created_at
+        """SELECT id, media_type, image_url, video_url, source, source_poster_id, sort, created_at
            FROM event_referral_materials WHERE event_id = $1 ORDER BY sort, id""",
         event_id
     )
@@ -446,8 +449,27 @@ async def add_material(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
+    if data.media_type not in ("image", "video"):
+        raise HTTPException(status_code=400, detail="media_type: 'image' или 'video'")
     if data.source not in ("event_poster", "custom"):
         raise HTTPException(status_code=400, detail="source: 'event_poster' или 'custom'")
+
+    if data.media_type == "video":
+        if not data.video_url:
+            raise HTTPException(status_code=400, detail="Для видео укажите video_url")
+        source = "custom"  # видео всегда загружается, не выбирается из афиш
+        row = await db.fetchrow(
+            """INSERT INTO event_referral_materials
+                 (event_id, media_type, video_url, image_url, source, source_poster_id, sort)
+               VALUES ($1, 'video', $2, NULL, 'custom', NULL, $3)
+               RETURNING id, media_type, image_url, video_url, source, source_poster_id, sort, created_at""",
+            event_id, data.video_url, data.sort
+        )
+        return dict(row)
+
+    # media_type == 'image'
+    if not data.image_url:
+        raise HTTPException(status_code=400, detail="Для картинки укажите image_url")
     if data.source == "event_poster" and data.source_poster_id:
         ok = await db.fetchval(
             "SELECT 1 FROM event_posters WHERE id = $1 AND event_id = $2",
@@ -456,9 +478,10 @@ async def add_material(
         if not ok:
             raise HTTPException(status_code=400, detail="Афиша не принадлежит этому событию")
     row = await db.fetchrow(
-        """INSERT INTO event_referral_materials (event_id, image_url, source, source_poster_id, sort)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING id, image_url, source, source_poster_id, sort, created_at""",
+        """INSERT INTO event_referral_materials
+             (event_id, media_type, image_url, source, source_poster_id, sort)
+           VALUES ($1, 'image', $2, $3, $4, $5)
+           RETURNING id, media_type, image_url, video_url, source, source_poster_id, sort, created_at""",
         event_id, data.image_url, data.source, data.source_poster_id, data.sort
     )
     return dict(row)

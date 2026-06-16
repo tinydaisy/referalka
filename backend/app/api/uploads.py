@@ -20,6 +20,7 @@ GET    /api/v1/storage/usage     — текущее использование �
     broadcast_video   (видео для рассылки; лимит 100 МБ; авто-удаляется как broadcast_photo)
     event_video       (требует event_id; общее видео события — для скачивания спикерами)
     speaker_video     (требует collaborator_id; индивидуальное видео коллаба)
+    referral_video    (требует event_id; видео-материал для шеринга в реф-программе; лимит 100 МБ)
 
 Картинки автоматически ресайзятся под kind (см. image_processor.MAX_DIM_BY_KIND).
 Видео (event_video, speaker_video) сохраняются как есть, лимит 100 МБ (Cloudflare cap).
@@ -38,7 +39,7 @@ router = APIRouter(tags=["Загрузка файлов"])
 
 MAX_FILE_SIZE = 50 * 1024 * 1024            # 50 МБ — дефолтный лимит
 MAX_FILE_SIZE_VIDEO = 100 * 1024 * 1024     # 100 МБ — лимит для видео (упирается в Cloudflare cap)
-VIDEO_KINDS = {"event_video", "speaker_video", "broadcast_video"}
+VIDEO_KINDS = {"event_video", "speaker_video", "broadcast_video", "referral_video"}
 
 
 def _is_video(content_type: str) -> bool:
@@ -89,11 +90,11 @@ async def upload_file(
         "speaker_poster",
         "brand_photo", "brand_logo", "owner_photo", "funnel_media", "broadcast_photo",
         "broadcast_video",
-        "event_video", "speaker_video",
+        "event_video", "speaker_video", "referral_video",
     }:
         raise HTTPException(400, detail=f"Неизвестный kind: {kind}")
 
-    if kind in ("event_poster", "certificate", "referral_material", "event_video"):
+    if kind in ("event_poster", "certificate", "referral_material", "event_video", "referral_video"):
         if not event_id:
             raise HTTPException(400, detail=f"{kind} требует event_id")
         await _check_event_belongs(event_id, client_id, db)

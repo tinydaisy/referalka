@@ -68,6 +68,11 @@ def build_key(
             raise ValueError("referral_material требует event_id")
         return f"{base}/events/{event_id}/referral_materials/{fname}"
 
+    if kind == "referral_video":
+        if not event_id:
+            raise ValueError("referral_video требует event_id")
+        return f"{base}/events/{event_id}/referral_videos/{fname}"
+
     if kind == "lead_magnet":
         return f"{base}/lead_magnets/{fname}"
 

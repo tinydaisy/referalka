@@ -133,15 +133,23 @@ async def share_to_bot(body: ShareToBotRequest):
     except Exception as e:
         logger.warning(f"register_telegram_subscription failed: {e}")
 
-    # Афиши для шеринга (event_referral_materials)
+    # Материалы для шеринга (event_referral_materials): картинки и видео
     async with pool.acquire() as conn:
         material_rows = await conn.fetch(
-            """SELECT image_url FROM event_referral_materials
-                WHERE event_id = $1 AND image_url IS NOT NULL AND image_url <> ''
+            """SELECT media_type, image_url, video_url FROM event_referral_materials
+                WHERE event_id = $1
+                  AND (
+                    (media_type = 'image' AND image_url IS NOT NULL AND image_url <> '')
+                    OR (media_type = 'video' AND video_url IS NOT NULL AND video_url <> '')
+                  )
                 ORDER BY sort, id""",
             event_id,
         )
-    image_urls = [r["image_url"] for r in material_rows]
+    # Список медиа в порядке сортировки: ('image'|'video', url)
+    media_items = [
+        ("video", r["video_url"]) if r["media_type"] == "video" else ("image", r["image_url"])
+        for r in material_rows
+    ]
 
     bot_token = None
     try:
@@ -158,21 +166,28 @@ async def share_to_bot(body: ShareToBotRequest):
 
     try:
         async with httpx.AsyncClient(timeout=15) as http:
-            # 1) Афиши — каждая отдельным sendPhoto (по очереди).
-            #    Если одна не отправилась — логируем, но идём дальше к тексту.
-            for url in image_urls:
+            # 1) Материалы — каждый отдельным сообщением (по очереди).
+            #    Картинка → sendPhoto, видео → sendVideo.
+            #    Если одно не отправилось — логируем, но идём дальше к тексту.
+            for kind, url in media_items:
                 try:
-                    r = await http.post(
-                        f"{base}/sendPhoto",
-                        json={"chat_id": body.tg_id, "photo": url},
-                    )
+                    if kind == "video":
+                        r = await http.post(
+                            f"{base}/sendVideo",
+                            json={"chat_id": body.tg_id, "video": url},
+                        )
+                    else:
+                        r = await http.post(
+                            f"{base}/sendPhoto",
+                            json={"chat_id": body.tg_id, "photo": url},
+                        )
                     if r.status_code != 200:
                         logger.warning(
-                            f"share-to-bot photo failed for tg_id={body.tg_id} event={body.event_slug} "
+                            f"share-to-bot {kind} failed for tg_id={body.tg_id} event={body.event_slug} "
                             f"url={url}: {r.status_code} {r.text[:200]}"
                         )
                 except httpx.HTTPError as e:
-                    logger.warning(f"share-to-bot photo http error url={url}: {e}")
+                    logger.warning(f"share-to-bot {kind} http error url={url}: {e}")
 
             # 2) Тексты — каждый отдельным sendMessage, друг за другом, после афиш.
             last_status = 200
@@ -197,7 +212,7 @@ async def share_to_bot(body: ShareToBotRequest):
         logger.warning(f"share-to-bot http error for tg_id={body.tg_id}: {e}")
         raise HTTPException(status_code=502, detail="telegram send failed")
 
-    return {"ok": True, "posters_sent": len(image_urls), "texts_sent": len(texts)}
+    return {"ok": True, "posters_sent": len(media_items), "texts_sent": len(texts)}
 
 
 class LinkClickRequest(BaseModel):

@@ -745,7 +745,7 @@ function ImagesBlock({ eventId }: { eventId: number }) {
   useEffect(() => { load() }, [eventId])
 
   async function handleDelete(id: number) {
-    if (!confirm('Удалить картинку?')) return
+    if (!confirm('Удалить материал?')) return
     await api.referralProgram.materials.delete(eventId, id).catch((e: any) => alert(e.message))
     load()
   }
@@ -755,10 +755,10 @@ function ImagesBlock({ eventId }: { eventId: number }) {
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
         <div>
           <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-            <ImageIcon size={16} /> Картинки для шеринга
+            <ImageIcon size={16} /> Картинки и видео для шеринга
           </h4>
           <p className="text-xs text-gray-500 mt-0.5">
-            Афиши, которые участник копирует и шерит друзьям. Можно выбрать из афиш события или загрузить свои.
+            Афиши и видео, которые участник копирует и шерит друзьям. Картинку можно выбрать из афиш события или загрузить свою, видео — загрузить файлом.
           </p>
         </div>
         <button onClick={() => setShowForm(true)}
@@ -773,18 +773,22 @@ function ImagesBlock({ eventId }: { eventId: number }) {
       ) : items.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
           <ImageIcon className="mx-auto mb-3 text-gray-300" size={36} />
-          <p className="text-gray-500 text-sm">Картинок пока нет</p>
+          <p className="text-gray-500 text-sm">Материалов пока нет</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map(m => (
             <div key={m.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="aspect-video bg-gray-100">
-                <img src={m.image_url} alt="" className="w-full h-full object-cover" />
+                {m.media_type === 'video' ? (
+                  <video src={m.video_url} controls className="w-full h-full object-cover" />
+                ) : (
+                  <img src={m.image_url} alt="" className="w-full h-full object-cover" />
+                )}
               </div>
               <div className="p-3 flex items-center justify-between">
                 <span className="text-xs text-gray-500">
-                  {m.source === 'event_poster' ? 'Из афиши' : 'Загружено'}
+                  {m.media_type === 'video' ? 'Видео' : (m.source === 'event_poster' ? 'Из афиши' : 'Загружено')}
                 </span>
                 <button onClick={() => handleDelete(m.id)}
                         className="p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50">
@@ -807,9 +811,11 @@ function ImagesBlock({ eventId }: { eventId: number }) {
 
 
 function MaterialForm({ eventId, posters, onClose, onSaved }: any) {
+  const [mediaType, setMediaType] = useState<'image' | 'video'>('image')
   const [mode, setMode] = useState<'event_poster' | 'custom'>('custom')
   const [posterId, setPosterId] = useState<number | null>(posters[0]?.id || null)
-  const [url, setUrl] = useState('')
+  const [url, setUrl] = useState('')        // URL картинки
+  const [videoUrl, setVideoUrl] = useState('')  // URL видео
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -818,13 +824,16 @@ function MaterialForm({ eventId, posters, onClose, onSaved }: any) {
     setSaving(true); setErr(null)
     try {
       let payload: any
-      if (mode === 'event_poster') {
+      if (mediaType === 'video') {
+        if (!videoUrl.trim()) throw new Error('Загрузите видео')
+        payload = { media_type: 'video', video_url: videoUrl.trim(), source: 'custom', source_poster_id: null, sort: 0 }
+      } else if (mode === 'event_poster') {
         if (!posterId) throw new Error('Выберите афишу')
         const poster = posters.find((p: any) => p.id === posterId)
-        payload = { image_url: poster.url, source: 'event_poster', source_poster_id: posterId, sort: 0 }
+        payload = { media_type: 'image', image_url: poster.url, source: 'event_poster', source_poster_id: posterId, sort: 0 }
       } else {
         if (!url.trim()) throw new Error('Укажите URL')
-        payload = { image_url: url.trim(), source: 'custom', source_poster_id: null, sort: 0 }
+        payload = { media_type: 'image', image_url: url.trim(), source: 'custom', source_poster_id: null, sort: 0 }
       }
       await api.referralProgram.materials.create(eventId, payload)
       onSaved()
@@ -834,48 +843,83 @@ function MaterialForm({ eventId, posters, onClose, onSaved }: any) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold mb-4" style={{ color: '#25455D' }}>Добавить картинку</h3>
+        <h3 className="text-lg font-semibold mb-4" style={{ color: '#25455D' }}>Добавить материал</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Тип материала */}
           <div className="flex gap-2">
-            <button type="button" onClick={() => setMode('event_poster')}
+            <button type="button" onClick={() => setMediaType('image')}
                     className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
-                      mode === 'event_poster' ? 'border-gray-900 bg-gray-50 font-medium' : 'border-gray-200 text-gray-500'
+                      mediaType === 'image' ? 'border-gray-900 bg-gray-50 font-medium' : 'border-gray-200 text-gray-500'
                     }`}>
-              Из афиш события
+              🖼 Картинка
             </button>
-            <button type="button" onClick={() => setMode('custom')}
+            <button type="button" onClick={() => setMediaType('video')}
                     className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
-                      mode === 'custom' ? 'border-gray-900 bg-gray-50 font-medium' : 'border-gray-200 text-gray-500'
+                      mediaType === 'video' ? 'border-gray-900 bg-gray-50 font-medium' : 'border-gray-200 text-gray-500'
                     }`}>
-              Загрузить URL
+              🎬 Видео
             </button>
           </div>
 
-          {mode === 'event_poster' ? (
-            posters.length === 0 ? (
-              <p className="text-sm text-gray-400">Афиш ещё нет. Добавьте их во вкладке «Афиши».</p>
-            ) : (
-              <select value={posterId || ''} onChange={e => setPosterId(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                {posters.map((p: any) => (
-                  <option key={p.id} value={p.id}>
-                    Афиша #{p.id} ({p.orientation === 'horizontal' ? 'гориз.' : 'верт.'})
-                  </option>
-                ))}
-              </select>
-            )
+          {mediaType === 'video' ? (
+            <>
+              <FileUploader
+                mode="single"
+                kind="referral_video"
+                eventId={eventId}
+                value={videoUrl || null}
+                onChange={u => setVideoUrl(u || '')}
+                accept="video/*"
+                aspectClass="aspect-video"
+                emptyText="Загрузите видео для шеринга (до 100 МБ, лучше MP4)"
+                buttonLabel="Загрузить видео"
+              />
+              <p className="text-xs text-gray-400">Лимит 100 МБ. Лучше формат MP4 — он откроется на всех устройствах.</p>
+            </>
           ) : (
-            <FileUploader
-              mode="single"
-              kind="referral_material"
-              eventId={eventId}
-              value={url || null}
-              onChange={u => setUrl(u || '')}
-              accept="image/*"
-              aspectClass="aspect-video"
-              emptyText="Загрузите свою картинку для шеринга"
-              buttonLabel="Загрузить"
-            />
+            <>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setMode('event_poster')}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
+                          mode === 'event_poster' ? 'border-gray-900 bg-gray-50 font-medium' : 'border-gray-200 text-gray-500'
+                        }`}>
+                  Из афиш события
+                </button>
+                <button type="button" onClick={() => setMode('custom')}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
+                          mode === 'custom' ? 'border-gray-900 bg-gray-50 font-medium' : 'border-gray-200 text-gray-500'
+                        }`}>
+                  Загрузить свою
+                </button>
+              </div>
+
+              {mode === 'event_poster' ? (
+                posters.length === 0 ? (
+                  <p className="text-sm text-gray-400">Афиш ещё нет. Добавьте их во вкладке «Афиши».</p>
+                ) : (
+                  <select value={posterId || ''} onChange={e => setPosterId(Number(e.target.value))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                    {posters.map((p: any) => (
+                      <option key={p.id} value={p.id}>
+                        Афиша #{p.id} ({p.orientation === 'horizontal' ? 'гориз.' : 'верт.'})
+                      </option>
+                    ))}
+                  </select>
+                )
+              ) : (
+                <FileUploader
+                  mode="single"
+                  kind="referral_material"
+                  eventId={eventId}
+                  value={url || null}
+                  onChange={u => setUrl(u || '')}
+                  accept="image/*"
+                  aspectClass="aspect-video"
+                  emptyText="Загрузите свою картинку для шеринга"
+                  buttonLabel="Загрузить"
+                />
+              )}
+            </>
           )}
 
           {err && <div className="text-sm text-red-600">{err}</div>}
