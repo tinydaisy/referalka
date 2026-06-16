@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check } from 'lucide-react'
 
-type SubTab = 'criteria' | 'assignments' | 'leaderboard' | 'reports'
+type SubTab = 'criteria' | 'assignments' | 'leaderboard' | 'reports' | 'taskcontrol'
 
 export default function ScoringTab({ eventId }: { eventId: number }) {
   const [sub, setSub] = useState<SubTab>('criteria')
@@ -13,6 +13,7 @@ export default function ScoringTab({ eventId }: { eventId: number }) {
     { id: 'assignments', label: 'Распределение' },
     { id: 'leaderboard', label: 'Турнирная таблица' },
     { id: 'reports', label: 'Отчёты' },
+    { id: 'taskcontrol', label: 'Контроль заданий' },
   ]
   return (
     <div>
@@ -30,6 +31,7 @@ export default function ScoringTab({ eventId }: { eventId: number }) {
       {sub === 'assignments' && <AssignmentsSub eventId={eventId} />}
       {sub === 'leaderboard' && <LeaderboardSub eventId={eventId} />}
       {sub === 'reports'     && <ReportsSub eventId={eventId} />}
+      {sub === 'taskcontrol' && <TaskControlSub eventId={eventId} />}
     </div>
   )
 }
@@ -197,6 +199,15 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
       defaultValue={crit.description || ''}
       placeholder="Описание критерия — что это, как оценивать (увидят жюри в своём кабинете)"
       onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.description || '')) save({ description: v || null }) }} />
+    {crit.scorer === 'manual' && (
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] text-gray-500 shrink-0">Кодовая фраза</span>
+        <input className="flex-1 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
+          defaultValue={crit.code_phrase || ''}
+          placeholder="#дз1 — бот засчитает балл по этой фразе в чате"
+          onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.code_phrase || '')) save({ code_phrase: v || null }) }} />
+      </div>
+    )}
    </div>
   )
 }
@@ -721,6 +732,189 @@ function SnapshotView({ snap, onClose }: any) {
           </div>
         </details>
         <button onClick={onClose} className="mt-4 px-4 py-2 rounded-lg text-sm border">Закрыть</button>
+      </div>
+    </div>
+  )
+}
+
+
+// ─────────────────────── Контроль заданий ───────────────────────
+function TaskControlSub({ eventId }: { eventId: number }) {
+  const [loading, setLoading] = useState(true)
+  const [enabled, setEnabled] = useState(false)
+  const [channels, setChannels] = useState<any[]>([])
+  const [submissions, setSubmissions] = useState<any[]>([])
+  const [stages, setStages] = useState<any[]>([])
+  const [criteria, setCriteria] = useState<any[]>([])
+  // фильтры
+  const [fCriterion, setFCriterion] = useState<number | ''>('')
+  const [fSubject, setFSubject] = useState<string>('')
+  const [fRecognized, setFRecognized] = useState<'' | 'yes' | 'no'>('')
+  const [sort, setSort] = useState<'date_desc' | 'date_asc'>('date_desc')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params: any = { sort }
+      if (fCriterion) params.criterion_id = fCriterion
+      if (fSubject) params.subject = fSubject
+      if (fRecognized) params.recognized = fRecognized
+      const [tc, crit] = await Promise.all([
+        api.tournament.taskControl(eventId, params),
+        api.tournament.criteria(eventId),
+      ])
+      setEnabled(!!tc.enabled)
+      setChannels(tc.channels || [])
+      setSubmissions(tc.submissions || [])
+      setStages((crit.stages || []))
+      const allCrit: any[] = []
+      ;(crit.packages || []).forEach((p: any) => (p.criteria || []).forEach((c: any) => {
+        if (c.scorer === 'manual') allCrit.push(c)
+      }))
+      setCriteria(allCrit)
+    } finally { setLoading(false) }
+  }, [eventId, sort, fCriterion, fSubject, fRecognized])
+
+  useEffect(() => { load() }, [load])
+
+  const toggleListen = async () => {
+    await api.tournament.toggleTaskListen(eventId, !enabled)
+    setEnabled(!enabled)
+  }
+  const setAudience = async (stageId: number, aud: string) => {
+    await api.tournament.setStageAudience(eventId, stageId, aud)
+    setStages(stages.map(s => s.id === stageId ? { ...s, listen_audience: aud } : s))
+  }
+
+  // уникальные участники для фильтра (из submissions)
+  const subjects = Array.from(new Map(
+    submissions.filter(s => s.subject_kind && s.subject_id)
+      .map(s => [`${s.subject_kind}:${s.subject_id}`, s.participant_name || `#${s.subject_id}`])
+  ).entries())
+
+  if (loading) return <div className="py-10 flex justify-center"><Spinner /></div>
+
+  return (
+    <div className="space-y-5">
+      {/* Большая галка включения слушания */}
+      <div className="bg-gradient-to-br from-[#25455D] to-[#0a1520] rounded-xl p-5 text-white flex items-center justify-between gap-4">
+        <div>
+          <div className="text-lg font-semibold">Слушание заданий в чатах</div>
+          <div className="text-sm text-white/70 mt-0.5">
+            Бот ловит сообщения с кодовыми фразами критериев и автоматически ставит баллы.
+          </div>
+        </div>
+        <button onClick={toggleListen}
+          className={`relative w-16 h-9 rounded-full transition-colors shrink-0 ${enabled ? 'bg-[#FFCFA4]' : 'bg-white/20'}`}>
+          <span className={`absolute top-1 left-1 w-7 h-7 rounded-full bg-white transition-transform ${enabled ? 'translate-x-7' : ''}`} />
+        </button>
+      </div>
+
+      {/* Статус соцсетей */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {channels.map(ch => (
+          <div key={ch.platform} className={`rounded-lg border p-3 ${ch.ok ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+            <div className="flex items-center gap-2">
+              <span className={`text-lg ${ch.ok ? 'text-green-600' : 'text-gray-400'}`}>{ch.ok ? '✓' : '✕'}</span>
+              <span className="font-medium text-gray-800">{ch.label}</span>
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              {ch.ok ? `Слушаю чат ${ch.chat_id}` : ch.hint}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Настройка этапов — кого слушаем */}
+      {stages.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="text-sm font-semibold text-gray-800 mb-2">Кого слушаем в каждом этапе</div>
+          <div className="space-y-2">
+            {stages.map(st => (
+              <div key={st.id} className="flex items-center justify-between gap-3">
+                <span className="text-sm text-gray-700">{st.title}</span>
+                <select className="text-xs border rounded px-2 py-1" value={st.listen_audience || 'viewers'}
+                  onChange={e => setAudience(st.id, e.target.value)}>
+                  <option value="viewers">Зрители (участники)</option>
+                  <option value="speakers">Спикеры / жюри</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Фильтры */}
+      <div className="flex flex-wrap items-center gap-2">
+        <select className="text-xs border rounded px-2 py-1.5" value={fCriterion} onChange={e => setFCriterion(e.target.value ? Number(e.target.value) : '')}>
+          <option value="">Все задания</option>
+          {criteria.map(c => <option key={c.id} value={c.id}>{c.title}{c.code_phrase ? ` (${c.code_phrase})` : ''}</option>)}
+        </select>
+        <select className="text-xs border rounded px-2 py-1.5" value={fSubject} onChange={e => setFSubject(e.target.value)}>
+          <option value="">Все участники</option>
+          {subjects.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
+        </select>
+        <select className="text-xs border rounded px-2 py-1.5" value={fRecognized} onChange={e => setFRecognized(e.target.value as any)}>
+          <option value="">Все</option>
+          <option value="yes">Опознанные</option>
+          <option value="no">Неопознанные</option>
+        </select>
+        <select className="text-xs border rounded px-2 py-1.5" value={sort} onChange={e => setSort(e.target.value as any)}>
+          <option value="date_desc">Сначала новые</option>
+          <option value="date_asc">Сначала старые</option>
+        </select>
+        <span className="text-xs text-gray-400">Найдено: {submissions.length}</span>
+      </div>
+
+      {/* Таблица */}
+      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+        <table className="w-full text-xs">
+          <thead className="bg-gray-50 text-gray-600">
+            <tr>
+              <th className="px-2 py-2 text-left font-medium">Участник</th>
+              <th className="px-2 py-2 text-left font-medium">Соцсеть</th>
+              <th className="px-2 py-2 text-left font-medium">Дата</th>
+              <th className="px-2 py-2 text-left font-medium">Задание</th>
+              <th className="px-2 py-2 text-left font-medium">Фраза</th>
+              <th className="px-2 py-2 text-left font-medium">Текст</th>
+              <th className="px-2 py-2 text-left font-medium">Сообщение</th>
+              <th className="px-2 py-2 text-left font-medium">Вложения</th>
+            </tr>
+          </thead>
+          <tbody>
+            {submissions.length === 0 && (
+              <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-400">Пока ничего не поймано</td></tr>
+            )}
+            {submissions.map(s => {
+              const platLabel = s.platform === 'vk' ? 'ВКонтакте' : s.platform === 'max' ? 'MAX' : 'Telegram'
+              const d = s.sent_at ? new Date(s.sent_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) : '—'
+              const atts = Array.isArray(s.attachments) ? s.attachments : []
+              return (
+                <tr key={s.id} className={`border-t border-gray-100 ${!s.recognized ? 'bg-red-50' : ''}`}>
+                  <td className="px-2 py-1.5">
+                    {s.recognized
+                      ? (s.participant_name || `#${s.subject_id}`)
+                      : <span className="text-red-600 font-medium">{s.author_name || s.username || s.platform_user_id} · не опознан</span>}
+                  </td>
+                  <td className="px-2 py-1.5">{platLabel}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">{d}</td>
+                  <td className="px-2 py-1.5">{s.criterion_title || '—'}</td>
+                  <td className="px-2 py-1.5 font-mono">{s.code_phrase || '—'}</td>
+                  <td className="px-2 py-1.5 max-w-[240px] truncate" title={s.text || ''}>{s.text || '—'}</td>
+                  <td className="px-2 py-1.5">
+                    {s.message_link ? <a href={s.message_link} target="_blank" rel="noreferrer" className="text-[#25455D] underline">открыть</a> : '—'}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    {atts.length === 0 ? '—' : atts.map((a: any, i: number) => (
+                      a.url ? <a key={i} href={a.url} target="_blank" rel="noreferrer" className="text-[#25455D] underline mr-1">{a.kind}</a>
+                            : <span key={i} className="text-gray-400 mr-1">{a.kind}</span>
+                    ))}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   )

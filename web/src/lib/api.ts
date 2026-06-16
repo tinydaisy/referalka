@@ -713,6 +713,19 @@ export const api = {
       request(`/api/v1/events/${eventId}/tournament/snapshots/${id}`),
     deleteSnapshot: (eventId: number, id: number) =>
       request(`/api/v1/events/${eventId}/tournament/snapshots/${id}`, { method: 'DELETE' }),
+    taskControl: (eventId: number, params?: { criterion_id?: number; subject?: string; recognized?: string; sort?: string }) => {
+      const q = new URLSearchParams()
+      if (params?.criterion_id) q.set('criterion_id', String(params.criterion_id))
+      if (params?.subject) q.set('subject', params.subject)
+      if (params?.recognized) q.set('recognized', params.recognized)
+      if (params?.sort) q.set('sort', params.sort)
+      const qs = q.toString()
+      return request(`/api/v1/events/${eventId}/tournament/task-control${qs ? '?' + qs : ''}`)
+    },
+    toggleTaskListen: (eventId: number, enabled: boolean) =>
+      request(`/api/v1/events/${eventId}/tournament/task-control`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    setStageAudience: (eventId: number, stageId: number, listen_audience: string) =>
+      request(`/api/v1/events/${eventId}/tournament/stages/${stageId}/listen-audience`, { method: 'PATCH', body: JSON.stringify({ listen_audience }) }),
   },
   raffle: {
     settings: {

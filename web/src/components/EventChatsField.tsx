@@ -22,6 +22,9 @@ export interface EventChatsValue {
   max: string                // events.chat_url_max
   primary: ChatPlatform | null  // events.primary_chat_platform
   chatIds: string            // events.telegram_chat_ids (CSV — только TG)
+  tgChatId: string           // events.tg_chat_id  (chat_id беседы — слушалка заданий)
+  vkChatId: string           // events.vk_chat_id
+  maxChatId: string          // events.max_chat_id
 }
 
 interface Props {
@@ -187,6 +190,28 @@ export default function EventChatsField({ value, onChange, helpHref = '/dashboar
                 Для закрытого канала — инвайт-ссылка вида https://t.me/+abcDEF…
               </p>
             )}
+            {(() => {
+              const cidKey = platform === 'telegram' ? 'tgChatId' : platform === 'vk' ? 'vkChatId' : 'maxChatId'
+              const cidVal = (value as any)[cidKey] as string
+              return (
+                <div className="mt-2 pt-2 border-t border-dashed border-gray-200">
+                  <label className="block text-[11px] text-gray-600 mb-1">
+                    ID чата для подсчёта заданий{' '}
+                    <span className="text-gray-400">— бот считает выкладки в этом чате</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={cidVal || ''}
+                    onChange={e => onChange({ ...value, [cidKey]: e.target.value.trim() })}
+                    placeholder="напишите /chatid в беседе → бот пришлёт ID"
+                    className="w-full px-3 py-1.5 text-sm font-mono bg-white border border-gray-200 rounded focus:outline-none focus:border-[#25455D]"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Добавьте вашего бота в этот чат и напишите там <code className="font-mono">/chatid</code> — бот ответит числовым ID. Вставьте его сюда.
+                  </p>
+                </div>
+              )
+            })()}
           </div>
         )
       })}
