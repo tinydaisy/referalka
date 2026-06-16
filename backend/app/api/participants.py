@@ -831,6 +831,9 @@ async def get_participant_in_event(
                 FROM event_collaborators cse
                 JOIN collaborators col ON col.id = cse.speaker_id
                WHERE cse.event_id = $1 AND col.contact_id IS NOT NULL
+              UNION
+              -- сотрудники клиента (is_staff) тоже не показываются в топе
+              SELECT c.id FROM contacts c WHERE c.is_staff = TRUE
            ),
            leaders AS (
               -- count: все приведённые (visited), reg_count: из них зарегавшиеся.

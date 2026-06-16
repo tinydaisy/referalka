@@ -217,7 +217,8 @@ async def _load_ref_cabinet(db, event, contact_id):
     else:
         excluded_roles = "'organizer','jury','speaker','headliner','partner','general_partner'"
     top_where = (
-        " ct.ref_code NOT IN ("
+        " ct.is_staff = FALSE"
+        " AND ct.ref_code NOT IN ("
         "   SELECT c3.ref_code FROM event_collaborators ec3"
         "   JOIN collaborators col3 ON col3.id = ec3.speaker_id"
         "   JOIN contacts c3 ON c3.id = col3.contact_id"
