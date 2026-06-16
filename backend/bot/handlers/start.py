@@ -531,6 +531,37 @@ async def handle_start(message: Message, command: CommandObject):
                 await message.answer("Что-то пошло не так. Попробуйте ещё раз позже.")
                 return
 
+    # Deeplink VIP: /start vip_link24 (id) или vip_link_cygum (slug) — сразу шлём
+    # сообщение с VIP-ссылкой события (как команда /vip_link).
+    if args.lower().startswith("vip_link"):
+        rest = args[len("vip_link"):].lstrip("_").strip()
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            if rest.isdigit():
+                event_id = int(rest)
+            else:
+                event_id = await db.fetchval("SELECT id FROM events WHERE slug = $1 LIMIT 1", rest)
+            if not event_id:
+                await message.answer("Неизвестное событие — возможно, вы ошиблись с идентификатором события.")
+                return
+            contact_id = await db.fetchval(
+                """SELECT ep.contact_id FROM event_participants ep
+                     JOIN platform_users pu ON pu.contact_id = ep.contact_id
+                      AND pu.platform_slug='telegram' AND pu.platform_user_id = $2
+                    WHERE ep.event_id = $1 LIMIT 1""",
+                event_id, str(message.from_user.id))
+            from app.services.external_landing import build_event_vip_target
+            vip = await build_event_vip_target(db, event_id, contact_id)
+            if not vip:
+                await message.answer("У этого события не настроен формат участия (VIP).")
+                return
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=vip["vip_label"], url=vip["vip_target"])]])
+            await message.answer(
+                f"Выберите формат участия в событии {vip['title']}\n\n👇👇👇\n",
+                reply_markup=kb)
+        return
+
     # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>.
     # Спикер кликнул invite-ссылку из сообщения, которое организатор скопировал
     # и отправил ему в личку. Опознаём коллаба по access_code → шлём в чат

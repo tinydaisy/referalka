@@ -33,6 +33,9 @@ from ..services.event_welcome import _send_event_organizer_notification
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_RU_MONTHS = ["", "января", "февраля", "марта", "апреля", "мая", "июня",
+              "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
 
 async def _max_image_attachment_from_url(image_url: str, bot_token: str) -> dict | None:
     """Скачать картинку по URL (афиша в R2) во временный файл и загрузить в MAX.
@@ -422,6 +425,23 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
                 logger.warning(f"MAX chat join failed (event={event_id}, user={user_id}): {e}")
         return
 
+    if payload.startswith("evlive_"):
+        try:
+            event_id = int(payload.removeprefix("evlive_"))
+        except ValueError:
+            logger.warning(f"MAX evlive callback bad payload: {payload!r}")
+            return
+        pool = await get_pool()
+        if not pool:
+            return
+        async with pool.acquire() as conn:
+            contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
+            try:
+                await _handle_max_live(chat_id, event_id, contact_id, bot_token, conn)
+            except Exception as e:
+                logger.warning(f"MAX evlive failed (event={event_id}, user={user_id}): {e}")
+        return
+
     if payload.startswith("evmenu_"):
         try:
             event_id = int(payload.removeprefix("evmenu_"))
@@ -561,6 +581,31 @@ async def _process_start(
             else:
                 await max_send_message(chat_id, "Событие не найдено. Проверьте номер.", token=bot_token)
                 return
+
+    # Deeplink VIP: `?start=vip_link24` (id) или `?start=vip_link_cygum` (slug) —
+    # сразу шлём сообщение с VIP-ссылкой события (как команда /vip_link).
+    if payload and payload.lower().startswith("vip_link"):
+        rest = payload[len("vip_link"):].lstrip("_").strip()
+        _vp = await get_pool()
+        if _vp:
+            async with _vp.acquire() as conn:
+                if rest.isdigit():
+                    event_id = int(rest)
+                else:
+                    event_id = await conn.fetchval("SELECT id FROM events WHERE slug = $1 LIMIT 1", rest)
+                if not event_id:
+                    await max_send_message(chat_id, "Неизвестное событие — возможно, вы ошиблись с идентификатором события.", token=bot_token)
+                    return
+                contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
+                from app.services.external_landing import build_event_vip_target
+                vip = await build_event_vip_target(conn, event_id, contact_id)
+                if not vip:
+                    await max_send_message(chat_id, "У этого события не настроен формат участия (VIP).", token=bot_token)
+                    return
+                msg_text = f"Выберите формат участия в событии {vip['title']}\n\n👇👇👇\n"
+                btn = tg_inline_to_max_keyboard([[{"text": vip["vip_label"], "url": vip["vip_target"]}]])
+                await max_send_message(chat_id, msg_text, token=bot_token, buttons=btn)
+        return
 
     # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>
     if payload and payload.startswith("spkinv_"):
@@ -905,7 +950,8 @@ async def _send_max_event_menu(
                     WHERE eo.event_id = events.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                   vip_url, vip_button_label,
-                  chat_url_tg, chat_url_vk, chat_url_max
+                  chat_url_tg, chat_url_vk, chat_url_max,
+                  stream_url, hide_stream_button, start_at
              FROM events WHERE id = $1 LIMIT 1""",
         event_id,
     )
@@ -960,21 +1006,100 @@ async def _send_max_event_menu(
     if has_chat:
         tg_rows.append([{"text": "Вступить в Чат", "callback_data": f"evchat_{event_id}"}])
 
-    # 3. Программа (и спикеры для конференций/турниров).
+    # 3. Ссылка на эфир (callback evlive_ — ближайший эфир + кнопка стрима).
+    tg_rows.append([{"text": "📺 Ссылка на эфир", "callback_data": f"evlive_{event_id}"}])
+
+    # 4. Программа (и спикеры для конференций/турниров).
     prog_label = ("Программа и Спикеры"
                   if ev["module_slug"] in ("conference", "turnir")
                   else "Программа")
     tg_rows.append([{"text": prog_label,
                      "url": f"https://pluson.ru/event/{slug}{cid_q}#program"}])
 
-    # 4. Кабинет и подарки.
+    # 5. Кабинет и подарки → вкладка кабинета (#cabinet).
     tg_rows.append([{"text": "Кабинет и подарки",
-                     "url": f"https://pluson.ru/event/{slug}{cid_q}"}])
+                     "url": f"https://pluson.ru/event/{slug}{cid_q}#cabinet"}])
 
     await max_send_message(
         chat_id, text, token=bot_token,
         buttons=tg_inline_to_max_keyboard(tg_rows),
     )
+
+
+async def _handle_max_live(
+    chat_id: int,
+    event_id: int,
+    contact_id: int | None,
+    bot_token: str,
+    conn,
+) -> None:
+    """«📺 Ссылка на эфир» в MAX — зеркало handle_event_live из TG.
+    Ближайший эфир (сессия/старт события) + кнопка ВОЙТИ В ЭФИР (если есть
+    stream_url и не скрыт) + кнопка Программа + Меню."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    ev = await conn.fetchrow(
+        """SELECT id, slug, title, start_at, stream_url, hide_stream_button
+             FROM events WHERE id = $1 LIMIT 1""",
+        event_id,
+    )
+    if not ev:
+        return
+    now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+    live_when = ""
+    live_what = ""
+    sessions = await conn.fetch(
+        """SELECT cd.day_date, s.start_time, s.title
+             FROM conf_sessions s
+             JOIN conf_days cd ON cd.event_id = s.event_id AND cd.day_number = s.day
+            WHERE s.event_id = $1 AND s.start_time IS NOT NULL AND cd.day_date IS NOT NULL
+            ORDER BY cd.day_date, s.start_time""",
+        event_id,
+    )
+    chosen = None
+    for r in sessions:
+        try:
+            hh, mm = str(r["start_time"])[:5].split(":")
+            dt = datetime(r["day_date"].year, r["day_date"].month, r["day_date"].day,
+                          int(hh), int(mm), tzinfo=ZoneInfo("Europe/Moscow"))
+        except Exception:
+            continue
+        if dt >= now_msk - timedelta(minutes=90):
+            chosen = (dt, r["title"]); break
+    if chosen is None and sessions:
+        r = sessions[-1]
+        try:
+            hh, mm = str(r["start_time"])[:5].split(":")
+            chosen = (datetime(r["day_date"].year, r["day_date"].month, r["day_date"].day,
+                               int(hh), int(mm), tzinfo=ZoneInfo("Europe/Moscow")), r["title"])
+        except Exception:
+            chosen = None
+    if chosen:
+        dt, what = chosen
+        live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
+        live_what = what or ""
+    elif ev["start_at"]:
+        dt = ev["start_at"]
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        dt = dt.astimezone(ZoneInfo("Europe/Moscow"))
+        live_when = f"{dt.day} {_RU_MONTHS[dt.month]} {dt.hour:02d}:{dt.minute:02d} МСК"
+        live_what = ev["title"] or ""
+
+    text = "Ближайший эфир" + (f" — {live_when}" if live_when else "")
+    if live_what:
+        text += f"\n{live_what}"
+    stream_url = (ev["stream_url"] or "").strip()
+    hide = bool(ev["hide_stream_button"])
+    rows = []
+    if stream_url and not hide:
+        rows.append([{"text": "ВОЙТИ В ЭФИР", "url": stream_url}])
+    else:
+        text += "\n\nКнопка на стрим появится тут перед эфиром."
+    cid_q = f"?c={contact_id}" if contact_id else ""
+    rows.append([{"text": "Программа", "url": f"https://pluson.ru/event/{ev['slug']}{cid_q}#program"}])
+    rows.append([{"text": "Меню", "callback_data": f"evmenu_{event_id}"}])
+    await max_send_message(chat_id, text, token=bot_token, buttons=tg_inline_to_max_keyboard(rows))
 
 
 async def _handle_max_chat_join(
