@@ -82,7 +82,7 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   const [copiedTextId, setCopiedTextId] = useState<number | null>(null)
   const [openCardId, setOpenCardId] = useState<number | null>(null)
   const [shareTexts, setShareTexts] = useState<{ id: number; content: string; sort: number }[]>([])
-  const [shareImages, setShareImages] = useState<{ id: number; image_url: string; source: string }[]>([])
+  const [shareImages, setShareImages] = useState<{ id: number; media_type?: string; image_url?: string; video_url?: string; source: string }[]>([])
   const [sendingAll, setSendingAll] = useState(false)
   // Реф-ссылки для всех активных платформ клиента: {telegram?, vk?, max?}.
   // Бэк сам резолвит handle бота / vk_app_id, добавляет _pid{refCode}.
@@ -385,36 +385,72 @@ export default function GameTab({ event, participant, tgUser }: Props) {
           </button>
         )}
 
-        {shareImages.length > 0 && (
-          <>
-            <h3 style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
-              color: '#6b7c8e', margin: '4px 4px 10px',
-            }}>
-              🖼 Афиши для друзей · {shareImages.length}
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {shareImages.map(img => (
-                <div key={img.id} onClick={() => downloadImage(img.image_url)}
-                  style={{
-                    background: 'white', borderRadius: 12, overflow: 'hidden',
-                    boxShadow: '0 2px 8px rgba(37,69,93,0.05)', cursor: 'pointer',
+        {(() => {
+          const pics   = shareImages.filter(m => m.media_type !== 'video' && m.image_url)
+          const videos = shareImages.filter(m => m.media_type === 'video' && m.video_url)
+          return (
+            <>
+              {pics.length > 0 && (
+                <>
+                  <h3 style={{
+                    fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
+                    color: '#6b7c8e', margin: '4px 4px 10px',
                   }}>
-                  <div style={{ aspectRatio: '1 / 1', background: '#f0f3f7' }}>
-                    <img src={img.image_url} alt=""
-                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    🖼 Афиши для друзей · {pics.length}
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {pics.map(img => (
+                      <div key={img.id} onClick={() => downloadImage(img.image_url!)}
+                        style={{
+                          background: 'white', borderRadius: 12, overflow: 'hidden',
+                          boxShadow: '0 2px 8px rgba(37,69,93,0.05)', cursor: 'pointer',
+                        }}>
+                        <div style={{ aspectRatio: '1 / 1', background: '#f0f3f7' }}>
+                          <img src={img.image_url} alt=""
+                               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        </div>
+                        <div style={{
+                          padding: '8px 10px', fontSize: 11, color: DARK, fontWeight: 600,
+                          textAlign: 'center', background: PEACH,
+                        }}>
+                          Открыть и сохранить
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div style={{
-                    padding: '8px 10px', fontSize: 11, color: DARK, fontWeight: 600,
-                    textAlign: 'center', background: PEACH,
+                </>
+              )}
+
+              {videos.length > 0 && (
+                <>
+                  <h3 style={{
+                    fontSize: 11, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase',
+                    color: '#6b7c8e', margin: pics.length > 0 ? '18px 4px 10px' : '4px 4px 10px',
                   }}>
-                    Открыть и сохранить
+                    🎬 Видео для друзей · {videos.length}
+                  </h3>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {videos.map(v => (
+                      <div key={v.id} style={{
+                        background: 'white', borderRadius: 12, overflow: 'hidden',
+                        boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
+                      }}>
+                        <video src={v.video_url} controls playsInline
+                               style={{ width: '100%', display: 'block', background: '#000', maxHeight: 360 }} />
+                        <div onClick={() => downloadImage(v.video_url!)} style={{
+                          padding: '8px 10px', fontSize: 11, color: DARK, fontWeight: 600,
+                          textAlign: 'center', background: PEACH, cursor: 'pointer',
+                        }}>
+                          Открыть и сохранить
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
+                </>
+              )}
+            </>
+          )
+        })()}
 
         {shareTexts.length > 0 && (
           <>

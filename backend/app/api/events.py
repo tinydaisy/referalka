@@ -563,9 +563,11 @@ async def copy_event(
         for m in materials:
             mapped_pid = poster_id_map.get(m['source_poster_id']) if m['source_poster_id'] else None
             await db.execute(
-                """INSERT INTO event_referral_materials (event_id, image_url, source, source_poster_id, sort)
-                   VALUES ($1,$2,$3,$4,$5)""",
-                new_id, m['image_url'], m['source'], mapped_pid, m['sort']
+                """INSERT INTO event_referral_materials
+                     (event_id, media_type, image_url, video_url, source, source_poster_id, sort)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+                new_id, m['media_type'], m['image_url'], m['video_url'],
+                m['source'], mapped_pid, m['sort']
             )
 
         # gifts (старая модель подарков, осталась для совместимости)

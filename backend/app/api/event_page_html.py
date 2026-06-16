@@ -132,11 +132,12 @@ async def _load_share_materials(db, event_id):
     texts = await db.fetch(
         """SELECT content FROM event_referral_share_texts
             WHERE event_id = $1 ORDER BY sort, id""", event_id)
-    images = await db.fetch(
-        """SELECT image_url FROM event_referral_materials
+    rows = await db.fetch(
+        """SELECT media_type, image_url, video_url FROM event_referral_materials
             WHERE event_id = $1 ORDER BY sort, id""", event_id)
-    return [r["content"] for r in texts if r["content"]], \
-           [r["image_url"] for r in images if r["image_url"]]
+    images = [r["image_url"] for r in rows if r["media_type"] != "video" and r["image_url"]]
+    videos = [r["video_url"] for r in rows if r["media_type"] == "video" and r["video_url"]]
+    return [r["content"] for r in texts if r["content"]], images, videos
 
 
 async def _referral_enabled(db, event_id):
@@ -730,7 +731,7 @@ def _cabinet_email_gate(event) -> str:
 
 
 def _cabinet_panel(rc, event, gifts, share_texts, share_images,
-                   ref_enabled, brand, title, start_at) -> str:
+                   ref_enabled, brand, title, start_at, share_videos=None) -> str:
     """Вкладка «Кабинет» = копия GameTab."""
     visited = rc.get("visited", 0)
     registered = rc.get("registered", 0)
@@ -893,7 +894,8 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
 
         # ── Материалы (сворачиваемый аккордеон): афиши + тексты ──
         date_str = _fmt_event_date(start_at)
-        if share_images or share_texts:
+        share_videos = share_videos or []
+        if share_images or share_videos or share_texts:
             mat_inner = ""
             if share_images:
                 tiles = "".join(
@@ -903,6 +905,14 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
                 )
                 mat_inner += '<div class="mat-sub">🖼 Афиши для друзей</div>'
                 mat_inner += f'<div class="mat-grid">{tiles}</div>'
+            if share_videos:
+                vids = "".join(
+                    f'<video src="{esc(u)}" controls playsinline preload="metadata" '
+                    f'style="width:100%;border-radius:10px;background:#000;margin-bottom:8px"></video>'
+                    for u in share_videos
+                )
+                mat_inner += '<div class="mat-sub">🎬 Видео для друзей</div>'
+                mat_inner += f'<div>{vids}</div>'
             if share_texts:
                 mat_inner += '<div class="mat-sub">✍️ Тексты для друзей</div>'
                 for tpl in share_texts:
@@ -1139,7 +1149,7 @@ def _venue_panel(profile, offerings) -> str:
 def render_page(event, collabs, days, stages, sessions, gifts,
                 share_texts, share_images, ref_enabled,
                 client, ref_cabinet=None, venue_profile=None,
-                venue_offerings=None) -> str:
+                venue_offerings=None, share_videos=None) -> str:
     title = esc(event.get("title") or event.get("slug"))
     brand_raw = ((client["brand_name"] if client else None)
                  or (client["name"] if client else None) or "")
@@ -1170,7 +1180,8 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     if ref_cabinet:
         cabinet_html = _cabinet_panel(
             ref_cabinet, event, gifts, share_texts, share_images,
-            ref_enabled, brand_raw, event.get("title") or "", start_at)
+            ref_enabled, brand_raw, event.get("title") or "", start_at,
+            share_videos=share_videos or [])
     elif ref_enabled:
         # Кабинет неизвестен (нет ?c / ?email не нашёл) — показываем форму
         # ввода email, чтобы человек открыл свои подарки без реф-ссылки.
@@ -1746,7 +1757,7 @@ async def event_page(slug: str, c: str = "", email: str = "",
     collabs = await _load_collaborators(db, event_id)
     days, stages, sessions = await _load_program(db, event_id)
     gifts = await _load_gifts(db, event_id)
-    share_texts, share_images = await _load_share_materials(db, event_id)
+    share_texts, share_images, share_videos = await _load_share_materials(db, event_id)
     ref_enabled = await _referral_enabled(db, event_id)
     client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
 
@@ -1778,6 +1789,7 @@ async def event_page(slug: str, c: str = "", email: str = "",
         share_texts, share_images, ref_enabled, client,
         ref_cabinet=ref_cabinet,
         venue_profile=venue_profile, venue_offerings=venue_offerings,
+        share_videos=share_videos,
     )
     return HTMLResponse(
         content=html_str,
