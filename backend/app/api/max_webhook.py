@@ -357,6 +357,33 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
                 logger.warning(f"MAX chat join failed (event={event_id}, user={user_id}): {e}")
         return
 
+    if payload.startswith("evmenu_"):
+        try:
+            event_id = int(payload.removeprefix("evmenu_"))
+        except ValueError:
+            logger.warning(f"MAX evmenu callback bad payload: {payload!r}")
+            return
+        pool = await get_pool()
+        if not pool:
+            return
+        async with pool.acquire() as conn:
+            contact_id = await conn.fetchval(
+                """SELECT ep.contact_id
+                     FROM event_participants ep
+                     JOIN platform_users pu
+                       ON pu.contact_id = ep.contact_id
+                      AND pu.platform_slug = 'max'
+                      AND pu.platform_user_id = $2
+                    WHERE ep.event_id = $1
+                    LIMIT 1""",
+                event_id, str(user_id),
+            )
+            try:
+                await _send_max_event_menu(chat_id, event_id, contact_id, bot_token, conn)
+            except Exception as e:
+                logger.warning(f"MAX evmenu failed (event={event_id}, user={user_id}): {e}")
+        return
+
     logger.info(f"MAX message_callback unknown payload={payload!r}")
 
 
@@ -955,13 +982,15 @@ async def _handle_max_chat_join(
         'Добавьтесь во все и НАПИШИТЕ в чаты "Я С ВАМИ" и о себе, чтобы не потеряться!',
         "",
     ]
-    tg_rows: list[list[dict]] = []
+    # Ссылки на чаты — ТОЛЬКО текстом, БЕЗ кнопок-площадок. MAX строго валидирует
+    # url в кнопках и давится на vk.me/join/...//...= ("Must have only http/https
+    # links format in buttons") → всё сообщение не доходит. В тексте ссылки
+    # кликабельны. Единственная кнопка — вернуться в меню кабинета.
     for idx, (pkey, label, btn, url) in enumerate(items):
         main_mark = " (главный чат)" if idx == 0 else ""
         lines.append(f"{label}: {url}{main_mark}")
-        tg_rows.append([{"text": btn, "url": url}])
 
+    back_btn = tg_inline_to_max_keyboard([[{"text": "Меню", "callback_data": f"evmenu_{event_id}"}]])
     await max_send_message(
-        chat_id, "\n".join(lines), token=bot_token,
-        buttons=tg_inline_to_max_keyboard(tg_rows),
+        chat_id, "\n".join(lines), token=bot_token, buttons=back_btn,
     )

@@ -206,7 +206,14 @@ def tg_inline_to_max_keyboard(buttons: list[list[dict]]) -> list[list[dict]]:
         for btn in row:
             label = btn.get("text", "")
             if "url" in btn:
-                max_row.append({"type": "link", "text": label, "url": btn["url"]})
+                u = (btn.get("url") or "").strip()
+                # MAX строго валидирует link-кнопки: только http/https, иначе
+                # ОТВЕРГАЕТ ВСЁ сообщение ("Must have only http/https links format
+                # in buttons"). Кривую ссылку (напр. tg://, @username, пустую)
+                # просто НЕ кладём в кнопку — текст с этой ссылкой обычно уже есть
+                # в теле сообщения, человек кликнет оттуда.
+                if u.startswith("http://") or u.startswith("https://"):
+                    max_row.append({"type": "link", "text": label, "url": u})
             elif "callback_data" in btn:
                 max_row.append({"type": "callback", "text": label, "payload": btn["callback_data"]})
             elif "web_app" in btn:
