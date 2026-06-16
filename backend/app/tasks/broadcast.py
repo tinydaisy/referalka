@@ -845,6 +845,7 @@ async def _send_broadcast_max_part(
     Возвращает количество успешно отправленных сообщений.
     """
     from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard
+    from app.services.message_builder import html_to_telegram
     from app.config import settings as _settings
 
     client_id = schedule["client_id"]
@@ -948,7 +949,12 @@ async def _send_broadcast_max_part(
             max_id_int = int(r["platform_user_id"])
         except (TypeError, ValueError):
             continue
-        message_text = text or ""
+        # MAX понимает inline-HTML (<b>/<i>/<a>) только при format='html'. Без
+        # него теги уходят сырым текстом ("<b>...</b>" видно дословно). Чистим
+        # блочные теги (<p>/<br>/<ul>) через html_to_telegram — MAX их не парсит —
+        # и передаём parse_mode='html' ниже. MAX устойчив к незакрытым тегам и
+        # HTML-сущностям (проверено), всё сообщение не отвергает.
+        message_text = html_to_telegram(text or "")
         # MAX пока без нативной загрузки картинки. Раньше вшивали R2-URL в начало
         # текста — убрали по тому же правилу что для VK: голая R2-ссылка
         # выглядит как спам. Лучше шлём без фото; нативную загрузку в MAX
@@ -963,7 +969,7 @@ async def _send_broadcast_max_part(
         try:
             # Рассылка адресуется по user_id подписчика (platform_users.platform_user_id),
             # а не по id беседы — иначе MAX отвечает chat.not.found и молча не доставляет.
-            res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons, recipient_kind="user")
+            res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons, recipient_kind="user", parse_mode="html")
             ok = bool(res)
             if not ok:
                 err = "MAX send returned None"

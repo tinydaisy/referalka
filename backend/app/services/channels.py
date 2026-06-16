@@ -137,7 +137,11 @@ async def register_platform_channel_subscription(
     upsert_contact_with_identity, но шаг привязки к каналу (как register_telegram_subscription
     делает для TG) отсутствовал — человек не попадал в подписчиков канала и в рассылку.
 
-    Идемпотентно: ON CONFLICT не перезатирает is_unsubscribed=TRUE (если человек сам отписался).
+    Вызывается при ВХОДЕ человека в бота (bot_started / message_created), то есть
+    он сам пришёл и запустил диалог — это явный сигнал «я снова с вами». Поэтому
+    при ON CONFLICT подписку ВОЗВРАЩАЕМ (is_unsubscribed=FALSE), даже если ранее
+    стояла отписка (например, MAX прислал bot_stopped при перезапуске бота).
+    Зеркало register_telegram_subscription, который тоже re-subscribe-ит.
     Возвращает client_channel_id или None если у клиента нет активного канала этой платформы.
     """
     import logging
@@ -165,7 +169,10 @@ async def register_platform_channel_subscription(
         """INSERT INTO platform_user_channels
              (platform_user_id, client_channel_id, is_unsubscribed, subscribed_at)
            VALUES ($1, $2, FALSE, NOW())
-           ON CONFLICT (platform_user_id, client_channel_id) DO NOTHING""",
+           ON CONFLICT (platform_user_id, client_channel_id)
+           DO UPDATE SET is_unsubscribed = FALSE,
+                         unsubscribed_at = NULL,
+                         subscribed_at = COALESCE(platform_user_channels.subscribed_at, NOW())""",
         platform_user_id, cc_id,
     )
     return cc_id
