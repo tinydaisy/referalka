@@ -1485,7 +1485,7 @@ function InvitedTab({ token }: { token: string }) {
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         {([
           { k: 'all' as const, l: `Все (${people.length})` },
-          { k: 'reg' as const, l: `Зарегистрированы (${people.filter(p => p.is_registered).length})` },
+          { k: 'reg' as const, l: `✓ Зарегистрированы (${people.filter(p => p.is_registered).length})` },
           { k: 'unreg' as const, l: `Не зарегистрированы (${people.filter(p => !p.is_registered).length})` },
         ]).map(b => (
           <button key={b.k} type="button" onClick={() => setFilter(b.k)}
@@ -1510,9 +1510,12 @@ function InvitedTab({ token }: { token: string }) {
               background: '#fff', border: '1px solid #e8eef3', borderRadius: 10, padding: '10px 12px',
             }}>
               <div style={{
-                width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
-                background: p.is_registered ? '#2ecc71' : '#cdd6de',
-              }} title={p.is_registered ? 'Зарегистрирован' : 'Не зарегистрирован'} />
+                width: 18, textAlign: 'center', flexShrink: 0,
+                fontSize: 15, fontWeight: 800, lineHeight: 1,
+                color: p.is_registered ? '#2ecc71' : '#cdd6de',
+              }} title={p.is_registered ? 'Зарегистрирован' : 'Не зарегистрирован'}>
+                {p.is_registered ? '✓' : '–'}
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {p.account_url ? (
                   <a href={p.account_url} target="_blank" rel="noreferrer"
