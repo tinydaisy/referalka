@@ -596,9 +596,9 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
         parts.append("<b>Кто привёл:</b> —")
 
     text = "\n".join(parts)
-    token = settings.telegram_bot_token  # уведомления всегда от @pluson_bot
-    if token:
-        await _send_message(token, chat_id, text)
+    # Бот: свой (VIP) бот клиента, если есть; иначе системный @pluson_bot (автофолбэк).
+    from .channels import send_to_notifications_channel
+    await send_to_notifications_channel(client_id, chat_id, text, db)
 
 
 async def run_started(run_id: int, tg_id: str, username: Optional[str],

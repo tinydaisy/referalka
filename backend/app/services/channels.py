@@ -422,3 +422,71 @@ async def get_telegram_send_targets(client_id: int, tg_ids: list[str], db) -> di
             "client_channel_id": r["client_channel_id"],
         })
     return result
+
+
+async def get_client_vip_telegram_token(client_id: int, db) -> Optional[str]:
+    """bot_token СОБСТВЕННОГО (VIP) telegram-бота клиента — строго is_system=FALSE.
+
+    В отличие от get_client_telegram_token (берёт любой активный канал, включая
+    системный через client_channels) — этот вернёт токен ТОЛЬКО если у клиента
+    подключён свой бот. Нужен там, где fallback на системный делается осознанно.
+    """
+    return await db.fetchval(
+        """SELECT ch.bot_token
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = 'telegram'
+              AND ch.is_system = FALSE
+              AND cc.is_active = TRUE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY ch.id LIMIT 1""",
+        client_id,
+    )
+
+
+async def send_to_notifications_channel(
+    client_id: int, chat_id, text: str, db, *, parse_mode: str = "HTML"
+) -> bool:
+    """Отправка служебного уведомления в канал уведомлений клиента
+    (clients.notifications_telegram_chat_id).
+
+    Бот: СВОЙ (VIP) бот клиента, если есть; иначе системный @pluson_bot.
+    Автофолбэк: если VIP-бот не смог доставить (он не админ канала и т.п.) —
+    повторяем системным, чтобы уведомление не потерялось.
+
+    Возвращает True если доставлено хоть одним ботом.
+    """
+    import httpx
+    from app.config import settings
+
+    if not chat_id or not text:
+        return False
+
+    vip_token = await get_client_vip_telegram_token(client_id, db)
+    sys_token = settings.telegram_bot_token
+
+    # Порядок попыток: сначала VIP (если есть), потом системный как fallback.
+    tokens: list[str] = []
+    if vip_token:
+        tokens.append(vip_token)
+    if sys_token and sys_token not in tokens:
+        tokens.append(sys_token)
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": True,
+    }
+    for tok in tokens:
+        try:
+            async with httpx.AsyncClient(timeout=10) as http:
+                r = await http.post(
+                    f"https://api.telegram.org/bot{tok}/sendMessage", json=payload
+                )
+            if r.status_code == 200 and r.json().get("ok"):
+                return True
+        except Exception:  # noqa: BLE001 — пробуем следующий токен
+            continue
+    return False

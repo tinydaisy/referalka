@@ -91,6 +91,7 @@ async def _notify_expiring_async() -> int:
                 f"⏰ Через 7 дней истекает ваша подписка на тариф «{r['tariff_name']}».\n"
                 f"Дата окончания: {r['expires_at'].strftime('%d.%m.%Y')}.\n"
                 f"Продлите в личном кабинете: {settings.frontend_url}/dashboard/settings",
+                client_id=r["client_id"], db=db,
             )
             if ok:
                 await db.execute(
@@ -118,6 +119,7 @@ async def _notify_expiring_async() -> int:
                 f"⚠️ Через 3 дня истекает подписка «{r['tariff_name']}».\n"
                 f"Дата окончания: {r['expires_at'].strftime('%d.%m.%Y')}.\n"
                 f"Продлите чтобы рассылки продолжали работать: {settings.frontend_url}/dashboard/settings",
+                client_id=r["client_id"], db=db,
             )
             if ok:
                 await db.execute(
@@ -145,6 +147,7 @@ async def _notify_expiring_async() -> int:
                 f"🔴 Завтра истекает подписка «{r['tariff_name']}».\n"
                 f"После {r['expires_at'].strftime('%d.%m.%Y %H:%M')} рассылки и редактирование станут недоступны.\n"
                 f"Продлите: {settings.frontend_url}/dashboard/settings",
+                client_id=r["client_id"], db=db,
             )
             if ok:
                 await db.execute(
@@ -238,19 +241,17 @@ async def _notify_expiring_email(db) -> int:
     return sent_count
 
 
-async def _send_pluson_message(chat_id: int, text: str) -> bool:
-    """Отправка текста через @pluson_bot. True если успешно."""
-    token = settings.telegram_bot_token
-    if not token or not chat_id:
+async def _send_pluson_message(chat_id: int, text: str, *, client_id: int, db) -> bool:
+    """Отправка служебного уведомления клиенту в его канал уведомлений.
+    Бот: свой (VIP) бот клиента, если есть; иначе системный @pluson_bot (автофолбэк).
+    True если доставлено."""
+    if not chat_id:
         return False
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+    from app.services.channels import send_to_notifications_channel
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.post(url, json=payload)
-        return r.json().get("ok", False)
+        return await send_to_notifications_channel(client_id, chat_id, text, db, parse_mode="HTML")
     except Exception as e:
-        log.warning("Не удалось отправить уведомление в pluson_bot (chat_id=%s): %s", chat_id, e)
+        log.warning("Не удалось отправить уведомление о подписке (chat_id=%s): %s", chat_id, e)
         return False
 
 

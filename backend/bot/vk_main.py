@@ -757,6 +757,64 @@ async def _handle_vk_merge(text: str, from_id: int, db, ctx: GroupCtx) -> None:
         )
 
 
+def _vk_attachment_info(message: dict) -> tuple[bool, str | None]:
+    """Есть ли вложение в VK-сообщении и какого рода (первое)."""
+    atts = message.get("attachments") or []
+    if not atts:
+        return False, None
+    kind = atts[0].get("type")  # photo | video | doc | audio | audio_message | wall | ...
+    norm = {"audio_message": "voice", "doc": "document"}.get(kind, kind)
+    return True, norm
+
+
+async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ctx: GroupCtx) -> None:
+    """Слушалка чатов: архивирует сообщение ВК-беседы события (для подсчёта заданий).
+
+    ⚠️ Отдельно от логики лички — ничего не отвечает (кроме команды /chatid),
+    только пишет в event_chat_messages, если беседа привязана к событию.
+    chat_id беседы VK = peer_id - 2000000000.
+    """
+    from app.services.chat_archive import archive_chat_message, remember_known_chat
+
+    chat_id = str(peer_id - 2000000000)
+    text = message.get("text") or ""
+
+    # /chatid в беседе — бот отвечает числовым chat_id (точная привязка к событию).
+    if text.strip().lower() in ("/chatid", "/getchatid"):
+        try:
+            await vk_send_message(
+                peer_id,
+                f"ID этого чата: {chat_id}\n\nСкопируйте его в поле чата ВК у события в дашборде.",
+                token=ctx.token,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        await remember_known_chat(
+            platform="vk", chat_id=chat_id, title=None,
+            bot_id=str(ctx.group_id), client_id=ctx.client_id, can_read=True,
+        )
+        return
+
+    has_att, att_kind = _vk_attachment_info(message)
+    written = await archive_chat_message(
+        platform="vk",
+        chat_id=chat_id,
+        platform_user_id=str(from_id),
+        username=None,
+        author_name=None,
+        text=text or None,
+        has_attachment=has_att,
+        attachment_kind=att_kind,
+        message_ref=str(message.get("conversation_message_id") or message.get("id") or ""),
+        sent_at=None,
+    )
+    if written:
+        await remember_known_chat(
+            platform="vk", chat_id=chat_id, title=None,
+            bot_id=str(ctx.group_id), client_id=ctx.client_id, can_read=True,
+        )
+
+
 async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     """message_new: входящее сообщение в личку сообщества.
 
@@ -771,12 +829,15 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     if not from_id or from_id < 0:  # отрицательные = от сообщества
         return
 
-    # Обрабатываем ТОЛЬКО личку с сообществом (один на один). Сообщения из
-    # беседы/мультичата сообщества (peer_id = 2000000000 + chat_id) игнорируем —
-    # иначе бот реагирует на каждую реплику в общем чате (досылает воронку,
-    # пересылает организатору и т.п.). В личке VK всегда peer_id == from_id.
+    # Сообщения из беседы/мультичата сообщества (peer_id = 2000000000 + chat_id):
+    # НЕ запускаем логику лички (воронки/уведомления), но СЛУШАЕМ для архива
+    # заданий (отдельная слушалка чатов). chat_id беседы = peer_id - 2000000000.
     peer_id = message.get("peer_id")
     if peer_id is not None and int(peer_id) != int(from_id):
+        try:
+            await _archive_vk_chat_message(message, int(peer_id), int(from_id), ctx)
+        except Exception as e:  # noqa: BLE001 — слушалка не должна ронять обработчик
+            logger.warning(f"VK chat archive failed: {e}")
         return
 
     # /getmyid — узнать свой VK ID для поля тестовых ID в Настройках.

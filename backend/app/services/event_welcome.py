@@ -142,27 +142,13 @@ async def _send_event_organizer_notification(
         parts.append("<b>Кто привёл:</b> —")
 
     text = "\n".join(parts)
-    token = settings.telegram_bot_token  # уведомления всегда от @pluson_bot
-    if not token:
-        return
-    try:
-        async with httpx.AsyncClient(timeout=10) as http:
-            r = await http.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={
-                    "chat_id": chat_id,
-                    "text": text,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                },
-            )
-            if r.status_code != 200:
-                logger.warning(
-                    f"event organizer notify failed client={client_id} event={event_id}: "
-                    f"{r.status_code} {r.text[:200]}"
-                )
-    except Exception as e:
-        logger.warning(f"event organizer notify error client={client_id} event={event_id}: {e}")
+    # Бот: свой (VIP) бот клиента, если есть; иначе системный @pluson_bot (автофолбэк).
+    from .channels import send_to_notifications_channel
+    ok = await send_to_notifications_channel(client_id, chat_id, text, conn)
+    if not ok:
+        logger.warning(
+            f"event organizer notify failed client={client_id} event={event_id}"
+        )
 
 
 async def send_event_binding_error_notification(

@@ -235,6 +235,68 @@ async def _handle_bot_started(update: dict, *, bot_token: str, client_id_overrid
     )
 
 
+def _max_attachment_info(body: dict) -> tuple[bool, str | None]:
+    """Есть ли вложение в MAX-сообщении и какого рода (первое)."""
+    atts = body.get("attachments") or []
+    if not atts:
+        return False, None
+    kind = (atts[0] or {}).get("type")  # image | video | file | audio | ...
+    norm = {"image": "photo", "file": "document"}.get(kind, kind)
+    return True, norm
+
+
+async def _archive_max_chat_message(
+    msg: dict, body: dict, text: str, chat_id: str, user_id: str,
+    *, bot_token: str, client_id_override: int | None,
+) -> None:
+    """Слушалка чатов: архивирует сообщение MAX-беседы события (для подсчёта заданий).
+
+    ⚠️ Отдельно от логики лички — ничего не отвечает (кроме /chatid), только пишет
+    в event_chat_messages, если беседа привязана к событию (по events.max_chat_id).
+    """
+    from app.services.chat_archive import archive_chat_message, remember_known_chat
+
+    low = (text or "").strip().lower()
+    if low in ("/chatid", "/getchatid"):
+        try:
+            await max_send_message(
+                chat_id,
+                f"ID этого чата: {chat_id}\n\nСкопируйте его в поле чата MAX у события в дашборде.",
+                token=bot_token,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        await remember_known_chat(
+            platform="max", chat_id=chat_id, title=None,
+            bot_id=None, client_id=client_id_override, can_read=True,
+        )
+        return
+
+    has_att, att_kind = _max_attachment_info(body)
+    sender = msg.get("sender") or {}
+    author_name = sender.get("name") or None
+    username = sender.get("username") or None
+    mid = (body.get("mid") or msg.get("seq") or "")
+
+    written = await archive_chat_message(
+        platform="max",
+        chat_id=chat_id,
+        platform_user_id=user_id,
+        username=username,
+        author_name=author_name,
+        text=text or None,
+        has_attachment=has_att,
+        attachment_kind=att_kind,
+        message_ref=str(mid) if mid else None,
+        sent_at=None,
+    )
+    if written:
+        await remember_known_chat(
+            platform="max", chat_id=chat_id, title=None,
+            bot_id=None, client_id=client_id_override, can_read=True,
+        )
+
+
 async def _handle_message_created(update: dict, *, bot_token: str, client_id_override: int | None) -> None:
     msg = update.get("message", {}) or {}
     body = msg.get("body", {}) or {}
@@ -242,12 +304,19 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
     sender, user_id, chat_id = _extract_user_and_chat(update)
     if not user_id or not chat_id:
         return
-    # Обрабатываем ТОЛЬКО личку с ботом (chat_type='dialog'). Сообщения из
-    # групповых чатов/бесед (chat_type='chat') игнорируем полностью — бот не
-    # должен ничего слать в чаты (никаких приветствий/welcome про платформу).
+    # Сообщения из групповых чатов/бесед (chat_type='chat'): НЕ запускаем логику
+    # лички (бот ничего не слать в чаты), но СЛУШАЕМ для архива заданий
+    # (отдельная слушалка чатов). chat_archive сам проверит привязку чата к событию.
     recipient = msg.get("recipient") or {}
     chat_type = (recipient.get("chat_type") or "").strip().lower()
     if chat_type and chat_type != "dialog":
+        try:
+            await _archive_max_chat_message(
+                msg, body, text, str(chat_id), str(user_id),
+                bot_token=bot_token, client_id_override=client_id_override,
+            )
+        except Exception as e:  # noqa: BLE001 — слушалка не должна ронять вебхук
+            logger.warning(f"MAX chat archive failed: {e}")
         return
     low = text.lower()
 

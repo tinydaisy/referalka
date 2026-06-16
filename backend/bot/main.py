@@ -17,7 +17,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from bot.handlers import start, funnel, chat_member, chat_gate
+from bot.handlers import start, funnel, chat_member, chat_gate, chat_listener
 from app.config import settings
 from app.database import get_pool
 
@@ -112,6 +112,11 @@ async def main() -> None:
     # а нам нужно сначала проверить подписку и при необходимости удалить.
     dp.include_router(chat_gate.router)
     dp.include_router(start.router)
+    # Слушалка чатов событий — ПОСЛЕДНЯЯ. Ловит групповые сообщения чатов
+    # событий и складывает в архив (для подсчёта заданий). Отдельно от логики
+    # ботов: ничего не отвечает людям, только архивирует. Идёт после start,
+    # чтобы /start и команды бота отработали раньше.
+    dp.include_router(chat_listener.router)
 
     logger.info("Запущено %d бот(ов) в polling-режиме", len(bots))
     try:
