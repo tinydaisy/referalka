@@ -22,9 +22,9 @@ export interface EventChatsValue {
   max: string                // events.chat_url_max
   primary: ChatPlatform | null  // events.primary_chat_platform
   chatIds: string            // events.telegram_chat_ids (CSV — только TG)
-  tgChatId: string           // events.tg_chat_id  (chat_id беседы — слушалка заданий)
-  vkChatId: string           // events.vk_chat_id
-  maxChatId: string          // events.max_chat_id
+  tgChatId?: string          // events.tg_chat_id  (chat_id беседы — слушалка заданий)
+  vkChatId?: string          // events.vk_chat_id
+  maxChatId?: string         // events.max_chat_id
 }
 
 interface Props {
