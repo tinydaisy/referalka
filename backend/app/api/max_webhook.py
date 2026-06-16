@@ -256,7 +256,16 @@ async def _archive_max_chat_message(
     """
     from app.services.chat_archive import archive_chat_message, remember_known_chat
 
-    # ⚠️ Слушалка НЕМАЯ — ничего не отправляет в чат. Только архивирует.
+    # Команда /chatid — единственный случай отправки в беседу: числовой chat_id
+    # для поля чата MAX у события в дашборде. Только на точное «/chatid».
+    if (text or "").strip().lower() == "/chatid":
+        try:
+            await max_send_message(chat_id, f"ID этого чата: {chat_id}", token=bot_token)
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    # В остальном слушалка НЕМАЯ — только архивирует.
     has_att, att_kind = _max_attachment_info(body)
     sender = msg.get("sender") or {}
     author_name = sender.get("name") or None

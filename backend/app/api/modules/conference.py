@@ -257,6 +257,9 @@ class ConferenceUpdate(BaseModel):
     test_telegram_ids: Optional[List[str]] = None
     raffle_url: Optional[str] = None
     telegram_chat_ids: Optional[str] = None     # ID чатов/каналов через запятую
+    tg_chat_id: Optional[str] = None            # chat_id TG-беседы события (слушалка заданий)
+    vk_chat_id: Optional[str] = None            # chat_id ВК-беседы события (слушалка заданий)
+    max_chat_id: Optional[str] = None           # chat_id МАХ-беседы события (слушалка заданий)
 
 
 @router.get("/", summary="Данные конференции")
@@ -284,6 +287,9 @@ async def get_conference(
                e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
                e.telegram_chat_ids AS event_telegram_chat_ids,
+               e.tg_chat_id AS event_tg_chat_id,
+               e.vk_chat_id AS event_vk_chat_id,
+               e.max_chat_id AS event_max_chat_id,
                e.link_mode AS event_link_mode
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
@@ -308,6 +314,9 @@ async def get_conference(
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
     d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
+    d["tg_chat_id"] = d.pop("event_tg_chat_id", None) or ""
+    d["vk_chat_id"] = d.pop("event_vk_chat_id", None) or ""
+    d["max_chat_id"] = d.pop("event_max_chat_id", None) or ""
     d["link_mode"] = d.pop("event_link_mode") or "miniapp"
     # event_landing_url — для шаблонов рассылок и превью; conf_conferences.landing_url
     # (если осталось) — это устаревший шаблон встроенного лендинга, не путать.
@@ -354,6 +363,7 @@ async def update_conference(
         "stream_url", "vip_url", "vip_button_label",
         "chat_button_label", "accent_button", "hide_stream_button",
         "telegram_chat_ids", "link_mode",
+        "tg_chat_id", "vk_chat_id", "max_chat_id",
     )
     sent = data.model_dump(exclude_unset=True)
     event_updates: dict = {}
@@ -405,6 +415,9 @@ async def update_conference(
                e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
                e.telegram_chat_ids AS event_telegram_chat_ids,
+               e.tg_chat_id AS event_tg_chat_id,
+               e.vk_chat_id AS event_vk_chat_id,
+               e.max_chat_id AS event_max_chat_id,
                e.link_mode AS event_link_mode
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
@@ -426,6 +439,9 @@ async def update_conference(
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
     d["event_landing_url"] = d.pop("event_landing_url") or ""
     d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
+    d["tg_chat_id"] = d.pop("event_tg_chat_id", None) or ""
+    d["vk_chat_id"] = d.pop("event_vk_chat_id", None) or ""
+    d["max_chat_id"] = d.pop("event_max_chat_id", None) or ""
     d["link_mode"] = d.pop("event_link_mode") or "miniapp"
     return {"conference": d}
 

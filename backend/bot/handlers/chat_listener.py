@@ -95,6 +95,19 @@ async def on_group_message(message: Message, bot: Bot):
     """
     if not message.from_user or message.from_user.is_bot:
         return
+
+    # Команда /chatid — единственный случай, когда бот отвечает в чат: присылает
+    # числовой ID этого чата (чтобы вписать в поле чата события в дашборде).
+    # Срабатывает ТОЛЬКО на точное «/chatid» (с возможным @упоминанием бота).
+    raw = (message.text or "").strip()
+    cmd = raw.split("@", 1)[0].lower()
+    if cmd == "/chatid":
+        try:
+            await message.reply(f"ID этого чата: <code>{message.chat.id}</code>", parse_mode="HTML")
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
     has_att, att_kind = _attachment_info(message)
     text = message.text or message.caption
     author = message.from_user

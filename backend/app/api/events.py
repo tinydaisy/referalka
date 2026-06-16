@@ -114,6 +114,11 @@ class UpdateEventRequest(BaseModel):
     # NULL = 'vip' (обратная совместимость).
     accent_button: Optional[str] = None
     telegram_chat_ids: Optional[str] = None  # ID чатов/каналов через запятую — общее для меропр и конференций
+    # chat_id чатов СОБЫТИЯ для слушалки заданий (НЕ путать с telegram_chat_ids —
+    # тот для рассылок). Узнаётся командой /chatid в самой беседе.
+    tg_chat_id: Optional[str] = None
+    vk_chat_id: Optional[str] = None
+    max_chat_id: Optional[str] = None
     # Чекбокс «Регистрировать без ввода контактных данных» — работает на встроенном
     # лендинге Mini App, если landing_url не задан. TRUE → клик «Хочу участвовать»
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).
