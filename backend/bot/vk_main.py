@@ -779,22 +779,7 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
     chat_id = str(peer_id - 2000000000)
     text = message.get("text") or ""
 
-    # /chatid в беседе — бот отвечает числовым chat_id (точная привязка к событию).
-    if text.strip().lower() in ("/chatid", "/getchatid"):
-        try:
-            await vk_send_message(
-                peer_id,
-                f"ID этого чата: {chat_id}\n\nСкопируйте его в поле чата ВК у события в дашборде.",
-                token=ctx.token,
-            )
-        except Exception:  # noqa: BLE001
-            pass
-        await remember_known_chat(
-            platform="vk", chat_id=chat_id, title=None,
-            bot_id=str(ctx.group_id), client_id=ctx.client_id, can_read=True,
-        )
-        return
-
+    # ⚠️ Слушалка НЕМАЯ — ничего не отправляет в чат. Только архивирует.
     has_att, att_kind = _vk_attachment_info(message)
     written = await archive_chat_message(
         platform="vk",

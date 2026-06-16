@@ -190,6 +190,10 @@ async def _upgrade_pseudo_identities(user) -> None:
 
 @router.message(CommandStart())
 async def handle_start(message: Message, command: CommandObject):
+    # В группах/беседах бот МОЛЧИТ — не отвечает на /start@bot и т.п.,
+    # чтобы не засорять чаты событий. Команды бота работают только в личке.
+    if message.chat and message.chat.type != "private":
+        return
     args = (command.args or "").strip()
     user = message.from_user
 

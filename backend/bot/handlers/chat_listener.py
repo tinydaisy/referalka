@@ -86,27 +86,6 @@ async def on_added_to_chat(update: ChatMemberUpdated):
         log.warning("chat_listener on_added_to_chat failed: %s", e)
 
 
-@router.message(F.chat.type.in_({"group", "supergroup"}), F.text.in_({"/chatid", "/chatid@", "/getchatid"}))
-async def cmd_chatid(message: Message, bot: Bot):
-    """Команда /chatid в чате — бот отвечает числовым chat_id (точная привязка к событию)."""
-    await message.reply(
-        f"ID этого чата: <code>{message.chat.id}</code>\n\n"
-        f"Скопируйте его в поле чата события в дашборде.",
-        parse_mode="HTML",
-    )
-    # Заодно запомним чат (бот тут точно есть).
-    try:
-        pool = await get_pool()
-        async with pool.acquire() as db:
-            client_id = await _client_id_for_bot(bot.id, db)
-        await remember_known_chat(
-            platform="telegram", chat_id=str(message.chat.id), title=message.chat.title,
-            bot_id=str(bot.id), client_id=client_id, can_read=True,
-        )
-    except Exception:  # noqa: BLE001
-        pass
-
-
 @router.message(F.chat.type.in_({"group", "supergroup"}))
 async def on_group_message(message: Message, bot: Bot):
     """Каждое групповое сообщение → в архив, ЕСЛИ чат привязан к событию.
