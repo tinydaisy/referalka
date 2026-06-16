@@ -633,6 +633,8 @@ async def get_me_materials(
                   e.video_url AS event_video_url,
                   COALESCE(NULLIF(cl.brand_name, ''), cl.name) AS client_brand,
                   cl.partner_landing_url, cl.partner_dashboard_url,
+                  cl.partner_payments_url, cl.partner_visible_roles,
+                  ec.role AS ec_role,
                   c.contact_id,
                   c.photo_url AS speaker_photo_url,
                   ec.announcement_poster_ids,
@@ -715,8 +717,21 @@ async def get_me_materials(
     # Если клиент выключил для этого спикера — партнёрский блок не
     # отдаём, как будто фича не настроена.
     show_partner_link = bool(base.get("show_partner_registration_link", True))
+
+    # Роль спикера должна входить в partner_visible_roles клиента (кому показывать).
+    # Раскрытие: headliner→speaker, general_partner→partner.
+    _ec_role = (base.get("ec_role") or "").lower()
+    _role_group = {
+        "speaker": "speaker", "headliner": "speaker",
+        "jury": "jury", "organizer": "organizer", "participant": "participant",
+        "partner": "partner", "general_partner": "partner",
+    }.get(_ec_role, _ec_role)
+    _visible_roles = set(base.get("partner_visible_roles") or [])
+    role_allows_partner = _role_group in _visible_roles
+
     partner_landing_configured = (
-        show_partner_link and bool((base.get("partner_landing_url") or "").strip())
+        show_partner_link and role_allows_partner
+        and bool((base.get("partner_landing_url") or "").strip())
     )
     partner_link: dict = {}
     if partner_landing_configured:
@@ -785,7 +800,12 @@ async def get_me_materials(
         # Кликабельная ссылка для спикера-партнёра, если у него уже есть код.
         "partner_dashboard_url": (
             (base.get("partner_dashboard_url") or "").strip() or None
-        ) if show_partner_link else None,
+        ) if (show_partner_link and role_allows_partner) else None,
+        # Ссылка на отслеживание оплат (миграция 148) — показываем по той же
+        # роль-видимости, что и регистрацию партнёром.
+        "partner_payments_url": (
+            (base.get("partner_payments_url") or "").strip() or None
+        ) if (show_partner_link and role_allows_partner) else None,
         "placeholders": placeholders,
     }
 

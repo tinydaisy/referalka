@@ -119,6 +119,7 @@ type SpeakerMaterials = {
   // URL аффилиат-кабинета во внешней системе клиента (миграция 118).
   // Кликабельная ссылка для уже зарегистрированных партнёров.
   partner_dashboard_url: string | null
+  partner_payments_url: string | null
   placeholders: { link: string; event: string; date: string; brand: string }
 }
 
@@ -880,6 +881,22 @@ export default function SpeakerCabinetPage() {
                   Открыть кабинет партнёра →
                 </a>
               )}
+              {materials.partner_payments_url && (
+                <a
+                  href={materials.partner_payments_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '8px 14px', borderRadius: 8,
+                    background: '#fff', color: DARK, fontSize: 13, fontWeight: 700,
+                    border: `1px solid ${PEACH}`,
+                    textDecoration: 'none', marginBottom: 10, marginLeft: 8,
+                  }}
+                >
+                  Отслеживание оплат →
+                </a>
+              )}
               <div style={{ fontSize: 11, color: '#5a6a7a', lineHeight: 1.5 }}>
                 Пароль от кабинета был отправлен на ваш email при регистрации — проверьте папку «Спам».
                 Если письмо не нашли — воспользуйтесь формой восстановления пароля на странице входа.
@@ -923,6 +940,25 @@ export default function SpeakerCabinetPage() {
                       </div>
                     )
                   })}
+                  {materials.partner_payments_url && (
+                    <a
+                      href={materials.partner_payments_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '8px 14px', borderRadius: 8, marginTop: 4,
+                        background: '#fff', color: DARK, fontSize: 13, fontWeight: 700,
+                        border: `1px solid ${PEACH}`, textDecoration: 'none',
+                      }}
+                    >
+                      Отслеживание оплат →
+                    </a>
+                  )}
+                  <div style={{ fontSize: 11, color: '#5a6a7a', lineHeight: 1.5, marginTop: 10 }}>
+                    После регистрации пароль для доступа к партнёрскому кабинету придёт вам на email —
+                    проверьте папку «Спам». Если не нашли — восстановите пароль на странице входа в кабинет.
+                  </div>
                 </Section>
               )
             })()

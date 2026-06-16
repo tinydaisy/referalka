@@ -37,7 +37,8 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant' || t === 'chat-gates') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', partner_landing_url: '', partner_dashboard_url: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', partner_landing_url: '', partner_dashboard_url: '', partner_payments_url: '' })
+  const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
   const [clientId, setClientId] = useState<number | null>(null)
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [botHandles, setBotHandles] = useState<{ telegram?: string | null; vk?: string | null; max?: string | null } | null>(null)
@@ -70,7 +71,9 @@ export default function SettingsPage() {
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
         partner_landing_url: c.partner_landing_url || '',
         partner_dashboard_url: c.partner_dashboard_url || '',
+        partner_payments_url: c.partner_payments_url || '',
       })
+      setPartnerVisibleRoles(Array.isArray(c.partner_visible_roles) ? c.partner_visible_roles : [])
       setTariff(c.subscription || null)
       setClientId(c.id || null)
       setAvailablePlatforms(Array.isArray(c.available_platforms) ? c.available_platforms : ['telegram'])
@@ -115,6 +118,8 @@ export default function SettingsPage() {
         notifications_telegram_chat_id: form.notifications_telegram_chat_id ? Number(form.notifications_telegram_chat_id) : null,
         partner_landing_url: form.partner_landing_url.trim() || null,
         partner_dashboard_url: form.partner_dashboard_url.trim() || null,
+        partner_payments_url: form.partner_payments_url.trim() || null,
+        partner_visible_roles: partnerVisibleRoles,
       })
       setTimezone(form.timezone)
       setSaved(true)
@@ -537,6 +542,8 @@ export default function SettingsPage() {
           availablePlatforms={availablePlatforms}
           botHandles={botHandles}
           vkAppId={vkAppId}
+          visibleRoles={partnerVisibleRoles}
+          setVisibleRoles={setPartnerVisibleRoles}
         />
 
         {/* Storage usage */}
@@ -1183,7 +1190,7 @@ const PLUSON_BOT_HANDLE = 'pluson_bot'
 const PARTNER_PLATFORMS = ['telegram', 'vk', 'max']
 
 function PartnerRegistrationBlock({
-  form, set, clientId, availablePlatforms, botHandles, vkAppId,
+  form, set, clientId, availablePlatforms, botHandles, vkAppId, visibleRoles, setVisibleRoles,
 }: {
   form: any
   set: (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void
@@ -1191,6 +1198,8 @@ function PartnerRegistrationBlock({
   availablePlatforms: string[]
   botHandles: { telegram?: string | null; vk?: string | null; max?: string | null } | null
   vkAppId: number | null
+  visibleRoles: string[]
+  setVisibleRoles: (v: string[]) => void
 }) {
   const [copied, setCopied] = useState<string | null>(null)
   function copy(label: string, text: string) {
@@ -1308,6 +1317,58 @@ function PartnerRegistrationBlock({
           Страница входа в аффилиат-кабинет вашей внешней системы (GetCourse / Bizon360 /
           Tilda). Если задана — в кабинете спикера у тех, кто уже зарегистрирован
           партнёром, появится кнопка «Открыть кабинет партнёра» вместо ссылок на регистрацию.
+        </p>
+      </div>
+
+      {/* URL отслеживания оплат (миграция 148) */}
+      <div className="mb-4">
+        <label className="block text-xs font-semibold text-gray-700 mb-1">
+          Ссылка на отслеживание оплат
+        </label>
+        <input
+          type="url"
+          value={form.partner_payments_url}
+          onChange={set('partner_payments_url')}
+          placeholder="https://example.com/affiliate/payouts"
+          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Страница, где партнёр видит свои оплаты/выплаты во внешней системе.
+          Показывается в кабинете тем ролям, что выбраны ниже.
+        </p>
+      </div>
+
+      {/* Кому показывать партнёрский блок (миграция 148) */}
+      <div className="mb-4">
+        <label className="block text-xs font-semibold text-gray-700 mb-2">
+          Кому показывать в кабинете ссылки регистрации партнёром и отслеживания оплат
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {([
+            { k: 'jury', l: 'Жюри' },
+            { k: 'speaker', l: 'Спикеры' },
+            { k: 'participant', l: 'Участники' },
+            { k: 'organizer', l: 'Организаторы' },
+            { k: 'partner', l: 'Партнёры' },
+          ]).map(r => {
+            const on = visibleRoles.includes(r.k)
+            return (
+              <button
+                key={r.k}
+                type="button"
+                onClick={() => setVisibleRoles(on ? visibleRoles.filter(x => x !== r.k) : [...visibleRoles, r.k])}
+                className={`px-3 py-2 rounded-xl text-sm font-medium border transition ${
+                  on ? 'bg-brand text-white border-brand' : 'bg-white text-gray-600 border-gray-200'
+                }`}
+              >
+                {on ? '✓ ' : ''}{r.l}
+              </button>
+            )
+          })}
+        </div>
+        <p className="text-xs text-gray-500 mt-1.5">
+          «Спикеры» включает хедлайнеров, «Партнёры» — генеральных партнёров.
+          Если ничего не выбрано — блок не показывается никому.
         </p>
       </div>
 

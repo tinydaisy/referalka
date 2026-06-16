@@ -278,7 +278,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                 c.created_at, c.timezone,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id,
-                c.partner_landing_url, c.partner_dashboard_url,
+                c.partner_landing_url, c.partner_dashboard_url, c.partner_payments_url, c.partner_visible_roles,
                 c.integration_token,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                    FROM channels ch
@@ -378,6 +378,8 @@ class ProfileUpdate(BaseModel):
     notifications_telegram_chat_id: Optional[int] = None
     partner_landing_url: Optional[str] = None
     partner_dashboard_url: Optional[str] = None
+    partner_payments_url: Optional[str] = None
+    partner_visible_roles: Optional[list[str]] = None
 
 
 @router.patch("/me", summary="Обновить профиль клиента")
@@ -398,7 +400,7 @@ async def update_me(
                 c.created_at, c.timezone,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id,
-                  c.partner_landing_url, c.partner_dashboard_url
+                  c.partner_landing_url, c.partner_dashboard_url, c.partner_payments_url, c.partner_visible_roles
            FROM clients c WHERE c.id = $1""",
             client_id
         )
@@ -409,6 +411,12 @@ async def update_me(
         if bc < 1 or bc > 100:
             raise HTTPException(status_code=400, detail="Скорость рассылки: допустимый диапазон 1..100")
         updates["broadcast_concurrency"] = bc
+
+    # Нормализуем partner_visible_roles — только допустимые ключи ролей.
+    if "partner_visible_roles" in updates:
+        allowed = {"jury", "speaker", "participant", "organizer", "partner"}
+        raw = updates["partner_visible_roles"] or []
+        updates["partner_visible_roles"] = [r for r in raw if r in allowed]
 
     # bot_token живёт только в channels (раздел «Каналы» в дашборде).
     # Этот эндпоинт его больше не принимает — игнорируем если кто-то прислал.
@@ -426,7 +434,7 @@ async def update_me(
                   c.created_at, c.timezone,
                   c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id,
-                  c.partner_landing_url, c.partner_dashboard_url
+                  c.partner_landing_url, c.partner_dashboard_url, c.partner_payments_url, c.partner_visible_roles
              FROM clients c WHERE c.id = $1""",
         client_id
     )
