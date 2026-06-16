@@ -811,9 +811,11 @@ async def _process_start(
             ])
             # Афиша события — грузим в MAX и шлём вложением (как фото с подписью в TG).
             attachments = None
+            logger.info(f"MAX welcome poster diag: event_poster_url={event_poster_url!r}")
             if event_poster_url:
                 try:
                     att = await _max_image_attachment_from_url(event_poster_url, bot_token)
+                    logger.info(f"MAX welcome poster diag: attachment_built={bool(att)}")
                     if att:
                         attachments = [att]
                 except Exception as e:

@@ -120,7 +120,15 @@ async def handle_max_event(body: MaxEventRequest):
         event_title = None
         if body.event_slug:
             ev = await conn.fetchrow(
-                "SELECT id, title, status FROM events WHERE slug = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+                """SELECT id, title, status,
+                          (SELECT url FROM event_posters
+                             WHERE event_id = events.id
+                             ORDER BY CASE orientation
+                                        WHEN 'square' THEN 1 WHEN 'horizontal' THEN 2
+                                        WHEN 'vertical' THEN 3 ELSE 4 END, sort, id
+                             LIMIT 1) AS poster_url
+                     FROM events WHERE slug = $1
+                       AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')""",
                 body.event_slug, client_id,
             )
             if ev:
@@ -168,8 +176,19 @@ async def handle_max_event(body: MaxEventRequest):
                         {"text": f"Войти в «{event_title[:30]}»",
                          "url": build_max_link(body.event_slug, bot_handle=bot_handle)},
                     ]])
+                    # Афиша события вложением (как в TG/webhook welcome).
+                    attachments = None
+                    poster_url = ev["poster_url"] if "poster_url" in ev else None
+                    if token and poster_url:
+                        try:
+                            from app.api.max_webhook import _max_image_attachment_from_url
+                            att = await _max_image_attachment_from_url(poster_url, token)
+                            if att:
+                                attachments = [att]
+                        except Exception as e:
+                            logger.warning(f"MAX event welcome poster failed ({poster_url}): {e}")
                     if token:
-                        await max_send_message(max_user_id, msg, token=token, buttons=buttons, recipient_kind="user")
+                        await max_send_message(max_user_id, msg, token=token, buttons=buttons, attachments=attachments, recipient_kind="user")
                 except Exception as e:
                     logger.warning(f"MAX welcome message failed for max_id={max_user_id}: {e}")
 
