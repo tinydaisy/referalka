@@ -729,17 +729,20 @@ function ShareTextForm({ eventId, initial, onClose, onSaved }: any) {
 function ImagesBlock({ eventId }: { eventId: number }) {
   const [items, setItems] = useState<any[]>([])
   const [posters, setPosters] = useState<any[]>([])
+  const [eventVideoUrl, setEventVideoUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
 
   async function load() {
     setLoading(true)
-    const [m, p] = await Promise.all([
+    const [m, p, ev] = await Promise.all([
       api.referralProgram.materials.list(eventId),
       api.referralProgram.posters.list(eventId),
+      api.events.get(eventId).catch(() => null),
     ])
     setItems(m.items || [])
     setPosters(p.items || [])
+    setEventVideoUrl(ev?.event?.video_url || null)
     setLoading(false)
   }
   useEffect(() => { load() }, [eventId])
@@ -801,7 +804,7 @@ function ImagesBlock({ eventId }: { eventId: number }) {
       )}
 
       {showForm && (
-        <MaterialForm eventId={eventId} posters={posters}
+        <MaterialForm eventId={eventId} posters={posters} eventVideoUrl={eventVideoUrl}
                       onClose={() => setShowForm(false)}
                       onSaved={() => { setShowForm(false); load() }} />
       )}
@@ -810,12 +813,15 @@ function ImagesBlock({ eventId }: { eventId: number }) {
 }
 
 
-function MaterialForm({ eventId, posters, onClose, onSaved }: any) {
+function MaterialForm({ eventId, posters, eventVideoUrl, onClose, onSaved }: any) {
+  const hasEventVideo = !!eventVideoUrl
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image')
   const [mode, setMode] = useState<'event_poster' | 'custom'>('custom')
+  // Для видео: 'event_video' — взять общее видео события, 'custom' — загрузить своё
+  const [videoMode, setVideoMode] = useState<'event_video' | 'custom'>(hasEventVideo ? 'event_video' : 'custom')
   const [posterId, setPosterId] = useState<number | null>(posters[0]?.id || null)
   const [url, setUrl] = useState('')        // URL картинки
-  const [videoUrl, setVideoUrl] = useState('')  // URL видео
+  const [videoUrl, setVideoUrl] = useState('')  // URL загруженного своего видео
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -825,8 +831,10 @@ function MaterialForm({ eventId, posters, onClose, onSaved }: any) {
     try {
       let payload: any
       if (mediaType === 'video') {
-        if (!videoUrl.trim()) throw new Error('Загрузите видео')
-        payload = { media_type: 'video', video_url: videoUrl.trim(), source: 'custom', source_poster_id: null, sort: 0 }
+        // Видео события (общее) или своё загруженное
+        const finalVideo = videoMode === 'event_video' ? (eventVideoUrl || '') : videoUrl.trim()
+        if (!finalVideo) throw new Error(videoMode === 'event_video' ? 'У события нет общего видео' : 'Загрузите видео')
+        payload = { media_type: 'video', video_url: finalVideo, source: 'custom', source_poster_id: null, sort: 0 }
       } else if (mode === 'event_poster') {
         if (!posterId) throw new Error('Выберите афишу')
         const poster = posters.find((p: any) => p.id === posterId)
@@ -863,18 +871,44 @@ function MaterialForm({ eventId, posters, onClose, onSaved }: any) {
 
           {mediaType === 'video' ? (
             <>
-              <FileUploader
-                mode="single"
-                kind="referral_video"
-                eventId={eventId}
-                value={videoUrl || null}
-                onChange={u => setVideoUrl(u || '')}
-                accept="video/*"
-                aspectClass="aspect-video"
-                emptyText="Загрузите видео для шеринга (до 100 МБ, лучше MP4)"
-                buttonLabel="Загрузить видео"
-              />
-              <p className="text-xs text-gray-400">Лимит 100 МБ. Лучше формат MP4 — он откроется на всех устройствах.</p>
+              {hasEventVideo && (
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setVideoMode('event_video')}
+                          className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
+                            videoMode === 'event_video' ? 'border-gray-900 bg-gray-50 font-medium' : 'border-gray-200 text-gray-500'
+                          }`}>
+                    Из видео события
+                  </button>
+                  <button type="button" onClick={() => setVideoMode('custom')}
+                          className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
+                            videoMode === 'custom' ? 'border-gray-900 bg-gray-50 font-medium' : 'border-gray-200 text-gray-500'
+                          }`}>
+                    Загрузить своё
+                  </button>
+                </div>
+              )}
+
+              {mediaType === 'video' && videoMode === 'event_video' && hasEventVideo ? (
+                <div>
+                  <video src={eventVideoUrl} controls className="w-full rounded-lg bg-black aspect-video" />
+                  <p className="text-xs text-gray-400 mt-1">Общее видео события (загружено во вкладке «Афиши»).</p>
+                </div>
+              ) : (
+                <>
+                  <FileUploader
+                    mode="single"
+                    kind="referral_video"
+                    eventId={eventId}
+                    value={videoUrl || null}
+                    onChange={u => setVideoUrl(u || '')}
+                    accept="video/*"
+                    aspectClass="aspect-video"
+                    emptyText="Загрузите видео для шеринга (до 100 МБ, лучше MP4)"
+                    buttonLabel="Загрузить видео"
+                  />
+                  <p className="text-xs text-gray-400">Лимит 100 МБ. Лучше формат MP4 — он откроется на всех устройствах.</p>
+                </>
+              )}
             </>
           ) : (
             <>
