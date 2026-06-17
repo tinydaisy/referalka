@@ -2476,8 +2476,11 @@ async def public_tournament_table(slug: str, stage_id: int,
         for c in crit_by_pkg_seq.get(g["pkg_id"], []):
             cw = float(c.get("weight", 1))
             cls = "c-crit crit-start" if _first_crit_head else "c-crit"
+            cp = (c.get("code_phrase") or "").strip()
+            cp_html = (f"<span class='cph'>Кодовая фраза для выкладки отчёта:<br>«{esc(cp)}»</span>"
+                       if cp else "")
             thead_crit += (f"<th class='{cls}'>{esc(c['title'])}"
-                           f"<span class='cw'>×{_fmt_num(cw)}</span></th>")
+                           f"<span class='cw'>×{_fmt_num(cw)}</span>{cp_html}</th>")
             _first_crit_head = False
 
     total_cols = 3 + len(groups) + sum(g["span"] for g in groups)
@@ -2573,6 +2576,7 @@ async def public_tournament_table(slug: str, stage_id: int,
   thead .c-total {{ background:#FFEFE0; }}
   .val {{ color:#41566a; }}
   .crit-start {{ border-left:2px solid #cdd6df; }}
+  .cph {{ display:block; font-size:9.5px; font-weight:600; color:#b45309; margin-top:3px; line-height:1.2; font-family:'Roboto Mono',monospace; white-space:normal; }}
   tbody tr:nth-child(even) td {{ background:#fafbfc; }}
   tbody tr:nth-child(even) .c-name {{ background:#fafbfc; }}
   tbody tr:nth-child(even) .c-total {{ background:#FFF2E6; }}

@@ -288,6 +288,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                             "auto_kind": c["auto_kind"], "scale_max": float(c["scale_max"]),
                             "weight": float(c["weight"]),
                             "description": c.get("description"),
+                            "code_phrase": c.get("code_phrase"),
                             "package_id": p["id"], "package_title": p["title"]})
 
     table = []

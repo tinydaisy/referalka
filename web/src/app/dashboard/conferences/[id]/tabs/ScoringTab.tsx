@@ -595,6 +595,9 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                   {c.description && (
                     <div className="text-[10px] font-normal text-gray-400 leading-tight whitespace-pre-line mt-0.5 normal-case">{c.description}</div>
                   )}
+                  {c.code_phrase && (
+                    <div className="text-[9px] font-semibold text-amber-700 leading-tight mt-1 normal-case font-mono whitespace-normal break-words">Кодовая фраза для выкладки отчёта:<br/>«{c.code_phrase}»</div>
+                  )}
                 </th>
               ))}
             </tr>
