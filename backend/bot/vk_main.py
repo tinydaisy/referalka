@@ -809,6 +809,7 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
         attachment_kind=att_kind,
         message_ref=str(message.get("conversation_message_id") or message.get("id") or ""),
         sent_at=None,
+        owner_client_id=ctx.client_id,  # VK chat_id неуникален между сообществами!
     )
     if not written:
         return
@@ -830,6 +831,7 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
             attachments=_vk_attachment_urls(message),
             message_ref=str(message.get("conversation_message_id") or message.get("id") or ""),
             sent_at=None,
+            owner_client_id=ctx.client_id,  # VK chat_id неуникален между сообществами!
         )
         if unrecognized:
             await _reply_unrecognized_vk(peer_id, from_id, ctx)

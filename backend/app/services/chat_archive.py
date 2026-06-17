@@ -62,11 +62,19 @@ async def remember_known_chat(
         log.warning("remember_known_chat failed (%s chat=%s): %s", platform, chat_id, e)
 
 
-async def _resolve_event_for_chat(db, platform: str, chat_id: str) -> Optional[tuple[int, int]]:
+async def _resolve_event_for_chat(db, platform: str, chat_id: str,
+                                  owner_client_id: Optional[int] = None) -> Optional[tuple[int, int]]:
     """По (платформа, chat_id) найти событие, чей чат это. Возвращает (event_id, client_id) или None.
 
     Резолв через event_owners (новая co-ownership-архитектура): берём первого
     владельца события (accepted) как client_id для резолва автора.
+
+    ⚠️ owner_client_id — клиент-владелец БОТА/СООБЩЕСТВА, откуда пришло сообщение.
+    Обязателен для VK: локальный chat_id беседы (2000000001, 2000000002…) НЕ
+    уникален между сообществами — первая беседа КАЖДОГО сообщества = 2000000001.
+    Без фильтра по клиенту сообщение из беседы сообщества А сматчило бы событие,
+    привязанное к беседе сообщества Б с тем же номером. Для TG/MAX chat_id
+    глобально уникальны (-100…), фильтр не нужен → owner_client_id=None.
     """
     col = {
         "telegram": "tg_chat_id",
@@ -75,18 +83,33 @@ async def _resolve_event_for_chat(db, platform: str, chat_id: str) -> Optional[t
     }.get(platform)
     if not col:
         return None
-    row = await db.fetchrow(
-        f"""
-        SELECT e.id AS event_id,
-               (SELECT eo.client_id FROM event_owners eo
-                  WHERE eo.event_id = e.id AND eo.status = 'accepted'
-                  ORDER BY eo.id LIMIT 1) AS client_id
-          FROM events e
-         WHERE e.{col} = $1
-         LIMIT 1
-        """,
-        str(chat_id),
-    )
+    if owner_client_id is not None:
+        # Событие должно принадлежать клиенту, чей бот/сообщество получило сообщение.
+        row = await db.fetchrow(
+            f"""
+            SELECT e.id AS event_id, eo.client_id AS client_id
+              FROM events e
+              JOIN event_owners eo ON eo.event_id = e.id
+                   AND eo.status = 'accepted' AND eo.client_id = $2
+             WHERE e.{col} = $1
+             ORDER BY eo.id
+             LIMIT 1
+            """,
+            str(chat_id), owner_client_id,
+        )
+    else:
+        row = await db.fetchrow(
+            f"""
+            SELECT e.id AS event_id,
+                   (SELECT eo.client_id FROM event_owners eo
+                      WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                      ORDER BY eo.id LIMIT 1) AS client_id
+              FROM events e
+             WHERE e.{col} = $1
+             LIMIT 1
+            """,
+            str(chat_id),
+        )
     if not row or row["client_id"] is None:
         return None
     return int(row["event_id"]), int(row["client_id"])
@@ -122,6 +145,7 @@ async def archive_chat_message(
     attachment_kind: Optional[str],
     message_ref: Optional[str],
     sent_at=None,
+    owner_client_id: Optional[int] = None,
 ) -> bool:
     """Записать сообщение чата в архив, ЕСЛИ этот чат привязан к событию.
 
@@ -133,7 +157,7 @@ async def archive_chat_message(
     try:
         pool = await get_pool()
         async with pool.acquire() as db:
-            resolved = await _resolve_event_for_chat(db, platform, chat_id)
+            resolved = await _resolve_event_for_chat(db, platform, chat_id, owner_client_id)
             if not resolved:
                 return False  # чат не привязан ни к одному событию — не наше дело
             event_id, client_id = resolved
@@ -221,6 +245,7 @@ async def process_task_submissions(
     attachments: Optional[list],
     message_ref: Optional[str],
     sent_at=None,
+    owner_client_id: Optional[int] = None,
 ) -> list[dict]:
     """Ищет кодовые фразы критериев в сообщении чата события и засчитывает.
 
@@ -244,7 +269,7 @@ async def process_task_submissions(
     try:
         pool = await get_pool()
         async with pool.acquire() as db:
-            resolved = await _resolve_event_for_chat(db, platform, chat_id)
+            resolved = await _resolve_event_for_chat(db, platform, chat_id, owner_client_id)
             if not resolved:
                 return []
             event_id, client_id = resolved
