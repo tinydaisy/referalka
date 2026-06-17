@@ -290,20 +290,23 @@ async def process_task_submissions(
                 subject_id = subj[1] if subj else None
                 score_applied = False
 
-                # Опознан → ставим балл (scale_max за выполнение).
+                # Опознан → ставим ВСЕГДА 1 балл за выполнение задания (НЕ scale_max!).
+                # Кодовая фраза = «задание выполнено» → 1 балл. Важность критерия
+                # регулируется его ВЕСОМ (он есть в UI), а не баллом. scale_max для
+                # manual в интерфейсе не показывается и у новых критериев = 10 по
+                # умолчанию — поэтому на него НЕ завязываемся.
                 if recognized:
-                    import json as _json
                     await db.execute(
                         """
                         INSERT INTO tournament_scores
                             (event_id, criterion_id, subject_kind, subject_id,
                              juror_ec_id, scorer, value_number)
-                        VALUES ($1, $2, $3, $4, NULL, 'manual', $5)
+                        VALUES ($1, $2, $3, $4, NULL, 'manual', 1)
                         ON CONFLICT (criterion_id, subject_kind, subject_id)
                             WHERE juror_ec_id IS NULL
-                        DO UPDATE SET value_number = EXCLUDED.value_number, updated_at = now()
+                        DO UPDATE SET value_number = 1, updated_at = now()
                         """,
-                        event_id, c["id"], subject_kind, subject_id, c["scale_max"],
+                        event_id, c["id"], subject_kind, subject_id,
                     )
                     score_applied = True
 
