@@ -27,6 +27,7 @@ from html import escape
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ParseMode
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.types import Message
 
 from app.database import get_pool
@@ -144,7 +145,11 @@ async def handle_group_message(message: Message, bot: Bot):
             chat_id_str,
         )
         if not gate:
-            return
+            # Не гейт-чат → пробрасываем сообщение дальше, чтобы его увидела
+            # слушалка заданий (chat_listener, зарегистрирована ПОСЛЕ гейта).
+            # Без SkipHandler aiogram считает событие обработанным и не передаёт
+            # следующим роутерам → чаты событий не архивировались.
+            raise SkipHandler()
 
         # 2) Защита: бот, обрабатывающий сообщение, должен принадлежать клиенту
         # (либо системному). Если в Dispatcher крутится бот другого клиента —
