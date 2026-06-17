@@ -25,6 +25,9 @@ export default function ContestOverviewTab({
     max: event.chat_url_max || '',
     primary: (event.primary_chat_platform as ChatPlatform | null) || (event.chat_url ? 'telegram' : null),
     chatIds: event.telegram_chat_ids || '',
+    tgChatId: event.tg_chat_id || '',
+    vkChatId: event.vk_chat_id || '',
+    maxChatId: event.max_chat_id || '',
   })
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
@@ -62,6 +65,11 @@ export default function ContestOverviewTab({
       if (chats.primary !== initPrimary)                        payload.primary_chat_platform = chats.primary || null
       const ids = chats.chatIds.trim()
       if (ids !== (event.telegram_chat_ids || ''))              payload.telegram_chat_ids = ids || null
+      // chat_id беседы для слушалки заданий (TG/VK/MAX)
+      const tgci = (chats.tgChatId || '').trim(), vkci = (chats.vkChatId || '').trim(), mxci = (chats.maxChatId || '').trim()
+      if (tgci !== (event.tg_chat_id  || ''))                   payload.tg_chat_id  = tgci || null
+      if (vkci !== (event.vk_chat_id  || ''))                   payload.vk_chat_id  = vkci || null
+      if (mxci !== (event.max_chat_id || ''))                   payload.max_chat_id = mxci || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
       const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
       if (startIso !== eventStartIso)                           payload.start_at = startIso
