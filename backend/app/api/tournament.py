@@ -975,6 +975,98 @@ async def task_control_toggle(event_id: int, data: TaskListenToggle, client=Depe
     return {"ok": True, "enabled": data.enabled}
 
 
+@router.post("/task-control/verify-chat", summary="Контроль заданий: реальная проверка, что бот слушает чат")
+async def task_control_verify_chat(
+    event_id: int,
+    platform: str,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Проверяет НАСТОЯЩУЮ готовность слушания, а не просто «вписан ли ID».
+
+    Telegram: перебираем всех TG-ботов клиента + системный @pluson_bot, для каждого
+    getChatMember(chat_id, bot_id). Бот должен быть В чате (member/administrator) И,
+    чтобы видеть обычные сообщения (хештеги), либо быть админом, либо иметь выключенный
+    privacy mode. Программно privacy для НЕ-админа проверить нельзя, поэтому:
+      • админ → читает всё всегда → ✓
+      • просто участник → читает только если privacy off → ⚠ предупреждаем.
+    VK/MAX: проверяем только что chat_id задан (их слушание устроено иначе).
+    """
+    import httpx
+    await _check_access(event_id, int(client["sub"]), db)
+    cid_client = int(client["sub"])
+
+    col = {"telegram": "tg_chat_id", "vk": "vk_chat_id", "max": "max_chat_id"}.get(platform)
+    if not col:
+        raise HTTPException(status_code=422, detail="Неверная площадка")
+    chat_id = await db.fetchval(f"SELECT {col} FROM events WHERE id=$1", event_id)
+    chat_id = (chat_id or "").strip()
+    if not chat_id:
+        return {"ok": False, "reason": "no_chat_id",
+                "message": "ID чата не задан. Впишите его в настройках чатов события и сохраните."}
+
+    if platform != "telegram":
+        return {"ok": True, "reason": "chat_id_set",
+                "message": f"ID чата {chat_id} задан. Проверка членства бота для этой площадки недоступна — убедитесь, что сообщество добавлено в беседу."}
+
+    # все TG-боты клиента + системный
+    bots = await db.fetch(
+        """SELECT ch.handle, ch.bot_token, ch.is_system
+             FROM client_channels cc JOIN channels ch ON ch.id=cc.channel_id
+            WHERE cc.client_id=$1 AND ch.platform_slug='telegram'
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY ch.is_system ASC""",
+        cid_client,
+    )
+    sys_token = (settings.telegram_bot_token or "").strip()
+    seen_tokens = {b["bot_token"] for b in bots}
+    bot_list = [dict(b) for b in bots]
+    if sys_token and sys_token not in seen_tokens:
+        bot_list.append({"handle": "@pluson_bot", "bot_token": sys_token, "is_system": True})
+
+    checked = []
+    found_admin = None
+    found_member = None
+    async with httpx.AsyncClient(timeout=10) as http:
+        for b in bot_list:
+            token = b["bot_token"]
+            bot_id = token.split(":", 1)[0]
+            try:
+                r = await http.get(
+                    f"https://api.telegram.org/bot{token}/getChatMember",
+                    params={"chat_id": chat_id, "user_id": bot_id})
+                data = r.json()
+            except Exception:
+                continue
+            if not data.get("ok"):
+                checked.append({"handle": b["handle"], "status": "not_in_chat",
+                                "error": data.get("description")})
+                continue
+            res = data.get("result", {})
+            status = res.get("status")
+            can_read = res.get("can_read_all_group_messages")
+            checked.append({"handle": b["handle"], "status": status, "can_read": can_read})
+            if status in ("administrator", "creator"):
+                found_admin = found_admin or b["handle"]
+            elif status in ("member", "restricted"):
+                found_member = found_member or b["handle"]
+
+    if found_admin:
+        return {"ok": True, "reason": "admin",
+                "message": f"✅ Бот {found_admin} — администратор чата {chat_id}. Видит все сообщения, слушание работает.",
+                "checked": checked}
+    if found_member:
+        return {"ok": False, "reason": "member_not_admin",
+                "message": (f"⚠️ Бот {found_member} в чате {chat_id}, но НЕ администратор. "
+                            "Если у него включён privacy mode — он не увидит обычные сообщения с хештегами. "
+                            "Сделайте бота администратором ИЛИ выключите Group Privacy в @BotFather и перезайдите в чат."),
+                "checked": checked}
+    return {"ok": False, "reason": "bot_not_in_chat",
+            "message": (f"❌ Ни один ваш бот не состоит в чате {chat_id}. "
+                        "Добавьте бота в чат и сделайте администратором, затем проверьте снова."),
+            "checked": checked}
+
+
 class StageAudienceUpdate(BaseModel):
     listen_audience: str  # viewers | speakers
 

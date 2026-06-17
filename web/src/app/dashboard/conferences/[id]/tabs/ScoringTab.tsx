@@ -742,6 +742,42 @@ function SnapshotView({ snap, onClose }: any) {
 
 
 // ─────────────────────── Контроль заданий ───────────────────────
+function ChannelStatusCard({ ch, eventId }: { ch: any; eventId: number }) {
+  const [checking, setChecking] = useState(false)
+  const [result, setResult] = useState<any>(null)
+  const verify = async () => {
+    setChecking(true); setResult(null)
+    try {
+      const r = await api.tournament.verifyChat(eventId, ch.platform)
+      setResult(r)
+    } catch (e: any) {
+      setResult({ ok: false, message: 'Не удалось проверить: ' + (e?.message || 'ошибка') })
+    } finally { setChecking(false) }
+  }
+  // итоговый цвет: если проверка была — по её результату, иначе по «вписан ли ID»
+  const realOk = result ? result.ok : ch.ok
+  return (
+    <div className={`rounded-lg border p-3 ${realOk ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+      <div className="flex items-center gap-2">
+        <span className={`text-lg ${realOk ? 'text-green-600' : 'text-gray-400'}`}>{realOk ? '✓' : '✕'}</span>
+        <span className="font-medium text-gray-800">{ch.label}</span>
+      </div>
+      <div className="text-xs text-gray-500 mt-1">
+        {ch.chat_id ? `ID чата: ${ch.chat_id}` : (ch.hint || 'ID чата не задан')}
+      </div>
+      {result && (
+        <div className={`text-xs mt-2 leading-snug ${result.ok ? 'text-green-700' : 'text-amber-700'}`}>{result.message}</div>
+      )}
+      {ch.chat_id && (
+        <button onClick={verify} disabled={checking}
+          className="mt-2 text-xs px-2.5 py-1 rounded-md bg-[#25455D] text-white hover:bg-[#1b3242] disabled:opacity-50">
+          {checking ? 'Проверяю…' : 'Проверить, что бот слушает'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function TaskControlSub({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true)
   const [enabled, setEnabled] = useState(false)
@@ -816,15 +852,7 @@ function TaskControlSub({ eventId }: { eventId: number }) {
       {/* Статус соцсетей */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {channels.map(ch => (
-          <div key={ch.platform} className={`rounded-lg border p-3 ${ch.ok ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
-            <div className="flex items-center gap-2">
-              <span className={`text-lg ${ch.ok ? 'text-green-600' : 'text-gray-400'}`}>{ch.ok ? '✓' : '✕'}</span>
-              <span className="font-medium text-gray-800">{ch.label}</span>
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              {ch.ok ? `Слушаю чат ${ch.chat_id}` : ch.hint}
-            </div>
-          </div>
+          <ChannelStatusCard key={ch.platform} ch={ch} eventId={eventId} />
         ))}
       </div>
 

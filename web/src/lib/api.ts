@@ -724,6 +724,8 @@ export const api = {
     },
     toggleTaskListen: (eventId: number, enabled: boolean) =>
       request(`/api/v1/events/${eventId}/tournament/task-control`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    verifyChat: (eventId: number, platform: string) =>
+      request(`/api/v1/events/${eventId}/tournament/task-control/verify-chat?platform=${platform}`, { method: 'POST' }),
     setStageAudience: (eventId: number, stageId: number, listen_audience: string) =>
       request(`/api/v1/events/${eventId}/tournament/stages/${stageId}/listen-audience`, { method: 'PATCH', body: JSON.stringify({ listen_audience }) }),
   },
