@@ -2450,14 +2450,14 @@ async def public_tournament_table(slug: str, stage_id: int,
                            "weight": p.get("weight", 1),
                            "normalize": bool(p.get("normalize")),
                            "aggregate": p.get("aggregate", "avg"), "span": 1})
-    # +1 колонка "Балл пакета" в конце каждой группы
-    for g in groups:
-        g["span"] += 1
-
     NORM_BADGE = "<span class='norm' title='Критерий нормализуется: баллы приводятся к доле от лучшего результата'>норм.</span>"
 
+    # Порядок колонок (как в дашборде): Место · Участник · ИТОГ ·
+    # блок «Баллы по пакетам» (по 1 колонке на пакет) · затем группы критериев.
     thead_grp = "<th rowspan='2' class='c-place'>Место</th><th rowspan='2' class='c-name'>Участник</th>"
     thead_grp += "<th rowspan='2' class='c-total'>ИТОГ</th>"
+    if groups:
+        thead_grp += f"<th colspan='{len(groups)}' class='c-grp'>Баллы по пакетам</th>"
     for g in groups:
         mode = "сумма" if g.get("aggregate") == "sum" else "среднее"
         extra = (" · норм." if g["normalize"] else "")
@@ -2466,26 +2466,39 @@ async def public_tournament_table(slug: str, stage_id: int,
     crit_by_pkg_seq = {}
     for c in columns:
         crit_by_pkg_seq.setdefault(c["package_id"], []).append(c)
+    # 2-я строка шапки: сначала названия пакетов (для блока «Баллы по пакетам»), затем критерии
     thead_crit = ""
+    for g in groups:
+        thead_crit += (f"<th class='c-pkg'>{esc(g['title'])}"
+                       f"<span class='cw'>вес ×{_fmt_num(g['weight'])} → итог</span></th>")
+    _first_crit_head = True
     for g in groups:
         for c in crit_by_pkg_seq.get(g["pkg_id"], []):
             cw = float(c.get("weight", 1))
-            thead_crit += (f"<th class='c-crit'>{esc(c['title'])}"
+            cls = "c-crit crit-start" if _first_crit_head else "c-crit"
+            thead_crit += (f"<th class='{cls}'>{esc(c['title'])}"
                            f"<span class='cw'>×{_fmt_num(cw)}</span></th>")
-        thead_crit += "<th class='c-pkg'>Балл пакета<span class='cw'>×вес → итог</span></th>"
+            _first_crit_head = False
 
+    total_cols = 3 + len(groups) + sum(g["span"] for g in groups)
     rows_html = ""
     if not table:
-        rows_html = (f"<tr><td colspan='{3 + sum(g['span'] for g in groups)}' class='empty'>"
+        rows_html = (f"<tr><td colspan='{total_cols}' class='empty'>"
                      "Пока нет участников или оценок на этом этапе.</td></tr>")
     for r in table:
         cells = ""
+        # сначала баллы пакетов
+        for g in groups:
+            ps = r.get("package_scores", {}).get(str(g["pkg_id"]))
+            cells += f"<td class='pkg-val'>{_fmt_num(ps)}</td>"
+        # затем значения критериев
+        _first_crit = True
         for g in groups:
             for c in crit_by_pkg_seq.get(g["pkg_id"], []):
                 v = r["cells"].get(str(c["criterion_id"]))
-                cells += f"<td class='val'>{_fmt_num(v)}</td>"
-            ps = r.get("package_scores", {}).get(str(g["pkg_id"]))
-            cells += f"<td class='pkg-val'>{_fmt_num(ps)}</td>"
+                cls = "val crit-start" if _first_crit else "val"
+                cells += f"<td class='{cls}'>{_fmt_num(v)}</td>"
+                _first_crit = False
         place = r["place"]
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(place, "")
         rows_html += (
@@ -2559,6 +2572,7 @@ async def public_tournament_table(slug: str, stage_id: int,
   .c-total {{ font-weight:800; color:#25455D; border-left:2px solid #FFCFA4; background:#FFF7F0; }}
   thead .c-total {{ background:#FFEFE0; }}
   .val {{ color:#41566a; }}
+  .crit-start {{ border-left:2px solid #cdd6df; }}
   tbody tr:nth-child(even) td {{ background:#fafbfc; }}
   tbody tr:nth-child(even) .c-name {{ background:#fafbfc; }}
   tbody tr:nth-child(even) .c-total {{ background:#FFF2E6; }}

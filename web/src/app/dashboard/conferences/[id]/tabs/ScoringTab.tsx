@@ -164,7 +164,7 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
     <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center gap-1.5 flex-1 min-w-[150px]">
         <Pencil size={12} className="text-gray-400 shrink-0" />
-        <input className="flex-1 bg-white border border-gray-200 rounded-md px-2 py-1 text-sm outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
+        <input className="flex-1 bg-white border border-gray-200 rounded-md px-2 py-1 text-sm outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] placeholder:text-gray-300 placeholder:italic"
           defaultValue={crit.title} title="Нажмите, чтобы переименовать критерий" placeholder="Название критерия"
           onBlur={(e) => e.target.value.trim() && e.target.value !== crit.title && save({ title: e.target.value.trim() })} />
       </div>
@@ -194,7 +194,7 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
     </div>
     {/* Описание критерия — что это и как оценивать (видят жюри в кабинете) */}
     <textarea
-      className="w-full bg-white border border-gray-200 rounded-md px-2 py-1 text-xs outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] resize-y"
+      className="w-full bg-white border border-gray-200 rounded-md px-2 py-1 text-xs outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] resize-y placeholder:text-gray-300 placeholder:italic"
       rows={crit.description ? 2 : 1}
       defaultValue={crit.description || ''}
       placeholder="Описание критерия — что это, как оценивать (увидят жюри в своём кабинете)"
@@ -202,9 +202,9 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
     {crit.scorer === 'manual' && (
       <div className="flex items-center gap-1.5">
         <span className="text-[11px] text-gray-500 shrink-0">Кодовая фраза</span>
-        <input className="flex-1 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
+        <input className="flex-1 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] placeholder:text-gray-300 placeholder:italic placeholder:font-sans"
           defaultValue={crit.code_phrase || ''}
-          placeholder="#дз1 — бот засчитает балл по этой фразе в чате"
+          placeholder="не задана — напр. #дз1"
           onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.code_phrase || '')) save({ code_phrase: v || null }) }} />
       </div>
     )}
