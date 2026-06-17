@@ -181,8 +181,21 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str, db: a
     if auto_kind == "referrals":
         if not ref_code:
             return 0.0
+        # Считаем приведённых ТОЧНО так же, как рефералка выдаёт подарки —
+        # по event_referral_settings.gift_count_mode (registered/visited/clicked_link).
+        gift_mode = await db.fetchval(
+            "SELECT gift_count_mode FROM event_referral_settings WHERE event_id = $1",
+            event_id,
+        ) or "registered"
+        if gift_mode == "visited":
+            cond = ""
+        elif gift_mode == "clicked_link":
+            cond = " AND link_clicked_at IS NOT NULL"
+        else:  # registered
+            cond = " AND is_registered = TRUE"
         v = await db.fetchval(
-            "SELECT COUNT(*) FROM event_participants WHERE event_id = $1 AND referrer_ref_code = $2",
+            f"SELECT COUNT(*) FROM event_participants "
+            f"WHERE event_id = $1 AND referrer_ref_code = $2{cond}",
             event_id, ref_code,
         )
         return float(v or 0)
