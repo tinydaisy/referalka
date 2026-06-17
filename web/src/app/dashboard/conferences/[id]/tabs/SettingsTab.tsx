@@ -62,6 +62,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     max: conf?.chat_url_max || '',
     primary: (conf?.primary_chat_platform as ChatPlatform | null) || (conf?.chat_url ? 'telegram' : null),
     chatIds: conf?.telegram_chat_ids || '',
+    tgChatId: conf?.tg_chat_id || '',
+    vkChatId: conf?.vk_chat_id || '',
+    maxChatId: conf?.max_chat_id || '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -89,6 +92,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       max: conf?.chat_url_max || '',
       primary: (conf?.primary_chat_platform as ChatPlatform | null) || (conf?.chat_url ? 'telegram' : null),
       chatIds: conf?.telegram_chat_ids || '',
+      tgChatId: conf?.tg_chat_id || '',
+      vkChatId: conf?.vk_chat_id || '',
+      maxChatId: conf?.max_chat_id || '',
     })
   }, [conf, event?.landing_url, event?.skip_contact_form, event?.description, event?.description_post_register, event?.link_mode])
 
@@ -136,6 +142,11 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (mx !== (conf?.chat_url_max || ''))                           confPatch.chat_url_max = mx || null
       if (chats.primary !== initPrimary)                               confPatch.primary_chat_platform = chats.primary || null
       if (ids !== (conf?.telegram_chat_ids || ''))                     confPatch.telegram_chat_ids = ids || null
+      // chat_id беседы для слушалки заданий (TG/VK/MAX)
+      const tgci = (chats.tgChatId || '').trim(), vkci = (chats.vkChatId || '').trim(), mxci = (chats.maxChatId || '').trim()
+      if (tgci !== (conf?.tg_chat_id  || ''))                          confPatch.tg_chat_id  = tgci || null
+      if (vkci !== (conf?.vk_chat_id  || ''))                          confPatch.vk_chat_id  = vkci || null
+      if (mxci !== (conf?.max_chat_id || ''))                          confPatch.max_chat_id = mxci || null
 
       if (Object.keys(confPatch).length > 0) {
         const updated = await api.conference.update(eventId, confPatch)

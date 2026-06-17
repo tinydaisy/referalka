@@ -754,13 +754,21 @@ function ChannelStatusCard({ ch, eventId }: { ch: any; eventId: number }) {
       setResult({ ok: false, message: 'Не удалось проверить: ' + (e?.message || 'ошибка') })
     } finally { setChecking(false) }
   }
-  // итоговый цвет: если проверка была — по её результату, иначе по «вписан ли ID»
-  const realOk = result ? result.ok : ch.ok
+  // 3 состояния: проверено-ОК (зелёный) / проверено-проблема (красный) /
+  // не проверено (нейтральный жёлтый, ID задан но галки нет — нужно нажать «Проверить»)
+  const state: 'ok' | 'fail' | 'unknown' =
+    result ? (result.ok ? 'ok' : 'fail') : (ch.has_id || ch.chat_id ? 'unknown' : 'fail')
+  const border = state === 'ok' ? 'border-green-200 bg-green-50'
+    : state === 'fail' ? 'border-gray-200 bg-gray-50'
+    : 'border-amber-200 bg-amber-50'
+  const icon = state === 'ok' ? '✓' : state === 'fail' ? '✕' : '•'
+  const iconColor = state === 'ok' ? 'text-green-600' : state === 'fail' ? 'text-gray-400' : 'text-amber-500'
   return (
-    <div className={`rounded-lg border p-3 ${realOk ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+    <div className={`rounded-lg border p-3 ${border}`}>
       <div className="flex items-center gap-2">
-        <span className={`text-lg ${realOk ? 'text-green-600' : 'text-gray-400'}`}>{realOk ? '✓' : '✕'}</span>
+        <span className={`text-lg ${iconColor}`}>{icon}</span>
         <span className="font-medium text-gray-800">{ch.label}</span>
+        {state === 'unknown' && <span className="text-[10px] text-amber-600">не проверено</span>}
       </div>
       <div className="text-xs text-gray-500 mt-1">
         {ch.chat_id ? `ID чата: ${ch.chat_id}` : (ch.hint || 'ID чата не задан')}
@@ -768,7 +776,7 @@ function ChannelStatusCard({ ch, eventId }: { ch: any; eventId: number }) {
       {result && (
         <div className={`text-xs mt-2 leading-snug ${result.ok ? 'text-green-700' : 'text-amber-700'}`}>{result.message}</div>
       )}
-      {ch.chat_id && (
+      {(ch.chat_id || ch.has_id) && (
         <button onClick={verify} disabled={checking}
           className="mt-2 text-xs px-2.5 py-1 rounded-md bg-[#25455D] text-white hover:bg-[#1b3242] disabled:opacity-50">
           {checking ? 'Проверяю…' : 'Проверить, что бот слушает'}

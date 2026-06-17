@@ -900,10 +900,15 @@ async def _chat_listen_status(event_id: int, db: asyncpg.Connection) -> list[dic
         out.append({
             "platform": plat,
             "label": label,
-            "ok": has_chat,
+            # ⚠️ Зелёная галка НЕ ставится просто по факту вписанного ID —
+            # только после реальной проверки кнопкой «Проверить, что бот слушает».
+            # has_id=True → карточка нейтральная с кнопкой проверки.
+            "ok": False,
+            "has_id": has_chat,
             "chat_id": cid or "",
             "hint": (
-                "" if has_chat else
+                f"ID чата {label} задан. Нажмите «Проверить», чтобы убедиться, что бот реально его слушает."
+                if has_chat else
                 f"Не указан ID чата {label}. Добавьте бота в чат, напишите /chatid и впишите ID в настройках чатов события."
             ),
         })
