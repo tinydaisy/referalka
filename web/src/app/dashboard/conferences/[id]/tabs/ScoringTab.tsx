@@ -865,6 +865,10 @@ function TaskControlSub({ eventId }: { eventId: number }) {
           <div className="text-sm text-white/70 mt-0.5">
             Бот ловит сообщения с кодовыми фразами критериев и автоматически ставит баллы.
           </div>
+          <a href="/dashboard/help/tournament-task-control" target="_blank" rel="noopener noreferrer"
+             className="inline-flex items-center gap-1 text-xs text-[#FFCFA4] hover:underline mt-2">
+            📖 Как настроить — пошаговая инструкция
+          </a>
         </div>
         <button onClick={toggleListen}
           className={`relative w-16 h-9 rounded-full transition-colors shrink-0 ${enabled ? 'bg-[#FFCFA4]' : 'bg-white/20'}`}>
