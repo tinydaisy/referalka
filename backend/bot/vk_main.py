@@ -772,11 +772,12 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
 
     ⚠️ Отдельно от логики лички — ничего не отвечает (кроме команды /chatid),
     только пишет в event_chat_messages, если беседа привязана к событию.
-    chat_id беседы VK = peer_id - 2000000000.
+    chat_id беседы VK = ПОЛНЫЙ peer_id (2000000000 + N), НЕ урезанный N —
+    урезанный «1» неуникален между сообществами и ложно матчит чужие события.
     """
     from app.services.chat_archive import archive_chat_message, remember_known_chat
 
-    chat_id = str(peer_id - 2000000000)
+    chat_id = str(peer_id)
     text = message.get("text") or ""
 
     # Команда /chatid — единственный случай отправки в беседу: числовой chat_id
@@ -892,9 +893,9 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     if not from_id or from_id < 0:  # отрицательные = от сообщества
         return
 
-    # Сообщения из беседы/мультичата сообщества (peer_id = 2000000000 + chat_id):
+    # Сообщения из беседы/мультичата сообщества (peer_id ≥ 2000000001):
     # НЕ запускаем логику лички (воронки/уведомления), но СЛУШАЕМ для архива
-    # заданий (отдельная слушалка чатов). chat_id беседы = peer_id - 2000000000.
+    # заданий (отдельная слушалка чатов). chat_id беседы = ПОЛНЫЙ peer_id.
     peer_id = message.get("peer_id")
     if peer_id is not None and int(peer_id) != int(from_id):
         try:
