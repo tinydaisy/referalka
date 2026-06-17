@@ -754,25 +754,40 @@ function ChannelStatusCard({ ch, eventId }: { ch: any; eventId: number }) {
       setResult({ ok: false, message: 'Не удалось проверить: ' + (e?.message || 'ошибка') })
     } finally { setChecking(false) }
   }
-  // 3 состояния: проверено-ОК (зелёный) / проверено-проблема (красный) /
-  // не проверено (нейтральный жёлтый, ID задан но галки нет — нужно нажать «Проверить»)
+  // 3 состояния. Приоритет: свежий результат кнопки → сохранённый в БД статус
+  // (ch.checked, «прилипает» после перезагрузки) → «не проверено» (жёлтый).
   const state: 'ok' | 'fail' | 'unknown' =
-    result ? (result.ok ? 'ok' : 'fail') : (ch.has_id || ch.chat_id ? 'unknown' : 'fail')
+    result ? (result.ok ? 'ok' : 'fail')
+    : ch.checked ? (ch.ok ? 'ok' : 'fail')
+    : (ch.has_id || ch.chat_id ? 'unknown' : 'fail')
   const border = state === 'ok' ? 'border-green-200 bg-green-50'
     : state === 'fail' ? 'border-gray-200 bg-gray-50'
     : 'border-amber-200 bg-amber-50'
   const icon = state === 'ok' ? '✓' : state === 'fail' ? '✕' : '•'
   const iconColor = state === 'ok' ? 'text-green-600' : state === 'fail' ? 'text-gray-400' : 'text-amber-500'
+  // подпись-чип у заголовка
+  const tag = state === 'ok' ? <span className="text-[10px] text-green-600">слушает ✓</span>
+    : state === 'fail' && ch.checked ? <span className="text-[10px] text-gray-500">проблема</span>
+    : state === 'unknown' ? <span className="text-[10px] text-amber-600">не проверено</span>
+    : null
+  // дата прошлой проверки
+  const fmtAt = ch.checked_at ? new Date(ch.checked_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null
   return (
     <div className={`rounded-lg border p-3 ${border}`}>
       <div className="flex items-center gap-2">
         <span className={`text-lg ${iconColor}`}>{icon}</span>
         <span className="font-medium text-gray-800">{ch.label}</span>
-        {state === 'unknown' && <span className="text-[10px] text-amber-600">не проверено</span>}
+        {tag}
       </div>
       <div className="text-xs text-gray-500 mt-1">
         {ch.chat_id ? `ID чата: ${ch.chat_id}` : (ch.hint || 'ID чата не задан')}
       </div>
+      {/* сохранённый результат прошлой проверки (если кнопку сейчас не жали) */}
+      {!result && ch.checked && ch.checked_message && (
+        <div className={`text-xs mt-2 leading-snug ${ch.ok ? 'text-green-700' : 'text-amber-700'}`}>
+          {ch.checked_message}{fmtAt && <span className="text-gray-400"> · проверено {fmtAt}</span>}
+        </div>
+      )}
       {result && (
         <div className={`text-xs mt-2 leading-snug ${result.ok ? 'text-green-700' : 'text-amber-700'}`}>{result.message}</div>
       )}

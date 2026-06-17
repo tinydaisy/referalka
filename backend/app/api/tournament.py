@@ -888,8 +888,13 @@ async def _chat_listen_status(event_id: int, db: asyncpg.Connection) -> list[dic
     Умею если: у события задан chat_id этой площадки И у клиента есть бот/сообщество
     на ней (или системный для TG). Иначе — нет, со ссылкой-подсказкой на настройку.
     """
+    import json as _json
     ev = await db.fetchrow(
-        "SELECT tg_chat_id, vk_chat_id, max_chat_id FROM events WHERE id=$1", event_id)
+        "SELECT tg_chat_id, vk_chat_id, max_chat_id, chat_listen_check FROM events WHERE id=$1", event_id)
+    # Сохранённые результаты последней проверки (по платформам), чтобы статус
+    # «прилипал» после перезагрузки страницы, а не сбрасывался в «не проверено».
+    raw = ev["chat_listen_check"] if ev else None
+    checks = raw if isinstance(raw, dict) else (_json.loads(raw) if raw else {})
     out = []
     for plat, label, cid in (
         ("telegram", "Telegram", ev["tg_chat_id"] if ev else None),
@@ -897,16 +902,28 @@ async def _chat_listen_status(event_id: int, db: asyncpg.Connection) -> list[dic
         ("max", "MAX", ev["max_chat_id"] if ev else None),
     ):
         has_chat = bool((cid or "").strip())
+        chk = checks.get(plat) if isinstance(checks, dict) else None
+        # Результат прошлой проверки актуален только если ID не менялся с тех пор.
+        checked_ok = None
+        checked_at = None
+        checked_msg = None
+        if chk and isinstance(chk, dict) and (chk.get("chat_id") or "") == (cid or ""):
+            checked_ok = bool(chk.get("ok"))
+            checked_at = chk.get("at")
+            checked_msg = chk.get("message")
         out.append({
             "platform": plat,
             "label": label,
-            # ⚠️ Зелёная галка НЕ ставится просто по факту вписанного ID —
-            # только после реальной проверки кнопкой «Проверить, что бот слушает».
-            # has_id=True → карточка нейтральная с кнопкой проверки.
-            "ok": False,
+            # Зелёная галка — только если ПОСЛЕДНЯЯ проверка для текущего ID была ok.
+            "ok": bool(checked_ok),
             "has_id": has_chat,
             "chat_id": cid or "",
+            "checked": checked_ok is not None,   # проверяли ли вообще этот ID
+            "checked_at": checked_at,
+            "checked_message": checked_msg,
             "hint": (
+                (checked_msg or f"Проверено: бот слушает {label}.") if checked_ok else
+                (checked_msg or f"Проверка показала проблему — бот не слушает {label}.") if checked_ok is False else
                 f"ID чата {label} задан. Нажмите «Проверить», чтобы убедиться, что бот реально его слушает."
                 if has_chat else
                 f"Не указан ID чата {label}. Добавьте бота в чат, напишите /chatid и впишите ID в настройках чатов события."
@@ -1004,15 +1021,38 @@ async def task_control_verify_chat(
     col = {"telegram": "tg_chat_id", "vk": "vk_chat_id", "max": "max_chat_id"}.get(platform)
     if not col:
         raise HTTPException(status_code=422, detail="Неверная площадка")
+    import json as _json
+    from datetime import datetime, timezone
+
     chat_id = await db.fetchval(f"SELECT {col} FROM events WHERE id=$1", event_id)
     chat_id = (chat_id or "").strip()
+
+    async def _save_and_return(result: dict):
+        """Сохраняет результат проверки в events.chat_listen_check[platform],
+        чтобы статус «прилипал» после перезагрузки страницы."""
+        entry = {
+            "ok": bool(result.get("ok")),
+            "chat_id": chat_id,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "message": result.get("message"),
+        }
+        await db.execute(
+            "UPDATE events SET chat_listen_check = "
+            "  COALESCE(chat_listen_check, '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb) "
+            "WHERE id = $1",
+            event_id, platform, _json.dumps(entry, ensure_ascii=False),
+        )
+        return result
+
     if not chat_id:
-        return {"ok": False, "reason": "no_chat_id",
-                "message": "ID чата не задан. Впишите его в настройках чатов события и сохраните."}
+        return await _save_and_return({"ok": False, "reason": "no_chat_id",
+                "message": "ID чата не задан. Впишите его в настройках чатов события и сохраните."})
 
     if platform != "telegram":
-        return {"ok": True, "reason": "chat_id_set",
-                "message": f"ID чата {chat_id} задан. Проверка членства бота для этой площадки недоступна — убедитесь, что сообщество добавлено в беседу."}
+        # VK/MAX: getChatMember недоступен. Не врём зелёной галкой — ok=False,
+        # но честно поясняем что проверить членство нельзя.
+        return await _save_and_return({"ok": False, "reason": "chat_id_set",
+                "message": f"ID чата {chat_id} задан. Для {('ВКонтакте' if platform=='vk' else 'MAX')} автопроверка членства бота недоступна — убедитесь вручную, что сообщество добавлено в беседу администратором и приходят сообщения."})
 
     # все TG-боты клиента + системный
     bots = await db.fetch(
@@ -1057,19 +1097,19 @@ async def task_control_verify_chat(
                 found_member = found_member or b["handle"]
 
     if found_admin:
-        return {"ok": True, "reason": "admin",
+        return await _save_and_return({"ok": True, "reason": "admin",
                 "message": f"✅ Бот {found_admin} — администратор чата {chat_id}. Видит все сообщения, слушание работает.",
-                "checked": checked}
+                "checked": checked})
     if found_member:
-        return {"ok": False, "reason": "member_not_admin",
+        return await _save_and_return({"ok": False, "reason": "member_not_admin",
                 "message": (f"⚠️ Бот {found_member} в чате {chat_id}, но НЕ администратор. "
                             "Если у него включён privacy mode — он не увидит обычные сообщения с хештегами. "
                             "Сделайте бота администратором ИЛИ выключите Group Privacy в @BotFather и перезайдите в чат."),
-                "checked": checked}
-    return {"ok": False, "reason": "bot_not_in_chat",
+                "checked": checked})
+    return await _save_and_return({"ok": False, "reason": "bot_not_in_chat",
             "message": (f"❌ Ни один ваш бот не состоит в чате {chat_id}. "
                         "Добавьте бота в чат и сделайте администратором, затем проверьте снова."),
-            "checked": checked}
+            "checked": checked})
 
 
 class StageAudienceUpdate(BaseModel):
