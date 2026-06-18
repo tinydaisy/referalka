@@ -951,8 +951,14 @@ function TaskControlSub({ eventId }: { eventId: number }) {
                 <tr key={s.id} className={`border-t border-gray-100 ${!s.recognized ? 'bg-red-50' : ''}`}>
                   <td className="px-2 py-1.5">
                     {s.recognized
-                      ? (s.participant_name || `#${s.subject_id}`)
-                      : <span className="text-red-600 font-medium">{s.author_name || s.username || s.platform_user_id} · не опознан</span>}
+                      ? <>
+                          <div>{s.participant_name || `#${s.subject_id}`}</div>
+                          {s.username && <div className="text-[10px] text-gray-400 leading-tight">@{s.username}</div>}
+                        </>
+                      : <>
+                          <span className="text-red-600 font-medium">{s.author_name || s.username || s.platform_user_id} · не опознан</span>
+                          {s.username && <div className="text-[10px] text-gray-400 leading-tight">@{s.username}</div>}
+                        </>}
                   </td>
                   <td className="px-2 py-1.5">{platLabel}</td>
                   <td className="px-2 py-1.5 whitespace-nowrap">{d}</td>
