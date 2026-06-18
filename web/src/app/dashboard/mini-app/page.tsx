@@ -645,7 +645,7 @@ function SubBlock({
             <div className="flex-1 min-w-0">
               <p className="font-medium text-gray-900">{o.title}</p>
               {o.description && (
-                <p className="text-gray-500 text-sm mt-1">{o.description}</p>
+                <p className="text-gray-500 text-sm mt-1 whitespace-pre-wrap break-words">{o.description}</p>
               )}
               {o.action_url && (
                 <a href={o.action_url} target="_blank" rel="noreferrer"

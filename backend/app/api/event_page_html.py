@@ -20,6 +20,7 @@ from app.database import get_db
 from app.services.collaborator_sort import order_by_sql
 import asyncpg
 import html as _html
+import re as _re
 import json
 
 router = APIRouter(tags=["Публичная HTML-страница события"])
@@ -324,6 +325,35 @@ def _parse_jsonb_obj(value):
 
 def esc(s) -> str:
     return _html.escape(str(s)) if s is not None else ""
+
+
+_URL_RE = _re.compile(r'(https?://[^\s<>"\']+)')
+
+
+def _rich_text(s) -> str:
+    """Plain-текст пользователя → безопасный HTML с сохранением переносов
+    строк (\\n → <br>) и кликабельными ссылками. Сначала экранируем весь
+    текст (защита от инъекций), потом по экранированному прогоняем URL-регэксп
+    и оборачиваем ссылки в <a>, и в конце переводы строк → <br>."""
+    if s is None:
+        return ""
+    out_parts = []
+    last = 0
+    raw = str(s)
+    for m in _URL_RE.finditer(raw):
+        if m.start() > last:
+            out_parts.append(esc(raw[last:m.start()]))
+        url = m.group(0)
+        url_esc = esc(url)
+        out_parts.append(
+            f'<a href="{url_esc}" target="_blank" rel="noopener" '
+            f'style="color:#25455D;text-decoration:underline;'
+            f'word-break:break-word">{url_esc}</a>'
+        )
+        last = m.end()
+    if last < len(raw):
+        out_parts.append(esc(raw[last:]))
+    return "".join(out_parts).replace("\r\n", "\n").replace("\n", "<br>")
 
 
 def _fmt_time(v):
@@ -1042,7 +1072,7 @@ def _offering_card(o) -> str:
     cover = esc(o.get("cover_url") or "")
     is_paid = bool(o.get("is_paid"))
     title = esc(o.get("title") or "")
-    desc = esc(o.get("description") or "")
+    desc = _rich_text(o.get("description") or "")
     action = (o.get("action_url") or "").strip()
     if cover:
         ico_html = (f'<div class="off-cover" style="background:center/cover '

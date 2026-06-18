@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getClientProfile, getClientOfferings } from '../api'
 import OwnerPage from '../pages/OwnerPage'
+import EventDescription from '../components/EventDescription'
+import { linkify } from '../utils/linkify'
 
 interface Props { clientId: number }
 
@@ -67,7 +69,11 @@ function OfferingCard({ o }: { o: Offering }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#1a2a3a', marginBottom: 3 }}>{o.title}</div>
           {o.description && (
-            <div style={{ fontSize: 12, color: '#6b7c8e', lineHeight: 1.4, marginBottom: 6 }}>{o.description}</div>
+            <EventDescription
+              text={o.description}
+              style={{ fontSize: 12, color: '#6b7c8e', lineHeight: 1.4, marginBottom: 6 }}
+              renderPlain={(t) => linkify(t)}
+            />
           )}
           {!o.is_paid && (
             <div style={{ fontSize: 13, fontWeight: 700, color: '#2e7d32' }}>Бесплатно</div>
