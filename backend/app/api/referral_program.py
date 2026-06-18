@@ -834,6 +834,8 @@ async def export_speaker_materials(
             lines.append(f"Телеграм: {links['telegram']}")
         if links.get("vk"):
             lines.append(f"Без ВПН через ВК: {links['vk']}")
+        if links.get("max"):
+            lines.append(f"MAX: {links['max']}")
         blocks.append("\n\n".join(lines))
     separator = "\n\n" + ("—" * 30) + "\n\n"
     ref_doc = separator.join(blocks) if blocks else "Нет коллабораторов с реф-ссылками."
