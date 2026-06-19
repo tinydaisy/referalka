@@ -29,6 +29,7 @@ type Sess = {
   start_time: string | null
   end_time: string | null
   title: string
+  speaker_id?: number | null
   speaker_name?: string | null
   sort_order: number
 }
@@ -62,8 +63,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   const [dirtyStages, setDirtyStages] = useState<Set<number>>(new Set())
   const [dirtyDays, setDirtyDays] = useState<Set<number>>(new Set())
 
-  // Модалка добавления сессии
-  const [sessionModal, setSessionModal] = useState<{ day: number } | null>(null)
+  // Модалка добавления/редактирования сессии (editId !== null → правка)
+  const [sessionModal, setSessionModal] = useState<{ day: number; editId: number | null } | null>(null)
   const [sessionForm, setSessionForm] = useState({ title: '', topic_id: '', speaker_id: '', start_time: '', end_time: '' })
   const [speakerTopics, setSpeakerTopics] = useState<{ id: number; topic: string }[]>([])
   const [customTitle, setCustomTitle] = useState(false)
@@ -259,22 +260,49 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     setSessionForm(f => ({ ...f, speaker_id: speakerId, topic_id: autoTopicId, title: autoTitle }))
   }
 
+  function openSessionEdit(s: Sess) {
+    // Определяем темы спикера, чтобы корректно отрисовать селектор тем
+    const sp = speakers.find((x: any) => String(x.id) === String(s.speaker_id ?? ''))
+    const topics: { id: number; topic: string }[] = sp?.topics && sp.topics.length > 0 ? sp.topics : []
+    setSpeakerTopics(topics)
+    // Если title не совпадает ни с одной темой спикера — это произвольное название
+    const matchesTopic = topics.some(t => t.topic === s.title)
+    setCustomTitle(topics.length > 1 && !matchesTopic)
+    setSessionForm({
+      title: s.title || '',
+      topic_id: '',
+      speaker_id: s.speaker_id != null ? String(s.speaker_id) : '',
+      start_time: s.start_time || '',
+      end_time: s.end_time || '',
+    })
+    setSessionModal({ day: s.day, editId: s.id })
+  }
+
+  function closeSessionModal() {
+    setSessionModal(null)
+    setSessionForm({ title: '', topic_id: '', speaker_id: '', start_time: '', end_time: '' })
+    setSpeakerTopics([])
+    setCustomTitle(false)
+  }
+
   async function addSession() {
     if (!sessionModal || !sessionForm.title.trim()) return
     setSavingSession(true)
     try {
-      await api.conference.sessions.create(eventId, {
+      const payload = {
         day: sessionModal.day,
         title: sessionForm.title || undefined,
         topic_id: sessionForm.topic_id ? Number(sessionForm.topic_id) : undefined,
         speaker_id: sessionForm.speaker_id ? Number(sessionForm.speaker_id) : null,
         start_time: sessionForm.start_time || null,
         end_time: sessionForm.end_time || null,
-      })
-      setSessionModal(null)
-      setSessionForm({ title: '', topic_id: '', speaker_id: '', start_time: '', end_time: '' })
-      setSpeakerTopics([])
-      setCustomTitle(false)
+      }
+      if (sessionModal.editId != null) {
+        await api.conference.sessions.update(eventId, sessionModal.editId, payload)
+      } else {
+        await api.conference.sessions.create(eventId, payload)
+      }
+      closeSessionModal()
       await load()
     } catch (err: any) { alert(err.message) } finally { setSavingSession(false) }
   }
@@ -287,8 +315,19 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   if (loading) return <div className="flex justify-center py-12"><Spinner className="text-brand text-2xl" /></div>
 
   const stagesSorted = [...stages].sort((a, b) => a.sort_order - b.sort_order)
+  // Дни выстраиваются по введённой дате (а не по номеру/порядку создания):
+  // так новый день с датой между двумя существующими сам встаёт на нужное место.
+  // Берём дату из формы (dayForms) — она отражает то, что клиент вводит прямо сейчас.
+  // Дни без даты — в конце, по номеру.
+  const dayDate = (d: Day) => (dayForms[d.day_number]?.day_date ?? d.day_date) || ''
   const daysByStage = (stageId: number | null) =>
-    days.filter(d => d.stage_id === stageId).sort((a, b) => a.day_number - b.day_number)
+    days.filter(d => d.stage_id === stageId).sort((a, b) => {
+      const da = dayDate(a), db_ = dayDate(b)
+      if (da && db_) return da < db_ ? -1 : da > db_ ? 1 : a.day_number - b.day_number
+      if (da) return -1
+      if (db_) return 1
+      return a.day_number - b.day_number
+    })
   const orphanDays = daysByStage(null)
 
   return (
@@ -408,7 +447,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   stages={stagesSorted}
                   onPatchDay={(patch) => patchDayForm(day.day_number, patch)}
                   onDelete={() => deleteDay(day.day_number)}
-                  onAddSession={() => setSessionModal({ day: day.day_number })}
+                  onAddSession={() => setSessionModal({ day: day.day_number, editId: null })}
+                  onEditSession={openSessionEdit}
                   onDeleteSession={deleteSession}
                 />
               ))}
@@ -491,7 +531,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 
       {/* Модалка добавления сессии */}
       {sessionModal && (
-        <Modal title={`Слот · день ${sessionModal.day}`} onClose={() => { setSessionModal(null); setSpeakerTopics([]); setCustomTitle(false) }}>
+        <Modal title={`${sessionModal.editId != null ? 'Редактировать слот' : 'Слот'} · день ${sessionModal.day}`} onClose={closeSessionModal}>
           <div className="space-y-3">
             <div>
               <label className="label">Спикер</label>
@@ -552,9 +592,9 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           <div className="flex gap-3 mt-5">
             <button onClick={addSession} disabled={!sessionForm.title.trim() || savingSession}
               className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${savingSession ? 'btn-loading' : ''}`}>
-              {savingSession ? <><Spinner /> Сохраняем...</> : 'Добавить слот'}
+              {savingSession ? <><Spinner /> Сохраняем...</> : (sessionModal.editId != null ? 'Сохранить слот' : 'Добавить слот')}
             </button>
-            <button onClick={() => setSessionModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Отмена</button>
+            <button onClick={closeSessionModal} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Отмена</button>
           </div>
         </Modal>
       )}
@@ -566,7 +606,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 
 function DayBlock({
   day, dayForm, sessions, stages,
-  onPatchDay, onDelete, onAddSession, onDeleteSession,
+  onPatchDay, onDelete, onAddSession, onEditSession, onDeleteSession,
 }: {
   day: Day
   dayForm: Partial<Day>
@@ -575,6 +615,7 @@ function DayBlock({
   onPatchDay: (patch: Partial<Day>) => void
   onDelete: () => void
   onAddSession: () => void
+  onEditSession: (s: Sess) => void
   onDeleteSession: (id: number) => void
 }) {
   return (
@@ -653,15 +694,21 @@ function DayBlock({
           <div className="space-y-1 mb-2">
             {sessions.map(s => (
               <div key={s.id} className="flex items-start gap-3 group py-1">
-                <span className="text-[11px] text-gray-400 w-32 shrink-0 pt-0.5 font-mono whitespace-nowrap">
-                  {s.start_time || ''}{s.end_time ? ` — ${s.end_time}` : ''}{s.start_time ? ' МСК' : ''}
-                </span>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">{s.title}</p>
-                  {s.speaker_name && <p className="text-xs text-gray-400">{s.speaker_name}</p>}
-                </div>
+                <button
+                  onClick={() => onEditSession(s)}
+                  className="flex items-start gap-3 flex-1 text-left rounded-lg -mx-1 px-1 hover:bg-gray-50 transition-colors"
+                  title="Редактировать слот"
+                >
+                  <span className="text-[11px] text-gray-400 w-32 shrink-0 pt-0.5 font-mono whitespace-nowrap">
+                    {s.start_time || ''}{s.end_time ? ` — ${s.end_time}` : ''}{s.start_time ? ' МСК' : ''}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900 group-hover:text-brand transition-colors">{s.title}</p>
+                    {s.speaker_name && <p className="text-xs text-gray-400">{s.speaker_name}</p>}
+                  </div>
+                </button>
                 <button onClick={() => onDeleteSession(s.id)}
-                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-1 rounded">
+                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-1 rounded shrink-0">
                   <Trash2 size={12} />
                 </button>
               </div>
