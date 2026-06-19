@@ -425,6 +425,22 @@ export const api = {
     remove: (stepId: number) =>
       request(`/api/v1/events/nurture-reg/steps/${stepId}`, { method: 'DELETE' }),
   },
+  // Тарифы мероприятия (миграция 157) — только для тарифа клиента vip
+  eventTariffs: {
+    list: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs`),
+    create: (eventId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tariffs`, {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    update: (eventId: number, tariffId: number, data: any) =>
+      request(`/api/v1/events/${eventId}/tariffs/${tariffId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    remove: (eventId: number, tariffId: number) =>
+      request(`/api/v1/events/${eventId}/tariffs/${tariffId}`, { method: 'DELETE' }),
+    buyers: (eventId: number, tariffId: number) =>
+      request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers`),
+  },
   channels: {
     list: () => request('/api/v1/channels'),
     get: (id: number) => request(`/api/v1/channels/${id}`),

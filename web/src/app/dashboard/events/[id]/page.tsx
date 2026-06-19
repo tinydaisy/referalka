@@ -9,10 +9,12 @@ import ReferralProgramTab from './tabs/ReferralProgramTab'
 import CoOrganizersTab from './tabs/CoOrganizersTab'
 import NurtureTab from './tabs/NurtureTab'
 import WelcomeTab from './tabs/WelcomeTab'
+import TariffsTab from './tabs/TariffsTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
+import { useMe } from '@/hooks/useMe'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture' | 'welcome'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -21,6 +23,9 @@ export default function EventPage() {
   const [event, setEvent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
+  const { me } = useMe()
+  // Раздел «Тарифы» — только для клиентов тарифа vip (Марго).
+  const isVip = me?.subscription?.tariff_slug === 'vip'
 
   async function reload() {
     const e = await api.events.get(eventId)
@@ -55,6 +60,8 @@ export default function EventPage() {
     { key: 'referral',      label: 'Реф-программа' },
     { key: 'nurture',       label: 'Воронка догрева' },
     { key: 'welcome',       label: 'Приветствие' },
+    // «Тарифы» — только на тарифе клиента vip.
+    ...(isVip ? [{ key: 'tariffs' as TabKey, label: 'Тарифы' }] : []),
     { key: 'participants',  label: 'Участники' },
   ]
 
@@ -129,6 +136,7 @@ export default function EventPage() {
       {activeTab === 'co_organizers' && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
       {activeTab === 'nurture'       && <NurtureTab eventId={eventId} />}
       {activeTab === 'welcome'       && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
+      {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} moduleSlug={event.module_slug} />}
     </div>
   )

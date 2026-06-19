@@ -89,6 +89,28 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Тарифы мероприятия + вебхук «оплатил» (миграция 157 от 2026-06-19)
+
+**Зачем.** Раньше «VIP» события = одна ссылка `events.vip_url` без признака покупки на участнике. Из GetCourse приходил только вебхук «зарегистрировался» (`/integrations/getcourse/register`), аналога «оплатил» не было. Поле `is_vip` у участника некорректно — у события может быть несколько платных тарифов. Решение: настраиваемые тарифы события + связь «кто что оплатил».
+
+**Доступ — только тариф клиента `vip`** (у Марго на проде называется «МЕДИА-VIP», но slug в БД = `vip`). Гейтинг на фронте `me.subscription.tariff_slug === 'vip'`, на бэке write-операции CRUD → 403 для остальных (`_assert_vip` через `get_subscription`). Раздел показывается у Марго (client_id 1), у start/pro/trial — нет.
+
+**БД (миграция 157):**
+- `event_tariffs (id, event_id, code, title, description, price, pay_url, sort_order, is_active, created_at, updated_at)` — тарифы события. `UNIQUE(event_id, code)`. `code` (lowercase) — стабильный идентификатор для вебхука оплаты (напр. `vip`).
+- `event_participant_tariffs (id, event_id, participant_id, tariff_id, paid_at, source, amount, external_payment_id)` — кто что оплатил. M2M, `UNIQUE(participant_id, tariff_id)` (повторный вебхук → UPSERT, без дублей).
+- `events.offer_url TEXT NULL` — оферта мероприятия, одна на событие, ссылкой.
+- GRANT-ы на `plusson` для обеих таблиц + sequences.
+
+**Бэкенд:**
+- CRUD — [backend/app/api/event_tariffs.py](backend/app/api/event_tariffs.py), роутер `/api/v1/events/{event_id}/tariffs` (`list`/`create`/`patch`/`delete` + `/{id}/buyers` — кто оплатил с платформами tg/vk/max/email). Зарегистрирован в [main.py](backend/app/main.py).
+- **Вебхук оплаты** — `POST/GET /integrations/payment/paid` ([integrations.py](backend/app/api/integrations.py), `_mark_payment`). Нейтральное имя (GetCourse/Продамус/ЮKassa). Принимает `client_id`, `secret`, `participant_id`|`email`, **`tariff_code`** (обязателен — какой тариф; или явный `tariff_id`), опц. `amount`/`external_payment_id`/`source`. Резолв участника — общий хелпер `_resolve_participant_row` (вынесен из `_register_by_participant`, переиспользуется). UPSERT в `event_participant_tariffs` + выставляет `is_registered=TRUE` + `finalize_participant_registration` (оплата = регистрация).
+- **Виджет для стороннего лендинга** — `GET /api/v1/public/landing-widget/events/{slug}/tariffs` ([landing_widget.py](backend/app/api/landing_widget.py)), CORS `*`, отдаёт активные тарифы + `offer_url`. Клиент верстает кнопки «Купить» сам по `pay_url`.
+- `offer_url` пробрасывается через `EventUpdate` ([events.py](backend/app/api/events.py)) + EVENT_FIELDS/GET conference ([modules/conference.py](backend/app/api/modules/conference.py)) — как `vip_url`.
+
+**Фронт:** вкладка «Тарифы» ([web/.../events/[id]/tabs/TariffsTab.tsx](web/src/app/dashboard/events/%5Bid%5D/tabs/TariffsTab.tsx)) — CRUD тарифов + блок «Оферта события» + модалка «Кто оплатил». Подключена условно (`isVip`) в карточке мероприятия и конференции/турнира. api-группа `api.eventTariffs.*`.
+
+**На будущее (не сделано):** встроенный приём денег внутри ПЛЮСОНа = эквайринг/54-ФЗ, отдельный большой проект. Продамус/ЮKassa автоматизируются именно через вебхук `/integrations/payment/paid`.
+
 ### Гейт по подписке в TG-чатах + массив каналов основателя (миграции 114, 115 от 2026-05-26)
 
 **Зачем.** Клиент включает в своих Telegram-чатах правило: участник может писать только если подписан на ВСЕ TG-каналы основателя клиента. Раньше у клиента поддерживался ОДИН TG-канал (`clients.social_links->>'telegram'` + `telegram_chat_id`). Теперь — **массив** каналов (несколько TG-каналов основателя).

@@ -888,6 +888,8 @@ function SubscriptionTab() {
     awards:           'Премии',
     channels:         'Свой брендированный бот',
     export_contacts:  'Экспорт контактов',
+    collab_hub:       'Коллабораторная (Хаб)',
+    contests:         'Участие в конкурсах',
   }
   const isExpired = !sub || !sub.is_active || sub.days_left < 0
   const expiresStr = sub?.expires_at

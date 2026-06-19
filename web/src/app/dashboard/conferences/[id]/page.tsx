@@ -20,11 +20,13 @@ import ReportTab from './tabs/ReportTab'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import NurtureTab from '../../events/[id]/tabs/NurtureTab'
 import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
+import TariffsTab from '../../events/[id]/tabs/TariffsTab'
+import { useMe } from '@/hooks/useMe'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'scoring'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'scoring']
+type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'scoring' | 'tariffs'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'scoring', 'tariffs']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -40,6 +42,9 @@ export default function ConferencePage() {
   const [conf, setConf] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const { me } = useMe()
+  // Раздел «Тарифы» — только для клиентов тарифа vip (Марго).
+  const isVip = me?.subscription?.tariff_slug === 'vip'
 
   async function handleSalebotExport() {
     setExporting(true)
@@ -78,6 +83,8 @@ export default function ConferencePage() {
     { id: 'referral',     label: 'Реф-программа' },
     { id: 'nurture',      label: 'Воронка догрева' },
     { id: 'welcome',      label: 'Приветствие' },
+    // «Тарифы» — только на тарифе клиента vip.
+    ...(isVip ? [{ id: 'tariffs' as Tab, label: 'Тарифы' }] : []),
     { id: 'report',       label: 'Отчёт' },
   ]
 
@@ -164,6 +171,7 @@ export default function ConferencePage() {
       {tab === 'referral'     && <ReferralProgramTab eventId={eventId} moduleSlug="conference" />}
       {tab === 'nurture'      && <NurtureTab       eventId={eventId} />}
       {tab === 'welcome'      && <WelcomeTab       event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
+      {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} />}
     </div>
   )

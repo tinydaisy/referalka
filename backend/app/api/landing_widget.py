@@ -130,6 +130,45 @@ async def _opts_program(slug: str, response: Response):
     return Response(status_code=204, headers=_CORS_HEADERS)
 
 
+@router.options("/events/{slug}/tariffs", include_in_schema=False)
+async def _opts_tariffs(slug: str, response: Response):
+    _set_cors(response)
+    return Response(status_code=204, headers=_CORS_HEADERS)
+
+
+@router.get("/events/{slug}/tariffs", summary="Тарифы события + оферта (для лендинга)")
+async def widget_tariffs(
+    slug: str,
+    response: Response,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Активные тарифы мероприятия + ссылка на оферту.
+
+    Path-параметр `slug` принимает И slug, И числовой id события.
+    Клиент верстает кнопки «Купить» сам, используя `pay_url` каждого тарифа.
+    """
+    _set_cors(response)
+    event = await _resolve_event(db, slug)
+    if not event:
+        raise HTTPException(status_code=404, detail="Событие не найдено")
+    event_id = event["id"]
+
+    offer_url = await db.fetchval("SELECT offer_url FROM events WHERE id = $1", event_id)
+    rows = await db.fetch(
+        """SELECT code, title, description, price, pay_url, sort_order
+             FROM event_tariffs
+            WHERE event_id = $1 AND is_active = TRUE
+            ORDER BY sort_order, id""",
+        event_id,
+    )
+    return {
+        "event_slug": event["slug"],
+        "event_id": event_id,
+        "offer_url": offer_url,
+        "tariffs": [dict(r) for r in rows],
+    }
+
+
 @router.get("/events/{slug}/collaborators", summary="Все коллабораторы события (для лендинга)")
 async def widget_collaborators(
     slug: str,

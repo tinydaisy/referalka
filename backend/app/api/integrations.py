@@ -742,6 +742,64 @@ class GetCourseRegisterRequest(BaseModel):
             return None
 
 
+async def _resolve_participant_row(
+    db: asyncpg.Connection,
+    *,
+    client_id: int,
+    participant_id: Optional[int],
+    email: Optional[str],
+):
+    """Резолв участника события: по participant_id (точный путь) или
+    fallback по email-идентичности у этого клиента.
+
+    Возвращает asyncpg.Record с полями id, event_id, contact_id, client_id.
+    Бросает HTTPException при отсутствии/чужом клиенте. Переиспользуется
+    регистрацией (`_register_by_participant`) и вебхуком оплаты.
+    """
+    if participant_id is not None:
+        prow = await db.fetchrow(
+            """SELECT ep.id, ep.event_id, ep.contact_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
+                 FROM event_participants ep
+                 JOIN events e ON e.id = ep.event_id
+                WHERE ep.id = $1""",
+            participant_id,
+        )
+        if not prow:
+            raise HTTPException(status_code=404, detail=f"Участник {participant_id} не найден")
+        if prow["client_id"] != client_id:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Участник {participant_id} принадлежит другому клиенту",
+            )
+        return prow
+
+    # Fallback по email: находим контакт клиента → его последнее участие.
+    email_norm = (email or "").strip().lower() or None
+    if not email_norm:
+        raise HTTPException(
+            status_code=400,
+            detail="Не передан participant_id и нет email для поиска участника",
+        )
+    prow = await db.fetchrow(
+        """SELECT ep.id, ep.event_id, ep.contact_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
+             FROM platform_users pu
+             JOIN contacts c ON c.id = pu.contact_id
+             JOIN event_participants ep ON ep.contact_id = c.id
+             JOIN events e ON e.id = ep.event_id AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted')
+            WHERE pu.client_id = $1 AND pu.platform_slug = 'email'
+              AND LOWER(pu.platform_user_id) = $2
+            ORDER BY ep.id DESC
+            LIMIT 1""",
+        client_id, email_norm,
+    )
+    if not prow:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Участник по email {email_norm} не найден у клиента {client_id}",
+        )
+    return prow
+
+
 async def _register_by_participant(
     data: GetCourseRegisterRequest,
     db: asyncpg.Connection,
@@ -749,53 +807,13 @@ async def _register_by_participant(
     # 1. Авторизация
     await _authorize(data.secret, data.client_id, db)
 
-    pid_int = data.resolved_participant_id()
-
-    # 2. Резолв participant. Если participant_id передан — самый точный путь.
-    # Если пуст (GetCourse не подставил значение в скрытое поле) — fallback:
-    # ищем участника по email-идентичности контакта у этого клиента. Так
-    # регистрация закрывается даже без participant_id (главное — есть email).
-    prow = None
-    if pid_int is not None:
-        prow = await db.fetchrow(
-            """SELECT ep.id, ep.event_id, ep.contact_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
-                 FROM event_participants ep
-                 JOIN events e ON e.id = ep.event_id
-                WHERE ep.id = $1""",
-            pid_int,
-        )
-        if not prow:
-            raise HTTPException(status_code=404, detail=f"Участник {pid_int} не найден")
-        if prow["client_id"] != data.client_id:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Участник {pid_int} принадлежит другому клиенту",
-            )
-    else:
-        # Fallback по email: находим контакт клиента → его последнее участие.
-        email_norm = (data.email or "").strip().lower() or None
-        if not email_norm:
-            raise HTTPException(
-                status_code=400,
-                detail="Не передан participant_id и нет email для поиска участника",
-            )
-        prow = await db.fetchrow(
-            """SELECT ep.id, ep.event_id, ep.contact_id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id
-                 FROM platform_users pu
-                 JOIN contacts c ON c.id = pu.contact_id
-                 JOIN event_participants ep ON ep.contact_id = c.id
-                 JOIN events e ON e.id = ep.event_id AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id=e.id AND eo.client_id=$1 AND eo.status='accepted')
-                WHERE pu.client_id = $1 AND pu.platform_slug = 'email'
-                  AND LOWER(pu.platform_user_id) = $2
-                ORDER BY ep.id DESC
-                LIMIT 1""",
-            data.client_id, email_norm,
-        )
-        if not prow:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Участник по email {email_norm} не найден у клиента {data.client_id}",
-            )
+    # 2. Резолв participant (по id или fallback по email) — общий хелпер.
+    prow = await _resolve_participant_row(
+        db,
+        client_id=data.client_id,
+        participant_id=data.resolved_participant_id(),
+        email=data.email,
+    )
 
     pid_int = prow["id"]
     contact_id = prow["contact_id"]
@@ -886,6 +904,155 @@ async def getcourse_register_get(
         last_name=last_name,
     )
     return await _register_by_participant(data, db)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /integrations/payment/paid — вебхук «участник оплатил тариф мероприятия».
+#
+# Нейтральное имя: дёргается любой платёжкой (GetCourse, Продамус, ЮKassa)
+# после успешной оплаты. Засчитывает покупку конкретного тарифа события
+# (event_tariffs по code) → пишет в event_participant_tariffs (идемпотентно).
+# Оплата подразумевает регистрацию → выставляем is_registered + финализируем.
+# ─────────────────────────────────────────────────────────────────────────────
+class PaymentPaidRequest(BaseModel):
+    client_id: int
+    secret: Optional[str] = None
+    # Кто оплатил — participant_id (приоритет) или fallback по email.
+    participant_id: Optional[str] = None
+    pluson_participant_id: Optional[str] = None
+    email: Optional[str] = None
+    # Что оплатил — код тарифа (event_tariffs.code) или явный tariff_id.
+    tariff_code: Optional[str] = None
+    tariff_id: Optional[int] = None
+    # Опциональные детали платежа (для сверки).
+    amount: Optional[int] = None
+    external_payment_id: Optional[str] = None
+    source: Optional[str] = "getcourse"
+
+    def resolved_participant_id(self) -> Optional[int]:
+        raw = (self.participant_id if self.participant_id not in (None, "") else self.pluson_participant_id)
+        if raw in (None, ""):
+            return None
+        try:
+            return int(str(raw).strip())
+        except (ValueError, TypeError):
+            return None
+
+
+async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection) -> dict:
+    # 1. Авторизация
+    await _authorize(data.secret, data.client_id, db)
+
+    # 2. Резолв участника (общий хелпер — тот же, что у регистрации)
+    prow = await _resolve_participant_row(
+        db,
+        client_id=data.client_id,
+        participant_id=data.resolved_participant_id(),
+        email=data.email,
+    )
+    pid_int = prow["id"]
+    event_id = prow["event_id"]
+    contact_id = prow["contact_id"]
+
+    # 3. Резолв тарифа: явный tariff_id или по (event_id, code)
+    tariff = None
+    if data.tariff_id is not None:
+        tariff = await db.fetchrow(
+            "SELECT id, code FROM event_tariffs WHERE id = $1 AND event_id = $2",
+            data.tariff_id, event_id,
+        )
+    if tariff is None:
+        code = (data.tariff_code or "").strip().lower()
+        if not code:
+            raise HTTPException(
+                status_code=400,
+                detail="Не передан tariff_code (или tariff_id) — непонятно, какой тариф оплачен",
+            )
+        tariff = await db.fetchrow(
+            "SELECT id, code FROM event_tariffs WHERE event_id = $1 AND code = $2",
+            event_id, code,
+        )
+    if tariff is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Тариф «{data.tariff_code or data.tariff_id}» не найден у события {event_id}",
+        )
+
+    # 4. UPSERT факта оплаты — идемпотентно (повторный вебхук не плодит дубль)
+    await db.execute(
+        """INSERT INTO event_participant_tariffs
+             (event_id, participant_id, tariff_id, paid_at, source, amount, external_payment_id)
+           VALUES ($1, $2, $3, NOW(), $4, $5, $6)
+           ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
+             paid_at = NOW(),
+             source = COALESCE(EXCLUDED.source, event_participant_tariffs.source),
+             amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount),
+             external_payment_id = COALESCE(EXCLUDED.external_payment_id, event_participant_tariffs.external_payment_id)""",
+        event_id, pid_int, tariff["id"], data.source, data.amount, data.external_payment_id,
+    )
+
+    # 5. Оплата = регистрация. Помечаем (только в сторону TRUE) + финализируем.
+    await db.execute(
+        "UPDATE event_participants SET is_registered = TRUE WHERE id = $1", pid_int
+    )
+    from app.services.participant_registration import finalize_participant_registration
+    await finalize_participant_registration(db, event_id=event_id, contact_id=contact_id)
+
+    return {
+        "ok": True,
+        "participant_id": pid_int,
+        "contact_id": contact_id,
+        "event_id": event_id,
+        "tariff_id": tariff["id"],
+        "tariff_code": tariff["code"],
+        "paid": True,
+    }
+
+
+@router.post(
+    "/payment/paid",
+    summary="Платёжка: участник оплатил тариф мероприятия (GetCourse/Продамус/ЮKassa)",
+)
+async def payment_paid_post(
+    data: PaymentPaidRequest,
+    x_salebot_secret: Optional[str] = Header(None),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if x_salebot_secret and not data.secret:
+        data.secret = x_salebot_secret
+    return await _mark_payment(data, db)
+
+
+@router.get(
+    "/payment/paid",
+    summary="То же через GET (для конструкторов без заголовков/тела)",
+)
+async def payment_paid_get(
+    client_id: int,
+    secret: str,
+    participant_id: Optional[str] = None,
+    pluson_participant_id: Optional[str] = None,
+    email: Optional[str] = None,
+    tariff_code: Optional[str] = None,
+    tariff_id: Optional[int] = None,
+    amount: Optional[int] = None,
+    external_payment_id: Optional[str] = None,
+    source: Optional[str] = "getcourse",
+    db: asyncpg.Connection = Depends(get_db),
+):
+    data = PaymentPaidRequest(
+        client_id=client_id,
+        secret=secret,
+        participant_id=participant_id,
+        pluson_participant_id=pluson_participant_id,
+        email=email,
+        tariff_code=tariff_code,
+        tariff_id=tariff_id,
+        amount=amount,
+        external_payment_id=external_payment_id,
+        source=source,
+    )
+    return await _mark_payment(data, db)
 
 
 class GetCourseExternalRefRequest(BaseModel):

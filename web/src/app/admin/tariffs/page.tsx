@@ -31,6 +31,8 @@ const FEATURE_LABELS: Record<string, string> = {
   awards:          'Премии',
   channels:        'Свой бот',
   export_contacts: 'Экспорт контактов',
+  collab_hub:      'Коллабораторная (Хаб)',
+  contests:        'Участие в конкурсах',
 }
 
 const EMPTY_FORM = {

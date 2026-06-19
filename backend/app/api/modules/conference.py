@@ -245,6 +245,7 @@ class ConferenceUpdate(BaseModel):
     stream_url: Optional[str] = None
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
+    offer_url: Optional[str] = None                # оферта мероприятия (миграция 157)
     chat_button_label: Optional[str] = None        # заголовок кнопки чата (миграция 117)
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
     hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
@@ -282,6 +283,7 @@ async def get_conference(
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
                e.vip_button_label AS event_vip_button_label,
+               e.offer_url   AS event_offer_url,
                e.chat_button_label AS event_chat_button_label,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
@@ -310,6 +312,7 @@ async def get_conference(
     d["stream_url"] = d.pop("event_stream_url") or ""
     d["vip_url"]    = d.pop("event_vip_url")    or ""
     d["vip_button_label"] = d.pop("event_vip_button_label") or ""
+    d["offer_url"]    = d.pop("event_offer_url")    or ""
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
@@ -360,7 +363,7 @@ async def update_conference(
     EVENT_FIELDS = (
         "chat_url", "chat_url_tg", "chat_url_vk", "chat_url_max",
         "primary_chat_platform",
-        "stream_url", "vip_url", "vip_button_label",
+        "stream_url", "vip_url", "vip_button_label", "offer_url",
         "chat_button_label", "accent_button", "hide_stream_button",
         "telegram_chat_ids", "link_mode",
         "tg_chat_id", "vk_chat_id", "max_chat_id",
@@ -410,6 +413,7 @@ async def update_conference(
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
                e.vip_button_label AS event_vip_button_label,
+               e.offer_url   AS event_offer_url,
                e.chat_button_label AS event_chat_button_label,
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
@@ -434,6 +438,7 @@ async def update_conference(
     d["stream_url"]        = d.pop("event_stream_url") or ""
     d["vip_url"]           = d.pop("event_vip_url")    or ""
     d["vip_button_label"]  = d.pop("event_vip_button_label") or ""
+    d["offer_url"]         = d.pop("event_offer_url")  or ""
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
