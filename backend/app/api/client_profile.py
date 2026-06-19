@@ -227,8 +227,8 @@ async def public_client_events(
                                   '00:00'::time
                                 )) AT TIME ZONE 'Europe/Moscow'
                           FROM conf_days d2
-                          WHERE d2.event_id = e.id
-                          ORDER BY d2.day_number ASC LIMIT 1),
+                          WHERE d2.event_id = e.id AND d2.day_date IS NOT NULL
+                          ORDER BY d2.day_date ASC LIMIT 1),
                        (SELECT MIN(st.start_date::timestamp AT TIME ZONE 'Europe/Moscow')
                           FROM conf_stages st
                           WHERE st.event_id = e.id AND st.start_date IS NOT NULL)
@@ -245,8 +245,8 @@ async def public_client_events(
                                   '23:59'::time
                                 )) AT TIME ZONE 'Europe/Moscow'
                           FROM conf_days d2
-                          WHERE d2.event_id = e.id
-                          ORDER BY d2.day_number DESC LIMIT 1),
+                          WHERE d2.event_id = e.id AND d2.day_date IS NOT NULL
+                          ORDER BY d2.day_date DESC LIMIT 1),
                        (SELECT MAX((st.end_date + '23:59'::time) AT TIME ZONE 'Europe/Moscow')
                           FROM conf_stages st
                           WHERE st.event_id = e.id AND st.end_date IS NOT NULL)
@@ -668,8 +668,8 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                                 '00:00'::time
                               )) AT TIME ZONE 'Europe/Moscow'
                         FROM conf_days d2
-                        WHERE d2.event_id = d.event_id
-                        ORDER BY d2.day_number ASC LIMIT 1) AS start_at,
+                        WHERE d2.event_id = d.event_id AND d2.day_date IS NOT NULL
+                        ORDER BY d2.day_date ASC LIMIT 1) AS start_at,
                      (SELECT (d2.day_date + COALESCE(
                                 NULLIF(d2.close_time,'')::time,
                                 (SELECT MAX(NULLIF(s.end_time,'')::time)
@@ -681,8 +681,8 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                                 '23:59'::time
                               )) AT TIME ZONE 'Europe/Moscow'
                         FROM conf_days d2
-                        WHERE d2.event_id = d.event_id
-                        ORDER BY d2.day_number DESC LIMIT 1) AS end_at
+                        WHERE d2.event_id = d.event_id AND d2.day_date IS NOT NULL
+                        ORDER BY d2.day_date DESC LIMIT 1) AS end_at
                 FROM conf_days d
                GROUP BY d.event_id
             )
@@ -759,8 +759,8 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                                   '00:00'::time
                                 )) AT TIME ZONE 'Europe/Moscow'
                           FROM conf_days d
-                         WHERE d.event_id = e.id
-                         ORDER BY d.day_number ASC LIMIT 1)
+                         WHERE d.event_id = e.id AND d.day_date IS NOT NULL
+                         ORDER BY d.day_date ASC LIMIT 1)
                      ELSE e.start_at END AS start_at
                 FROM events e
             )

@@ -418,8 +418,8 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                                 '00:00'::time
                               )) AT TIME ZONE 'Europe/Moscow'
                         FROM conf_days d2
-                        WHERE d2.event_id = d.event_id
-                        ORDER BY d2.day_number ASC LIMIT 1) AS start_at,
+                        WHERE d2.event_id = d.event_id AND d2.day_date IS NOT NULL
+                        ORDER BY d2.day_date ASC LIMIT 1) AS start_at,
                      (SELECT (d2.day_date + COALESCE(
                                 NULLIF(d2.close_time,'')::time,
                                 (SELECT MAX(NULLIF(s.end_time,'')::time)
@@ -431,8 +431,8 @@ async def get_miniapp_me_events(tg_id: int, platform: str = "telegram", db: asyn
                                 '23:59'::time
                               )) AT TIME ZONE 'Europe/Moscow'
                         FROM conf_days d2
-                        WHERE d2.event_id = d.event_id
-                        ORDER BY d2.day_number DESC LIMIT 1) AS end_at
+                        WHERE d2.event_id = d.event_id AND d2.day_date IS NOT NULL
+                        ORDER BY d2.day_date DESC LIMIT 1) AS end_at
                 FROM conf_days d
                GROUP BY d.event_id
            )

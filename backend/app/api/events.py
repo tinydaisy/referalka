@@ -97,6 +97,8 @@ class UpdateEventRequest(BaseModel):
     # VIP / Чат
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
+    # Оферта мероприятия (миграция 157) — одна на событие, ссылкой.
+    offer_url: Optional[str] = None
     # Чат события — отдельная ссылка на каждую платформу + выбор главной.
     # chat_url оставлено как legacy shadow: при PATCH chat_url_* / primary
     # бэк сам пересчитывает его = chat_url_<primary>. Старые места кода
@@ -174,8 +176,8 @@ async def list_events(
                             '00:00'::time
                           )) AT TIME ZONE 'Europe/Moscow'
                     FROM conf_days d
-                    WHERE d.event_id = e.id
-                    ORDER BY d.day_number ASC LIMIT 1)
+                    WHERE d.event_id = e.id AND d.day_date IS NOT NULL
+                    ORDER BY d.day_date ASC LIMIT 1)
                  ELSE e.start_at
                END AS effective_start_at,
                CASE WHEN e.module_slug IN ('conference','turnir') THEN
@@ -190,8 +192,8 @@ async def list_events(
                             '23:59'::time
                           )) AT TIME ZONE 'Europe/Moscow'
                     FROM conf_days d
-                    WHERE d.event_id = e.id
-                    ORDER BY d.day_number DESC LIMIT 1)
+                    WHERE d.event_id = e.id AND d.day_date IS NOT NULL
+                    ORDER BY d.day_date DESC LIMIT 1)
                  ELSE e.end_at
                END AS effective_end_at,
                COUNT(DISTINCT ep.id) as participants_count
