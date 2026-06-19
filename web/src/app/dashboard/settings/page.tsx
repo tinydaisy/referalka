@@ -140,6 +140,10 @@ export default function SettingsPage() {
     { id: 'legal',        label: 'Юр. данные',   icon: ShieldCheck},
   ]
 
+  // Бот, который реально пишет в канал уведомлений: свой (VIP) бот клиента, если подключён,
+  // иначе системный @pluson_bot.
+  const notifyBotHandle = (botHandles?.telegram || PLUSON_BOT_HANDLE).replace(/^@/, '')
+
   return (
     <div className="max-w-3xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Настройки</h1>
@@ -503,13 +507,10 @@ export default function SettingsPage() {
             <div>
               <h3 id="tg-chat-id" className="font-semibold text-gray-800">Канал уведомлений</h3>
               <p className="text-sm text-gray-500 mt-0.5">
-                Куда @pluson_bot будет писать о новых интересантах на ваши лид-магниты и другие
-                важные события. Заведите Telegram-канал и впишите его ID.{' '}
-                <span className="text-gray-700">
-                  Тем же способом получают <strong>ID подписочного канала основателя</strong>
-                  {' '}(если он закрытый и инвайт-ссылка не резолвится автоматически) — вставлять
-                  в Mini App → «Основатель» → «ID канала».
-                </span>
+                Сюда бот будет писать о новых интересантах на ваши лид-магниты и других важных
+                событиях. Заведите отдельный <strong>закрытый</strong> Telegram-канал для этих
+                уведомлений, добавьте туда админом <strong>@{notifyBotHandle}</strong> (оставьте
+                все права) и впишите ID канала в поле ниже.
               </p>
             </div>
           </div>
@@ -524,10 +525,10 @@ export default function SettingsPage() {
           <details className="mt-3 text-sm text-gray-600">
             <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>
             <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
-              <li>Создайте Telegram-канал (или используйте существующий).</li>
-              <li>Добавьте <a href="https://t.me/pluson_bot" target="_blank" rel="noreferrer" className="underline text-[#25455D]">@pluson_bot</a> админом канала — права не нужны.</li>
-              <li>Откройте чат с @pluson_bot и перешлите туда любое сообщение из вашего канала.</li>
-              <li>Бот пришлёт ответ с ID канала — скопируйте число (включая знак минус) и вставьте в поле выше.</li>
+              <li>Создайте <strong>закрытый</strong> Telegram-канал (тип «Частный канал»).</li>
+              <li>Добавьте <a href={`https://t.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
+              <li>Откройте личный чат с @{notifyBotHandle} и перешлите ему любое сообщение из вашего канала.</li>
+              <li>Бот ответит с ID канала — скопируйте число (вместе со знаком минус) и вставьте в поле выше.</li>
             </ol>
           </details>
         </div>
