@@ -489,7 +489,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 stages={stagesSorted}
                 onPatchDay={(patch) => patchDayForm(day.day_number, patch)}
                 onDelete={() => deleteDay(day.day_number)}
-                onAddSession={() => setSessionModal({ day: day.day_number })}
+                onAddSession={() => setSessionModal({ day: day.day_number, editId: null })}
+                onEditSession={openSessionEdit}
                 onDeleteSession={deleteSession}
               />
             ))}
