@@ -1925,14 +1925,22 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
             for label, url in _sup
         )
         support_block = (
-            '<details class="support">'
+            '<details class="support" id="support-box">'
             '<summary>🆘 Тех. поддержка</summary>'
             '<div class="sup-body">'
             '<p>Возникли вопросы? Напишите нам в любой удобный вам мессенджер:</p>'
             f'{_sup_rows}</div></details>'
         )
+        # Подсказка под кнопкой регистрации — зовёт нажать блок поддержки.
+        support_hint = (
+            '<p class="sup-hint">Если проблемы с регистрацией — нажмите кнопку '
+            '<a href="#support-box" onclick="var s=document.getElementById(\'support-box\');'
+            'if(s){s.open=true;s.scrollIntoView({behavior:\'smooth\'});}">'
+            '«🆘 Тех. поддержка»</a> ниже.</p>'
+        )
     else:
         support_block = ""
+        support_hint = ""
 
     poster_html = ""
     if poster_url:
@@ -2001,6 +2009,8 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
   .sup-body p {{ font-size:13px; color:#41566a; margin:0 0 10px; line-height:1.5; }}
   .sup-row {{ font-size:14px; color:#25455D; margin:8px 0; word-break:break-all; }}
   .sup-row a {{ color:#b86b00; text-decoration:underline; }}
+  .sup-hint {{ font-size:12.5px; color:#6b7c8e; margin:12px 0 0; line-height:1.5; text-align:center; }}
+  .sup-hint a {{ color:#b86b00; text-decoration:underline; font-weight:600; }}
   .step2 {{ display:none; }}
   .ok-box {{ text-align:center; padding:30px 10px; }}
   .ok-box .tick {{ font-size:56px; margin-bottom:10px; }}
@@ -2063,6 +2073,7 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
         </div>
         <button class="btn" id="btn-create" type="button">Зарегистрироваться</button>
         <p class="err" id="err2" style="display:none"></p>
+        {support_hint}
       </div>
     </div>
     {support_block}

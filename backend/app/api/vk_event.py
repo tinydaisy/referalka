@@ -1293,15 +1293,12 @@ async def send_vk_event_funnel(
         return bool(mid)
 
     # ── НЕ зарегистрирован → приветствие + 2 кнопки (порт _handle_ref_event_bot_flow) ──
-    work_tg = await conn.fetchval(
-        "SELECT work_tg_username FROM clients WHERE id = $1", client_id
-    ) or ""
-    support = f"\n\nЕсть вопрос? Напишите @{work_tg}" if work_tg else ""
     text = (
         "Добрейшего-богатейшего! 🤝\n\n"
         "Здесь вы можете зарегистрироваться на наше событие:\n"
         f"«{title}»\n\n"
-        f"Нажмите кнопку ниже, чтобы зарегистрироваться.{support}"
+        "Нажмите кнопку ниже, чтобы зарегистрироваться.\n\n"
+        "Если проблемы с регистрацией — нажмите кнопку «🆘 Тех. поддержка»."
     )
 
     # Одна кнопка «Зарегистрироваться» → сторонний лендинг (если задан и
@@ -1336,6 +1333,7 @@ async def send_vk_event_funnel(
 
     keyboard = tg_inline_to_vk_keyboard([
         [{"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url}],
+        [{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}],
     ])
     mid = await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
     return bool(mid)

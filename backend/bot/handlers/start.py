@@ -1068,8 +1068,8 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
             "Добрейшего-богатейшего! 🤝\n\n"
             "Здесь вы можете зарегистрироваться на наше событие:\n"
             f"<b>{title}</b>\n\n"
-            "Нажмите на кнопку ниже."
-            f"{_support_footer(work_tg)}"
+            "Нажмите на кнопку ниже.\n\n"
+            "Если проблемы с регистрацией — нажмите кнопку «🆘 Тех. поддержка»."
         )
 
         # Веб-ссылка/ссылка регистрации: сторонний лендинг (если задан и опубликован),
@@ -1111,6 +1111,7 @@ async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     # contact_id, pid, utm, external_ref_param рефовода и полей контакта.
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="ЗАРЕГИСТРИРОВАТЬСЯ", url=web_url)],
+        [InlineKeyboardButton(text="🆘 Тех. поддержка", callback_data=f"evsupport_{ev['id']}")],
     ])
 
     # Если у события есть афиша — шлём фото с подписью; иначе обычный текст.

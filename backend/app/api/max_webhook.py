@@ -1039,19 +1039,16 @@ async def _process_start(
                 )
             else:
                 web_url = internal_web
-            support_footer = (
-                f"\n\nЕсть вопросы по регистрации? Напишите: https://t.me/{work_tg.lstrip('@')}"
-                if work_tg else ""
-            )
             msg_text = (
                 "Добрейшего-богатейшего! 🤝\n\n"
                 "Здесь вы можете зарегистрироваться на наше событие:\n"
                 f"{event_title}\n\n"
-                "Нажмите на кнопку ниже."
-                f"{support_footer}"
+                "Нажмите на кнопку ниже.\n\n"
+                "Если проблемы с регистрацией — нажмите кнопку «Тех. поддержка»."
             )
             buttons = tg_inline_to_max_keyboard([
                 [{"text": "ЗАРЕГИСТРИРОВАТЬСЯ", "url": web_url}],
+                [{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}],
             ])
             # Афиша события — грузим в MAX и шлём вложением (как фото с подписью в TG).
             attachments = None
