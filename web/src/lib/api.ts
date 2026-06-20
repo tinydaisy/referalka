@@ -440,6 +440,12 @@ export const api = {
       request(`/api/v1/events/${eventId}/tariffs/${tariffId}`, { method: 'DELETE' }),
     buyers: (eventId: number, tariffId: number) =>
       request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers`),
+    addBuyer: (eventId: number, tariffId: number, data: { participant_id?: number; contact_id?: number; amount?: number }) =>
+      request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers`, {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    removeBuyer: (eventId: number, tariffId: number, participantId: number) =>
+      request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers/${participantId}`, { method: 'DELETE' }),
   },
   channels: {
     list: () => request('/api/v1/channels'),

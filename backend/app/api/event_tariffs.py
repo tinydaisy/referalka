@@ -229,3 +229,92 @@ async def list_buyers(
         "count": len(rows),
         "buyers": [dict(r) for r in rows],
     }
+
+
+class AddBuyerRequest(BaseModel):
+    # Кого отметить оплатившим: либо участника события, либо контакт
+    # (контакт → создаём/находим участие в событии). Хотя бы одно обязательно.
+    participant_id: Optional[int] = None
+    contact_id: Optional[int] = None
+    amount: Optional[int] = None
+
+
+@router.post("/{tariff_id}/buyers", summary="Вручную отметить оплатившего (участник или контакт)")
+async def add_buyer(
+    event_id: int,
+    tariff_id: int,
+    data: AddBuyerRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_vip(db, client_id)
+
+    tariff = await db.fetchval(
+        "SELECT id FROM event_tariffs WHERE id = $1 AND event_id = $2", tariff_id, event_id
+    )
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Тариф не найден")
+
+    participant_id = data.participant_id
+    # Если передан contact_id — создаём/находим участие этого контакта в событии.
+    if participant_id is None:
+        if data.contact_id is None:
+            raise HTTPException(status_code=400, detail="Укажите участника или контакт")
+        contact_ok = await db.fetchval(
+            "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2",
+            data.contact_id, client_id,
+        )
+        if not contact_ok:
+            raise HTTPException(status_code=404, detail="Контакт не найден")
+        prow = await db.fetchrow(
+            """INSERT INTO event_participants (event_id, contact_id, is_registered, registered_at)
+               VALUES ($1, $2, TRUE, NOW())
+               ON CONFLICT (event_id, contact_id)
+               DO UPDATE SET is_registered = TRUE
+               RETURNING id""",
+            event_id, data.contact_id,
+        )
+        participant_id = prow["id"]
+    else:
+        # Проверяем что участник принадлежит этому событию.
+        ok = await db.fetchval(
+            "SELECT 1 FROM event_participants WHERE id = $1 AND event_id = $2",
+            participant_id, event_id,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Участник не найден в этом событии")
+
+    # Факт оплаты (идемпотентно) + участник зарегистрирован.
+    await db.execute(
+        """INSERT INTO event_participant_tariffs (event_id, participant_id, tariff_id, paid_at, source, amount)
+           VALUES ($1, $2, $3, NOW(), 'manual', $4)
+           ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
+             paid_at = NOW(),
+             source = 'manual',
+             amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount)""",
+        event_id, participant_id, tariff_id, data.amount,
+    )
+    await db.execute(
+        "UPDATE event_participants SET is_registered = TRUE WHERE id = $1", participant_id
+    )
+    return {"ok": True, "participant_id": participant_id}
+
+
+@router.delete("/{tariff_id}/buyers/{participant_id}", summary="Снять отметку оплаты")
+async def remove_buyer(
+    event_id: int,
+    tariff_id: int,
+    participant_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_vip(db, client_id)
+    await db.execute(
+        "DELETE FROM event_participant_tariffs WHERE tariff_id = $1 AND participant_id = $2 AND event_id = $3",
+        tariff_id, participant_id, event_id,
+    )
+    return {"ok": True}

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Plus, Save, Trash2, Pencil, X, Users, FileText } from 'lucide-react'
+import { Plus, Save, Trash2, Pencil, X, Users, FileText, ChevronUp, ChevronDown, Search, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 
@@ -60,8 +60,8 @@ export default function TariffsTab({
   const [form, setForm] = useState<typeof emptyForm>(emptyForm)
   const [saving, setSaving] = useState(false)
 
-  // модалка «кто оплатил»
-  const [buyersOf, setBuyersOf] = useState<Tariff | null>(null)
+  // раскрытый блок «кто оплатил» (inline, не модалка)
+  const [expandedId, setExpandedId] = useState<number | null>(null)
 
   async function load() {
     setLoading(true)
@@ -188,7 +188,8 @@ export default function TariffsTab({
         ) : (
           <div className="space-y-2.5">
             {items.map(t => (
-              <div key={t.id} className="border border-gray-200 rounded-xl p-4 flex items-start gap-3">
+              <div key={t.id} className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="p-4 flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-gray-800">{t.title}</span>
@@ -210,11 +211,16 @@ export default function TariffsTab({
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
-                    onClick={() => setBuyersOf(t)}
-                    className="px-2.5 py-1.5 rounded-lg bg-[#FFCFA4]/30 text-[#8a5a2b] text-xs font-medium flex items-center gap-1 hover:bg-[#FFCFA4]/50"
+                    onClick={() => setExpandedId(expandedId === t.id ? null : t.id)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 ${
+                      expandedId === t.id
+                        ? 'bg-[#FFCFA4]/60 text-[#8a5a2b]'
+                        : 'bg-[#FFCFA4]/30 text-[#8a5a2b] hover:bg-[#FFCFA4]/50'
+                    }`}
                     title="Кто оплатил"
                   >
                     <Users size={13} /> {t.buyers_count}
+                    {expandedId === t.id ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                   </button>
                   <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" title="Изменить">
                     <Pencil size={14} />
@@ -223,6 +229,16 @@ export default function TariffsTab({
                     <Trash2 size={14} />
                   </button>
                 </div>
+              </div>
+
+              {/* Раскрывающийся блок «Кто оплатил» (inline, не модалка) */}
+              {expandedId === t.id && (
+                <BuyersPanel
+                  eventId={eventId}
+                  tariff={t}
+                  onChanged={load}
+                />
+              )}
               </div>
             ))}
           </div>
@@ -273,8 +289,6 @@ export default function TariffsTab({
         </div>
       )}
 
-      {/* Модалка «кто оплатил» */}
-      {buyersOf && <BuyersModal eventId={eventId} tariff={buyersOf} onClose={() => setBuyersOf(null)} />}
 
       <style jsx>{`
         .input-tar {
@@ -312,61 +326,199 @@ function PlatformChip({ label, href, color }: { label: string; href: string; col
   )
 }
 
-function BuyersModal({ eventId, tariff, onClose }: { eventId: number; tariff: any; onClose: () => void }) {
+function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: any; onChanged: () => void }) {
   const [data, setData] = useState<{ count: number; buyers: Buyer[] } | null>(null)
-  useEffect(() => {
-    api.eventTariffs.buyers(eventId, tariff.id).then(setData)
-  }, [eventId, tariff.id])
+  const [adding, setAdding] = useState(false)
+
+  async function reload() {
+    const r = await api.eventTariffs.buyers(eventId, tariff.id)
+    setData(r)
+  }
+  useEffect(() => { reload() }, [eventId, tariff.id])
+
+  async function removeBuyer(participantId: number) {
+    if (!confirm('Снять отметку оплаты у этого человека?')) return
+    await api.eventTariffs.removeBuyer(eventId, tariff.id, participantId)
+    await reload()
+    onChanged()
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <div>
-            <h3 className="font-semibold text-gray-800">Оплатили «{tariff.title}»</h3>
-            {data && <p className="text-xs text-gray-400 mt-0.5">{data.count} чел.</p>}
-          </div>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
-        </div>
-        <div className="overflow-y-auto p-5">
-          {!data ? (
-            <div className="py-10 flex justify-center"><Spinner /></div>
-          ) : data.buyers.length === 0 ? (
-            <div className="text-center text-gray-400 text-sm py-10">Пока никто не оплатил.</div>
-          ) : (
-            <div className="space-y-2">
-              {data.buyers.map(b => (
-                <div key={b.id} className="border border-gray-100 rounded-xl p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-gray-800 text-sm truncate">{b.contact_name || `Контакт #${b.contact_id}`}</span>
-                    <span className="text-[11px] text-gray-400 shrink-0">{fmtDate(b.paid_at)}</span>
-                  </div>
-                  <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
-                    {(b.tg_id || b.tg_username) && (
-                      <PlatformChip label="TG" color="#229ED9"
-                        href={b.tg_username ? `https://t.me/${b.tg_username.replace(/^@+/, '')}` : `tg://user?id=${b.tg_id}`} />
-                    )}
-                    {(b.vk_id || b.vk_username) && (
-                      <PlatformChip label="VK" color="#0077FF"
-                        href={b.vk_username ? `https://vk.com/${b.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${b.vk_id}`} />
-                    )}
-                    {(b.max_id || b.max_username) && (
-                      <PlatformChip label="MAX" color="#8a5a2b"
-                        href={b.max_username ? `https://max.ru/${b.max_username}` : '#'} />
-                    )}
-                    {b.email && <span className="text-xs text-gray-500 truncate">{b.email}</span>}
-                    {b.phone && <span className="text-xs text-gray-500">{b.phone}</span>}
-                  </div>
-                  {(b.source || b.amount != null) && (
-                    <div className="text-[11px] text-gray-400 mt-1">
-                      {b.source && <span>через {b.source}</span>}
-                      {b.amount != null && <span> · {b.amount.toLocaleString('ru-RU')} ₽</span>}
-                    </div>
-                  )}
+    <div className="border-t border-gray-100 bg-gray-50/50 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          Оплатили {data ? `· ${data.count}` : ''}
+        </span>
+        <button
+          onClick={() => setAdding(v => !v)}
+          className="px-2.5 py-1.5 rounded-lg bg-brand text-white text-xs font-medium flex items-center gap-1"
+        >
+          <Plus size={13} /> Добавить оплатившего
+        </button>
+      </div>
+
+      {adding && (
+        <AddBuyerPicker
+          eventId={eventId}
+          tariffId={tariff.id}
+          existingParticipantIds={new Set((data?.buyers || []).map(b => b.participant_id))}
+          onDone={async () => { setAdding(false); await reload(); onChanged() }}
+        />
+      )}
+
+      {!data ? (
+        <div className="py-6 flex justify-center"><Spinner /></div>
+      ) : data.buyers.length === 0 ? (
+        <div className="text-center text-gray-400 text-sm py-6">Пока никто не оплатил. Можно добавить вручную.</div>
+      ) : (
+        <div className="space-y-2">
+          {data.buyers.map(b => (
+            <div key={b.id} className="border border-gray-100 bg-white rounded-xl p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-gray-800 text-sm truncate">{b.contact_name || `Контакт #${b.contact_id}`}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-gray-400">{fmtDate(b.paid_at)}</span>
+                  <button onClick={() => removeBuyer(b.participant_id)} className="p-1 rounded hover:bg-red-50 text-red-400" title="Снять отметку">
+                    <Trash2 size={13} />
+                  </button>
                 </div>
-              ))}
+              </div>
+              <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+                {(b.tg_id || b.tg_username) && (
+                  <PlatformChip label="TG" color="#229ED9"
+                    href={b.tg_username ? `https://t.me/${b.tg_username.replace(/^@+/, '')}` : `tg://user?id=${b.tg_id}`} />
+                )}
+                {(b.vk_id || b.vk_username) && (
+                  <PlatformChip label="VK" color="#0077FF"
+                    href={b.vk_username ? `https://vk.com/${b.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${b.vk_id}`} />
+                )}
+                {(b.max_id || b.max_username) && (
+                  <PlatformChip label="MAX" color="#8a5a2b"
+                    href={b.max_username ? `https://max.ru/${b.max_username}` : '#'} />
+                )}
+                {b.email && <span className="text-xs text-gray-500 truncate">{b.email}</span>}
+                {b.phone && <span className="text-xs text-gray-500">{b.phone}</span>}
+              </div>
+              {(b.source || b.amount != null) && (
+                <div className="text-[11px] text-gray-400 mt-1">
+                  {b.source && <span>через {b.source}</span>}
+                  {b.amount != null && <span> · {b.amount.toLocaleString('ru-RU')} ₽</span>}
+                </div>
+              )}
             </div>
-          )}
+          ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+// Выбор кого отметить оплатившим: участники события ИЛИ контакты базы.
+function AddBuyerPicker({
+  eventId, tariffId, existingParticipantIds, onDone,
+}: {
+  eventId: number
+  tariffId: number
+  existingParticipantIds: Set<number>
+  onDone: () => void
+}) {
+  const [source, setSource] = useState<'participants' | 'contacts'>('participants')
+  const [query, setQuery] = useState('')
+  const [rows, setRows] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [busyId, setBusyId] = useState<number | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      setLoading(true)
+      try {
+        if (source === 'participants') {
+          const r = await api.events.participants(eventId, 'all')
+          const list = (r.participants || []).filter((p: any) => {
+            if (!query.trim()) return true
+            const q = query.toLowerCase()
+            return [p.contact_name, p.first_name, p.last_name, p.username, p.email, p.phone]
+              .some((v: any) => (v || '').toString().toLowerCase().includes(q))
+          })
+          if (!cancelled) setRows(list)
+        } else {
+          const r = await api.contacts.list(query, 50, 0, false)
+          if (!cancelled) setRows(r.contacts || r.items || [])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    const t = setTimeout(run, query ? 250 : 0)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [source, query, eventId])
+
+  async function pick(row: any) {
+    setBusyId(row.id)
+    try {
+      if (source === 'participants') {
+        await api.eventTariffs.addBuyer(eventId, tariffId, { participant_id: row.id })
+      } else {
+        await api.eventTariffs.addBuyer(eventId, tariffId, { contact_id: row.id })
+      }
+      onDone()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось отметить оплату')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="border border-gray-200 bg-white rounded-xl p-3 space-y-2.5">
+      <div className="flex gap-1 text-xs">
+        {([['participants', 'Из участников'], ['contacts', 'Из контактов']] as const).map(([k, label]) => (
+          <button key={k} onClick={() => { setSource(k); setRows([]) }}
+            className={`px-3 py-1.5 rounded-lg font-medium ${
+              source === k ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Поиск по имени, @нику, email, телефону…"
+          className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-brand"
+        />
+      </div>
+      <div className="max-h-64 overflow-y-auto space-y-1">
+        {loading ? (
+          <div className="py-6 flex justify-center"><Spinner /></div>
+        ) : rows.length === 0 ? (
+          <div className="text-center text-gray-400 text-xs py-6">Ничего не найдено</div>
+        ) : rows.map(row => {
+          const already = source === 'participants' && existingParticipantIds.has(row.id)
+          const name = row.contact_name || row.name || [row.first_name, row.last_name].filter(Boolean).join(' ') || `#${row.id}`
+          const sub = row.email || row.phone || (row.username ? `@${row.username}` : '')
+          return (
+            <button
+              key={row.id}
+              onClick={() => !already && pick(row)}
+              disabled={already || busyId === row.id}
+              className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-left text-sm ${
+                already ? 'bg-green-50 text-green-700 cursor-default' : 'hover:bg-gray-50'
+              }`}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-gray-800">{name}</span>
+                {sub && <span className="block truncate text-xs text-gray-400">{sub}</span>}
+              </span>
+              {already
+                ? <Check size={15} className="shrink-0" />
+                : <Plus size={15} className="shrink-0 text-brand" />}
+            </button>
+          )
+        })}
       </div>
     </div>
   )
