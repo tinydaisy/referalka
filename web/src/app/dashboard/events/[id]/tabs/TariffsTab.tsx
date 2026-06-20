@@ -275,8 +275,9 @@ export default function TariffsTab({
             </Field>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} />
-              Тариф активен (показывать в виджете)
+              Тариф активен
             </label>
+            <p className="text-xs text-gray-400 -mt-2">Выключенный тариф остаётся в кабинете, оплаты по нему засчитываются. Влияет только на отдачу в API для стороннего лендинга.</p>
             <div className="flex gap-2 pt-1">
               <button onClick={submitForm} disabled={saving}
                       className="flex-1 px-4 py-2.5 rounded-xl bg-brand text-white text-sm font-medium disabled:opacity-50">
