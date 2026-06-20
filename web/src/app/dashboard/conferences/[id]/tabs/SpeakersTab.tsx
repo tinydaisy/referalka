@@ -118,6 +118,8 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
   const defaultRole = defaultRoleFor(moduleSlug)
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  // Подвкладки: список спикеров / ссылки (регистрация + вход в кабинет)
+  const [subTab, setSubTab] = useState<'list' | 'links'>('list')
   const [modal, setModal] = useState<'new' | 'base' | 'edit' | null>(null)
   const [editSpeaker, setEditSpeaker] = useState<any>(null)
   const [editForm, setEditForm] = useState({ role: defaultRole, topics: [''], gift_title: '', gift_url: '', is_commercial: false })
@@ -292,36 +294,64 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
     </div>
   )
 
+  const hasLinks = regLinks.length > 0 || editLinks.length > 0
+
   return (
     <div className="max-w-2xl">
-      {/* Две раздельные ссылки: регистрация новых спикеров и вход в кабинет
-          уже добавленных (+ их ассистентов). */}
-      {regLinks.length > 0 && (
-        <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
-          <div className="text-sm font-semibold text-gray-900 mb-1">1. Ссылка для регистрации новых спикеров</div>
-          <p className="text-xs text-gray-500 mb-3">
-            Шлите тем, кого хотите пригласить выступить. Человек переходит,
-            нажимает «Включить в спикеры» — создаётся его карточка, и он получает
-            доступ в кабинет, чтобы заполнить данные о себе.
-          </p>
-          {renderLinkRows(regLinks, 'reg')}
+      {/* Подвкладки: Спикеры / Ссылки */}
+      <div className="border-b border-gray-200 mb-6 flex gap-1">
+        {([['list', 'Спикеры'], ['links', 'Ссылки']] as const).map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setSubTab(k)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              subTab === k
+                ? 'border-[#FFCFA4] text-[#25455D]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Подвкладка «Ссылки» ── */}
+      {subTab === 'links' && (
+        <div>
+          {!hasLinks && (
+            <div className="text-sm text-gray-400 py-8 text-center">
+              Ссылки появятся, когда у клиента подключён бот/площадка.
+            </div>
+          )}
+          {/* Две раздельные ссылки: регистрация новых спикеров и вход в кабинет
+              уже добавленных (+ их ассистентов). */}
+          {regLinks.length > 0 && (
+            <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
+              <div className="text-sm font-semibold text-gray-900 mb-1">1. Ссылка для регистрации новых спикеров</div>
+              <p className="text-xs text-gray-500 mb-3">
+                Шлите тем, кого хотите пригласить выступить. Человек переходит,
+                нажимает «Включить в спикеры» — создаётся его карточка, и он получает
+                доступ в кабинет, чтобы заполнить данные о себе.
+              </p>
+              {renderLinkRows(regLinks, 'reg')}
+            </div>
+          )}
+
+          {editLinks.length > 0 && (
+            <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
+              <div className="text-sm font-semibold text-gray-900 mb-1">2. Ссылка для входа в кабинет</div>
+              <p className="text-xs text-gray-500 mb-3">
+                Для тех, кто <b>уже в списке</b> спикеров, и их <b>ассистентов</b>.
+                Новую карточку не создаёт — просто пускает в кабинет с кодом доступа.
+                <br />
+                Чтобы ассистент мог войти — спикер вписывает его Telegram-ник в своей
+                карточке (поле «Telegram-ник ассистента» в кабинете).
+              </p>
+              {renderLinkRows(editLinks, 'edit')}
+            </div>
+          )}
         </div>
       )}
 
-      {editLinks.length > 0 && (
-        <div className="mb-4 p-4 rounded-2xl border border-gray-200 bg-gray-50/60">
-          <div className="text-sm font-semibold text-gray-900 mb-1">2. Ссылка для входа в кабинет</div>
-          <p className="text-xs text-gray-500 mb-3">
-            Для тех, кто <b>уже в списке</b> спикеров, и их <b>ассистентов</b>.
-            Новую карточку не создаёт — просто пускает в кабинет с кодом доступа.
-            <br />
-            Чтобы ассистент мог войти — спикер вписывает его Telegram-ник в своей
-            карточке (поле «Telegram-ник ассистента» в кабинете).
-          </p>
-          {renderLinkRows(editLinks, 'edit')}
-        </div>
-      )}
-
+      {/* ── Подвкладка «Спикеры» ── */}
+      {subTab === 'list' && (<>
       <div className="flex justify-between items-center mb-4">
         <p className="text-sm text-gray-500">{ts.count(speakers.length)}</p>
         <div className="flex gap-2">
@@ -423,6 +453,7 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
           })}
         </div>
       )}
+      </>)}
 
       {modal === 'new' && (
         <Modal title={ts.newModal.title} onClose={() => setModal(null)}>
