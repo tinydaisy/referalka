@@ -675,8 +675,9 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             await _send_event_answer("Что-то пошло не так. Попробуйте позже.")
         return
 
-    # Меню события (порт TG evchat_/evmenu_/evlive_ из handlers/funnel.py).
-    if cb.startswith("evchat_") or cb.startswith("evmenu_") or cb.startswith("evlive_"):
+    # Меню события (порт TG evchat_/evmenu_/evlive_/evsupport_ из handlers/funnel.py).
+    if (cb.startswith("evchat_") or cb.startswith("evmenu_")
+            or cb.startswith("evlive_") or cb.startswith("evsupport_")):
         prefix, _, id_raw = cb.partition("_")
         try:
             ev_id = int(id_raw)
@@ -685,6 +686,7 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
             return
         from bot.vk_event_menu import (
             handle_vk_event_chat, handle_vk_event_menu_back, handle_vk_event_live,
+            handle_vk_event_support,
         )
         try:
             if prefix == "evchat":
@@ -693,6 +695,8 @@ async def handle_message_event(event_obj: dict, db, ctx: GroupCtx) -> None:
                 await handle_vk_event_menu_back(ev_id, int(user_id), db, ctx)
             elif prefix == "evlive":
                 await handle_vk_event_live(ev_id, int(user_id), db, ctx)
+            elif prefix == "evsupport":
+                await handle_vk_event_support(ev_id, int(user_id), db, ctx)
             await _send_event_answer("Готово 👇")
         except Exception as e:
             logger.warning(f"VK event menu callback '{cb}' failed: {e}")
@@ -922,6 +926,27 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             await _archive_vk_chat_message(message, int(peer_id), int(from_id), ctx)
         except Exception as e:  # noqa: BLE001 — слушалка не должна ронять обработчик
             logger.warning(f"VK chat archive failed: {e}")
+        return
+
+    # /support — единое сообщение службы поддержки клиента (каналы связи).
+    if (message.get("text") or "").strip().lower().startswith("/support"):
+        try:
+            from app.services.support_message import build_support_message_plain
+            from app.services.vk_api import send_message as _vk_send
+            row = await db.fetchrow(
+                "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
+                ctx.client_id,
+            )
+            wtg = row["work_tg_username"] if row else ""
+            wvk = row["work_vk"] if row else ""
+            wmax = row["work_max"] if row else ""
+            await _vk_send(
+                int(from_id),
+                build_support_message_plain(work_tg=wtg, work_vk=wvk, work_max=wmax),
+                token=ctx.token,
+            )
+        except Exception as e:
+            logger.warning(f"VK /support failed: {e}")
         return
 
     # /getmyid — узнать свой VK ID для поля тестовых ID в Настройках.

@@ -271,7 +271,8 @@ async def _load_ref_cabinet(db, event, contact_id):
 
 async def _load_client(db, client_id):
     return await db.fetchrow(
-        "SELECT name, brand_name FROM clients WHERE id = $1", client_id)
+        "SELECT name, brand_name, work_tg_username, work_vk, work_max "
+        "FROM clients WHERE id = $1", client_id)
 
 
 async def _load_event_poster(db, event_id):
@@ -1910,6 +1911,29 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
     brand = esc(brand_raw)
     brand_block = f'<div class="brand">{brand}</div>' if brand and brand != "организатора" else ""
 
+    # Блок «Тех. поддержка» — раскрывающийся <details> с каналами связи клиента.
+    from app.services.support_message import _lines as _support_lines
+    _sup = _support_lines(
+        client["work_tg_username"] if client else None,
+        client["work_vk"] if client else None,
+        client["work_max"] if client else None,
+    )
+    if _sup:
+        _sup_rows = "".join(
+            f'<div class="sup-row">{esc(label)}: '
+            f'<a href="{esc(url)}" target="_blank" rel="noopener">{esc(url)}</a></div>'
+            for label, url in _sup
+        )
+        support_block = (
+            '<details class="support">'
+            '<summary>🆘 Тех. поддержка</summary>'
+            '<div class="sup-body">'
+            '<p>Возникли вопросы? Напишите нам в любой удобный вам мессенджер:</p>'
+            f'{_sup_rows}</div></details>'
+        )
+    else:
+        support_block = ""
+
     poster_html = ""
     if poster_url:
         poster_html = (f'<div class="poster" style="background:center/cover '
@@ -1969,6 +1993,14 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
     box-shadow:0 2px 8px rgba(255,207,164,.4); margin-top:8px; }}
   .btn:disabled {{ opacity:.6; cursor:default; }}
   .err {{ color:#d9483b; font-size:13px; margin:10px 0 0; line-height:1.4; }}
+  .support {{ margin:16px 0 4px; background:#fff; border:1px solid #e6eaee; border-radius:14px; overflow:hidden; }}
+  .support summary {{ cursor:pointer; padding:14px 16px; font-size:14px; font-weight:700; color:#25455D; list-style:none; }}
+  .support summary::-webkit-details-marker {{ display:none; }}
+  .support[open] summary {{ border-bottom:1px solid #eef1f4; }}
+  .sup-body {{ padding:12px 16px 16px; }}
+  .sup-body p {{ font-size:13px; color:#41566a; margin:0 0 10px; line-height:1.5; }}
+  .sup-row {{ font-size:14px; color:#25455D; margin:8px 0; word-break:break-all; }}
+  .sup-row a {{ color:#b86b00; text-decoration:underline; }}
   .step2 {{ display:none; }}
   .ok-box {{ text-align:center; padding:30px 10px; }}
   .ok-box .tick {{ font-size:56px; margin-bottom:10px; }}
@@ -2033,6 +2065,7 @@ def render_register_page(event, client, poster_url, prefill=None) -> str:
         <p class="err" id="err2" style="display:none"></p>
       </div>
     </div>
+    {support_block}
   </div>
 </div>
 <script>

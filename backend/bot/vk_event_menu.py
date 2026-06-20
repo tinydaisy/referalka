@@ -345,3 +345,25 @@ async def handle_vk_event_live(event_id: int, vk_user_id: int, db, ctx) -> None:
 
     keyboard = tg_inline_to_vk_keyboard(rows)
     await vk_send_message(vk_user_id, text, keyboard=keyboard, token=ctx.token)
+
+
+async def handle_vk_event_support(event_id: int, vk_user_id: int, db, ctx) -> None:
+    """«🆘 Тех. поддержка» (VK) — единое сообщение с каналами связи клиента-
+    владельца события (ВК / Телеграм / MAX)."""
+    from app.services.support_message import build_support_message_plain
+    row = await db.fetchrow(
+        """SELECT c.work_tg_username, c.work_vk, c.work_max
+             FROM events e
+             JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
+             JOIN clients c ON c.id = eo.client_id
+            WHERE e.id = $1 ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
+        event_id,
+    )
+    wtg = row["work_tg_username"] if row else ""
+    wvk = row["work_vk"] if row else ""
+    wmax = row["work_max"] if row else ""
+    await vk_send_message(
+        vk_user_id,
+        build_support_message_plain(work_tg=wtg, work_vk=wvk, work_max=wmax),
+        token=ctx.token,
+    )

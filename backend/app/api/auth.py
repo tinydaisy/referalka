@@ -276,7 +276,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
                 c.created_at, c.timezone,
-                c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id,
                 c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
                 c.integration_token,
@@ -373,7 +373,8 @@ class ProfileUpdate(BaseModel):
     test_max_ids: Optional[list] = None
     test_email_ids: Optional[list] = None
     work_tg_username: Optional[str] = None
-    work_tg_id: Optional[int] = None
+    work_vk: Optional[str] = None
+    work_max: Optional[str] = None
     broadcast_concurrency: Optional[int] = None
     notifications_telegram_chat_id: Optional[int] = None
     partner_landing_url: Optional[str] = None
@@ -397,7 +398,7 @@ async def update_me(
         client = await db.fetchrow(
             """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
                 c.created_at, c.timezone,
-                c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id,
                   c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles
            FROM clients c WHERE c.id = $1""",
@@ -431,7 +432,7 @@ async def update_me(
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
                   c.created_at, c.timezone,
-                  c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_tg_id, c.broadcast_concurrency,
+                  c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                   c.notifications_telegram_chat_id,
                   c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles
              FROM clients c WHERE c.id = $1""",

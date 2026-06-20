@@ -37,7 +37,7 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant' || t === 'chat-gates') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_tg_id: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', partner_landing_url: '', partner_dashboard_url: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
   const [clientId, setClientId] = useState<number | null>(null)
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
@@ -66,7 +66,8 @@ export default function SettingsPage() {
         test_max_ids_raw: (c.test_max_ids || []).join(', '),
         test_email_ids_raw: (c.test_email_ids || []).join(', '),
         work_tg_username: c.work_tg_username || '',
-        work_tg_id: c.work_tg_id ? String(c.work_tg_id) : '',
+        work_vk: c.work_vk || '',
+        work_max: c.work_max || '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
         partner_landing_url: c.partner_landing_url || '',
@@ -112,7 +113,8 @@ export default function SettingsPage() {
         test_max_ids: testMaxIds,
         test_email_ids: testEmailIds,
         work_tg_username: form.work_tg_username || null,
-        work_tg_id: form.work_tg_id ? Number(form.work_tg_id) : null,
+        work_vk: form.work_vk || null,
+        work_max: form.work_max || null,
         broadcast_concurrency: concurrency,
         notifications_telegram_chat_id: form.notifications_telegram_chat_id ? Number(form.notifications_telegram_chat_id) : null,
         partner_landing_url: form.partner_landing_url.trim() || null,
@@ -287,30 +289,42 @@ export default function SettingsPage() {
             <div>
               <h3 className="font-semibold text-gray-800">Служба поддержки</h3>
               <p className="text-sm text-gray-500 mt-0.5">
-                Telegram-аккаунт для связи клиентов с вами. Подставляется в серию сообщений
-                (воронку догрева) как контакт поддержки.
+                Каналы для связи клиентов с вами. Указывайте <b>ссылкой</b>. Подставляются
+                в команду <code>/support</code> в ботах, в кнопку «Тех. поддержка» в меню
+                события и на странице регистрации, и в воронку догрева. Показываются только
+                заполненные.
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Никнейм</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Телеграм <span className="text-gray-400">(ссылка)</span></label>
               <input
                 type="text"
                 value={form.work_tg_username}
                 onChange={set('work_tg_username')}
-                placeholder="@username"
+                placeholder="https://t.me/username"
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">ID аккаунта <span className="text-gray-400">(необязательно)</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ВКонтакте <span className="text-gray-400">(ссылка)</span></label>
               <input
                 type="text"
-                value={form.work_tg_id}
-                onChange={set('work_tg_id')}
-                placeholder="123456789"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+                value={form.work_vk}
+                onChange={set('work_vk')}
+                placeholder="https://vk.com/username"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">MAX <span className="text-gray-400">(ссылка)</span></label>
+              <input
+                type="text"
+                value={form.work_max}
+                onChange={set('work_max')}
+                placeholder="https://max.ru/username"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm"
               />
             </div>
           </div>

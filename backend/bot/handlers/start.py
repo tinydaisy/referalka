@@ -1224,6 +1224,11 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
         text=prog_label, url=f"https://pluson.ru/event/{slug}{cid_q}#program"
     )])
 
+    # 5. Тех. поддержка — единое сообщение с каналами связи клиента.
+    rows.append([InlineKeyboardButton(
+        text="🆘 Тех. поддержка", callback_data=f"evsupport_{event_id}"
+    )])
+
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
     poster_url = (ev["poster_url"] or "").strip()
     if poster_url and len(text) <= 1024:
@@ -1593,52 +1598,44 @@ async def handle_app(message: Message):
 
 
 @router.message(Command(commands=["support"]))
-async def handle_support(message: Message):
-    """Команда `/support` — сообщение со ссылкой на службу поддержки клиента.
+async def _resolve_support_contacts(db, bot_id: int | None) -> tuple[str, str, str]:
+    """По bot_id находит клиента (через client_channels) и возвращает
+    (work_tg_username, work_vk, work_max). Системный бот / не найден → пустые."""
+    if not bot_id:
+        return "", "", ""
+    from app.services.channels import find_channel_by_bot_id
+    ch = await find_channel_by_bot_id(bot_id, db)
+    if not ch or ch["is_system"]:
+        return "", "", ""
+    client_id = await db.fetchval(
+        """SELECT client_id FROM client_channels
+            WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+        ch["id"],
+    )
+    if not client_id:
+        return "", "", ""
+    row = await db.fetchrow(
+        "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
+        client_id,
+    )
+    if not row:
+        return "", "", ""
+    return (row["work_tg_username"] or "", row["work_vk"] or "", row["work_max"] or "")
 
-    Резолвит `clients.work_tg_username` по боту (через client_channels). Если
-    бот системный или work_tg не задан — кнопку не показываем (только текст)."""
+
+async def handle_support(message: Message):
+    """Команда `/support` — единое сообщение службы поддержки клиента со всеми
+    заполненными каналами (ВК / Телеграм / MAX). Резолвит каналы по боту."""
     user = message.from_user
     if not user:
         return
+    from app.services.support_message import build_support_message_html
     bot_id = message.bot.id if message.bot else None
-    work_tg = ""
-    if bot_id:
-        pool = await get_pool()
-        async with pool.acquire() as db:
-            from app.services.channels import find_channel_by_bot_id
-            ch = await find_channel_by_bot_id(bot_id, db)
-            if ch and not ch["is_system"]:
-                client_id = await db.fetchval(
-                    """SELECT client_id FROM client_channels
-                        WHERE channel_id = $1
-                        ORDER BY is_active DESC, id ASC LIMIT 1""",
-                    ch["id"],
-                )
-                if client_id:
-                    work_tg = (await db.fetchval(
-                        "SELECT work_tg_username FROM clients WHERE id = $1",
-                        client_id,
-                    ) or "").lstrip("@").strip()
-
-    if work_tg:
-        text = (
-            "Есть вопрос?\n\n"
-            f"Напишите его в нашу службу поддержки — @{_html.escape(work_tg)}"
-        )
-        # Предзаполненный текст обращения — точно как задан, без пробелов
-        # (подчёркивание вместо пробела), чтобы не было %20 в ссылке.
-        support_url = f"https://t.me/{work_tg}?text=Здравствуйте.Есть_вопрос"
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="НАПИСАТЬ В ПОДДЕРЖКУ", url=support_url)
-        ]])
-        await message.answer(text, reply_markup=kb, parse_mode="HTML",
-                             disable_web_page_preview=True)
-    else:
-        await message.answer(
-            "Есть вопрос?\n\nНапишите его в нашу службу поддержки.",
-            parse_mode="HTML",
-        )
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        work_tg, work_vk, work_max = await _resolve_support_contacts(db, bot_id)
+    text = build_support_message_html(work_tg=work_tg, work_vk=work_vk, work_max=work_max)
+    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
 
 
 @router.message(Command(commands=["getchatid"]))

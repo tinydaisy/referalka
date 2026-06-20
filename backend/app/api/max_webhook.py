@@ -375,6 +375,25 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         )
         return
 
+    if low.startswith("/support"):
+        from app.services.support_message import build_support_message_plain
+        wtg = wvk = wmax = ""
+        if client_id_override:
+            _sp = await get_pool()
+            async with _sp.acquire() as _sc:
+                _r = await _sc.fetchrow(
+                    "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
+                    client_id_override,
+                )
+            if _r:
+                wtg, wvk, wmax = (_r["work_tg_username"] or "", _r["work_vk"] or "", _r["work_max"] or "")
+        await max_send_message(
+            chat_id,
+            build_support_message_plain(work_tg=wtg, work_vk=wvk, work_max=wmax),
+            token=bot_token,
+        )
+        return
+
     if low.startswith("/merge"):
         await _handle_max_merge(
             text=text, user_id=user_id, chat_id=chat_id,
@@ -560,6 +579,35 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
                 await _send_max_event_menu(chat_id, event_id, contact_id, bot_token, conn)
             except Exception as e:
                 logger.warning(f"MAX evmenu failed (event={event_id}, user={user_id}): {e}")
+        return
+
+    if payload.startswith("evsupport_"):
+        try:
+            event_id = int(payload.removeprefix("evsupport_"))
+        except ValueError:
+            logger.warning(f"MAX evsupport callback bad payload: {payload!r}")
+            return
+        from app.services.support_message import build_support_message_plain
+        pool = await get_pool()
+        if not pool:
+            return
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT c.work_tg_username, c.work_vk, c.work_max
+                     FROM events e
+                     JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
+                     JOIN clients c ON c.id = eo.client_id
+                    WHERE e.id = $1 ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
+                event_id,
+            )
+        wtg = row["work_tg_username"] if row else ""
+        wvk = row["work_vk"] if row else ""
+        wmax = row["work_max"] if row else ""
+        await max_send_message(
+            chat_id,
+            build_support_message_plain(work_tg=wtg, work_vk=wvk, work_max=wmax),
+            token=bot_token,
+        )
         return
 
     logger.info(f"MAX message_callback unknown payload={payload!r}")
@@ -1153,6 +1201,9 @@ async def _send_max_event_menu(
     # 5. Кабинет и подарки → вкладка кабинета (#cabinet).
     tg_rows.append([{"text": "Кабинет и подарки",
                      "url": f"https://pluson.ru/event/{slug}{cid_q}#cabinet"}])
+
+    # 6. Тех. поддержка — единое сообщение с каналами связи клиента.
+    tg_rows.append([{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}])
 
     # Афиша события вложением к меню (как фото с подписью в TG).
     attachments = None

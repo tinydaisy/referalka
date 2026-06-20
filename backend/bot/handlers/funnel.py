@@ -270,6 +270,35 @@ async def handle_event_menu_back(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("evsupport_"))
+async def handle_event_support(callback: CallbackQuery):
+    """«🆘 Тех. поддержка» — единое сообщение с каналами связи клиента-владельца
+    события (ВК / Телеграм / MAX)."""
+    try:
+        event_id = int((callback.data or "").removeprefix("evsupport_"))
+    except ValueError:
+        await callback.answer("Ошибка кнопки")
+        return
+    from app.services.support_message import build_support_message_html
+    pool = await get_pool()
+    async with pool.acquire() as db:
+        row = await db.fetchrow(
+            """SELECT c.work_tg_username, c.work_vk, c.work_max
+                 FROM events e
+                 JOIN event_owners eo ON eo.event_id = e.id AND eo.status='accepted'
+                 JOIN clients c ON c.id = eo.client_id
+                WHERE e.id = $1
+                ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1""",
+            event_id,
+        )
+    work_tg = row["work_tg_username"] if row else ""
+    work_vk = row["work_vk"] if row else ""
+    work_max = row["work_max"] if row else ""
+    text = build_support_message_html(work_tg=work_tg, work_vk=work_vk, work_max=work_max)
+    await callback.message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+    await callback.answer()
+
+
 _RU_MONTHS = ["", "января", "февраля", "марта", "апреля", "мая", "июня",
               "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 

@@ -1285,6 +1285,9 @@ async def send_vk_event_funnel(
         rows.append([{"text": prog_label,
                       "url": f"https://pluson.ru/event/{slug}{cid_q}#program"}])
 
+        # 6. Тех. поддержка — единое сообщение с каналами связи клиента.
+        rows.append([{"text": "🆘 Тех. поддержка", "callback_data": f"evsupport_{event_id}"}])
+
         keyboard = tg_inline_to_vk_keyboard(rows)
         mid = await vk_send_message(vk_user_id, text, keyboard=keyboard, token=token, attachment=attachment)
         return bool(mid)
