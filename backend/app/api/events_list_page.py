@@ -1,0 +1,283 @@
+"""
+Серверная HTML-страница «Все события клиента»: GET /o/{client_id}
+
+НЕ React, НЕ Mini App — обычная HTML-страница, собранная на сервере с уже
+вставленными данными. Открывается мгновенно. Узкая колонка по центру (как
+телефон), бренд-цвета. Повторяет главный экран Mini App (HubSelector /
+Календарь): бренд-шапка + карточки событий с бейджами «Идёт сейчас / Скоро /
+Завершено» + блок «Архив прошедших».
+
+Каждая карточка ведёт на /event/{slug} (серверная страница события).
+
+Куда ведут боты по /start:
+  TG/VK/MAX-бот VIP-клиента → /o/{client_id} (его события).
+  Системный @pluson_bot → Mini App (там HubSelector по всем организаторам).
+"""
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
+from app.database import get_db
+import asyncpg
+import html as _html
+import urllib.parse as _up
+
+router = APIRouter(tags=["Публичная HTML-страница «Все события»"])
+
+PEACH = "#FFCFA4"
+DARK = "#25455D"
+
+RU_MONTHS = ["", "января", "февраля", "марта", "апреля", "мая", "июня",
+             "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+
+
+def esc(s) -> str:
+    return _html.escape(str(s if s is not None else ""))
+
+
+# Тот же SQL расчёта бакетов (now/upcoming/past), что в
+# client_profile.public_client_events — для конференций/турниров даты
+# берутся из conf_days/conf_stages, для остальных — из events.start_at/end_at.
+_EVENTS_SQL = """
+WITH conf_dates AS (
+  SELECT e.id AS event_id,
+         LEAST(
+           (SELECT (d2.day_date + COALESCE(
+                      NULLIF(d2.open_time,'')::time,
+                      (SELECT MIN(NULLIF(s.start_time,'')::time)
+                         FROM conf_sessions s
+                        WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                      '00:00'::time
+                    )) AT TIME ZONE 'Europe/Moscow'
+              FROM conf_days d2
+              WHERE d2.event_id = e.id AND d2.day_date IS NOT NULL
+              ORDER BY d2.day_date ASC LIMIT 1),
+           (SELECT MIN(st.start_date::timestamp AT TIME ZONE 'Europe/Moscow')
+              FROM conf_stages st
+              WHERE st.event_id = e.id AND st.start_date IS NOT NULL)
+         ) AS start_at,
+         GREATEST(
+           (SELECT (d2.day_date + COALESCE(
+                      NULLIF(d2.close_time,'')::time,
+                      (SELECT MAX(NULLIF(s.end_time,'')::time)
+                         FROM conf_sessions s
+                        WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                      (SELECT MAX(NULLIF(s.start_time,'')::time)
+                         FROM conf_sessions s
+                        WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                      '23:59'::time
+                    )) AT TIME ZONE 'Europe/Moscow'
+              FROM conf_days d2
+              WHERE d2.event_id = e.id AND d2.day_date IS NOT NULL
+              ORDER BY d2.day_date DESC LIMIT 1),
+           (SELECT MAX((st.end_date + '23:59'::time) AT TIME ZONE 'Europe/Moscow')
+              FROM conf_stages st
+              WHERE st.event_id = e.id AND st.end_date IS NOT NULL)
+         ) AS end_at
+    FROM events e
+   WHERE e.module_slug IN ('conference', 'turnir')
+)
+SELECT e.id, e.slug, e.title, e.module_slug,
+       (SELECT url FROM event_posters
+         WHERE event_id = e.id
+         ORDER BY CASE orientation
+                    WHEN 'square'     THEN 1
+                    WHEN 'horizontal' THEN 2
+                    WHEN 'vertical'   THEN 3
+                    ELSE 4
+                  END, sort, id
+         LIMIT 1) AS poster_url,
+       e.status,
+       COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END, e.start_at) AS start_at,
+       COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at   END, e.end_at)   AS end_at,
+       CASE
+         WHEN COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END, e.start_at) IS NULL
+           OR COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at   END, e.end_at)   IS NULL
+              THEN 'upcoming'
+         WHEN NOW() BETWEEN
+              COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END, e.start_at)
+              AND
+              COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at   END, e.end_at)
+              THEN 'now'
+         WHEN COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.end_at END, e.end_at) < NOW()
+              THEN 'past'
+         ELSE 'upcoming'
+       END AS bucket
+  FROM events e
+  LEFT JOIN conf_dates cd ON cd.event_id = e.id
+ WHERE EXISTS(SELECT 1 FROM event_owners eo
+               WHERE eo.event_id = e.id AND eo.client_id = $1 AND eo.status = 'accepted')
+   AND e.status IN ('published','ended')
+ ORDER BY COALESCE(CASE WHEN e.module_slug IN ('conference','turnir') THEN cd.start_at END, e.start_at) NULLS LAST
+"""
+
+
+def _fmt_date(dt):
+    """'15 июня' по МСК (как formatDate в SelectorEventsTab)."""
+    if not dt:
+        return ""
+    try:
+        from datetime import timedelta
+        msk = dt + timedelta(hours=3) if getattr(dt, "tzinfo", None) is None else dt
+        return f"{msk.day} {RU_MONTHS[msk.month]}"
+    except Exception:
+        return ""
+
+
+def _date_range(start_at, end_at):
+    s = _fmt_date(start_at)
+    if not s:
+        return ""
+    e = _fmt_date(end_at)
+    if e and e != s:
+        return f"{s} — {e}"
+    return s
+
+
+def _card_html(e: dict) -> str:
+    bucket = e.get("bucket")
+    if bucket == "now":
+        badge_cls, badge_txt = "badge-green", "● Идёт сейчас"
+    elif bucket == "past":
+        badge_cls, badge_txt = "badge-gray", "Завершено"
+    else:
+        badge_cls, badge_txt = "badge-gold", "Скоро"
+
+    poster = e.get("poster_url")
+    poster_html = (f'<img class="poster" src="{esc(poster)}" alt="" '
+                   f'onerror="this.style.display=\'none\'">' if poster else "")
+    date_str = _date_range(e.get("start_at"), e.get("end_at"))
+    date_html = f'<div class="meta">{esc(date_str)}</div>' if date_str else ""
+
+    return f"""<a class="card" href="/event/{esc(e['slug'])}">
+  {poster_html}
+  <div class="body">
+    <span class="badge {badge_cls}">{badge_txt}</span>
+    <div class="ctitle">{esc(e.get('title') or e.get('slug'))}</div>
+    {date_html}
+  </div>
+</a>"""
+
+
+@router.get("/o/{client_id}", include_in_schema=False)
+async def events_list_page(
+    client_id: int,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client = await db.fetchrow(
+        """SELECT brand_name, name, positioning, profile_photo_url, brand_logo_url
+             FROM clients WHERE id = $1""",
+        client_id,
+    )
+    if not client:
+        raise HTTPException(status_code=404, detail="Организатор не найден")
+
+    rows = await db.fetch(_EVENTS_SQL, client_id)
+    events = [dict(r) for r in rows]
+
+    active = [e for e in events if e["bucket"] != "past"]
+    # 'now' раньше 'soon', внутри — по start_at ASC (как bucketRank в Mini App)
+    active.sort(key=lambda e: (0 if e["bucket"] == "now" else 1,
+                               str(e.get("start_at") or "")))
+    past = [e for e in events if e["bucket"] == "past"]
+    past.sort(key=lambda e: str(e.get("end_at") or e.get("start_at") or ""),
+              reverse=True)
+
+    brand = esc(client["brand_name"] or client["name"] or "Организатор")
+    tagline = esc(client["positioning"] or "")
+    brand_logo = client["brand_logo_url"]
+
+    # Favicon — первая буква бренда на бренд-фоне.
+    fav_letter = _html.escape((brand or "•")[0].upper())
+    favicon_svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        "<rect width='64' height='64' rx='14' fill='#25455D'/>"
+        "<text x='32' y='44' font-size='38' font-family='Roboto,Arial,sans-serif' "
+        f"font-weight='700' fill='#FFCFA4' text-anchor='middle'>{fav_letter}</text></svg>"
+    )
+    favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
+
+    logo_html = (f'<img class="blogo" src="{esc(brand_logo)}" alt="">'
+                 if brand_logo else "")
+    tagline_html = f'<p class="tagline">{tagline}</p>' if tagline else ""
+
+    active_html = "".join(_card_html(e) for e in active)
+    past_html = "".join(_card_html(e) for e in past)
+
+    archive_html = ""
+    if past:
+        archive_html = f"""
+        <button class="arch-btn" onclick="document.getElementById('arch').classList.toggle('open');this.classList.toggle('open')">
+          <span>Архив прошедших · {len(past)}</span><span class="caret">▾</span>
+        </button>
+        <div class="arch" id="arch">{past_html}</div>"""
+
+    if not active and not past:
+        body_html = """
+        <div class="empty">
+          <div class="emoji">📭</div>
+          <p class="e-title">Пока нет опубликованных событий</p>
+          <p class="e-sub">Загляните позже — события появятся здесь.</p>
+        </div>"""
+    else:
+        body_html = f"""
+        <p class="lead">Выберите событие, которое вас интересует:</p>
+        <div class="cards">{active_html}{archive_html}</div>"""
+
+    return HTMLResponse(content=f"""<!DOCTYPE html>
+<html lang="ru"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{brand} — события</title>
+<link rel="icon" href="{favicon_uri}">
+<style>
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin:0; padding:0; font-family:'Roboto',-apple-system,BlinkMacSystemFont,sans-serif;
+    background: linear-gradient(45deg, #25455D, #0a1520); background-attachment: fixed; color:#1f2d3a; }}
+  .wrap {{ max-width:480px; margin:0 auto; min-height:100vh; background:#f7f8fa;
+    box-shadow:0 0 40px rgba(0,0,0,.35); display:flex; flex-direction:column; }}
+  .hero {{ background: linear-gradient(45deg,#25455D,#0a1520); color:#fff; padding:22px 18px 18px;
+    position:relative; }}
+  .hero h1 {{ font-size:22px; margin:0; line-height:1.25; padding-right:54px; }}
+  .tagline {{ color:rgba(255,255,255,.75); font-size:13px; margin:6px 0 0; }}
+  .blogo {{ position:absolute; top:18px; right:16px; width:40px; height:40px; border-radius:8px;
+    object-fit:contain; }}
+  .content {{ flex:1; padding:16px; padding-bottom:40px; }}
+  .lead {{ font-size:14px; color:#41566a; font-weight:600; margin:2px 0 14px; }}
+  .cards {{ display:flex; flex-direction:column; gap:12px; }}
+  .card {{ display:block; background:#fff; border:1px solid #e6eaee; border-radius:16px;
+    overflow:hidden; text-decoration:none; color:inherit; box-shadow:0 1px 4px rgba(0,0,0,.05);
+    transition:transform .12s, box-shadow .12s; }}
+  .card:active {{ transform:scale(.99); }}
+  .poster {{ width:100%; display:block; aspect-ratio:16/9; object-fit:cover; background:#eef1f4; }}
+  .body {{ padding:12px 14px 14px; }}
+  .badge {{ display:inline-block; font-size:11px; font-weight:700; padding:3px 9px;
+    border-radius:999px; margin-bottom:8px; }}
+  .badge-green {{ background:#e7f6ec; color:#1f8a4c; }}
+  .badge-gold  {{ background:#FFF3E0; color:#b45309; border:1px solid #FFCFA4; }}
+  .badge-gray  {{ background:#eef1f4; color:#7a8a99; }}
+  .ctitle {{ font-size:16px; font-weight:700; color:#25455D; line-height:1.3; }}
+  .meta {{ font-size:13px; color:#6b7c8e; margin-top:4px; }}
+  .arch-btn {{ width:100%; margin-top:4px; background:transparent; border:1px dashed #9aa7b4;
+    border-radius:12px; padding:11px 14px; display:flex; align-items:center; justify-content:space-between;
+    color:#6b7c8e; font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }}
+  .arch-btn .caret {{ transition:transform .2s; }}
+  .arch-btn.open .caret {{ transform:rotate(180deg); }}
+  .arch {{ display:none; flex-direction:column; gap:12px; margin-top:12px; }}
+  .arch.open {{ display:flex; }}
+  .empty {{ text-align:center; padding:60px 24px; }}
+  .empty .emoji {{ font-size:48px; margin-bottom:12px; }}
+  .empty .e-title {{ color:#25455D; font-weight:700; font-size:16px; margin:0; }}
+  .empty .e-sub {{ color:#6b7c8e; font-size:13px; margin-top:8px; line-height:1.5; }}
+  .foot {{ font-size:11.5px; color:#9aa7b4; text-align:center; padding:18px 12px 30px; }}
+  .foot a {{ color:#25455D; font-weight:600; text-decoration:none; }}
+</style></head>
+<body><div class="wrap">
+  <div class="hero">
+    {logo_html}
+    <h1>{brand}</h1>
+    {tagline_html}
+  </div>
+  <div class="content">
+    {body_html}
+  </div>
+  <div class="foot">Сделано на <a href="https://pluson.ru/" target="_blank" rel="noopener noreferrer">Платформе ПЛЮСОН</a> — для экспертов и организаторов</div>
+</div></body></html>""",
+        headers={"Cache-Control": "no-cache, must-revalidate"})

@@ -1025,9 +1025,34 @@ async def _process_start(
                 logger.warning(f"MAX welcome failed for user={user_id}: {e}")
             return
 
-    # ── Событие не задано → НИЧЕГО не шлём. Общее welcome про «платформу ПЛЮСОН»
-    #    отключено по требованию: бот не должен слать рекламно-платформенные
-    #    сообщения. Реагируем только на конкретное событие/команду.
+    # ── Событие не задано (прямой /start без контекста) ──
+    # VIP-бот клиента (client_id_override) → приветствие «Выберите событие» с
+    # кнопкой на веб-страницу всех событий клиента /o/{client_id}.
+    # Системный бот (client_id_override is None) → молчим: один клиент не
+    # определён, вести некуда (и не шлём рекламно-платформенный текст).
+    if client_id_override:
+        try:
+            _wp = await get_pool()
+            async with _wp.acquire() as _wc:
+                _cli = await _wc.fetchrow(
+                    "SELECT brand_name, name FROM clients WHERE id = $1",
+                    client_id_override,
+                )
+            _brand = ((_cli["brand_name"] if _cli else None)
+                      or (_cli["name"] if _cli else None) or "").strip()
+            _hi = f"Привет, {first_name}! 👋\n\n" if first_name else "Привет! 👋\n\n"
+            _txt = (
+                _hi
+                + (f"Добро пожаловать в бот {_brand}.\n\n" if _brand else "")
+                + "Выберите событие, которое вас интересует 👇"
+            )
+            _btn = tg_inline_to_max_keyboard([[
+                {"text": "📋 Выбрать событие",
+                 "url": f"https://pluson.ru/o/{client_id_override}"},
+            ]])
+            await max_send_message(chat_id, _txt, token=bot_token, buttons=_btn)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"MAX direct-start welcome failed for user={user_id}: {e}")
     return
 
 

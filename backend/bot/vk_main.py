@@ -563,13 +563,31 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
         return
 
     try:
-        welcome_text = (
-            "👋 Здравствуйте! Спасибо что разрешили нам писать.\n\n"
-            "Откройте приложение, чтобы посмотреть свои события и партнёрские ссылки."
-        )
-        keyboard = tg_inline_to_vk_keyboard([[
-            {"text": "Открыть приложение", "url": f"https://vk.com/app{ctx.vk_app_id}"},
-        ]])
+        if not ctx.is_system:
+            # VIP-сообщество клиента → приветствие «Выберите событие» с кнопкой
+            # на веб-страницу всех событий клиента /o/{client_id}.
+            cli = await db.fetchrow(
+                "SELECT brand_name, name FROM clients WHERE id = $1", ctx.client_id)
+            brand = ((cli["brand_name"] if cli else None)
+                     or (cli["name"] if cli else None) or "").strip()
+            welcome_text = (
+                "👋 Здравствуйте! Спасибо что разрешили нам писать.\n\n"
+                + (f"Добро пожаловать в сообщество {brand}.\n\n" if brand else "")
+                + "Выберите событие, которое вас интересует 👇"
+            )
+            keyboard = tg_inline_to_vk_keyboard([[
+                {"text": "📋 Выбрать событие",
+                 "url": f"https://pluson.ru/o/{ctx.client_id}"},
+            ]])
+        else:
+            # Системное сообщество ПЛЮСОНа → Mini App (HubSelector по всем).
+            welcome_text = (
+                "👋 Здравствуйте! Спасибо что разрешили нам писать.\n\n"
+                "Откройте приложение, чтобы посмотреть свои события и партнёрские ссылки."
+            )
+            keyboard = tg_inline_to_vk_keyboard([[
+                {"text": "Открыть приложение", "url": f"https://vk.com/app{ctx.vk_app_id}"},
+            ]])
         await vk_send_message(int(user_id), welcome_text, keyboard=keyboard, token=ctx.token)
     except Exception as e:
         logger.warning(f"VK welcome on message_allow failed for user={user_id}: {e}")

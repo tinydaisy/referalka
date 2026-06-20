@@ -1327,7 +1327,7 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
 
         if events:
             intro_lines.append("")
-            intro_lines.append("📅 А ещё вы можете попасть на ближайшие события:")
+            intro_lines.append("📅 Выберите событие, которое вас интересует:")
             intro_lines.append("")
             for idx, ev in enumerate(events, start=1):
                 is_conf = ev["module_slug"] == "conference"
@@ -1360,6 +1360,10 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         if buf:
             rows.append(buf)
 
+        rows.append([InlineKeyboardButton(
+            text="📋 ВЫБРАТЬ СОБЫТИЕ",
+            url=f"https://pluson.ru/o/{client_id}",
+        )])
         rows.append([InlineKeyboardButton(
             text="📅 ВСЕ СОБЫТИЯ",
             web_app=WebAppInfo(url=f"https://pluson.ru/c/{client_id}/tg/"),
