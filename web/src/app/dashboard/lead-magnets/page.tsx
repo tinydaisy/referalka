@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users } from 'lucide-react'
+import { Gift, Plus, Pencil, Trash2, ExternalLink, X, Copy, Check, Package, FileText, BarChart3, AlertTriangle, Users, QrCode, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import FileUploader from '@/components/FileUploader'
 import { useMe } from '@/hooks/useMe'
@@ -928,18 +928,75 @@ function PlatformShareLinks({ kind, slug, links }: {
   return (
     <div className="flex flex-col gap-1">
       {order.filter(p => resolved[p]).map(p => (
-        <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} />
+        <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} slug={slug} kind={kind} />
       ))}
     </div>
   )
 }
 
-function PlatformLinkRow({ platform, url }: { platform: PlatformKey; url: string }) {
+// URL картинки QR-кода (PNG) для ссылки. Генерится на лету бесплатным
+// публичным сервисом — без npm-зависимостей и пересборки.
+function qrPngUrl(data: string, size = 600): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=2&data=${encodeURIComponent(data)}`
+}
+
+function PlatformLinkRow({ platform, url, slug, kind }: { platform: PlatformKey; url: string; slug: string; kind: 'm' | 'p' }) {
   const [copied, setCopied] = useState(false)
+  const [qrCopied, setQrCopied] = useState(false)
+  const [qrBusy, setQrBusy] = useState(false)
   const meta = PLATFORM_META[platform]
+
   function copy() {
     navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
   }
+
+  // Скачать QR-код как PNG-файл.
+  async function downloadQr() {
+    setQrBusy(true)
+    try {
+      const resp = await fetch(qrPngUrl(url))
+      const blob = await resp.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = `qr-${kind}-${slug}-${platform}.png`
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(href)
+    } catch {
+      // Фолбэк — открыть картинку в новой вкладке, юзер сохранит вручную.
+      window.open(qrPngUrl(url), '_blank')
+    } finally { setQrBusy(false) }
+  }
+
+  // Скопировать QR-код (картинку) в буфер обмена.
+  async function copyQr() {
+    setQrBusy(true)
+    try {
+      const resp = await fetch(qrPngUrl(url))
+      const blob = await resp.blob()
+      // Clipboard принимает image/png. Браузеры могут вернуть image/jpeg —
+      // приводим к png через canvas на всякий случай.
+      let pngBlob = blob
+      if (blob.type !== 'image/png') {
+        pngBlob = await new Promise<Blob>((resolve, reject) => {
+          const img = new Image()
+          img.onload = () => {
+            const cv = document.createElement('canvas')
+            cv.width = img.width; cv.height = img.height
+            cv.getContext('2d')!.drawImage(img, 0, 0)
+            cv.toBlob(b => b ? resolve(b) : reject(new Error('no blob')), 'image/png')
+          }
+          img.onerror = reject
+          img.src = URL.createObjectURL(blob)
+        })
+      }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
+      setQrCopied(true); setTimeout(() => setQrCopied(false), 1500)
+    } catch {
+      alert('Не удалось скопировать QR-картинку в этом браузере. Используйте «Скачать QR».')
+    } finally { setQrBusy(false) }
+  }
+
   return (
     <div className="flex items-center gap-1.5 text-xs min-w-0">
       <span
@@ -952,6 +1009,12 @@ function PlatformLinkRow({ platform, url }: { platform: PlatformKey; url: string
       <span className="font-mono text-gray-500 truncate flex-1 min-w-0">{url}</span>
       <button type="button" onClick={copy} className="p-1 rounded hover:bg-gray-100 shrink-0" title={`Скопировать ссылку (${meta.label})`}>
         {copied ? <Check size={12} className="text-green-600" /> : <Copy size={12} className="text-gray-400" />}
+      </button>
+      <button type="button" onClick={copyQr} disabled={qrBusy} className="p-1 rounded hover:bg-gray-100 shrink-0 disabled:opacity-40" title={`Скопировать QR-код (${meta.label})`}>
+        {qrCopied ? <Check size={12} className="text-green-600" /> : <QrCode size={12} className="text-gray-400" />}
+      </button>
+      <button type="button" onClick={downloadQr} disabled={qrBusy} className="p-1 rounded hover:bg-gray-100 shrink-0 disabled:opacity-40" title={`Скачать QR-код (${meta.label})`}>
+        <Download size={12} className="text-gray-400" />
       </button>
     </div>
   )
