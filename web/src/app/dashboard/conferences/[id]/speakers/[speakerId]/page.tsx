@@ -179,7 +179,7 @@ export default function ConferenceSpeakerPage() {
   const [channelVerifyMsg, setChannelVerifyMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [error, setError] = useState('')
   const [showWarning, setShowWarning] = useState(false)
-  const [subTab, setSubTab] = useState<'talk' | 'profile'>('talk')
+  const [subTab, setSubTab] = useState<'talk' | 'profile' | 'links'>('talk')
 
   useEffect(() => {
     api.auth.me().then((c: any) => {
@@ -479,55 +479,9 @@ export default function ConferenceSpeakerPage() {
         </div>
       )}
 
-      {/* Партнёрская ссылка спикера на это событие */}
-      <div className="mb-6">
-        <RefLinkInline slug={eventSlug} refCode={refCode} eventStatus={eventStatus} />
-      </div>
-
-      {/* Код доступа для самообслуживания спикера + готовое сообщение */}
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div>
-            <div className="font-semibold text-gray-900 text-sm">Код доступа для самозаполнения спикера</div>
-            <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <code className="bg-white px-1 rounded">pluson.ru/speaker/{eventSlug || '…'}</code>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 mt-3">
-          <input type={showAccessCode ? 'text' : 'password'}
-            value={profile.access_code || ''}
-            readOnly
-            className="flex-1 font-mono tracking-wider text-sm bg-white px-3 py-2 rounded-lg border border-gray-200" />
-          <button type="button" onClick={() => setShowAccessCode(v => !v)}
-            className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
-            {showAccessCode ? 'Скрыть' : 'Показать'}
-          </button>
-          <button type="button"
-            onClick={async () => {
-              try {
-                const r = await api.collaborators.inviteMessage(profile.id, confId)
-                setInviteMsg(r.message)
-                await navigator.clipboard.writeText(r.message)
-                setInviteCopied(true)
-                setTimeout(() => setInviteCopied(false), 3000)
-              } catch (e: any) {
-                setError(e.message || 'Не удалось получить сообщение')
-              }
-            }}
-            className="px-3 py-2 bg-brand text-white rounded-lg text-xs font-semibold hover:opacity-90">
-            {inviteCopied ? '✓ Скопировано' : '📋 Скопировать сообщение спикеру'}
-          </button>
-        </div>
-        {inviteMsg && (
-          <details className="mt-3">
-            <summary className="text-xs text-gray-600 cursor-pointer">Посмотреть что скопировалось</summary>
-            <pre className="mt-2 p-3 bg-white rounded-lg text-xs text-gray-700 whitespace-pre-wrap border border-gray-100">{inviteMsg}</pre>
-          </details>
-        )}
-      </div>
-
-      {/* Подвкладки: Выступление / Профиль */}
+      {/* Подвкладки: Выступление / Профиль / Ссылки */}
       <div className="border-b border-gray-200 mb-6 flex gap-1">
-        {([['talk', 'Выступление'], ['profile', 'Профиль']] as const).map(([k, label]) => (
+        {([['talk', 'Выступление'], ['profile', 'Профиль'], ['links', 'Ссылки']] as const).map(([k, label]) => (
           <button key={k} type="button" onClick={() => setSubTab(k)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               subTab === k
@@ -538,6 +492,55 @@ export default function ConferenceSpeakerPage() {
           </button>
         ))}
       </div>
+
+      {/* ── ВКЛАДКА «ССЫЛКИ» ── */}
+      {subTab === 'links' && (
+      <div className="space-y-6 mb-8">
+        {/* Партнёрская ссылка спикера на это событие */}
+        <RefLinkInline slug={eventSlug} refCode={refCode} eventStatus={eventStatus} />
+
+        {/* Код доступа для самообслуживания спикера + готовое сообщение */}
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div>
+              <div className="font-semibold text-gray-900 text-sm">Код доступа для самозаполнения спикера</div>
+              <div className="text-xs text-gray-600 mt-0.5">Спикер откроет страницу <code className="bg-white px-1 rounded">pluson.ru/speaker/{eventSlug || '…'}</code>, выберет фамилию и введёт код. Можно передать ассистенту.</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-3">
+            <input type={showAccessCode ? 'text' : 'password'}
+              value={profile.access_code || ''}
+              readOnly
+              className="flex-1 font-mono tracking-wider text-sm bg-white px-3 py-2 rounded-lg border border-gray-200" />
+            <button type="button" onClick={() => setShowAccessCode(v => !v)}
+              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
+              {showAccessCode ? 'Скрыть' : 'Показать'}
+            </button>
+            <button type="button"
+              onClick={async () => {
+                try {
+                  const r = await api.collaborators.inviteMessage(profile.id, confId)
+                  setInviteMsg(r.message)
+                  await navigator.clipboard.writeText(r.message)
+                  setInviteCopied(true)
+                  setTimeout(() => setInviteCopied(false), 3000)
+                } catch (e: any) {
+                  setError(e.message || 'Не удалось получить сообщение')
+                }
+              }}
+              className="px-3 py-2 bg-brand text-white rounded-lg text-xs font-semibold hover:opacity-90">
+              {inviteCopied ? '✓ Скопировано' : '📋 Скопировать сообщение спикеру'}
+            </button>
+          </div>
+          {inviteMsg && (
+            <details className="mt-3">
+              <summary className="text-xs text-gray-600 cursor-pointer">Посмотреть что скопировалось</summary>
+              <pre className="mt-2 p-3 bg-white rounded-lg text-xs text-gray-700 whitespace-pre-wrap border border-gray-100">{inviteMsg}</pre>
+            </details>
+          )}
+        </div>
+      </div>
+      )}
 
       {/* ── ВКЛАДКА «ВЫСТУПЛЕНИЕ» ── */}
       {subTab === 'talk' && (
