@@ -354,7 +354,7 @@ export default function GeneralBroadcastsPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="text-xs text-gray-400 font-mono">#{idx + 1}</span>
+                          <span className="text-xs text-gray-400 font-mono" title="Номер рассылки в системе">#{s.id}</span>
                           <span className="flex items-center gap-1 text-xs font-medium text-gray-700">
                             {STATUS_ICON[s.status]} {STATUS_LABEL[s.status] || s.status}
                           </span>

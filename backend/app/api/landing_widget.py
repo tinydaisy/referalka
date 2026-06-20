@@ -380,6 +380,7 @@ async def participants_tg(
     slug: str,
     response: Response,
     registered: str = "yes",   # yes | no | all
+    in_chat: str = "all",      # yes | no | all — фильтр по членству в чате события
     db: asyncpg.Connection = Depends(get_db),
 ):
     """Telegram-никнеймы участников события.
@@ -388,9 +389,14 @@ async def participants_tg(
     - `registered=no`   — только незарегистрированные
     - `registered=all`  — все
 
+    - `in_chat=all`     — без фильтра по чату (default)
+    - `in_chat=yes`     — только те, кто в Telegram-чате события (`is_in_chat=TRUE`)
+    - `in_chat=no`      — только те, кого нет в чате (`is_in_chat=FALSE`)
+
     Из выдачи исключены коллабораторы этого события (любая роль) и рабочие
     аккаунты клиента. Возвращаются только TG-username (без @ в поле `username`,
-    плюс готовая ссылка `tg_url`). Никаких персональных данных.
+    плюс готовая ссылка `tg_url`). У каждого ника — флаг `in_chat`.
+    Никаких персональных данных.
     """
     _set_cors(response)
 
@@ -405,14 +411,22 @@ async def participants_tg(
     elif registered == "no":
         reg_filter = "AND ep.is_registered = FALSE"
 
+    chat_filter = ""
+    if in_chat == "yes":
+        chat_filter = "AND ep.is_in_chat = TRUE"
+    elif in_chat == "no":
+        chat_filter = "AND ep.is_in_chat IS DISTINCT FROM TRUE"
+
     rows = await db.fetch(
         f"""
-        SELECT DISTINCT pu.username
+        SELECT DISTINCT pu.username,
+               bool_or(ep.is_in_chat) AS in_chat
         FROM event_participants ep
         JOIN contacts c        ON c.id = ep.contact_id
         JOIN platform_users pu ON pu.contact_id = c.id AND pu.platform_slug = 'telegram'
         WHERE ep.event_id = $1
           {reg_filter}
+          {chat_filter}
           AND pu.username IS NOT NULL AND pu.username <> ''
           AND pu.platform_user_id ~ '^[0-9]+$'          -- только реальные tg_id, не пустышки @username
           -- исключаем коллабораторов ЭТОГО события (любая роль)
@@ -429,6 +443,7 @@ async def participants_tg(
                   FROM clients WHERE id = (SELECT client_id FROM event_owners WHERE event_id = $1 AND status='accepted' ORDER BY (role='owner') DESC, id LIMIT 1)
                 ) t WHERE u IS NOT NULL AND u <> ''
           )
+        GROUP BY pu.username
         ORDER BY pu.username
         """,
         event_id,
@@ -439,8 +454,42 @@ async def participants_tg(
         "event_slug": event["slug"],
         "event_id": event_id,
         "registered": registered,
+        "in_chat": in_chat,
         "count": len(usernames),
         "usernames": usernames,                                  # ["nick1", "nick2", ...]
         "tg_urls": [f"https://t.me/{u}" for u in usernames],     # готовые ссылки
         "mentions": [f"@{u}" for u in usernames],                # ["@nick1", "@nick2", ...]
+        # по каждому нику — в чате он или нет (для смешанной выгрузки in_chat=all)
+        "participants": [
+            {"username": r["username"], "in_chat": bool(r["in_chat"])}
+            for r in rows
+        ],
     }
+
+
+@router.options("/events/{slug}/participants-tg-in-chat")
+async def participants_tg_in_chat_options(slug: str, response: Response):
+    _set_cors(response)
+    return {}
+
+
+@router.get("/events/{slug}/participants-tg-in-chat")
+async def participants_tg_in_chat(
+    slug: str,
+    response: Response,
+    registered: str = "yes",   # yes | no | all
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Алиас `participants-tg` с жёстким фильтром «только те, кто в чате события».
+
+    Удобно дёргать из mailer одной ссылкой без параметра `in_chat`.
+    По умолчанию — зарегистрированные И в чате (`registered=yes`, `in_chat=yes`).
+    Те же исключения (коллабораторы, рабочий аккаунт), тот же формат ответа.
+    """
+    return await participants_tg(
+        slug=slug,
+        response=response,
+        registered=registered,
+        in_chat="yes",
+        db=db,
+    )
