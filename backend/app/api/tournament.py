@@ -111,7 +111,41 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
     """Оцениваемые = спикеры-коллабораторы (ec) + ВСЕ зарегистрированные участники (ep).
     Сортировка: спикеры (по фамилии-имени) → участники (по имени)."""
     out: List[dict] = []
-    # спикеры/хедлайнеры
+    seen_contacts: set = set()  # contact_id, уже добавленные строкой-участником (ep)
+    # ── Участники (ep). Исключаем только организаторов/жюри/партнёров —
+    #    их в таблице оцениваемых быть не должно. СПИКЕРЫ остаются: человек,
+    #    который сдавал задания как участник, показывается строкой-участником
+    #    со своими ep-баллами (даже если его потом записали спикером).
+    ep_rows = await db.fetch(
+        """SELECT ep.id AS sid, ct.name, ct.ref_code, ct.id AS contact_id,
+                  (SELECT pu.username FROM platform_users pu
+                     WHERE pu.contact_id = ct.id AND pu.username IS NOT NULL
+                     ORDER BY CASE pu.platform_slug WHEN 'telegram' THEN 1 WHEN 'vk' THEN 2 WHEN 'max' THEN 3 ELSE 4 END
+                     LIMIT 1) AS username
+             FROM event_participants ep
+             JOIN contacts ct ON ct.id = ep.contact_id
+            WHERE ep.event_id = $1 AND ep.is_registered = TRUE
+              AND ct.is_staff = FALSE
+              AND NOT EXISTS (
+                SELECT 1 FROM event_collaborators ec2
+                 JOIN collaborators c2 ON c2.id = ec2.speaker_id
+                WHERE ec2.event_id = ep.event_id AND c2.contact_id = ct.id
+                  AND ec2.role IN ('organizer', 'jury', 'general_partner', 'partner')
+              )
+            ORDER BY ct.name, ep.id""",
+        event_id,
+    )
+    for r in ep_rows:
+        d = dict(r)
+        if d["contact_id"] is not None:
+            seen_contacts.add(d["contact_id"])
+        out.append({"kind": "ep", "sid": d["sid"], "key": _skey("ep", d["sid"]),
+                    "name": d["name"] or "Без имени", "username": d.get("username"),
+                    "ref_code": d["ref_code"], "contact_id": d["contact_id"],
+                    "material": None, "is_speaker": False})
+    # ── Спикеры/хедлайнеры (ec). Добавляем ТОЛЬКО тех, кого ещё нет среди
+    #    участников — иначе один человек (и спикер, и участник) задвоится.
+    #    Его ep-строка уже содержит баллы; пустую спикерскую не плодим.
     ec_rows = await db.fetch(
         """SELECT cse.id AS sid, c.name, ct.ref_code, ct.id AS contact_id,
                   c.video_url, c.video_folder_url,
@@ -128,36 +162,12 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
     )
     for r in ec_rows:
         d = dict(r)
+        if d["contact_id"] is not None and d["contact_id"] in seen_contacts:
+            continue  # уже есть строкой-участником
         out.append({"kind": "ec", "sid": d["sid"], "key": _skey("ec", d["sid"]),
                     "name": d["name"] or "Без имени", "username": d.get("username"),
                     "ref_code": d["ref_code"], "contact_id": d["contact_id"],
                     "material": d["video_url"] or d["video_folder_url"], "is_speaker": True})
-    # зарегистрированные участники — БЕЗ тех, кто является коллаборатором события
-    # (жюри, организаторы, партнёры, спикеры) — их в таблице оцениваемых быть не должно.
-    ep_rows = await db.fetch(
-        """SELECT ep.id AS sid, ct.name, ct.ref_code, ct.id AS contact_id,
-                  (SELECT pu.username FROM platform_users pu
-                     WHERE pu.contact_id = ct.id AND pu.username IS NOT NULL
-                     ORDER BY CASE pu.platform_slug WHEN 'telegram' THEN 1 WHEN 'vk' THEN 2 WHEN 'max' THEN 3 ELSE 4 END
-                     LIMIT 1) AS username
-             FROM event_participants ep
-             JOIN contacts ct ON ct.id = ep.contact_id
-            WHERE ep.event_id = $1 AND ep.is_registered = TRUE
-              AND ct.is_staff = FALSE
-              AND NOT EXISTS (
-                SELECT 1 FROM event_collaborators ec2
-                 JOIN collaborators c2 ON c2.id = ec2.speaker_id
-                WHERE ec2.event_id = ep.event_id AND c2.contact_id = ct.id
-              )
-            ORDER BY ct.name, ep.id""",
-        event_id,
-    )
-    for r in ep_rows:
-        d = dict(r)
-        out.append({"kind": "ep", "sid": d["sid"], "key": _skey("ep", d["sid"]),
-                    "name": d["name"] or "Без имени", "username": d.get("username"),
-                    "ref_code": d["ref_code"], "contact_id": d["contact_id"],
-                    "material": None, "is_speaker": False})
     return out
 
 
