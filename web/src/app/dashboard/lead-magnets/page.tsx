@@ -934,68 +934,29 @@ function PlatformShareLinks({ kind, slug, links }: {
   )
 }
 
-// URL картинки QR-кода (PNG) для ссылки. Генерится на лету публичным сервисом
-// quickchart.io — без npm-зависимостей и пересборки. QR ВСЕГДА белый
-// (dark=white) на ПРОЗРАЧНОМ фоне (light=transparent, alpha=00).
-function qrPngUrl(data: string, size = 600): string {
-  return `https://quickchart.io/qr?text=${encodeURIComponent(data)}&size=${size}&margin=2&dark=ffffff&light=00000000&ecLevel=M&format=png`
+// URL картинки QR-кода (PNG) через quickchart.io — генерится на лету, без
+// npm-зависимостей. color = 'black' | 'white' (цвет модулей),
+// bg = 'transparent' | 'contrast' (прозрачный фон ИЛИ контрастный:
+// белый под чёрный QR / чёрный под белый QR).
+function qrPngUrl(
+  data: string,
+  opts: { color?: 'black' | 'white'; bg?: 'transparent' | 'contrast'; size?: number } = {}
+): string {
+  const { color = 'black', bg = 'contrast', size = 600 } = opts
+  const dark = color === 'white' ? 'ffffff' : '000000'
+  const light = bg === 'transparent'
+    ? '00000000'
+    : (color === 'white' ? '000000' : 'ffffff')   // контрастный фон
+  return `https://quickchart.io/qr?text=${encodeURIComponent(data)}&size=${size}&margin=2&dark=${dark}&light=${light}&ecLevel=M&format=png`
 }
 
 function PlatformLinkRow({ platform, url, slug, kind }: { platform: PlatformKey; url: string; slug: string; kind: 'm' | 'p' }) {
   const [copied, setCopied] = useState(false)
-  const [qrCopied, setQrCopied] = useState(false)
-  const [qrBusy, setQrBusy] = useState(false)
+  const [qrOpen, setQrOpen] = useState(false)
   const meta = PLATFORM_META[platform]
 
   function copy() {
     navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
-  }
-
-  // Скачать QR-код как PNG-файл.
-  async function downloadQr() {
-    setQrBusy(true)
-    try {
-      const resp = await fetch(qrPngUrl(url))
-      const blob = await resp.blob()
-      const href = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = href
-      a.download = `qr-${kind}-${slug}-${platform}.png`
-      document.body.appendChild(a); a.click(); a.remove()
-      URL.revokeObjectURL(href)
-    } catch {
-      // Фолбэк — открыть картинку в новой вкладке, юзер сохранит вручную.
-      window.open(qrPngUrl(url), '_blank')
-    } finally { setQrBusy(false) }
-  }
-
-  // Скопировать QR-код (картинку) в буфер обмена.
-  async function copyQr() {
-    setQrBusy(true)
-    try {
-      const resp = await fetch(qrPngUrl(url))
-      const blob = await resp.blob()
-      // Clipboard принимает image/png. Браузеры могут вернуть image/jpeg —
-      // приводим к png через canvas на всякий случай.
-      let pngBlob = blob
-      if (blob.type !== 'image/png') {
-        pngBlob = await new Promise<Blob>((resolve, reject) => {
-          const img = new Image()
-          img.onload = () => {
-            const cv = document.createElement('canvas')
-            cv.width = img.width; cv.height = img.height
-            cv.getContext('2d')!.drawImage(img, 0, 0)
-            cv.toBlob(b => b ? resolve(b) : reject(new Error('no blob')), 'image/png')
-          }
-          img.onerror = reject
-          img.src = URL.createObjectURL(blob)
-        })
-      }
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
-      setQrCopied(true); setTimeout(() => setQrCopied(false), 1500)
-    } catch {
-      alert('Не удалось скопировать QR-картинку в этом браузере. Используйте «Скачать QR».')
-    } finally { setQrBusy(false) }
   }
 
   return (
@@ -1011,13 +972,133 @@ function PlatformLinkRow({ platform, url, slug, kind }: { platform: PlatformKey;
       <IconBtn tip="Скопировать ссылку" onClick={copy} disabled={false}>
         {copied ? <Check size={12} className="text-green-600" /> : <Copy size={12} className="text-gray-400" />}
       </IconBtn>
-      <IconBtn tip="Скопировать QR-код" onClick={copyQr} disabled={qrBusy}>
-        {qrCopied ? <Check size={12} className="text-green-600" /> : <QrCode size={12} className="text-gray-400" />}
+      <IconBtn tip="QR-код" onClick={() => setQrOpen(true)} disabled={false}>
+        <QrCode size={12} className="text-gray-400" />
       </IconBtn>
-      <IconBtn tip="Скачать QR-код" onClick={downloadQr} disabled={qrBusy}>
-        <Download size={12} className="text-gray-400" />
-      </IconBtn>
+      {qrOpen && (
+        <QrModal url={url} platform={platform} slug={slug} kind={kind} onClose={() => setQrOpen(false)} />
+      )}
     </div>
+  )
+}
+
+// Модалка QR-кода: вкладки цвета (Чёрный / Белый) + радио фона
+// (Прозрачный / Контрастный) + превью + скачать/скопировать.
+function QrModal({ url, platform, slug, kind, onClose }: {
+  url: string; platform: PlatformKey; slug: string; kind: 'm' | 'p'; onClose: () => void
+}) {
+  const [color, setColor] = useState<'black' | 'white'>('black')
+  const [bg, setBg] = useState<'transparent' | 'contrast'>('contrast')
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const meta = PLATFORM_META[platform]
+  const previewUrl = qrPngUrl(url, { color, bg, size: 360 })
+  const fileName = `qr-${kind}-${slug}-${platform}-${color}-${bg}.png`
+
+  // Шахматный фон под превью — чтобы прозрачность была видна.
+  const checker = 'repeating-conic-gradient(#e5e7eb 0% 25%, #fff 0% 50%) 50% / 16px 16px'
+
+  async function downloadQr() {
+    setBusy(true)
+    try {
+      const resp = await fetch(qrPngUrl(url, { color, bg }))
+      const blob = await resp.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href; a.download = fileName
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(href)
+    } catch {
+      window.open(qrPngUrl(url, { color, bg }), '_blank')
+    } finally { setBusy(false) }
+  }
+
+  async function copyQr() {
+    setBusy(true)
+    try {
+      const resp = await fetch(qrPngUrl(url, { color, bg }))
+      const blob = await resp.blob()
+      let pngBlob = blob
+      if (blob.type !== 'image/png') {
+        pngBlob = await new Promise<Blob>((resolve, reject) => {
+          const img = new Image()
+          img.onload = () => {
+            const cv = document.createElement('canvas')
+            cv.width = img.width; cv.height = img.height
+            cv.getContext('2d')!.drawImage(img, 0, 0)
+            cv.toBlob(b => b ? resolve(b) : reject(new Error('no blob')), 'image/png')
+          }
+          img.onerror = reject
+          img.src = URL.createObjectURL(blob)
+        })
+      }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
+      setCopied(true); setTimeout(() => setCopied(false), 1500)
+    } catch {
+      alert('Не удалось скопировать картинку в этом браузере. Используйте «Скачать».')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <Modal title={`QR-код · ${meta.label}`} onClose={onClose}>
+      <div className="space-y-4">
+        {/* Вкладки цвета */}
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-1.5">Цвет кода</p>
+          <div className="flex gap-2">
+            {(['black', 'white'] as const).map(c => (
+              <button key={c} type="button" onClick={() => setColor(c)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border transition ${
+                  color === c ? 'border-transparent text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                style={color === c ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : {}}>
+                {c === 'black' ? 'Чёрный' : 'Белый'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Радио фона */}
+        <div>
+          <p className="text-xs font-medium text-gray-700 mb-1.5">Фон</p>
+          <div className="flex flex-col gap-1.5">
+            {([['transparent', 'Прозрачный'],
+               ['contrast', color === 'white' ? 'Контрастный (чёрный)' : 'Контрастный (белый)']] as const).map(([v, lbl]) => (
+              <label key={v} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input type="radio" name="qrbg" checked={bg === v} onChange={() => setBg(v as any)} />
+                {lbl}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Превью на шахматке */}
+        <div className="flex justify-center">
+          <div className="p-3 rounded-xl border border-gray-200" style={{ background: checker }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={previewUrl} alt="QR" width={180} height={180} className="block" />
+          </div>
+        </div>
+
+        {color === 'white' && bg === 'transparent' && (
+          <p className="text-[11px] text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+            Белый QR на прозрачном фоне читается только на тёмном фоне (афиша, баннер).
+          </p>
+        )}
+
+        {/* Действия */}
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={copyQr} disabled={busy}
+            className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 flex items-center justify-center gap-1.5">
+            {copied ? <><Check size={14} className="text-green-600" /> Скопировано</> : <><QrCode size={14} /> Скопировать</>}
+          </button>
+          <button type="button" onClick={downloadQr} disabled={busy}
+            className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50 flex items-center justify-center gap-1.5"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
+            <Download size={14} /> Скачать
+          </button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
