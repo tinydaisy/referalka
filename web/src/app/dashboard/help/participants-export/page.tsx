@@ -56,6 +56,7 @@ export default function ParticipantsExportHelpPage() {
   const [me, setMe] = useState<Me | null>(null)
   const [events, setEvents] = useState<EventRow[]>([])
   const [eventId, setEventId] = useState<number | ''>('')
+  const [platform, setPlatform] = useState<'all' | 'tg' | 'vk' | 'max'>('all')
 
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin)
@@ -75,13 +76,14 @@ export default function ParticipantsExportHelpPage() {
   const eid = eventId || 'ВАШ_EVENT_ID'
 
   const cid = clientId || 'ВАШ_CLIENT_ID'
+  const platSuffix = platform === 'all' ? '' : `&platform=${platform}`
   const evBase = `${baseHost}/api/v1/integrations/events/${eid}/participants`
-  const urlAll = `${evBase}?client_id=${cid}`
-  const urlRegistered = `${evBase}/registered?client_id=${cid}`
-  const urlNotRegistered = `${evBase}/not-registered?client_id=${cid}`
-  const urlInChat = `${evBase}/in-chat?client_id=${cid}`
-  const urlPaid = `${evBase}/paid?client_id=${cid}`
-  const urlBase = `${baseHost}/api/v1/integrations/contacts?client_id=${cid}&limit=1000&offset=0`
+  const urlAll = `${evBase}?client_id=${cid}${platSuffix}`
+  const urlRegistered = `${evBase}/registered?client_id=${cid}${platSuffix}`
+  const urlNotRegistered = `${evBase}/not-registered?client_id=${cid}${platSuffix}`
+  const urlInChat = `${evBase}/in-chat?client_id=${cid}${platSuffix}`
+  const urlPaid = `${evBase}/paid?client_id=${cid}${platSuffix}`
+  const urlBase = `${baseHost}/api/v1/integrations/contacts?client_id=${cid}&limit=1000&offset=0${platSuffix}`
 
   const curlRegistered =
     `curl "${urlRegistered}" -H "X-Integration-Token: ${token}"`
@@ -109,7 +111,8 @@ export default function ParticipantsExportHelpPage() {
             <b>зарегистрированные</b>, <b>незарегистрированные</b>,{' '}
             <b>кто в чате</b>, <b>кто оплатил</b> — плюс выгрузка{' '}
             <b>всей базы контактов</b>. В каждой записи указано, на каких
-            мессенджерах есть человек (TG / ВК / МАХ). Из списков события
+            мессенджерах есть человек (TG / ВК / МАХ), а фильтром можно
+            выгрузить <b>только одну платформу</b>. Из списков события
             автоматически исключаются организаторы, жюри, спикеры и партнёры.
           </p>
         </div>
@@ -147,6 +150,40 @@ export default function ParticipantsExportHelpPage() {
             Настройки → Интеграция
           </Link>{' '}
           (тот же, что для чат-ботов).
+        </div>
+
+        <div className="pt-2 border-t border-gray-100 mt-3">
+          <div className="text-sm font-semibold mb-2" style={{ color: BRAND }}>
+            Платформа в выгрузке
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              ['all', 'Все платформы'],
+              ['tg', 'Только Telegram'],
+              ['vk', 'Только ВКонтакте'],
+              ['max', 'Только MAX'],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setPlatform(val)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition"
+                style={
+                  platform === val
+                    ? { background: 'linear-gradient(45deg, #25455D, #0a1520)', color: '#fff', borderColor: 'transparent' }
+                    : { background: '#fff', color: BRAND, borderColor: '#e5e7eb' }
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            «Все платформы» — выдаст контакты на всех мессенджерах (TG/ВК/МАХ).
+            Выбор одной платформы добавит к ссылкам{' '}
+            <code className="bg-gray-100 px-1 rounded">&platform={platform === 'all' ? 'tg' : platform}</code>{' '}
+            — тогда в выгрузке будут только люди с этим мессенджером, а лишние
+            поля (другие платформы) станут <code className="bg-gray-100 px-1 rounded">null</code>.
+          </p>
         </div>
       </Step>
 
