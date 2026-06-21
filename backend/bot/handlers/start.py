@@ -1584,31 +1584,6 @@ async def handle_app(message: Message):
 
 
 @router.message(Command(commands=["support"]))
-async def _resolve_support_contacts(db, bot_id: int | None) -> tuple[str, str, str]:
-    """По bot_id находит клиента (через client_channels) и возвращает
-    (work_tg_username, work_vk, work_max). Системный бот / не найден → пустые."""
-    if not bot_id:
-        return "", "", ""
-    from app.services.channels import find_channel_by_bot_id
-    ch = await find_channel_by_bot_id(bot_id, db)
-    if not ch or ch["is_system"]:
-        return "", "", ""
-    client_id = await db.fetchval(
-        """SELECT client_id FROM client_channels
-            WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
-        ch["id"],
-    )
-    if not client_id:
-        return "", "", ""
-    row = await db.fetchrow(
-        "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
-        client_id,
-    )
-    if not row:
-        return "", "", ""
-    return (row["work_tg_username"] or "", row["work_vk"] or "", row["work_max"] or "")
-
-
 async def handle_support(message: Message):
     """Команда `/support` — единое сообщение службы поддержки клиента со всеми
     заполненными каналами (ВК / Телеграм / MAX). Резолвит каналы по боту.
