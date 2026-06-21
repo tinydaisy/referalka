@@ -93,6 +93,55 @@ async def list_tariffs(
     return {"items": [dict(r) for r in rows]}
 
 
+@router.get("-orders", summary="Все заказы события (по всем тарифам) — для сводной таблицы")
+async def list_all_orders(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    await _check_event_access(db, int(client["sub"]), event_id)
+    rows = await db.fetch(
+        """SELECT ept.id, ept.participant_id, ept.tariff_id, ept.status,
+                  ept.paid_at, ept.ordered_at, ept.source, ept.amount, ept.note,
+                  t.code AS tariff_code, t.title AS tariff_title, t.price AS tariff_price,
+                  c.id AS contact_id, c.name AS contact_name, c.phone,
+                  (SELECT pe.platform_user_id FROM platform_users pe
+                    WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
+                    ORDER BY pe.id LIMIT 1) AS email,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram' LIMIT 1) AS tg_id,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'telegram' LIMIT 1) AS tg_username,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk' LIMIT 1) AS vk_id,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'vk' LIMIT 1) AS vk_username,
+                  (SELECT pu.platform_user_id FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'max' LIMIT 1) AS max_id,
+                  (SELECT pu.username FROM platform_users pu
+                    WHERE pu.contact_id = c.id AND pu.platform_slug = 'max' LIMIT 1) AS max_username,
+                  -- Партнёр = кто привёл (referrer) этого участника на событие
+                  (SELECT rc.name FROM contacts rc WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1) AS referrer_name,
+                  (SELECT rc.id FROM contacts rc WHERE rc.ref_code = ep.referrer_ref_code LIMIT 1) AS referrer_contact_id
+             FROM event_participant_tariffs ept
+             JOIN event_tariffs t ON t.id = ept.tariff_id
+             JOIN event_participants ep ON ep.id = ept.participant_id
+             JOIN contacts c ON c.id = ep.contact_id
+            WHERE ept.event_id = $1
+            ORDER BY t.sort_order, t.id, COALESCE(ept.paid_at, ept.ordered_at) DESC, ept.id DESC""",
+        event_id,
+    )
+    # справочник тарифов для фильтров
+    tariffs = await db.fetch(
+        "SELECT id, code, title, price FROM event_tariffs WHERE event_id = $1 ORDER BY sort_order, id",
+        event_id,
+    )
+    return {
+        "orders": [dict(r) for r in rows],
+        "tariffs": [dict(t) for t in tariffs],
+    }
+
+
 @router.post("", summary="Создать тариф")
 async def create_tariff(
     event_id: int,

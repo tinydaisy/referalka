@@ -428,6 +428,7 @@ export const api = {
   // Тарифы мероприятия (миграция 157) — только для тарифа клиента vip
   eventTariffs: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs`),
+    allOrders: (eventId: number) => request(`/api/v1/events/${eventId}/tariffs-orders`),
     create: (eventId: number, data: any) =>
       request(`/api/v1/events/${eventId}/tariffs`, {
         method: 'POST', body: JSON.stringify(data),

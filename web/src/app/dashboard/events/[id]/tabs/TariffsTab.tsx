@@ -66,6 +66,8 @@ export default function TariffsTab({
 
   // раскрытый блок «кто оплатил» (inline, не модалка)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  // подвкладка: настройка тарифов / сводная таблица заказов
+  const [subTab, setSubTab] = useState<'tariffs' | 'orders'>('tariffs')
 
   async function load() {
     setLoading(true)
@@ -141,7 +143,23 @@ export default function TariffsTab({
   if (loading) return <div className="py-16 flex justify-center"><Spinner /></div>
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-3xl">
+      {/* Подвкладки: Тарифы / Заказы */}
+      <div className="border-b border-gray-200 mb-6 flex gap-1">
+        {([['tariffs', 'Тарифы'], ['orders', 'Заказы']] as const).map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setSubTab(k)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              subTab === k ? 'border-[#FFCFA4] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === 'orders' && <OrdersTable eventId={eventId} onChanged={load} />}
+
+      {subTab === 'tariffs' && (
+    <div className="space-y-6">
       {/* Оферта события */}
       <div className="bg-white rounded-2xl border border-gray-200 p-5">
         <div className="flex items-center gap-2 mb-1">
@@ -310,6 +328,8 @@ export default function TariffsTab({
         }
         .input-tar:focus { border-color: #25455D; }
       `}</style>
+    </div>
+      )}
     </div>
   )
 }
@@ -650,6 +670,181 @@ function AddBuyerPicker({
         })}
       </div>
     </div>
+  )
+}
+
+// Сводная таблица всех заказов по всем тарифам с фильтрами.
+interface OrderRow {
+  id: number
+  participant_id: number
+  tariff_id: number
+  status: 'paid' | 'unpaid'
+  amount: number | null
+  note: string | null
+  paid_at: string | null
+  ordered_at: string | null
+  source: string | null
+  tariff_code: string
+  tariff_title: string
+  tariff_price: number | null
+  contact_id: number
+  contact_name: string | null
+  phone: string | null
+  email: string | null
+  tg_id: string | null; tg_username: string | null
+  vk_id: string | null; vk_username: string | null
+  max_id: string | null; max_username: string | null
+  referrer_name: string | null
+}
+
+function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () => void }) {
+  const [orders, setOrders] = useState<OrderRow[]>([])
+  const [tariffs, setTariffs] = useState<Tariff[]>([])
+  const [loading, setLoading] = useState(true)
+  const [fTariff, setFTariff] = useState<number | 'all'>('all')
+  const [fStatus, setFStatus] = useState<'all' | 'paid' | 'unpaid'>('all')
+  const [q, setQ] = useState('')
+
+  async function load() {
+    setLoading(true)
+    try {
+      const r = await api.eventTariffs.allOrders(eventId)
+      setOrders(r.orders || [])
+      setTariffs(r.tariffs || [])
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { load() }, [eventId])
+
+  async function patch(o: OrderRow, p: { note?: string; status?: 'paid' | 'unpaid'; move_to_tariff_id?: number }) {
+    await api.eventTariffs.patchBuyer(eventId, o.tariff_id, o.participant_id, p)
+    await load(); onChanged()
+  }
+  async function remove(o: OrderRow) {
+    if (!confirm('Удалить заказ этого человека?')) return
+    await api.eventTariffs.removeBuyer(eventId, o.tariff_id, o.participant_id)
+    await load(); onChanged()
+  }
+
+  const filtered = orders.filter(o => {
+    if (fTariff !== 'all' && o.tariff_id !== fTariff) return false
+    if (fStatus !== 'all' && o.status !== fStatus) return false
+    if (q.trim()) {
+      const s = q.toLowerCase()
+      if (![o.contact_name, o.email, o.phone, o.tg_username, o.vk_username, o.referrer_name]
+        .some(v => (v || '').toString().toLowerCase().includes(s))) return false
+    }
+    return true
+  })
+
+  const totalSum = filtered.filter(o => o.status === 'paid').reduce((s, o) => s + (o.amount || o.tariff_price || 0), 0)
+
+  if (loading) return <div className="py-12 flex justify-center"><Spinner /></div>
+
+  return (
+    <div className="space-y-3">
+      {/* Фильтры */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <select value={fTariff} onChange={e => setFTariff(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
+          <option value="all">Все тарифы</option>
+          {tariffs.map(t => <option key={t.id} value={t.id}>{t.title}{t.price != null ? ` (${t.price}₽)` : ''}</option>)}
+        </select>
+        <select value={fStatus} onChange={e => setFStatus(e.target.value as any)}
+          className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
+          <option value="all">Все статусы</option>
+          <option value="paid">Завершён (оплатил)</option>
+          <option value="unpaid">Новый (не оплачен)</option>
+        </select>
+        <div className="relative flex-1 min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Поиск…"
+            className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+        </div>
+      </div>
+      <div className="text-xs text-gray-500">
+        Показано: {filtered.length} · оплачено на сумму {totalSum.toLocaleString('ru-RU')} ₽
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center text-gray-400 text-sm py-10">Заказов нет.</div>
+      ) : (
+        <div className="overflow-x-auto border border-gray-100 rounded-xl">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 text-xs">
+                <th className="text-left px-3 py-2 font-medium">Имя</th>
+                <th className="text-left px-3 py-2 font-medium">Контакт</th>
+                <th className="text-left px-3 py-2 font-medium">Тариф</th>
+                <th className="text-left px-3 py-2 font-medium">Сумма</th>
+                <th className="text-left px-3 py-2 font-medium">Статус</th>
+                <th className="text-left px-3 py-2 font-medium">Партнёр</th>
+                <th className="text-left px-3 py-2 font-medium">Заметка</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(o => (
+                <tr key={o.id} className="border-t border-gray-50 hover:bg-gray-50/50 align-top">
+                  <td className="px-3 py-2 text-gray-800">{o.contact_name || `#${o.contact_id}`}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-col gap-0.5">
+                      {(o.tg_id || o.tg_username) && <PlatformChip label="TG" color="#229ED9" href={o.tg_username ? `https://t.me/${o.tg_username.replace(/^@+/, '')}` : `tg://user?id=${o.tg_id}`} />}
+                      {(o.vk_id || o.vk_username) && <PlatformChip label="VK" color="#0077FF" href={o.vk_username ? `https://vk.com/${o.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${o.vk_id}`} />}
+                      {o.email && <span className="text-xs text-gray-500">{o.email}</span>}
+                      {o.phone && <span className="text-xs text-gray-500">{o.phone}</span>}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <select value={o.tariff_id}
+                      onChange={e => { const v = Number(e.target.value); if (v !== o.tariff_id) patch(o, { move_to_tariff_id: v }) }}
+                      className="text-xs px-1.5 py-1 rounded border border-gray-200 bg-white max-w-[150px]">
+                      {tariffs.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2 text-gray-600">{(o.amount ?? o.tariff_price)?.toLocaleString('ru-RU') ?? '—'} ₽</td>
+                  <td className="px-3 py-2">
+                    <button onClick={() => patch(o, { status: o.status === 'paid' ? 'unpaid' : 'paid' })}
+                      className={`text-[11px] px-2 py-0.5 rounded ${o.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {o.status === 'paid' ? 'Завершён' : 'Новый'}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-xs text-gray-500">{o.referrer_name || '—'}</td>
+                  <td className="px-3 py-2">
+                    <OrderNote note={o.note} onSave={(n) => patch(o, { note: n })} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <button onClick={() => remove(o)} className="p-1 rounded hover:bg-red-50 text-red-400"><Trash2 size={13} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OrderNote({ note, onSave }: { note: string | null; onSave: (n: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(note || '')
+  if (editing) {
+    return (
+      <div className="flex gap-1">
+        <input value={val} onChange={e => setVal(e.target.value)} autoFocus
+          className="px-2 py-1 rounded border border-gray-200 text-xs w-32 focus:outline-none focus:border-brand" />
+        <button onClick={() => { onSave(val); setEditing(false) }} className="px-1.5 rounded bg-brand text-white text-xs">OK</button>
+      </div>
+    )
+  }
+  return (
+    <button onClick={() => setEditing(true)} className="text-xs text-left">
+      {note
+        ? <span className="text-gray-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5">{note}</span>
+        : <span className="text-gray-400 hover:text-brand">＋ заметка</span>}
+    </button>
   )
 }
 
