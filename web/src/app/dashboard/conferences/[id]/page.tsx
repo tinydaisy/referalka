@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useParams, useSearchParams, usePathname } from 'next/navigation'
+import { useParams, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Download } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -22,6 +22,7 @@ import NurtureTab from '../../events/[id]/tabs/NurtureTab'
 import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
 import TariffsTab from '../../events/[id]/tabs/TariffsTab'
 import { useMe } from '@/hooks/useMe'
+import { useUrlTab } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -31,13 +32,11 @@ const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'r
 export default function ConferencePage() {
   const { id } = useParams()
   const eventId = Number(id)
-  const searchParams = useSearchParams()
   const pathname = usePathname()
   const isTournament = !!pathname?.startsWith('/dashboard/tournaments')
   const basePath = isTournament ? '/dashboard/tournaments' : '/dashboard/conferences'
   const { t } = useLang()
-  const initialTab = (searchParams.get('tab') as Tab) || 'settings'
-  const [tab, setTab] = useState<Tab>(VALID_TABS.includes(initialTab) ? initialTab : 'settings')
+  const [tab, setTab] = useUrlTab<Tab>('tab', 'settings', VALID_TABS as readonly Tab[])
   const [event, setEvent] = useState<any>(null)
   const [conf, setConf] = useState<any>(null)
   const [loading, setLoading] = useState(true)

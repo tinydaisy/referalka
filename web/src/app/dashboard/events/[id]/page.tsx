@@ -13,6 +13,7 @@ import TariffsTab from './tabs/TariffsTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 import { useMe } from '@/hooks/useMe'
+import { useUrlTab } from '@/hooks/useUrlTab'
 
 type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs'
 
@@ -22,7 +23,7 @@ export default function EventPage() {
   const router = useRouter()
   const [event, setEvent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<TabKey>('overview')
+  const [activeTab, setActiveTab] = useUrlTab<TabKey>('tab', 'overview')
   const { me } = useMe()
   // Раздел «Тарифы» — только для клиентов тарифа vip (Марго).
   // Раздел «Тарифы» временно только у Марго (client_id=1).

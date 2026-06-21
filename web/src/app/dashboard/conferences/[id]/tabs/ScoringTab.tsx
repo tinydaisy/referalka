@@ -3,11 +3,12 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check } from 'lucide-react'
+import { useUrlTab } from '@/hooks/useUrlTab'
 
 type SubTab = 'criteria' | 'assignments' | 'leaderboard' | 'reports' | 'taskcontrol'
 
 export default function ScoringTab({ eventId }: { eventId: number }) {
-  const [sub, setSub] = useState<SubTab>('criteria')
+  const [sub, setSub] = useUrlTab<SubTab>('sub', 'criteria', ['criteria', 'assignments', 'leaderboard', 'reports', 'taskcontrol'])
   const tabs: { id: SubTab; label: string }[] = [
     { id: 'criteria', label: 'Критерии' },
     { id: 'assignments', label: 'Распределение' },
