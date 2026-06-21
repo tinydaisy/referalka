@@ -83,6 +83,7 @@ export default function ParticipantsExportHelpPage() {
   const urlNotRegistered = `${evBase}/not-registered?client_id=${cid}${platSuffix}`
   const urlInChat = `${evBase}/in-chat?client_id=${cid}${platSuffix}`
   const urlPaid = `${evBase}/paid?client_id=${cid}${platSuffix}`
+  const urlUnpaid = `${evBase}/unpaid?client_id=${cid}&mode=any${platSuffix}`
   const urlBase = `${baseHost}/api/v1/integrations/contacts?client_id=${cid}&limit=1000&offset=0${platSuffix}`
 
   const curlRegistered =
@@ -253,7 +254,22 @@ export default function ParticipantsExportHelpPage() {
         <CopyBox text={urlPaid} />
       </Step>
 
-      <Step n={7} title="Вся база контактов (не только событие)">
+      <Step n={7} title="Кто НЕ оплатил">
+        <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: BRAND }}>
+          <CreditCard size={16} /> Участники без оплаты тарифа
+        </div>
+        <p className="text-xs text-gray-500">
+          Параметр <code className="bg-gray-100 px-1 rounded">&mode=</code> задаёт, кого считать:
+        </p>
+        <ul className="list-disc pl-5 text-xs text-gray-600 space-y-1">
+          <li><code className="bg-gray-100 px-1 rounded">mode=order_unpaid</code> — оформили заказ, но не оплатили (есть <code className="bg-gray-100 px-1 rounded">unpaid_orders</code>).</li>
+          <li><code className="bg-gray-100 px-1 rounded">mode=no_order</code> — вообще не покупали тариф.</li>
+          <li><code className="bg-gray-100 px-1 rounded">mode=any</code> (по умолчанию) — все, кто не оплатил (оба варианта вместе).</li>
+        </ul>
+        <CopyBox text={urlUnpaid} />
+      </Step>
+
+      <Step n={8} title="Вся база контактов (не только событие)">
         <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: BRAND }}>
           <Database size={16} /> Все ваши контакты ПЛЮСОН целиком
         </div>
@@ -267,16 +283,18 @@ export default function ParticipantsExportHelpPage() {
         <CopyBox text={urlBase} />
       </Step>
 
-      <Step n={8} title="Что вернётся (формат ответа)">
+      <Step n={9} title="Что вернётся и как это читать (формат ответа)">
         <p>
-          Оба запроса возвращают JSON одного формата. Поле{' '}
-          <code className="bg-gray-100 px-1 rounded">participants</code> —
-          массив участников:
+          Запросы по событию возвращают JSON-объект. Нужный массив — в поле{' '}
+          <code className="bg-gray-100 px-1 rounded">participants</code>. Сверху —
+          метаданные (<code className="bg-gray-100 px-1 rounded">count</code> — сколько
+          записей, <code className="bg-gray-100 px-1 rounded">platform</code> — какой
+          фильтр платформы применён).
         </p>
         <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs overflow-x-auto leading-relaxed">{`{
   "event_id": ${eid},
-  "is_registered": true,
   "count": 128,
+  "platform": null,
   "participants": [
     {
       "contact_id": 4521,
@@ -292,10 +310,12 @@ export default function ParticipantsExportHelpPage() {
       "is_in_chat": true,
       "chat_check_at": "2026-06-10 12:00",
       "is_paid": true,
+      "has_unpaid_order": false,
       "paid_tariffs": [
-        { "code": "vip", "title": "VIP", "price": 3900,
-          "amount": 3900, "paid_at": "2026-06-05 18:20", "source": "getcourse" }
+        { "code": "vip", "title": "VIP", "price": 3900, "amount": 3900,
+          "status": "paid", "paid_at": "2026-06-05 18:20", "ordered_at": null, "source": "getcourse" }
       ],
+      "unpaid_orders": [],
       "messengers": ["telegram", "max"],
       "telegram": { "id": "12345678", "username": "ivan_p" },
       "vk":  null,
@@ -306,18 +326,63 @@ export default function ParticipantsExportHelpPage() {
     }
   ]
 }`}</pre>
+
+        <div className="font-semibold text-sm mt-3" style={{ color: BRAND }}>Что значит каждое поле</div>
         <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-          <li><b>name / email / phone</b> — контактные данные участника.</li>
-          <li><b>messengers</b> — массив платформ, где у человека есть аккаунт: любая комбинация <code className="bg-gray-100 px-1 rounded">telegram</code>, <code className="bg-gray-100 px-1 rounded">vk</code>, <code className="bg-gray-100 px-1 rounded">max</code>. Подскажет мейлеру, каким каналом до человека можно достучаться.</li>
-          <li><b>telegram / vk / max</b> — сами аккаунты: id и username (или null, если на этой платформе человека нет).</li>
-          <li><b>is_in_chat</b> — состоит ли в Telegram-чате события (по последней проверке).</li>
-          <li><b>is_paid / paid_tariffs</b> — оплачен ли тариф и какие именно (код, название, сумма, дата).</li>
-          <li><b>ref_code</b> — личный реферальный код. <b>referrer_ref_code</b> — код того, кто привёл (или null).</li>
-          <li><b>participated_at</b> — когда участник появился в событии.</li>
+          <li><b>contact_id</b> — стабильный ID человека в ПЛЮСОН (ключ для дедупликации). <b>participant_id</b> — ID участия в этом событии.</li>
+          <li><b>name / email / phone</b> — контактные данные (любое может быть <code className="bg-gray-100 px-1 rounded">null</code>).</li>
+          <li><b>ref_code</b> — личный реф-код. <b>referrer_ref_code</b> — код того, кто привёл (или null). <b>utm_source / tags</b> — метка источника и теги.</li>
+          <li><b>is_registered</b> — зарегистрирован ли на событие.</li>
+          <li><b>is_in_chat</b> — в Telegram-чате события (по последней проверке), <b>chat_check_at</b> — когда проверяли.</li>
+          <li><b>is_paid</b> — оплатил тариф (true только если есть оплаченные). <b>has_unpaid_order</b> — есть заказ без оплаты.</li>
+          <li><b>paid_tariffs</b> — оплаченные тарифы, <b>unpaid_orders</b> — заказанные, но не оплаченные. У каждого: <code className="bg-gray-100 px-1 rounded">code, title, price, amount, status, paid_at, ordered_at, source</code>.</li>
+          <li><b>messengers</b> — на каких платформах есть человек: <code className="bg-gray-100 px-1 rounded">["telegram","vk","max"]</code> в любой комбинации.</li>
+          <li><b>telegram / vk / max</b> — объект <code className="bg-gray-100 px-1 rounded">{`{ id, username }`}</code> или <code className="bg-gray-100 px-1 rounded">null</code>, если на этой платформе человека нет.</li>
+          <li><b>participated_at / contact_created_at / last_contact_at</b> — даты в формате <code className="bg-gray-100 px-1 rounded">ГГГГ-ММ-ДД ЧЧ:ММ</code> по МСК.</li>
         </ul>
-        <p className="text-xs text-gray-500 mt-2">
-          В выгрузке «вся база контактов» полей события (is_registered,
-          is_in_chat, paid_tariffs) нет — там общие поля контакта + messengers.
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mt-3 text-sm text-amber-900 leading-relaxed">
+          <b>Как парсить мессенджеры (главное).</b> Поля{' '}
+          <code className="bg-amber-100 px-1 rounded">telegram</code>,{' '}
+          <code className="bg-amber-100 px-1 rounded">vk</code>,{' '}
+          <code className="bg-amber-100 px-1 rounded">max</code> — это объект{' '}
+          <code className="bg-amber-100 px-1 rounded">{`{ id, username }`}</code>{' '}
+          <b>или</b> <code className="bg-amber-100 px-1 rounded">null</code>. Сначала
+          проверьте на null, потом берите вложенные поля.
+          <ul className="list-disc pl-5 mt-2 space-y-1">
+            <li><b>telegram.username</b> — ник <b>без @</b>. Ссылка на профиль = <code className="bg-amber-100 px-1 rounded">https://t.me/</code> + username. Может быть null (нет юзернейма — есть только id).</li>
+            <li><b>telegram.id</b> — числовой Telegram-id (для отправки ботом).</li>
+            <li><b>vk.username</b> — часто вида <code className="bg-amber-100 px-1 rounded">id23758485</code>. Ссылка = <code className="bg-amber-100 px-1 rounded">https://vk.com/</code> + username.</li>
+            <li><b>max.username</b> — у MAX часто null, есть только id.</li>
+          </ul>
+        </div>
+
+        <div className="font-semibold text-sm mt-3" style={{ color: BRAND }}>Пример парсинга (Python)</div>
+        <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs overflow-x-auto leading-relaxed">{`data = response.json()
+for p in data["participants"]:
+    name, email, phone = p["name"], p["email"], p["phone"]
+
+    tg = p["telegram"]                    # {"id","username"} или None
+    if tg:
+        tg_id = tg["id"]
+        tg_user = tg["username"]          # без @, может быть None
+        tg_link = "https://t.me/" + tg_user if tg_user else None
+    else:
+        tg_id = tg_user = tg_link = None
+
+    paid = p["is_paid"]                    # True/False
+    paid_codes = [t["code"] for t in p["paid_tariffs"]]
+    channels = p["messengers"]             # ["telegram","vk","max"]`}</pre>
+
+        <div className="font-semibold text-sm mt-3" style={{ color: BRAND }}>Вся база контактов — отличия</div>
+        <p className="text-sm text-gray-700">
+          У <code className="bg-gray-100 px-1 rounded">/contacts</code> массив лежит в поле{' '}
+          <code className="bg-gray-100 px-1 rounded">contacts</code>, есть{' '}
+          <code className="bg-gray-100 px-1 rounded">total</code> (всего в базе) — листайте
+          постранично через <code className="bg-gray-100 px-1 rounded">offset</code> (0, 1000, 2000…)
+          пока <code className="bg-gray-100 px-1 rounded">offset &lt; total</code>. Полей события
+          (is_registered, is_in_chat, paid_tariffs) там <b>нет</b> — только данные контакта,
+          messengers и платформы. Мессенджеры парсятся так же.
         </p>
       </Step>
 
