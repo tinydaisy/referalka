@@ -399,6 +399,8 @@ class BuyerPatchRequest(BaseModel):
     note: Optional[str] = None              # заметка организатора
     status: Optional[str] = None            # 'paid' | 'unpaid'
     move_to_tariff_id: Optional[int] = None # перенести запись на другой тариф
+    amount: Optional[int] = None            # фактически внесённая сумма (для скидок)
+    amount_set: bool = False                # явный флаг: пришёл amount (даже null → обнулить)
 
 
 @router.patch("/{tariff_id}/buyers/{participant_id}", summary="Изменить запись: заметка / статус / перенос на другой тариф")
@@ -455,6 +457,9 @@ async def patch_buyer(
         vals.append(data.status)
         if data.status == "paid":
             sets.append("paid_at = NOW()")
+    if data.amount_set:
+        sets.append(f"amount = ${len(vals)+1}")
+        vals.append(data.amount)
     if sets:
         vals.extend([tariff_id, participant_id])
         await db.execute(

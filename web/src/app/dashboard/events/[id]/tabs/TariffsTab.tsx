@@ -718,7 +718,7 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
   }
   useEffect(() => { load() }, [eventId])
 
-  async function patch(o: OrderRow, p: { note?: string; status?: 'paid' | 'unpaid'; move_to_tariff_id?: number }) {
+  async function patch(o: OrderRow, p: { note?: string; status?: 'paid' | 'unpaid'; move_to_tariff_id?: number; amount?: number | null; amount_set?: boolean }) {
     await api.eventTariffs.patchBuyer(eventId, o.tariff_id, o.participant_id, p)
     await load(); onChanged()
   }
@@ -816,7 +816,10 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
                       {tariffs.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
                     </select>
                   </td>
-                  <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{(o.amount ?? o.tariff_price)?.toLocaleString('ru-RU') ?? '—'} ₽</td>
+                  <td className="px-2 py-2">
+                    <OrderAmount amount={o.amount} tariffPrice={o.tariff_price}
+                      onSave={(a) => patch(o, { amount: a, amount_set: true })} />
+                  </td>
                   <td className="px-2 py-2">
                     <button onClick={() => patch(o, { status: o.status === 'paid' ? 'unpaid' : 'paid' })}
                       className={`text-[11px] px-2 py-0.5 rounded ${o.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -863,6 +866,33 @@ function OrderNote({ note, onSave }: { note: string | null; onSave: (n: string) 
         <button onClick={() => { setVal(''); onSave('') }} title="Очистить"
           className="p-0.5 rounded hover:bg-red-50 text-red-400"><X size={12} /></button>
       )}
+    </div>
+  )
+}
+
+// Фактическая сумма — редактируемое поле. Если не задана — серым показывает цену
+// тарифа (плейсхолдером), при вводе сохраняет фактически внесённое (для скидок).
+function OrderAmount({ amount, tariffPrice, onSave }: { amount: number | null; tariffPrice: number | null; onSave: (a: number | null) => void }) {
+  const [val, setVal] = useState(amount != null ? String(amount) : '')
+  useEffect(() => { setVal(amount != null ? String(amount) : '') }, [amount])
+  const cur = val.trim() === '' ? null : parseInt(val.trim(), 10)
+  const dirty = cur !== amount
+  function commit() { if (dirty) onSave(cur) }
+  const discounted = amount != null && tariffPrice != null && amount < tariffPrice
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        value={val}
+        onChange={e => setVal(e.target.value.replace(/[^0-9]/g, ''))}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur() } }}
+        placeholder={tariffPrice != null ? String(tariffPrice) : '—'}
+        className={`px-1.5 py-1 rounded border text-xs w-16 text-right focus:outline-none focus:border-brand ${
+          discounted ? 'bg-orange-50 border-orange-200 text-orange-700' : 'border-gray-200 text-gray-600'
+        }`}
+        title={discounted ? `Скидка с ${tariffPrice}₽` : ''}
+      />
+      <span className="text-xs text-gray-400">₽</span>
     </div>
   )
 }
