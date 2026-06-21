@@ -1,0 +1,291 @@
+'use client'
+
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { Send, Pencil, Trash2, Check, X, RefreshCw } from 'lucide-react'
+import { api } from '@/lib/api'
+
+type Msg = {
+  id: number
+  platform: string
+  channel_id: number | null
+  platform_user_id: string
+  direction: 'in' | 'out'
+  author_kind: 'contact' | 'bot' | 'operator'
+  text: string | null
+  media_url: string | null
+  media_kind: string | null
+  platform_message_id: string | null
+  is_deleted: boolean
+  error: string | null
+  sent_at: string
+  edited_at: string | null
+}
+
+const PLATFORM_LABEL: Record<string, string> = {
+  telegram: 'Telegram',
+  vk: 'ВКонтакте',
+  max: 'MAX',
+}
+const PLATFORM_SHORT: Record<string, string> = { telegram: 'TG', vk: 'VK', max: 'MAX' }
+
+function fmtTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('ru', {
+      timeZone: 'Europe/Moscow',
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    }) + ' МСК'
+  } catch { return iso }
+}
+
+const MEDIA_LABEL: Record<string, string> = {
+  photo: '🖼 Фото', video: '🎬 Видео', document: '📎 Файл',
+  audio: '🎵 Аудио', voice: '🎤 Голосовое (не обрабатывается)',
+  sticker: '🩷 Стикер', other: '📎 Вложение',
+}
+
+export default function DialogChat({
+  contactId,
+  contactName,
+  availablePlatforms,
+}: {
+  contactId: number
+  contactName: string
+  availablePlatforms: string[] // платформы, где у контакта есть аккаунт (для отправки)
+}) {
+  const [messages, setMessages] = useState<Msg[]>([])
+  const [chatPlatforms, setChatPlatforms] = useState<string[]>([])
+  const [activeTab, setActiveTab] = useState<string>('all')
+  const [loading, setLoading] = useState(true)
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editText, setEditText] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await api.dialogs.messages(contactId)
+      setMessages(r.messages || [])
+      setChatPlatforms(r.platforms || [])
+    } catch { /* пусто */ } finally {
+      setLoading(false)
+    }
+  }, [contactId])
+
+  useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    // прокрутка вниз после загрузки/отправки
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages, loading])
+
+  // На какую платформу слать ответ: активная вкладка → иначе первая, где есть переписка,
+  // → иначе первая доступная у контакта.
+  const replyPlatform =
+    activeTab !== 'all' ? activeTab
+      : (chatPlatforms[0] || availablePlatforms[0] || 'telegram')
+
+  const canReply = availablePlatforms.includes(replyPlatform)
+
+  const visible = activeTab === 'all'
+    ? messages
+    : messages.filter(m => m.platform === activeTab)
+
+  async function send() {
+    const t = text.trim()
+    if (!t || sending) return
+    setSending(true)
+    try {
+      await api.dialogs.reply(contactId, { platform: replyPlatform, text: t })
+      setText('')
+      await load()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось отправить')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function saveEdit(id: number) {
+    const t = editText.trim()
+    if (!t) return
+    try {
+      await api.dialogs.edit(id, t)
+      setEditingId(null)
+      await load()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось изменить')
+    }
+  }
+
+  async function remove(id: number) {
+    if (!confirm('Удалить это сообщение у получателя?')) return
+    try {
+      await api.dialogs.remove(id)
+      await load()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось удалить')
+    }
+  }
+
+  // Доступные платформы для табов = объединение переписки + где есть аккаунт.
+  const tabs = Array.from(new Set([...chatPlatforms]))
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Заголовок чата + вкладки платформ */}
+      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {tabs.length > 1 && (
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`text-xs px-2.5 py-1 rounded-full font-medium ${activeTab === 'all' ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-600'}`}
+            >Все</button>
+          )}
+          {tabs.map(p => (
+            <button
+              key={p}
+              onClick={() => setActiveTab(p)}
+              className={`text-xs px-2.5 py-1 rounded-full font-medium ${activeTab === p ? 'bg-[#25455D] text-white' : 'bg-gray-100 text-gray-600'}`}
+            >{PLATFORM_LABEL[p] || p}</button>
+          ))}
+          {tabs.length === 0 && (
+            <span className="text-xs text-gray-400">Переписки пока нет</span>
+          )}
+        </div>
+        <button onClick={load} className="text-gray-400 hover:text-[#25455D] shrink-0" title="Обновить">
+          <RefreshCw size={14} />
+        </button>
+      </div>
+
+      {/* Лента */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-gray-50">
+        {loading ? (
+          <div className="text-center text-gray-400 text-sm py-8">Загрузка…</div>
+        ) : visible.length === 0 ? (
+          <div className="text-center text-gray-400 text-sm py-8">
+            Здесь появится история переписки с этим человеком.<br />
+            Когда он напишет в ваш бот — сообщение попадёт сюда, и вы сможете ответить.
+          </div>
+        ) : (
+          visible.map(m => {
+            const out = m.direction === 'out'
+            const isOperator = m.author_kind === 'operator'
+            return (
+              <div key={m.id} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm relative group ${
+                  out
+                    ? (isOperator ? 'bg-[#25455D] text-white' : 'bg-blue-100 text-gray-700')
+                    : 'bg-white border border-gray-200 text-gray-800'
+                }`}>
+                  {/* метка автора / платформы */}
+                  <div className={`text-[10px] mb-0.5 ${out ? 'text-white/60' : 'text-gray-400'}`}>
+                    {out ? (isOperator ? 'Вы' : 'Бот (авто)') : 'Клиент'}
+                    {' · '}{PLATFORM_SHORT[m.platform] || m.platform}
+                  </div>
+
+                  {m.is_deleted ? (
+                    <span className="italic opacity-60">сообщение удалено</span>
+                  ) : (
+                    <>
+                      {m.media_kind && (
+                        <div className={`text-xs mb-1 ${out ? 'text-white/80' : 'text-gray-500'}`}>
+                          {m.media_url ? (
+                            <a href={m.media_url} target="_blank" rel="noreferrer" className="underline">
+                              {MEDIA_LABEL[m.media_kind] || MEDIA_LABEL.other}
+                            </a>
+                          ) : (MEDIA_LABEL[m.media_kind] || MEDIA_LABEL.other)}
+                        </div>
+                      )}
+                      {editingId === m.id ? (
+                        <div className="flex flex-col gap-1">
+                          <textarea
+                            className="text-gray-800 text-sm rounded-lg p-2 w-60 max-w-full border"
+                            rows={2}
+                            value={editText}
+                            onChange={e => setEditText(e.target.value)}
+                          />
+                          <div className="flex gap-1 justify-end">
+                            <button onClick={() => saveEdit(m.id)} className="p-1 rounded bg-green-500 text-white"><Check size={14} /></button>
+                            <button onClick={() => setEditingId(null)} className="p-1 rounded bg-gray-300 text-gray-700"><X size={14} /></button>
+                          </div>
+                        </div>
+                      ) : (
+                        m.text && <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                      )}
+                    </>
+                  )}
+
+                  <div className={`text-[10px] mt-0.5 flex items-center gap-1 ${out ? 'text-white/50' : 'text-gray-300'}`}>
+                    {fmtTime(m.sent_at)}
+                    {m.edited_at && <span>· изм.</span>}
+                    {m.error && <span className="text-red-400" title={m.error}>· не доставлено</span>}
+                  </div>
+
+                  {/* действия над своим сообщением */}
+                  {isOperator && !m.is_deleted && editingId !== m.id && (
+                    <div className="absolute -top-2 -left-2 hidden group-hover:flex gap-0.5">
+                      <button
+                        onClick={() => { setEditingId(m.id); setEditText(m.text || '') }}
+                        className="p-1 rounded-full bg-white border shadow text-gray-500 hover:text-[#25455D]"
+                        title="Изменить"
+                      ><Pencil size={11} /></button>
+                      <button
+                        onClick={() => remove(m.id)}
+                        className="p-1 rounded-full bg-white border shadow text-gray-500 hover:text-red-500"
+                        title="Удалить"
+                      ><Trash2 size={11} /></button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Поле ввода */}
+      <div className="border-t border-gray-100 p-2.5 shrink-0 bg-white">
+        {!canReply && tabs.length > 0 && (
+          <div className="text-[11px] text-amber-600 mb-1.5 px-1">
+            У контакта нет аккаунта в {PLATFORM_LABEL[replyPlatform] || replyPlatform} — ответить туда нельзя.
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          {availablePlatforms.length > 1 && (
+            <select
+              value={replyPlatform}
+              onChange={e => setActiveTab(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-1.5 py-2 bg-gray-50 shrink-0"
+              title="Через какую платформу отправить"
+            >
+              {availablePlatforms.map(p => (
+                <option key={p} value={p}>{PLATFORM_SHORT[p] || p}</option>
+              ))}
+            </select>
+          )}
+          <textarea
+            className="flex-1 resize-none text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-[#25455D] max-h-28"
+            rows={1}
+            placeholder={canReply ? `Написать в ${PLATFORM_LABEL[replyPlatform] || replyPlatform}…` : 'Нет канала для ответа'}
+            value={text}
+            disabled={!canReply}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+          />
+          <button
+            onClick={send}
+            disabled={sending || !text.trim() || !canReply}
+            className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white disabled:opacity-40"
+            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+            title="Отправить (Enter)"
+          >
+            <Send size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

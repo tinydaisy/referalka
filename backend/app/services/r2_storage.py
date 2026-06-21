@@ -46,10 +46,20 @@ def build_key(
     event_id: Optional[int] = None,
     collaborator_id: Optional[int] = None,
     poster_type: Optional[str] = None,
+    contact_id: Optional[int] = None,
+    message_id: Optional[int] = None,
 ) -> str:
     """Строит ключ R2 в зависимости от kind."""
     fname = f"{uuid.uuid4().hex}.{ext.lower().lstrip('.')}"
     base = f"clients/{client_id}"
+
+    if kind == "dialog_media":
+        # Медиа личных переписок. Структура «по клиенту → по контакту → по
+        # сообщению» — папку контакта целиком легко перенести/удалить.
+        if not contact_id:
+            raise ValueError("dialog_media требует contact_id")
+        sub = f"{message_id}/" if message_id else ""
+        return f"{base}/dialogs/{contact_id}/{sub}{fname}"
 
     if kind == "event_poster":
         if not event_id or not poster_type:

@@ -1317,8 +1317,41 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
     except Exception as e:
         logger.warning("VK message_new event-funnel resend failed: %s", e)
 
-    # Свободный текст. Игнорируем служебные старты (action: chat_invite_user и т.п.)
+    # Свободный текст / медиа. Игнорируем служебные старты (action: chat_invite_user и т.п.)
     text = (message.get("text") or "").strip()
+    has_att, att_kind = _vk_attachment_info(message)
+    if not text and not has_att:
+        return
+
+    # Архив личного сообщения для раздела «Диалоги» (только VIP — у системного
+    # сообщества контекст клиента неизвестен). Голос не качаем.
+    if not ctx.is_system:
+        try:
+            from app.services.dialog_archive import archive_incoming
+            file_url = None
+            if has_att and att_kind != "voice":
+                urls = _vk_attachment_urls(message)
+                file_url = urls[0]["url"] if urls else None
+            await archive_incoming(
+                client_id=ctx.client_id, platform="vk", channel_id=ctx.channel_id,
+                platform_user_id=str(from_id), text=(text or None),
+                media_kind=att_kind, file_url=file_url,
+                platform_message_id=str(message.get("conversation_message_id")
+                                        or message.get("id") or "") or None,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"VK dialog archive failed: {e}")
+
+        # Голосовое без текста — просим написать текстом и выходим.
+        if att_kind == "voice" and not text:
+            try:
+                from app.services.dialog_archive import VOICE_REPLY
+                from app.services.vk_api import send_message as _vk_send
+                await _vk_send(int(from_id), VOICE_REPLY, token=ctx.token)
+            except Exception:  # noqa: BLE001
+                pass
+            return
+
     if not text:
         return
 
@@ -1453,6 +1486,15 @@ async def _reply_to_user_message(
           if button_url else None)
     try:
         await vk_send_message(peer_id, reply, keyboard=kb, token=ctx.token)
+        if not ctx.is_system:
+            try:
+                from app.services.dialog_archive import archive_outgoing_bot
+                await archive_outgoing_bot(
+                    client_id=ctx.client_id, platform="vk", channel_id=ctx.channel_id,
+                    platform_user_id=str(peer_id), text=reply,
+                )
+            except Exception:  # noqa: BLE001
+                pass
     except Exception as e:
         logger.warning(f"VK reply to user message failed peer={peer_id}: {e}")
 

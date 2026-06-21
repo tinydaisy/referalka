@@ -1894,6 +1894,17 @@ async def handle_user_message(message: Message):
                 except Exception as e:
                     log.warning("user_message notify failed: %s", e)
 
+        # Архив входящего личного сообщения (для раздела «Диалоги» в карточке контакта).
+        try:
+            from app.services.dialog_archive import archive_incoming, archive_outgoing_bot
+            await archive_incoming(
+                client_id=client_id, platform="telegram", channel_id=ch["id"],
+                platform_user_id=str(user.id), text=message.text,
+                platform_message_id=str(message.message_id), contact_id=contact_id,
+            )
+        except Exception as e:  # noqa: BLE001 — архив не должен ронять обработчик
+            log.warning("dialog archive (tg in) failed: %s", e)
+
         # Ответ пользователю VIP-бота — ведём на /support (без @-ника).
         reply = (
             "Спасибо, видим ваше сообщение 💛\n\n"
@@ -1901,8 +1912,84 @@ async def handle_user_message(message: Message):
             "и пришлём контакты для связи."
         )
         await message.answer(reply)
+        try:
+            await archive_outgoing_bot(
+                client_id=client_id, platform="telegram", channel_id=ch["id"],
+                platform_user_id=str(user.id), text=reply, contact_id=contact_id,
+            )
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as e:
         log.exception("handle_user_message failed: %s", e)
+
+
+@router.message(
+    (F.chat.type == 'private')
+    & (F.voice | F.photo | F.video | F.video_note | F.document | F.audio | F.animation | F.sticker)
+    & F.forward_from_chat.is_(None)
+    & F.forward_from.is_(None)
+)
+async def handle_user_media(message: Message):
+    """Медиа-сообщение пользователя в личке VIP-бота клиента.
+
+    Архивируем в «Диалоги» (текст caption + ссылка на файл в R2, кроме голоса).
+    На голосовое — отвечаем «пишите текстом» (хранить не будем).
+    Системный @pluson_bot — игнорируем (как и текст).
+    """
+    user = message.from_user
+    bot_id = message.bot.id if message.bot else None
+    if not user or not bot_id:
+        return
+    try:
+        from app.services.channels import find_channel_by_bot_id
+        from app.services.dialog_archive import archive_incoming, VOICE_REPLY
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if not ch or ch["is_system"]:
+                return
+            client_id = await db.fetchval(
+                """SELECT client_id FROM client_channels
+                    WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                ch["id"],
+            )
+            if not client_id:
+                return
+
+        # Определяем тип вложения + file_id для скачивания.
+        media_kind = None
+        file_id = None
+        if message.voice:        media_kind, file_id = "voice", message.voice.file_id
+        elif message.photo:      media_kind, file_id = "photo", message.photo[-1].file_id
+        elif message.video:      media_kind, file_id = "video", message.video.file_id
+        elif message.video_note: media_kind, file_id = "video", message.video_note.file_id
+        elif message.animation:  media_kind, file_id = "video", message.animation.file_id
+        elif message.audio:      media_kind, file_id = "audio", message.audio.file_id
+        elif message.document:   media_kind, file_id = "document", message.document.file_id
+        elif message.sticker:    media_kind, file_id = "sticker", None
+
+        file_url = None
+        if file_id and media_kind != "voice":
+            try:
+                f = await message.bot.get_file(file_id)
+                file_url = f"https://api.telegram.org/file/bot{message.bot.token}/{f.file_path}"
+            except Exception:  # noqa: BLE001
+                file_url = None
+
+        await archive_incoming(
+            client_id=client_id, platform="telegram", channel_id=ch["id"],
+            platform_user_id=str(user.id), text=(message.caption or None),
+            media_kind=media_kind, file_url=file_url,
+            platform_message_id=str(message.message_id),
+        )
+
+        if media_kind == "voice":
+            try:
+                await message.answer(VOICE_REPLY)
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception as e:  # noqa: BLE001
+        log.warning("handle_user_media failed: %s", e)
 
 
 @router.message(F.chat.type == 'private')

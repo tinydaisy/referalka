@@ -476,7 +476,39 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         )
         return
 
-    # Любое другое сообщение — лёгкий ответ-эхо чтобы не молчать
+    # Любое другое сообщение (свободный текст / медиа) — архивируем в «Диалоги»
+    # (только для VIP-бота клиента: client_id известен) и отвечаем.
+    has_att, att_kind = _max_attachment_info(body)
+    if client_id_override:
+        try:
+            from app.services.dialog_archive import archive_incoming, VOICE_REPLY
+            channel_id = None
+            _p = await get_pool()
+            async with _p.acquire() as _c:
+                channel_id = await _c.fetchval(
+                    """SELECT cc.channel_id FROM client_channels cc
+                         JOIN channels ch ON ch.id = cc.channel_id
+                        WHERE cc.client_id = $1 AND ch.platform_slug = 'max'
+                        ORDER BY cc.is_active DESC, cc.id ASC LIMIT 1""",
+                    client_id_override,
+                )
+            file_url = None
+            if has_att and att_kind != "voice":
+                urls = _max_attachment_urls(body)
+                file_url = urls[0]["url"] if urls else None
+            await archive_incoming(
+                client_id=client_id_override, platform="max", channel_id=channel_id,
+                platform_user_id=str(user_id), text=(text or None),
+                media_kind=(att_kind if has_att else None), file_url=file_url,
+                platform_message_id=str(body.get("mid") or msg.get("seq") or "") or None,
+            )
+            if att_kind == "voice" and not text:
+                await max_send_message(chat_id, VOICE_REPLY, token=bot_token)
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"MAX dialog archive failed: {e}")
+
+    # Лёгкий ответ-эхо чтобы не молчать
     await max_send_message(
         chat_id,
         "Привет! Это бот iViSiON: ПЛЮСОН. Откройте мини-приложение по кнопке ниже, "

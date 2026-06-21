@@ -394,6 +394,19 @@ export const api = {
   platforms: {
     list: () => request('/api/v1/platforms'),
   },
+  // Личные переписки (Диалоги) — миграция 160
+  dialogs: {
+    list: (search?: string) =>
+      request(`/api/v1/dialogs${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+    messages: (contactId: number, platform?: string) =>
+      request(`/api/v1/contacts/${contactId}/messages${platform ? `?platform=${platform}` : ''}`),
+    reply: (contactId: number, data: { platform: string; text: string; channel_id?: number }) =>
+      request(`/api/v1/contacts/${contactId}/reply`, { method: 'POST', body: JSON.stringify(data) }),
+    edit: (messageId: number, text: string) =>
+      request(`/api/v1/dialog-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify({ text }) }),
+    remove: (messageId: number) =>
+      request(`/api/v1/dialog-messages/${messageId}`, { method: 'DELETE' }),
+  },
   eventNurture: {
     list: (eventId: number) => request(`/api/v1/events/${eventId}/nurture/steps`),
     previewUrls: (eventId: number) =>

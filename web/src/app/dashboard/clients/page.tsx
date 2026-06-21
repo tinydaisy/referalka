@@ -1,10 +1,11 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown } from 'lucide-react'
+import { Search, UserCircle, Phone, Mail, Link2, Tag, Calendar, ExternalLink, GitMerge, AlertCircle, Bell, BellOff, SlidersHorizontal, X, Download, Pencil, Check, Briefcase, Trash2, ChevronDown, Send } from 'lucide-react'
 import { api, ContactFilters } from '@/lib/api'
 import { MultiSelectDropdown, MultiSelectOption } from '@/components/MultiSelectDropdown'
 import { useMe } from '@/hooks/useMe'
+import DialogChat from '@/components/DialogChat'
 
 interface Identity {
   platform_slug: string
@@ -475,8 +476,27 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* Правая колонка — карточка */}
-      <div className="flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto">
+      {/* Центральная колонка — чат с контактом */}
+      <div className="hidden md:flex flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex-col">
+        {selected && !loadingDetail ? (
+          <DialogChat
+            key={selected.id}
+            contactId={selected.id}
+            contactName={getName(selected)}
+            availablePlatforms={(selected.identities || [])
+              .map((i: any) => i.platform_slug)
+              .filter((p: string) => ['telegram', 'vk', 'max'].includes(p))}
+          />
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-gray-300">
+            <Send size={40} className="mb-3 opacity-30" />
+            <p className="text-sm">Чат с контактом появится здесь</p>
+          </div>
+        )}
+      </div>
+
+      {/* Правая колонка — параметры контакта (на десктопе уже, в одну колонку) */}
+      <div className="flex-1 md:flex-none md:w-[380px] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-y-auto">
         {!selected && !loadingDetail && (
           <div className="h-full flex flex-col items-center justify-center text-gray-400">
             <UserCircle size={48} className="mb-3 opacity-30" />
@@ -614,8 +634,8 @@ export default function ContactsPage() {
               </div>
             )}
 
-            {/* Контактные поля и метаданные — фиксированный порядок строк */}
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-6">
+            {/* Контактные поля и метаданные — в одну колонку (друг под другом) */}
+            <div className="grid grid-cols-1 gap-y-4 mb-6">
               {/* Строка 1: Email | Телефон */}
               <ContactFieldEditor
                 contactId={selected.id}
@@ -923,6 +943,21 @@ export default function ContactsPage() {
 
             {/* Партнёрская ссылка (миграция 105) */}
             <PartnerLinksBlock contact={selected} />
+
+            {/* Мобильный чат — под параметрами (на десктопе чат в средней колонке) */}
+            <div className="md:hidden mt-6 pt-4 border-t border-gray-100 -mx-6">
+              <div className="px-6 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Переписка</div>
+              <div className="h-[60vh]">
+                <DialogChat
+                  key={`m-${selected.id}`}
+                  contactId={selected.id}
+                  contactName={getName(selected)}
+                  availablePlatforms={(selected.identities || [])
+                    .map((i: any) => i.platform_slug)
+                    .filter((p: string) => ['telegram', 'vk', 'max'].includes(p))}
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>

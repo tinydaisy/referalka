@@ -6,7 +6,7 @@ celery = Celery(
     "plusson",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce"]
+    include=["app.tasks.broadcast", "app.tasks.funnel", "app.tasks.subscriptions", "app.tasks.nurture", "app.tasks.nurture_reg", "app.tasks.email_bounce", "app.tasks.dialog_retention"]
 )
 
 celery.conf.update(
@@ -53,6 +53,12 @@ celery.conf.update(
         "process-email-bounces": {
             "task": "app.tasks.email_bounce.process_bounces",
             "schedule": 3600.0,
+        },
+        # Раз в сутки в 04:10 МСК — архивирование старых личных переписок в R2
+        # (чтобы Postgres на маленьком сервере не раздувался). Миграция 160.
+        "archive-old-dialogs": {
+            "task": "app.tasks.dialog_retention.archive_old_dialogs",
+            "schedule": crontab(hour=4, minute=10),
         },
     }
 )
