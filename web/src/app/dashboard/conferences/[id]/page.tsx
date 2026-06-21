@@ -43,8 +43,8 @@ export default function ConferencePage() {
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const { me } = useMe()
-  // Раздел «Тарифы» — только для клиентов тарифа vip (Марго).
-  const isVip = me?.subscription?.tariff_slug === 'vip'
+  // Раздел «Тарифы» временно только у Марго (client_id=1).
+  const isVip = me?.id === 1
 
   async function handleSalebotExport() {
     setExporting(true)

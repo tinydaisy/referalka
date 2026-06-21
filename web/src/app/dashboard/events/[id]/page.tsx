@@ -25,7 +25,8 @@ export default function EventPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const { me } = useMe()
   // Раздел «Тарифы» — только для клиентов тарифа vip (Марго).
-  const isVip = me?.subscription?.tariff_slug === 'vip'
+  // Раздел «Тарифы» временно только у Марго (client_id=1).
+  const isVip = me?.id === 1
 
   async function reload() {
     const e = await api.events.get(eventId)

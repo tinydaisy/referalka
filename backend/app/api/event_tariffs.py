@@ -202,7 +202,7 @@ async def list_buyers(
         raise HTTPException(status_code=404, detail="Тариф не найден")
     rows = await db.fetch(
         """SELECT ept.id, ept.participant_id, ept.status, ept.paid_at, ept.ordered_at,
-                  ept.source, ept.amount, ept.external_payment_id,
+                  ept.source, ept.amount, ept.external_payment_id, ept.note,
                   c.id AS contact_id, c.name AS contact_name, c.phone,
                   (SELECT pe.platform_user_id FROM platform_users pe
                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
@@ -247,6 +247,7 @@ class AddBuyerRequest(BaseModel):
     contact_id: Optional[int] = None
     amount: Optional[int] = None
     status: str = "paid"   # 'paid' (оплатил) | 'unpaid' (имеет заказ, не оплатил)
+    note: Optional[str] = None
 
 
 @router.post("/{tariff_id}/buyers", summary="Вручную отметить оплатившего (участник или контакт)")
@@ -298,25 +299,28 @@ async def add_buyer(
 
     status = data.status if data.status in ("paid", "unpaid") else "paid"
     # Запись о тарифе (идемпотентно) + участник зарегистрирован.
+    note = (data.note or "").strip() or None
     if status == "paid":
         await db.execute(
-            """INSERT INTO event_participant_tariffs (event_id, participant_id, tariff_id, status, paid_at, ordered_at, source, amount)
-               VALUES ($1, $2, $3, 'paid', NOW(), NOW(), 'manual', $4)
+            """INSERT INTO event_participant_tariffs (event_id, participant_id, tariff_id, status, paid_at, ordered_at, source, amount, note)
+               VALUES ($1, $2, $3, 'paid', NOW(), NOW(), 'manual', $4, $5)
                ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
                  status = 'paid', paid_at = NOW(), source = 'manual',
-                 amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount)""",
-            event_id, participant_id, tariff_id, data.amount,
+                 amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount),
+                 note = COALESCE(EXCLUDED.note, event_participant_tariffs.note)""",
+            event_id, participant_id, tariff_id, data.amount, note,
         )
     else:  # unpaid — не понижаем уже оплаченный
         await db.execute(
-            """INSERT INTO event_participant_tariffs (event_id, participant_id, tariff_id, status, ordered_at, source, amount)
-               VALUES ($1, $2, $3, 'unpaid', NOW(), 'manual', $4)
+            """INSERT INTO event_participant_tariffs (event_id, participant_id, tariff_id, status, ordered_at, source, amount, note)
+               VALUES ($1, $2, $3, 'unpaid', NOW(), 'manual', $4, $5)
                ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
                  status = CASE WHEN event_participant_tariffs.status = 'paid' THEN 'paid' ELSE 'unpaid' END,
                  ordered_at = COALESCE(event_participant_tariffs.ordered_at, NOW()),
                  source = 'manual',
-                 amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount)""",
-            event_id, participant_id, tariff_id, data.amount,
+                 amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount),
+                 note = COALESCE(EXCLUDED.note, event_participant_tariffs.note)""",
+            event_id, participant_id, tariff_id, data.amount, note,
         )
     await db.execute(
         "UPDATE event_participants SET is_registered = TRUE WHERE id = $1", participant_id
@@ -339,4 +343,74 @@ async def remove_buyer(
         "DELETE FROM event_participant_tariffs WHERE tariff_id = $1 AND participant_id = $2 AND event_id = $3",
         tariff_id, participant_id, event_id,
     )
+    return {"ok": True}
+
+
+class BuyerPatchRequest(BaseModel):
+    note: Optional[str] = None              # заметка организатора
+    status: Optional[str] = None            # 'paid' | 'unpaid'
+    move_to_tariff_id: Optional[int] = None # перенести запись на другой тариф
+
+
+@router.patch("/{tariff_id}/buyers/{participant_id}", summary="Изменить запись: заметка / статус / перенос на другой тариф")
+async def patch_buyer(
+    event_id: int,
+    tariff_id: int,
+    participant_id: int,
+    data: BuyerPatchRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    client_id = int(client["sub"])
+    await _check_event_access(db, client_id, event_id)
+    await _assert_vip(db, client_id)
+
+    cur = await db.fetchrow(
+        "SELECT id FROM event_participant_tariffs WHERE tariff_id = $1 AND participant_id = $2 AND event_id = $3",
+        tariff_id, participant_id, event_id,
+    )
+    if not cur:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+
+    # Перенос на другой тариф — меняем tariff_id (с проверкой что целевой тариф этого события)
+    if data.move_to_tariff_id is not None and data.move_to_tariff_id != tariff_id:
+        target = await db.fetchval(
+            "SELECT id FROM event_tariffs WHERE id = $1 AND event_id = $2",
+            data.move_to_tariff_id, event_id,
+        )
+        if not target:
+            raise HTTPException(status_code=404, detail="Целевой тариф не найден")
+        # Если у участника уже есть запись на целевом тарифе — не плодим дубль:
+        # удаляем текущую, целевую обновляем (заметку/статус перенесём ниже).
+        dup = await db.fetchval(
+            "SELECT id FROM event_participant_tariffs WHERE tariff_id = $1 AND participant_id = $2",
+            data.move_to_tariff_id, participant_id,
+        )
+        if dup:
+            await db.execute("DELETE FROM event_participant_tariffs WHERE id = $1", cur["id"])
+        else:
+            await db.execute(
+                "UPDATE event_participant_tariffs SET tariff_id = $1 WHERE id = $2",
+                data.move_to_tariff_id, cur["id"],
+            )
+        tariff_id = data.move_to_tariff_id  # дальнейшие правки — на новой записи
+
+    # Точечные апдейты note/status
+    sets = []
+    vals: list = []
+    if data.note is not None:
+        sets.append(f"note = ${len(vals)+1}")
+        vals.append(data.note.strip() or None)
+    if data.status in ("paid", "unpaid"):
+        sets.append(f"status = ${len(vals)+1}")
+        vals.append(data.status)
+        if data.status == "paid":
+            sets.append("paid_at = NOW()")
+    if sets:
+        vals.extend([tariff_id, participant_id])
+        await db.execute(
+            f"UPDATE event_participant_tariffs SET {', '.join(sets)} "
+            f"WHERE tariff_id = ${len(vals)-1} AND participant_id = ${len(vals)}",
+            *vals,
+        )
     return {"ok": True}

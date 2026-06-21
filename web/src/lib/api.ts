@@ -446,6 +446,10 @@ export const api = {
       }),
     removeBuyer: (eventId: number, tariffId: number, participantId: number) =>
       request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers/${participantId}`, { method: 'DELETE' }),
+    patchBuyer: (eventId: number, tariffId: number, participantId: number, data: { note?: string; status?: 'paid' | 'unpaid'; move_to_tariff_id?: number }) =>
+      request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers/${participantId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
   },
   channels: {
     list: () => request('/api/v1/channels'),

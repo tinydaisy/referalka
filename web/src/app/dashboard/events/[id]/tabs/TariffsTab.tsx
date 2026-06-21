@@ -24,6 +24,7 @@ interface Buyer {
   id: number
   participant_id: number
   status: 'paid' | 'unpaid'
+  note: string | null
   paid_at: string | null
   ordered_at: string | null
   source: string | null
@@ -242,6 +243,7 @@ export default function TariffsTab({
                 <BuyersPanel
                   eventId={eventId}
                   tariff={t}
+                  allTariffs={items}
                   onChanged={load}
                 />
               )}
@@ -333,7 +335,7 @@ function PlatformChip({ label, href, color }: { label: string; href: string; col
   )
 }
 
-function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: any; onChanged: () => void }) {
+function BuyersPanel({ eventId, tariff, allTariffs, onChanged }: { eventId: number; tariff: any; allTariffs: Tariff[]; onChanged: () => void }) {
   const [data, setData] = useState<{ paid: Buyer[]; unpaid: Buyer[] } | null>(null)
   const [adding, setAdding] = useState(false)
   const [addStatus, setAddStatus] = useState<'paid' | 'unpaid'>('paid')
@@ -347,6 +349,12 @@ function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: 
   async function removeBuyer(participantId: number) {
     if (!confirm('Снять отметку у этого человека?')) return
     await api.eventTariffs.removeBuyer(eventId, tariff.id, participantId)
+    await reload()
+    onChanged()
+  }
+
+  async function patchBuyer(participantId: number, patch: { note?: string; status?: 'paid' | 'unpaid'; move_to_tariff_id?: number }) {
+    await api.eventTariffs.patchBuyer(eventId, tariff.id, participantId, patch)
     await reload()
     onChanged()
   }
@@ -398,7 +406,9 @@ function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: 
               <div className="text-xs text-gray-400 py-2">Пока никто не оплатил.</div>
             ) : (
               <div className="space-y-2">
-                {data.paid.map(b => <BuyerCard key={b.id} b={b} onRemove={() => removeBuyer(b.participant_id)} />)}
+                {data.paid.map(b => <BuyerCard key={b.id} b={b} currentTariffId={tariff.id} allTariffs={allTariffs}
+                  onRemove={() => removeBuyer(b.participant_id)}
+                  onPatch={(patch) => patchBuyer(b.participant_id, patch)} />)}
               </div>
             )}
           </div>
@@ -410,7 +420,9 @@ function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: 
                 Имеют заказ, не оплатили · {data.unpaid.length}
               </div>
               <div className="space-y-2">
-                {data.unpaid.map(b => <BuyerCard key={b.id} b={b} unpaid onRemove={() => removeBuyer(b.participant_id)} />)}
+                {data.unpaid.map(b => <BuyerCard key={b.id} b={b} unpaid currentTariffId={tariff.id} allTariffs={allTariffs}
+                  onRemove={() => removeBuyer(b.participant_id)}
+                  onPatch={(patch) => patchBuyer(b.participant_id, patch)} />)}
               </div>
             </div>
           )}
@@ -420,7 +432,18 @@ function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: 
   )
 }
 
-function BuyerCard({ b, unpaid, onRemove }: { b: Buyer; unpaid?: boolean; onRemove: () => void }) {
+function BuyerCard({ b, unpaid, currentTariffId, allTariffs, onRemove, onPatch }: {
+  b: Buyer
+  unpaid?: boolean
+  currentTariffId: number
+  allTariffs: Tariff[]
+  onRemove: () => void
+  onPatch: (patch: { note?: string; status?: 'paid' | 'unpaid'; move_to_tariff_id?: number }) => void
+}) {
+  const [noteVal, setNoteVal] = useState(b.note || '')
+  const [editingNote, setEditingNote] = useState(false)
+  const otherTariffs = allTariffs.filter(t => t.id !== currentTariffId)
+
   return (
     <div className={`border rounded-xl p-3 ${unpaid ? 'border-amber-200 bg-amber-50/40' : 'border-gray-100 bg-white'}`}>
       <div className="flex items-center justify-between gap-2">
@@ -454,6 +477,55 @@ function BuyerCard({ b, unpaid, onRemove }: { b: Buyer; unpaid?: boolean; onRemo
           {b.amount != null && <span> · {b.amount.toLocaleString('ru-RU')} ₽</span>}
         </div>
       )}
+
+      {/* Заметка */}
+      <div className="mt-2">
+        {editingNote ? (
+          <div className="flex gap-1.5">
+            <input
+              value={noteVal}
+              onChange={e => setNoteVal(e.target.value)}
+              autoFocus
+              placeholder="Комментарий…"
+              className="flex-1 px-2 py-1 rounded-lg border border-gray-200 text-xs focus:outline-none focus:border-brand"
+            />
+            <button onClick={() => { onPatch({ note: noteVal }); setEditingNote(false) }}
+              className="px-2 py-1 rounded-lg bg-brand text-white text-xs">OK</button>
+            <button onClick={() => { setNoteVal(b.note || ''); setEditingNote(false) }}
+              className="px-2 py-1 rounded-lg border border-gray-200 text-gray-500 text-xs">×</button>
+          </div>
+        ) : (
+          <button onClick={() => setEditingNote(true)}
+            className="text-xs flex items-center gap-1 text-left w-full">
+            {b.note
+              ? <span className="text-gray-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5">📝 {b.note}</span>
+              : <span className="text-gray-400 hover:text-brand">📝 добавить заметку</span>}
+          </button>
+        )}
+      </div>
+
+      {/* Действия: сменить статус + перенести на другой тариф */}
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        {unpaid ? (
+          <button onClick={() => onPatch({ status: 'paid' })}
+            className="text-[11px] px-2 py-0.5 rounded bg-green-100 text-green-700 hover:bg-green-200">→ оплатил</button>
+        ) : (
+          <button onClick={() => onPatch({ status: 'unpaid' })}
+            className="text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 hover:bg-amber-200">→ в заказ (не оплачен)</button>
+        )}
+        {otherTariffs.length > 0 && (
+          <select
+            value=""
+            onChange={e => { if (e.target.value) onPatch({ move_to_tariff_id: Number(e.target.value) }) }}
+            className="text-[11px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-600 bg-white"
+          >
+            <option value="">Перенести на тариф…</option>
+            {otherTariffs.map(t => (
+              <option key={t.id} value={t.id}>{t.title}{t.price != null ? ` (${t.price}₽)` : ''}</option>
+            ))}
+          </select>
+        )}
+      </div>
     </div>
   )
 }
@@ -473,6 +545,7 @@ function AddBuyerPicker({
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [noteVal, setNoteVal] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -503,10 +576,11 @@ function AddBuyerPicker({
   async function pick(row: any) {
     setBusyId(row.id)
     try {
+      const note = noteVal.trim() || undefined
       if (source === 'participants') {
-        await api.eventTariffs.addBuyer(eventId, tariffId, { participant_id: row.id, status })
+        await api.eventTariffs.addBuyer(eventId, tariffId, { participant_id: row.id, status, note })
       } else {
-        await api.eventTariffs.addBuyer(eventId, tariffId, { contact_id: row.id, status })
+        await api.eventTariffs.addBuyer(eventId, tariffId, { contact_id: row.id, status, note })
       }
       onDone()
     } catch (e: any) {
@@ -518,6 +592,12 @@ function AddBuyerPicker({
 
   return (
     <div className="border border-gray-200 bg-white rounded-xl p-3 space-y-2.5">
+      <input
+        value={noteVal}
+        onChange={e => setNoteVal(e.target.value)}
+        placeholder="Заметка (необязательно) — применится к выбранному"
+        className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:border-brand"
+      />
       <div className="text-xs font-medium text-gray-600">
         {status === 'paid' ? 'Отметить оплатившим:' : 'Добавить заказ (не оплачен):'}
       </div>
