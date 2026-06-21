@@ -837,13 +837,17 @@ export default function ContactsPage() {
 
             {/* События */}
             {selected.events && selected.events.length > 0 && (
-              <details className="mb-6 group">
-                <summary className="flex items-center justify-between cursor-pointer list-none mb-2 select-none">
-                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">
-                    Участие в событиях <span className="text-gray-500 normal-case">· {selected.events.length}</span>
+              <details className="mb-3 group rounded-xl border border-[#FFCFA4] bg-[#FFF6EE] overflow-hidden">
+                <summary className="flex items-center justify-between cursor-pointer list-none select-none px-4 py-3 hover:bg-[#FFEFE0]">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#25455D]">
+                    Участие в событиях
+                    <span className="ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-[#FFCFA4] text-[#25455D] text-[11px] font-bold">{selected.events.length}</span>
                   </p>
-                  <ChevronDown size={14} className="text-gray-400 transition-transform group-open:rotate-180" />
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#FFCFA4] text-[#25455D] transition-transform group-open:rotate-180">
+                    <ChevronDown size={15} strokeWidth={2.5} />
+                  </span>
                 </summary>
+                <div className="px-4 pb-3 pt-1">
                 <div className="space-y-2">
                   {selected.events.map((ev, i) => (
                     <div key={i} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
@@ -860,17 +864,22 @@ export default function ContactsPage() {
                     </div>
                   ))}
                 </div>
+                </div>
               </details>
             )}
 
             {(selected as any).lead_magnet_runs && (selected as any).lead_magnet_runs.length > 0 && (
-              <details className="mb-6 group">
-                <summary className="flex items-center justify-between cursor-pointer list-none mb-2 select-none">
-                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">
-                    Лид-магниты <span className="text-gray-500 normal-case">· {(selected as any).lead_magnet_runs.length}</span>
+              <details className="mb-3 group rounded-xl border border-[#FFCFA4] bg-[#FFF6EE] overflow-hidden">
+                <summary className="flex items-center justify-between cursor-pointer list-none select-none px-4 py-3 hover:bg-[#FFEFE0]">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#25455D]">
+                    Лид-магниты
+                    <span className="ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-[#FFCFA4] text-[#25455D] text-[11px] font-bold">{(selected as any).lead_magnet_runs.length}</span>
                   </p>
-                  <ChevronDown size={14} className="text-gray-400 transition-transform group-open:rotate-180" />
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#FFCFA4] text-[#25455D] transition-transform group-open:rotate-180">
+                    <ChevronDown size={15} strokeWidth={2.5} />
+                  </span>
                 </summary>
+                <div className="px-4 pb-3 pt-1">
                 <div className="space-y-2">
                   {(selected as any).lead_magnet_runs.map((r: any) => {
                     const stages: Record<string, { label: string; color: string }> = {
@@ -895,6 +904,7 @@ export default function ContactsPage() {
                       </div>
                     )
                   })}
+                </div>
                 </div>
               </details>
             )}

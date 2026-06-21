@@ -281,7 +281,7 @@ function MagnetsList() {
                   <span className="truncate">{lm.url}</span>
                 </a>
                 <div className="mt-2">
-                  <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} />
+                  <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} name={lm.name} />
                 </div>
               </div>
               <div className="flex gap-1 items-center">
@@ -448,7 +448,7 @@ function PackagesList() {
                   </ul>
                 )}
                 <div className="mt-2">
-                  <PlatformShareLinks kind="p" slug={pkg.slug} links={pkg.platform_links} />
+                  <PlatformShareLinks kind="p" slug={pkg.slug} links={pkg.platform_links} name={pkg.name} />
                 </div>
               </div>
               <div className="flex gap-1 items-center">
@@ -912,10 +912,11 @@ const PLATFORM_META: Record<PlatformKey, { label: string; color: string; Icon: (
   },
 }
 
-function PlatformShareLinks({ kind, slug, links }: {
+function PlatformShareLinks({ kind, slug, links, name }: {
   kind: 'm' | 'p'
   slug: string
   links?: PlatformLinks
+  name?: string
 }) {
   // Fallback: если бэк ещё не отдал platform_links — показываем прямой
   // deeplink на системный @pluson_bot. Бот сам распарсит /start m_<slug> или
@@ -928,7 +929,7 @@ function PlatformShareLinks({ kind, slug, links }: {
   return (
     <div className="flex flex-col gap-1">
       {order.filter(p => resolved[p]).map(p => (
-        <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} slug={slug} kind={kind} />
+        <PlatformLinkRow key={p} platform={p} url={resolved[p] as string} slug={slug} kind={kind} name={name} />
       ))}
     </div>
   )
@@ -950,7 +951,7 @@ function qrPngUrl(
   return `https://quickchart.io/qr?text=${encodeURIComponent(data)}&size=${size}&margin=2&dark=${dark}&light=${light}&ecLevel=M&format=png`
 }
 
-function PlatformLinkRow({ platform, url, slug, kind }: { platform: PlatformKey; url: string; slug: string; kind: 'm' | 'p' }) {
+function PlatformLinkRow({ platform, url, slug, kind, name }: { platform: PlatformKey; url: string; slug: string; kind: 'm' | 'p'; name?: string }) {
   const [copied, setCopied] = useState(false)
   const [qrOpen, setQrOpen] = useState(false)
   const meta = PLATFORM_META[platform]
@@ -976,7 +977,7 @@ function PlatformLinkRow({ platform, url, slug, kind }: { platform: PlatformKey;
         <QrCode size={12} className="text-gray-400" />
       </IconBtn>
       {qrOpen && (
-        <QrModal url={url} platform={platform} slug={slug} kind={kind} onClose={() => setQrOpen(false)} />
+        <QrModal url={url} platform={platform} slug={slug} kind={kind} name={name} onClose={() => setQrOpen(false)} />
       )}
     </div>
   )
@@ -984,8 +985,8 @@ function PlatformLinkRow({ platform, url, slug, kind }: { platform: PlatformKey;
 
 // Модалка QR-кода: вкладки цвета (Чёрный / Белый) + радио фона
 // (Прозрачный / Контрастный) + превью + скачать/скопировать.
-function QrModal({ url, platform, slug, kind, onClose }: {
-  url: string; platform: PlatformKey; slug: string; kind: 'm' | 'p'; onClose: () => void
+function QrModal({ url, platform, slug, kind, name, onClose }: {
+  url: string; platform: PlatformKey; slug: string; kind: 'm' | 'p'; name?: string; onClose: () => void
 }) {
   const [color, setColor] = useState<'black' | 'white'>('black')
   const [bg, setBg] = useState<'transparent' | 'contrast'>('contrast')
@@ -993,7 +994,8 @@ function QrModal({ url, platform, slug, kind, onClose }: {
   const [copied, setCopied] = useState(false)
   const meta = PLATFORM_META[platform]
   const previewUrl = qrPngUrl(url, { color, bg, size: 360 })
-  const fileName = `qr-${kind}-${slug}-${platform}-${color}-${bg}.png`
+  const safeName = (name || slug).replace(/[^a-zа-я0-9]+/gi, '_').slice(0, 40)
+  const fileName = `qr-${safeName}-${platform}-${color}-${bg}.png`
 
   // Шахматный фон под превью — чтобы прозрачность была видна.
   const checker = 'repeating-conic-gradient(#e5e7eb 0% 25%, #fff 0% 50%) 50% / 16px 16px'
@@ -1042,6 +1044,15 @@ function QrModal({ url, platform, slug, kind, onClose }: {
   return (
     <Modal title={`QR-код · ${meta.label}`} onClose={onClose}>
       <div className="space-y-4">
+        {/* Что именно скачиваешь — название лид-магнита / пакета */}
+        {name && (
+          <div className="rounded-xl bg-[#FFF6EE] border border-[#FFCFA4] px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">
+              {kind === 'p' ? 'Пакет' : 'Лид-магнит'}
+            </p>
+            <p className="text-sm font-semibold text-[#25455D] break-words">{name}</p>
+          </div>
+        )}
         {/* Вкладки цвета */}
         <div>
           <p className="text-xs font-medium text-gray-700 mb-1.5">Цвет кода</p>
