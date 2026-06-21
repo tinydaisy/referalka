@@ -921,6 +921,37 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             logger.warning(f"VK chat archive failed: {e}")
         return
 
+    # /start — приветствие «Выберите событие» (как в TG). Для VIP-сообщества
+    # ведём на веб-страницу всех событий клиента /o/{client_id}, для системного
+    # — на Mini App (там HubSelector по всем организаторам).
+    if (message.get("text") or "").strip().lower().startswith("/start"):
+        try:
+            from app.services.vk_api import send_message as _vk_send, tg_inline_to_vk_keyboard
+            if not ctx.is_system:
+                cli = await db.fetchrow(
+                    "SELECT brand_name, name FROM clients WHERE id = $1", ctx.client_id)
+                brand = ((cli["brand_name"] if cli else None)
+                         or (cli["name"] if cli else None) or "").strip()
+                txt = (
+                    "👋 Здравствуйте!\n\n"
+                    + (f"Это сообщество {brand}.\n\n" if brand else "")
+                    + "Выберите событие, которое вас интересует 👇"
+                )
+                kb = tg_inline_to_vk_keyboard([[
+                    {"text": "📋 Выбрать событие",
+                     "url": f"https://pluson.ru/o/{ctx.client_id}"},
+                ]])
+            else:
+                txt = ("👋 Здравствуйте!\n\n"
+                       "Откройте приложение, чтобы посмотреть свои события и партнёрские ссылки.")
+                kb = tg_inline_to_vk_keyboard([[
+                    {"text": "Открыть приложение", "url": f"https://vk.com/app{ctx.vk_app_id}"},
+                ]])
+            await _vk_send(int(from_id), txt, keyboard=kb, token=ctx.token)
+        except Exception as e:
+            logger.warning(f"VK /start failed: {e}")
+        return
+
     # /support — единое сообщение службы поддержки клиента (каналы связи).
     if (message.get("text") or "").strip().lower().startswith("/support"):
         try:
