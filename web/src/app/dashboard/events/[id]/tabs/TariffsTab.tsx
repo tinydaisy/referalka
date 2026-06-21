@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Plus, Save, Trash2, Pencil, X, Users, FileText, ChevronUp, ChevronDown, Search, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
+import { useUrlTab } from '@/hooks/useUrlTab'
 
 // Тарифы мероприятия (миграция 157). Раздел показывается только клиентам
 // тарифа vip — гейтинг в page.tsx, на бэке write-операции тоже 403 для остальных.
@@ -66,8 +67,8 @@ export default function TariffsTab({
 
   // раскрытый блок «кто оплатил» (inline, не модалка)
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  // подвкладка: настройка тарифов / сводная таблица заказов
-  const [subTab, setSubTab] = useState<'tariffs' | 'orders'>('tariffs')
+  // подвкладка: настройка тарифов / сводная таблица заказов (запоминается в URL ?sub=)
+  const [subTab, setSubTab] = useUrlTab<'tariffs' | 'orders'>('sub', 'tariffs', ['tariffs', 'orders'])
 
   async function load() {
     setLoading(true)
@@ -771,52 +772,62 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
         <div className="text-center text-gray-400 text-sm py-10">Заказов нет.</div>
       ) : (
         <div className="overflow-x-auto border border-gray-100 rounded-xl">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed min-w-[920px]">
+            <colgroup>
+              <col style={{ width: '15%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '4%' }} />
+            </colgroup>
             <thead>
               <tr className="bg-gray-50 text-gray-500 text-xs">
-                <th className="text-left px-3 py-2 font-medium">Имя</th>
-                <th className="text-left px-3 py-2 font-medium">Контакт</th>
-                <th className="text-left px-3 py-2 font-medium">Тариф</th>
-                <th className="text-left px-3 py-2 font-medium">Сумма</th>
-                <th className="text-left px-3 py-2 font-medium">Статус</th>
-                <th className="text-left px-3 py-2 font-medium">Партнёр</th>
-                <th className="text-left px-3 py-2 font-medium">Заметка</th>
-                <th className="px-3 py-2"></th>
+                <th className="text-left px-2 py-2 font-medium">Имя</th>
+                <th className="text-left px-2 py-2 font-medium">Контакт</th>
+                <th className="text-left px-2 py-2 font-medium">Тариф</th>
+                <th className="text-left px-2 py-2 font-medium">Сумма</th>
+                <th className="text-left px-2 py-2 font-medium">Статус</th>
+                <th className="text-left px-2 py-2 font-medium">Партнёр</th>
+                <th className="text-left px-2 py-2 font-medium">Заметка</th>
+                <th className="px-1 py-2"></th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(o => (
                 <tr key={o.id} className="border-t border-gray-50 hover:bg-gray-50/50 align-top">
-                  <td className="px-3 py-2 text-gray-800">{o.contact_name || `#${o.contact_id}`}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-2 py-2 text-gray-800 break-words">{o.contact_name || `#${o.contact_id}`}</td>
+                  <td className="px-2 py-2">
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-2">
                         {(o.tg_id || o.tg_username) && <PlatformChip label="TG" color="#229ED9" href={o.tg_username ? `https://t.me/${o.tg_username.replace(/^@+/, '')}` : `tg://user?id=${o.tg_id}`} />}
                         {(o.vk_id || o.vk_username) && <PlatformChip label="VK" color="#0077FF" href={o.vk_username ? `https://vk.com/${o.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${o.vk_id}`} />}
                       </div>
-                      {o.email && <span className="text-xs text-gray-500">{o.email}</span>}
+                      {o.email && <span className="text-xs text-gray-500 truncate" title={o.email}>{o.email}</span>}
                       {o.phone && <span className="text-xs text-gray-500">{o.phone}</span>}
                     </div>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-2 py-2">
                     <select value={o.tariff_id}
                       onChange={e => { const v = Number(e.target.value); if (v !== o.tariff_id) patch(o, { move_to_tariff_id: v }) }}
-                      className="text-xs px-1.5 py-1 rounded border border-gray-200 bg-white max-w-[150px]">
+                      className="text-xs px-1 py-1 rounded border border-gray-200 bg-white w-full">
                       {tariffs.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
                     </select>
                   </td>
-                  <td className="px-3 py-2 text-gray-600">{(o.amount ?? o.tariff_price)?.toLocaleString('ru-RU') ?? '—'} ₽</td>
-                  <td className="px-3 py-2">
+                  <td className="px-2 py-2 text-gray-600 whitespace-nowrap">{(o.amount ?? o.tariff_price)?.toLocaleString('ru-RU') ?? '—'} ₽</td>
+                  <td className="px-2 py-2">
                     <button onClick={() => patch(o, { status: o.status === 'paid' ? 'unpaid' : 'paid' })}
                       className={`text-[11px] px-2 py-0.5 rounded ${o.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                       {o.status === 'paid' ? 'Завершён' : 'Новый'}
                     </button>
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-500">{o.referrer_name || '—'}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-2 py-2 text-xs text-gray-500 break-words">{o.referrer_name || '—'}</td>
+                  <td className="px-2 py-2">
                     <OrderNote note={o.note} onSave={(n) => patch(o, { note: n })} />
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-1 py-2">
                     <button onClick={() => remove(o)} className="p-1 rounded hover:bg-red-50 text-red-400"><Trash2 size={13} /></button>
                   </td>
                 </tr>
@@ -844,7 +855,7 @@ function OrderNote({ note, onSave }: { note: string | null; onSave: (n: string) 
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur() } }}
         placeholder="заметка…"
-        className={`px-2 py-1 rounded border text-xs w-36 focus:outline-none focus:border-brand ${
+        className={`px-2 py-1 rounded border text-xs flex-1 min-w-0 focus:outline-none focus:border-brand ${
           note ? 'bg-yellow-50 border-yellow-200' : 'border-gray-200'
         }`}
       />
