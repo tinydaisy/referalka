@@ -196,14 +196,17 @@ async def _resolve_subject_for_audiences(
     audiences — список из 'all' / 'registered' / 'speakers' / 'jury' (множественный
     выбор «Кого слушаем в этапе»). На этапе можно слушать сразу несколько ролей.
 
-    Значения:
-      • 'all'        — любой автор: спикер → жюри → любой участник (вкл. незарег.);
+    Значения (можно комбинировать; спикеры/жюри — отдельно от оси участников):
+      • 'all'        — участники: зарег + незарег (любой ep);
       • 'registered' — только зарегистрированные участники (ep, is_registered=TRUE);
       • 'speakers'   — спикеры/хедлайнеры (ec);
       • 'jury'       — жюри (ec role=jury).
 
-    Резолв по приоритету: speakers (ec) → jury (ec) → участник (ep). Спикер/жюри
-    раньше, чтобы человек, сдающий задание в этой роли, засчитывался по своей строке.
+    Резолв по приоритету: speakers (ec) → jury (ec) → участник (ep) — но КАЖДАЯ
+    роль участвует ТОЛЬКО если она отмечена. 'all'/'registered' включают ось
+    участников (ep), но НЕ спикеров/жюри — те засчитываются лишь при своих галочках.
+    Спикер/жюри раньше участника, чтобы человек, сдающий задание в этой роли,
+    засчитывался по своей строке.
 
     Пустой набор audiences = «не слушать» → всегда None (этап не слушается).
     """
@@ -212,9 +215,8 @@ async def _resolve_subject_for_audiences(
     auds = set(audiences or [])
     if not auds:
         return None
-    is_all = "all" in auds
 
-    if is_all or "speakers" in auds:
+    if "speakers" in auds:
         ec_id = await db.fetchval(
             """SELECT ec.id FROM event_collaborators ec
                  JOIN collaborators co ON co.id = ec.speaker_id
@@ -226,7 +228,7 @@ async def _resolve_subject_for_audiences(
         if ec_id:
             return ("ec", int(ec_id))
 
-    if is_all or "jury" in auds:
+    if "jury" in auds:
         ec_id = await db.fetchval(
             """SELECT ec.id FROM event_collaborators ec
                  JOIN collaborators co ON co.id = ec.speaker_id
@@ -238,9 +240,9 @@ async def _resolve_subject_for_audiences(
         if ec_id:
             return ("ec", int(ec_id))
 
-    if is_all or "registered" in auds:
-        # 'registered' — только зарег.; 'all' — любой участник (вкл. незарег.).
-        if is_all:
+    if "all" in auds or "registered" in auds:
+        # 'all' — любой участник (вкл. незарег.); 'registered' — только зарег.
+        if "all" in auds:
             ep_id = await db.fetchval(
                 """SELECT id FROM event_participants
                     WHERE event_id = $1 AND contact_id = $2

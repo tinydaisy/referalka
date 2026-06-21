@@ -858,19 +858,21 @@ function TaskControlSub({ eventId }: { eventId: number }) {
     setEnabled(!enabled)
   }
   // role: 'all' | 'registered' | 'speakers' | 'jury' | 'none'
-  // 'none' (Не слушать) = пустой набор; 'all' взаимоисключающ с конкретными ролями.
+  // 'none' (Не слушать) = пустой набор.
+  // Ось «участники»: 'all' (зарег + незарег) и 'registered' (только зарег) —
+  //   взаимоисключающи МЕЖДУ СОБОЙ. Спикеры/Жюри — отдельные галочки, комбинируются.
   const setAudience = async (stageId: number, role: string) => {
     const st = stages.find(s => s.id === stageId)
     const cur: string[] = st?.listen_audiences || []
     let next: string[]
     if (role === 'none') {
       next = []                                   // Не слушать — гасим всё
-    } else if (role === 'all') {
-      next = cur.includes('all') ? [] : ['all']   // Все — взаимоисключающе
-    } else {
-      // конкретная роль: убираем 'all', тогглим саму роль
-      const base = cur.filter(r => r !== 'all')
+    } else if (role === 'all' || role === 'registered') {
+      const other = role === 'all' ? 'registered' : 'all'
+      const base = cur.filter(r => r !== other)   // вторую опцию участников снимаем
       next = base.includes(role) ? base.filter(r => r !== role) : [...base, role]
+    } else {
+      next = cur.includes(role) ? cur.filter(r => r !== role) : [...cur, role]
     }
     setStages(stages.map(s => s.id === stageId ? { ...s, listen_audiences: next } : s))
     await api.tournament.setStageAudience(eventId, stageId, next)
@@ -1016,8 +1018,8 @@ function TaskControlSub({ eventId }: { eventId: number }) {
 
 // ─────────── Выпадающий список с галочками «Кого слушаем» ───────────
 const AUDIENCE_OPTS: { v: string; label: string }[] = [
-  { v: 'all', label: 'Все' },
-  { v: 'registered', label: 'Зарегистрированные' },
+  { v: 'all', label: 'Все участники' },           // зарег + незарег
+  { v: 'registered', label: 'Зарегистрированные участники' },  // только зарег
   { v: 'speakers', label: 'Спикеры' },
   { v: 'jury', label: 'Жюри' },
   { v: 'none', label: 'Не слушать' },

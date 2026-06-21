@@ -1140,9 +1140,9 @@ async def stage_listen_audience(event_id: int, stage_id: int, data: StageAudienc
     await _check_access(event_id, int(client["sub"]), db)
     # нормализуем: уникальные валидные значения. Пустой набор = не слушать.
     auds = [a for a in dict.fromkeys(data.listen_audiences) if a in _AUDIENCE_VALUES]
-    # 'all' взаимоисключающ с конкретными ролями.
+    # ось «участники»: 'all' (зарег+незарег) и 'registered' (только зарег) — оставляем 'all'.
     if "all" in auds:
-        auds = ["all"]
+        auds = [a for a in auds if a != "registered"]
     await db.execute("UPDATE conf_stages SET listen_audiences=$3::text[] WHERE id=$1 AND event_id=$2",
                      stage_id, event_id, auds)
     return {"ok": True, "listen_audiences": auds}
