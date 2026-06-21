@@ -440,7 +440,7 @@ export const api = {
       request(`/api/v1/events/${eventId}/tariffs/${tariffId}`, { method: 'DELETE' }),
     buyers: (eventId: number, tariffId: number) =>
       request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers`),
-    addBuyer: (eventId: number, tariffId: number, data: { participant_id?: number; contact_id?: number; amount?: number; status?: 'paid' | 'unpaid' }) =>
+    addBuyer: (eventId: number, tariffId: number, data: { participant_id?: number; contact_id?: number; amount?: number; status?: 'paid' | 'unpaid'; note?: string }) =>
       request(`/api/v1/events/${eventId}/tariffs/${tariffId}/buyers`, {
         method: 'POST', body: JSON.stringify(data),
       }),
