@@ -82,7 +82,9 @@ async def list_tariffs(
         """SELECT t.id, t.code, t.title, t.description, t.price, t.pay_url,
                   t.sort_order, t.is_active,
                   (SELECT COUNT(*) FROM event_participant_tariffs ept
-                     WHERE ept.tariff_id = t.id) AS buyers_count
+                     WHERE ept.tariff_id = t.id AND ept.status = 'paid') AS buyers_count,
+                  (SELECT COUNT(*) FROM event_participant_tariffs ept
+                     WHERE ept.tariff_id = t.id AND ept.status = 'unpaid') AS unpaid_count
              FROM event_tariffs t
             WHERE t.event_id = $1
             ORDER BY t.sort_order, t.id""",
@@ -199,8 +201,8 @@ async def list_buyers(
     if not tariff:
         raise HTTPException(status_code=404, detail="Тариф не найден")
     rows = await db.fetch(
-        """SELECT ept.id, ept.participant_id, ept.paid_at, ept.source, ept.amount,
-                  ept.external_payment_id,
+        """SELECT ept.id, ept.participant_id, ept.status, ept.paid_at, ept.ordered_at,
+                  ept.source, ept.amount, ept.external_payment_id,
                   c.id AS contact_id, c.name AS contact_name, c.phone,
                   (SELECT pe.platform_user_id FROM platform_users pe
                     WHERE pe.contact_id = c.id AND pe.platform_slug = 'email'
@@ -221,22 +223,30 @@ async def list_buyers(
              JOIN event_participants ep ON ep.id = ept.participant_id
              JOIN contacts c ON c.id = ep.contact_id
             WHERE ept.tariff_id = $1
-            ORDER BY ept.paid_at DESC, ept.id DESC""",
+            ORDER BY COALESCE(ept.paid_at, ept.ordered_at) DESC, ept.id DESC""",
         tariff_id,
     )
+    all_rows = [dict(r) for r in rows]
+    paid = [r for r in all_rows if r.get("status") == "paid"]
+    unpaid = [r for r in all_rows if r.get("status") == "unpaid"]
     return {
         "tariff": dict(tariff),
-        "count": len(rows),
-        "buyers": [dict(r) for r in rows],
+        "count": len(paid),               # обратная совместимость: count = оплатившие
+        "buyers": paid,                   # обратная совместимость: buyers = оплатившие
+        "paid": paid,
+        "unpaid": unpaid,
+        "paid_count": len(paid),
+        "unpaid_count": len(unpaid),
     }
 
 
 class AddBuyerRequest(BaseModel):
-    # Кого отметить оплатившим: либо участника события, либо контакт
+    # Кого отметить: либо участника события, либо контакт
     # (контакт → создаём/находим участие в событии). Хотя бы одно обязательно.
     participant_id: Optional[int] = None
     contact_id: Optional[int] = None
     amount: Optional[int] = None
+    status: str = "paid"   # 'paid' (оплатил) | 'unpaid' (имеет заказ, не оплатил)
 
 
 @router.post("/{tariff_id}/buyers", summary="Вручную отметить оплатившего (участник или контакт)")
@@ -286,20 +296,32 @@ async def add_buyer(
         if not ok:
             raise HTTPException(status_code=404, detail="Участник не найден в этом событии")
 
-    # Факт оплаты (идемпотентно) + участник зарегистрирован.
-    await db.execute(
-        """INSERT INTO event_participant_tariffs (event_id, participant_id, tariff_id, paid_at, source, amount)
-           VALUES ($1, $2, $3, NOW(), 'manual', $4)
-           ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
-             paid_at = NOW(),
-             source = 'manual',
-             amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount)""",
-        event_id, participant_id, tariff_id, data.amount,
-    )
+    status = data.status if data.status in ("paid", "unpaid") else "paid"
+    # Запись о тарифе (идемпотентно) + участник зарегистрирован.
+    if status == "paid":
+        await db.execute(
+            """INSERT INTO event_participant_tariffs (event_id, participant_id, tariff_id, status, paid_at, ordered_at, source, amount)
+               VALUES ($1, $2, $3, 'paid', NOW(), NOW(), 'manual', $4)
+               ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
+                 status = 'paid', paid_at = NOW(), source = 'manual',
+                 amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount)""",
+            event_id, participant_id, tariff_id, data.amount,
+        )
+    else:  # unpaid — не понижаем уже оплаченный
+        await db.execute(
+            """INSERT INTO event_participant_tariffs (event_id, participant_id, tariff_id, status, ordered_at, source, amount)
+               VALUES ($1, $2, $3, 'unpaid', NOW(), 'manual', $4)
+               ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
+                 status = CASE WHEN event_participant_tariffs.status = 'paid' THEN 'paid' ELSE 'unpaid' END,
+                 ordered_at = COALESCE(event_participant_tariffs.ordered_at, NOW()),
+                 source = 'manual',
+                 amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount)""",
+            event_id, participant_id, tariff_id, data.amount,
+        )
     await db.execute(
         "UPDATE event_participants SET is_registered = TRUE WHERE id = $1", participant_id
     )
-    return {"ok": True, "participant_id": participant_id}
+    return {"ok": True, "participant_id": participant_id, "status": status}
 
 
 @router.delete("/{tariff_id}/buyers/{participant_id}", summary="Снять отметку оплаты")

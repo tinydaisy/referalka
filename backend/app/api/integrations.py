@@ -939,7 +939,9 @@ class PaymentPaidRequest(BaseModel):
             return None
 
 
-async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection) -> dict:
+async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection, *, status: str = "paid") -> dict:
+    """status='paid' — оплатил; status='unpaid' — создал заказ, не оплатил.
+    В обоих случаях человек регистрируется (is_registered=TRUE)."""
     # 1. Авторизация
     await _authorize(data.secret, data.client_id, db)
 
@@ -966,7 +968,7 @@ async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection) -> dic
         if not code:
             raise HTTPException(
                 status_code=400,
-                detail="Не передан tariff_code (или tariff_id) — непонятно, какой тариф оплачен",
+                detail="Не передан tariff_code (или tariff_id) — непонятно, какой тариф",
             )
         tariff = await db.fetchrow(
             "SELECT id, code FROM event_tariffs WHERE event_id = $1 AND code = $2",
@@ -978,20 +980,39 @@ async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection) -> dic
             detail=f"Тариф «{data.tariff_code or data.tariff_id}» не найден у события {event_id}",
         )
 
-    # 4. UPSERT факта оплаты — идемпотентно (повторный вебхук не плодит дубль)
-    await db.execute(
-        """INSERT INTO event_participant_tariffs
-             (event_id, participant_id, tariff_id, paid_at, source, amount, external_payment_id)
-           VALUES ($1, $2, $3, NOW(), $4, $5, $6)
-           ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
-             paid_at = NOW(),
-             source = COALESCE(EXCLUDED.source, event_participant_tariffs.source),
-             amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount),
-             external_payment_id = COALESCE(EXCLUDED.external_payment_id, event_participant_tariffs.external_payment_id)""",
-        event_id, pid_int, tariff["id"], data.source, data.amount, data.external_payment_id,
-    )
+    # 4. UPSERT записи о тарифе — идемпотентно.
+    #    paid:   paid_at=NOW(), status='paid'. Перетирает предыдущий unpaid.
+    #    unpaid: ordered_at=NOW(), status='unpaid', но НЕ понижаем уже оплаченный
+    #            (если запись уже paid — оставляем paid).
+    if status == "paid":
+        await db.execute(
+            """INSERT INTO event_participant_tariffs
+                 (event_id, participant_id, tariff_id, status, paid_at, ordered_at, source, amount, external_payment_id)
+               VALUES ($1, $2, $3, 'paid', NOW(), NOW(), $4, $5, $6)
+               ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
+                 status = 'paid',
+                 paid_at = NOW(),
+                 source = COALESCE(EXCLUDED.source, event_participant_tariffs.source),
+                 amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount),
+                 external_payment_id = COALESCE(EXCLUDED.external_payment_id, event_participant_tariffs.external_payment_id)""",
+            event_id, pid_int, tariff["id"], data.source, data.amount, data.external_payment_id,
+        )
+    else:  # unpaid
+        await db.execute(
+            """INSERT INTO event_participant_tariffs
+                 (event_id, participant_id, tariff_id, status, ordered_at, source, amount, external_payment_id)
+               VALUES ($1, $2, $3, 'unpaid', NOW(), $4, $5, $6)
+               ON CONFLICT (participant_id, tariff_id) DO UPDATE SET
+                 -- не понижаем уже оплаченный заказ обратно в unpaid
+                 status = CASE WHEN event_participant_tariffs.status = 'paid' THEN 'paid' ELSE 'unpaid' END,
+                 ordered_at = COALESCE(event_participant_tariffs.ordered_at, NOW()),
+                 source = COALESCE(EXCLUDED.source, event_participant_tariffs.source),
+                 amount = COALESCE(EXCLUDED.amount, event_participant_tariffs.amount),
+                 external_payment_id = COALESCE(EXCLUDED.external_payment_id, event_participant_tariffs.external_payment_id)""",
+            event_id, pid_int, tariff["id"], data.source, data.amount, data.external_payment_id,
+        )
 
-    # 5. Оплата = регистрация. Помечаем (только в сторону TRUE) + финализируем.
+    # 5. И заказ, и оплата = регистрация. Помечаем (только в сторону TRUE) + финализируем.
     await db.execute(
         "UPDATE event_participants SET is_registered = TRUE WHERE id = $1", pid_int
     )
@@ -1005,7 +1026,8 @@ async def _mark_payment(data: PaymentPaidRequest, db: asyncpg.Connection) -> dic
         "event_id": event_id,
         "tariff_id": tariff["id"],
         "tariff_code": tariff["code"],
-        "paid": True,
+        "status": status,
+        "paid": status == "paid",
     }
 
 
@@ -1053,6 +1075,52 @@ async def payment_paid_get(
         source=source,
     )
     return await _mark_payment(data, db)
+
+
+@router.post(
+    "/payment/unpaid",
+    summary="Платёжка: участник создал заказ, но НЕ оплатил (регистрирует + статус unpaid)",
+)
+async def payment_unpaid_post(
+    data: PaymentPaidRequest,
+    x_salebot_secret: Optional[str] = Header(None),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    if x_salebot_secret and not data.secret:
+        data.secret = x_salebot_secret
+    return await _mark_payment(data, db, status="unpaid")
+
+
+@router.get(
+    "/payment/unpaid",
+    summary="То же через GET (создан заказ, не оплачен)",
+)
+async def payment_unpaid_get(
+    client_id: int,
+    secret: str,
+    participant_id: Optional[str] = None,
+    pluson_participant_id: Optional[str] = None,
+    email: Optional[str] = None,
+    tariff_code: Optional[str] = None,
+    tariff_id: Optional[int] = None,
+    amount: Optional[int] = None,
+    external_payment_id: Optional[str] = None,
+    source: Optional[str] = "getcourse",
+    db: asyncpg.Connection = Depends(get_db),
+):
+    data = PaymentPaidRequest(
+        client_id=client_id,
+        secret=secret,
+        participant_id=participant_id,
+        pluson_participant_id=pluson_participant_id,
+        email=email,
+        tariff_code=tariff_code,
+        tariff_id=tariff_id,
+        amount=amount,
+        external_payment_id=external_payment_id,
+        source=source,
+    )
+    return await _mark_payment(data, db, status="unpaid")
 
 
 class GetCourseExternalRefRequest(BaseModel):

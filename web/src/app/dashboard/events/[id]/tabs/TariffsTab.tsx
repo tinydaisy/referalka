@@ -17,12 +17,15 @@ interface Tariff {
   sort_order: number
   is_active: boolean
   buyers_count: number
+  unpaid_count: number
 }
 
 interface Buyer {
   id: number
   participant_id: number
-  paid_at: string
+  status: 'paid' | 'unpaid'
+  paid_at: string | null
+  ordered_at: string | null
   source: string | null
   amount: number | null
   external_payment_id: string | null
@@ -217,9 +220,12 @@ export default function TariffsTab({
                         ? 'bg-[#FFCFA4]/60 text-[#8a5a2b]'
                         : 'bg-[#FFCFA4]/30 text-[#8a5a2b] hover:bg-[#FFCFA4]/50'
                     }`}
-                    title="Кто оплатил"
+                    title="Оплатившие и заказы"
                   >
                     <Users size={13} /> {t.buyers_count}
+                    {t.unpaid_count > 0 && (
+                      <span className="text-amber-600" title="имеют заказ, не оплатили">/ {t.unpaid_count}</span>
+                    )}
                     {expandedId === t.id ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                   </button>
                   <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" title="Изменить">
@@ -328,33 +334,44 @@ function PlatformChip({ label, href, color }: { label: string; href: string; col
 }
 
 function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: any; onChanged: () => void }) {
-  const [data, setData] = useState<{ count: number; buyers: Buyer[] } | null>(null)
+  const [data, setData] = useState<{ paid: Buyer[]; unpaid: Buyer[] } | null>(null)
   const [adding, setAdding] = useState(false)
+  const [addStatus, setAddStatus] = useState<'paid' | 'unpaid'>('paid')
 
   async function reload() {
     const r = await api.eventTariffs.buyers(eventId, tariff.id)
-    setData(r)
+    setData({ paid: r.paid || [], unpaid: r.unpaid || [] })
   }
   useEffect(() => { reload() }, [eventId, tariff.id])
 
   async function removeBuyer(participantId: number) {
-    if (!confirm('Снять отметку оплаты у этого человека?')) return
+    if (!confirm('Снять отметку у этого человека?')) return
     await api.eventTariffs.removeBuyer(eventId, tariff.id, participantId)
     await reload()
     onChanged()
   }
 
+  const existing = new Set([...(data?.paid || []), ...(data?.unpaid || [])].map(b => b.participant_id))
+
+  function openAdd(status: 'paid' | 'unpaid') {
+    setAddStatus(status)
+    setAdding(true)
+  }
+
   return (
-    <div className="border-t border-gray-100 bg-gray-50/50 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-          Оплатили {data ? `· ${data.count}` : ''}
-        </span>
+    <div className="border-t border-gray-100 bg-gray-50/50 p-4 space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
         <button
-          onClick={() => setAdding(v => !v)}
+          onClick={() => openAdd('paid')}
           className="px-2.5 py-1.5 rounded-lg bg-brand text-white text-xs font-medium flex items-center gap-1"
         >
           <Plus size={13} /> Добавить оплатившего
+        </button>
+        <button
+          onClick={() => openAdd('unpaid')}
+          className="px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-700 text-xs font-medium flex items-center gap-1 hover:bg-amber-200"
+        >
+          <Plus size={13} /> Добавить заказ (не оплачен)
         </button>
       </div>
 
@@ -362,52 +379,79 @@ function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: 
         <AddBuyerPicker
           eventId={eventId}
           tariffId={tariff.id}
-          existingParticipantIds={new Set((data?.buyers || []).map(b => b.participant_id))}
+          status={addStatus}
+          existingParticipantIds={existing}
           onDone={async () => { setAdding(false); await reload(); onChanged() }}
         />
       )}
 
       {!data ? (
         <div className="py-6 flex justify-center"><Spinner /></div>
-      ) : data.buyers.length === 0 ? (
-        <div className="text-center text-gray-400 text-sm py-6">Пока никто не оплатил. Можно добавить вручную.</div>
       ) : (
-        <div className="space-y-2">
-          {data.buyers.map(b => (
-            <div key={b.id} className="border border-gray-100 bg-white rounded-xl p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-gray-800 text-sm truncate">{b.contact_name || `Контакт #${b.contact_id}`}</span>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-[11px] text-gray-400">{fmtDate(b.paid_at)}</span>
-                  <button onClick={() => removeBuyer(b.participant_id)} className="p-1 rounded hover:bg-red-50 text-red-400" title="Снять отметку">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
-                {(b.tg_id || b.tg_username) && (
-                  <PlatformChip label="TG" color="#229ED9"
-                    href={b.tg_username ? `https://t.me/${b.tg_username.replace(/^@+/, '')}` : `tg://user?id=${b.tg_id}`} />
-                )}
-                {(b.vk_id || b.vk_username) && (
-                  <PlatformChip label="VK" color="#0077FF"
-                    href={b.vk_username ? `https://vk.com/${b.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${b.vk_id}`} />
-                )}
-                {(b.max_id || b.max_username) && (
-                  <PlatformChip label="MAX" color="#8a5a2b"
-                    href={b.max_username ? `https://max.ru/${b.max_username}` : '#'} />
-                )}
-                {b.email && <span className="text-xs text-gray-500 truncate">{b.email}</span>}
-                {b.phone && <span className="text-xs text-gray-500">{b.phone}</span>}
-              </div>
-              {(b.source || b.amount != null) && (
-                <div className="text-[11px] text-gray-400 mt-1">
-                  {b.source && <span>через {b.source}</span>}
-                  {b.amount != null && <span> · {b.amount.toLocaleString('ru-RU')} ₽</span>}
-                </div>
-              )}
+        <div className="space-y-4">
+          {/* Оплатили */}
+          <div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Оплатили · {data.paid.length}
             </div>
-          ))}
+            {data.paid.length === 0 ? (
+              <div className="text-xs text-gray-400 py-2">Пока никто не оплатил.</div>
+            ) : (
+              <div className="space-y-2">
+                {data.paid.map(b => <BuyerCard key={b.id} b={b} onRemove={() => removeBuyer(b.participant_id)} />)}
+              </div>
+            )}
+          </div>
+
+          {/* Имеют заказ, не оплатили */}
+          {data.unpaid.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">
+                Имеют заказ, не оплатили · {data.unpaid.length}
+              </div>
+              <div className="space-y-2">
+                {data.unpaid.map(b => <BuyerCard key={b.id} b={b} unpaid onRemove={() => removeBuyer(b.participant_id)} />)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BuyerCard({ b, unpaid, onRemove }: { b: Buyer; unpaid?: boolean; onRemove: () => void }) {
+  return (
+    <div className={`border rounded-xl p-3 ${unpaid ? 'border-amber-200 bg-amber-50/40' : 'border-gray-100 bg-white'}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium text-gray-800 text-sm truncate">{b.contact_name || `Контакт #${b.contact_id}`}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[11px] text-gray-400">{fmtDate(b.paid_at || b.ordered_at)}</span>
+          <button onClick={onRemove} className="p-1 rounded hover:bg-red-50 text-red-400" title="Снять отметку">
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+        {(b.tg_id || b.tg_username) && (
+          <PlatformChip label="TG" color="#229ED9"
+            href={b.tg_username ? `https://t.me/${b.tg_username.replace(/^@+/, '')}` : `tg://user?id=${b.tg_id}`} />
+        )}
+        {(b.vk_id || b.vk_username) && (
+          <PlatformChip label="VK" color="#0077FF"
+            href={b.vk_username ? `https://vk.com/${b.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${b.vk_id}`} />
+        )}
+        {(b.max_id || b.max_username) && (
+          <PlatformChip label="MAX" color="#8a5a2b"
+            href={b.max_username ? `https://max.ru/${b.max_username}` : '#'} />
+        )}
+        {b.email && <span className="text-xs text-gray-500 truncate">{b.email}</span>}
+        {b.phone && <span className="text-xs text-gray-500">{b.phone}</span>}
+      </div>
+      {(b.source || b.amount != null) && (
+        <div className="text-[11px] text-gray-400 mt-1">
+          {b.source && <span>через {b.source}</span>}
+          {b.amount != null && <span> · {b.amount.toLocaleString('ru-RU')} ₽</span>}
         </div>
       )}
     </div>
@@ -416,10 +460,11 @@ function BuyersPanel({ eventId, tariff, onChanged }: { eventId: number; tariff: 
 
 // Выбор кого отметить оплатившим: участники события ИЛИ контакты базы.
 function AddBuyerPicker({
-  eventId, tariffId, existingParticipantIds, onDone,
+  eventId, tariffId, status, existingParticipantIds, onDone,
 }: {
   eventId: number
   tariffId: number
+  status: 'paid' | 'unpaid'
   existingParticipantIds: Set<number>
   onDone: () => void
 }) {
@@ -459,9 +504,9 @@ function AddBuyerPicker({
     setBusyId(row.id)
     try {
       if (source === 'participants') {
-        await api.eventTariffs.addBuyer(eventId, tariffId, { participant_id: row.id })
+        await api.eventTariffs.addBuyer(eventId, tariffId, { participant_id: row.id, status })
       } else {
-        await api.eventTariffs.addBuyer(eventId, tariffId, { contact_id: row.id })
+        await api.eventTariffs.addBuyer(eventId, tariffId, { contact_id: row.id, status })
       }
       onDone()
     } catch (e: any) {
@@ -473,6 +518,9 @@ function AddBuyerPicker({
 
   return (
     <div className="border border-gray-200 bg-white rounded-xl p-3 space-y-2.5">
+      <div className="text-xs font-medium text-gray-600">
+        {status === 'paid' ? 'Отметить оплатившим:' : 'Добавить заказ (не оплачен):'}
+      </div>
       <div className="flex gap-1 text-xs">
         {([['participants', 'Из участников'], ['contacts', 'Из контактов']] as const).map(([k, label]) => (
           <button key={k} onClick={() => { setSource(k); setRows([]) }}
