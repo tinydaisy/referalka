@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check } from 'lucide-react'
@@ -911,41 +911,23 @@ function TaskControlSub({ eventId }: { eventId: number }) {
         ))}
       </div>
 
-      {/* Настройка этапов — кого слушаем (множественный выбор) */}
+      {/* Настройка этапов — кого слушаем (выпадающий список с галочками) */}
       {stages.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="text-sm font-semibold text-gray-800 mb-1">Кого слушаем в каждом этапе</div>
           <div className="text-xs text-gray-500 mb-3">
-            Отметьте галочками, чьи сообщения слушать на этапе. «Все» и «Не слушать» — взаимоисключающие.
+            Выберите в списке, чьи сообщения слушать на этапе. Можно отметить несколько.
           </div>
-          <div className="space-y-3">
-            {stages.map(st => {
-              const auds: string[] = st.listen_audiences || []
-              const isNone = auds.length === 0
-              const isAll = auds.includes('all')
-              const ROLES = [
-                { v: 'all', label: 'Все', checked: isAll },
-                { v: 'registered', label: 'Только зарегистрированные', checked: auds.includes('registered') },
-                { v: 'speakers', label: 'Спикеры', checked: auds.includes('speakers') },
-                { v: 'jury', label: 'Жюри', checked: auds.includes('jury') },
-                { v: 'none', label: 'Не слушать', checked: isNone },
-              ]
-              return (
-                <div key={st.id} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 border-b border-gray-100 pb-2 last:border-0">
-                  <span className="text-sm text-gray-700 sm:pt-0.5">{st.title}</span>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 sm:justify-end sm:max-w-[60%]">
-                    {ROLES.map(r => (
-                      <label key={r.v} className="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
-                        <input type="checkbox" className="accent-[#25455D] w-4 h-4"
-                          checked={r.checked}
-                          onChange={() => setAudience(st.id, r.v)} />
-                        {r.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
+          <div className="space-y-2">
+            {stages.map(st => (
+              <div key={st.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <span className="text-sm text-gray-700">{st.title}</span>
+                <AudienceDropdown
+                  value={st.listen_audiences || []}
+                  onToggle={(role) => setAudience(st.id, role)}
+                />
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1028,6 +1010,61 @@ function TaskControlSub({ eventId }: { eventId: number }) {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+// ─────────── Выпадающий список с галочками «Кого слушаем» ───────────
+const AUDIENCE_OPTS: { v: string; label: string }[] = [
+  { v: 'all', label: 'Все' },
+  { v: 'registered', label: 'Зарегистрированные' },
+  { v: 'speakers', label: 'Спикеры' },
+  { v: 'jury', label: 'Жюри' },
+  { v: 'none', label: 'Не слушать' },
+]
+
+function AudienceDropdown({ value, onToggle }: { value: string[]; onToggle: (role: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  // подпись на кнопке
+  let summary: string
+  if (value.length === 0) summary = 'Не слушать'
+  else if (value.includes('all')) summary = 'Все'
+  else summary = AUDIENCE_OPTS.filter(o => value.includes(o.v)).map(o => o.label).join(', ')
+
+  const isChecked = (v: string) =>
+    v === 'none' ? value.length === 0 : value.includes(v)
+
+  return (
+    <div className="relative w-full sm:w-64" ref={ref}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between gap-2 text-sm border rounded-lg px-3 py-1.5 bg-white hover:border-gray-400">
+        <span className="truncate text-gray-700">{summary}</span>
+        <ChevronDown size={16} className="text-gray-400 shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg py-1">
+          {AUDIENCE_OPTS.map(o => (
+            <label key={o.v}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer select-none">
+              <input type="checkbox" className="accent-[#25455D] w-4 h-4"
+                checked={isChecked(o.v)}
+                onChange={() => onToggle(o.v)} />
+              {o.label}
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
