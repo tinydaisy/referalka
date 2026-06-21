@@ -1611,17 +1611,45 @@ async def _resolve_support_contacts(db, bot_id: int | None) -> tuple[str, str, s
 
 async def handle_support(message: Message):
     """Команда `/support` — единое сообщение службы поддержки клиента со всеми
-    заполненными каналами (ВК / Телеграм / MAX). Резолвит каналы по боту."""
+    заполненными каналами (ВК / Телеграм / MAX). Резолвит каналы по боту.
+
+    Резолв инлайн (без отдельной функции) — самодостаточный хендлер. Обёрнут
+    в try/except: даже при сбое БД отвечает нейтральным текстом, не молчит."""
     user = message.from_user
     if not user:
         return
     from app.services.support_message import build_support_message_html
-    bot_id = message.bot.id if message.bot else None
-    pool = await get_pool()
-    async with pool.acquire() as db:
-        work_tg, work_vk, work_max = await _resolve_support_contacts(db, bot_id)
+    work_tg = work_vk = work_max = ""
+    try:
+        bot_id = message.bot.id if message.bot else None
+        if bot_id:
+            pool = await get_pool()
+            async with pool.acquire() as db:
+                from app.services.channels import find_channel_by_bot_id
+                ch = await find_channel_by_bot_id(bot_id, db)
+                if ch and not ch["is_system"]:
+                    cid = await db.fetchval(
+                        """SELECT client_id FROM client_channels
+                            WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                        ch["id"],
+                    )
+                    if cid:
+                        row = await db.fetchrow(
+                            "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
+                            cid,
+                        )
+                        if row:
+                            work_tg = row["work_tg_username"] or ""
+                            work_vk = row["work_vk"] or ""
+                            work_max = row["work_max"] or ""
+    except Exception as e:
+        log.warning("handle_support resolve failed: %s", e)
     text = build_support_message_html(work_tg=work_tg, work_vk=work_vk, work_max=work_max)
-    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+    try:
+        await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+    except Exception as e:
+        log.warning("handle_support answer failed: %s", e)
+        await message.answer("Возникли вопросы? Напишите организатору события.")
 
 
 @router.message(Command(commands=["getchatid"]))
