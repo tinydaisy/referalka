@@ -1038,11 +1038,10 @@ function AudienceDropdown({ value, onToggle }: { value: string[]; onToggle: (rol
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
-  // подпись на кнопке
-  let summary: string
-  if (value.length === 0) summary = 'Не слушать'
-  else if (value.includes('all')) summary = 'Все'
-  else summary = AUDIENCE_OPTS.filter(o => value.includes(o.v)).map(o => o.label).join(', ')
+  // подпись на кнопке — выбранные варианты через запятую (в порядке опций)
+  const summary = value.length === 0
+    ? 'Не слушать'
+    : AUDIENCE_OPTS.filter(o => o.v !== 'none' && value.includes(o.v)).map(o => o.label).join(', ')
 
   const isChecked = (v: string) =>
     v === 'none' ? value.length === 0 : value.includes(v)
