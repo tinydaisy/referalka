@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { BookOpen, Copy, Check, Users, UserX } from 'lucide-react'
+import { BookOpen, Copy, Check, Users, UserX, MessageSquare, CreditCard, Database, ListChecks } from 'lucide-react'
 import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
@@ -74,12 +74,14 @@ export default function ParticipantsExportHelpPage() {
   const baseHost = origin.replace(/\/$/, '')
   const eid = eventId || 'ВАШ_EVENT_ID'
 
-  const urlRegistered =
-    `${baseHost}/api/v1/integrations/events/${eid}/participants/registered` +
-    `?client_id=${clientId || 'ВАШ_CLIENT_ID'}`
-  const urlNotRegistered =
-    `${baseHost}/api/v1/integrations/events/${eid}/participants/not-registered` +
-    `?client_id=${clientId || 'ВАШ_CLIENT_ID'}`
+  const cid = clientId || 'ВАШ_CLIENT_ID'
+  const evBase = `${baseHost}/api/v1/integrations/events/${eid}/participants`
+  const urlAll = `${evBase}?client_id=${cid}`
+  const urlRegistered = `${evBase}/registered?client_id=${cid}`
+  const urlNotRegistered = `${evBase}/not-registered?client_id=${cid}`
+  const urlInChat = `${evBase}/in-chat?client_id=${cid}`
+  const urlPaid = `${evBase}/paid?client_id=${cid}`
+  const urlBase = `${baseHost}/api/v1/integrations/contacts?client_id=${cid}&limit=1000&offset=0`
 
   const curlRegistered =
     `curl "${urlRegistered}" -H "X-Integration-Token: ${token}"`
@@ -103,10 +105,12 @@ export default function ParticipantsExportHelpPage() {
             Выгрузка участников события
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Два готовых запроса: список <b>зарегистрированных</b> и список{' '}
-            <b>незарегистрированных</b> участников события. Из обоих списков
-            автоматически исключаются организаторы, жюри, спикеры и партнёры —
-            вы получаете чистую аудиторию участников-зрителей.
+            Готовые запросы по событию: <b>все участники</b>,{' '}
+            <b>зарегистрированные</b>, <b>незарегистрированные</b>,{' '}
+            <b>кто в чате</b>, <b>кто оплатил</b> — плюс выгрузка{' '}
+            <b>всей базы контактов</b>. В каждой записи указано, на каких
+            мессенджерах есть человек (TG / ВК / МАХ). Из списков события
+            автоматически исключаются организаторы, жюри, спикеры и партнёры.
           </p>
         </div>
       </div>
@@ -175,7 +179,58 @@ export default function ParticipantsExportHelpPage() {
         </p>
       </Step>
 
-      <Step n={4} title="Что вернётся (формат ответа)">
+      <Step n={4} title="Все участники сразу (зарег. + незарег.)">
+        <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: BRAND }}>
+          <ListChecks size={16} /> Один список со всеми, у кого есть запись в событии
+        </div>
+        <p className="text-xs text-gray-500">
+          Можно добавить фильтр <code className="bg-gray-100 px-1 rounded">&registered=true</code>{' '}
+          (только зарегистрированные) или{' '}
+          <code className="bg-gray-100 px-1 rounded">&registered=false</code>{' '}
+          (только незарегистрированные).
+        </p>
+        <CopyBox text={urlAll} />
+      </Step>
+
+      <Step n={5} title="Кто в чате события">
+        <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: BRAND }}>
+          <MessageSquare size={16} /> Участники, которые реально состоят в Telegram-чате
+        </div>
+        <p className="text-xs text-gray-500">
+          Список строится по последней проверке чата (кнопка «Проверить чаты» в
+          участниках события). Только Telegram — ВК-беседы и МАХ через API не
+          проверяются.
+        </p>
+        <CopyBox text={urlInChat} />
+      </Step>
+
+      <Step n={6} title="Кто оплатил тариф">
+        <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: BRAND }}>
+          <CreditCard size={16} /> Участники, оплатившие хотя бы один тариф события
+        </div>
+        <p className="text-xs text-gray-500">
+          У каждого в ответе — поле{' '}
+          <code className="bg-gray-100 px-1 rounded">paid_tariffs</code> со
+          списком оплаченных тарифов (код, название, сумма, дата).
+        </p>
+        <CopyBox text={urlPaid} />
+      </Step>
+
+      <Step n={7} title="Вся база контактов (не только событие)">
+        <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: BRAND }}>
+          <Database size={16} /> Все ваши контакты ПЛЮСОН целиком
+        </div>
+        <p className="text-xs text-gray-500">
+          Постранично:{' '}
+          <code className="bg-gray-100 px-1 rounded">limit</code> (до 5000) и{' '}
+          <code className="bg-gray-100 px-1 rounded">offset</code>. В ответе есть{' '}
+          <code className="bg-gray-100 px-1 rounded">total</code> — общее число
+          контактов, чтобы пройти базу по страницам.
+        </p>
+        <CopyBox text={urlBase} />
+      </Step>
+
+      <Step n={8} title="Что вернётся (формат ответа)">
         <p>
           Оба запроса возвращают JSON одного формата. Поле{' '}
           <code className="bg-gray-100 px-1 rounded">participants</code> —
@@ -197,9 +252,17 @@ export default function ParticipantsExportHelpPage() {
       "tags": ["клиент"],
       "referrer_ref_code": "x9y8z",
       "is_registered": true,
+      "is_in_chat": true,
+      "chat_check_at": "2026-06-10 12:00",
+      "is_paid": true,
+      "paid_tariffs": [
+        { "code": "vip", "title": "VIP", "price": 3900,
+          "amount": 3900, "paid_at": "2026-06-05 18:20", "source": "getcourse" }
+      ],
+      "messengers": ["telegram", "max"],
       "telegram": { "id": "12345678", "username": "ivan_p" },
       "vk":  null,
-      "max": null,
+      "max": { "id": "98765432", "username": null },
       "participated_at": "2026-06-01 10:30",
       "contact_created_at": "2026-05-20 14:05",
       "last_contact_at": "2026-06-08 09:12"
@@ -208,11 +271,17 @@ export default function ParticipantsExportHelpPage() {
 }`}</pre>
         <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
           <li><b>name / email / phone</b> — контактные данные участника.</li>
-          <li><b>ref_code</b> — его личный реферальный код.</li>
-          <li><b>referrer_ref_code</b> — реф-код того, кто его привёл (или null).</li>
-          <li><b>telegram / vk / max</b> — аккаунты на платформах: id и username (или null, если на этой платформе участника нет).</li>
+          <li><b>messengers</b> — массив платформ, где у человека есть аккаунт: любая комбинация <code className="bg-gray-100 px-1 rounded">telegram</code>, <code className="bg-gray-100 px-1 rounded">vk</code>, <code className="bg-gray-100 px-1 rounded">max</code>. Подскажет мейлеру, каким каналом до человека можно достучаться.</li>
+          <li><b>telegram / vk / max</b> — сами аккаунты: id и username (или null, если на этой платформе человека нет).</li>
+          <li><b>is_in_chat</b> — состоит ли в Telegram-чате события (по последней проверке).</li>
+          <li><b>is_paid / paid_tariffs</b> — оплачен ли тариф и какие именно (код, название, сумма, дата).</li>
+          <li><b>ref_code</b> — личный реферальный код. <b>referrer_ref_code</b> — код того, кто привёл (или null).</li>
           <li><b>participated_at</b> — когда участник появился в событии.</li>
         </ul>
+        <p className="text-xs text-gray-500 mt-2">
+          В выгрузке «вся база контактов» полей события (is_registered,
+          is_in_chat, paid_tariffs) нет — там общие поля контакта + messengers.
+        </p>
       </Step>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-5 text-sm text-gray-700 leading-relaxed">
