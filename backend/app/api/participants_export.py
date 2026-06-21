@@ -113,14 +113,18 @@ async def _fetch_participants(
     client_id: int,
     is_registered: Optional[bool] = None,
     only_in_chat: bool = False,
-    only_paid: bool = False,
+    paid_filter: Optional[str] = None,
     platform: Optional[str] = None,
 ) -> list[dict]:
     """Список участников события (за вычетом коллабораторов).
 
     is_registered=None  — все; True/False — фильтр по регистрации.
     only_in_chat=True   — только те, кто в Telegram-чате события.
-    only_paid=True       — только те, кто оплатил хотя бы один тариф.
+    paid_filter:
+        'paid'        — оплатили хотя бы один тариф (status='paid');
+        'unpaid_order'— оформили заказ, но не оплатили (есть только status='unpaid');
+        'no_order'    — вообще не покупали (нет записей в event_participant_tariffs);
+        None          — без фильтра по оплате.
     """
     where = ["ep.event_id = $1"]
     params: list = [event_id]
@@ -130,9 +134,22 @@ async def _fetch_participants(
         where.append(f"ep.is_registered = ${len(params)}")
     if only_in_chat:
         where.append("ep.is_in_chat = TRUE")
-    if only_paid:
+    if paid_filter == "paid":
         where.append(
             "EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+            "WHERE ept.participant_id = ep.id AND ept.status = 'paid')"
+        )
+    elif paid_filter == "unpaid_order":
+        # есть заказ, но НЕТ ни одного оплаченного тарифа
+        where.append(
+            "EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+            "WHERE ept.participant_id = ep.id) "
+            "AND NOT EXISTS (SELECT 1 FROM event_participant_tariffs ept2 "
+            "WHERE ept2.participant_id = ep.id AND ept2.status = 'paid')"
+        )
+    elif paid_filter == "no_order":
+        where.append(
+            "NOT EXISTS (SELECT 1 FROM event_participant_tariffs ept "
             "WHERE ept.participant_id = ep.id)"
         )
 
@@ -169,12 +186,14 @@ async def _fetch_participants(
               'title',   et.title,
               'price',   et.price,
               'amount',  ept.amount,
+              'status',  ept.status,
               'paid_at', to_char(ept.paid_at AT TIME ZONE 'Europe/Moscow', 'YYYY-MM-DD HH24:MI'),
+              'ordered_at', to_char(ept.ordered_at AT TIME ZONE 'Europe/Moscow', 'YYYY-MM-DD HH24:MI'),
               'source',  ept.source
-            ) ORDER BY ept.paid_at)
+            ) ORDER BY COALESCE(ept.paid_at, ept.ordered_at))
             FROM event_participant_tariffs ept
             JOIN event_tariffs et ON et.id = ept.tariff_id
-            WHERE ept.participant_id = ep.id)     AS paid_tariffs
+            WHERE ept.participant_id = ep.id)     AS tariff_orders
         FROM event_participants ep
         JOIN contacts c ON c.id = ep.contact_id
         WHERE {where_sql}
@@ -198,10 +217,12 @@ async def _fetch_participants(
             identities = json.loads(identities)
         identities = identities or []
 
-        paid = r["paid_tariffs"]
-        if isinstance(paid, str):
-            paid = json.loads(paid)
-        paid = paid or []
+        orders = r["tariff_orders"]
+        if isinstance(orders, str):
+            orders = json.loads(orders)
+        orders = orders or []
+        paid_tariffs = [o for o in orders if o.get("status") == "paid"]
+        unpaid_orders = [o for o in orders if o.get("status") == "unpaid"]
 
         tags = r["tags"]
         if isinstance(tags, str):
@@ -242,8 +263,10 @@ async def _fetch_participants(
             "is_registered": r["is_registered"],
             "is_in_chat": r["is_in_chat"],
             "chat_check_at": _fmt_dt(r["chat_check_at"]),
-            "is_paid": bool(paid),
-            "paid_tariffs": paid,
+            "is_paid": bool(paid_tariffs),
+            "has_unpaid_order": bool(unpaid_orders) and not paid_tariffs,
+            "paid_tariffs": paid_tariffs,
+            "unpaid_orders": unpaid_orders,
             "messengers": messengers,
             "telegram": tg,
             "vk": vk,
@@ -374,10 +397,53 @@ async def list_paid_participants(
     await _authorize(x_integration_token, client_id, db)
     await _assert_event_belongs(db, event_id, client_id)
     plat = _normalize_platform(platform)
-    participants = await _fetch_participants(db, event_id, client_id, only_paid=True, platform=plat)
+    participants = await _fetch_participants(db, event_id, client_id, paid_filter="paid", platform=plat)
     return {
         "event_id": event_id,
         "filter": "paid",
+        "platform": plat,
+        "count": len(participants),
+        "participants": participants,
+    }
+
+
+@router.get(
+    "/events/{event_id}/participants/unpaid",
+    summary="Кто НЕ оплатил. ?mode=order_unpaid (оформил заказ, не оплатил) | no_order (не покупал) | any (оба, по умолчанию)",
+)
+async def list_unpaid_participants(
+    event_id: int,
+    client_id: int,
+    mode: str = Query("any", description="order_unpaid | no_order | any"),
+    platform: Optional[str] = Query(None, description="tg|vk|max — только эта платформа; не задан=все"),
+    x_integration_token: Optional[str] = Header(None),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    await _authorize(x_integration_token, client_id, db)
+    await _assert_event_belongs(db, event_id, client_id)
+    plat = _normalize_platform(platform)
+
+    m = (mode or "any").strip().lower()
+    if m not in ("order_unpaid", "no_order", "any"):
+        raise HTTPException(status_code=400, detail="mode должен быть: order_unpaid, no_order или any")
+
+    if m == "order_unpaid":
+        participants = await _fetch_participants(db, event_id, client_id, paid_filter="unpaid_order", platform=plat)
+    elif m == "no_order":
+        participants = await _fetch_participants(db, event_id, client_id, paid_filter="no_order", platform=plat)
+    else:
+        # any = все, у кого нет ни одного оплаченного тарифа
+        # (и оформившие неоплаченный заказ, и вообще не покупавшие)
+        a = await _fetch_participants(db, event_id, client_id, paid_filter="unpaid_order", platform=plat)
+        b = await _fetch_participants(db, event_id, client_id, paid_filter="no_order", platform=plat)
+        seen = {x["participant_id"] for x in a}
+        participants = a + [x for x in b if x["participant_id"] not in seen]
+        participants.sort(key=lambda x: ((x.get("name") or "").lower(), x["contact_id"]))
+
+    return {
+        "event_id": event_id,
+        "filter": "unpaid",
+        "mode": m,
         "platform": plat,
         "count": len(participants),
         "participants": participants,
