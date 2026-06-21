@@ -573,7 +573,8 @@ function AddBuyerPicker({
   )
 }
 
-function fmtDate(iso: string): string {
+function fmtDate(iso: string | null): string {
+  if (!iso) return ''
   try {
     return new Date(iso).toLocaleString('ru-RU', {
       day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
