@@ -739,7 +739,11 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
     return true
   })
 
-  const totalSum = filtered.filter(o => o.status === 'paid').reduce((s, o) => s + (o.amount || o.tariff_price || 0), 0)
+  const sumOf = (o: OrderRow) => (o.amount ?? o.tariff_price ?? 0)
+  const paidRows = filtered.filter(o => o.status === 'paid')
+  const unpaidRows = filtered.filter(o => o.status === 'unpaid')
+  const paidSum = paidRows.reduce((s, o) => s + sumOf(o), 0)
+  const unpaidSum = unpaidRows.reduce((s, o) => s + sumOf(o), 0)
 
   if (loading) return <div className="py-12 flex justify-center"><Spinner /></div>
 
@@ -764,8 +768,14 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
             className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-brand" />
         </div>
       </div>
-      <div className="text-xs text-gray-500">
-        Показано: {filtered.length} · оплачено на сумму {totalSum.toLocaleString('ru-RU')} ₽
+      <div className="text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
+        <span>Показано: {filtered.length}</span>
+        {paidRows.length > 0 && (
+          <span className="text-green-700">✓ оплачено: {paidRows.length} на {paidSum.toLocaleString('ru-RU')} ₽</span>
+        )}
+        {unpaidRows.length > 0 && (
+          <span className="text-amber-700">⏳ заказов (не оплачено): {unpaidRows.length} на {unpaidSum.toLocaleString('ru-RU')} ₽</span>
+        )}
       </div>
 
       {filtered.length === 0 ? (

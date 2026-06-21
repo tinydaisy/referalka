@@ -111,7 +111,9 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
   const [normalize, setNormalize] = useState(!!pkg.normalize)
   const [sumMode, setSumMode] = useState(pkg.aggregate === 'sum')
 
-  const savePkg = async (patch: any) => { await api.tournament.updatePackage(eventId, pkg.id, patch); onChange() }
+  // Правки полей пакета не требуют рефетча — локальный state/uncontrolled-инпуты
+  // уже отражают значение, расчёт ИТОГ в этой подвкладке не показывается.
+  const savePkg = async (patch: any) => { await api.tournament.updatePackage(eventId, pkg.id, patch) }
   const delPkg = async () => {
     if (!confirm(`Удалить пакет «${pkg.title}» со всеми критериями и оценками?`)) return
     await api.tournament.deletePackage(eventId, pkg.id); onChange()
@@ -158,7 +160,9 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
 }
 
 function CriterionRow({ eventId, crit, stages, onChange }: any) {
-  const save = async (patch: any) => { await api.tournament.updateCriterion(eventId, crit.id, patch); onChange() }
+  // reload=false: значение уже в uncontrolled-поле, рефетч не нужен (без мигания).
+  // reload=true: правка меняет структуру UI (scorer/auto_kind) — нужен перечит.
+  const save = async (patch: any, reload = false) => { await api.tournament.updateCriterion(eventId, crit.id, patch); if (reload) onChange() }
   const del = async () => { if (confirm('Удалить критерий?')) { await api.tournament.deleteCriterion(eventId, crit.id); onChange() } }
   return (
    <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-2">
@@ -169,14 +173,14 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
           defaultValue={crit.title} title="Нажмите, чтобы переименовать критерий" placeholder="Название критерия"
           onBlur={(e) => e.target.value.trim() && e.target.value !== crit.title && save({ title: e.target.value.trim() })} />
       </div>
-      <select className="text-xs border rounded px-1.5 py-1" value={crit.scorer} onChange={(e) => save({ scorer: e.target.value })}>
+      <select className="text-xs border rounded px-1.5 py-1" value={crit.scorer} onChange={(e) => save({ scorer: e.target.value }, true)}>
         <option value="jury">Ставит: Жюри</option>
         <option value="vote">Ставит: Народное</option>
         <option value="manual">Ставит: Ручной</option>
         <option value="auto">Ставит: Авто</option>
       </select>
       {crit.scorer === 'auto' && (
-        <select className="text-xs border rounded px-1.5 py-1" value={crit.auto_kind || 'referrals'} onChange={(e) => save({ auto_kind: e.target.value })}>
+        <select className="text-xs border rounded px-1.5 py-1" value={crit.auto_kind || 'referrals'} onChange={(e) => save({ auto_kind: e.target.value }, true)}>
           <option value="referrals">Привёл по реф-ссылке</option>
           <option value="lead_magnet">Пришло в лид-магнит</option>
         </select>
@@ -516,8 +520,10 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
     const col = (board?.columns || []).find((c: any) => c.criterion_id === criterionId)
     const mx = col ? Number(col.scale_max) : null
     if (mx != null && !isNaN(mx) && num > mx) { alert(`Балл не может быть больше максимума (${mx}).`); load(); return }
-    await api.tournament.manualScore(eventId, { criterion_id: criterionId, key, value: num })
-    load()
+    // Бэк возвращает пересчитанную таблицу — обновляем без полного рефетча (без мигания).
+    const r = await api.tournament.manualScore(eventId, { criterion_id: criterionId, key, value: num, stage_id: stageId })
+    if (r?.board) setBoard(r.board)
+    else load()
   }
 
   if (loading) return <Spinner />

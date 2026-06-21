@@ -764,6 +764,7 @@ class ManualScoreIn(BaseModel):
     criterion_id: int
     key: str
     value: float
+    stage_id: Optional[int] = None   # для пересчёта таблицы текущего этапа в ответе
 
 
 @router.post("/manual-score", summary="Ручной/народный балл (организатор)")
@@ -783,7 +784,9 @@ async def set_manual_score(event_id: int, data: ManualScoreIn, client=Depends(ge
            ON CONFLICT (criterion_id, subject_kind, subject_id) WHERE juror_ec_id IS NULL
            DO UPDATE SET value_number = EXCLUDED.value_number, updated_at = now()""",
         event_id, data.criterion_id, kind, int(sid), crit["scorer"], data.value)
-    return {"ok": True}
+    # Возвращаем пересчитанную таблицу — фронт обновит её без отдельного GET и мигания.
+    board = await _compute(event_id, data.stage_id, db)
+    return {"ok": True, "board": board}
 
 
 # ── Обратная связь (организатор) ──
