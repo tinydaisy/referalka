@@ -82,6 +82,30 @@ def _identity(identities: list, slug: str) -> Optional[dict]:
 # Какие платформы считаем «мессенджерами» для пометки messengers[]
 _MESSENGERS = ("telegram", "vk", "max")
 
+# Алиасы для GET-параметра ?platform=... → канонический slug
+_PLATFORM_ALIASES = {
+    "tg": "telegram", "telegram": "telegram",
+    "vk": "vk",
+    "max": "max",
+}
+
+
+def _normalize_platform(value: Optional[str]) -> Optional[str]:
+    """`?platform=tg|vk|max|all` → 'telegram'|'vk'|'max'|None.
+    None / пусто / 'all' → None (без фильтра, выдача по всем платформам)."""
+    if not value:
+        return None
+    v = value.strip().lower()
+    if v == "all":
+        return None
+    slug = _PLATFORM_ALIASES.get(v)
+    if slug is None:
+        raise HTTPException(
+            status_code=400,
+            detail="platform должен быть одним из: tg, vk, max, all",
+        )
+    return slug
+
 
 async def _fetch_participants(
     db: asyncpg.Connection,
@@ -90,6 +114,7 @@ async def _fetch_participants(
     is_registered: Optional[bool] = None,
     only_in_chat: bool = False,
     only_paid: bool = False,
+    platform: Optional[str] = None,
 ) -> list[dict]:
     """Список участников события (за вычетом коллабораторов).
 
@@ -194,6 +219,16 @@ async def _fetch_participants(
             if any(i.get("platform_slug") == slug for i in identities)
         ]
 
+        # Фильтр по платформе: оставляем только тех, у кого она есть,
+        # и обнуляем остальные платформенные поля (выдача «только этой платформы»).
+        if platform is not None:
+            if platform not in messengers:
+                continue
+            messengers = [platform]
+            tg = tg if platform == "telegram" else None
+            vk = vk if platform == "vk" else None
+            mx = mx if platform == "max" else None
+
         out.append({
             "contact_id": r["contact_id"],
             "participant_id": r["participant_id"],
@@ -236,15 +271,18 @@ async def list_all_participants(
     event_id: int,
     client_id: int,
     registered: Optional[bool] = Query(None, description="true=только зарег., false=только незарег., не задан=все"),
+    platform: Optional[str] = Query(None, description="tg|vk|max — только эта платформа; не задан=все платформы"),
     x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db),
 ):
     await _authorize(x_integration_token, client_id, db)
     await _assert_event_belongs(db, event_id, client_id)
-    participants = await _fetch_participants(db, event_id, client_id, registered)
+    plat = _normalize_platform(platform)
+    participants = await _fetch_participants(db, event_id, client_id, registered, platform=plat)
     return {
         "event_id": event_id,
         "filter": "all" if registered is None else ("registered" if registered else "not_registered"),
+        "platform": plat,
         "count": len(participants),
         "participants": participants,
     }
@@ -257,15 +295,18 @@ async def list_all_participants(
 async def list_registered_participants(
     event_id: int,
     client_id: int,
+    platform: Optional[str] = Query(None, description="tg|vk|max — только эта платформа; не задан=все"),
     x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db),
 ):
     await _authorize(x_integration_token, client_id, db)
     await _assert_event_belongs(db, event_id, client_id)
-    participants = await _fetch_participants(db, event_id, client_id, True)
+    plat = _normalize_platform(platform)
+    participants = await _fetch_participants(db, event_id, client_id, True, platform=plat)
     return {
         "event_id": event_id,
         "is_registered": True,
+        "platform": plat,
         "count": len(participants),
         "participants": participants,
     }
@@ -278,15 +319,18 @@ async def list_registered_participants(
 async def list_not_registered_participants(
     event_id: int,
     client_id: int,
+    platform: Optional[str] = Query(None, description="tg|vk|max — только эта платформа; не задан=все"),
     x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db),
 ):
     await _authorize(x_integration_token, client_id, db)
     await _assert_event_belongs(db, event_id, client_id)
-    participants = await _fetch_participants(db, event_id, client_id, False)
+    plat = _normalize_platform(platform)
+    participants = await _fetch_participants(db, event_id, client_id, False, platform=plat)
     return {
         "event_id": event_id,
         "is_registered": False,
+        "platform": plat,
         "count": len(participants),
         "participants": participants,
     }
@@ -299,15 +343,18 @@ async def list_not_registered_participants(
 async def list_in_chat_participants(
     event_id: int,
     client_id: int,
+    platform: Optional[str] = Query(None, description="tg|vk|max — только эта платформа; не задан=все"),
     x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db),
 ):
     await _authorize(x_integration_token, client_id, db)
     await _assert_event_belongs(db, event_id, client_id)
-    participants = await _fetch_participants(db, event_id, client_id, only_in_chat=True)
+    plat = _normalize_platform(platform)
+    participants = await _fetch_participants(db, event_id, client_id, only_in_chat=True, platform=plat)
     return {
         "event_id": event_id,
         "filter": "in_chat",
+        "platform": plat,
         "count": len(participants),
         "participants": participants,
     }
@@ -320,15 +367,18 @@ async def list_in_chat_participants(
 async def list_paid_participants(
     event_id: int,
     client_id: int,
+    platform: Optional[str] = Query(None, description="tg|vk|max — только эта платформа; не задан=все"),
     x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db),
 ):
     await _authorize(x_integration_token, client_id, db)
     await _assert_event_belongs(db, event_id, client_id)
-    participants = await _fetch_participants(db, event_id, client_id, only_paid=True)
+    plat = _normalize_platform(platform)
+    participants = await _fetch_participants(db, event_id, client_id, only_paid=True, platform=plat)
     return {
         "event_id": event_id,
         "filter": "paid",
+        "platform": plat,
         "count": len(participants),
         "participants": participants,
     }

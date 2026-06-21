@@ -21,6 +21,20 @@ from app.database import get_db
 router = APIRouter(prefix="/integrations", tags=["Интеграции"])
 
 _MESSENGERS = ("telegram", "vk", "max")
+_PLATFORM_ALIASES = {"tg": "telegram", "telegram": "telegram", "vk": "vk", "max": "max"}
+
+
+def _normalize_platform(value: Optional[str]) -> Optional[str]:
+    """`?platform=tg|vk|max|all` → slug | None (None/all = все платформы)."""
+    if not value:
+        return None
+    v = value.strip().lower()
+    if v == "all":
+        return None
+    slug = _PLATFORM_ALIASES.get(v)
+    if slug is None:
+        raise HTTPException(status_code=400, detail="platform должен быть одним из: tg, vk, max, all")
+    return slug
 
 
 async def _authorize(token: Optional[str], client_id: int, db: asyncpg.Connection) -> None:
@@ -57,18 +71,33 @@ async def list_all_contacts(
     client_id: int,
     limit: int = Query(1000, ge=1, le=5000),
     offset: int = Query(0, ge=0),
+    platform: Optional[str] = Query(None, description="tg|vk|max — только контакты с этой платформой; не задан=все"),
     x_integration_token: Optional[str] = Header(None),
     db: asyncpg.Connection = Depends(get_db),
 ):
     await _authorize(x_integration_token, client_id, db)
+    plat = _normalize_platform(platform)
+
+    # При фильтре по платформе считаем total и выбираем только контакты,
+    # у которых есть идентичность на этой платформе.
+    plat_clause = ""
+    base_params: list = [client_id]
+    if plat is not None:
+        base_params.append(plat)
+        plat_clause = (
+            " AND EXISTS (SELECT 1 FROM platform_users pu2 "
+            "WHERE pu2.contact_id = c.id AND pu2.platform_slug = $2)"
+        )
 
     total = await db.fetchval(
-        "SELECT COUNT(*) FROM contacts WHERE client_id = $1 AND merged_into IS NULL",
-        client_id,
+        f"SELECT COUNT(*) FROM contacts c WHERE c.client_id = $1 AND c.merged_into IS NULL{plat_clause}",
+        *base_params,
     )
 
+    limit_idx = len(base_params) + 1
+    offset_idx = len(base_params) + 2
     rows = await db.fetch(
-        """
+        f"""
         SELECT
           c.id              AS contact_id,
           c.name,
@@ -88,11 +117,11 @@ async def list_all_contacts(
             ) ORDER BY pu.platform_slug)
             FROM platform_users pu WHERE pu.contact_id = c.id) AS identities
         FROM contacts c
-        WHERE c.client_id = $1 AND c.merged_into IS NULL
+        WHERE c.client_id = $1 AND c.merged_into IS NULL{plat_clause}
         ORDER BY c.id
-        LIMIT $2 OFFSET $3
+        LIMIT ${limit_idx} OFFSET ${offset_idx}
         """,
-        client_id, limit, offset,
+        *base_params, limit, offset,
     )
 
     import json
@@ -115,6 +144,15 @@ async def list_all_contacts(
             if any(i.get("platform_slug") == slug for i in identities)
         ]
 
+        tg = _identity(identities, "telegram")
+        vk = _identity(identities, "vk")
+        mx = _identity(identities, "max")
+        if plat is not None:
+            messengers = [plat]
+            tg = tg if plat == "telegram" else None
+            vk = vk if plat == "vk" else None
+            mx = mx if plat == "max" else None
+
         out.append({
             "contact_id": r["contact_id"],
             "name": r["name"],
@@ -124,9 +162,9 @@ async def list_all_contacts(
             "utm_source": r["utm_source"],
             "tags": tags or [],
             "messengers": messengers,
-            "telegram": _identity(identities, "telegram"),
-            "vk": _identity(identities, "vk"),
-            "max": _identity(identities, "max"),
+            "telegram": tg,
+            "vk": vk,
+            "max": mx,
             "created_at": _fmt_dt(r["created_at"]),
             "last_contact_at": _fmt_dt(r["last_contact_at"]),
         })
@@ -134,6 +172,7 @@ async def list_all_contacts(
     return {
         "client_id": client_id,
         "total": total,
+        "platform": plat,
         "limit": limit,
         "offset": offset,
         "count": len(out),
