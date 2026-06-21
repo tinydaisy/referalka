@@ -188,34 +188,63 @@ async def archive_chat_message(
 # КОНТРОЛЬ ЗАДАНИЙ — ловля кодовых фраз критериев → балл + лог task_submissions
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _resolve_subject_for_audience(
-    db, event_id: int, contact_id: Optional[int], audience: str
+async def _resolve_subject_for_audiences(
+    db, event_id: int, contact_id: Optional[int], audiences
 ) -> Optional[tuple[str, int]]:
-    """По contact_id и аудитории этапа вернуть (subject_kind, subject_id).
+    """По contact_id и НАБОРУ ролей этапа вернуть (subject_kind, subject_id).
 
-    audience='speakers' → event_collaborators.id (subject_kind='ec'),
-    audience='viewers'  → event_participants.id   (subject_kind='ep').
-    Не нашёл — None (автор не участник турнира в этой роли).
+    audiences — список из 'participants' / 'speakers' / 'jury' (множественный выбор
+    «Кого слушаем в этапе»). На этапе можно слушать сразу несколько ролей —
+    например, на Этапе 0 это и участники, и спикеры.
+
+    Резолв по приоритету ролей: speakers (ec) → jury (ec role=jury) → participants (ep).
+    Спикеры/жюри идут раньше, потому что человек, который сдаёт задание как спикер
+    турнира, должен засчитываться по спикерской строке. Если он только участник —
+    берём ep. Не нашёл ни в одной разрешённой роли — None.
+
+    Пустой набор audiences = «не слушать» → всегда None (этап не слушается).
     """
     if not contact_id:
         return None
-    if audience == "speakers":
+    auds = set(audiences or [])
+    if not auds:
+        return None
+
+    if "speakers" in auds:
         ec_id = await db.fetchval(
             """SELECT ec.id FROM event_collaborators ec
                  JOIN collaborators co ON co.id = ec.speaker_id
                 WHERE ec.event_id = $1 AND co.contact_id = $2
+                  AND ec.role IN ('speaker', 'headliner')
                 ORDER BY ec.id LIMIT 1""",
             event_id, contact_id,
         )
-        return ("ec", int(ec_id)) if ec_id else None
-    else:  # viewers
+        if ec_id:
+            return ("ec", int(ec_id))
+
+    if "jury" in auds:
+        ec_id = await db.fetchval(
+            """SELECT ec.id FROM event_collaborators ec
+                 JOIN collaborators co ON co.id = ec.speaker_id
+                WHERE ec.event_id = $1 AND co.contact_id = $2
+                  AND ec.role = 'jury'
+                ORDER BY ec.id LIMIT 1""",
+            event_id, contact_id,
+        )
+        if ec_id:
+            return ("ec", int(ec_id))
+
+    if "participants" in auds:
         ep_id = await db.fetchval(
             """SELECT id FROM event_participants
                 WHERE event_id = $1 AND contact_id = $2
                 ORDER BY id LIMIT 1""",
             event_id, contact_id,
         )
-        return ("ep", int(ep_id)) if ep_id else None
+        if ep_id:
+            return ("ep", int(ep_id))
+
+    return None
 
 
 def _build_message_link(platform: str, chat_id: str, message_ref: Optional[str]) -> Optional[str]:
@@ -284,7 +313,7 @@ async def process_task_submissions(
             # Критерии с кодовой фразой (только manual).
             criteria = await db.fetch(
                 """SELECT tc.id, tc.code_phrase, tc.scale_max, tc.stage_id,
-                          COALESCE(cs.listen_audience, 'viewers') AS audience
+                          COALESCE(cs.listen_audiences, ARRAY['participants']::text[]) AS audiences
                      FROM tournament_criteria tc
                      LEFT JOIN conf_stages cs ON cs.id = tc.stage_id
                     WHERE tc.event_id = $1 AND tc.scorer = 'manual'
@@ -307,8 +336,8 @@ async def process_task_submissions(
                 if not phrase or phrase not in low:
                     continue
                 matched_any = True
-                subj = await _resolve_subject_for_audience(
-                    db, event_id, contact_id, c["audience"]
+                subj = await _resolve_subject_for_audiences(
+                    db, event_id, contact_id, c["audiences"]
                 )
                 recognized = subj is not None
                 subject_kind = subj[0] if subj else None

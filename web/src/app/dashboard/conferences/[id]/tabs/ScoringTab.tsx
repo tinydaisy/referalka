@@ -857,9 +857,12 @@ function TaskControlSub({ eventId }: { eventId: number }) {
     await api.tournament.toggleTaskListen(eventId, !enabled)
     setEnabled(!enabled)
   }
-  const setAudience = async (stageId: number, aud: string) => {
-    await api.tournament.setStageAudience(eventId, stageId, aud)
-    setStages(stages.map(s => s.id === stageId ? { ...s, listen_audience: aud } : s))
+  const toggleAudience = async (stageId: number, role: string) => {
+    const st = stages.find(s => s.id === stageId)
+    const cur: string[] = st?.listen_audiences || []
+    const next = cur.includes(role) ? cur.filter(r => r !== role) : [...cur, role]
+    setStages(stages.map(s => s.id === stageId ? { ...s, listen_audiences: next } : s))
+    await api.tournament.setStageAudience(eventId, stageId, next)
   }
 
   // уникальные участники для фильтра (из submissions)
@@ -897,21 +900,38 @@ function TaskControlSub({ eventId }: { eventId: number }) {
         ))}
       </div>
 
-      {/* Настройка этапов — кого слушаем */}
+      {/* Настройка этапов — кого слушаем (множественный выбор) */}
       {stages.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="text-sm font-semibold text-gray-800 mb-2">Кого слушаем в каждом этапе</div>
-          <div className="space-y-2">
-            {stages.map(st => (
-              <div key={st.id} className="flex items-center justify-between gap-3">
-                <span className="text-sm text-gray-700">{st.title}</span>
-                <select className="text-xs border rounded px-2 py-1" value={st.listen_audience || 'viewers'}
-                  onChange={e => setAudience(st.id, e.target.value)}>
-                  <option value="viewers">Зрители (участники)</option>
-                  <option value="speakers">Спикеры / жюри</option>
-                </select>
-              </div>
-            ))}
+          <div className="text-sm font-semibold text-gray-800 mb-1">Кого слушаем в каждом этапе</div>
+          <div className="text-xs text-gray-500 mb-3">
+            Можно отметить несколько ролей. Если ничего не отмечено — этап не слушается.
+          </div>
+          <div className="space-y-3">
+            {stages.map(st => {
+              const auds: string[] = st.listen_audiences || []
+              const ROLES = [
+                { v: 'participants', label: 'Участники' },
+                { v: 'speakers', label: 'Спикеры' },
+                { v: 'jury', label: 'Жюри' },
+              ]
+              return (
+                <div key={st.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <span className="text-sm text-gray-700">{st.title}</span>
+                  <div className="flex flex-wrap gap-3">
+                    {ROLES.map(r => (
+                      <label key={r.v} className="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
+                        <input type="checkbox" className="accent-[#25455D] w-4 h-4"
+                          checked={auds.includes(r.v)}
+                          onChange={() => toggleAudience(st.id, r.v)} />
+                        {r.label}
+                      </label>
+                    ))}
+                    {auds.length === 0 && <span className="text-xs text-gray-400">не слушать</span>}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
