@@ -126,8 +126,14 @@ async def nurture_reg_preview_urls(
     sections = await build_section_urls(db, event_id=event_id, client_id=client_id, slug=row["slug"])
     chats = await build_chats_block(db, event_id=event_id, html=True)
     bot_handle = await _bot_handle(db, client_id=client_id, platform="telegram")
-    work_tg = await db.fetchval("SELECT work_tg_username FROM clients WHERE id = $1", client_id)
-    support_link = _build_support_contact(work_tg)
+    _wrow = await db.fetchrow(
+        "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1", client_id)
+    from app.services.support_message import build_support_inline_html
+    support_link = build_support_inline_html(
+        work_tg=_wrow["work_tg_username"] if _wrow else None,
+        work_vk=_wrow["work_vk"] if _wrow else None,
+        work_max=_wrow["work_max"] if _wrow else None,
+    )
     return {
         **sections,
         "chats_html": chats,

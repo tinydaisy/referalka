@@ -142,7 +142,7 @@ async def nurture_preview_urls(
     tg_url = await _build_app_url(db, platform="telegram", client_id=client_id, slug=row["slug"], ref_code=None)
     vk_url = await _build_app_url(db, platform="vk",       client_id=client_id, slug=row["slug"], ref_code=None)
     crow = await db.fetchrow(
-        "SELECT work_tg_username, social_links, brand_name, name FROM clients WHERE id = $1",
+        "SELECT work_tg_username, work_vk, work_max, social_links, brand_name, name FROM clients WHERE id = $1",
         client_id,
     )
     work_tg = crow["work_tg_username"] if crow else None
@@ -158,7 +158,11 @@ async def nurture_preview_urls(
     return {
         "tg_url": tg_url, "vk_url": vk_url,
         "event_title": row["title"] or "событие",
-        "support_link": _build_support_contact(work_tg),
+        "support_link": __import__("app.services.support_message", fromlist=["build_support_inline_html"]).build_support_inline_html(
+            work_tg=work_tg,
+            work_vk=crow["work_vk"] if crow else None,
+            work_max=crow["work_max"] if crow else None,
+        ),
         "owner_telegram": _build_owner_contact(work_tg, founder_tg or None),
         "brand_name": (crow["brand_name"] or crow["name"] or "") if crow else "",
     }

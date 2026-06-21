@@ -238,9 +238,15 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     event_title = run_row["event_title"] or "событие"
     client_id = run_row["client_id"]
 
-    # Контакт поддержки клиента
-    work_tg = await db.fetchval("SELECT work_tg_username FROM clients WHERE id = $1", client_id)
-    support_link = _build_support_contact(work_tg)
+    # Контакт поддержки клиента — все 3 канала (ВК/Телеграм/MAX), жирные подписи.
+    _wrow = await db.fetchrow(
+        "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1", client_id)
+    from app.services.support_message import build_support_inline_html
+    support_link = build_support_inline_html(
+        work_tg=_wrow["work_tg_username"] if _wrow else None,
+        work_vk=_wrow["work_vk"] if _wrow else None,
+        work_max=_wrow["work_max"] if _wrow else None,
+    )
 
     ref_code = await db.fetchval("SELECT ref_code FROM contacts WHERE id = $1", run_row["contact_id"])
 

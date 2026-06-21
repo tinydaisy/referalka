@@ -93,3 +93,17 @@ def build_support_message_html(work_tg=None, work_vk=None, work_max=None) -> str
         for label, url in rows
     )
     return f"{_html.escape(SUPPORT_INTRO)}\n\n{body}"
+
+
+def build_support_inline_html(work_tg=None, work_vk=None, work_max=None) -> str:
+    """Блок контактов поддержки для подстановки в плейсхолдер {support_link}
+    воронок (Telegram HTML). Начинается с переноса строки, далее каждый канал
+    с новой строки: <b>Название</b>: ссылка (название площадки жирным).
+    Если каналов нет — нейтральный fallback «в этом боте»."""
+    rows = _lines(work_tg, work_vk, work_max)
+    if not rows:
+        return "в этом боте"
+    return "\n" + "\n".join(
+        f'<b>{_html.escape(label)}</b>: <a href="{_html.escape(url)}">{_html.escape(url)}</a>'
+        for label, url in rows
+    )

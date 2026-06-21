@@ -227,7 +227,7 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
     # get_founder_tg_channels.
     from app.services.social_links import get_founder_tg_channels
     contact_row = await db.fetchrow(
-        "SELECT work_tg_username, social_links, brand_name, name FROM clients WHERE id = $1",
+        "SELECT work_tg_username, work_vk, work_max, social_links, brand_name, name FROM clients WHERE id = $1",
         run_row["client_id"],
     )
     founder_tg = ""
@@ -243,9 +243,15 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             founder_tg = channels[0]["url"]
     work_tg_username = contact_row["work_tg_username"] if contact_row else None
     owner_tg = _build_owner_contact(work_tg_username, founder_tg or None)
-    # Служба поддержки для {support_link}: только work_tg_username (без fallback на
-    # канал основателя — это контакт для связи, а не канал).
-    support_link = _build_support_contact(work_tg_username)
+    # Служба поддержки для {support_link}: все 3 канала (ВК/Телеграм/MAX),
+    # каждый с новой строки, название площадки жирным. В VK HTML конвертится
+    # в plain через _html_to_plain.
+    from app.services.support_message import build_support_inline_html
+    support_link = build_support_inline_html(
+        work_tg=work_tg_username,
+        work_vk=contact_row["work_vk"] if contact_row else None,
+        work_max=contact_row["work_max"] if contact_row else None,
+    )
     brand_name = ""
     if contact_row:
         brand_name = (contact_row["brand_name"] or contact_row["name"] or "").strip()
