@@ -130,8 +130,9 @@ export default function DialogChat({
     }
   }
 
-  // Доступные платформы для табов = объединение переписки + где есть аккаунт.
-  const tabs = Array.from(new Set([...chatPlatforms]))
+  // Вкладки = платформы переписки + платформы, где у контакта есть аккаунт
+  // (чтобы можно было начать диалог даже без истории).
+  const tabs = Array.from(new Set([...chatPlatforms, ...availablePlatforms]))
 
   return (
     <div className="flex flex-col h-full">
@@ -181,7 +182,9 @@ export default function DialogChat({
                     : 'bg-white border border-gray-200 text-gray-800'
                 }`}>
                   {/* метка автора / платформы */}
-                  <div className={`text-[10px] mb-0.5 ${out ? 'text-white/60' : 'text-gray-400'}`}>
+                  <div className={`text-[10px] mb-0.5 ${
+                    isOperator ? 'text-white/60' : 'text-gray-400'
+                  }`}>
                     {out ? (isOperator ? 'Вы' : 'Бот (авто)') : 'Клиент'}
                     {' · '}{PLATFORM_SHORT[m.platform] || m.platform}
                   </div>
@@ -191,7 +194,7 @@ export default function DialogChat({
                   ) : (
                     <>
                       {m.media_kind && (
-                        <div className={`text-xs mb-1 ${out ? 'text-white/80' : 'text-gray-500'}`}>
+                        <div className={`text-xs mb-1 ${isOperator ? 'text-white/80' : 'text-gray-500'}`}>
                           {m.media_url ? (
                             <a href={m.media_url} target="_blank" rel="noreferrer" className="underline">
                               {MEDIA_LABEL[m.media_kind] || MEDIA_LABEL.other}
@@ -218,7 +221,7 @@ export default function DialogChat({
                     </>
                   )}
 
-                  <div className={`text-[10px] mt-0.5 flex items-center gap-1 ${out ? 'text-white/50' : 'text-gray-300'}`}>
+                  <div className={`text-[10px] mt-0.5 flex items-center gap-1 ${isOperator ? 'text-white/50' : 'text-gray-300'}`}>
                     {fmtTime(m.sent_at)}
                     {m.edited_at && <span>· изм.</span>}
                     {m.error && <span className="text-red-400" title={m.error}>· не доставлено</span>}
@@ -254,18 +257,6 @@ export default function DialogChat({
           </div>
         )}
         <div className="flex items-end gap-2">
-          {availablePlatforms.length > 1 && (
-            <select
-              value={replyPlatform}
-              onChange={e => setActiveTab(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-1.5 py-2 bg-gray-50 shrink-0"
-              title="Через какую платформу отправить"
-            >
-              {availablePlatforms.map(p => (
-                <option key={p} value={p}>{PLATFORM_SHORT[p] || p}</option>
-              ))}
-            </select>
-          )}
           <textarea
             className="flex-1 resize-none text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-[#25455D] max-h-28"
             rows={1}

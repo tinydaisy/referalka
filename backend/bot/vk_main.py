@@ -1475,11 +1475,21 @@ async def _reply_to_user_message(
         button_url = f"https://vk.com/app{ctx.vk_app_id}#hub_tableaders"
         button_text = "Открыть «Лидеры»"
     else:
-        reply = (
-            "Спасибо, видим ваше сообщение 💛\n\n"
-            "Чтобы связаться с поддержкой — напишите команду /support, "
-            "и пришлём контакты для связи."
-        )
+        # VIP-сообщество: приветствие + прямые контакты поддержки клиента.
+        from app.services.support_message import build_user_reply_plain
+        from app.database import get_pool as _gp
+        wtg = wvk = wmax = ""
+        try:
+            _p = await _gp()
+            async with _p.acquire() as _c:
+                _r = await _c.fetchrow(
+                    "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
+                    ctx.client_id)
+            if _r:
+                wtg, wvk, wmax = (_r["work_tg_username"] or "", _r["work_vk"] or "", _r["work_max"] or "")
+        except Exception:  # noqa: BLE001
+            pass
+        reply = build_user_reply_plain(work_tg=wtg, work_vk=wvk, work_max=wmax)
         button_url = None
         button_text = None
     kb = (tg_inline_to_vk_keyboard([[{"text": button_text, "url": button_url}]])

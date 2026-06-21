@@ -508,11 +508,36 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         except Exception as e:  # noqa: BLE001
             logger.warning(f"MAX dialog archive failed: {e}")
 
-    # Лёгкий ответ-эхо чтобы не молчать
+    # VIP-бот клиента: приветствие + прямые контакты поддержки клиента.
+    # ⚠️ Никаких упоминаний ПЛЮСОНа — у VIP/PRO клиента бот «свой».
+    if client_id_override:
+        from app.services.support_message import build_user_reply_plain
+        from app.services.dialog_archive import archive_outgoing_bot
+        wtg = wvk = wmax = ""
+        _p = await get_pool()
+        async with _p.acquire() as _c:
+            _r = await _c.fetchrow(
+                "SELECT work_tg_username, work_vk, work_max FROM clients WHERE id = $1",
+                client_id_override,
+            )
+        if _r:
+            wtg, wvk, wmax = (_r["work_tg_username"] or "", _r["work_vk"] or "", _r["work_max"] or "")
+        reply = build_user_reply_plain(work_tg=wtg, work_vk=wvk, work_max=wmax)
+        await max_send_message(chat_id, reply, token=bot_token)
+        try:
+            await archive_outgoing_bot(
+                client_id=client_id_override, platform="max", channel_id=None,
+                platform_user_id=str(user_id), text=reply,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    # Системный MAX-бот (контекста клиента нет) — лёгкий ответ-эхо чтобы не молчать.
     await max_send_message(
         chat_id,
-        "Привет! Это бот iViSiON: ПЛЮСОН. Откройте мини-приложение по кнопке ниже, "
-        "чтобы попасть в свой кабинет — там события, рейтинги и подарки.",
+        "Привет! Откройте мини-приложение по кнопке ниже — там события, "
+        "рейтинги и подарки.",
         token=bot_token,
         buttons=tg_inline_to_max_keyboard([[
             {"text": "Открыть приложение", "url": f"https://max.ru/{settings.max_system_bot_username}"},

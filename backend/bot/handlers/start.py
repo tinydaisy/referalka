@@ -1822,7 +1822,7 @@ async def handle_user_message(message: Message):
                 return
 
             client_row = await db.fetchrow(
-                """SELECT notifications_telegram_chat_id, work_tg_username
+                """SELECT notifications_telegram_chat_id, work_tg_username, work_vk, work_max
                      FROM clients WHERE id = $1""",
                 client_id,
             )
@@ -1830,6 +1830,8 @@ async def handle_user_message(message: Message):
                 return
             notif_chat_id = client_row["notifications_telegram_chat_id"]
             work_tg = (client_row["work_tg_username"] or "").lstrip("@")
+            work_vk = client_row["work_vk"]
+            work_max = client_row["work_max"]
 
             contact_row = await db.fetchrow(
                 """SELECT pu.contact_id, c.name, c.utm_source
@@ -1905,17 +1907,16 @@ async def handle_user_message(message: Message):
         except Exception as e:  # noqa: BLE001 — архив не должен ронять обработчик
             log.warning("dialog archive (tg in) failed: %s", e)
 
-        # Ответ пользователю VIP-бота — ведём на /support (без @-ника).
-        reply = (
-            "Спасибо, видим ваше сообщение 💛\n\n"
-            "Чтобы связаться с поддержкой — напишите команду /support, "
-            "и пришлём контакты для связи."
-        )
-        await message.answer(reply)
+        # Ответ пользователю VIP-бота — приветствие + прямые контакты поддержки.
+        from app.services.support_message import build_user_reply_html, build_user_reply_plain
+        reply = build_user_reply_html(work_tg=work_tg, work_vk=work_vk, work_max=work_max)
+        await message.answer(reply, parse_mode="HTML", disable_web_page_preview=True)
         try:
             await archive_outgoing_bot(
                 client_id=client_id, platform="telegram", channel_id=ch["id"],
-                platform_user_id=str(user.id), text=reply, contact_id=contact_id,
+                platform_user_id=str(user.id),
+                text=build_user_reply_plain(work_tg=work_tg, work_vk=work_vk, work_max=work_max),
+                contact_id=contact_id,
             )
         except Exception:  # noqa: BLE001
             pass

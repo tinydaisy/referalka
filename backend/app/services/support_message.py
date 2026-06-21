@@ -95,6 +95,33 @@ def build_support_message_html(work_tg=None, work_vk=None, work_max=None) -> str
     return f"{_html.escape(SUPPORT_INTRO)}\n\n{body}"
 
 
+_REPLY_INTRO = "Спасибо, видим ваше сообщение и скоро вам ответим 💛"
+_REPLY_BRIDGE = "Так же вы можете связаться с тех поддержкой напрямую — напишите по этим контактам:"
+
+
+def build_user_reply_plain(work_tg=None, work_vk=None, work_max=None) -> str:
+    """Авто-ответ бота на свободное сообщение пользователя (VK / MAX, plain).
+    Приветствие + готовые контакты поддержки по всем заполненным площадкам.
+    Если контактов нет — только приветствие."""
+    rows = _lines(work_tg, work_vk, work_max)
+    if not rows:
+        return _REPLY_INTRO
+    body = "\n".join(f"{label}: {url}" for label, url in rows)
+    return f"{_REPLY_INTRO}\n\n{_REPLY_BRIDGE}\n\n{body}"
+
+
+def build_user_reply_html(work_tg=None, work_vk=None, work_max=None) -> str:
+    """Авто-ответ бота на свободное сообщение пользователя (Telegram HTML)."""
+    rows = _lines(work_tg, work_vk, work_max)
+    if not rows:
+        return _REPLY_INTRO
+    body = "\n".join(
+        f'{_html.escape(label)}: <a href="{_html.escape(url)}">{_html.escape(url)}</a>'
+        for label, url in rows
+    )
+    return f"{_REPLY_INTRO}\n\n{_html.escape(_REPLY_BRIDGE)}\n\n{body}"
+
+
 def build_support_inline_html(work_tg=None, work_vk=None, work_max=None) -> str:
     """Блок контактов поддержки для подстановки в плейсхолдер {support_link}
     воронок (Telegram HTML). Начинается с переноса строки, далее каждый канал
