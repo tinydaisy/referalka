@@ -113,12 +113,11 @@ def _build_already_partner_text(brand: str, code: str, work_tg: str) -> str:
         "",
         f"Ваш партнёрский код: <code>{_esc(code)}</code>",
     ]
-    if work_tg:
-        parts += [
-            "",
-            "По вопросам отслеживания состояния партнёрского кабинета — "
-            f'<a href="https://t.me/{_esc(work_tg)}">@{_esc(work_tg)}</a>.',
-        ]
+    parts += [
+        "",
+        "По вопросам отслеживания состояния партнёрского кабинета — "
+        "напишите команду /support.",
+    ]
     return "\n".join(parts)
 
 
@@ -144,25 +143,20 @@ def _build_done_success_text(brand: str, code: str, work_tg: str) -> str:
         "",
         f"Ваш партнёрский код: <code>{_esc(code)}</code>",
     ]
-    if work_tg:
-        parts += [
-            "",
-            "Чтобы отслеживать состояние вашего партнёрского кабинета — обратитесь "
-            f'к Основателю: <a href="https://t.me/{_esc(work_tg)}">@{_esc(work_tg)}</a>.',
-        ]
+    parts += [
+        "",
+        "Чтобы отслеживать состояние вашего партнёрского кабинета — "
+        "напишите команду /support.",
+    ]
     return "\n".join(parts)
 
 
 def _build_done_fail_text(work_tg: str) -> str:
     parts = [
         "😕 Упс, что-то пошло не так. Наша система не получила ваш партнёрский код.",
+        "",
+        "Напишите команду /support для решения вопроса и пришлите скрин.",
     ]
-    if work_tg:
-        parts += [
-            "",
-            f"Напишите Основателю для решения вопроса и пришлите скрин: "
-            f'<a href="https://t.me/{_esc(work_tg)}">@{_esc(work_tg)}</a>.',
-        ]
     return "\n".join(parts)
 
 

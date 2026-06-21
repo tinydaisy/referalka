@@ -319,13 +319,8 @@ async def _archive_max_chat_message(
             info = unrecognized[0]
             from app.database import get_pool
             pool = await get_pool()
-            async with pool.acquire() as conn:
-                support = await conn.fetchval(
-                    "SELECT work_tg_username FROM clients WHERE id = $1", info.get("client_id")
-                )
-            m = "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано."
-            if support:
-                m += f" Обратитесь к организатору: @{support.lstrip('@')}"
+            m = ("Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано. "
+                 "Напишите боту в личку команду /support — там контакты для связи.")
             await max_send_message(chat_id, m, token=bot_token)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"MAX task submissions failed: {e}")

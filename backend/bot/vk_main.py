@@ -885,15 +885,8 @@ def _vk_attachment_urls(message: dict) -> list[dict]:
 async def _reply_unrecognized_vk(peer_id: int, from_id: int, ctx: "GroupCtx") -> None:
     """Неопознанному автору в беседе — ответ что не зарегистрирован."""
     try:
-        from app.database import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as db:
-            support = await db.fetchval(
-                "SELECT work_tg_username FROM clients WHERE id = $1", ctx.client_id
-            )
-        msg = "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано."
-        if support:
-            msg += f" Обратитесь к организатору: @{support.lstrip('@')}"
+        msg = ("Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано. "
+               "Напишите сообществу в личку команду /support — там контакты для связи.")
         import random as _rnd
         await vk_call("messages.send", {
             "peer_id": peer_id, "message": msg,
@@ -1417,24 +1410,16 @@ async def _reply_to_user_message(
         )
         button_url = f"https://vk.com/app{ctx.vk_app_id}#hub_tableaders"
         button_text = "Открыть «Лидеры»"
-    elif work_tg:
-        from urllib.parse import quote
-        prefill = quote("Есть вопрос")
-        reply = (
-            "Спасибо, видим ваше сообщение 💛\n\n"
-            f"Для оперативного ответа напишите лично — @{work_tg} в Telegram."
-        )
-        button_url = f"https://t.me/{work_tg}?text={prefill}"
-        button_text = "НАПИСАТЬ ЛИЧНО"
     else:
         reply = (
-            "Спасибо за сообщение 💛\n\n"
-            "Если нужно связаться с организатором — откройте приложение, "
-            "вкладка «Экосистема». Там вся информация и контакты."
+            "Спасибо, видим ваше сообщение 💛\n\n"
+            "Чтобы связаться с поддержкой — напишите команду /support, "
+            "и пришлём контакты для связи."
         )
-        button_url = f"https://vk.com/app{ctx.vk_app_id}#hub_tabecosystem"
-        button_text = "Открыть «Экосистему»"
-    kb = tg_inline_to_vk_keyboard([[{"text": button_text, "url": button_url}]])
+        button_url = None
+        button_text = None
+    kb = (tg_inline_to_vk_keyboard([[{"text": button_text, "url": button_url}]])
+          if button_url else None)
     try:
         await vk_send_message(peer_id, reply, keyboard=kb, token=ctx.token)
     except Exception as e:

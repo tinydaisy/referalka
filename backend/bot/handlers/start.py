@@ -909,21 +909,6 @@ async def handle_start(message: Message, command: CommandObject):
     )
 
 
-def _support_footer(work_tg: str) -> str:
-    """Хвост сообщения бота: три переноса + разделитель + строка о техподдержке.
-
-    `work_tg` — `clients.work_tg_username` (рабочий контакт основателя для
-    участников). Если пусто — хвост не добавляем."""
-    work_tg = (work_tg or "").lstrip("@").strip()
-    if not work_tg:
-        return ""
-    return (
-        "\n\n\n---\n"
-        f'Если проблемы с регистрацией — пишите в '
-        f'<a href="https://t.me/{_html.escape(work_tg)}">@{_html.escape(work_tg)}</a>'
-    )
-
-
 async def _handle_ref_event_bot_flow(message: Message, args: str) -> bool:
     """Бот-флоу для `/start ref_pg<slug>[_land][_nolend][_pid..][_src..]`.
 
@@ -1906,31 +1891,13 @@ async def handle_user_message(message: Message):
                 except Exception as e:
                     log.warning("user_message notify failed: %s", e)
 
-        # Ответ пользователю VIP-бота
-        if work_tg:
-            reply = (
-                "Спасибо, видим ваше сообщение 💛\n\n"
-                f"Для оперативного ответа напишите лично — @{work_tg}."
-            )
-            from urllib.parse import quote
-            prefill = quote("Есть вопрос")
-            personal_url = f"https://t.me/{work_tg}?text={prefill}"
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="НАПИСАТЬ ЛИЧНО", url=personal_url),
-            ]])
-        else:
-            reply = (
-                "Спасибо за сообщение 💛\n\n"
-                "Если нужно связаться с организатором — откройте приложение, "
-                "вкладка «Экосистема». Там вся информация и контакты."
-            )
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(
-                    text="Открыть «Экосистему»",
-                    web_app=WebAppInfo(url=f"https://pluson.ru/c/{client_id}/tg/?_tab=ecosystem"),
-                ),
-            ]])
-        await message.answer(reply, reply_markup=kb)
+        # Ответ пользователю VIP-бота — ведём на /support (без @-ника).
+        reply = (
+            "Спасибо, видим ваше сообщение 💛\n\n"
+            "Чтобы связаться с поддержкой — напишите команду /support, "
+            "и пришлём контакты для связи."
+        )
+        await message.answer(reply)
     except Exception as e:
         log.exception("handle_user_message failed: %s", e)
 

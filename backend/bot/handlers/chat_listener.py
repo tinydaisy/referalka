@@ -60,18 +60,9 @@ async def _reply_unrecognized_tg(message: Message, info: dict) -> None:
     """Автор написал кодовую фразу, но не участник турнира — отвечаем ему
     в чат (reply) что он не зарегистрирован, со ссылкой на поддержку клиента."""
     try:
-        pool = await get_pool()
-        async with pool.acquire() as db:
-            support = await db.fetchval(
-                "SELECT work_tg_username FROM clients WHERE id = $1", info.get("client_id")
-            )
-        support_part = (
-            f" Обратитесь к организатору: @{support.lstrip('@')}" if support else
-            " Обратитесь к организатору."
-        )
         await message.reply(
-            "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано."
-            + support_part
+            "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано. "
+            "Напишите боту в личку команду /support — там контакты для связи."
         )
     except Exception as e:  # noqa: BLE001
         log.warning("reply unrecognized failed: %s", e)

@@ -102,9 +102,7 @@ def _build_chat_links_message_vk(ev, event_id: int, work_tg: str | None = None):
         text += f"➤ {label}{main_mark}: {url}\n\n"
         rows.append([{"text": btn, "url": url}])
 
-    work_tg = (work_tg or "").strip().lstrip("@")
-    if work_tg:
-        text += f"\n\nПо всем техническим вопросам обращайтесь в @{work_tg}"
+    text += "\n\nПо всем техническим вопросам напишите команду /support."
 
     rows.append([{"text": "⬅️ Меню события", "callback_data": f"evmenu_{event_id}"}])
     keyboard = tg_inline_to_vk_keyboard(rows) if rows else None
