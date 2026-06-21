@@ -720,7 +720,22 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
 
   async function patch(o: OrderRow, p: { note?: string; status?: 'paid' | 'unpaid'; move_to_tariff_id?: number; amount?: number | null; amount_set?: boolean }) {
     await api.eventTariffs.patchBuyer(eventId, o.tariff_id, o.participant_id, p)
-    await load(); onChanged()
+    // Точечно обновляем строку в стейте — без полной перезагрузки таблицы
+    // (без мигания и прыжка скролла). Меняем только реально затронутые поля.
+    setOrders(prev => prev.map(row => {
+      if (row.participant_id !== o.participant_id || row.tariff_id !== o.tariff_id) return row
+      const next = { ...row }
+      if (p.note !== undefined) next.note = p.note
+      if (p.status !== undefined) next.status = p.status
+      if (p.amount_set) next.amount = p.amount ?? null
+      if (p.move_to_tariff_id != null && p.move_to_tariff_id !== o.tariff_id) {
+        next.tariff_id = p.move_to_tariff_id
+        const t = tariffs.find(tt => tt.id === p.move_to_tariff_id)
+        if (t) { next.tariff_title = t.title; next.tariff_price = t.price }
+      }
+      return next
+    }))
+    onChanged()  // обновить счётчики в шапке тарифов (там свой стейт)
   }
   async function remove(o: OrderRow) {
     if (!confirm('Удалить заказ этого человека?')) return

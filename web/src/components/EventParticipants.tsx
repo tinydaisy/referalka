@@ -249,7 +249,7 @@ function ContactCard({
   eventId: number
   onToggleRegistered: (next: boolean) => void
   onDelete: () => void
-  onReferrerChanged: () => void
+  onReferrerChanged: (ref: { name: string | null; username: string | null; ref_code: string | null } | null) => void
   clickLabel: string
 }) {
   const { isAssistant } = useMe()
@@ -488,7 +488,7 @@ function ContactCard({
               <ReferrerEditor
                 eventId={eventId}
                 p={p}
-                onChanged={() => { setEditingRef(false); onReferrerChanged() }}
+                onChanged={(ref) => { setEditingRef(false); onReferrerChanged(ref) }}
                 onClose={() => setEditingRef(false)}
               />
             </div>
@@ -537,7 +537,7 @@ function ReferrerEditor({
 }: {
   eventId: number
   p: Participant
-  onChanged: () => void
+  onChanged: (ref: { name: string | null; username: string | null; ref_code: string | null } | null) => void
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -557,12 +557,22 @@ function ReferrerEditor({
     return () => clearTimeout(t)
   }, [query])
 
-  async function pick(contactId: number | null) {
+  async function pick(contact: any | null) {
     if (saving) return
     setSaving(true)
     try {
-      await api.events.setReferrer(eventId, p.id, { referrer_contact_id: contactId })
-      onChanged()
+      await api.events.setReferrer(eventId, p.id, { referrer_contact_id: contact?.id ?? null })
+      // Передаём наверх данные нового реферера — строка обновится точечно,
+      // без полной перезагрузки списка участников. username берём из identities
+      // (приоритет Telegram), т.к. плоского поля username в contacts.list нет.
+      const ids = contact?.identities || []
+      const tgId = ids.find((i: any) => i.platform_slug === 'telegram')
+      const uname = (tgId?.username || ids[0]?.username || contact?.username || '').replace(/^@+/, '')
+      onChanged(contact ? {
+        name: contact.name || null,
+        username: uname || null,
+        ref_code: contact.ref_code || null,
+      } : null)
     } catch (e: any) {
       alert(e?.message || 'Не удалось сменить реферера')
     } finally {
@@ -607,7 +617,7 @@ function ReferrerEditor({
                   key={c.id}
                   type="button"
                   disabled={saving}
-                  onClick={() => pick(c.id)}
+                  onClick={() => pick(c)}
                   className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
                 >
                   <span className="text-xs text-gray-800 truncate">{nm}</span>
@@ -1033,7 +1043,14 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
                 eventId={eventId}
                 onToggleRegistered={(next) => toggleRegistered(p.id, next)}
                 onDelete={() => deleteParticipant(p.id)}
-                onReferrerChanged={load}
+                onReferrerChanged={(ref) => setParticipants(list => list.map(x =>
+                  x.id === p.id ? {
+                    ...x,
+                    referrer_ref_code: ref?.ref_code ?? null,
+                    referrer_name: ref?.name ?? null,
+                    referrer_username: ref?.username ?? null,
+                  } : x
+                ))}
                 clickLabel={clickLabel}
               />
             ))}
