@@ -1,5 +1,24 @@
 'use client'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+
+/**
+ * Ref для кнопки активной вкладки: при активации (и при первом монтировании —
+ * важно после F5, когда вкладка восстановлена из URL) горизонтально
+ * подматывает контейнер так, чтобы активная вкладка была видна по центру.
+ *
+ * Использование:
+ *   const ref = useActiveTabRef(isActive)
+ *   <button ref={ref} ...>
+ */
+export function useActiveTabRef<E extends HTMLElement = HTMLButtonElement>(active: boolean) {
+  const ref = useRef<E>(null)
+  useEffect(() => {
+    if (active && ref.current) {
+      ref.current.scrollIntoView({ block: 'nearest', inline: 'center' })
+    }
+  }, [active])
+  return ref
+}
 
 /**
  * Состояние вкладки, синхронизированное с URL query-параметром.

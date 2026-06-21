@@ -22,7 +22,7 @@ import NurtureTab from '../../events/[id]/tabs/NurtureTab'
 import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
 import TariffsTab from '../../events/[id]/tabs/TariffsTab'
 import { useMe } from '@/hooks/useMe'
-import { useUrlTab } from '@/hooks/useUrlTab'
+import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -145,12 +145,7 @@ export default function ConferencePage() {
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-6">
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
           {TABS.map(tb => (
-            <button key={tb.id} onClick={() => setTab(tb.id)}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
-                tab === tb.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}>
-              {tb.label}
-            </button>
+            <ConfTabBtn key={tb.id} active={tab === tb.id} onClick={() => setTab(tb.id)} label={tb.label} />
           ))}
           <Link href={`${basePath}/${eventId}/broadcasts/templates`}
             className="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-white/60">
@@ -173,5 +168,19 @@ export default function ConferencePage() {
       {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} />}
     </div>
+  )
+}
+
+// Кнопка вкладки с автоскроллом в видимую область, когда она активна
+// (в т.ч. после F5 — чтобы выделенная вкладка не оставалась за кадром).
+function ConfTabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  const ref = useActiveTabRef<HTMLButtonElement>(active)
+  return (
+    <button ref={ref} onClick={onClick}
+      className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+        active ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+      }`}>
+      {label}
+    </button>
   )
 }

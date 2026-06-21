@@ -13,7 +13,7 @@ import TariffsTab from './tabs/TariffsTab'
 import EventParticipants from '@/components/EventParticipants'
 import { EventStatusToggle } from '@/components/EventStatusToggle'
 import { useMe } from '@/hooks/useMe'
-import { useUrlTab } from '@/hooks/useUrlTab'
+import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs'
 
@@ -111,18 +111,8 @@ export default function EventPage() {
       {/* Tabs */}
       <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
         {TABS.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
-              activeTab === tab.key
-                ? 'text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-            style={activeTab === tab.key ? { borderBottomColor: '#25455D', color: '#25455D' } : { borderBottomColor: 'transparent' }}
-          >
-            {tab.label}
-          </button>
+          <EventTabBtn key={tab.key} active={activeTab === tab.key}
+            onClick={() => setActiveTab(tab.key)} label={tab.label} />
         ))}
         {/* «Рассылки» как ссылка на отдельную страницу с подвкладками — как у конференции */}
         <Link href={`/dashboard/events/${eventId}/broadcasts/queue`}
@@ -141,5 +131,18 @@ export default function EventPage() {
       {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} moduleSlug={event.module_slug} />}
     </div>
+  )
+}
+
+// Кнопка вкладки с автоскроллом в видимую область, когда активна (в т.ч. после F5).
+function EventTabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  const ref = useActiveTabRef<HTMLButtonElement>(active)
+  return (
+    <button ref={ref} onClick={onClick}
+      className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap"
+      style={active ? { borderBottomColor: '#25455D', color: '#25455D' } : { borderBottomColor: 'transparent' }}
+    >
+      {label}
+    </button>
   )
 }

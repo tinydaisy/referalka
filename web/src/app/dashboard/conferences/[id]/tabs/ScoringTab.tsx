@@ -3,9 +3,21 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check } from 'lucide-react'
-import { useUrlTab } from '@/hooks/useUrlTab'
+import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 type SubTab = 'criteria' | 'assignments' | 'leaderboard' | 'reports' | 'taskcontrol'
+
+function ScoringTabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  const ref = useActiveTabRef<HTMLButtonElement>(active)
+  return (
+    <button ref={ref} onClick={onClick}
+      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+        active ? 'border-[#FFCFA4] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'
+      }`}>
+      {label}
+    </button>
+  )
+}
 
 export default function ScoringTab({ eventId }: { eventId: number }) {
   const [sub, setSub] = useUrlTab<SubTab>('sub', 'criteria', ['criteria', 'assignments', 'leaderboard', 'reports', 'taskcontrol'])
@@ -20,12 +32,7 @@ export default function ScoringTab({ eventId }: { eventId: number }) {
     <div>
       <div className="border-b border-gray-200 mb-6 flex items-center gap-1 -mt-2 overflow-x-auto">
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setSub(t.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-              sub === t.id ? 'border-[#FFCFA4] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            {t.label}
-          </button>
+          <ScoringTabBtn key={t.id} active={sub === t.id} onClick={() => setSub(t.id)} label={t.label} />
         ))}
       </div>
       {sub === 'criteria'    && <CriteriaSub eventId={eventId} />}
