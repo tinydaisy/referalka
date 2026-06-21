@@ -386,7 +386,7 @@ async def list_criteria(event_id: int, client=Depends(get_current_client), db: a
         d["criteria"] = [{**dict(c), "scale_max": float(c["scale_max"]), "weight": float(c["weight"])} for c in crits]
         out.append(d)
     stages = await db.fetch(
-        "SELECT id, title, COALESCE(listen_audiences, ARRAY['participants']::text[]) AS listen_audiences "
+        "SELECT id, title, COALESCE(listen_audiences, ARRAY['registered']::text[]) AS listen_audiences "
         "FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
     return {"packages": out, "stages": [dict(s) for s in stages]}
 
@@ -1128,18 +1128,21 @@ async def task_control_verify_chat(
 
 
 class StageAudienceUpdate(BaseModel):
-    # Множественный выбор: 'participants' | 'speakers' | 'jury'. Пусто = не слушать.
+    # Множественный выбор: 'all' | 'registered' | 'speakers' | 'jury'. Пусто = не слушать.
     listen_audiences: List[str]
 
 
-_AUDIENCE_VALUES = {"participants", "speakers", "jury"}
+_AUDIENCE_VALUES = {"all", "registered", "speakers", "jury"}
 
 
 @router.patch("/stages/{stage_id}/listen-audience", summary="Кого слушаем в этапе")
 async def stage_listen_audience(event_id: int, stage_id: int, data: StageAudienceUpdate, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
-    # нормализуем: уникальные валидные значения, порядок не важен. Пустой набор = не слушать.
+    # нормализуем: уникальные валидные значения. Пустой набор = не слушать.
     auds = [a for a in dict.fromkeys(data.listen_audiences) if a in _AUDIENCE_VALUES]
+    # 'all' взаимоисключающ с конкретными ролями.
+    if "all" in auds:
+        auds = ["all"]
     await db.execute("UPDATE conf_stages SET listen_audiences=$3::text[] WHERE id=$1 AND event_id=$2",
                      stage_id, event_id, auds)
     return {"ok": True, "listen_audiences": auds}

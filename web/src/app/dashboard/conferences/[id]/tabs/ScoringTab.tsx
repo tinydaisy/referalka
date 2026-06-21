@@ -857,10 +857,21 @@ function TaskControlSub({ eventId }: { eventId: number }) {
     await api.tournament.toggleTaskListen(eventId, !enabled)
     setEnabled(!enabled)
   }
-  const toggleAudience = async (stageId: number, role: string) => {
+  // role: 'all' | 'registered' | 'speakers' | 'jury' | 'none'
+  // 'none' (Не слушать) = пустой набор; 'all' взаимоисключающ с конкретными ролями.
+  const setAudience = async (stageId: number, role: string) => {
     const st = stages.find(s => s.id === stageId)
     const cur: string[] = st?.listen_audiences || []
-    const next = cur.includes(role) ? cur.filter(r => r !== role) : [...cur, role]
+    let next: string[]
+    if (role === 'none') {
+      next = []                                   // Не слушать — гасим всё
+    } else if (role === 'all') {
+      next = cur.includes('all') ? [] : ['all']   // Все — взаимоисключающе
+    } else {
+      // конкретная роль: убираем 'all', тогглим саму роль
+      const base = cur.filter(r => r !== 'all')
+      next = base.includes(role) ? base.filter(r => r !== role) : [...base, role]
+    }
     setStages(stages.map(s => s.id === stageId ? { ...s, listen_audiences: next } : s))
     await api.tournament.setStageAudience(eventId, stageId, next)
   }
@@ -905,29 +916,32 @@ function TaskControlSub({ eventId }: { eventId: number }) {
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="text-sm font-semibold text-gray-800 mb-1">Кого слушаем в каждом этапе</div>
           <div className="text-xs text-gray-500 mb-3">
-            Можно отметить несколько ролей. Если ничего не отмечено — этап не слушается.
+            Отметьте галочками, чьи сообщения слушать на этапе. «Все» и «Не слушать» — взаимоисключающие.
           </div>
           <div className="space-y-3">
             {stages.map(st => {
               const auds: string[] = st.listen_audiences || []
+              const isNone = auds.length === 0
+              const isAll = auds.includes('all')
               const ROLES = [
-                { v: 'participants', label: 'Участники' },
-                { v: 'speakers', label: 'Спикеры' },
-                { v: 'jury', label: 'Жюри' },
+                { v: 'all', label: 'Все', checked: isAll },
+                { v: 'registered', label: 'Только зарегистрированные', checked: auds.includes('registered') },
+                { v: 'speakers', label: 'Спикеры', checked: auds.includes('speakers') },
+                { v: 'jury', label: 'Жюри', checked: auds.includes('jury') },
+                { v: 'none', label: 'Не слушать', checked: isNone },
               ]
               return (
-                <div key={st.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <span className="text-sm text-gray-700">{st.title}</span>
-                  <div className="flex flex-wrap gap-3">
+                <div key={st.id} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 border-b border-gray-100 pb-2 last:border-0">
+                  <span className="text-sm text-gray-700 sm:pt-0.5">{st.title}</span>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 sm:justify-end sm:max-w-[60%]">
                     {ROLES.map(r => (
                       <label key={r.v} className="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
                         <input type="checkbox" className="accent-[#25455D] w-4 h-4"
-                          checked={auds.includes(r.v)}
-                          onChange={() => toggleAudience(st.id, r.v)} />
+                          checked={r.checked}
+                          onChange={() => setAudience(st.id, r.v)} />
                         {r.label}
                       </label>
                     ))}
-                    {auds.length === 0 && <span className="text-xs text-gray-400">не слушать</span>}
                   </div>
                 </div>
               )

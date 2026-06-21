@@ -193,14 +193,17 @@ async def _resolve_subject_for_audiences(
 ) -> Optional[tuple[str, int]]:
     """По contact_id и НАБОРУ ролей этапа вернуть (subject_kind, subject_id).
 
-    audiences — список из 'participants' / 'speakers' / 'jury' (множественный выбор
-    «Кого слушаем в этапе»). На этапе можно слушать сразу несколько ролей —
-    например, на Этапе 0 это и участники, и спикеры.
+    audiences — список из 'all' / 'registered' / 'speakers' / 'jury' (множественный
+    выбор «Кого слушаем в этапе»). На этапе можно слушать сразу несколько ролей.
 
-    Резолв по приоритету ролей: speakers (ec) → jury (ec role=jury) → participants (ep).
-    Спикеры/жюри идут раньше, потому что человек, который сдаёт задание как спикер
-    турнира, должен засчитываться по спикерской строке. Если он только участник —
-    берём ep. Не нашёл ни в одной разрешённой роли — None.
+    Значения:
+      • 'all'        — любой автор: спикер → жюри → любой участник (вкл. незарег.);
+      • 'registered' — только зарегистрированные участники (ep, is_registered=TRUE);
+      • 'speakers'   — спикеры/хедлайнеры (ec);
+      • 'jury'       — жюри (ec role=jury).
+
+    Резолв по приоритету: speakers (ec) → jury (ec) → участник (ep). Спикер/жюри
+    раньше, чтобы человек, сдающий задание в этой роли, засчитывался по своей строке.
 
     Пустой набор audiences = «не слушать» → всегда None (этап не слушается).
     """
@@ -209,8 +212,9 @@ async def _resolve_subject_for_audiences(
     auds = set(audiences or [])
     if not auds:
         return None
+    is_all = "all" in auds
 
-    if "speakers" in auds:
+    if is_all or "speakers" in auds:
         ec_id = await db.fetchval(
             """SELECT ec.id FROM event_collaborators ec
                  JOIN collaborators co ON co.id = ec.speaker_id
@@ -222,7 +226,7 @@ async def _resolve_subject_for_audiences(
         if ec_id:
             return ("ec", int(ec_id))
 
-    if "jury" in auds:
+    if is_all or "jury" in auds:
         ec_id = await db.fetchval(
             """SELECT ec.id FROM event_collaborators ec
                  JOIN collaborators co ON co.id = ec.speaker_id
@@ -234,13 +238,22 @@ async def _resolve_subject_for_audiences(
         if ec_id:
             return ("ec", int(ec_id))
 
-    if "participants" in auds:
-        ep_id = await db.fetchval(
-            """SELECT id FROM event_participants
-                WHERE event_id = $1 AND contact_id = $2
-                ORDER BY id LIMIT 1""",
-            event_id, contact_id,
-        )
+    if is_all or "registered" in auds:
+        # 'registered' — только зарег.; 'all' — любой участник (вкл. незарег.).
+        if is_all:
+            ep_id = await db.fetchval(
+                """SELECT id FROM event_participants
+                    WHERE event_id = $1 AND contact_id = $2
+                    ORDER BY id LIMIT 1""",
+                event_id, contact_id,
+            )
+        else:
+            ep_id = await db.fetchval(
+                """SELECT id FROM event_participants
+                    WHERE event_id = $1 AND contact_id = $2 AND is_registered = TRUE
+                    ORDER BY id LIMIT 1""",
+                event_id, contact_id,
+            )
         if ep_id:
             return ("ep", int(ep_id))
 
@@ -313,7 +326,7 @@ async def process_task_submissions(
             # Критерии с кодовой фразой (только manual).
             criteria = await db.fetch(
                 """SELECT tc.id, tc.code_phrase, tc.scale_max, tc.stage_id,
-                          COALESCE(cs.listen_audiences, ARRAY['participants']::text[]) AS audiences
+                          COALESCE(cs.listen_audiences, ARRAY['registered']::text[]) AS audiences
                      FROM tournament_criteria tc
                      LEFT JOIN conf_stages cs ON cs.id = tc.stage_id
                     WHERE tc.event_id = $1 AND tc.scorer = 'manual'
