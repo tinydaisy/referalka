@@ -41,7 +41,8 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
             "landing_url, start_at, end_at, link_mode, "
             "chat_url, chat_url_tg, chat_url_vk, chat_url_max, "
-            "primary_chat_platform, chat_button_label")
+            "primary_chat_platform, chat_button_label, require_subscription, "
+            "(SELECT subscription_mode FROM conf_conferences cc WHERE cc.event_id = events.id) AS subscription_mode")
     if ref.isdigit():
         ev = await db.fetchrow(
             f"SELECT {cols} FROM events WHERE id = $1", int(ref))
@@ -227,7 +228,13 @@ async def _load_ref_cabinet(db, event, contact_id):
         f"  WHERE ec3.event_id = $1 AND ec3.role IN ({excluded_roles})"
         "   AND c3.ref_code IS NOT NULL)"
     )
-    top_rows = await db.fetch(
+    # Клиент мог отключить рейтинг для этого события (миграция 162) — тогда
+    # ТОП не грузим вовсе, блок в кабинете не появится.
+    hide_rating = await db.fetchval(
+        "SELECT hide_rating FROM event_referral_settings WHERE event_id = $1",
+        event["id"],
+    ) or False
+    top_rows = [] if hide_rating else await db.fetch(
         f"""SELECT ct.name, ct.ref_code,
                    COUNT(*) AS cnt
               FROM event_participants ep
@@ -569,8 +576,14 @@ def _gallery_html(speakers) -> str:
     return f'<div class="gallery">{items}</div>'
 
 
-def _program_panel(event, collabs, days, stages, sessions) -> str:
-    """Вкладка «Программа»: галерея + VIP + описание + дни/сессии + организаторы."""
+def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) -> str:
+    """Вкладка «Программа»: галерея + VIP + описание + дни/сессии + организаторы.
+
+    chat_bot_links — {platform: deeplink_в_бот} для случая с обязательной
+    подпиской (кнопка площадки ведёт в бот, который проверяет подписку и
+    выдаёт ссылки на чат). Если None/пусто — кнопки ведут прямо на чаты.
+    """
+    chat_bot_links = chat_bot_links or {}
     # Спикеры для галереи — все НЕ-организаторы (как лента в Mini App).
     gallery_people = [c for c in collabs if c.get("role") != "organizer"]
     if not gallery_people:
@@ -584,39 +597,69 @@ def _program_panel(event, collabs, days, stages, sessions) -> str:
         out += (f'<a class="vip-btn" href="{esc(vip_url)}" '
                 f'target="_blank" rel="noopener">{vip_label}</a>')
 
-    # Чаты события (прямые ссылки, без проверки подписки — как просили).
-    # Главный по primary_chat_platform — сверху и подписан «(главный)».
-    chats = []
+    # Чат события: ОДНА кнопка с названием из настроек (chat_button_label).
+    # По клику открывается экран выбора площадки (TG / VK / MAX) — только те,
+    # у которых задан чат. Поведение каждой площадки:
+    #   • нет обязательной подписки → ссылка ведёт ПРЯМО на чат площадки;
+    #   • есть обязательная подписка → ссылка ведёт в БОТ этой площадки, который
+    #     проверит подписку и сам выдаст ссылку на чат (chat_bot_links).
     chat_map = {
         "telegram": (event.get("chat_url_tg"), "Telegram"),
         "vk": (event.get("chat_url_vk"), "VK"),
         "max": (event.get("chat_url_max"), "MAX"),
     }
     primary = event.get("primary_chat_platform") or "telegram"
-    # сначала главный, потом остальные
     order = [primary] + [p for p in ("telegram", "vk", "max") if p != primary]
+
+    # Нужна ли проверка подписки: конференция → subscription_mode != none,
+    # мероприятие → require_subscription.
+    sub_mode = event.get("subscription_mode")
+    if sub_mode is not None:
+        needs_sub = (sub_mode or "all_speakers") != "none"
+    else:
+        needs_sub = bool(event.get("require_subscription"))
+
+    plat_buttons = []  # (platform, display_name, href, is_primary)
     for plat in order:
-        url, plat_name = chat_map.get(plat, (None, ""))
-        url = (url or "").strip()
-        if url:
-            chats.append((url, plat_name, plat == primary))
-    # legacy одиночное поле chat_url — если ни одного платформенного нет
-    if not chats:
+        direct_url, plat_name = chat_map.get(plat, (None, ""))
+        direct_url = (direct_url or "").strip()
+        if not direct_url:
+            continue
+        # С проверкой подписки — ведём в бот площадки (если он у клиента есть),
+        # иначе фолбэк на прямой чат (системный бот в личку чужим не пишет).
+        href = direct_url
+        if needs_sub:
+            bot_url = (chat_bot_links.get(plat) or "").strip()
+            if bot_url:
+                href = bot_url
+        plat_buttons.append((plat, plat_name, href, plat == primary))
+
+    # legacy одиночное поле chat_url — если ни одной платформенной ссылки нет
+    if not plat_buttons:
         legacy = (event.get("chat_url") or "").strip()
         if legacy:
-            chats.append((legacy, "", True))
+            plat_buttons.append(("telegram", "Telegram", legacy, True))
 
-    if chats:
+    if plat_buttons:
         base_label = esc(event.get("chat_button_label") or "Чат события")
-        rows = ""
-        for url, plat_name, is_primary in chats:
-            sfx = ""
-            if plat_name:
-                sfx = f' · {esc(plat_name)}'
-            main = ' <span class="chat-main">(главный)</span>' if (is_primary and len(chats) > 1) else ""
-            rows += (f'<a class="chat-btn" href="{esc(url)}" target="_blank" '
-                     f'rel="noopener">💬 {base_label}{sfx}{main}</a>')
-        out += f'<div class="chats">{rows}</div>'
+        sheet_rows = ""
+        for plat, plat_name, href, is_primary in plat_buttons:
+            main = ' <span class="chat-main">(главный)</span>' if (is_primary and len(plat_buttons) > 1) else ""
+            sheet_rows += (
+                f'<a class="chat-opt" href="{esc(href)}" target="_blank" rel="noopener">'
+                f'<span class="chat-opt-ico">💬</span>'
+                f'<span class="chat-opt-name">{esc(plat_name)}{main}</span></a>'
+            )
+        out += (
+            f'<button class="chat-btn" type="button" data-chatopen>💬 {base_label}</button>'
+            '<div class="chat-sheet" id="chat-sheet" hidden>'
+            '<div class="chat-sheet-bg" data-chatclose></div>'
+            '<div class="chat-sheet-card">'
+            '<div class="chat-sheet-h">Выберите площадку</div>'
+            f'{sheet_rows}'
+            '<button class="chat-sheet-x" type="button" data-chatclose>Закрыть</button>'
+            '</div></div>'
+        )
 
     # Описание после регистрации (HTML как есть)
     dpr = event.get("description_post_register") or ""
@@ -1180,7 +1223,8 @@ def _venue_panel(profile, offerings) -> str:
 def render_page(event, collabs, days, stages, sessions, gifts,
                 share_texts, share_images, ref_enabled,
                 client, ref_cabinet=None, venue_profile=None,
-                venue_offerings=None, share_videos=None) -> str:
+                venue_offerings=None, share_videos=None,
+                chat_bot_links=None) -> str:
     title = esc(event.get("title") or event.get("slug"))
     brand_raw = ((client["brand_name"] if client else None)
                  or (client["name"] if client else None) or "")
@@ -1205,7 +1249,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     is_program_event = module in ("conference", "turnir") or bool(days)
 
     # ── Панели ──
-    program_html = _program_panel(event, collabs, days, stages, sessions)
+    program_html = _program_panel(event, collabs, days, stages, sessions, chat_bot_links)
     speakers_html = _speakers_panel(collabs) if has_people else ""
     cabinet_html = ""
     if ref_cabinet:
@@ -1302,8 +1346,32 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .chat-btn {{ display:block; width:100%; text-align:center; text-decoration:none;
     padding: 13px 16px; border-radius: 12px; font-size:14.5px; font-weight:700;
     color:#FFCFA4; background: linear-gradient(135deg, #25455D, #0a1520);
-    box-shadow: 0 2px 8px rgba(37,69,93,.2); }}
+    box-shadow: 0 2px 8px rgba(37,69,93,.2);
+    border:none; cursor:pointer; font-family:inherit; }}
   .chat-main {{ font-weight:600; color:rgba(255,207,164,.7); font-size:12px; }}
+
+  /* Экран выбора площадки для входа в чат (bottom-sheet) */
+  .chat-sheet {{ position:fixed; inset:0; z-index:60; display:flex;
+    align-items:flex-end; justify-content:center; }}
+  .chat-sheet[hidden] {{ display:none; }}
+  .chat-sheet-bg {{ position:absolute; inset:0; background:rgba(10,21,32,.55); }}
+  .chat-sheet-card {{ position:relative; width:100%; max-width:480px;
+    background:#fff; border-radius:18px 18px 0 0; padding:18px 16px 22px;
+    box-shadow:0 -6px 28px rgba(10,21,32,.3);
+    animation:chatUp .18s ease-out; }}
+  @keyframes chatUp {{ from {{ transform:translateY(24px); opacity:.4; }}
+    to {{ transform:translateY(0); opacity:1; }} }}
+  .chat-sheet-h {{ font-size:13px; font-weight:700; color:#25455D;
+    text-align:center; margin-bottom:14px; letter-spacing:.02em; }}
+  .chat-opt {{ display:flex; align-items:center; gap:12px; text-decoration:none;
+    padding:14px 14px; border-radius:13px; margin-bottom:9px;
+    background:linear-gradient(135deg, #25455D, #0a1520); color:#FFCFA4;
+    font-weight:700; font-size:15px; }}
+  .chat-opt-ico {{ font-size:20px; width:24px; text-align:center; }}
+  .chat-opt-name {{ flex:1; }}
+  .chat-sheet-x {{ display:block; width:100%; margin-top:6px; padding:12px;
+    border:none; border-radius:12px; background:#f0f2f5; color:#5b6b7a;
+    font-weight:600; font-size:14px; cursor:pointer; font-family:inherit; }}
 
   /* Описание */
   .desc {{ background:#fff; border-radius:14px; padding:16px; line-height:1.6; font-size:14.5px;
@@ -1656,6 +1724,19 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     }});
   }});
 
+  // Кнопка чата → экран выбора площадки (bottom-sheet)
+  var chatSheet = document.getElementById('chat-sheet');
+  document.querySelectorAll('[data-chatopen]').forEach(function(btn) {{
+    btn.addEventListener('click', function() {{
+      if (chatSheet) chatSheet.hidden = false;
+    }});
+  }});
+  document.querySelectorAll('[data-chatclose]').forEach(function(el) {{
+    el.addEventListener('click', function() {{
+      if (chatSheet) chatSheet.hidden = true;
+    }});
+  }});
+
   // Переключатель Бесплатно/Платно на вкладке «О площадке»
   document.querySelectorAll('.vt-btn').forEach(function(btn) {{
     btn.addEventListener('click', function() {{
@@ -1815,12 +1896,25 @@ async def event_page(slug: str, c: str = "", email: str = "",
             )
     ref_cabinet = await _load_ref_cabinet(db, ev, contact_id) if contact_id else None
 
+    # Deeplink'и в бот площадок для кнопки чата (только если у события включена
+    # обязательная подписка — тогда площадка ведёт в бот, который её проверит).
+    chat_bot_links = {}
+    sub_mode = ev.get("subscription_mode")
+    needs_sub = ((sub_mode or "all_speakers") != "none") if sub_mode is not None \
+        else bool(ev.get("require_subscription"))
+    if needs_sub and ev.get("client_id"):
+        try:
+            from app.services.share_links import build_event_chat_bot_links
+            chat_bot_links = await build_event_chat_bot_links(db, ev["client_id"], event_id)
+        except Exception:
+            chat_bot_links = {}
+
     html_str = render_page(
         ev, collabs, days, [dict(s) for s in stages], sessions, gifts,
         share_texts, share_images, ref_enabled, client,
         ref_cabinet=ref_cabinet,
         venue_profile=venue_profile, venue_offerings=venue_offerings,
-        share_videos=share_videos,
+        share_videos=share_videos, chat_bot_links=chat_bot_links,
     )
     return HTMLResponse(
         content=html_str,

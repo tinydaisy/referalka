@@ -250,6 +250,7 @@ class ReferralSettingsIn(BaseModel):
     # 'registered' | 'visited' | 'clicked_link' (миграции 042, 082)
     gift_count_mode: Optional[str]  = None
     is_enabled:      Optional[bool] = None   # вкл/выкл вкладки «Игра» в Mini App (миграция 053)
+    hide_rating:     Optional[bool] = None   # скрыть ТОП рейтинг в кабинете участника (миграция 162)
 
 
 @router.get("/referral/settings", summary="Получить настройки реф-программы")
@@ -260,12 +261,13 @@ async def get_referral_settings(
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
     row = await db.fetchrow(
-        "SELECT gift_count_mode, is_enabled FROM event_referral_settings WHERE event_id = $1",
+        "SELECT gift_count_mode, is_enabled, hide_rating "
+        "FROM event_referral_settings WHERE event_id = $1",
         event_id
     )
     if row:
         return dict(row)
-    return {"gift_count_mode": "registered", "is_enabled": False}
+    return {"gift_count_mode": "registered", "is_enabled": False, "hide_rating": False}
 
 
 @router.put("/referral/settings", summary="Обновить настройки реф-программы (upsert)")
@@ -276,19 +278,23 @@ async def upsert_referral_settings(
     db: asyncpg.Connection = Depends(get_db)
 ):
     await _check_event_owned(event_id, int(client["sub"]), db)
-    mode = data.gift_count_mode or "registered"
-    if mode not in ("registered", "visited", "clicked_link"):
+    if data.gift_count_mode is not None and data.gift_count_mode not in (
+        "registered", "visited", "clicked_link"
+    ):
         raise HTTPException(400, "gift_count_mode must be 'registered', 'visited' or 'clicked_link'")
-    is_enabled = bool(data.is_enabled) if data.is_enabled is not None else False
+    # Частичный апдейт: переданные поля применяются, непереданные (None) —
+    # сохраняют текущее значение в БД (COALESCE на $-параметр). Дефолты для
+    # INSERT новой записи — registered / FALSE / FALSE.
     row = await db.fetchrow(
-        """INSERT INTO event_referral_settings (event_id, gift_count_mode, is_enabled)
-           VALUES ($1, $2, $3)
+        """INSERT INTO event_referral_settings (event_id, gift_count_mode, is_enabled, hide_rating)
+           VALUES ($1, COALESCE($2, 'registered'), COALESCE($3, FALSE), COALESCE($4, FALSE))
            ON CONFLICT (event_id) DO UPDATE
-             SET gift_count_mode = EXCLUDED.gift_count_mode,
-                 is_enabled      = EXCLUDED.is_enabled,
+             SET gift_count_mode = COALESCE($2, event_referral_settings.gift_count_mode),
+                 is_enabled      = COALESCE($3, event_referral_settings.is_enabled),
+                 hide_rating     = COALESCE($4, event_referral_settings.hide_rating),
                  updated_at      = NOW()
-           RETURNING gift_count_mode, is_enabled""",
-        event_id, mode, is_enabled
+           RETURNING gift_count_mode, is_enabled, hide_rating""",
+        event_id, data.gift_count_mode, data.is_enabled, data.hide_rating
     )
     return dict(row)
 

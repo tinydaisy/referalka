@@ -108,8 +108,18 @@ async def handle_event_chat_join(callback: CallbackQuery):
     except ValueError:
         await callback.answer("Ошибка кнопки")
         return
+    await run_event_chat_gate(callback.message, event_id, callback.from_user.id)
+    await callback.answer()
 
-    user_tg_id = callback.from_user.id
+
+async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
+    """Общая логика «вступить в чат события»: проверка подписки на каналы
+    спикеров/организаторов → если не подписан, шлём список каналов; если
+    подписан (или проверка не нужна), сразу выдаём ссылки на чаты.
+
+    Переиспользуется и из callback `evchat_<id>` (меню бота), и из deeplink
+    `/start evchat_<id>` (кнопка чата на веб-странице события /event/{slug}).
+    `message` — aiogram Message, в который шлём ответ."""
     pool = await get_pool()
     async with pool.acquire() as db:
         ev = await db.fetchrow(
@@ -122,7 +132,7 @@ async def handle_event_chat_join(callback: CallbackQuery):
             event_id,
         )
         if not ev:
-            await callback.answer("Событие не найдено", show_alert=True)
+            await message.answer("Событие не найдено. Проверьте ссылку.")
             return
 
         work_tg = await db.fetchval(
@@ -227,21 +237,19 @@ async def handle_event_chat_join(callback: CallbackQuery):
                 [InlineKeyboardButton(text="⬅️ Меню события",
                                       callback_data=f"evmenu_{event_id}")],
             ])
-            await callback.message.answer(
+            await message.answer(
                 "\n".join(lines).strip(), reply_markup=kb,
                 parse_mode="HTML", disable_web_page_preview=True,
             )
-            await callback.answer()
             return
 
         # ── Подписан (или mode=none) — выдаём ссылки на чаты ──────────────────
         text, rows = _build_chat_links_message(ev, event_id, work_tg)
         kb = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
-        await callback.message.answer(
+        await message.answer(
             text, reply_markup=kb, parse_mode="HTML",
             disable_web_page_preview=True,
         )
-        await callback.answer()
 
 
 @router.callback_query(F.data.startswith("evmenu_"))

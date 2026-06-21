@@ -873,6 +873,20 @@ async def handle_start(message: Message, command: CommandObject):
         except Exception as e:
             log.exception("menu<id> deeplink handler failed: %s", e)
 
+    # Кнопка «Чат события» с веб-страницы /event/{slug}: `/start evchat_<event_id>`.
+    # Ведёт сразу на «вступить в чат» — проверка подписки на каналы спикеров/
+    # организаторов, затем выдача ссылок на чаты (та же логика, что callback в меню).
+    if args.startswith("evchat_"):
+        try:
+            event_id = int(args.removeprefix("evchat_"))
+            from bot.handlers.funnel import run_event_chat_gate
+            await run_event_chat_gate(message, event_id, user.id)
+            return
+        except (ValueError, AttributeError):
+            pass
+        except Exception as e:
+            log.exception("evchat deeplink handler failed: %s", e)
+
     if args.startswith("ref_pg"):
         try:
             if await _handle_ref_event_bot_flow(message, args):

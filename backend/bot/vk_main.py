@@ -130,6 +130,23 @@ def _extract_funnel_run_id(message_or_event: dict) -> int | None:
     return _extract_ref_with_prefix(message_or_event, "fnl_")
 
 
+def _extract_event_chat_id(message_or_event: dict) -> int | None:
+    """Ищет `ref=evchat_<event_id>` — кнопка «Чат события» с веб-страницы
+    /event/{slug}. Ведёт сразу на «вступить в чат» (проверка подписки на
+    VK-сообщества спикеров + выдача чат-ссылок)."""
+    return _extract_ref_with_prefix(message_or_event, "evchat_")
+
+
+async def _event_belongs_to_client(db, event_id: int, client_id: int) -> bool:
+    """Принадлежит ли событие этому клиенту (через event_owners). Защита от
+    deeplink на чужое событие через бот другого клиента."""
+    return bool(await db.fetchval(
+        """SELECT 1 FROM event_owners
+            WHERE event_id = $1 AND client_id = $2 AND status = 'accepted' LIMIT 1""",
+        event_id, client_id,
+    ))
+
+
 def _extract_partner_run_id(message_or_event: dict) -> int | None:
     """Ищет `ref=prt_<int>` — старый прокси-формат партнёрки (deprecated)."""
     return _extract_ref_with_prefix(message_or_event, "prt_")
@@ -456,6 +473,17 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
                 pu_id, cc_id,
             )
     logger.info("VK message_allow: group=%s user=%s recorded", ctx.group_id, user_id)
+
+    # Кнопка «Чат события» с веб-страницы /event/{slug}: ref=evchat_<event_id>.
+    # Ведём сразу на «вступить в чат» — проверка подписки + выдача чат-ссылок.
+    evchat_event_id = _extract_event_chat_id(event)
+    if evchat_event_id and await _event_belongs_to_client(db, evchat_event_id, ctx.client_id):
+        try:
+            from bot.vk_event_menu import handle_vk_event_chat
+            await handle_vk_event_chat(evchat_event_id, int(user_id), db, ctx)
+            return
+        except Exception as e:
+            logger.warning("VK evchat (message_allow) failed: %s", e)
 
     # Если пришёл с реф-меткой лид-магнита (fnl_<run_id>) — запускаем воронку
     # и НЕ шлём дженерик welcome (приветствие будет от воронки).
@@ -1199,6 +1227,18 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             except Exception as e:
                 logger.warning(f"VK fnl_check via message payload failed: {e}")
             return  # payload-action обработан, в #user_message не дублируем
+
+    # Кнопка «Чат события» с веб-страницы /event/{slug}: ref=evchat_<event_id>
+    # (если человек уже разрешил ЛС, ref приходит в message_new). Ведём сразу
+    # на «вступить в чат» — проверка подписки + выдача чат-ссылок.
+    evchat_event_id = _extract_event_chat_id(event_obj)
+    if evchat_event_id and await _event_belongs_to_client(db, evchat_event_id, ctx.client_id):
+        try:
+            from bot.vk_event_menu import handle_vk_event_chat
+            await handle_vk_event_chat(evchat_event_id, int(from_id), db, ctx)
+            return
+        except Exception as e:
+            logger.warning("VK evchat (message_new) failed: %s", e)
 
     # Триггер «ИВЕНТ<id>» — человек написал в личку слово вроде «ИВЕНТ24».
     # Шлём воронку события №24 (незарег → 2 кнопки, зарег → меню кабинета).

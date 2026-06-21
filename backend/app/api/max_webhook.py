@@ -810,6 +810,25 @@ async def _process_start(
                 await max_send_message(chat_id, msg_text, token=bot_token, buttons=btn)
         return
 
+    # Кнопка «Чат события» с веб-страницы /event/{slug}: `/start evchat_<event_id>`.
+    # Ведём сразу на «вступить в чат» — проверка подписки + выдача чат-ссылок
+    # (та же логика, что callback `evchat_` из меню кабинета).
+    if payload and payload.startswith("evchat_"):
+        try:
+            event_id = int(payload.removeprefix("evchat_"))
+        except ValueError:
+            event_id = None
+        if event_id:
+            _ecp = await get_pool()
+            if _ecp:
+                async with _ecp.acquire() as conn:
+                    contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
+                    try:
+                        await _handle_max_chat_join(chat_id, event_id, contact_id, bot_token, conn)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"MAX evchat deeplink failed (event={event_id}): {e}")
+            return
+
     # Самообслуживание спикера (миграция 108): /start spkinv_<access_code>
     if payload and payload.startswith("spkinv_"):
         access_code = payload.removeprefix("spkinv_").strip()

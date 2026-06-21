@@ -59,13 +59,16 @@ export default function ReferralProgramTab({ eventId, moduleSlug }: { eventId: n
 
 function ReferralEnabledToggle({ eventId }: { eventId: number }) {
   const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [hideRating, setHideRating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const settingsRef = { current: null as any }
 
   useEffect(() => {
     api.referralProgram.settings.get(eventId)
-      .then((d: any) => { settingsRef.current = d; setEnabled(!!d?.is_enabled) })
+      .then((d: any) => {
+        setEnabled(!!d?.is_enabled)
+        setHideRating(!!d?.hide_rating)
+      })
       .catch(() => setEnabled(false))
   }, [eventId])
 
@@ -74,12 +77,21 @@ function ReferralEnabledToggle({ eventId }: { eventId: number }) {
     const next = !enabled
     setSaving(true); setErr(null)
     try {
-      const cur = settingsRef.current || {}
-      await api.referralProgram.settings.save(eventId, {
-        gift_count_mode: cur.gift_count_mode ?? 'registered',
-        is_enabled:      next,
-      })
+      await api.referralProgram.settings.save(eventId, { is_enabled: next })
       setEnabled(next)
+    } catch (e: any) {
+      setErr(e?.message || 'Не получилось сохранить')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function toggleHideRating() {
+    const next = !hideRating
+    setSaving(true); setErr(null)
+    try {
+      await api.referralProgram.settings.save(eventId, { hide_rating: next })
+      setHideRating(next)
     } catch (e: any) {
       setErr(e?.message || 'Не получилось сохранить')
     } finally {
@@ -121,6 +133,31 @@ function ReferralEnabledToggle({ eventId }: { eventId: number }) {
               : 'Включите чтобы вкладка «🎯 Подарки» появилась в Mini App у участников события.'}
           </div>
           {err && <div className="text-xs text-red-600 mt-1">{err}</div>}
+        </div>
+      </div>
+
+      {/* Отдельная галочка: скрыть ТОП рейтинг в кабинете участника */}
+      <div className="flex items-center gap-3 mt-3 pt-3 border-t border-black/5">
+        <button
+          onClick={toggleHideRating}
+          disabled={saving}
+          aria-label="Скрыть рейтинг"
+          className={`relative w-12 h-7 rounded-full transition flex-shrink-0 ${
+            hideRating ? 'bg-[#25455D]' : 'bg-gray-300'
+          } disabled:opacity-50`}>
+          <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition shadow ${
+            hideRating ? 'translate-x-5' : ''
+          }`} />
+        </button>
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-gray-800">
+            Скрыть рейтинг (ТОП) у участников
+          </div>
+          <div className="text-xs text-gray-600 mt-0.5">
+            {hideRating
+              ? 'Блок «🏆 ТОП рейтинг» спрятан в Mini App и в веб-кабинете участника. Подарки и ссылки остаются.'
+              : 'Сейчас участники видят таблицу лидеров. Включите, чтобы спрятать её в этом событии.'}
+          </div>
         </div>
       </div>
     </div>

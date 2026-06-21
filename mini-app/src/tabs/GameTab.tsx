@@ -563,7 +563,8 @@ export default function GameTab({ event, participant, tgUser }: Props) {
         )}
       </div>
 
-      {/* ТОП — expander */}
+      {/* ТОП — expander (скрыт, если клиент отключил рейтинг для события) */}
+      {!participant?.hide_rating && (
       <div style={{
         background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
         boxShadow: '0 2px 8px rgba(37,69,93,0.05)',
@@ -627,6 +628,7 @@ export default function GameTab({ event, participant, tgUser }: Props) {
           </div>
         )}
       </div>
+      )}
 
       {/* Партнёрские ссылки для всех активных платформ клиента (TG/VK/MAX).
           Пользователь сам выбирает какую отправить другу: TG-юзеру → TG-ссылку,

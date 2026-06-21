@@ -899,13 +899,15 @@ async def get_participant_in_event(
         # gift_count_mode достаём по slug → event_id, чтобы Mini App всегда
         # показывал правильную жёлтую подсказку про правило подсчёта,
         # даже до регистрации.
-        no_row_mode = await db.fetchval(
-            """SELECT ers.gift_count_mode
+        no_row_settings = await db.fetchrow(
+            """SELECT ers.gift_count_mode, ers.hide_rating
                  FROM event_referral_settings ers
                  JOIN events e ON e.id = ers.event_id
                 WHERE e.slug = $1""",
             event_slug
-        ) or "registered"
+        )
+        no_row_mode = (no_row_settings["gift_count_mode"] if no_row_settings else None) or "registered"
+        hide_rating = bool(no_row_settings["hide_rating"]) if no_row_settings else False
         return {
             "participant": None,
             "referrals_count": 0,
@@ -916,8 +918,9 @@ async def get_participant_in_event(
             "gift_count_value": 0,
             "gifts_received_count": 0,
             "my_people": [],
-            "top": top,
+            "top": [] if hide_rating else top,
             "my_rank": None,
+            "hide_rating": hide_rating,
             "prefill": prefill_dict,
         }
 
@@ -941,10 +944,12 @@ async def get_participant_in_event(
 
     # Выбираем «зачёт» по которому считаются подарки: registered / visited / clicked_link.
     # Если event_referral_settings нет — дефолт 'registered'.
-    gift_mode = await db.fetchval(
-        "SELECT gift_count_mode FROM event_referral_settings WHERE event_id = $1",
+    settings_row = await db.fetchrow(
+        "SELECT gift_count_mode, hide_rating FROM event_referral_settings WHERE event_id = $1",
         row["event_id"]
-    ) or "registered"
+    )
+    gift_mode = (settings_row["gift_count_mode"] if settings_row else None) or "registered"
+    hide_rating = bool(settings_row["hide_rating"]) if settings_row else False
     if gift_mode == "visited":
         gift_count_value = visited_count
     elif gift_mode == "clicked_link":
@@ -1020,7 +1025,8 @@ async def get_participant_in_event(
         "gift_count_value": gift_count_value,
         "gifts_received_count": gifts_received_count,
         "my_people": my_people,
-        "top": top,
-        "my_rank": my_rank,
+        "top": [] if hide_rating else top,
+        "my_rank": None if hide_rating else my_rank,
+        "hide_rating": hide_rating,
         "prefill": prefill_dict,
     }

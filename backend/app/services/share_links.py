@@ -379,3 +379,42 @@ async def build_speaker_self_edit_links(
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?startapp={payload}"
 
     return result
+
+
+async def build_event_chat_bot_links(
+    db,
+    client_id: int,
+    event_id: int,
+) -> dict[str, str]:
+    """Deeplink'и в бот площадки на «вступить в чат события» (проверка подписки
+    на каналы спикеров/организаторов → выдача ссылок на чаты).
+
+    Используется кнопкой «Чат события» на веб-странице /event/{slug}, когда у
+    события включена обязательная подписка: человек нажимает площадку → попадает
+    в бот ИМЕННО этой площадки на кусок воронки «вступить в чат».
+
+      - TG:  t.me/{bot}?start=evchat_<event_id>   (VIP-бот клиента или @pluson_bot)
+      - VK:  vk.me/{group}?ref=evchat_<event_id>  (только своё сообщество клиента)
+      - MAX: max.ru/{handle}?start=evchat_<event_id>  (только свой MAX-бот клиента)
+
+    На площадке без собственного канала клиента (VK/MAX) ссылку не возвращаем —
+    системные каналы ПЛЮСОНа в личку чужим подписчикам не пишут.
+    """
+    payload = f"evchat_{event_id}"
+    handles = await get_client_bot_handles(db, client_id)
+    result: dict[str, str] = {}
+
+    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
+    if tg_handle == PLUSON_TG_HANDLE:
+        if not await _has_system_channel(db, "telegram", allow_test=False):
+            tg_handle = ""
+    if tg_handle:
+        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+
+    if handles.get("vk"):
+        result["vk"] = f"https://vk.me/{handles['vk'].lstrip('@')}?ref={payload}"
+
+    if handles.get("max"):
+        result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
+
+    return result
