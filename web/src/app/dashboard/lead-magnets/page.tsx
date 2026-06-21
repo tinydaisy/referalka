@@ -934,10 +934,11 @@ function PlatformShareLinks({ kind, slug, links }: {
   )
 }
 
-// URL картинки QR-кода (PNG) для ссылки. Генерится на лету бесплатным
-// публичным сервисом — без npm-зависимостей и пересборки.
+// URL картинки QR-кода (PNG) для ссылки. Генерится на лету публичным сервисом
+// quickchart.io — без npm-зависимостей и пересборки. QR ВСЕГДА белый
+// (dark=white) на ПРОЗРАЧНОМ фоне (light=transparent, alpha=00).
 function qrPngUrl(data: string, size = 600): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=2&data=${encodeURIComponent(data)}`
+  return `https://quickchart.io/qr?text=${encodeURIComponent(data)}&size=${size}&margin=2&dark=ffffff&light=00000000&ecLevel=M&format=png`
 }
 
 function PlatformLinkRow({ platform, url, slug, kind }: { platform: PlatformKey; url: string; slug: string; kind: 'm' | 'p' }) {
@@ -1007,16 +1008,35 @@ function PlatformLinkRow({ platform, url, slug, kind }: { platform: PlatformKey;
         <meta.Icon size={14} />
       </span>
       <span className="font-mono text-gray-500 truncate flex-1 min-w-0">{url}</span>
-      <button type="button" onClick={copy} className="p-1 rounded hover:bg-gray-100 shrink-0" title={`Скопировать ссылку (${meta.label})`}>
+      <IconBtn tip="Скопировать ссылку" onClick={copy} disabled={false}>
         {copied ? <Check size={12} className="text-green-600" /> : <Copy size={12} className="text-gray-400" />}
-      </button>
-      <button type="button" onClick={copyQr} disabled={qrBusy} className="p-1 rounded hover:bg-gray-100 shrink-0 disabled:opacity-40" title={`Скопировать QR-код (${meta.label})`}>
+      </IconBtn>
+      <IconBtn tip="Скопировать QR-код" onClick={copyQr} disabled={qrBusy}>
         {qrCopied ? <Check size={12} className="text-green-600" /> : <QrCode size={12} className="text-gray-400" />}
-      </button>
-      <button type="button" onClick={downloadQr} disabled={qrBusy} className="p-1 rounded hover:bg-gray-100 shrink-0 disabled:opacity-40" title={`Скачать QR-код (${meta.label})`}>
+      </IconBtn>
+      <IconBtn tip="Скачать QR-код" onClick={downloadQr} disabled={qrBusy}>
         <Download size={12} className="text-gray-400" />
-      </button>
+      </IconBtn>
     </div>
+  )
+}
+
+// Кнопка-иконка с мгновенной CSS-подсказкой при наведении (group/tooltip).
+function IconBtn({ tip, onClick, disabled, children }: {
+  tip: string; onClick: () => void; disabled: boolean; children: React.ReactNode
+}) {
+  return (
+    <span className="relative group/tip shrink-0">
+      <button type="button" onClick={onClick} disabled={disabled}
+        className="p-1 rounded hover:bg-gray-100 disabled:opacity-40 flex items-center">
+        {children}
+      </button>
+      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1
+        rounded-md bg-gray-900 text-white text-[11px] whitespace-nowrap opacity-0 group-hover/tip:opacity-100
+        transition-opacity z-20">
+        {tip}
+      </span>
+    </span>
   )
 }
 
