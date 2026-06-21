@@ -143,7 +143,7 @@ export default function TariffsTab({
   if (loading) return <div className="py-16 flex justify-center"><Spinner /></div>
 
   return (
-    <div className="max-w-3xl">
+    <div className={subTab === 'orders' ? '' : 'max-w-3xl'}>
       {/* Подвкладки: Тарифы / Заказы */}
       <div className="border-b border-gray-200 mb-6 flex gap-1">
         {([['tariffs', 'Тарифы'], ['orders', 'Заказы']] as const).map(([k, label]) => (
@@ -790,8 +790,10 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
                   <td className="px-3 py-2 text-gray-800">{o.contact_name || `#${o.contact_id}`}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-col gap-0.5">
-                      {(o.tg_id || o.tg_username) && <PlatformChip label="TG" color="#229ED9" href={o.tg_username ? `https://t.me/${o.tg_username.replace(/^@+/, '')}` : `tg://user?id=${o.tg_id}`} />}
-                      {(o.vk_id || o.vk_username) && <PlatformChip label="VK" color="#0077FF" href={o.vk_username ? `https://vk.com/${o.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${o.vk_id}`} />}
+                      <div className="flex items-center gap-2">
+                        {(o.tg_id || o.tg_username) && <PlatformChip label="TG" color="#229ED9" href={o.tg_username ? `https://t.me/${o.tg_username.replace(/^@+/, '')}` : `tg://user?id=${o.tg_id}`} />}
+                        {(o.vk_id || o.vk_username) && <PlatformChip label="VK" color="#0077FF" href={o.vk_username ? `https://vk.com/${o.vk_username.replace(/^@+/, '')}` : `https://vk.com/id${o.vk_id}`} />}
+                      </div>
                       {o.email && <span className="text-xs text-gray-500">{o.email}</span>}
                       {o.phone && <span className="text-xs text-gray-500">{o.phone}</span>}
                     </div>
@@ -827,24 +829,30 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
   )
 }
 
+// Заметка — всегда видимое поле: вписать / изменить / очистить (✕).
+// Сохраняется по потере фокуса или Enter, только если значение изменилось.
 function OrderNote({ note, onSave }: { note: string | null; onSave: (n: string) => void }) {
-  const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(note || '')
-  if (editing) {
-    return (
-      <div className="flex gap-1">
-        <input value={val} onChange={e => setVal(e.target.value)} autoFocus
-          className="px-2 py-1 rounded border border-gray-200 text-xs w-32 focus:outline-none focus:border-brand" />
-        <button onClick={() => { onSave(val); setEditing(false) }} className="px-1.5 rounded bg-brand text-white text-xs">OK</button>
-      </div>
-    )
-  }
+  useEffect(() => { setVal(note || '') }, [note])
+  const dirty = val !== (note || '')
+  function commit() { if (dirty) onSave(val) }
   return (
-    <button onClick={() => setEditing(true)} className="text-xs text-left">
-      {note
-        ? <span className="text-gray-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5">{note}</span>
-        : <span className="text-gray-400 hover:text-brand">＋ заметка</span>}
-    </button>
+    <div className="flex items-center gap-1">
+      <input
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur() } }}
+        placeholder="заметка…"
+        className={`px-2 py-1 rounded border text-xs w-36 focus:outline-none focus:border-brand ${
+          note ? 'bg-yellow-50 border-yellow-200' : 'border-gray-200'
+        }`}
+      />
+      {val && (
+        <button onClick={() => { setVal(''); onSave('') }} title="Очистить"
+          className="p-0.5 rounded hover:bg-red-50 text-red-400"><X size={12} /></button>
+      )}
+    </div>
   )
 }
 
