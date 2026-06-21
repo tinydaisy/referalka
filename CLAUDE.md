@@ -89,6 +89,30 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Личные переписки «Диалоги» — история ЛС + ответы из дашборда (миграция 160 от 2026-06-21, НА ПРОДЕ)
+
+**Зачем.** Раньше личные сообщения людей боту/сообществу клиента нигде не сохранялись — только летело уведомление `#user_message` в TG-канал организатора. Теперь клиент видит ВСЮ историю переписки 1-на-1 (что пишет человек / что отвечает бот / что отвечает он сам) и **отвечает прямо из кабинета** через свои боты TG/VK/MAX, может править и удалять свои сообщения (реально у получателя на платформе).
+
+**⚠️ Отдельно от `event_chat_messages` (миграция 152)** — та про ГРУППОВЫЕ чаты событий и подсчёт баллов. `direct_messages` — про ЛИЧНЫЕ переписки.
+
+**Архитектура хранения (сервер маленький по RAM):**
+- **Текст** — в Postgres (`direct_messages`), лёгкий и быстрый.
+- **Медиа** (фото/видео/документ) — в R2 по ключу `clients/{client_id}/dialogs/{contact_id}/{message_id}/{uuid}.{ext}` (новый kind `dialog_media` в [r2_storage.build_key](backend/app/services/r2_storage.py)), в БД только `media_url`+`media_kind`. Считается в квоту клиента (`storage_used_bytes` + `client_files`). Структура «по клиенту → по контакту» — папка контакта целиком переносима.
+- **Голосовые НЕ качаем** — только пометка `media_kind='voice'`, бот отвечает «пишите текстом» (`VOICE_REPLY`). Запретить отправку голосовых на стороне бота технически нельзя ни на одной платформе → авто-ответ + не хранить файл.
+- **Retention** — `app.tasks.dialog_retention.archive_old_dialogs` (celery beat, раз в сутки 04:10 МСК) выгружает сообщения старше `RETENTION_DAYS=365` в R2 как JSONL (`clients/{cid}/dialogs/{contact}/archive-{YYYY-MM}.jsonl`) и удаляет из таблицы — чтобы Postgres не раздувался.
+
+**БД (миграция 160):** `direct_messages (id, client_id, contact_id, platform, channel_id, platform_user_id, direction['in'|'out'], author_kind['contact'|'bot'|'operator'], text, media_url, media_kind, platform_message_id, is_deleted, is_read, error, sent_at, edited_at, created_at)`. Частичный UNIQUE-дедуп `(client_id, platform, platform_user_id, direction, platform_message_id) WHERE platform_message_id IS NOT NULL`. GIN trgm по text. GRANT на `plusson`.
+
+**Бэкенд:**
+- **Сервис** [dialog_archive.py](backend/app/services/dialog_archive.py): `archive_incoming` (входящее + скачивание медиа кроме голоса), `archive_outgoing_bot` (авто-ответ бота), `archive_direct_message` (ядро), `store_media_from_url` (R2 + квота).
+- **Сохранение входящих** добавлено в 3 точки (только для VIP-ботов клиента — у системного контекст неизвестен): TG — `handle_user_message` (текст) + новый `handle_user_media` (голос/фото/видео/документ) в [start.py](backend/bot/handlers/start.py); VK — ЛС-ветка `handle_message_new` в [vk_main.py](backend/bot/vk_main.py); MAX — dialog-ветка `_handle_message_created` в [max_webhook.py](backend/app/api/max_webhook.py).
+- **API** [dialogs.py](backend/app/api/dialogs.py) (`/api/v1`): `GET /dialogs`, `GET /contacts/{id}/messages` (лента + помечает прочитанным), `POST /contacts/{id}/reply` (TG sendMessage / VK messages.send / MAX POST /messages), `PATCH /dialog-messages/{id}` (editMessageText / messages.edit / PUT /messages), `DELETE /dialog-messages/{id}` (deleteMessage / messages.delete / DELETE /messages → `is_deleted`). Ассистенту reply/edit/delete — 403. Токен платформы = `channels.bot_token` канала клиента.
+
+**Фронт:** карточка контакта `/dashboard/clients` перестроена в **3 колонки** — список (`w-80`) | чат (`flex-1`, [DialogChat.tsx](web/src/components/DialogChat.tsx)) | параметры (`w-[380px]`, **в одну колонку** друг под другом). Мобильно: параметры сверху, чат под ними (`md:hidden`). DialogChat: вкладки платформ, пузыри (вы тёмные / бот голубой / клиент белый), ✏️/🗑 на своих сообщениях. api-группа `api.dialogs.*`.
+
+**Ограничения платформ (известны, не баг):** VK — ответ в ЛС только если человек разрешил сообществу сообщения (иначе 901 → «не доставлено» с причиной); голосовые запретить нельзя — авто-ответ. Демо-сидер `backend/scripts/seed_demo_dialogs.py` (разово прогнан на проде для client 1).
+
+
 ### Тарифы мероприятия + вебхук «оплатил» (миграция 157 от 2026-06-19)
 
 **Зачем.** Раньше «VIP» события = одна ссылка `events.vip_url` без признака покупки на участнике. Из GetCourse приходил только вебхук «зарегистрировался» (`/integrations/getcourse/register`), аналога «оплатил» не было. Поле `is_vip` у участника некорректно — у события может быть несколько платных тарифов. Решение: настраиваемые тарифы события + связь «кто что оплатил».
