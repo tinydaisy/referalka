@@ -380,7 +380,8 @@ function BuyersPanel({ eventId, tariff, allTariffs, onChanged }: { eventId: numb
     onChanged()
   }
 
-  const existing = new Set([...(data?.paid || []), ...(data?.unpaid || [])].map(b => b.participant_id))
+  const paidIds = new Set((data?.paid || []).map(b => b.participant_id))
+  const unpaidIds = new Set((data?.unpaid || []).map(b => b.participant_id))
 
   function openAdd(status: 'paid' | 'unpaid') {
     setAddStatus(status)
@@ -409,7 +410,8 @@ function BuyersPanel({ eventId, tariff, allTariffs, onChanged }: { eventId: numb
           eventId={eventId}
           tariffId={tariff.id}
           status={addStatus}
-          existingParticipantIds={existing}
+          paidParticipantIds={paidIds}
+          unpaidParticipantIds={unpaidIds}
           onDone={async () => { setAdding(false); await reload(); onChanged() }}
         />
       )}
@@ -553,12 +555,13 @@ function BuyerCard({ b, unpaid, currentTariffId, allTariffs, onRemove, onPatch }
 
 // Выбор кого отметить оплатившим: участники события ИЛИ контакты базы.
 function AddBuyerPicker({
-  eventId, tariffId, status, existingParticipantIds, onDone,
+  eventId, tariffId, status, paidParticipantIds, unpaidParticipantIds, onDone,
 }: {
   eventId: number
   tariffId: number
   status: 'paid' | 'unpaid'
-  existingParticipantIds: Set<number>
+  paidParticipantIds: Set<number>
+  unpaidParticipantIds: Set<number>
   onDone: () => void
 }) {
   const [source, setSource] = useState<'participants' | 'contacts'>('participants')
@@ -647,25 +650,51 @@ function AddBuyerPicker({
         ) : rows.length === 0 ? (
           <div className="text-center text-gray-400 text-xs py-6">Ничего не найдено</div>
         ) : rows.map(row => {
-          const already = source === 'participants' && existingParticipantIds.has(row.id)
+          const isParticipant = source === 'participants'
+          const alreadyPaid = isParticipant && paidParticipantIds.has(row.id)
+          const hasUnpaidOrder = isParticipant && unpaidParticipantIds.has(row.id)
+          // В форме «оплатившего» строка с неоплаченным заказом — кликабельна (переводит в оплату).
+          // В форме «заказа» она блокируется (заказ уже есть).
+          const unpaidActionable = status === 'paid' && hasUnpaidOrder
+          const blocked = alreadyPaid || (status === 'unpaid' && hasUnpaidOrder)
           const name = row.contact_name || row.name || [row.first_name, row.last_name].filter(Boolean).join(' ') || `#${row.id}`
           const sub = row.email || row.phone || (row.username ? `@${row.username}` : '')
           return (
             <button
               key={row.id}
-              onClick={() => !already && pick(row)}
-              disabled={already || busyId === row.id}
+              onClick={() => !blocked && pick(row)}
+              disabled={blocked || busyId === row.id}
+              title={
+                alreadyPaid ? 'Уже оплатил этот тариф'
+                : (status === 'unpaid' && hasUnpaidOrder) ? 'Заказ по этому тарифу уже есть'
+                : unpaidActionable ? 'Есть заказ, не оплачен — нажмите, чтобы перевести в оплатившие'
+                : undefined
+              }
               className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-left text-sm ${
-                already ? 'bg-green-50 text-green-700 cursor-default' : 'hover:bg-gray-50'
+                alreadyPaid ? 'bg-green-50 text-green-700 cursor-default'
+                : (status === 'unpaid' && hasUnpaidOrder) ? 'bg-amber-50 text-amber-700 cursor-default'
+                : 'hover:bg-gray-50'
               }`}
             >
               <span className="min-w-0">
                 <span className="block truncate text-gray-800">{name}</span>
                 {sub && <span className="block truncate text-xs text-gray-400">{sub}</span>}
+                {unpaidActionable && (
+                  <span className="block truncate text-[11px] text-amber-600">Есть заказ, не оплачен</span>
+                )}
+                {(status === 'unpaid' && hasUnpaidOrder) && (
+                  <span className="block truncate text-[11px] text-amber-600">Заказ уже добавлен</span>
+                )}
               </span>
-              {already
-                ? <Check size={15} className="shrink-0" />
-                : <Plus size={15} className="shrink-0 text-brand" />}
+              {alreadyPaid ? (
+                <span className="shrink-0 flex items-center gap-1 text-[11px] text-green-700"><Check size={15} /> оплатил</span>
+              ) : unpaidActionable ? (
+                <span className="shrink-0 text-[11px] px-2 py-0.5 rounded bg-amber-500 text-white font-medium">Оплатить</span>
+              ) : (status === 'unpaid' && hasUnpaidOrder) ? (
+                <Check size={15} className="shrink-0 text-amber-600" />
+              ) : (
+                <Plus size={15} className="shrink-0 text-brand" />
+              )}
             </button>
           )
         })}
