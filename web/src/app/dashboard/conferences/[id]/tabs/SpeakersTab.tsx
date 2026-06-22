@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { Plus, User, Trash2, Pencil, X, AlertTriangle, ImageIcon } from 'lucide-react'
+import { Plus, User, Trash2, Pencil, X, AlertTriangle, ImageIcon, ChevronDown } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useLang } from '@/contexts/LangContext'
@@ -103,6 +103,15 @@ function defaultRoleFor(moduleSlug?: string | null): string {
   return 'speaker'
 }
 
+// Группы для турнира — в этом порядке. Каждый спикер попадает ровно в одну
+// группу по роли; «спикеры» собирают всех, кого нет в жюри/партнёрах
+// (организаторы, хедлайнеры, спикеры).
+const TOURNAMENT_GROUPS: Array<{ key: string; title: string; roles: string[] }> = [
+  { key: 'jury', title: 'Жюри', roles: ['jury'] },
+  { key: 'partners', title: 'Партнёры', roles: ['partner', 'general_partner'] },
+  { key: 'speakers', title: 'Спикеры', roles: ['organizer', 'headliner', 'speaker'] },
+]
+
 export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
   // Включён ли розыгрыш для этого события — нужно, чтобы скрыть
   // оранжевые предупреждения «нет подарка розыгрыша» если фича выключена.
@@ -136,6 +145,9 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
   const [selfRegLinks, setSelfRegLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
   const [selfEditLinks, setSelfEditLinks] = useState<{ telegram?: string; vk?: string; max?: string }>({})
   const [copiedPlatform, setCopiedPlatform] = useState<string>('')
+  // Только в турнире — сворачивание групп жюри / партнёры / спикеры
+  const isTournament = moduleSlug === 'turnir'
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
 
   function load() {
     setLoading(true)
@@ -296,6 +308,85 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
 
   const hasLinks = regLinks.length > 0 || editLinks.length > 0
 
+  // Одна строка спикера в списке. Вынесено в функцию, чтобы переиспользовать
+  // и в плоском списке, и в сгруппированных блоках турнира.
+  function renderSpeakerRow(sp: any, i: number) {
+    const topics: string[] = sp.topics && sp.topics.length > 0
+      ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
+      : (sp.speaker_topic ? [sp.speaker_topic] : [])
+    return (
+      <div
+        key={sp.id}
+        onClick={() => router.push(`${basePath}/${eventId}/speakers/${sp.id}`)}
+        className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors cursor-pointer ${i > 0 ? 'border-t border-gray-50' : ''}`}
+      >
+        <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
+          {sp.photo_url
+            ? <ImageThumb url={sp.photo_url} alt={sp.name} className="w-full h-full block" />
+            : <User size={16} className="text-gray-400" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-gray-900 text-sm truncate group-hover:text-brand transition-colors">
+              {sp.name}
+            </span>
+          </div>
+          <p className="text-xs text-gray-400">
+            {ts.roles[sp.role as keyof typeof ts.roles] || sp.role}
+            {sp.is_commercial && <span className="ml-1 text-amber-500">· коммерч.</span>}
+          </p>
+          <div className="mt-0.5">
+            {topics.length > 0 ? (
+              <div className="space-y-0.5">
+                {topics.map((topic, ti) => (
+                  <p key={ti} className="text-xs text-gray-500 truncate">
+                    {topics.length > 1 && <span className="text-gray-300 mr-1">{ti + 1}.</span>}
+                    {topic}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              // «Нет темы» показываем только если поле включено
+              // (show_topic_field !== false — default TRUE).
+              sp.show_topic_field !== false && (
+                <span className="flex items-center gap-0.5 text-xs text-amber-500">
+                  <AlertTriangle size={11} /> нет темы выступления
+                </span>
+              )
+            )}
+            {getMissingGiftLabels(sp, raffleEnabled).map(label => (
+              <span key={label} className="flex items-center gap-0.5 text-xs text-amber-500">
+                <AlertTriangle size={11} /> {label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="shrink-0" title={sp.poster_url ? 'Афиша «Для рассылок» этого события' : 'Нет афиши — добавьте в индивидуальные афиши спикера'}>
+          {sp.poster_url
+            ? <ImageThumb url={sp.poster_url} alt={`Афиша ${sp.name}`}
+                className="w-10 h-14 rounded overflow-hidden block bg-gray-100" />
+            : (
+              <div className="w-10 h-14 rounded border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center text-gray-300">
+                <ImageIcon size={14} />
+              </div>
+            )}
+        </div>
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all" onClick={e => e.stopPropagation()}>
+          <button onClick={(e) => { e.stopPropagation(); openEdit(sp) }}
+            className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">
+            <Pencil size={14} />
+          </button>
+          {!isAssistant && (
+            <button onClick={(e) => { e.stopPropagation(); remove(sp.id, sp.name) }}
+              className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-2xl">
       {/* Подвкладки: Спикеры / Ссылки */}
@@ -373,84 +464,46 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
           <User size={32} className="mx-auto mb-3 opacity-40" />
           <p className="text-sm">{ts.empty}</p>
         </div>
-      ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {speakers.map((sp, i) => {
-            const topics: string[] = sp.topics && sp.topics.length > 0
-              ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
-              : (sp.speaker_topic ? [sp.speaker_topic] : [])
+      ) : isTournament ? (
+        // ── Турнир: разделяем по группам (Жюри / Партнёры / Спикеры),
+        //    каждая — сворачиваемый блок. Не перемешиваем. ──
+        <div className="space-y-3">
+          {TOURNAMENT_GROUPS.map((group, gi) => {
+            const isLast = gi === TOURNAMENT_GROUPS.length - 1
+            const items = speakers.filter(sp =>
+              // последняя группа («Спикеры») — catch-all для ролей,
+              // не попавших в жюри/партнёров, чтобы никто не пропал.
+              isLast
+                ? !TOURNAMENT_GROUPS.slice(0, gi).some(g => g.roles.includes(sp.role))
+                : group.roles.includes(sp.role)
+            )
+            if (items.length === 0) return null
+            const collapsed = !!collapsedGroups[group.key]
             return (
-              <div
-                key={sp.id}
-                onClick={() => router.push(`${basePath}/${eventId}/speakers/${sp.id}`)}
-                className={`flex items-center gap-4 px-5 py-3.5 group hover:bg-gray-50 transition-colors cursor-pointer ${i > 0 ? 'border-t border-gray-50' : ''}`}
-              >
-                <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
-                  {sp.photo_url
-                    ? <ImageThumb url={sp.photo_url} alt={sp.name} className="w-full h-full block" />
-                    : <User size={16} className="text-gray-400" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-gray-900 text-sm truncate group-hover:text-brand transition-colors">
-                      {sp.name}
-                    </span>
+              <div key={group.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <button
+                  onClick={() => setCollapsedGroups(g => ({ ...g, [group.key]: !collapsed }))}
+                  className="w-full flex items-center gap-2 px-5 py-3 bg-gray-50/70 hover:bg-gray-100 transition-colors text-left"
+                >
+                  <ChevronDown
+                    size={16}
+                    className={`text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+                  />
+                  <span className="font-semibold text-sm text-gray-800">{group.title}</span>
+                  <span className="text-xs text-gray-400 font-medium">{items.length}</span>
+                </button>
+                {!collapsed && (
+                  <div>
+                    {items.map((sp, i) => renderSpeakerRow(sp, i))}
                   </div>
-                  <p className="text-xs text-gray-400">
-                    {ts.roles[sp.role as keyof typeof ts.roles] || sp.role}
-                    {sp.is_commercial && <span className="ml-1 text-amber-500">· коммерч.</span>}
-                  </p>
-                  <div className="mt-0.5">
-                    {topics.length > 0 ? (
-                      <div className="space-y-0.5">
-                        {topics.map((topic, ti) => (
-                          <p key={ti} className="text-xs text-gray-500 truncate">
-                            {topics.length > 1 && <span className="text-gray-300 mr-1">{ti + 1}.</span>}
-                            {topic}
-                          </p>
-                        ))}
-                      </div>
-                    ) : (
-                      // «Нет темы» показываем только если поле включено
-                      // (show_topic_field !== false — default TRUE).
-                      sp.show_topic_field !== false && (
-                        <span className="flex items-center gap-0.5 text-xs text-amber-500">
-                          <AlertTriangle size={11} /> нет темы выступления
-                        </span>
-                      )
-                    )}
-                    {getMissingGiftLabels(sp, raffleEnabled).map(label => (
-                      <span key={label} className="flex items-center gap-0.5 text-xs text-amber-500">
-                        <AlertTriangle size={11} /> {label}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="shrink-0" title={sp.poster_url ? 'Афиша «Для рассылок» этого события' : 'Нет афиши — добавьте в индивидуальные афиши спикера'}>
-                  {sp.poster_url
-                    ? <ImageThumb url={sp.poster_url} alt={`Афиша ${sp.name}`}
-                        className="w-10 h-14 rounded overflow-hidden block bg-gray-100" />
-                    : (
-                      <div className="w-10 h-14 rounded border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center text-gray-300">
-                        <ImageIcon size={14} />
-                      </div>
-                    )}
-                </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all" onClick={e => e.stopPropagation()}>
-                  <button onClick={(e) => { e.stopPropagation(); openEdit(sp) }}
-                    className="p-1.5 rounded-lg text-gray-300 hover:text-brand hover:bg-brand/10 transition-colors">
-                    <Pencil size={14} />
-                  </button>
-                  {!isAssistant && (
-                    <button onClick={(e) => { e.stopPropagation(); remove(sp.id, sp.name) }}
-                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
+                )}
               </div>
             )
           })}
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {speakers.map((sp, i) => renderSpeakerRow(sp, i))}
         </div>
       )}
       </>)}
