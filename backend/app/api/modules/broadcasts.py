@@ -413,6 +413,10 @@ async def list_templates(
             "day_before_09_12_unreg", "day_before_09_12_reg",
             "event_live",
         }
+        # Турнир получает (помимо общих) рассылку знакомства со спикерами и жюри —
+        # тот же speaker_intro, что у конференции (generate_schedules берёт всех
+        # видимых event_collaborators, включая жюри).
+        TURNIR_EXTRA_TYPES = {"speaker_intro"}
         for tpl in DEFAULT_TEMPLATES:
             # event_live — только мероприятиям; 5min_before — только конференциям.
             if tpl["type"] == "event_live" and is_conf:
@@ -420,12 +424,18 @@ async def list_templates(
             if tpl["type"] == "5min_before" and not is_conf:
                 continue
             if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
-                continue
+                # Турниру дополнительно разрешаем speaker_intro (знакомство со спикерами/жюри).
+                if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
+                    continue
             if is_conf and tpl["type"].startswith("day_before_09_12"):
                 continue  # для конф эту роль играет pre_conf
             # Для мероприятий — альтернативный текст без программы по дням (text_event),
             # если он задан у шаблона. Конференции/турниры используют основной text.
             tpl_text = tpl["text_event"] if (is_plain_event and tpl.get("text_event")) else tpl["text"]
+            # У турнира знакомство охватывает и жюри — отражаем это в названии шаблона.
+            tpl_name = tpl["name"]
+            if is_turnir and tpl["type"] == "speaker_intro":
+                tpl_name = "Знакомство со спикерами и жюри"
             await db.execute(
                 """
                 INSERT INTO broadcast_templates
@@ -433,7 +443,7 @@ async def list_templates(
                    schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 """,
-                client_id, event_id, tpl["name"], tpl["type"],
+                client_id, event_id, tpl_name, tpl["type"],
                 tpl_text, tpl["photo_url"], tpl["button_text"], tpl["button_url"],
                 tpl["schedule_mode"], tpl["offset_minutes"],
                 tpl["audience_include"], tpl["audience_exclude"], tpl["allow_custom_datetime"],
