@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
-import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle, MessagesSquare, Pencil } from 'lucide-react'
+import { Users, Search, ChevronDown, ChevronUp, X, Check, Trash2, Plus, Mail, Phone, UserPlus, AlertCircle, MessagesSquare, Pencil, Copy, Link2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useMe } from '@/hooks/useMe'
@@ -235,6 +235,95 @@ function referrerLabel(p: Participant): string {
   }
   if (username) return username
   return `код ${p.referrer_ref_code}`
+}
+
+// Персональные реф-ссылки участника (TG/VK/MAX) по его ref_code.
+// Грузятся лениво при раскрытии карточки. Кнопка «Скопировать все» кладёт
+// в буфер сразу все ссылки (по одной на строку).
+const PLATFORM_META: { key: 'telegram' | 'vk' | 'max'; label: string; color: string }[] = [
+  { key: 'telegram', label: 'Telegram', color: '#229ED9' },
+  { key: 'vk', label: 'VK', color: '#0077FF' },
+  { key: 'max', label: 'MAX', color: '#C79A5B' },
+]
+
+function ParticipantRefLinks({ eventId, refCode }: { eventId: number; refCode: string }) {
+  const [links, setLinks] = useState<Record<string, string> | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    api.events.shareLinksById(eventId, refCode)
+      .then((r: any) => { if (alive) setLinks(r?.links || {}) })
+      .catch(() => { if (alive) setLinks({}) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [eventId, refCode])
+
+  async function copy(text: string, key: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey(k => (k === key ? null : k)), 1500)
+    } catch { /* ignore */ }
+  }
+
+  if (loading) {
+    return <p className="text-[11px] text-gray-400 py-1">Загружаю ссылки…</p>
+  }
+
+  const rows = PLATFORM_META.filter(m => links?.[m.key])
+  if (rows.length === 0) {
+    return <p className="text-[11px] text-gray-400 py-1">Нет подключённых площадок для реф-ссылок.</p>
+  }
+
+  const allText = rows.map(m => `${m.label}: ${links![m.key]}`).join('\n')
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-gray-500 text-xs font-semibold flex items-center gap-1.5">
+          <Link2 size={12} /> Партнёрские ссылки участника
+        </p>
+        <button
+          type="button"
+          onClick={() => copy(allText, '__all__')}
+          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg text-white"
+          style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+        >
+          {copiedKey === '__all__' ? <Check size={12} /> : <Copy size={12} />}
+          {copiedKey === '__all__' ? 'Скопировано' : 'Скопировать все'}
+        </button>
+      </div>
+      <div className="space-y-1.5">
+        {rows.map(m => (
+          <div key={m.key} className="flex items-center gap-2">
+            <span
+              className="inline-flex items-center justify-center w-9 shrink-0 rounded-md text-[9px] font-bold text-white py-1"
+              style={{ background: m.color }}
+            >
+              {m.key === 'telegram' ? 'TG' : m.key === 'vk' ? 'VK' : 'MAX'}
+            </span>
+            <input
+              readOnly
+              value={links![m.key]}
+              onFocus={(e) => e.currentTarget.select()}
+              className="flex-1 min-w-0 px-2 py-1 text-[11px] font-mono rounded-md border border-gray-200 bg-white text-gray-700"
+            />
+            <button
+              type="button"
+              onClick={() => copy(links![m.key], m.key)}
+              title={`Скопировать ссылку ${m.label}`}
+              className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-[#25455D] hover:bg-gray-200 transition-colors"
+            >
+              {copiedKey === m.key ? <Check size={13} className="text-green-600" /> : <Copy size={13} />}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function ContactCard({
@@ -491,6 +580,11 @@ function ContactCard({
                 onChanged={(ref) => { setEditingRef(false); onReferrerChanged(ref) }}
                 onClose={() => setEditingRef(false)}
               />
+            </div>
+          )}
+          {p.ref_code && (
+            <div className="pt-3 mt-3 border-t border-gray-200">
+              <ParticipantRefLinks eventId={eventId} refCode={p.ref_code} />
             </div>
           )}
           {p.contact_id ? (

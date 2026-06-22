@@ -122,6 +122,13 @@ export const api = {
       const qs = p.toString() ? `?${p}` : ''
       return request(`/api/v1/events/slug/${encodeURIComponent(slug)}/share-links${qs}`)
     },
+    // Реф-ссылки конкретного участника по его ref_code (pid). По eventId — для карточки участника.
+    shareLinksById: (id: number, pid?: string) => {
+      const p = new URLSearchParams()
+      if (pid) p.set('pid', pid)
+      const qs = p.toString() ? `?${p}` : ''
+      return request(`/api/v1/events/${id}/share-links${qs}`)
+    },
     participants: (id: number, registered: 'all' | 'yes' | 'no' = 'all') =>
       request(`/api/v1/events/${id}/participants?registered=${registered}`),
     setRegistered: (id: number, participantId: number, isRegistered: boolean) =>
