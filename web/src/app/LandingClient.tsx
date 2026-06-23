@@ -182,7 +182,7 @@ export default function LandingClient() {
 
           <div className="flex flex-wrap justify-center gap-5 sm:gap-7 max-w-5xl mx-auto [&>*]:w-full [&>*]:sm:w-[300px]">
             {tariffs.map(t => (
-              <TariffCard key={t.id} t={t} registerHref={registerHref} featureLabels={featureLabels} />
+              <TariffCard key={t.id} t={t} registerHref={registerHref} featureLabels={featureLabels} trialBonus={trialBonus} />
             ))}
           </div>
 
@@ -232,9 +232,11 @@ export default function LandingClient() {
   )
 }
 
-function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHref: string; featureLabels: Record<string, string> }) {
+function TariffCard({ t, registerHref, featureLabels, trialBonus }: { t: Tariff; registerHref: string; featureLabels: Record<string, string>; trialBonus?: Promotion }) {
   const isPro = t.slug === 'pro'
   const isTrial = t.slug === 'trial'
+  // Срок триала с учётом активной акции: база + бонусные дни.
+  const trialDays = t.default_duration_days + (isTrial && trialBonus ? Number(trialBonus.value || 0) : 0)
   return (
     <div className={`relative rounded-2xl p-5 sm:p-7 border shadow-sm flex flex-col bg-white ${
       isPro ? 'border-amber-200 ring-2 ring-amber-100' : 'border-gray-100'
@@ -246,11 +248,16 @@ function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHre
       )}
       {isTrial && !t.promo_banner_text && (
         <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold whitespace-nowrap">
-          Бесплатно
+          Попробуй бесплатно
         </span>
       )}
       <h3 className="font-bold text-xl text-gray-900">{t.name}</h3>
-      {isTrial && <p className="mt-1 text-sm text-gray-500">Полный доступ ко всему на {t.default_duration_days} дней — попробовать бесплатно</p>}
+      {isTrial && (
+        <p className="mt-1 text-sm text-gray-500">Полный доступ ко всему на {trialDays} дней — попробовать бесплатно</p>
+      )}
+      {isTrial && trialBonus && (
+        <p className="mt-1 text-xs font-semibold text-emerald-600">🎁 Акция: {trialDays} дней вместо {t.default_duration_days}</p>
+      )}
 
       <div className="mt-3 mb-1 min-h-[3.5rem] flex flex-col">
         {t.promo_old_price && Number(t.promo_old_price) > 0 && Number(t.promo_old_price) > Number(t.price) ? (
@@ -265,7 +272,7 @@ function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHre
             {Number(t.price).toLocaleString('ru-RU')} ₽
           </span>
         )}
-        <span className="text-xs text-gray-400 mt-1">за {t.default_duration_days} дней</span>
+        <span className="text-xs text-gray-400 mt-1">за {trialDays} дней</span>
       </div>
 
       <div className="space-y-2 mt-4 text-sm text-gray-600 flex-1">
