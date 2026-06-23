@@ -42,8 +42,8 @@ export default function ConferencePage() {
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const { me } = useMe()
-  // Раздел «Тарифы» временно только у Марго (client_id=1).
-  const isVip = me?.id === 1
+  // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
+  const isVip = (me?.features || []).includes('event_tariffs')
 
   async function handleSalebotExport() {
     setExporting(true)

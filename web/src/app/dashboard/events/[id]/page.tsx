@@ -25,9 +25,8 @@ export default function EventPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useUrlTab<TabKey>('tab', 'overview')
   const { me } = useMe()
-  // Раздел «Тарифы» — только для клиентов тарифа vip (Марго).
-  // Раздел «Тарифы» временно только у Марго (client_id=1).
-  const isVip = me?.id === 1
+  // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
+  const isVip = (me?.features || []).includes('event_tariffs')
 
   async function reload() {
     const e = await api.events.get(eventId)

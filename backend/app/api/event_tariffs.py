@@ -22,7 +22,7 @@ import asyncpg
 
 from app.database import get_db
 from app.auth import get_current_client
-from app.services.subscriptions import get_subscription
+from app.services.features import client_has_feature
 
 router = APIRouter(prefix="/events/{event_id}/tariffs", tags=["Тарифы мероприятия"])
 
@@ -38,12 +38,16 @@ async def _check_event_access(db, client_id: int, event_id: int):
 
 
 async def _assert_vip(db, client_id: int):
-    """Раздел тарифов мероприятия — только для клиентов тарифа vip."""
-    sub = await get_subscription(db, client_id)
-    if not sub or sub.get("tariff_slug") != "vip":
+    """Раздел тарифов мероприятия — только при включённой фиче event_tariffs.
+
+    Фича включается через tariff_features (сейчас — у скрытого тарифа admin,
+    в будущем можно добавить в любой публичный тариф). Никакого хардкода по
+    tariff_slug или client_id.
+    """
+    if not await client_has_feature(db, client_id, "event_tariffs"):
         raise HTTPException(
             status_code=403,
-            detail="Тарифы мероприятия доступны только на тарифе VIP.",
+            detail="Раздел «Тарифы мероприятия» недоступен на вашем тарифе.",
         )
 
 
