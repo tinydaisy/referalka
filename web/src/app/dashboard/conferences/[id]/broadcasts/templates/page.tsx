@@ -153,6 +153,15 @@ const VAR_DESC: Record<string, string> = Object.fromEntries(
   ALL_VARIABLES.map(v => [v.name, v.desc])
 )
 
+// Роли коллабораторов для выбора в шаблоне «Знакомство со спикерами».
+const INTRO_ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'headliner', label: 'Хедлайнеры' },
+  { value: 'speaker', label: 'Спикеры' },
+  { value: 'jury', label: 'Жюри' },
+  { value: 'organizer', label: 'Организаторы' },
+  { value: 'partner', label: 'Партнёры' },
+]
+
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все участники конфы',
   registered_event: 'Зарегистрированные участники',
@@ -177,6 +186,7 @@ const emptyForm = {
   video_url: '', media_type: null as 'photo' | 'video' | null,
   button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
   intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
+  intro_roles: null as string[] | null,
   custom_day_ref: '', custom_time: '12:00',
   // target_channel_ids: null = «по всем каналам клиента» (default),
   // [] = никуда не слать, [N,M] = только эти channel_id.
@@ -405,6 +415,7 @@ export default function TemplatesPage() {
       intro_start_time: t.intro_start_time || '11:00',
       intro_interval_min: t.intro_interval_min || 15,
       intro_days_before: t.intro_days_before || 1,
+      intro_roles: Array.isArray(t.intro_roles) ? t.intro_roles : null,
       custom_day_ref: t.custom_day_ref || '',
       custom_time: t.custom_time || '12:00',
       target_channel_ids: Array.isArray(t.target_channel_ids) ? t.target_channel_ids : null,
@@ -1062,6 +1073,39 @@ export default function TemplatesPage() {
                       <option value={6}>за 6 дней до конференции</option>
                       <option value={7}>за 7 дней до конференции</option>
                     </select>
+                  </div>
+
+                  {/* Выбор ролей: для кого формировать знакомство.
+                      null/undefined = все роли (по умолчанию). */}
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Знакомить с (роли)</label>
+                    <div className="flex flex-wrap gap-2">
+                      {INTRO_ROLE_OPTIONS.map(r => {
+                        const cur: string[] | null = (form as any).intro_roles ?? null
+                        // null = все выбраны
+                        const checked = cur === null ? true : cur.includes(r.value)
+                        return (
+                          <label key={r.value}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white cursor-pointer text-sm">
+                            <input type="checkbox" checked={checked}
+                              onChange={() => {
+                                const base: string[] = cur === null
+                                  ? INTRO_ROLE_OPTIONS.map(o => o.value)  // разворачиваем «все» в явный список
+                                  : [...cur]
+                                const next = checked
+                                  ? base.filter(v => v !== r.value)
+                                  : [...base, r.value]
+                                setForm({ ...form, intro_roles: next } as any)
+                              }}
+                              className="w-4 h-4 accent-[#25455D]" />
+                            {r.label}
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Отмеченные роли попадут в рассылку знакомства при «Сформировать из программы». По умолчанию — все.
+                    </p>
                   </div>
                 </div>
               )}

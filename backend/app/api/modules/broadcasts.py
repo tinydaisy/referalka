@@ -66,6 +66,8 @@ class TemplateCreate(BaseModel):
     # Каналы для отправки: NULL/None = все каналы клиента (default), [] = никуда,
     # [N,M] = только эти channel_id. Унаследуется в schedules через generate_schedules.
     target_channel_ids: Optional[List[int]] = None
+    # Слать ещё и в групповые чаты события (tg/vk/max_chat_id) — в ДОПОЛНЕНИЕ к базе.
+    send_to_event_chats: Optional[bool] = None
 
 
 class TemplateUpdate(BaseModel):
@@ -89,6 +91,9 @@ class TemplateUpdate(BaseModel):
     custom_day_ref: Optional[str] = None        # для type='custom'
     custom_time: Optional[str] = None           # для type='custom'
     target_channel_ids: Optional[List[int]] = None
+    send_to_event_chats: Optional[bool] = None
+    # Роли коллабораторов для speaker_intro (NULL = все). Пустой массив [] = никто.
+    intro_roles: Optional[List[str]] = None
 
 
 DEFAULT_TEMPLATES = [
@@ -387,7 +392,7 @@ async def list_templates(
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
-               target_channel_ids,
+               target_channel_ids, send_to_event_chats, intro_roles,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -671,12 +676,14 @@ async def update_template(
             custom_time = COALESCE($17, custom_time),
             target_channel_ids = COALESCE($18::int[], target_channel_ids),
             video_url = $21, media_type = $22,
+            send_to_event_chats = COALESCE($23, send_to_event_chats),
+            intro_roles = COALESCE($24::text[], intro_roles),
             updated_at = NOW()
         WHERE id = $19 AND event_id = $20
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
-                  custom_day_ref, custom_time, target_channel_ids
+                  custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, intro_roles
         """,
         data.name, data.type, data.subject, new_text,
         data.photo_url, data.button_text, data.button_url,
@@ -687,6 +694,8 @@ async def update_template(
         data.target_channel_ids,
         template_id, event_id,
         data.video_url, data.media_type,
+        data.send_to_event_chats,
+        data.intro_roles,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
@@ -876,7 +885,7 @@ async def generate_schedules(
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
                text, photo_url, button_text, button_url,
-               name
+               name, send_to_event_chats, intro_roles
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
@@ -1025,12 +1034,26 @@ async def generate_schedules(
         interval_min = tmpl["intro_interval_min"] or 15
         days_before = tmpl["intro_days_before"] or 1
 
-        speakers_list = await db.fetch(
-            """SELECT cse.id FROM event_collaborators cse
-               WHERE cse.event_id=$1 AND cse.is_visible=true
-               ORDER BY """ + collaborator_sort.order_by_sql("cse"),
-            event_id
-        )
+        # Фильтр по ролям: NULL = все роли; непустой список = только эти роли;
+        # пустой список [] = ни одной роли (знакомство не формируем).
+        intro_roles = tmpl.get("intro_roles")
+        if intro_roles is not None and len(intro_roles) == 0:
+            speakers_list = []
+        elif intro_roles:
+            speakers_list = await db.fetch(
+                """SELECT cse.id FROM event_collaborators cse
+                   WHERE cse.event_id=$1 AND cse.is_visible=true
+                     AND cse.role = ANY($2::text[])
+                   ORDER BY """ + collaborator_sort.order_by_sql("cse"),
+                event_id, intro_roles
+            )
+        else:
+            speakers_list = await db.fetch(
+                """SELECT cse.id FROM event_collaborators cse
+                   WHERE cse.event_id=$1 AND cse.is_visible=true
+                   ORDER BY """ + collaborator_sort.order_by_sql("cse"),
+                event_id
+            )
 
         if first_day and first_day["day_date"] and speakers_list:
             tz_msk = ZoneInfo("Europe/Moscow")
@@ -1290,6 +1313,17 @@ async def generate_schedules(
                 tmpl.get("text"), tmpl.get("photo_url"), tmpl.get("button_text"), tmpl.get("button_url")
             )
             created += 1
+
+    # Проставляем флаг «слать в чаты события» во все созданные schedules,
+    # унаследовав от их шаблона (snapshot на момент генерации).
+    chat_tpl_ids = [t["id"] for t in templates if t.get("send_to_event_chats")]
+    if chat_tpl_ids:
+        await db.execute(
+            """UPDATE broadcast_schedules
+                 SET send_to_event_chats = TRUE
+               WHERE event_id = $1 AND template_id = ANY($2::int[])""",
+            event_id, chat_tpl_ids,
+        )
 
     return {"ok": True, "created": created, "skipped": skipped}
 
