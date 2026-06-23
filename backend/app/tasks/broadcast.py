@@ -481,21 +481,34 @@ async def _send_broadcast(schedule_id: int):
             if success:
                 sent += 1
 
-        # Отправка копии в дополнительные чаты (events.telegram_chat_ids — общая колонка
-        # для мероприятий и конференций, миграция 076).
-        # Эти чаты — служебные группы клиента, шлём через главного бота.
-        if not schedule["is_test"]:
+        # Отправка копии в групповые TG-чаты события — ТОЛЬКО если включена галочка
+        # «Отправлять в чаты события» (send_to_event_chats) и это не тест.
+        # Собираем чаты из обеих колонок (telegram_chat_ids CSV + tg_chat_id) в
+        # УНИКАЛЬНОЕ множество — иначе если один чат указан в обеих, шлём дважды.
+        if not schedule["is_test"] and schedule.get("send_to_event_chats"):
             chat_ids_row = await conn.fetchrow(
-                "SELECT telegram_chat_ids FROM events WHERE id = $1",
+                "SELECT telegram_chat_ids, tg_chat_id FROM events WHERE id = $1",
                 event_id
             )
-            if chat_ids_row and chat_ids_row["telegram_chat_ids"]:
-                extra_ids = [c.strip() for c in chat_ids_row["telegram_chat_ids"].split(",") if c.strip()]
-                async with httpx.AsyncClient(timeout=10) as http_extra:
-                    for cid in extra_ids:
+            tg_chats: list[str] = []
+            seen_chats: set[str] = set()
+            if chat_ids_row:
+                raw = []
+                if chat_ids_row["telegram_chat_ids"]:
+                    raw += [c.strip() for c in chat_ids_row["telegram_chat_ids"].split(",")]
+                if chat_ids_row["tg_chat_id"]:
+                    raw.append(str(chat_ids_row["tg_chat_id"]).strip())
+                for c in raw:
+                    if c and c not in seen_chats:
+                        seen_chats.add(c)
+                        tg_chats.append(c)
+            if tg_chats:
+                async with httpx.AsyncClient(timeout=15) as http_extra:
+                    for cid in tg_chats:
                         await send_telegram_message(
                             http_extra, default_bot_token, cid, text, photo_url, button_text, button_url,
-                            buttons=buttons
+                            buttons=buttons,
+                            video_url=video_url if media_type == "video" else None,
                         )
 
         # === VK подписчики (доп. слой, после TG) ===
@@ -582,35 +595,17 @@ async def _send_broadcast_to_event_chats(
     buttons: list | None = None,
     video_url: str | None = None, media_type: str | None = None,
 ) -> int:
-    """Шлёт рассылку в ГРУППОВЫЕ чаты события (по флагу send_to_event_chats):
-    events.tg_chat_id (Telegram), vk_chat_id (VK-беседа), max_chat_id (MAX-чат).
-    В дополнение к рассылке по базе. Возвращает число успешно отправленных чатов."""
+    """Шлёт рассылку в ГРУППОВЫЕ чаты события VK/MAX (по флагу send_to_event_chats):
+    events.vk_chat_id (VK-беседа), max_chat_id (MAX-чат).
+    Telegram-чаты обрабатываются отдельно выше (с дедупом telegram_chat_ids+tg_chat_id),
+    поэтому ЗДЕСЬ TG НЕ дублируем. Возвращает число успешно отправленных чатов."""
     ev = await conn.fetchrow(
-        "SELECT tg_chat_id, vk_chat_id, max_chat_id FROM events WHERE id=$1", event_id
+        "SELECT vk_chat_id, max_chat_id FROM events WHERE id=$1", event_id
     )
     if not ev:
         return 0
     client_id = schedule["client_id"]
     sent = 0
-
-    # ── Telegram-чат ──
-    tg_chat = (ev["tg_chat_id"] or "").strip() if ev["tg_chat_id"] else ""
-    if tg_chat:
-        try:
-            from app.services.channels import get_client_telegram_token
-            from app.config import settings as _settings
-            tg_token = await get_client_telegram_token(client_id, conn) or _settings.telegram_bot_token
-            if tg_token:
-                async with httpx.AsyncClient(timeout=30.0) as http:
-                    ok, _err = await send_telegram_message(
-                        http, tg_token, tg_chat, text, photo_url, button_text, button_url,
-                        buttons=buttons,
-                        video_url=video_url if media_type == "video" else None,
-                    )
-                    if ok:
-                        sent += 1
-        except Exception as ex:
-            logger.warning(f"Отправка в TG-чат события {event_id} упала: {ex}")
 
     # ── MAX-чат ──
     max_chat = (ev["max_chat_id"] or "").strip() if ev["max_chat_id"] else ""

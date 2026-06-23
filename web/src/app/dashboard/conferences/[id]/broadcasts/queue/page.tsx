@@ -119,6 +119,8 @@ export default function QueuePage() {
   const [genModal, setGenModal] = useState(false)
   const [genSelectedIds, setGenSelectedIds] = useState<Set<number>>(new Set())
   const [customModal, setCustomModal] = useState(false)
+  // Правка существующей произвольной рассылки (передаём в модалку editSchedule).
+  const [editCustomSchedule, setEditCustomSchedule] = useState<any>(null)
   const [bulkModal, setBulkModal] = useState(false)
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set())
   const [fireAtModal, setFireAtModal] = useState<any>(null)   // {schedule}
@@ -702,11 +704,19 @@ export default function QueuePage() {
                         <span className="text-red-500 truncate max-w-[200px]" title={s.error_log}>⚠ {s.error_log}</span>
                       )}
                     </div>
-                    {/* Overdue: время прошло, рассылка в черновике/ожидании — не уйдёт сама */}
-                    {s.is_overdue && (s.status === 'draft' || s.status === 'pending') && (
+                    {/* Overdue + ЧЕРНОВИК — реально не уйдёт сама, пока не запустить очередь. */}
+                    {s.is_overdue && s.status === 'draft' && (
                       <div className="mt-1.5 flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-300 rounded-lg px-2.5 py-1.5">
                         <AlertCircle size={12} className="shrink-0" />
-                        <span>⚠️ Время прошло — рассылка не отправится автоматически. Перенесите время или отмените.</span>
+                        <span>⚠️ Время прошло, а рассылка в черновике. Запустите очередь (или перенесите время / отмените).</span>
+                      </div>
+                    )}
+                    {/* Overdue + ОЖИДАЕТ (очередь запущена) — Celery подхватит в ближайшую
+                        минуту, отправится. Не пугаем «не отправится». */}
+                    {s.is_overdue && s.status === 'pending' && (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                        <AlertCircle size={12} className="shrink-0" />
+                        <span>⏳ Время наступило — отправляется в ближайшую минуту.</span>
                       </div>
                     )}
                     {/* Предупреждение если running слишком долго */}
@@ -774,11 +784,13 @@ export default function QueuePage() {
                         Задать время
                       </button>
                     )}
-                    {/* Редактировать настройки (если уже задано время) */}
+                    {/* Редактировать: для произвольной (custom) — полная правка
+                        текста/фото/кнопок/времени; для шаблонных — только время. */}
                     {(s.status === 'draft' || s.status === 'pending') && s.fire_at && (
-                      <button onClick={() => openFireAt(s)}
+                      <button
+                        onClick={() => s.type === 'custom' ? setEditCustomSchedule(s) : openFireAt(s)}
                         className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
-                        title="Редактировать">
+                        title={s.type === 'custom' ? 'Редактировать рассылку' : 'Редактировать время'}>
                         <Edit2 size={13} />
                       </button>
                     )}
@@ -1164,6 +1176,18 @@ export default function QueuePage() {
         />
       )}
 
+      {/* ── Модалка: правка существующей произвольной рассылки ── */}
+      {editCustomSchedule && (
+        <CustomBroadcastModal
+          editSchedule={editCustomSchedule}
+          onClose={() => setEditCustomSchedule(null)}
+          onSaved={async () => { setEditCustomSchedule(null); await load(); showMsg('Рассылка обновлена') }}
+          onError={(m) => showMsg(m, 'err')}
+          eventId={eventId}
+          tzLabel={tzLabel}
+        />
+      )}
+
       {/* ── Модалка: пакетная загрузка ── */}
       {bulkModal && (
         <BulkBroadcastModal
@@ -1335,14 +1359,29 @@ function CustomBroadcastModal(props: {
   onError: (m: string) => void
   eventId: number
   tzLabel: string
+  editSchedule?: any   // если задан — режим правки существующей произвольной рассылки
 }) {
-  const [fireAt, setFireAt] = useState('')
-  const [text, setText] = useState('')
-  const [photoUrl, setPhotoUrl] = useState('')
-  const [buttons, setButtons] = useState<{text: string; url: string}[]>([])
-  const [isTest, setIsTest] = useState(false)
-  const [audIn, setAudIn] = useState('all_event')
-  const [audEx, setAudEx] = useState('none')
+  const ed = props.editSchedule
+  // datetime-local ждёт "YYYY-MM-DDTHH:mm" по локали клиента (МСК).
+  const initFireAt = (() => {
+    if (!ed?.fire_at) return ''
+    try {
+      const d = new Date(ed.fire_at)
+      // Берём МСК-представление
+      const msk = new Date(d.toLocaleString('en-US', { timeZone: 'Europe/Moscow' }))
+      const p = (n: number) => String(n).padStart(2, '0')
+      return `${msk.getFullYear()}-${p(msk.getMonth() + 1)}-${p(msk.getDate())}T${p(msk.getHours())}:${p(msk.getMinutes())}`
+    } catch { return '' }
+  })()
+  const [fireAt, setFireAt] = useState(initFireAt)
+  const [text, setText] = useState(ed?.snapshot_text || '')
+  const [photoUrl, setPhotoUrl] = useState(ed?.snapshot_photo || '')
+  const [buttons, setButtons] = useState<{text: string; url: string}[]>(
+    Array.isArray(ed?.snapshot_buttons) ? ed.snapshot_buttons.map((b: any) => ({ text: b.text || '', url: b.url || '' })) : []
+  )
+  const [isTest, setIsTest] = useState(!!ed?.is_test)
+  const [audIn, setAudIn] = useState(ed?.audience_include || 'all_event')
+  const [audEx, setAudEx] = useState(ed?.audience_exclude || 'none')
   const [saving, setSaving] = useState(false)
 
   const htmlErrors = validateTelegramHtml(text)
@@ -1357,7 +1396,7 @@ function CustomBroadcastModal(props: {
     if (hasButtonErrors) { props.onError('Исправьте ошибки в кнопках'); return }
     setSaving(true)
     try {
-      await api.conference.schedules.addCustom(props.eventId, {
+      const payload = {
         fire_at: fireAt,
         text: text,
         photo_url: photoUrl || null,
@@ -1365,10 +1404,15 @@ function CustomBroadcastModal(props: {
         is_test: isTest,
         audience_include: audIn,
         audience_exclude: audEx,
-      })
+      }
+      if (ed?.id) {
+        await api.conference.schedules.editCustom(props.eventId, ed.id, payload)
+      } else {
+        await api.conference.schedules.addCustom(props.eventId, payload)
+      }
       props.onSaved()
     } catch (e: any) {
-      props.onError(e.message || 'Ошибка добавления')
+      props.onError(e.message || 'Ошибка сохранения')
     } finally {
       setSaving(false)
     }
@@ -1378,7 +1422,7 @@ function CustomBroadcastModal(props: {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="font-semibold text-gray-800">Произвольная рассылка</h3>
+          <h3 className="font-semibold text-gray-800">{ed?.id ? 'Редактировать рассылку' : 'Произвольная рассылка'}</h3>
           <button onClick={props.onClose}><X size={18} /></button>
         </div>
         <div className="space-y-3">

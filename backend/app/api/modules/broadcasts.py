@@ -767,7 +767,10 @@ async def list_schedules(
                  ELSE c.name
                END as speaker_name,
                bs.session_id,
-               bs.error_log
+               bs.error_log,
+               -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
+               bs.snapshot_text, bs.snapshot_photo, bs.snapshot_video,
+               bs.snapshot_media_type, bs.snapshot_buttons
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type != 'speaker_intro'
@@ -1550,6 +1553,61 @@ async def add_custom_schedule(
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype
+    )
+    return dict(row)
+
+
+@router.put("/schedules/{schedule_id}/custom", summary="Редактировать произвольную рассылку")
+async def edit_custom_schedule(
+    event_id: int,
+    schedule_id: int,
+    data: AddCustomRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Правка текста/фото/кнопок/времени/аудитории произвольной (type='custom')
+    рассылки в очереди. Только пока не отправлена (draft/pending)."""
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+
+    cur = await db.fetchrow(
+        "SELECT type, status FROM broadcast_schedules WHERE id=$1 AND event_id=$2",
+        schedule_id, event_id,
+    )
+    if not cur:
+        raise HTTPException(status_code=404, detail="Рассылка не найдена")
+    if cur["type"] != "custom":
+        raise HTTPException(status_code=400, detail="Править можно только произвольную рассылку")
+    if cur["status"] not in ("draft", "pending"):
+        raise HTTPException(status_code=400, detail="Эту рассылку уже нельзя редактировать (отправлена/отменена)")
+
+    errors = _validate_custom_item(data.model_dump())
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+
+    client_row = await db.fetchrow("SELECT timezone FROM clients WHERE id=$1", client_id)
+    tz = ZoneInfo((client_row["timezone"] or "Europe/Moscow") if client_row else "Europe/Moscow")
+    try:
+        dt_utc = _parse_fire_at(data.fire_at, tz)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Неверный формат даты")
+
+    import json as _json
+    buttons_json = [{"text": b.text.strip(), "url": b.url.strip()} for b in data.buttons if b.text.strip() and b.url.strip()]
+    snap_photo, snap_video, snap_mtype = _resolve_snapshot_media(data.photo_url, data.video_url, data.media_type)
+    row = await db.fetchrow(
+        """
+        UPDATE broadcast_schedules SET
+            fire_at = $1, is_test = $2,
+            audience_include = $3, audience_exclude = $4,
+            snapshot_text = $5, snapshot_photo = $6, snapshot_buttons = $7::jsonb,
+            snapshot_video = $8, snapshot_media_type = $9
+        WHERE id = $10 AND event_id = $11 AND type = 'custom'
+        RETURNING id, type, fire_at, status, is_test
+        """,
+        dt_utc, data.is_test, data.audience_include, data.audience_exclude,
+        data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
+        schedule_id, event_id,
     )
     return dict(row)
 
