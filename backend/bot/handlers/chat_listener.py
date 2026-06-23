@@ -168,7 +168,9 @@ async def on_group_message(message: Message, bot: Bot):
     if not written:
         return
 
-    # ── Приветствие в чатах: кодовое слово → ответ случайной фразой (reply).
+    # ── Приветствие в чатах: кодовое слово → ОТВЕТ случайной фразой (reply),
+    # но не мгновенно: через случайную задержку 30..180 сек (естественнее).
+    # Запускаем фоном, чтобы не держать обработку апдейта.
     try:
         greeting = await process_chat_greeting(
             platform="telegram",
@@ -178,7 +180,18 @@ async def on_group_message(message: Message, bot: Bot):
             text=text,
         )
         if greeting:
-            await message.reply(greeting)
+            import asyncio
+            from app.services.chat_archive import pick_greeting_delay_sec
+            delay = pick_greeting_delay_sec()
+
+            async def _send_greeting_later(msg=message, txt=greeting, d=delay):
+                try:
+                    await asyncio.sleep(d)
+                    await msg.reply(txt)
+                except Exception as ex:  # noqa: BLE001
+                    log.warning("chat_listener delayed greeting failed: %s", ex)
+
+            asyncio.create_task(_send_greeting_later())
     except Exception as e:  # noqa: BLE001
         log.warning("chat_listener greeting failed: %s", e)
 

@@ -325,8 +325,10 @@ async def _archive_max_chat_message(
     except Exception as e:  # noqa: BLE001
         logger.warning(f"MAX task submissions failed: {e}")
 
-    # ── Приветствие в чатах: кодовое слово → ответ случайной фразой (reply).
-    from app.services.chat_archive import process_chat_greeting
+    # ── Приветствие в чатах: кодовое слово → ОТВЕТ случайной фразой (reply),
+    # через случайную задержку 30..180 сек (естественнее). Фоном — вебхук не
+    # должен висеть всё время задержки.
+    from app.services.chat_archive import process_chat_greeting, pick_greeting_delay_sec
     try:
         greeting = await process_chat_greeting(
             platform="max",
@@ -336,10 +338,18 @@ async def _archive_max_chat_message(
             text=text or None,
         )
         if greeting:
-            await max_send_message(
-                chat_id, greeting, token=bot_token,
-                reply_to_mid=(str(mid) if mid else None),
-            )
+            import asyncio
+            delay = pick_greeting_delay_sec()
+            reply_mid = str(mid) if mid else None
+
+            async def _send_greeting_later(cid=chat_id, txt=greeting, tok=bot_token, rmid=reply_mid, d=delay):
+                try:
+                    await asyncio.sleep(d)
+                    await max_send_message(cid, txt, token=tok, reply_to_mid=rmid)
+                except Exception as ex:  # noqa: BLE001
+                    logger.warning(f"MAX delayed greeting failed: {ex}")
+
+            asyncio.create_task(_send_greeting_later())
     except Exception as e:  # noqa: BLE001
         logger.warning(f"MAX greeting failed: {e}")
 

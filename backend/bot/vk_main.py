@@ -888,8 +888,10 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
     except Exception as e:  # noqa: BLE001
         logger.warning(f"VK task submissions failed: {e}")
 
-    # ── Приветствие в чатах: кодовое слово → ответ случайной фразой (reply).
-    from app.services.chat_archive import process_chat_greeting
+    # ── Приветствие в чатах: кодовое слово → ОТВЕТ случайной фразой (reply),
+    # через случайную задержку 30..180 сек (естественнее). Фоном — не держим
+    # обработку апдейта.
+    from app.services.chat_archive import process_chat_greeting, pick_greeting_delay_sec
     try:
         greeting = await process_chat_greeting(
             platform="vk",
@@ -900,7 +902,16 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
             owner_client_id=ctx.client_id,  # VK chat_id неуникален между сообществами!
         )
         if greeting:
-            await _reply_greeting_vk(peer_id, message, greeting, ctx)
+            delay = pick_greeting_delay_sec()
+
+            async def _send_greeting_later(pid=peer_id, msg=message, txt=greeting, c=ctx, d=delay):
+                try:
+                    await asyncio.sleep(d)
+                    await _reply_greeting_vk(pid, msg, txt, c)
+                except Exception as ex:  # noqa: BLE001
+                    logger.warning(f"VK delayed greeting failed: {ex}")
+
+            asyncio.create_task(_send_greeting_later())
     except Exception as e:  # noqa: BLE001
         logger.warning(f"VK greeting failed: {e}")
 
