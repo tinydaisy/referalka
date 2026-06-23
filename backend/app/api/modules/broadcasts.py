@@ -820,9 +820,16 @@ async def list_schedules(
     }
 
 
+class GenerateRequest(BaseModel):
+    # Если задан — формируем расписание ТОЛЬКО для шаблонов с этими id.
+    # None/пусто = формировать по всем шаблонам (как было раньше).
+    template_ids: Optional[List[int]] = None
+
+
 @router.post("/schedules/generate", summary="Создать расписание из программы события")
 async def generate_schedules(
     event_id: int,
+    data: Optional[GenerateRequest] = None,
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
@@ -874,12 +881,17 @@ async def generate_schedules(
         """,
         event_id
     )
+    # Фильтр по выбранным галочками шаблонам (если передан template_ids).
+    only_ids = set(data.template_ids) if (data and data.template_ids is not None) else None
+    if only_ids is not None:
+        templates = [t for t in templates if t["id"] in only_ids]
+
     # Для предустановленных типов — один шаблон на тип. Кастомные собираем отдельным списком.
     tmpl_map = {t["type"]: t for t in templates if t["type"] != "custom"}
     custom_tmpls = [t for t in templates if t["type"] == "custom"]
 
     if not tmpl_map and not custom_tmpls:
-        raise HTTPException(status_code=400, detail="Сначала создайте шаблоны рассылок")
+        raise HTTPException(status_code=400, detail="Сначала создайте шаблоны рассылок" if only_ids is None else "Не выбрано ни одного шаблона")
 
     # Валидация: для события с программой по дням нужна программа (дни + сессии),
     # для обычного мероприятия — start_at.
