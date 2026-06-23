@@ -304,6 +304,15 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # Если media_type не задан (старые записи) — выводим из наличия URL.
         if not snap_mtype:
             snap_mtype = "video" if snap_video else ("photo" if snap_photo else None)
+        # {vip_url} — ссылка на оплату VIP-тарифа (events.vip_url), и в тексте, и в кнопках.
+        if "{vip_url}" in raw_text or any("{vip_url}" in (b.get("url") or "") for b in raw_buttons):
+            vip_url = await conn.fetchval(
+                "SELECT vip_url FROM events WHERE id=$1", event_id
+            ) or ""
+            raw_text = raw_text.replace("{vip_url}", vip_url)
+            if not vip_url:
+                raw_text = re.sub(r"^.*\{vip_url\}.*$\n?", "", raw_text, flags=re.MULTILINE)
+            raw_buttons = [{**b, "url": (b.get("url") or "").replace("{vip_url}", vip_url)} for b in raw_buttons]
         return {
             "text": raw_text,
             "photo": (snap_photo or photo_url) if snap_mtype != "video" else None,
@@ -734,6 +743,19 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
 
     else:
         text = tmpl_text or ""
+
+    # ── {vip_url} — ссылка на оплату VIP-тарифа (events.vip_url) ──────────────
+    # Единая подстановка для ВСЕХ типов шаблонов: и в тексте, и в кнопке.
+    # Источник — events.vip_url (та же ссылка, что у VIP-кнопки в Mini App).
+    if "{vip_url}" in text or "{vip_url}" in (btn_url or ""):
+        vip_url = await conn.fetchval(
+            "SELECT vip_url FROM events WHERE id=$1", event_id
+        ) or ""
+        text = text.replace("{vip_url}", vip_url)
+        btn_url = (btn_url or "").replace("{vip_url}", vip_url)
+        # Если ссылка пустая — убираем строку с висящим плейсхолдером.
+        if not vip_url:
+            text = re.sub(r"^.*\{vip_url\}.*$\n?", "", text, flags=re.MULTILINE)
 
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 

@@ -16,7 +16,9 @@ type TypeDef = {
   showPhoto?: boolean
 }
 
-const TYPE_DEFS: TypeDef[] = [
+// {vip_url} — ссылка на оплату VIP-тарифа — доступна во ВСЕХ шаблонах,
+// поэтому добавляется в variables каждого типа автоматически (см. ниже).
+const TYPE_DEFS_RAW: TypeDef[] = [
   {
     type: 'pre_conf',
     title: 'Анонс знакомства со спикерами',
@@ -113,6 +115,13 @@ const TYPE_DEFS: TypeDef[] = [
   },
 ]
 
+// {vip_url} доступен во всех типах — добавляем его в variables каждого шаблона,
+// если ещё нет (чтобы кнопка-вставка плейсхолдера была в любом редакторе).
+const TYPE_DEFS: TypeDef[] = TYPE_DEFS_RAW.map(d => ({
+  ...d,
+  variables: d.variables.includes('{vip_url}') ? d.variables : [...d.variables, '{vip_url}'],
+}))
+
 const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_name}', desc: 'Имя спикера' },
   { name: '{speaker_tg}', desc: 'Telegram-канал спикера' },
@@ -134,6 +143,7 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{day_speakers_gifts}', desc: 'Список подарков спикеров за день' },
   { name: '{first_name}', desc: 'Имя получателя (персонализация)' },
   { name: '{game_link}', desc: 'Личная ссылка получателя на вкладку «Игра» события (партнёрский кабинет)' },
+  { name: '{vip_url}', desc: 'Ссылка на оплату VIP-тарифа (та же, что у VIP-кнопки в Mini App)' },
 ]
 
 const INCLUDE_LABELS: Record<string, string> = {
@@ -191,7 +201,7 @@ const CUSTOM_PLACEHOLDERS = [
   '{conf_title}', '{conf_date}', '{conf_description}',
   '{day_number}', '{day_date}', '{day_program}',
   '{stream_url}', '{landing_url}', '{raffle_url}',
-  '{first_name}',
+  '{first_name}', '{vip_url}',
 ]
 
 function customDayRefLabel(ref: string, confDays: number[]): string {
@@ -648,6 +658,7 @@ export default function TemplatesPage() {
       .replace(/\{day_speakers_gifts\}/g, daySpeakersGifts)
       .replace(/\{stream_url\}/g, realStreamUrl || '[ссылка на эфир]')
       .replace(/\{landing_url\}/g, realRegUrl || '[ссылка на регистрацию]')
+      .replace(/\{vip_url\}/g, eventData?.vip_url || '[ссылка на оплату VIP]')
       .replace(/\{game_link\}/g, getGameLink())
       .replace(/\{gift_url\}/g, '🔗 [ссылка на подарок]')
       .replace(/\{gift_title\}/g, '[название подарка]')
