@@ -505,6 +505,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                                 (cse.poster_id IS NULL AND cp.collaborator_id = c.id)
                           ORDER BY (cp.id = cse.poster_id) DESC, cp.sort_order, cp.id
                           LIMIT 1) as speaker_poster,
+                       c.photo_url AS speaker_photo,
                        pu_tg.username AS personal_tg_username,
                        c.tg_channel_url, c.instagram_url,
                        c.achievements,
@@ -528,8 +529,11 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 # Все темы спикера через перенос строки (а не первая) —
                 # у спикеров с темами по дням было видно только одну.
                 topic = "\n".join((t["topic"] or "").strip() for t in topics if (t["topic"] or "").strip())
+                # Приоритет фото: фото шаблона → индивидуальная афиша спикера →
+                # фото коллаборатора (аватар). Афиша события для speaker_intro НЕ
+                # подставляется — у спикера всегда есть хотя бы фото профиля.
                 if not photo:
-                    photo = sp["speaker_poster"]
+                    photo = sp["speaker_poster"] or sp["speaker_photo"]
                 text = build_speaker_intro_message(
                     text, sp["speaker_name"], sp["personal_tg_username"],
                     sp["tg_channel_url"], sp["instagram_url"],
