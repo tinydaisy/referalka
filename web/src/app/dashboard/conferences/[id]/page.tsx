@@ -166,7 +166,7 @@ export default function ConferencePage() {
       {tab === 'nurture'      && <NurtureTab       eventId={eventId} />}
       {tab === 'welcome'      && <WelcomeTab       event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
-      {tab === 'report'       && <ReportTab       eventId={eventId} />}
+      {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}
     </div>
   )
 }

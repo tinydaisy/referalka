@@ -332,7 +332,9 @@ function generateReportText(detail: ReportDetail, reportDate: string, announceme
   return lines.join('\n')
 }
 
-export default function ReportTab({ eventId }: { eventId: number }) {
+export default function ReportTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
+  // Только в турнире спикерская секция разбивается на Жюри / Партнёры / Спикеры.
+  const isTournament = moduleSlug === 'turnir'
   const [reports, setReports] = useState<ReportMeta[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<ReportDetail | null>(null)
@@ -524,43 +526,68 @@ export default function ReportTab({ eventId }: { eventId: number }) {
 
               <div className="text-xs text-gray-400 text-right">Зашло в бот / Зарегистрировалось</div>
 
-              {/* СПИКЕРЫ */}
-              {(regularSpk.length > 0 || commercialSpk.length > 0) && (() => {
-                const allSpk = detail.speakers_data.filter(s => s.role !== 'organizer').sort(byEntered)
-                const allEntered = allSpk.reduce((s, r) => s + r.entered, 0)
-                const allReg = allSpk.reduce((s, r) => s + r.registered, 0)
-                return (
-                  <CollapsibleGroup label="СПИКЕРЫ" entered={allEntered} registered={allReg} totalEntered={T} totalRegistered={TR} color="dark" count={allSpk.length} hasCommercialCol>
-                    {allSpk.map((row, i) => (
-                      <tr key={row.speaker_event_id}
-                        className={`border-b border-gray-50 last:border-0 hover:bg-blue-50/40 ${row.is_commercial ? 'bg-blue-50/30' : ''}`}>
-                        <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
-                        <td className="px-4 py-1.5">
-                          <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
-                            className="font-medium text-[#25455D] hover:underline text-sm">
-                            {row.name || row.username || '—'}
-                          </Link>
-                          {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
-                          {row.role === 'headliner' && <div className="text-xs text-gray-400 font-normal">хедлайнер</div>}
-                          {row.role === 'jury' && <div className="text-xs text-gray-400 font-normal">жюри</div>}
-                          {row.role === 'partner' && <div className="text-xs text-gray-400 font-normal">партнёр</div>}
-                        </td>
-                        <td className="px-3 py-1.5 text-center">
-                          <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
-                          <span className="text-gray-300 mx-1">/</span>
-                          <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
-                        </td>
-                        <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
-                        <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
-                          {pct(row.entered, T)} / {pct(row.registered, TR)}
-                        </td>
-                        <td className="px-3 py-1.5 text-center">
-                          {row.is_commercial && <span className="text-blue-500 text-base">✓</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </CollapsibleGroup>
+              {/* СПИКЕРЫ.
+                  Турнир: три отдельные сворачиваемые группы Жюри / Партнёры / Спикеры.
+                  Остальное (конференция): одна общая группа СПИКЕРЫ — как было. */}
+              {(() => {
+                // одна строка спикера в таблице
+                const renderSpkRow = (row: SpeakerRow, i: number) => (
+                  <tr key={row.speaker_event_id}
+                    className={`border-b border-gray-50 last:border-0 hover:bg-blue-50/40 ${row.is_commercial ? 'bg-blue-50/30' : ''}`}>
+                    <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
+                    <td className="px-4 py-1.5">
+                      <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
+                        className="font-medium text-[#25455D] hover:underline text-sm">
+                        {row.name || row.username || '—'}
+                      </Link>
+                      {row.username && <div className="text-xs text-gray-400">@{row.username}</div>}
+                      {row.role === 'headliner' && <div className="text-xs text-gray-400 font-normal">хедлайнер</div>}
+                      {row.role === 'jury' && <div className="text-xs text-gray-400 font-normal">жюри</div>}
+                      {row.role === 'partner' && <div className="text-xs text-gray-400 font-normal">партнёр</div>}
+                      {row.role === 'general_partner' && <div className="text-xs text-gray-400 font-normal">генеральный партнёр</div>}
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.entered}</span>
+                      <span className="text-gray-300 mx-1">/</span>
+                      <span className="font-semibold tabular-nums text-gray-800 text-sm">{row.registered}</span>
+                    </td>
+                    <td className="px-3 py-1.5 text-center text-gray-600 text-sm hidden sm:table-cell">{pct(row.registered, row.entered)}</td>
+                    <td className="px-3 py-1.5 text-center text-xs text-gray-400 hidden md:table-cell">
+                      {pct(row.entered, T)} / {pct(row.registered, TR)}
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      {row.is_commercial && <span className="text-blue-500 text-base">✓</span>}
+                    </td>
+                  </tr>
                 )
+                // одна сворачиваемая группа из набора строк
+                const renderSpkGroup = (label: string, rows: SpeakerRow[], color: 'dark' | 'gray' | 'amber') => {
+                  if (rows.length === 0) return null
+                  const e = rows.reduce((s, r) => s + r.entered, 0)
+                  const reg = rows.reduce((s, r) => s + r.registered, 0)
+                  return (
+                    <CollapsibleGroup label={label} entered={e} registered={reg} totalEntered={T} totalRegistered={TR} color={color} count={rows.length} hasCommercialCol>
+                      {rows.map((row, i) => renderSpkRow(row, i))}
+                    </CollapsibleGroup>
+                  )
+                }
+
+                if (isTournament) {
+                  const juryRows     = detail.speakers_data.filter(s => s.role === 'jury').sort(byEntered)
+                  const partnerRows  = detail.speakers_data.filter(s => s.role === 'partner' || s.role === 'general_partner').sort(byEntered)
+                  const speakerRows  = detail.speakers_data.filter(s => s.role !== 'organizer' && s.role !== 'jury' && s.role !== 'partner' && s.role !== 'general_partner').sort(byEntered)
+                  return (
+                    <>
+                      {renderSpkGroup('ЖЮРИ', juryRows, 'dark')}
+                      {renderSpkGroup('ПАРТНЁРЫ', partnerRows, 'dark')}
+                      {renderSpkGroup('СПИКЕРЫ', speakerRows, 'dark')}
+                    </>
+                  )
+                }
+
+                // конференция/прочее — одна общая группа
+                const allSpk = detail.speakers_data.filter(s => s.role !== 'organizer').sort(byEntered)
+                return renderSpkGroup('СПИКЕРЫ', allSpk, 'dark')
               })()}
 
               {/* ОРГАНИЗАТОР + СОТРУДНИКИ + ИЗ БАЗЫ + ОШИБОЧНЫЕ */}
