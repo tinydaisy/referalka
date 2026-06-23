@@ -516,21 +516,31 @@ async def create_template(
     return dict(row)
 
 
-def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool) -> list[dict]:
+def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets: bool = False) -> list[dict]:
     """Возвращает DEFAULT_TEMPLATES, отфильтрованные по типу события — те же
-    правила, что в auto-seed списка шаблонов (list_templates)."""
+    правила, что в auto-seed списка шаблонов (list_templates).
+
+    for_presets=True — режим «Добавить готовый шаблон вручную»: турниру
+    дополнительно разрешаем спикерские анонсы (pre_conf, 5min_before), которых
+    нет в авто-сиде, но которые клиент может захотеть добавить сам."""
     is_plain_event = not is_conf and not is_turnir
     EVENT_ONLY_TYPES = {
         "30min_before", "2h_before_unreg", "2h_before_reg",
         "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
     }
     TURNIR_EXTRA_TYPES = {"speaker_intro"}
+    # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf)
+    # и «за 5 мин до выступления» (5min_before).
+    if for_presets:
+        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "5min_before"}
     out = []
     for tpl in DEFAULT_TEMPLATES:
         if tpl["type"] == "event_live" and is_conf:
             continue
         if tpl["type"] == "5min_before" and not is_conf:
-            continue
+            # Турниру в режиме пресетов 5min_before разрешён.
+            if not (for_presets and is_turnir):
+                continue
         if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
             if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
                 continue
@@ -567,7 +577,7 @@ async def list_template_presets(
         "SELECT DISTINCT type FROM broadcast_templates WHERE event_id=$1", event_id
     )}
     presets = []
-    for tpl in _allowed_preset_types_for_event(is_conf, is_turnir):
+    for tpl in _allowed_preset_types_for_event(is_conf, is_turnir, for_presets=True):
         # Уже существующий одиночный тип — не предлагаем повторно.
         if tpl["type"] in existing_types and tpl["type"] not in MULTI_INSTANCE_PRESET_TYPES:
             continue
@@ -599,7 +609,7 @@ async def create_template_from_preset(
     is_conf = bool(ev_row and ev_row["module_slug"] == "conference")
     is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
 
-    tpl = next((t for t in _allowed_preset_types_for_event(is_conf, is_turnir)
+    tpl = next((t for t in _allowed_preset_types_for_event(is_conf, is_turnir, for_presets=True)
                 if t["type"] == data.type), None)
     if not tpl:
         raise HTTPException(status_code=400, detail="Такой готовый шаблон недоступен для этого события")
