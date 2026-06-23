@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import logging
+import random
 from typing import Optional
 
 from app.database import get_pool
@@ -418,3 +419,105 @@ async def process_task_submissions(
     except Exception as e:  # noqa: BLE001 — движок не должен ронять слушалку
         log.warning("process_task_submissions failed (%s chat=%s): %s", platform, chat_id, e)
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ПРИВЕТСТВИЕ В ЧАТАХ — кодовое слово → ответ случайной фразой (миграция 163)
+# ─────────────────────────────────────────────────────────────────────────────
+
+DEFAULT_CHAT_GREETINGS = [
+    "Добро пожаловать! Рады, что вы с нами 🎉",
+    "Привет, {name}! Отлично, что присоединились 🙌",
+    "Ура, ещё один человек в нашей команде! Добро пожаловать 💛",
+    "Рады видеть вас здесь, {name}! Будет интересно 🔥",
+    "Привет-привет! Спасибо, что с нами — впереди много полезного ✨",
+    "Добро пожаловать в чат! Если будут вопросы — пишите, поможем 🤝",
+]
+
+
+async def get_or_seed_chat_greetings(db, event_id: int) -> list[dict]:
+    """Список фраз приветствия события. Если пусто — засеять дефолтными.
+
+    Возвращает [{id, text, sort}]. Используется и в API (CRUD-список), и при
+    обработке сообщения (выбор случайной фразы).
+    """
+    rows = await db.fetch(
+        "SELECT id, text, sort FROM event_chat_greetings WHERE event_id = $1 ORDER BY sort, id",
+        event_id,
+    )
+    if rows:
+        return [dict(r) for r in rows]
+    # Сидим дефолтный набор — у каждого события (любого типа) свой.
+    for i, phrase in enumerate(DEFAULT_CHAT_GREETINGS):
+        await db.execute(
+            "INSERT INTO event_chat_greetings (event_id, text, sort) VALUES ($1, $2, $3)",
+            event_id, phrase, i,
+        )
+    rows = await db.fetch(
+        "SELECT id, text, sort FROM event_chat_greetings WHERE event_id = $1 ORDER BY sort, id",
+        event_id,
+    )
+    return [dict(r) for r in rows]
+
+
+def _apply_greeting_placeholders(text: str, author_name: Optional[str], username: Optional[str]) -> str:
+    """Подставить {name} в фразу. Имя → author_name → @username → 'друзья'."""
+    name = (author_name or "").strip()
+    if not name and username:
+        name = "@" + str(username).lstrip("@")
+    if not name:
+        name = "друзья"
+    return text.replace("{name}", name)
+
+
+async def process_chat_greeting(
+    *,
+    platform: str,
+    chat_id: str,
+    author_name: Optional[str] = None,
+    username: Optional[str] = None,
+    text: Optional[str] = None,
+    owner_client_id: Optional[int] = None,
+) -> Optional[str]:
+    """Если в сообщении чата события есть кодовое слово приветствия — вернуть
+    готовую фразу для ответа (reply), иначе None.
+
+    - Резолвит событие по (платформа, chat_id);
+    - проверяет events.chat_greeting_enabled и непустое chat_greeting_keyword;
+    - ищет кодовое слово в тексте (где угодно, без регистра);
+    - берёт СЛУЧАЙНУЮ фразу из набора (auto-seed дефолтных, если пуст);
+    - подставляет {name}.
+
+    Отвечает ВСЕМ и на КАЖДОЕ сообщение с кодовым словом (без дедупа, без
+    проверки участника — это дружелюбный приветственный ответ).
+    """
+    if not text:
+        return None
+    chat_id = str(chat_id)
+    low = text.lower()
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            resolved = await _resolve_event_for_chat(db, platform, chat_id, owner_client_id)
+            if not resolved:
+                return None
+            event_id, _client_id = resolved
+
+            row = await db.fetchrow(
+                "SELECT chat_greeting_enabled, chat_greeting_keyword FROM events WHERE id = $1",
+                event_id,
+            )
+            if not row or not row["chat_greeting_enabled"]:
+                return None
+            keyword = (row["chat_greeting_keyword"] or "").strip().lower()
+            if not keyword or keyword not in low:
+                return None
+
+            greetings = await get_or_seed_chat_greetings(db, event_id)
+            if not greetings:
+                return None
+            phrase = random.choice(greetings)["text"]
+            return _apply_greeting_placeholders(phrase, author_name, username)
+    except Exception as e:  # noqa: BLE001 — движок не должен ронять слушалку
+        log.warning("process_chat_greeting failed (%s chat=%s): %s", platform, chat_id, e)
+        return None

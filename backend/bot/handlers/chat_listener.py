@@ -26,6 +26,7 @@ from app.database import get_pool
 from app.services.channels import find_channel_by_bot_id
 from app.services.chat_archive import (
     archive_chat_message, remember_known_chat, process_task_submissions,
+    process_chat_greeting,
 )
 
 router = Router()
@@ -166,6 +167,20 @@ async def on_group_message(message: Message, bot: Bot):
     )
     if not written:
         return
+
+    # ── Приветствие в чатах: кодовое слово → ответ случайной фразой (reply).
+    try:
+        greeting = await process_chat_greeting(
+            platform="telegram",
+            chat_id=str(message.chat.id),
+            author_name=author_name,
+            username=author.username,
+            text=text,
+        )
+        if greeting:
+            await message.reply(greeting)
+    except Exception as e:  # noqa: BLE001
+        log.warning("chat_listener greeting failed: %s", e)
 
     # ── Контроль заданий: ищем кодовые фразы критериев → балл + лог.
     atts = await _collect_tg_attachments(message, bot)

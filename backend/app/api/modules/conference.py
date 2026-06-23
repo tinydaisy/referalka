@@ -261,6 +261,8 @@ class ConferenceUpdate(BaseModel):
     tg_chat_id: Optional[str] = None            # chat_id TG-беседы события (слушалка заданий)
     vk_chat_id: Optional[str] = None            # chat_id ВК-беседы события (слушалка заданий)
     max_chat_id: Optional[str] = None           # chat_id МАХ-беседы события (слушалка заданий)
+    chat_greeting_enabled: Optional[bool] = None  # приветствие в чатах (миграция 163)
+    chat_greeting_keyword: Optional[str] = None   # кодовое слово приветствия
 
 
 @router.get("/", summary="Данные конференции")
@@ -367,6 +369,7 @@ async def update_conference(
         "chat_button_label", "accent_button", "hide_stream_button",
         "telegram_chat_ids", "link_mode",
         "tg_chat_id", "vk_chat_id", "max_chat_id",
+        "chat_greeting_enabled", "chat_greeting_keyword",
     )
     sent = data.model_dump(exclude_unset=True)
     event_updates: dict = {}

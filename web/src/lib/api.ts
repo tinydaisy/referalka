@@ -472,6 +472,21 @@ export const api = {
         method: 'PATCH', body: JSON.stringify(data),
       }),
   },
+  // Приветствие в чатах — набор случайных фраз (миграция 163). Включатель и
+  // кодовое слово хранятся в самом событии и правятся через api.events.update.
+  chatGreetings: {
+    list: (eventId: number) => request(`/api/v1/events/${eventId}/chat-greetings`),
+    create: (eventId: number, data: { text: string; sort?: number }) =>
+      request(`/api/v1/events/${eventId}/chat-greetings`, {
+        method: 'POST', body: JSON.stringify(data),
+      }),
+    update: (eventId: number, greetingId: number, data: { text?: string; sort?: number }) =>
+      request(`/api/v1/events/${eventId}/chat-greetings/${greetingId}`, {
+        method: 'PATCH', body: JSON.stringify(data),
+      }),
+    remove: (eventId: number, greetingId: number) =>
+      request(`/api/v1/events/${eventId}/chat-greetings/${greetingId}`, { method: 'DELETE' }),
+  },
   channels: {
     list: () => request('/api/v1/channels'),
     get: (id: number) => request(`/api/v1/channels/${id}`),

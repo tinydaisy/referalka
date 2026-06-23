@@ -325,6 +325,24 @@ async def _archive_max_chat_message(
     except Exception as e:  # noqa: BLE001
         logger.warning(f"MAX task submissions failed: {e}")
 
+    # ── Приветствие в чатах: кодовое слово → ответ случайной фразой (reply).
+    from app.services.chat_archive import process_chat_greeting
+    try:
+        greeting = await process_chat_greeting(
+            platform="max",
+            chat_id=chat_id,
+            author_name=author_name,
+            username=username,
+            text=text or None,
+        )
+        if greeting:
+            await max_send_message(
+                chat_id, greeting, token=bot_token,
+                reply_to_mid=(str(mid) if mid else None),
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MAX greeting failed: {e}")
+
 
 async def _handle_message_created(update: dict, *, bot_token: str, client_id_override: int | None) -> None:
     msg = update.get("message", {}) or {}

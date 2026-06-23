@@ -48,14 +48,22 @@ export default function ContestPage() {
   )
   if (!event) return null
 
-  const TABS: { key: TabKey; label: string }[] = [
-    { key: 'overview',  label: 'Основное' },
-    { key: 'posters',   label: 'Афиши' },
-    { key: 'referral',  label: 'Реф-программа' },
-    { key: 'voters',    label: 'Голосующие' },
-    { key: 'welcome',   label: 'Приветствие' },
-    { key: 'report',    label: 'Отчёт' },
+  // Группировка вкладок: Настройки / Люди / Отслеживания / Рассылки.
+  type GroupKey = 'settings_grp' | 'people' | 'tracking'
+  const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string }[] }[] = [
+    {
+      key: 'settings_grp', label: 'Настройки',
+      tabs: [
+        { key: 'overview', label: 'Описание' },
+        { key: 'posters',  label: 'Афиши' },
+        { key: 'referral', label: 'Реф-программа' },
+        { key: 'welcome',  label: 'Приветствие' },
+      ],
+    },
+    { key: 'people',   label: 'Люди',         tabs: [{ key: 'voters', label: 'Голосующие' }] },
+    { key: 'tracking', label: 'Отслеживания', tabs: [{ key: 'report', label: 'Отчёт по привлечению' }] },
   ]
+  const activeGroup = GROUPS.find(g => g.tabs.some(tb => tb.key === activeTab)) || GROUPS[0]
 
   return (
     <div>
@@ -88,27 +96,37 @@ export default function ContestPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Уровень 1 — разделы (группы) + «Рассылки» как отдельная страница */}
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
+          {GROUPS.map(g => (
+            <button key={g.key}
+              onClick={() => { if (!g.tabs.some(tb => tb.key === activeTab)) setActiveTab(g.tabs[0].key) }}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                activeGroup.key === g.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {g.label}
+            </button>
+          ))}
+          <Link href={`/dashboard/events/${eventId}/broadcasts/queue`}
+            className="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-white/60">
+            Рассылки
+          </Link>
+        </div>
+      </div>
+
+      {/* Уровень 2 — вкладки внутри активного раздела */}
       <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
-        {TABS.map(tab => (
+        {activeGroup.tabs.map(tb => (
           <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
-              activeTab === tab.key
-                ? 'text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-            style={activeTab === tab.key ? { borderBottomColor: '#25455D', color: '#25455D' } : { borderBottomColor: 'transparent' }}
+            key={tb.key}
+            onClick={() => setActiveTab(tb.key)}
+            className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap"
+            style={activeTab === tb.key ? { borderBottomColor: '#25455D', color: '#25455D' } : { borderBottomColor: 'transparent', color: '#6b7280' }}
           >
-            {tab.label}
+            {tb.label}
           </button>
         ))}
-        {/* Рассылки — отдельная страница со своими подвкладками */}
-        <Link href={`/dashboard/events/${eventId}/broadcasts/queue`}
-          className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap border-transparent text-gray-500 hover:text-gray-700">
-          Рассылки
-        </Link>
       </div>
 
       {/* Tab content */}

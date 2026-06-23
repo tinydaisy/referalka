@@ -121,6 +121,11 @@ class UpdateEventRequest(BaseModel):
     tg_chat_id: Optional[str] = None
     vk_chat_id: Optional[str] = None
     max_chat_id: Optional[str] = None
+    # Приветствие в чатах (миграция 163): включатель + кодовое слово. Бот ловит
+    # кодовое слово в сообщении чата события (TG/VK/MAX) и отвечает reply'ем
+    # случайной фразой из набора event_chat_greetings.
+    chat_greeting_enabled: Optional[bool] = None
+    chat_greeting_keyword: Optional[str] = None
     # Чекбокс «Регистрировать без ввода контактных данных» — работает на встроенном
     # лендинге Mini App, если landing_url не задан. TRUE → клик «Хочу участвовать»
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).

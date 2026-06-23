@@ -888,6 +888,22 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
     except Exception as e:  # noqa: BLE001
         logger.warning(f"VK task submissions failed: {e}")
 
+    # ── Приветствие в чатах: кодовое слово → ответ случайной фразой (reply).
+    from app.services.chat_archive import process_chat_greeting
+    try:
+        greeting = await process_chat_greeting(
+            platform="vk",
+            chat_id=chat_id,
+            author_name=None,
+            username=None,
+            text=text or None,
+            owner_client_id=ctx.client_id,  # VK chat_id неуникален между сообществами!
+        )
+        if greeting:
+            await _reply_greeting_vk(peer_id, message, greeting, ctx)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"VK greeting failed: {e}")
+
 
 def _vk_attachment_urls(message: dict) -> list[dict]:
     """VK-вложения → [{kind, url}]. У VK медиа сразу с URL."""
@@ -908,6 +924,32 @@ def _vk_attachment_urls(message: dict) -> list[dict]:
             url = obj.get("link_mp3") or obj.get("link_ogg")
         out.append({"kind": {"doc": "document", "audio_message": "voice"}.get(t, t), "url": url})
     return out
+
+
+async def _reply_greeting_vk(peer_id: int, message: dict, text: str, ctx: "GroupCtx") -> None:
+    """Ответ-приветствие в беседе именно ОТВЕТОМ (reply) на сообщение автора.
+
+    VK reply = forward с is_reply=1 и conversation_message_ids исходного
+    сообщения. Если cmid нет — обычный messages.send в беседу.
+    """
+    import json as _json
+    import random as _rnd
+    try:
+        params = {
+            "peer_id": peer_id,
+            "message": text,
+            "random_id": _rnd.randint(1, 2**31 - 1),
+        }
+        cmid = message.get("conversation_message_id")
+        if cmid:
+            params["forward"] = _json.dumps({
+                "peer_id": peer_id,
+                "conversation_message_ids": [int(cmid)],
+                "is_reply": 1,
+            })
+        await vk_call("messages.send", params, token=ctx.token)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"VK reply greeting failed: {e}")
 
 
 async def _reply_unrecognized_vk(peer_id: int, from_id: int, ctx: "GroupCtx") -> None:

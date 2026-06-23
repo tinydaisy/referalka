@@ -94,6 +94,7 @@ async def send_message(
     attachments: list[dict] | None = None,
     parse_mode: str | None = None,
     recipient_kind: str = "chat",
+    reply_to_mid: str | None = None,
 ) -> dict[str, Any] | None:
     """Отправить сообщение пользователю или в чат.
 
@@ -114,6 +115,9 @@ async def send_message(
     payload: dict[str, Any] = {"text": (text or "")[:4000]}
     if parse_mode:
         payload["format"] = parse_mode
+    # Ответ именно на сообщение (reply): MAX принимает link с type=reply и mid.
+    if reply_to_mid:
+        payload["link"] = {"type": "reply", "mid": str(reply_to_mid)}
     combined_attachments: list[dict] = list(attachments or [])
     if buttons:
         combined_attachments.append(_build_inline_keyboard_attachment(buttons))

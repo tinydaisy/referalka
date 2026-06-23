@@ -51,21 +51,36 @@ export default function EventPage() {
   // Конференции — отдельный модуль, в нём своя обширная UI; оставляем кнопку перехода
   const isConference = ['conference','turnir'].includes(event.module_slug)
 
-  // «Рассылки» — отдельная страница со своими подвкладками (Шаблоны / Очередь),
-  // как в карточке конференции. Здесь это `<Link>`, не таб контента (см. рендер ниже).
-  const TABS: { key: TabKey; label: string }[] = [
-    { key: 'overview',      label: 'Основное' },
-    // «Организаторы» — только для не-конф мероприятий, второй вкладкой после «Основного».
-    // У конференций есть свой UI спикеров — туда не дублируем.
-    ...(isConference ? [] : [{ key: 'co_organizers' as TabKey, label: 'Организаторы' }]),
-    { key: 'posters',       label: 'Афиши' },
-    { key: 'referral',      label: 'Реф-программа' },
-    { key: 'nurture',       label: 'Воронка догрева' },
-    { key: 'welcome',       label: 'Приветствие' },
-    // «Тарифы» — только на тарифе клиента vip.
-    ...(isVip ? [{ key: 'tariffs' as TabKey, label: 'Тарифы' }] : []),
-    { key: 'participants',  label: 'Участники' },
+  // «Рассылки» — отдельная страница со своими подвкладками (Шаблоны / Очередь).
+  // Группировка вкладок в разделы: Настройки / Люди / Платежи / Рассылки.
+  type GroupKey = 'settings_grp' | 'people' | 'payments'
+  const GROUPS: { key: GroupKey; label: string; tabs: { key: TabKey; label: string }[] }[] = [
+    {
+      key: 'settings_grp', label: 'Настройки',
+      tabs: [
+        { key: 'overview', label: 'Описание' },
+        { key: 'posters',  label: 'Афиши' },
+        { key: 'referral', label: 'Реф-программа' },
+        { key: 'nurture',  label: 'Воронка догрева' },
+        { key: 'welcome',  label: 'Приветствие' },
+      ],
+    },
+    {
+      key: 'people', label: 'Люди',
+      tabs: [
+        // «Организаторы» — только для не-конф мероприятий.
+        ...(isConference ? [] : [{ key: 'co_organizers' as TabKey, label: 'Организаторы' }]),
+        { key: 'participants', label: 'Участники' },
+      ],
+    },
+    // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip.
+    ...(isVip ? [{
+      key: 'payments' as GroupKey, label: 'Платежи',
+      tabs: [{ key: 'tariffs' as TabKey, label: 'Тарифы' }],
+    }] : []),
   ]
+
+  const activeGroup = GROUPS.find(g => g.tabs.some(tb => tb.key === activeTab)) || GROUPS[0]
 
   return (
     <div>
@@ -108,17 +123,31 @@ export default function EventPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Уровень 1 — разделы (группы) + «Рассылки» как отдельная страница */}
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
+          {GROUPS.map(g => (
+            <button key={g.key}
+              onClick={() => { if (!g.tabs.some(tb => tb.key === activeTab)) setActiveTab(g.tabs[0].key) }}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                activeGroup.key === g.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {g.label}
+            </button>
+          ))}
+          <Link href={`/dashboard/events/${eventId}/broadcasts/queue`}
+            className="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-white/60">
+            Рассылки
+          </Link>
+        </div>
+      </div>
+
+      {/* Уровень 2 — вкладки внутри активного раздела */}
       <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
-        {TABS.map(tab => (
-          <EventTabBtn key={tab.key} active={activeTab === tab.key}
-            onClick={() => setActiveTab(tab.key)} label={tab.label} />
+        {activeGroup.tabs.map(tb => (
+          <EventTabBtn key={tb.key} active={activeTab === tb.key}
+            onClick={() => setActiveTab(tb.key)} label={tb.label} />
         ))}
-        {/* «Рассылки» как ссылка на отдельную страницу с подвкладками — как у конференции */}
-        <Link href={`/dashboard/events/${eventId}/broadcasts/queue`}
-          className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap border-transparent text-gray-500 hover:text-gray-700">
-          Рассылки
-        </Link>
       </div>
 
       {/* Tab content */}

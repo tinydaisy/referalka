@@ -70,22 +70,48 @@ export default function ConferencePage() {
     }
   }
 
-  const TABS: { id: Tab; label: string }[] = [
-    { id: 'settings',     label: t.conferences.tabs.settings },
-    { id: 'speakers',     label: t.conferences.tabs.speakers },
-    { id: 'program',      label: t.conferences.tabs.program },
-    { id: 'participants', label: t.conferences.tabs.participants },
-    { id: 'posters',      label: t.conferences.tabs.posters },
-    { id: 'announcements', label: 'Анонсы спикеров' },
-    ...(isTournament ? [{ id: 'scoring' as Tab, label: 'Оценки' }] : []),
-    { id: 'raffle',       label: t.conferences.tabs.raffle },
-    { id: 'referral',     label: 'Реф-программа' },
-    { id: 'nurture',      label: 'Воронка догрева' },
-    { id: 'welcome',      label: 'Приветствие' },
-    // «Тарифы» — только на тарифе клиента vip.
-    ...(isVip ? [{ id: 'tariffs' as Tab, label: 'Тарифы' }] : []),
-    { id: 'report',       label: 'Отчёт' },
+  // Группировка вкладок в разделы (двухуровневая навигация):
+  //  Настройки / Люди / Отслеживания / Платежи / Рассылки.
+  // Программа осталась внутри «Настроек» (часть наполнения события).
+  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'payments'
+  const GROUPS: { key: GroupKey; label: string; tabs: { id: Tab; label: string }[] }[] = [
+    {
+      key: 'settings_grp', label: 'Настройки',
+      tabs: [
+        { id: 'settings', label: 'Описание' },
+        { id: 'program',  label: t.conferences.tabs.program },
+        { id: 'posters',  label: t.conferences.tabs.posters },
+        { id: 'referral', label: 'Реф-программа' },
+        { id: 'raffle',   label: t.conferences.tabs.raffle },
+        { id: 'nurture',  label: 'Воронка догрева' },
+        { id: 'welcome',  label: 'Приветствие' },
+      ],
+    },
+    {
+      key: 'people', label: 'Люди',
+      tabs: [
+        { id: 'speakers',     label: t.conferences.tabs.speakers },
+        { id: 'participants', label: t.conferences.tabs.participants },
+      ],
+    },
+    {
+      key: 'tracking', label: 'Отслеживания',
+      tabs: [
+        { id: 'announcements', label: 'Анонсы спикеров' },
+        ...(isTournament ? [{ id: 'scoring' as Tab, label: 'Оценки турнира' }] : []),
+        { id: 'report', label: 'Отчёт по привлечению' },
+      ],
+    },
+    // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip. Внутри
+    // TariffsTab свои подвкладки Тарифы / Заказы.
+    ...(isVip ? [{
+      key: 'payments' as GroupKey, label: 'Платежи',
+      tabs: [{ id: 'tariffs' as Tab, label: 'Тарифы' }],
+    }] : []),
   ]
+
+  // Активная группа = та, что содержит текущий tab.
+  const activeGroup = GROUPS.find(g => g.tabs.some(tb => tb.id === tab)) || GROUPS[0]
 
   useEffect(() => {
     Promise.all([
@@ -141,16 +167,31 @@ export default function ConferencePage() {
         </div>
       )}
 
-      {/* Tabs — горизонтальный скролл на мобильном */}
-      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-6">
+      {/* Уровень 1 — разделы (группы) + «Рассылки» как отдельная страница */}
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
-          {TABS.map(tb => (
-            <ConfTabBtn key={tb.id} active={tab === tb.id} onClick={() => setTab(tb.id)} label={tb.label} />
+          {GROUPS.map(g => (
+            <button key={g.key}
+              onClick={() => { if (!g.tabs.some(tb => tb.id === tab)) setTab(g.tabs[0].id) }}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                activeGroup.key === g.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {g.label}
+            </button>
           ))}
           <Link href={`${basePath}/${eventId}/broadcasts/templates`}
             className="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-white/60">
             Рассылки
           </Link>
+        </div>
+      </div>
+
+      {/* Уровень 2 — вкладки внутри активного раздела */}
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-6 border-b border-gray-200">
+        <div className="flex gap-1 w-max sm:w-fit">
+          {activeGroup.tabs.map(tb => (
+            <ConfTabBtn key={tb.id} active={tab === tb.id} onClick={() => setTab(tb.id)} label={tb.label} />
+          ))}
         </div>
       </div>
 
@@ -177,9 +218,8 @@ function ConfTabBtn({ active, onClick, label }: { active: boolean; onClick: () =
   const ref = useActiveTabRef<HTMLButtonElement>(active)
   return (
     <button ref={ref} onClick={onClick}
-      className={`px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
-        active ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-      }`}>
+      className="px-3 sm:px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap"
+      style={active ? { borderBottomColor: '#25455D', color: '#25455D' } : { borderBottomColor: 'transparent', color: '#6b7280' }}>
       {label}
     </button>
   )
