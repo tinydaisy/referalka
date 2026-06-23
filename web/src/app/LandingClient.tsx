@@ -70,7 +70,13 @@ export default function LandingClient() {
     }
 
     api.publicData.tariffs()
-      .then(r => setTariffs((r.tariffs || []).filter((t: Tariff) => t.slug !== 'trial')))
+      .then(r => {
+        // Порядок слева направо: Триал (0₽), затем платные по цене (Профи, Экстра).
+        const all: Tariff[] = (r.tariffs || [])
+        const trial = all.filter(t => t.slug === 'trial')
+        const paid = all.filter(t => t.slug !== 'trial').sort((a, b) => Number(a.price) - Number(b.price))
+        setTariffs([...trial, ...paid])
+      })
       .catch(() => {})
     api.publicData.features().then((r: any) => {
       const feats: Feature[] = r.features || []
@@ -175,7 +181,7 @@ export default function LandingClient() {
             используете весь функционал.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-7 max-w-5xl mx-auto">
+          <div className="flex flex-wrap justify-center gap-5 sm:gap-7 max-w-5xl mx-auto [&>*]:w-full [&>*]:sm:w-[300px]">
             {tariffs.map(t => (
               <TariffCard key={t.id} t={t} registerHref={registerHref} featureLabels={featureLabels} />
             ))}
@@ -197,7 +203,7 @@ export default function LandingClient() {
             <p className="text-sm sm:text-base text-gray-500 text-center max-w-2xl mx-auto mb-10 sm:mb-14">
               Подключаются поверх тарифа <b>Профи</b> и выше. Оплата помесячно или за&nbsp;6&nbsp;месяцев со&nbsp;скидкой&nbsp;20%.
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-7 max-w-5xl mx-auto">
+            <div className="flex flex-wrap justify-center gap-5 sm:gap-7 max-w-5xl mx-auto [&>*]:w-full [&>*]:sm:w-[300px]">
               {addonModules.map(m => (
                 <ModuleCard key={m.slug} m={m} registerHref={registerHref} />
               ))}
@@ -229,6 +235,7 @@ export default function LandingClient() {
 
 function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHref: string; featureLabels: Record<string, string> }) {
   const isPro = t.slug === 'pro'
+  const isTrial = t.slug === 'trial'
   return (
     <div className={`relative rounded-2xl p-5 sm:p-7 border shadow-sm flex flex-col bg-white ${
       isPro ? 'border-amber-200 ring-2 ring-amber-100' : 'border-gray-100'
@@ -238,7 +245,13 @@ function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHre
           {t.promo_banner_text}
         </span>
       )}
+      {isTrial && !t.promo_banner_text && (
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold whitespace-nowrap">
+          Бесплатно
+        </span>
+      )}
       <h3 className="font-bold text-xl text-gray-900">{t.name}</h3>
+      {isTrial && <p className="mt-1 text-sm text-gray-500">Полный доступ ко всему на {t.default_duration_days} дней — попробовать бесплатно</p>}
 
       <div className="mt-3 mb-1 min-h-[3.5rem] flex flex-col">
         {t.promo_old_price && Number(t.promo_old_price) > 0 && Number(t.promo_old_price) > Number(t.price) ? (
@@ -282,7 +295,7 @@ function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHre
       <Link href={registerHref} className={`mt-6 text-center px-5 py-2.5 rounded-xl text-sm font-semibold ${
         isPro ? 'btn-gold' : 'bg-[#25455D] text-white hover:opacity-90'
       }`}>
-        Выбрать {t.name}
+        {isTrial ? 'Попробовать бесплатно' : `Выбрать ${t.name}`}
       </Link>
     </div>
   )
