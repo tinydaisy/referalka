@@ -871,6 +871,12 @@ export const api = {
     payWithBonus: (tariff_slug: string) =>
       request('/api/v1/subscriptions/pay-with-bonus', { method: 'POST', body: JSON.stringify({ tariff_slug }) }),
   },
+  addons: {
+    list: () => request('/api/v1/addons'),
+    createOrder: (feature_slug: string, months: number) =>
+      request('/api/v1/addons/order', { method: 'POST', body: JSON.stringify({ feature_slug, months }) }),
+    getOrder: (id: number) => request(`/api/v1/addons/orders/${id}`),
+  },
   referrals: {
     me: () => request('/api/v1/referrals/me'),
     withdraw: (amount_kopecks: number, payment_details: string) =>

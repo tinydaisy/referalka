@@ -31,6 +31,18 @@ interface Promotion {
   remaining: number | null
 }
 
+interface Feature {
+  slug: string
+  name: string
+  description: string | null
+  is_addon: boolean
+  price_monthly: number | null
+  price_6mo: number | null
+  min_tariff_slug: string | null
+  tagline: string | null
+  bullet_points: string[]
+}
+
 const TARIFF_BASE_FEATURES = [
   'Контакты и сегментация',
   'Создание мероприятий',
@@ -41,6 +53,7 @@ export default function LandingClient() {
   const [tariffs, setTariffs] = useState<Tariff[]>([])
   const [promotions, setPromotions] = useState<Promotion[]>([])
   const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({})
+  const [addonModules, setAddonModules] = useState<Feature[]>([])
   const [pid, setPid] = useState<string | null>(null)
 
   useEffect(() => {
@@ -60,9 +73,11 @@ export default function LandingClient() {
       .then(r => setTariffs((r.tariffs || []).filter((t: Tariff) => t.slug !== 'trial')))
       .catch(() => {})
     api.publicData.features().then((r: any) => {
+      const feats: Feature[] = r.features || []
       const map: Record<string, string> = {}
-      for (const f of (r.features || [])) map[f.slug] = f.name
+      for (const f of feats) map[f.slug] = f.name
       setFeatureLabels(map)
+      setAddonModules(feats.filter(f => f.is_addon))
     }).catch(() => {})
     api.publicData.activePromotions()
       .then(r => setPromotions(r.promotions || []))
@@ -172,6 +187,25 @@ export default function LandingClient() {
         </div>
       </section>
 
+      {/* Модули (аддоны поверх тарифа) */}
+      {addonModules.length > 0 && (
+        <section className="bg-gray-50 py-14 sm:py-20">
+          <div className="max-w-6xl mx-auto px-5 sm:px-8">
+            <h2 className="text-2xl sm:text-3xl font-bold text-center mb-3" style={{ color: '#25455D' }}>
+              Модули
+            </h2>
+            <p className="text-sm sm:text-base text-gray-500 text-center max-w-2xl mx-auto mb-10 sm:mb-14">
+              Подключаются поверх тарифа <b>Профи</b> и выше. Оплата помесячно или за&nbsp;6&nbsp;месяцев со&nbsp;скидкой&nbsp;20%.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-7 max-w-5xl mx-auto">
+              {addonModules.map(m => (
+                <ModuleCard key={m.slug} m={m} registerHref={registerHref} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Финальный CTA */}
       <section className="py-14 sm:py-20" style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}>
         <div className="max-w-3xl mx-auto px-5 sm:px-8 text-center">
@@ -249,6 +283,45 @@ function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHre
         isPro ? 'btn-gold' : 'bg-[#25455D] text-white hover:opacity-90'
       }`}>
         Выбрать {t.name}
+      </Link>
+    </div>
+  )
+}
+
+function ModuleCard({ m, registerHref }: { m: Feature; registerHref: string }) {
+  return (
+    <div className="relative rounded-2xl p-5 sm:p-7 border border-gray-100 shadow-sm flex flex-col bg-white">
+      <h3 className="font-bold text-xl text-gray-900">{m.name}</h3>
+      {m.tagline && <p className="mt-1 text-sm text-gray-500">{m.tagline}</p>}
+
+      <div className="mt-4 mb-1 flex items-baseline gap-2">
+        <span className="text-3xl font-bold" style={{ color: '#25455D' }}>
+          {m.price_monthly?.toLocaleString('ru-RU')} ₽
+        </span>
+        <span className="text-sm text-gray-400">/ мес</span>
+      </div>
+      {m.price_6mo && m.price_6mo < (m.price_monthly || 0) && (
+        <p className="text-xs text-emerald-600 font-medium">
+          {m.price_6mo.toLocaleString('ru-RU')} ₽/мес при оплате за 6 мес (−20%)
+        </p>
+      )}
+
+      <div className="space-y-2 mt-5 text-sm text-gray-600 flex-1">
+        {(m.bullet_points || []).map((b, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+            <span>{b}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 flex items-center gap-1.5 text-xs text-gray-400">
+        <span>🔒</span>
+        <span>Нужен тариф Профи или выше</span>
+      </div>
+
+      <Link href={registerHref} className="mt-4 text-center px-5 py-2.5 rounded-xl text-sm font-semibold bg-[#25455D] text-white hover:opacity-90">
+        Подключить
       </Link>
     </div>
   )

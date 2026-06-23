@@ -48,9 +48,23 @@ async def public_features(db: asyncpg.Connection = Depends(get_db)):
     отражается в UI без правок кода.
     """
     rows = await db.fetch(
-        "SELECT slug, name, description, sort FROM features ORDER BY sort, slug"
+        """SELECT slug, name, description, sort,
+                  is_addon, price_monthly, price_6mo, min_tariff_slug,
+                  tagline, bullet_points
+             FROM features ORDER BY sort, slug"""
     )
-    return {"features": [dict(r) for r in rows]}
+    out = []
+    for r in rows:
+        d = dict(r)
+        bp = d.get("bullet_points")
+        if isinstance(bp, str):
+            import json
+            try:
+                d["bullet_points"] = json.loads(bp)
+            except Exception:
+                d["bullet_points"] = []
+        out.append(d)
+    return {"features": out}
 
 
 @router.get("/promotions/active", summary="Активные акции (для счётчиков на лендинге)")

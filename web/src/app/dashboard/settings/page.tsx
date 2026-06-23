@@ -978,8 +978,103 @@ function SubscriptionTab() {
       {/* Оплата подписки через Prodamus */}
       <SubscriptionPaymentBlock currentTariffSlug={sub?.tariff_slug} />
 
+      {/* Модули-аддоны поверх тарифа */}
+      <ModulesBlock />
+
       {/* История оплат */}
       <SubscriptionHistoryBlock />
+    </div>
+  )
+}
+
+
+// ─── Блок модулей-аддонов ────────────────────────────────────────────────────
+
+function ModulesBlock() {
+  const [addons, setAddons] = useState<any[]>([])
+  const [clientTariff, setClientTariff] = useState<string>('')
+  const [loadingSlug, setLoadingSlug] = useState<string>('')
+  const [error, setError] = useState('')
+
+  function load() {
+    api.addons.list().then((r: any) => {
+      setAddons(r.addons || [])
+      setClientTariff(r.client_tariff || '')
+    }).catch(() => {})
+  }
+  useEffect(load, [])
+
+  async function buy(slug: string, months: number) {
+    setError(''); setLoadingSlug(slug + ':' + months)
+    try {
+      const r = await api.addons.createOrder(slug, months)
+      if (r.payment_url) window.location.href = r.payment_url
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось создать заказ')
+    } finally {
+      setLoadingSlug('')
+    }
+  }
+
+  if (addons.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 sm:p-6 mt-6">
+      <h3 className="font-bold text-lg text-gray-900 mb-1">Модули</h3>
+      <p className="text-sm text-gray-500 mb-5">
+        Подключаются поверх тарифа Профи и выше. Оплата помесячно или за 6 месяцев со скидкой 20%.
+      </p>
+      {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {addons.map(a => {
+          const owned = a.owned || a.included_in_tariff
+          const locked = !a.available
+          return (
+            <div key={a.slug} className={`rounded-xl border p-4 flex flex-col ${owned ? 'border-emerald-200 bg-emerald-50/40' : locked ? 'border-gray-100 bg-gray-50' : 'border-gray-200'}`}>
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-gray-900">{a.name}</h4>
+                {owned && <span className="text-xs font-semibold text-emerald-600">Подключён</span>}
+              </div>
+              {a.tagline && <p className="text-xs text-gray-500 mt-0.5">{a.tagline}</p>}
+              <div className="mt-3 mb-1">
+                <span className="text-2xl font-bold" style={{ color: '#25455D' }}>{a.price_monthly?.toLocaleString('ru-RU')} ₽</span>
+                <span className="text-xs text-gray-400"> / мес</span>
+              </div>
+              {a.price_6mo && a.price_6mo < a.price_monthly && (
+                <p className="text-xs text-emerald-600">{a.price_6mo.toLocaleString('ru-RU')} ₽/мес за 6 мес</p>
+              )}
+              <ul className="mt-3 space-y-1.5 text-xs text-gray-600 flex-1">
+                {(a.bullet_points || []).slice(0, 5).map((b: string, i: number) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <CheckCircle2 size={12} className="text-emerald-500 shrink-0 mt-0.5" /><span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {owned ? (
+                <p className="mt-4 text-xs text-gray-500">
+                  {a.included_in_tariff ? 'Входит в ваш тариф' : a.expires_at ? `Активен до ${new Date(a.expires_at).toLocaleDateString('ru-RU')}` : 'Активен'}
+                </p>
+              ) : locked ? (
+                <p className="mt-4 text-xs text-amber-600">🔒 Нужен тариф Профи или выше</p>
+              ) : (
+                <div className="mt-4 flex gap-2">
+                  <button onClick={() => buy(a.slug, 1)} disabled={!!loadingSlug}
+                    className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-[#25455D] text-white hover:opacity-90 disabled:opacity-50">
+                    {loadingSlug === a.slug + ':1' ? '…' : 'На месяц'}
+                  </button>
+                  {a.price_6mo && (
+                    <button onClick={() => buy(a.slug, 6)} disabled={!!loadingSlug}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold btn-gold disabled:opacity-50">
+                      {loadingSlug === a.slug + ':6' ? '…' : 'На 6 мес −20%'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
