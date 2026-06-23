@@ -527,15 +527,10 @@ async def update_template(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
-    # Защита от случайного обнуления текста: пустой text НЕ затирает то, что
-    # уже сохранено в шаблоне. Чтобы реально очистить текст — это отдельный
-    # сценарий, который тут не поддержан намеренно (особенно важно для
-    # speaker_intro: его текст — шаблон с плейсхолдерами, без него рассылка пустая).
     row = await db.fetchrow(
         """
         UPDATE broadcast_templates SET
-            name = $1, type = $2, subject = $3,
-            text = COALESCE(NULLIF($4, ''), text),
+            name = $1, type = $2, subject = $3, text = $4,
             photo_url = $5, button_text = $6, button_url = $7,
             schedule_mode = COALESCE($8, schedule_mode),
             offset_minutes = COALESCE($9, offset_minutes),
