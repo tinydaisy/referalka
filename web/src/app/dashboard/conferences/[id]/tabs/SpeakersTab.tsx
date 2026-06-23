@@ -362,6 +362,11 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
                 <AlertTriangle size={11} /> {label}
               </span>
             ))}
+            {(!Array.isArray(sp.achievements) || sp.achievements.filter((a: string) => a && a.trim()).length === 0) && (
+              <span className="flex items-center gap-0.5 text-xs text-amber-500">
+                <AlertTriangle size={11} /> нет регалий
+              </span>
+            )}
           </div>
         </div>
         <div className="shrink-0" title={sp.poster_url ? 'Афиша «Для рассылок» этого события' : 'Нет афиши — добавьте в индивидуальные афиши спикера'}>

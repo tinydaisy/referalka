@@ -533,9 +533,11 @@ export default function TemplatesPage() {
         if (!giftRaffle) out = out.replace(/^[^\n]*\{gift_raffle_title\}[^\n]*\n?/gm, '')
         if (!tgChannel) out = out.replace(/^[^\n]*\{speaker_tg\}[^\n]*\n?/gm, '')
         if (!insta) out = out.replace(/^[^\n]*\{speaker_instagram\}[^\n]*\n?/gm, '')
+        if (!tgUrl) out = out.replace(/^[^\n]*\{speaker_personal_tg\}[^\n]*\n?/gm, '')
 
         // Потом подставляем значения
         out = out
+          .replace(/\{speaker_personal_tg\}/g, tgUrl)
           .replace(/\{speaker_name\}/g, speaker.name || '')
           .replace(/\{speaker_role\}/g, roleLabel)
           .replace(/\{speaker_topic\}/g, topic)
@@ -714,6 +716,7 @@ export default function TemplatesPage() {
       .replace(/\{gift_raffle_title\}/g, '[подарок для розыгрыша]')
       .replace(/\{speaker_name\}/g, '[Имя спикера]')
       .replace(/\{speaker_tg\}/g, '')
+      .replace(/\{speaker_personal_tg\}/g, '')
       .replace(/\{speaker_topic\}/g, '[тема]')
       .replace(/\{speaker_achievements\}/g, '')
       .replace(/\{first_name\}/g, '[Имя]')
