@@ -16,8 +16,11 @@ interface Tariff {
   promo_banner_text: string | null
   promo_old_price: number | null
   feature_slugs: string[]
-  bullet_points: string[]
+  bullet_points: Bullet[]
 }
+
+// Пункт тарифа: либо строка, либо заголовок с вложенными подпунктами.
+type Bullet = string | { title: string; sub: string[] }
 
 interface Promotion {
   id: number
@@ -266,11 +269,28 @@ function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHre
       </div>
 
       <div className="space-y-2 mt-4 text-sm text-gray-600 flex-1">
-        {(t.bullet_points && t.bullet_points.length > 0 ? t.bullet_points : []).map((b, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-            <span>{b}</span>
-          </div>
+        {(t.bullet_points || []).map((b, i) => (
+          typeof b === 'string' ? (
+            <div key={i} className="flex items-start gap-2">
+              <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+              <span>{b}</span>
+            </div>
+          ) : (
+            <div key={i}>
+              <div className="flex items-start gap-2">
+                <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+                <span className="font-medium text-gray-700">{b.title}</span>
+              </div>
+              <ul className="mt-1.5 ml-6 space-y-1">
+                {(b.sub || []).map((s, j) => (
+                  <li key={j} className="flex items-start gap-2 text-gray-500">
+                    <span className="text-[#FFCFA4] mt-0.5 shrink-0">•</span>
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
         ))}
       </div>
 
