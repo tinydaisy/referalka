@@ -29,7 +29,7 @@ const TYPE_DEFS_RAW: TypeDef[] = [
     type: 'speaker_intro',
     title: 'Знакомство со спикером',
     hint: 'Рассылается участникам для представления спикера. Фото — афиша спикера. Текст генерируется автоматически из данных спикера.',
-    variables: ['{speaker_name}', '{speaker_role}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
+    variables: ['{speaker_name}', '{speaker_role}', '{speaker_personal_tg}', '{speaker_tg}', '{speaker_instagram}', '{speaker_topic}', '{speaker_achievements}', '{gift_after_speech_title}', '{gift_raffle_title}', '{landing_url}'],
     hasSpeaker: true,
     showPhoto: true,
   },
@@ -123,7 +123,10 @@ const TYPE_DEFS: TypeDef[] = TYPE_DEFS_RAW.map(d => ({
 
 const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{speaker_name}', desc: 'Имя спикера' },
+  { name: '{speaker_role}', desc: 'Роль спикера (Спикер / Хедлайнер / Жюри и т.п.)' },
+  { name: '{speaker_personal_tg}', desc: 'Личный ник спикера в Telegram (@username) — для упоминания/связи' },
   { name: '{speaker_tg}', desc: 'Telegram-канал спикера' },
+  { name: '{speaker_instagram}', desc: 'Нельзяграм спикера' },
   { name: '{speaker_topic}', desc: 'Тема выступления' },
   { name: '{speaker_achievements}', desc: 'Регалии спикера (строки через · )' },
   { name: '{gift_after_speech_title}', desc: 'Подарок на эфире' },
@@ -144,6 +147,11 @@ const ALL_VARIABLES: { name: string; desc: string }[] = [
   { name: '{game_link}', desc: 'Личная ссылка получателя на вкладку «Игра» события (партнёрский кабинет)' },
   { name: '{vip_url}', desc: 'Ссылка на оплату VIP-тарифа (та же, что у VIP-кнопки в Mini App)' },
 ]
+
+// Описание плейсхолдера по имени — для подсказки (title) на кнопках-вставках.
+const VAR_DESC: Record<string, string> = Object.fromEntries(
+  ALL_VARIABLES.map(v => [v.name, v.desc])
+)
 
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все участники конфы',
@@ -219,6 +227,10 @@ export default function TemplatesPage() {
   const [speakers, setSpeakers] = useState<any[]>([])
   const [editModal, setEditModal] = useState<any>(null)
   const [createModal, setCreateModal] = useState(false)
+  // Модалка выбора при «Добавить шаблон»: новый с нуля / из готовых.
+  const [addChoiceModal, setAddChoiceModal] = useState(false)
+  const [presets, setPresets] = useState<any[]>([])
+  const [presetsLoading, setPresetsLoading] = useState(false)
   const [form, setForm] = useState({ ...emptyForm })
   const [previewModal, setPreviewModal] = useState<{ tpl: any; def: TypeDef } | null>(null)
   const [previewSpeakerId, setPreviewSpeakerId] = useState<number | null>(null)
@@ -290,7 +302,19 @@ export default function TemplatesPage() {
     }
   }
 
+  // Кнопка «Добавить шаблон» → модалка выбора (новый / из готовых).
+  function openAddChoice() {
+    setAddChoiceModal(true)
+    setPresetsLoading(true)
+    api.conference.templates.presets(eventId)
+      .then(r => setPresets(r.presets || []))
+      .catch(() => setPresets([]))
+      .finally(() => setPresetsLoading(false))
+  }
+
+  // Создать новый шаблон с нуля (кастомный).
   function openCreate() {
+    setAddChoiceModal(false)
     setForm({
       ...emptyForm,
       type: 'custom',
@@ -300,6 +324,17 @@ export default function TemplatesPage() {
       custom_time: '12:00',
     } as any)
     setCreateModal(true)
+  }
+
+  // Добавить готовый шаблон (с дефолтным текстом) по типу пресета.
+  async function addPreset(type: string) {
+    try {
+      const res = await api.conference.templates.createFromPreset(eventId, type)
+      setTemplates([...templates, res])
+      setAddChoiceModal(false)
+    } catch (e: any) {
+      alert(e.message)
+    }
   }
 
   async function createCustom() {
@@ -717,7 +752,7 @@ export default function TemplatesPage() {
 
       <div className="mb-4 flex justify-end">
         <button
-          onClick={openCreate}
+          onClick={openAddChoice}
           className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm text-white font-medium shadow-sm"
           style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}
         >
@@ -920,6 +955,7 @@ export default function TemplatesPage() {
                     <span className="text-xs text-gray-400 mr-1">Вставить:</span>
                     {currentType.variables.map(v => (
                       <button key={v} type="button"
+                        title={VAR_DESC[v] || ''}
                         onClick={() => setForm({ ...form, text: form.text + v })}
                         className="text-xs bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 py-0.5 font-mono text-gray-600">
                         {v}
@@ -1080,6 +1116,60 @@ export default function TemplatesPage() {
         </div>
       )}
 
+      {/* Модалка выбора: новый шаблон с нуля или готовый из списка */}
+      {addChoiceModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-gray-800">Добавить шаблон</h3>
+              <button onClick={() => setAddChoiceModal(false)}><X size={18} /></button>
+            </div>
+
+            <button
+              onClick={openCreate}
+              className="w-full flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-colors text-left mb-4">
+              <span className="flex items-center justify-center w-9 h-9 rounded-lg shrink-0 text-white"
+                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                <Plus size={18} />
+              </span>
+              <span>
+                <span className="block font-medium text-gray-800 text-sm">Создать новый</span>
+                <span className="block text-xs text-gray-400">Пустой шаблон — свой текст, день и время отправки</span>
+              </span>
+            </button>
+
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              Или выберите готовый
+            </div>
+            {presetsLoading ? (
+              <div className="py-6 text-center text-sm text-gray-400">Загрузка…</div>
+            ) : presets.length === 0 ? (
+              <div className="py-6 text-center text-sm text-gray-400">
+                Все готовые шаблоны уже добавлены
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {presets.map(p => (
+                  <button key={p.type}
+                    onClick={() => addPreset(p.type)}
+                    className="w-full flex items-start gap-3 p-3 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-colors text-left">
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-medium text-gray-800 text-sm">{p.name}</span>
+                      {p.text && (
+                        <span className="block text-xs text-gray-400 mt-0.5 line-clamp-2">
+                          {(p.text || '').replace(/<[^>]+>/g, '').slice(0, 120)}…
+                        </span>
+                      )}
+                    </span>
+                    <Plus size={15} className="text-gray-400 shrink-0 mt-0.5" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Модалка создания кастомного шаблона */}
       {createModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -1150,6 +1240,7 @@ export default function TemplatesPage() {
                   <span className="text-xs text-gray-400 mr-1">Вставить:</span>
                   {CUSTOM_PLACEHOLDERS.map(v => (
                     <button key={v} type="button"
+                      title={VAR_DESC[v] || ''}
                       onClick={() => setForm({ ...form, text: ((form as any).text || '') + v } as any)}
                       className="text-xs bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 py-0.5 font-mono text-gray-600">
                       {v}

@@ -321,6 +321,10 @@ export const api = {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/broadcasts/templates`),
       create: (eventId: number, data: any) =>
         request(`/api/v1/events/${eventId}/broadcasts/templates`, { method: 'POST', body: JSON.stringify(data) }),
+      presets: (eventId: number) =>
+        request(`/api/v1/events/${eventId}/broadcasts/templates/presets`),
+      createFromPreset: (eventId: number, type: string) =>
+        request(`/api/v1/events/${eventId}/broadcasts/templates/from-preset`, { method: 'POST', body: JSON.stringify({ type }) }),
       update: (eventId: number, id: number, data: any) =>
         request(`/api/v1/events/${eventId}/broadcasts/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
       delete: (eventId: number, id: number) =>

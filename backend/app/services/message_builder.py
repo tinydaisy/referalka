@@ -140,6 +140,10 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
 
     ach_text = "\n".join(f"• {a}" for a in ach_list)
 
+    # Личный ник спикера (@username) — для упоминания/связи. Из platform_users.
+    personal_raw = (personal_tg or "").strip().lstrip("@")
+    personal_mention = f"@{personal_raw}" if personal_raw else ""
+
     if not topic:
         text = re.sub(r"^[^\n]*\{speaker_topic\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not ach_text:
@@ -154,7 +158,10 @@ def build_speaker_intro_message(tmpl_text, speaker_name, personal_tg, tg_channel
         text = re.sub(r"^[^\n]*\{speaker_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
     if not insta:
         text = re.sub(r"^[^\n]*\{speaker_instagram\}[^\n]*\n?", "", text, flags=re.MULTILINE)
+    if not personal_mention:
+        text = re.sub(r"^[^\n]*\{speaker_personal_tg\}[^\n]*\n?", "", text, flags=re.MULTILINE)
 
+    text = text.replace("{speaker_personal_tg}", personal_mention)
     text = text.replace("{speaker_name}", speaker_name or "")
     text = text.replace("{speaker_role}", role_label)
     text = text.replace("{speaker_topic}", topic)

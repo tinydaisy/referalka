@@ -516,6 +516,112 @@ async def create_template(
     return dict(row)
 
 
+def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool) -> list[dict]:
+    """Возвращает DEFAULT_TEMPLATES, отфильтрованные по типу события — те же
+    правила, что в auto-seed списка шаблонов (list_templates)."""
+    is_plain_event = not is_conf and not is_turnir
+    EVENT_ONLY_TYPES = {
+        "30min_before", "2h_before_unreg", "2h_before_reg",
+        "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
+    }
+    TURNIR_EXTRA_TYPES = {"speaker_intro"}
+    out = []
+    for tpl in DEFAULT_TEMPLATES:
+        if tpl["type"] == "event_live" and is_conf:
+            continue
+        if tpl["type"] == "5min_before" and not is_conf:
+            continue
+        if not is_conf and tpl["type"] not in EVENT_ONLY_TYPES:
+            if not (is_turnir and tpl["type"] in TURNIR_EXTRA_TYPES):
+                continue
+        if is_conf and tpl["type"].startswith("day_before_09_12"):
+            continue
+        tpl_name = tpl["name"]
+        if is_turnir and tpl["type"] == "speaker_intro":
+            tpl_name = "Знакомство со спикерами и жюри"
+        tpl_text = tpl["text_event"] if (is_plain_event and tpl.get("text_event")) else tpl["text"]
+        out.append({**tpl, "name": tpl_name, "text": tpl_text})
+    return out
+
+
+# Типы, которых у события может быть несколько (произвольные продающие/анонсные).
+# Их не «прячем» из пресетов, даже если один такой уже создан.
+MULTI_INSTANCE_PRESET_TYPES = {"vip_offer", "custom"}
+
+
+@router.get("/templates/presets", summary="Готовые шаблоны для добавления")
+async def list_template_presets(
+    event_id: int,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Список предустановленных шаблонов, доступных для события и ещё НЕ
+    добавленных (чтобы по кнопке «Добавить шаблон» можно было выбрать готовый)."""
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+    ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
+    is_conf = bool(ev_row and ev_row["module_slug"] == "conference")
+    is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
+
+    existing_types = {r["type"] for r in await db.fetch(
+        "SELECT DISTINCT type FROM broadcast_templates WHERE event_id=$1", event_id
+    )}
+    presets = []
+    for tpl in _allowed_preset_types_for_event(is_conf, is_turnir):
+        # Уже существующий одиночный тип — не предлагаем повторно.
+        if tpl["type"] in existing_types and tpl["type"] not in MULTI_INSTANCE_PRESET_TYPES:
+            continue
+        presets.append({
+            "type": tpl["type"],
+            "name": tpl["name"],
+            "text": tpl["text"],
+            "button_text": tpl.get("button_text"),
+            "button_url": tpl.get("button_url"),
+        })
+    return {"presets": presets}
+
+
+class PresetCreate(BaseModel):
+    type: str
+
+
+@router.post("/templates/from-preset", summary="Создать шаблон из готового")
+async def create_template_from_preset(
+    event_id: int,
+    data: PresetCreate,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Создаёт шаблон по типу из DEFAULT_TEMPLATES с его дефолтным текстом/кнопкой."""
+    client_id = int(client["sub"])
+    await _check_event(db, event_id, client_id)
+    ev_row = await db.fetchrow("SELECT module_slug FROM events WHERE id=$1", event_id)
+    is_conf = bool(ev_row and ev_row["module_slug"] == "conference")
+    is_turnir = bool(ev_row and ev_row["module_slug"] == "turnir")
+
+    tpl = next((t for t in _allowed_preset_types_for_event(is_conf, is_turnir)
+                if t["type"] == data.type), None)
+    if not tpl:
+        raise HTTPException(status_code=400, detail="Такой готовый шаблон недоступен для этого события")
+
+    row = await db.fetchrow(
+        """
+        INSERT INTO broadcast_templates
+          (client_id, event_id, name, type, text, photo_url, button_text, button_url,
+           schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
+                  schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
+                  custom_day_ref, custom_time, target_channel_ids, created_at
+        """,
+        client_id, event_id, tpl["name"], tpl["type"],
+        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"],
+        tpl["schedule_mode"], tpl["offset_minutes"],
+        tpl["audience_include"], tpl["audience_exclude"], tpl["allow_custom_datetime"],
+    )
+    return dict(row)
+
+
 @router.put("/templates/{template_id}", summary="Редактировать шаблон")
 async def update_template(
     event_id: int,
