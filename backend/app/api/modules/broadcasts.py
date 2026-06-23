@@ -527,6 +527,18 @@ async def update_template(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
+    # У speaker_intro текст — это заготовка с плейсхолдерами; без неё рассылка
+    # уходит пустой. Если фронт прислал пустой text для speaker_intro — НЕ
+    # затираем, оставляем то, что уже сохранено. Для всех остальных типов
+    # сохраняем ровно то, что пришло (включая намеренную очистку).
+    new_text = data.text
+    if data.type == "speaker_intro" and not (data.text and data.text.strip()):
+        cur = await db.fetchval(
+            "SELECT text FROM broadcast_templates WHERE id=$1 AND event_id=$2",
+            template_id, event_id,
+        )
+        new_text = cur
+
     row = await db.fetchrow(
         """
         UPDATE broadcast_templates SET
@@ -551,7 +563,7 @@ async def update_template(
                   intro_start_time, intro_interval_min, intro_days_before,
                   custom_day_ref, custom_time, target_channel_ids
         """,
-        data.name, data.type, data.subject, data.text,
+        data.name, data.type, data.subject, new_text,
         data.photo_url, data.button_text, data.button_url,
         data.schedule_mode, data.offset_minutes,
         data.audience_include, data.audience_exclude, data.allow_custom_datetime,
