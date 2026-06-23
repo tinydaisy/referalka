@@ -16,6 +16,7 @@ interface Tariff {
   promo_banner_text: string | null
   promo_old_price: number | null
   feature_slugs: string[]
+  bullet_points: string[]
 }
 
 interface Promotion {
@@ -43,11 +44,6 @@ interface Feature {
   bullet_points: string[]
 }
 
-const TARIFF_BASE_FEATURES = [
-  'Контакты и сегментация',
-  'Создание мероприятий',
-  'Рассылки по своей базе',
-]
 
 export default function LandingClient() {
   const [tariffs, setTariffs] = useState<Tariff[]>([])
@@ -270,24 +266,10 @@ function TariffCard({ t, registerHref, featureLabels }: { t: Tariff; registerHre
       </div>
 
       <div className="space-y-2 mt-4 text-sm text-gray-600 flex-1">
-        {TARIFF_BASE_FEATURES.map(text => (
-          <div key={text} className="flex items-start gap-2">
+        {(t.bullet_points && t.bullet_points.length > 0 ? t.bullet_points : []).map((b, i) => (
+          <div key={i} className="flex items-start gap-2">
             <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-            <span>{text}</span>
-          </div>
-        ))}
-        <div className="flex items-start gap-2">
-          <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-          <span>До {t.contact_limit?.toLocaleString('ru-RU')} контактов на канал</span>
-        </div>
-        <div className="flex items-start gap-2">
-          <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-          <span>{t.broadcasts_daily_limit ? `До ${t.broadcasts_daily_limit.toLocaleString('ru-RU')} рассылок/сутки` : 'Безлимит рассылок'}</span>
-        </div>
-        {(t.feature_slugs || []).map(slug => (
-          <div key={slug} className="flex items-start gap-2">
-            <CheckCircle size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-            <span>{featureLabels[slug] || slug}</span>
+            <span>{b}</span>
           </div>
         ))}
       </div>

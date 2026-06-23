@@ -26,7 +26,7 @@ async def public_tariffs(db: asyncpg.Connection = Depends(get_db)):
         """SELECT t.id, t.slug, t.name, t.price, t.default_duration_days,
                   t.contact_limit, t.broadcasts_daily_limit,
                   t.prodamus_payment_url, t.promo_banner_text, t.promo_old_price,
-                  t.is_active,
+                  t.is_active, t.bullet_points,
                   ARRAY(SELECT f.slug FROM tariff_features tf
                           JOIN features f ON f.id = tf.feature_id
                          WHERE tf.tariff_id = t.id
@@ -35,7 +35,18 @@ async def public_tariffs(db: asyncpg.Connection = Depends(get_db)):
             WHERE t.is_active = TRUE
             ORDER BY t.price ASC""",
     )
-    return {"tariffs": [dict(r) for r in rows]}
+    out = []
+    for r in rows:
+        d = dict(r)
+        bp = d.get("bullet_points")
+        if isinstance(bp, str):
+            import json
+            try:
+                d["bullet_points"] = json.loads(bp)
+            except Exception:
+                d["bullet_points"] = []
+        out.append(d)
+    return {"tariffs": out}
 
 
 @router.get("/features", summary="Справочник фич (для лендинга и страницы подписки)")
