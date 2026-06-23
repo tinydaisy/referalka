@@ -547,7 +547,9 @@ async def _send_broadcast(schedule_id: int):
         # Если у шаблона/расписания стоит флаг send_to_event_chats — в ДОПОЛНЕНИЕ
         # к базе шлём сообщение ещё и в групповые чаты события: events.tg_chat_id /
         # vk_chat_id / max_chat_id (по платформам, у которых чат задан).
-        if schedule.get("send_to_event_chats") and event_id:
+        # ⚠️ При тестовой рассылке (is_test) в чаты НЕ шлём — тест только на
+        # тестовые ID, чтобы не спамить реальные групповые чаты события.
+        if schedule.get("send_to_event_chats") and event_id and not schedule.get("is_test"):
             try:
                 chats_sent = await _send_broadcast_to_event_chats(
                     conn, schedule, event_id, text, photo_url, button_text, button_url,
@@ -667,7 +669,7 @@ async def _send_broadcast_to_event_chats(
     if vk_chat:
         try:
             import random as _random
-            from app.services.vk_api import vk_call
+            from app.services.vk_api import vk_call, upload_photo_to_messages
             from app.services.message_builder import html_to_vk_text
             vk_row = await conn.fetchrow(
                 """SELECT ch.bot_token FROM client_channels cc
@@ -684,14 +686,30 @@ async def _send_broadcast_to_event_chats(
                     peer = int(vk_chat)
                 except (TypeError, ValueError):
                     peer = None
-                if peer is not None and vk_text:
-                    res = await vk_call("messages.send", {
+                if peer is not None:
+                    # Фото в VK-беседу: грузим картинку тем же токеном, которым
+                    # шлём (иначе owner_id чужой → VK отклонит) → attachment
+                    # photo{owner}_{id}. Без peer_id — как в рабочей рассылке по базе.
+                    vk_attachment = None
+                    if photo_url and media_type != "video":
+                        try:
+                            vk_attachment = await upload_photo_to_messages(
+                                photo_url, token=vk_row["bot_token"]
+                            )
+                        except Exception as up_ex:
+                            logger.warning(f"VK-чат: загрузка фото не удалась: {up_ex}")
+                    params = {
                         "peer_id": peer,
                         "message": vk_text,
                         "random_id": _random.randint(1, 2**31 - 1),
-                    }, token=vk_row["bot_token"])
-                    if res:
-                        sent += 1
+                    }
+                    if vk_attachment:
+                        params["attachment"] = vk_attachment
+                    # Шлём если есть текст ИЛИ вложение (фото без текста — норма).
+                    if vk_text or vk_attachment:
+                        res = await vk_call("messages.send", params, token=vk_row["bot_token"])
+                        if res:
+                            sent += 1
         except Exception as ex:
             logger.warning(f"Отправка в VK-чат события {event_id} упала: {ex}")
 
