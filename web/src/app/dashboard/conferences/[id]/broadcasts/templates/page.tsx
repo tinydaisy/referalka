@@ -187,6 +187,7 @@ const emptyForm = {
   button_text: '', button_url: '', audience_include: 'all_event', audience_exclude: 'none',
   intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
   intro_roles: null as string[] | null,
+  send_to_event_chats: false,
   custom_day_ref: '', custom_time: '12:00',
   // target_channel_ids: null = «по всем каналам клиента» (default),
   // [] = никуда не слать, [N,M] = только эти channel_id.
@@ -416,6 +417,7 @@ export default function TemplatesPage() {
       intro_interval_min: t.intro_interval_min || 15,
       intro_days_before: t.intro_days_before || 1,
       intro_roles: Array.isArray(t.intro_roles) ? t.intro_roles : null,
+      send_to_event_chats: !!t.send_to_event_chats,
       custom_day_ref: t.custom_day_ref || '',
       custom_time: t.custom_time || '12:00',
       target_channel_ids: Array.isArray(t.target_channel_ids) ? t.target_channel_ids : null,
@@ -1144,6 +1146,21 @@ export default function TemplatesPage() {
                 value={(form as any).target_channel_ids ?? null}
                 onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
               />
+
+              {/* Галочка: слать ещё и в групповые чаты события (TG/VK/MAX) */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_event_chats}
+                  onChange={e => setForm({ ...form, send_to_event_chats: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    В дополнение к базе — ещё и в групповые чаты события (Telegram / VK / MAX),
+                    которые заданы в настройках события. Если выключено — в чаты не уходит.
+                  </span>
+                </span>
+              </label>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={save}
