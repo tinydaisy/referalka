@@ -334,8 +334,11 @@ export const api = {
     },
     schedules: {
       list: (eventId: number) => request(`/api/v1/events/${eventId}/broadcasts/schedules`),
-      generate: (eventId: number) =>
-        request(`/api/v1/events/${eventId}/broadcasts/schedules/generate`, { method: 'POST' }),
+      generate: (eventId: number, templateIds?: number[]) =>
+        request(`/api/v1/events/${eventId}/broadcasts/schedules/generate`, {
+          method: 'POST',
+          body: JSON.stringify(templateIds ? { template_ids: templateIds } : {}),
+        }),
       cancel: (eventId: number, id: number) =>
         request(`/api/v1/events/${eventId}/broadcasts/schedules/${id}/cancel`, { method: 'POST' }),
       cancelAll: (eventId: number) =>

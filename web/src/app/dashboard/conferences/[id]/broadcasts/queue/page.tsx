@@ -115,6 +115,9 @@ export default function QueuePage() {
   const [previewModal, setPreviewModal] = useState<any>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [manualModal, setManualModal] = useState(false)
+  // Модалка «Сформировать из программы» — выбор шаблонов галочками.
+  const [genModal, setGenModal] = useState(false)
+  const [genSelectedIds, setGenSelectedIds] = useState<Set<number>>(new Set())
   const [customModal, setCustomModal] = useState(false)
   const [bulkModal, setBulkModal] = useState(false)
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set())
@@ -221,11 +224,20 @@ export default function QueuePage() {
     setTimeout(() => setMsg(null), 5000)
   }
 
-  async function generate() {
+  // Открыть модалку выбора шаблонов (по умолчанию отмечены все).
+  function openGenModal() {
+    setGenSelectedIds(new Set(templates.map((t: any) => t.id)))
+    setGenModal(true)
+  }
+
+  async function runGenerate() {
+    const ids = Array.from(genSelectedIds)
+    if (ids.length === 0) { showMsg('Выберите хотя бы один шаблон', 'err'); return }
     setLoading(true)
     try {
-      const res = await api.conference.schedules.generate(eventId)
+      const res = await api.conference.schedules.generate(eventId, ids)
       await load()
+      setGenModal(false)
       showMsg(`Создано ${res.created} рассылок, пропущено ${res.skipped}`)
     } catch (e: any) {
       showMsg(e.message, 'err')
@@ -547,7 +559,7 @@ export default function QueuePage() {
           className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">
           <Upload size={14} /> Пакетом
         </button>
-        <button onClick={generate} disabled={loading}
+        <button onClick={openGenModal} disabled={loading}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-white font-medium disabled:opacity-50"
           style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
           <Wand2 size={14} /> {loading ? 'Создаю...' : 'Сформировать из программы'}
@@ -903,6 +915,63 @@ export default function QueuePage() {
                 className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">
                 Отмена
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка: выбор шаблонов для формирования из программы ── */}
+      {genModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-semibold text-gray-800">Сформировать из программы</h3>
+              <button onClick={() => setGenModal(false)}><X size={18} /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Отметьте, какие шаблоны поставить в очередь. Снятые — пропустим.
+            </p>
+
+            <div className="flex items-center justify-between mb-2">
+              <button
+                onClick={() => setGenSelectedIds(new Set(templates.map((t: any) => t.id)))}
+                className="text-xs text-blue-600 hover:underline">Выбрать все</button>
+              <button
+                onClick={() => setGenSelectedIds(new Set())}
+                className="text-xs text-gray-500 hover:underline">Снять все</button>
+            </div>
+
+            <div className="space-y-1.5 mb-5 max-h-[50vh] overflow-y-auto">
+              {templates.length === 0 ? (
+                <p className="text-sm text-gray-400 py-4 text-center">Шаблонов нет — создайте на вкладке «Шаблоны»</p>
+              ) : templates.map((t: any) => {
+                const checked = genSelectedIds.has(t.id)
+                return (
+                  <label key={t.id}
+                    className="flex items-center gap-3 p-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                    <input type="checkbox" checked={checked}
+                      onChange={() => {
+                        setGenSelectedIds(prev => {
+                          const next = new Set(prev)
+                          if (checked) next.delete(t.id); else next.add(t.id)
+                          return next
+                        })
+                      }}
+                      className="w-4 h-4 accent-[#25455D]" />
+                    <span className="text-sm text-gray-800">{t.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={runGenerate} disabled={loading || genSelectedIds.size === 0}
+                className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50"
+                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                {loading ? 'Создаю…' : `Сформировать (${genSelectedIds.size})`}
+              </button>
+              <button onClick={() => setGenModal(false)}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">Отмена</button>
             </div>
           </div>
         </div>
