@@ -112,7 +112,7 @@ const TOURNAMENT_GROUPS: Array<{ key: string; title: string; roles: string[] }> 
   { key: 'speakers', title: 'Спикеры', roles: ['organizer', 'headliner', 'speaker'] },
 ]
 
-export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
+export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, hideSubNav }: { eventId: number; moduleSlug?: string | null; subTab?: 'list' | 'links'; hideSubNav?: boolean }) {
   // Включён ли розыгрыш для этого события — нужно, чтобы скрыть
   // оранжевые предупреждения «нет подарка розыгрыша» если фича выключена.
   const [raffleEnabled, setRaffleEnabled] = useState(false)
@@ -127,8 +127,11 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
   const defaultRole = defaultRoleFor(moduleSlug)
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  // Подвкладки: список спикеров / ссылки (регистрация + вход в кабинет)
-  const [subTab, setSubTab] = useState<'list' | 'links'>('list')
+  // Подвкладки: список спикеров / ссылки (регистрация + вход в кабинет).
+  // Если subTab передан сверху (родитель управляет через группировку вкладок) —
+  // используем его и прячем свою панель подвкладок (hideSubNav).
+  const [subTabLocal, setSubTab] = useState<'list' | 'links'>('list')
+  const subTab = subTabProp ?? subTabLocal
   const [modal, setModal] = useState<'new' | 'base' | 'edit' | null>(null)
   const [editSpeaker, setEditSpeaker] = useState<any>(null)
   const [editForm, setEditForm] = useState({ role: defaultRole, topics: [''], gift_title: '', gift_url: '', is_commercial: false })
@@ -389,19 +392,22 @@ export default function SpeakersTab({ eventId, moduleSlug }: { eventId: number; 
 
   return (
     <div className="max-w-2xl">
-      {/* Подвкладки: Спикеры / Ссылки */}
-      <div className="border-b border-gray-200 mb-6 flex gap-1">
-        {([['list', 'Спикеры'], ['links', 'Ссылки']] as const).map(([k, label]) => (
-          <button key={k} type="button" onClick={() => setSubTab(k)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              subTab === k
-                ? 'border-[#FFCFA4] text-[#25455D]'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Подвкладки: Спикеры / Ссылки — прячем, если родитель управляет ими сам
+          (вынес в общий ряд вкладок раздела «Люди»). */}
+      {!hideSubNav && (
+        <div className="border-b border-gray-200 mb-6 flex gap-1">
+          {([['list', 'Спикеры'], ['links', 'Ссылки']] as const).map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setSubTab(k)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                subTab === k
+                  ? 'border-[#FFCFA4] text-[#25455D]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Подвкладка «Ссылки» ── */}
       {subTab === 'links' && (

@@ -48,11 +48,13 @@ const emptyForm = {
 }
 
 export default function TariffsTab({
-  event, eventId, onReload,
+  event, eventId, onReload, subTab: subTabProp, hideSubNav,
 }: {
   event: any
   eventId: number
   onReload?: () => Promise<void>
+  subTab?: 'tariffs' | 'orders'
+  hideSubNav?: boolean
 }) {
   const [items, setItems] = useState<Tariff[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,8 +69,11 @@ export default function TariffsTab({
 
   // раскрытый блок «кто оплатил» (inline, не модалка)
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  // подвкладка: настройка тарифов / сводная таблица заказов (запоминается в URL ?sub=)
-  const [subTab, setSubTab] = useUrlTab<'tariffs' | 'orders'>('sub', 'tariffs', ['tariffs', 'orders'])
+  // подвкладка: настройка тарифов / сводная таблица заказов (запоминается в URL ?sub=).
+  // Если subTab передан сверху (родитель управляет через группировку вкладок) —
+  // используем его и прячем свою панель подвкладок (hideSubNav).
+  const [subTabLocal, setSubTab] = useUrlTab<'tariffs' | 'orders'>('sub', 'tariffs', ['tariffs', 'orders'])
+  const subTab = subTabProp ?? subTabLocal
 
   async function load() {
     setLoading(true)
@@ -145,17 +150,20 @@ export default function TariffsTab({
 
   return (
     <div className={subTab === 'orders' ? '' : 'max-w-3xl'}>
-      {/* Подвкладки: Тарифы / Заказы */}
-      <div className="border-b border-gray-200 mb-6 flex gap-1">
-        {([['tariffs', 'Тарифы'], ['orders', 'Заказы']] as const).map(([k, label]) => (
-          <button key={k} type="button" onClick={() => setSubTab(k)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              subTab === k ? 'border-[#FFCFA4] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Подвкладки: Тарифы / Заказы — прячем, если родитель управляет ими сам
+          (вынес в общий ряд вкладок раздела «Платежи»). */}
+      {!hideSubNav && (
+        <div className="border-b border-gray-200 mb-6 flex gap-1">
+          {([['tariffs', 'Тарифы'], ['orders', 'Заказы']] as const).map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setSubTab(k)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                subTab === k ? 'border-[#FFCFA4] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {subTab === 'orders' && <OrdersTable eventId={eventId} onChanged={load} />}
 

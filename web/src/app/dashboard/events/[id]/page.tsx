@@ -15,7 +15,7 @@ import { EventStatusToggle } from '@/components/EventStatusToggle'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
-type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs'
+type TabKey = 'overview' | 'posters' | 'referral' | 'co_organizers' | 'participants' | 'nurture' | 'welcome' | 'tariffs' | 'tariff_orders'
 
 export default function EventPage() {
   const { id } = useParams()
@@ -76,7 +76,10 @@ export default function EventPage() {
     // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip.
     ...(isVip ? [{
       key: 'payments' as GroupKey, label: 'Платежи',
-      tabs: [{ key: 'tariffs' as TabKey, label: 'Тарифы' }],
+      tabs: [
+        { key: 'tariffs' as TabKey, label: 'Тарифы' },
+        { key: 'tariff_orders' as TabKey, label: 'Заказы' },
+      ],
     }] : []),
   ]
 
@@ -158,7 +161,8 @@ export default function EventPage() {
       {activeTab === 'co_organizers' && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
       {activeTab === 'nurture'       && <NurtureTab eventId={eventId} />}
       {activeTab === 'welcome'       && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
-      {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} onReload={reload} />}
+      {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}
+      {activeTab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={reload} />}
       {activeTab === 'participants'  && <EventParticipants eventId={eventId} moduleSlug={event.module_slug} />}
     </div>
   )

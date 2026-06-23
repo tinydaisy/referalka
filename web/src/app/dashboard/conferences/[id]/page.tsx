@@ -26,8 +26,8 @@ import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'scoring' | 'tariffs'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'scoring', 'tariffs']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'scoring' | 'tariffs' | 'tariff_orders'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'scoring', 'tariffs', 'tariff_orders']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -90,8 +90,9 @@ export default function ConferencePage() {
     {
       key: 'people', label: 'Люди',
       tabs: [
-        { id: 'speakers',     label: t.conferences.tabs.speakers },
-        { id: 'participants', label: t.conferences.tabs.participants },
+        { id: 'speakers',      label: t.conferences.tabs.speakers },
+        { id: 'speaker_links', label: 'Ссылки спикеров' },
+        { id: 'participants',  label: t.conferences.tabs.participants },
       ],
     },
     {
@@ -106,7 +107,10 @@ export default function ConferencePage() {
     // TariffsTab свои подвкладки Тарифы / Заказы.
     ...(isVip ? [{
       key: 'payments' as GroupKey, label: 'Платежи',
-      tabs: [{ id: 'tariffs' as Tab, label: 'Тарифы' }],
+      tabs: [
+        { id: 'tariffs' as Tab, label: 'Тарифы' },
+        { id: 'tariff_orders' as Tab, label: 'Заказы' },
+      ],
     }] : []),
   ]
 
@@ -197,7 +201,8 @@ export default function ConferencePage() {
       </div>
 
       {tab === 'settings'     && <SettingsTab     eventId={eventId} conf={conf} event={event} onConfUpdated={setConf} onEventUpdated={(patch: any) => setEvent((e: any) => ({ ...e, ...patch }))} />}
-      {tab === 'speakers'     && <SpeakersTab     eventId={eventId} moduleSlug={event?.module_slug} />}
+      {tab === 'speakers'     && <SpeakersTab     eventId={eventId} moduleSlug={event?.module_slug} subTab="list" hideSubNav />}
+      {tab === 'speaker_links' && <SpeakersTab    eventId={eventId} moduleSlug={event?.module_slug} subTab="links" hideSubNav />}
       {tab === 'program'      && (isTournament ? <TournamentProgramTab eventId={eventId} /> : <ProgramTab eventId={eventId} />)}
       {tab === 'participants' && <ParticipantsTab eventId={eventId} />}
       {tab === 'raffle'       && <RaffleTab />}
@@ -207,7 +212,8 @@ export default function ConferencePage() {
       {tab === 'referral'     && <ReferralProgramTab eventId={eventId} moduleSlug="conference" />}
       {tab === 'nurture'      && <NurtureTab       eventId={eventId} />}
       {tab === 'welcome'      && <WelcomeTab       event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
-      {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
+      {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
+      {tab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}
     </div>
   )
