@@ -126,6 +126,7 @@ class UpdateEventRequest(BaseModel):
     # случайной фразой из набора event_chat_greetings.
     chat_greeting_enabled: Optional[bool] = None
     chat_greeting_keyword: Optional[str] = None
+    chat_greeting_exact: Optional[bool] = None  # точное совпадение / любое вхождение
     # Чекбокс «Регистрировать без ввода контактных данных» — работает на встроенном
     # лендинге Mini App, если landing_url не задан. TRUE → клик «Хочу участвовать»
     # регистрирует по tg_id без формы (имя из Telegram, email/phone пустые).

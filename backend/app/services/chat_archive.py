@@ -471,6 +471,23 @@ async def get_or_seed_chat_greetings(db, event_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _normalize_greeting_match(s: str) -> str:
+    """Нормализация для ТОЧНОГО сравнения сообщения с кодовым словом.
+
+    Срезаем регистр, пробелы по краям, финальную/начальную пунктуацию и эмодзи —
+    чтобы «Я С ВАМИ», «я с вами!», «  я с вами 🙌» совпали с «я с вами».
+    Но «я с вами хотела обсудить» — НЕ совпадёт (лишние слова остаются).
+    """
+    import re
+    s = (s or "").strip().lower()
+    # Убрать любые НЕ буквенно-цифровые символы по краям (пунктуация, эмодзи, пробелы).
+    s = re.sub(r"^[^0-9a-zа-яё]+", "", s)
+    s = re.sub(r"[^0-9a-zа-яё]+$", "", s)
+    # Схлопнуть внутренние пробелы в один.
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
 def _apply_greeting_placeholders(text: str, author_name: Optional[str], username: Optional[str]) -> str:
     """Подставить {name} в фразу. Имя → author_name → @username → 'друзья'."""
     name = (author_name or "").strip()
@@ -505,7 +522,6 @@ async def process_chat_greeting(
     if not text:
         return None
     chat_id = str(chat_id)
-    low = text.lower()
     try:
         pool = await get_pool()
         async with pool.acquire() as db:
@@ -515,14 +531,24 @@ async def process_chat_greeting(
             event_id, _client_id = resolved
 
             row = await db.fetchrow(
-                "SELECT chat_greeting_enabled, chat_greeting_keyword FROM events WHERE id = $1",
+                "SELECT chat_greeting_enabled, chat_greeting_keyword, chat_greeting_exact "
+                "FROM events WHERE id = $1",
                 event_id,
             )
             if not row or not row["chat_greeting_enabled"]:
                 return None
-            keyword = (row["chat_greeting_keyword"] or "").strip().lower()
-            if not keyword or keyword not in low:
-                return None
+            raw_keyword = (row["chat_greeting_keyword"] or "")
+            if row["chat_greeting_exact"]:
+                # ТОЧНОЕ: всё сообщение = кодовое слово (без регистра/пробелов/
+                # пунктуации по краям). «я с вами хочу обсудить» — НЕ сработает.
+                keyword = _normalize_greeting_match(raw_keyword)
+                if not keyword or _normalize_greeting_match(text) != keyword:
+                    return None
+            else:
+                # ЛЮБОЕ вхождение в текст.
+                keyword = raw_keyword.strip().lower()
+                if not keyword or keyword not in text.lower():
+                    return None
 
             greetings = await get_or_seed_chat_greetings(db, event_id)
             if not greetings:

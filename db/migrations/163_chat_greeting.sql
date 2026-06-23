@@ -14,7 +14,13 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS chat_greeting_enabled BOOLEAN NOT NU
 COMMENT ON COLUMN events.chat_greeting_enabled IS 'Слушать чаты события и отвечать приветствием на кодовое слово (вкладка «Приветствие» → «В чатах»).';
 
 ALTER TABLE events ADD COLUMN IF NOT EXISTS chat_greeting_keyword TEXT;
-COMMENT ON COLUMN events.chat_greeting_keyword IS 'Кодовое слово/фраза для приветствия в чате (поиск в тексте сообщения, где угодно, без регистра).';
+COMMENT ON COLUMN events.chat_greeting_keyword IS 'Кодовое слово/фраза для приветствия в чате.';
+
+-- Режим совпадения: TRUE (default) = ТОЧНОЕ (всё сообщение = кодовое слово,
+-- без учёта регистра/пробелов/пунктуации по краям) — «я с вами хочу обсудить»
+-- НЕ сработает. FALSE = любое вхождение в текст.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS chat_greeting_exact BOOLEAN NOT NULL DEFAULT TRUE;
+COMMENT ON COLUMN events.chat_greeting_exact IS 'Приветствие в чате: TRUE = точное совпадение всего сообщения с кодовым словом, FALSE = любое вхождение.';
 
 -- 2) Набор случайных фраз приветствия. Бот берёт одну рандомно.
 CREATE TABLE IF NOT EXISTS event_chat_greetings (

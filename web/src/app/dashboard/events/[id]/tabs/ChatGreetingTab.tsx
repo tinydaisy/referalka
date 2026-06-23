@@ -28,6 +28,8 @@ interface Greeting { id: number; text: string; sort: number }
 export default function ChatGreetingTab({ event, eventId, onReload }: Props) {
   const [enabled, setEnabled] = useState<boolean>(event.chat_greeting_enabled || false)
   const [keyword, setKeyword] = useState<string>(event.chat_greeting_keyword || '')
+  // Точное совпадение всего сообщения с кодовым словом (default true).
+  const [exact, setExact] = useState<boolean>(event.chat_greeting_exact ?? true)
   const [greetings, setGreetings] = useState<Greeting[]>([])
   const [loading, setLoading] = useState(true)
   const [savingMeta, setSavingMeta] = useState(false)
@@ -40,6 +42,7 @@ export default function ChatGreetingTab({ event, eventId, onReload }: Props) {
   useEffect(() => {
     setEnabled(event.chat_greeting_enabled || false)
     setKeyword(event.chat_greeting_keyword || '')
+    setExact(event.chat_greeting_exact ?? true)
   }, [event])
 
   async function load() {
@@ -66,6 +69,7 @@ export default function ChatGreetingTab({ event, eventId, onReload }: Props) {
       await api.events.update(eventId, {
         chat_greeting_enabled: enabled,
         chat_greeting_keyword: keyword.trim() || null,
+        chat_greeting_exact: exact,
       })
       setSavedMeta(true)
       setTimeout(() => setSavedMeta(false), 2500)
@@ -116,9 +120,10 @@ export default function ChatGreetingTab({ event, eventId, onReload }: Props) {
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-gray-700 leading-relaxed">
         <b>Что это:</b> человек пишет в чате события <b>кодовое слово</b>
         {' '}(например «Я С ВАМИ») — и бот <b>ответом</b> на его сообщение присылает
-        случайную фразу из набора ниже. Отвечает не сразу, а через 30 секунд – 3 минуты
-        (рандомно) — чтобы выглядело естественно, как живой человек. Реагирует только
-        на кодовое слово. Работает во всех чатах события — Telegram, VK, MAX.
+        случайную фразу из набора ниже. По умолчанию срабатывает, только когда всё
+        сообщение = кодовое слово (точное совпадение). Отвечает не сразу, а через
+        30 секунд – 3 минуты (рандомно) — чтобы выглядело естественно, как живой
+        человек. Работает во всех чатах события — Telegram, VK, MAX.
         <div className="mt-2 text-xs text-gray-500">
           ⚠️ Чтобы бот видел сообщения в чате: он должен быть админом чата,
           privacy mode выключен в @BotFather, а ID чата заполнен в настройках события.
@@ -145,8 +150,33 @@ export default function ChatGreetingTab({ event, eventId, onReload }: Props) {
           placeholder="Я С ВАМИ"
           className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm" />
         <div className="text-xs text-gray-500 mt-1">
-          Ищется в сообщении где угодно, без учёта регистра. Например, «я с вами!»
-          или «Ребята, я с вами» — оба сработают.
+          Без учёта регистра. Режим совпадения выбирается ниже.
+        </div>
+
+        {/* Режим совпадения */}
+        <div className="mt-4 space-y-2">
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="radio" name="greeting-match" checked={exact}
+              onChange={() => setExact(true)} className="mt-1" />
+            <div>
+              <div className="text-sm font-medium text-gray-800">Точное совпадение (рекомендуется)</div>
+              <div className="text-xs text-gray-500">
+                Бот отвечает, только если всё сообщение = кодовое слово (можно с «!» и эмодзи).
+                «я с вами» ✓ · «Я С ВАМИ!» ✓ · «я с вами хочу обсудить» ✗.
+              </div>
+            </div>
+          </label>
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="radio" name="greeting-match" checked={!exact}
+              onChange={() => setExact(false)} className="mt-1" />
+            <div>
+              <div className="text-sm font-medium text-gray-800">Любое вхождение</div>
+              <div className="text-xs text-gray-500">
+                Срабатывает везде, где встретилось кодовое слово — включая «Я с вами хочу обсудить».
+                Будут случайные ложные ответы.
+              </div>
+            </div>
+          </label>
         </div>
       </div>
 
