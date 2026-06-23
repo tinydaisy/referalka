@@ -1,11 +1,11 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker from '@/components/BroadcastMediaPicker'
-import RichTextEditor from '@/components/RichTextEditor'
+import RichTextEditor, { RichTextEditorHandle } from '@/components/RichTextEditor'
 
 type TypeDef = {
   type: string
@@ -237,6 +237,12 @@ export default function TemplatesPage() {
     horizontal: [], vertical: [], square: [],
   })
   const [previewRegistered, setPreviewRegistered] = useState(false)
+  // Ref на редактор текста: при сохранении берём текст НАПРЯМУЮ из DOM
+  // редактора (getValue), а не из form.text — иначе теряется текст, если
+  // onChange/onBlur не успел обновить state до клика «Сохранить» (был баг:
+  // фронт слал пустой text → бэк затирал шаблон).
+  const editModalEditorRef = useRef<RichTextEditorHandle>(null)
+  const createModalEditorRef = useRef<RichTextEditorHandle>(null)
 
   useEffect(() => {
     api.conference.templates.list(eventId).then(r => setTemplates(r.templates || [])).catch(() => {})
@@ -264,8 +270,12 @@ export default function TemplatesPage() {
   async function save() {
     try {
       const mt = (form as any).media_type as 'photo' | 'video' | null
+      // Берём актуальный текст прямо из редактора (не из form.text) — снимает
+      // гонку onChange/onBlur, из-за которой уходил пустой текст и затирал шаблон.
+      const liveText = editModalEditorRef.current?.getValue() ?? form.text
       const payload: any = {
         ...form,
+        text: liveText,
         // Не отправляем фото и видео одновременно — оставляем выбранный тип.
         photo_url: mt === 'photo' ? ((form as any).photo_url || null) : null,
         video_url: mt === 'video' ? ((form as any).video_url || null) : null,
@@ -317,11 +327,12 @@ export default function TemplatesPage() {
         alert('Укажите время в формате HH:MM')
         return
       }
+      const liveText = createModalEditorRef.current?.getValue() ?? f.text
       const payload: any = {
         name: f.name,
         type: 'custom',
         subject: f.subject || null,
-        text: f.text || '',
+        text: liveText || '',
         photo_url: f.media_type === 'photo' ? (f.photo_url || null) : null,
         video_url: f.media_type === 'video' ? (f.video_url || null) : null,
         media_type: f.media_type,
@@ -905,6 +916,7 @@ export default function TemplatesPage() {
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Текст сообщения</label>
                 <RichTextEditor
+                  ref={editModalEditorRef}
                   value={form.text || ''}
                   onChange={(v) => setForm({ ...form, text: v })}
                   placeholder="Используйте плейсхолдеры {conf_title}, {day_number}, {first_name} и т.п."
@@ -1135,6 +1147,7 @@ export default function TemplatesPage() {
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Текст сообщения</label>
                 <RichTextEditor
+                  ref={createModalEditorRef}
                   value={(form as any).text || ''}
                   onChange={(v) => setForm({ ...form, text: v } as any)}
                   placeholder="Используйте плейсхолдеры {conf_title}, {day_number}, {first_name} и т.п."
