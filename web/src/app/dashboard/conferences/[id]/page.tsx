@@ -21,13 +21,15 @@ import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import NurtureTab from '../../events/[id]/tabs/NurtureTab'
 import WelcomeTab from '../../events/[id]/tabs/WelcomeTab'
 import TariffsTab from '../../events/[id]/tabs/TariffsTab'
+import BroadcastTemplatesView from './broadcasts/templates/page'
+import BroadcastQueueView from './broadcasts/queue/page'
 import { useMe } from '@/hooks/useMe'
 import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'scoring' | 'tariffs' | 'tariff_orders'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'scoring', 'tariffs', 'tariff_orders']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'scoring' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'scoring', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -73,7 +75,7 @@ export default function ConferencePage() {
   // Группировка вкладок в разделы (двухуровневая навигация):
   //  Настройки / Люди / Отслеживания / Платежи / Рассылки.
   // Программа осталась внутри «Настроек» (часть наполнения события).
-  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'payments'
+  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'payments' | 'broadcasts'
   const GROUPS: { key: GroupKey; label: string; tabs: { id: Tab; label: string }[] }[] = [
     {
       key: 'settings_grp', label: 'Настройки',
@@ -112,6 +114,13 @@ export default function ConferencePage() {
         { id: 'tariff_orders' as Tab, label: 'Заказы' },
       ],
     }] : []),
+    {
+      key: 'broadcasts', label: 'Рассылки',
+      tabs: [
+        { id: 'broadcast_templates', label: 'Шаблоны' },
+        { id: 'broadcast_queue', label: 'Очередь рассылок' },
+      ],
+    },
   ]
 
   // Активная группа = та, что содержит текущий tab.
@@ -171,7 +180,7 @@ export default function ConferencePage() {
         </div>
       )}
 
-      {/* Уровень 1 — разделы (группы) + «Рассылки» как отдельная страница */}
+      {/* Уровень 1 — разделы (группы), включая «Рассылки» (внутри карточки) */}
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-3">
         <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-max sm:w-fit">
           {GROUPS.map(g => (
@@ -184,10 +193,6 @@ export default function ConferencePage() {
               {g.label}
             </button>
           ))}
-          <Link href={`${basePath}/${eventId}/broadcasts/templates`}
-            className="px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap text-gray-500 hover:text-gray-700 hover:bg-white/60">
-            Рассылки
-          </Link>
         </div>
       </div>
 
@@ -215,6 +220,8 @@ export default function ConferencePage() {
       {tab === 'tariffs'      && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'tariff_orders' && isVip && <TariffsTab event={event} eventId={eventId} subTab="orders" hideSubNav onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}
       {tab === 'report'       && <ReportTab       eventId={eventId} moduleSlug={event?.module_slug} />}
+      {tab === 'broadcast_templates' && <BroadcastTemplatesView />}
+      {tab === 'broadcast_queue'     && <BroadcastQueueView />}
     </div>
   )
 }
