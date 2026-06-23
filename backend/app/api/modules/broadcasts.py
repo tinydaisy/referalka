@@ -527,17 +527,16 @@ async def update_template(
     client_id = int(client["sub"])
     await _check_event(db, event_id, client_id)
 
-    # У speaker_intro текст — это заготовка с плейсхолдерами; без неё рассылка
-    # уходит пустой. Если фронт прислал пустой text для speaker_intro — НЕ
-    # затираем, оставляем то, что уже сохранено. Для всех остальных типов
-    # сохраняем ровно то, что пришло (включая намеренную очистку).
+    # ЗАЩИТА ОТ ПОТЕРИ ТЕКСТА: пустой text НИКОГДА не затирает уже сохранённый.
+    # Причина — фронт иногда шлёт пустую строку (гонка редактора), и шаблон
+    # обнулялся. Реальная очистка текста в ноль не нужна (для этого есть
+    # удаление шаблона), поэтому пустой text просто игнорируем — остаётся старый.
     new_text = data.text
-    if data.type == "speaker_intro" and not (data.text and data.text.strip()):
-        cur = await db.fetchval(
+    if not (data.text and data.text.strip()):
+        new_text = await db.fetchval(
             "SELECT text FROM broadcast_templates WHERE id=$1 AND event_id=$2",
             template_id, event_id,
         )
-        new_text = cur
 
     row = await db.fetchrow(
         """
