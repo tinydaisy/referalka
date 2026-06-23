@@ -943,6 +943,40 @@ async def _send_broadcast_max_part(
     elif button_text and button_url:
         max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
 
+    # Фото в MAX: скачиваем R2-картинку → грузим в MAX (двухшаговый upload) →
+    # attachment переиспользуется для ВСЕХ получателей (token валиден для всех).
+    # Делаем один раз на рассылку. Видео в MAX по-прежнему ссылкой (ниже).
+    photo_attachment = None
+    if photo_url and media_type != "video":
+        try:
+            from app.services.max_api import upload_media as max_upload_media
+            import tempfile, os as _os
+            async with httpx.AsyncClient(timeout=60.0) as _cli:
+                _img = await _cli.get(photo_url)
+            if _img.status_code == 200 and _img.content:
+                _ext = ".jpg"
+                low = photo_url.lower()
+                for e in (".png", ".jpeg", ".jpg", ".webp"):
+                    if e in low:
+                        _ext = e
+                        break
+                _tmp = tempfile.NamedTemporaryFile(suffix=_ext, delete=False)
+                try:
+                    _tmp.write(_img.content)
+                    _tmp.flush()
+                    _tmp.close()
+                    photo_attachment = await max_upload_media(_tmp.name, token=max_token, kind="image")
+                finally:
+                    try:
+                        _os.unlink(_tmp.name)
+                    except OSError:
+                        pass
+            if not photo_attachment:
+                logger.warning(f"MAX broadcast: фото не загрузилось ({photo_url[:80]}) — шлём без фото")
+        except Exception as e:
+            logger.warning(f"MAX broadcast photo upload error: {e}")
+            photo_attachment = None
+
     sent = 0
     for r in rows:
         try:
@@ -969,7 +1003,7 @@ async def _send_broadcast_max_part(
         try:
             # Рассылка адресуется по user_id подписчика (platform_users.platform_user_id),
             # а не по id беседы — иначе MAX отвечает chat.not.found и молча не доставляет.
-            res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons, recipient_kind="user", parse_mode="html")
+            res = await max_send(max_id_int, message_text, token=max_token, buttons=max_buttons, recipient_kind="user", parse_mode="html", attachments=[photo_attachment] if photo_attachment else None)
             ok = bool(res)
             if not ok:
                 err = "MAX send returned None"
