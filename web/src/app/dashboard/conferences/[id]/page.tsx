@@ -15,7 +15,7 @@ import ParticipantsTab from './tabs/ParticipantsTab'
 import RaffleTab  from './tabs/RaffleTab'
 import PostersTab from './tabs/PostersTab'
 import AnnouncementTrackerTab from './tabs/AnnouncementTrackerTab'
-import ScoringTab from './tabs/ScoringTab'
+import { CriteriaTab, AssignmentsTab, LeaderboardTab, ReportsTab, TaskControlTab } from './tabs/ScoringTab'
 import ReportTab from './tabs/ReportTab'
 import ReferralProgramTab from '../../events/[id]/tabs/ReferralProgramTab'
 import NurtureTab from '../../events/[id]/tabs/NurtureTab'
@@ -28,8 +28,8 @@ import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'scoring' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue'
-const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'scoring', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue']
+type Tab = 'settings' | 'speakers' | 'speaker_links' | 'program' | 'participants' | 'raffle' | 'posters' | 'announcements' | 'referral' | 'nurture' | 'welcome' | 'report' | 'criteria' | 'assignments' | 'leaderboard' | 'reports' | 'taskcontrol' | 'tariffs' | 'tariff_orders' | 'broadcast_templates' | 'broadcast_queue'
+const VALID_TABS: Tab[] = ['settings', 'speakers', 'speaker_links', 'program', 'participants', 'raffle', 'posters', 'announcements', 'referral', 'nurture', 'welcome', 'report', 'criteria', 'assignments', 'leaderboard', 'reports', 'taskcontrol', 'tariffs', 'tariff_orders', 'broadcast_templates', 'broadcast_queue']
 
 export default function ConferencePage() {
   const { id } = useParams()
@@ -75,7 +75,7 @@ export default function ConferencePage() {
   // Группировка вкладок в разделы (двухуровневая навигация):
   //  Настройки / Люди / Отслеживания / Платежи / Рассылки.
   // Программа осталась внутри «Настроек» (часть наполнения события).
-  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'payments' | 'broadcasts'
+  type GroupKey = 'settings_grp' | 'people' | 'tracking' | 'tournament' | 'payments' | 'broadcasts'
   const GROUPS: { key: GroupKey; label: string; tabs: { id: Tab; label: string }[] }[] = [
     {
       key: 'settings_grp', label: 'Настройки',
@@ -101,10 +101,21 @@ export default function ConferencePage() {
       key: 'tracking', label: 'Отслеживания',
       tabs: [
         { id: 'announcements', label: 'Анонсы спикеров' },
-        ...(isTournament ? [{ id: 'scoring' as Tab, label: 'Оценки турнира' }] : []),
         { id: 'report', label: 'Отчёт по привлечению' },
       ],
     },
+    // «Турнир» — раздел 1-го уровня (только для турниров). Внутри ровно 2-й уровень:
+    // Критерии / Распределение / Турнирная таблица / Отчёты / Контроль заданий.
+    ...(isTournament ? [{
+      key: 'tournament' as GroupKey, label: 'Турнир',
+      tabs: [
+        { id: 'criteria' as Tab, label: 'Критерии' },
+        { id: 'assignments' as Tab, label: 'Распределение' },
+        { id: 'leaderboard' as Tab, label: 'Турнирная таблица' },
+        { id: 'reports' as Tab, label: 'Отчёты' },
+        { id: 'taskcontrol' as Tab, label: 'Контроль заданий' },
+      ],
+    }] : []),
     // «Платежи» (бывшие «Тарифы») — только на тарифе клиента vip. Внутри
     // TariffsTab свои подвкладки Тарифы / Заказы.
     ...(isVip ? [{
@@ -196,14 +207,18 @@ export default function ConferencePage() {
         </div>
       </div>
 
-      {/* Уровень 2 — вкладки внутри активного раздела */}
-      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-6 border-b border-gray-200">
-        <div className="flex gap-1 w-max sm:w-fit">
-          {activeGroup.tabs.map(tb => (
-            <ConfTabBtn key={tb.id} active={tab === tb.id} onClick={() => setTab(tb.id)} label={tb.label} />
-          ))}
+      {/* Уровень 2 — вкладки внутри активного раздела.
+          Если в разделе одна вкладка (напр. «Контроль заданий») — второй уровень
+          не показываем, чтобы не дублировать заголовок раздела. */}
+      {activeGroup.tabs.length > 1 && (
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 mb-6 border-b border-gray-200">
+          <div className="flex gap-1 w-max sm:w-fit">
+            {activeGroup.tabs.map(tb => (
+              <ConfTabBtn key={tb.id} active={tab === tb.id} onClick={() => setTab(tb.id)} label={tb.label} />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {tab === 'settings'     && <SettingsTab     eventId={eventId} conf={conf} event={event} onConfUpdated={setConf} onEventUpdated={(patch: any) => setEvent((e: any) => ({ ...e, ...patch }))} />}
       {tab === 'speakers'     && <SpeakersTab     eventId={eventId} moduleSlug={event?.module_slug} subTab="list" hideSubNav />}
@@ -213,7 +228,11 @@ export default function ConferencePage() {
       {tab === 'raffle'       && <RaffleTab />}
       {tab === 'posters'      && <PostersTab      eventId={eventId} moduleSlug={event?.module_slug} />}
       {tab === 'announcements' && <AnnouncementTrackerTab eventId={eventId} moduleSlug={event?.module_slug} />}
-      {tab === 'scoring'      && <ScoringTab eventId={eventId} />}
+      {tab === 'criteria'     && <CriteriaTab eventId={eventId} />}
+      {tab === 'assignments'  && <AssignmentsTab eventId={eventId} />}
+      {tab === 'leaderboard'  && <LeaderboardTab eventId={eventId} />}
+      {tab === 'reports'      && <ReportsTab eventId={eventId} />}
+      {tab === 'taskcontrol'  && <TaskControlTab eventId={eventId} />}
       {tab === 'referral'     && <ReferralProgramTab eventId={eventId} moduleSlug="conference" />}
       {tab === 'nurture'      && <NurtureTab       eventId={eventId} />}
       {tab === 'welcome'      && <WelcomeTab       event={event} eventId={eventId} onReload={() => api.events.get(eventId).then(r => setEvent(r.event))} />}

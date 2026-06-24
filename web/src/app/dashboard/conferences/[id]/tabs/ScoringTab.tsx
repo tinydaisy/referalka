@@ -3,46 +3,13 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check } from 'lucide-react'
-import { useUrlTab, useActiveTabRef } from '@/hooks/useUrlTab'
 
-type SubTab = 'criteria' | 'assignments' | 'leaderboard' | 'reports' | 'taskcontrol'
-
-function ScoringTabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  const ref = useActiveTabRef<HTMLButtonElement>(active)
-  return (
-    <button ref={ref} onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-        active ? 'border-[#FFCFA4] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'
-      }`}>
-      {label}
-    </button>
-  )
-}
-
-export default function ScoringTab({ eventId }: { eventId: number }) {
-  const [sub, setSub] = useUrlTab<SubTab>('sub', 'criteria', ['criteria', 'assignments', 'leaderboard', 'reports', 'taskcontrol'])
-  const tabs: { id: SubTab; label: string }[] = [
-    { id: 'criteria', label: 'Критерии' },
-    { id: 'assignments', label: 'Распределение' },
-    { id: 'leaderboard', label: 'Турнирная таблица' },
-    { id: 'reports', label: 'Отчёты' },
-    { id: 'taskcontrol', label: 'Контроль заданий' },
-  ]
-  return (
-    <div>
-      <div className="border-b border-gray-200 mb-6 flex items-center gap-1 -mt-2 overflow-x-auto">
-        {tabs.map(t => (
-          <ScoringTabBtn key={t.id} active={sub === t.id} onClick={() => setSub(t.id)} label={t.label} />
-        ))}
-      </div>
-      {sub === 'criteria'    && <CriteriaSub eventId={eventId} />}
-      {sub === 'assignments' && <AssignmentsSub eventId={eventId} />}
-      {sub === 'leaderboard' && <LeaderboardSub eventId={eventId} />}
-      {sub === 'reports'     && <ReportsSub eventId={eventId} />}
-      {sub === 'taskcontrol' && <TaskControlSub eventId={eventId} />}
-    </div>
-  )
-}
+// Подвкладки раздела «Турнир» — каждая отдельная вкладка 2-го уровня
+// (навигация рисуется в page.tsx, своего ряда табов здесь больше нет).
+export function CriteriaTab({ eventId }: { eventId: number }) { return <CriteriaSub eventId={eventId} /> }
+export function AssignmentsTab({ eventId }: { eventId: number }) { return <AssignmentsSub eventId={eventId} /> }
+export function LeaderboardTab({ eventId }: { eventId: number }) { return <LeaderboardSub eventId={eventId} /> }
+export function ReportsTab({ eventId }: { eventId: number }) { return <ReportsSub eventId={eventId} /> }
 
 // ─────────────────────── Критерии (конструктор) ───────────────────────
 
@@ -813,6 +780,10 @@ function ChannelStatusCard({ ch, eventId }: { ch: any; eventId: number }) {
       )}
     </div>
   )
+}
+
+export function TaskControlTab({ eventId }: { eventId: number }) {
+  return <TaskControlSub eventId={eventId} />
 }
 
 function TaskControlSub({ eventId }: { eventId: number }) {
