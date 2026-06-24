@@ -770,7 +770,7 @@ async def list_schedules(
                bs.error_log,
                -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
                bs.snapshot_text, bs.snapshot_photo, bs.snapshot_video,
-               bs.snapshot_media_type, bs.snapshot_buttons
+               bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type != 'speaker_intro'
@@ -1462,6 +1462,7 @@ class AddCustomRequest(BaseModel):
     is_test: bool = False
     audience_include: str = "all_event"
     audience_exclude: str = "none"
+    send_to_event_chats: bool = False
 
 
 def _resolve_snapshot_media(photo_url: Optional[str], video_url: Optional[str],
@@ -1547,12 +1548,13 @@ async def add_custom_schedule(
           (event_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_buttons,
-           snapshot_video, snapshot_media_type)
-        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+           snapshot_video, snapshot_media_type, send_to_event_chats)
+        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
-        data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype
+        data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
+        data.send_to_event_chats
     )
     return dict(row)
 
@@ -1601,13 +1603,14 @@ async def edit_custom_schedule(
             fire_at = $1, is_test = $2,
             audience_include = $3, audience_exclude = $4,
             snapshot_text = $5, snapshot_photo = $6, snapshot_buttons = $7::jsonb,
-            snapshot_video = $8, snapshot_media_type = $9
+            snapshot_video = $8, snapshot_media_type = $9,
+            send_to_event_chats = $12
         WHERE id = $10 AND event_id = $11 AND type = 'custom'
         RETURNING id, type, fire_at, status, is_test
         """,
         dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
-        schedule_id, event_id,
+        schedule_id, event_id, data.send_to_event_chats,
     )
     return dict(row)
 
