@@ -197,17 +197,19 @@ async def _resolve_subject_for_audiences(
     audiences — список из 'all' / 'registered' / 'speakers' / 'jury' (множественный
     выбор «Кого слушаем в этапе»). На этапе можно слушать сразу несколько ролей.
 
-    Значения (можно комбинировать; спикеры/жюри — отдельно от оси участников):
-      • 'all'        — участники: зарег + незарег (любой ep);
-      • 'registered' — только зарегистрированные участники (ep, is_registered=TRUE);
-      • 'speakers'   — спикеры/хедлайнеры (ec);
-      • 'jury'       — жюри (ec role=jury).
+    ⚠️ ВАЖНО (правка 2026-06-24): для контроля заданий НЕТ градации «спикер vs
+    участник». Один человек = одна строка в турнирной таблице. Поэтому приоритет
+    ВСЕГДА у участника (ep): если человек заведён как участник события — балл за
+    задание идёт в его участницкую строку, неважно, спикер он или жюри. Это убирает
+    раздвоение баллов у тех, кто одновременно и участник, и спикер (многие участники
+    становятся спикерами по ходу турнира).
 
-    Резолв по приоритету: speakers (ec) → jury (ec) → участник (ep) — но КАЖДАЯ
-    роль участвует ТОЛЬКО если она отмечена. 'all'/'registered' включают ось
-    участников (ep), но НЕ спикеров/жюри — те засчитываются лишь при своих галочках.
-    Спикер/жюри раньше участника, чтобы человек, сдающий задание в этой роли,
-    засчитывался по своей строке.
+    Резолв:
+      1) человек — участник события (ep)? → ('ep', id). 'registered' требует
+         is_registered=TRUE; 'all'/'speakers'/'jury' — любой ep (включая незарег).
+      2) НЕ участник, но спикер/жюри (ec) — только если такая роль слушается на
+         этапе → ('ec', id). Fallback, чтобы балл вообще не потерялся у чисто
+         спикера/жюри, не заведённого участником.
 
     Пустой набор audiences = «не слушать» → всегда None (этап не слушается).
     """
@@ -217,6 +219,27 @@ async def _resolve_subject_for_audiences(
     if not auds:
         return None
 
+    # (1) Приоритет — участник события. Любая аудитория, кроме чисто 'registered',
+    # засчитывает незарегистрированного тоже; 'registered' — только зарег.
+    only_registered = auds == {"registered"}
+    if only_registered:
+        ep_id = await db.fetchval(
+            """SELECT id FROM event_participants
+                WHERE event_id = $1 AND contact_id = $2 AND is_registered = TRUE
+                ORDER BY id LIMIT 1""",
+            event_id, contact_id,
+        )
+    else:
+        ep_id = await db.fetchval(
+            """SELECT id FROM event_participants
+                WHERE event_id = $1 AND contact_id = $2
+                ORDER BY id LIMIT 1""",
+            event_id, contact_id,
+        )
+    if ep_id:
+        return ("ep", int(ep_id))
+
+    # (2) Не участник, но спикер/жюри — fallback, чтобы балл не потерялся.
     if "speakers" in auds:
         ec_id = await db.fetchval(
             """SELECT ec.id FROM event_collaborators ec
@@ -240,25 +263,6 @@ async def _resolve_subject_for_audiences(
         )
         if ec_id:
             return ("ec", int(ec_id))
-
-    if "all" in auds or "registered" in auds:
-        # 'all' — любой участник (вкл. незарег.); 'registered' — только зарег.
-        if "all" in auds:
-            ep_id = await db.fetchval(
-                """SELECT id FROM event_participants
-                    WHERE event_id = $1 AND contact_id = $2
-                    ORDER BY id LIMIT 1""",
-                event_id, contact_id,
-            )
-        else:
-            ep_id = await db.fetchval(
-                """SELECT id FROM event_participants
-                    WHERE event_id = $1 AND contact_id = $2 AND is_registered = TRUE
-                    ORDER BY id LIMIT 1""",
-                event_id, contact_id,
-            )
-        if ep_id:
-            return ("ep", int(ep_id))
 
     return None
 
