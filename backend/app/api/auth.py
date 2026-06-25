@@ -146,17 +146,16 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
             client["id"]
         )
 
-        # Архитектура G: создаём записи в client_channels для боевых системных каналов
-        # (is_system=TRUE AND is_test=FALSE) — КРОМЕ общего TG-бота @pluson_bot
-        # (platform_slug='telegram'). Общий бот как fallback больше не используется:
-        # у всех клиентов есть собственный бот. Системные email/VK/MAX остаются
-        # доступны клиенту с момента регистрации.
+        # Архитектура G: новым клиентам привязываем ТОЛЬКО системный email-канал.
+        # Общие TG/VK/MAX-каналы ПЛЮСОНа как fallback больше не используются —
+        # у всех клиентов есть собственный бот/сообщество. Системный email
+        # (рассылки-письма, welcome) остаётся доступен с момента регистрации.
         await db.execute(
             """INSERT INTO client_channels (client_id, channel_id, is_active)
                SELECT $1, ch.id, TRUE
                  FROM channels ch
                 WHERE ch.is_system = TRUE AND ch.is_test = FALSE
-                  AND ch.platform_slug <> 'telegram'""",
+                  AND ch.platform_slug = 'email'""",
             client["id"]
         )
 
