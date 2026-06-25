@@ -27,6 +27,9 @@ export default function EventPage() {
   const { me } = useMe()
   // Раздел «Тарифы» — по фиче event_tariffs (включается через tariff_features).
   const isVip = (me?.features || []).includes('event_tariffs')
+  // Несколько организаторов у событий — только тариф Экстра (vip). На Профи (1900)
+  // и ниже вкладка «Организаторы» скрыта.
+  const isVipTariff = me?.subscription?.tariff_slug === 'vip'
 
   async function reload() {
     const e = await api.events.get(eventId)
@@ -67,8 +70,8 @@ export default function EventPage() {
     {
       key: 'people', label: 'Люди',
       tabs: [
-        // «Организаторы» — только для не-конф мероприятий.
-        ...(isConference ? [] : [{ key: 'co_organizers' as TabKey, label: 'Организаторы' }]),
+        // «Организаторы» — только для не-конф мероприятий И только на тарифе Экстра (vip).
+        ...((!isConference && isVipTariff) ? [{ key: 'co_organizers' as TabKey, label: 'Организаторы' }] : []),
         { key: 'participants', label: 'Участники' },
       ],
     },
@@ -157,7 +160,7 @@ export default function EventPage() {
       {activeTab === 'overview'      && <OverviewTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'posters'       && <PostersTab eventId={eventId} />}
       {activeTab === 'referral'      && <ReferralProgramTab eventId={eventId} moduleSlug={event.module_slug} />}
-      {activeTab === 'co_organizers' && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
+      {activeTab === 'co_organizers' && !isConference && isVipTariff && <CoOrganizersTab eventId={eventId} requireSubscription={!!event.require_subscription} />}
       {activeTab === 'nurture'       && <NurtureTab eventId={eventId} />}
       {activeTab === 'welcome'       && <WelcomeTab event={event} eventId={eventId} onReload={reload} />}
       {activeTab === 'tariffs'       && isVip && <TariffsTab event={event} eventId={eventId} subTab="tariffs" hideSubNav onReload={reload} />}

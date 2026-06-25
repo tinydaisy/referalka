@@ -23,12 +23,7 @@ from urllib.parse import quote_plus
 from app.auth import get_current_client
 from app.database import get_db, get_pool
 from app.services.channels import get_client_telegram_token
-from app.services.share_links import (
-    get_client_bot_handles,
-    PLUSON_VK_HANDLE,
-    PLUSON_MAX_HANDLE,
-    _has_system_channel,
-)
+from app.services.share_links import get_client_bot_handles
 from app.config import settings
 import asyncpg
 import json
@@ -216,29 +211,25 @@ async def _resolve_referrer(client_id: int, pid: Optional[str], db: asyncpg.Conn
 
 
 async def _client_bot_username(client_id: int, db: asyncpg.Connection) -> str:
-    """Возвращает @username бота, в который надо переадресовывать landing.
-    Если у клиента активна фича 'channels' и есть подключённый бот → его. Иначе → @pluson_bot."""
-    from app.services.features import client_has_feature
-    has_channels = await client_has_feature(db, client_id, "channels")
-    if has_channels:
-        row = await db.fetchrow(
-            """SELECT ch.handle
-                 FROM client_channels cc
-                 JOIN channels ch ON ch.id = cc.channel_id
-                WHERE cc.client_id = $1
-                  AND cc.is_active = TRUE
-                  AND ch.platform_slug = 'telegram'
-                  AND ch.is_system = FALSE
-                  AND ch.bot_token IS NOT NULL
-                ORDER BY ch.id ASC
-                LIMIT 1""",
-            client_id,
-        )
-        if row and row["handle"]:
-            h = row["handle"].lstrip('@')
-            if h:
-                return h
-    return getattr(settings, 'plusson_bot_username', None) or 'pluson_bot'
+    """Возвращает @username СВОЕГО Telegram-бота клиента, в который надо
+    переадресовывать landing. Если у клиента нет своего бота — пустая строка
+    (системный @pluson_bot больше не используется как fallback)."""
+    row = await db.fetchrow(
+        """SELECT ch.handle
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1
+              AND cc.is_active = TRUE
+              AND ch.platform_slug = 'telegram'
+              AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL
+            ORDER BY ch.id ASC
+            LIMIT 1""",
+        client_id,
+    )
+    if row and row["handle"]:
+        return row["handle"].lstrip('@')
+    return ""
 
 
 @public_router.get("/m/{slug}", summary="Landing воронки (одиночный лид-магнит)")
@@ -263,9 +254,8 @@ async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db:
     """Формирует deeplink в чат с ботом/сообществом нужной платформы.
     Воронка лид-магнита — это «открыли чат → бот пишет приветствие со списком подарков».
 
-    Правила выбора канала:
-    - TG: VIP-клиент с фичей channels и подключённым ботом → его бот, иначе @pluson_bot
-      (системный TG-бот мультиклиентен через fnl_<run_id> payload).
+    Правила выбора канала (только СВОИ каналы клиента, системные не используются):
+    - TG: подключённый бот клиента. Нет своего бота → 404.
     - VK: ТОЛЬКО собственное VK-сообщество клиента. Системное сообщество не
       используется — оно принадлежит ПЛЮСОНу и не имеет права писать в личку
       подписчикам клиента (нарушает приватность и юридический контроль контента).
@@ -273,6 +263,8 @@ async def _platform_redirect_url(client_id: int, platform: str, run_id: int, db:
     """
     if platform == 'telegram':
         bot_username = await _client_bot_username(client_id, db)
+        if not bot_username:
+            raise HTTPException(status_code=404, detail="У клиента не подключён Telegram-бот для воронки")
         return f"https://t.me/{bot_username}?start=fnl_{run_id}"
     if platform == 'vk':
         # Берём собственный Mini App клиента (vk_app_id из platform_meta его VK-канала).
@@ -319,10 +311,9 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
             raise HTTPException(status_code=404, detail="Воронка не найдена")
         client_id, lm_id, pkg_id, _name = resolved
 
-        # Проверяем что выбранная платформа доступна клиенту:
-        # - TG: свой канал ИЛИ системный @pluson_bot (мультиклиентный через payload)
-        # - VK/MAX: только свой канал (системные принадлежат ПЛЮСОНу
-        #   и не могут писать в личку чужим подписчикам)
+        # Проверяем что у клиента подключён СВОЙ канал на выбранной платформе
+        # (channels.is_system=FALSE). Системные каналы ПЛЮСОНа не используются —
+        # ни для TG, ни для VK/MAX.
         own_channel = await db.fetchval(
             """SELECT 1
                  FROM client_channels cc
@@ -330,15 +321,12 @@ async def _landing(slug: str, kind: str, request: Request) -> RedirectResponse:
                 WHERE cc.client_id = $1
                   AND cc.is_active = TRUE
                   AND ch.platform_slug = $2
+                  AND ch.is_system = FALSE
                 LIMIT 1""",
             client_id, platform,
         )
         if not own_channel:
-            if platform == 'telegram':
-                if not await _has_system_channel(db, 'telegram', allow_test=False):
-                    raise HTTPException(status_code=404, detail="Платформа telegram не подключена")
-            else:
-                raise HTTPException(status_code=404, detail=f"Платформа {platform} не подключена клиентом")
+            raise HTTPException(status_code=404, detail=f"Платформа {platform} не подключена клиентом")
 
         # Параметры запроса
         utm = {k: v for k, v in qp.items() if k.startswith('utm_')}

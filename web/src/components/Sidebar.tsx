@@ -10,8 +10,9 @@ export default function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [supportOpen, setSupportOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})  // свёрнутые секции по label
-  const [me, setMe] = useState<{ name?: string; email?: string; features?: string[]; role?: string } | null>(null)
+  const [me, setMe] = useState<{ name?: string; email?: string; features?: string[]; role?: string; tariff_slug?: string } | null>(null)
   const { t } = useLang()
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export default function Sidebar() {
       email: data?.email,
       features: data?.features || [],
       role: data?.role || 'owner',
+      tariff_slug: data?.subscription?.tariff_slug,
     })).catch(() => {})
   }, [])
 
@@ -28,6 +30,8 @@ export default function Sidebar() {
   const hasContests = features.includes('contests')
   const hasCollabHub = features.includes('collab_hub')
   const isAssistant = me?.role === 'assistant'
+  // «Партнёры» (collaborations) — только тариф Экстра (vip). На Профи (1900) и ниже скрыт.
+  const isVipTariff = me?.tariff_slug === 'vip'
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
@@ -60,14 +64,12 @@ export default function Sidebar() {
       label: t.nav.base,
       items: [
         { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
-        { href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users },
+        // «Партнёры» (коллабораторы/спикеры) — только тариф Экстра (vip).
+        ...(isVipTariff ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
         // Каналы — у ассистента нет доступа даже на чтение (миграция 106)
         ...(isAssistant ? [] : [{ href: '/dashboard/channels', label: t.nav.channels, icon: Radio }]),
-        // Подписка (тарифы и оплата) — у ассистента нет доступа
-        ...(isAssistant ? [] : [{ href: '/dashboard/subscription', label: 'Подписка', icon: CreditCard }]),
-        // Партнёрская программа — у ассистента нет доступа (бонусы и вывод — личное)
-        ...(isAssistant ? [] : [{ href: '/dashboard/partner-program', label: 'Партнёрская', icon: Wallet }]),
+        // «Подписка» и «Партнёрская» перенесены в меню пользователя (внизу сайдбара).
       ],
     },
     // Коллабораторная (Хаб) — ВНЕШНИЙ раздел (другие клиенты ПЛЮСОНа). Под Базой, выделен оттенком + рамкой.
@@ -151,21 +153,6 @@ export default function Sidebar() {
 
       {/* Bottom */}
       <div className="px-3 pb-4 pt-3 border-t border-white/10 space-y-0.5">
-        {/* Настройки — у ассистента нет доступа (миграция 106) */}
-        {!isAssistant && (
-          <Link
-            href="/dashboard/settings"
-            onClick={() => setMobileOpen(false)}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              pathname.startsWith('/dashboard/settings')
-                ? 'bg-white/20 text-white'
-                : 'text-white/70 hover:bg-white/10 hover:text-white'
-            }`}
-          >
-            <Settings size={17} />
-            {t.nav.settings}
-          </Link>
-        )}
         {/* Тех.поддержка с подменю */}
         <button
           onClick={() => setSupportOpen(o => !o)}
@@ -206,26 +193,84 @@ export default function Sidebar() {
             </Link>
           </div>
         )}
-        {/* Current user — над «Выйти» */}
+        {/* Current user — кликабельный, раскрывает меню Настройки / Партнёрская / Подписка */}
         {me && (me.name || me.email) && (
-          <div className="flex items-center gap-3 px-3 py-2 mt-2 rounded-lg bg-white/5">
-            <UserCircle size={28} className="text-white/60 shrink-0" />
-            <div className="min-w-0 flex-1">
-              {me.name && (
-                <div className="text-sm font-medium text-white truncate">
-                  {me.name}
-                  {isAssistant && (
-                    <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-[#FFCFA4]">
-                      · ассистент
-                    </span>
-                  )}
-                </div>
-              )}
-              {me.email && (
-                <div className="text-[11px] text-white/50 truncate">{me.email}</div>
-              )}
-            </div>
-          </div>
+          <>
+            <button
+              onClick={() => setUserMenuOpen(o => !o)}
+              className={`flex items-center gap-3 px-3 py-2 mt-2 w-full rounded-lg transition-colors ${
+                userMenuOpen ? 'bg-white/10' : 'bg-white/5 hover:bg-white/10'
+              }`}
+            >
+              <UserCircle size={28} className="text-white/60 shrink-0" />
+              <div className="min-w-0 flex-1 text-left">
+                {me.name && (
+                  <div className="text-sm font-medium text-white truncate">
+                    {me.name}
+                    {isAssistant && (
+                      <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-[#FFCFA4]">
+                        · ассистент
+                      </span>
+                    )}
+                  </div>
+                )}
+                {me.email && (
+                  <div className="text-[11px] text-white/50 truncate">{me.email}</div>
+                )}
+              </div>
+              <ChevronDown size={14} className={`text-white/50 shrink-0 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {userMenuOpen && (
+              <div className="ml-4 pl-3 border-l border-white/10 mt-0.5 mb-1 space-y-0.5">
+                {/* Настройки — у ассистента нет доступа (миграция 106) */}
+                {!isAssistant && (
+                  <Link
+                    href="/dashboard/settings"
+                    onClick={() => setMobileOpen(false)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                      pathname.startsWith('/dashboard/settings')
+                        ? 'bg-white/15 text-white'
+                        : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <Settings size={15} />
+                    {t.nav.settings}
+                  </Link>
+                )}
+                {/* Партнёрская программа — у ассистента нет доступа (бонусы и вывод — личное) */}
+                {!isAssistant && (
+                  <Link
+                    href="/dashboard/partner-program"
+                    onClick={() => setMobileOpen(false)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                      pathname.startsWith('/dashboard/partner-program')
+                        ? 'bg-white/15 text-white'
+                        : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <Wallet size={15} />
+                    Партнёрская
+                  </Link>
+                )}
+                {/* Подписка (тарифы и оплата) — у ассистента нет доступа */}
+                {!isAssistant && (
+                  <Link
+                    href="/dashboard/subscription"
+                    onClick={() => setMobileOpen(false)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                      pathname.startsWith('/dashboard/subscription')
+                        ? 'bg-white/15 text-white'
+                        : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <CreditCard size={15} />
+                    Подписка
+                  </Link>
+                )}
+              </div>
+            )}
+          </>
         )}
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/10 w-full transition-colors"

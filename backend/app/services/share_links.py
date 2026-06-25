@@ -92,15 +92,20 @@ def max_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str 
 async def get_active_platforms(db, client_id: int) -> list[str]:
     """Возвращает список платформ ['telegram', 'vk', 'max'] которые активны у клиента.
 
-    Активны = у клиента есть активный канал на этой платформе (через client_channels.is_active).
+    Активны = у клиента есть СВОЙ (не системный) активный канал на этой платформе
+    (через client_channels.is_active + channels.is_system=FALSE).
     Используется на фронте чтобы понять какие реф-ссылки показывать.
+
+    ⚠️ Системные каналы (@pluson_bot и т.п.) НЕ учитываются — ссылка на площадку
+    показывается клиенту только если он подключил собственный канал.
     """
     rows = await db.fetch(
         """SELECT DISTINCT ch.platform_slug
              FROM client_channels cc
              JOIN channels ch ON ch.id = cc.channel_id
             WHERE cc.client_id = $1
-              AND cc.is_active = TRUE""",
+              AND cc.is_active = TRUE
+              AND ch.is_system = FALSE""",
         client_id,
     )
     return [r["platform_slug"] for r in rows]
@@ -171,29 +176,23 @@ async def build_share_links(
     contact_id: Optional[int] = None,
     link_mode: str = 'miniapp',
 ) -> dict[str, str]:
-    """Возвращает {platform → url} для всех **активных** платформ клиента + системных.
+    """Возвращает {platform → url} ТОЛЬКО для тех платформ, где у клиента
+    подключён СВОЙ канал (channels.is_system=FALSE).
 
     Логика:
-    - Если у клиента подключен свой бот на платформе → его handle
-    - Иначе если есть системный канал ПЛЮСОН на этой платформе → системный bot/app
-    - Платформа добавляется в результат если ИЛИ клиент имеет канал ИЛИ есть системный
+    - Если у клиента подключён свой бот/сообщество на платформе → ссылка на его handle
+    - Иначе ссылка НЕ возвращается (системные каналы ПЛЮСОНа больше не используются —
+      ни для показа, ни для шеринга).
     """
-    platforms = set(await get_active_platforms(db, client_id))
     handles = await get_client_bot_handles(db, client_id)
     vk_app_id = await get_client_vk_app_id(db, client_id)
-    # Системный канал засчитываем только если ОН ВЫВЕДЕН клиентам (is_test=FALSE).
-    # Каналы в test-режиме настраиваются админом и не должны светиться у клиентов
-    # в виде публичных ссылок (даже на превью).
-    for ps in ("telegram", "vk", "max"):
-        if await _has_system_channel(db, ps, allow_test=False):
-            platforms.add(ps)
     result: dict[str, str] = {}
-    if "telegram" in platforms:
-        result["telegram"] = telegram_link(event_slug, bot_handle=handles.get("telegram"), partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=link_mode)
-    if "vk" in platforms:
+    if handles.get("telegram"):
+        result["telegram"] = telegram_link(event_slug, bot_handle=handles["telegram"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=link_mode)
+    if handles.get("vk") and vk_app_id:
         result["vk"] = vk_link(event_slug, app_id=vk_app_id, partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=link_mode)
-    if "max" in platforms:
-        result["max"] = max_link(event_slug, bot_handle=handles.get("max"), partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=link_mode)
+    if handles.get("max"):
+        result["max"] = max_link(event_slug, bot_handle=handles["max"], partner_id=partner_id, tab=tab, contact_id=contact_id, link_mode=link_mode)
     return result
 
 
@@ -212,14 +211,13 @@ async def build_funnel_landing_links(
     и создают funnel_run + запускают воронку.
 
     Форматы:
-    - TG: `t.me/{bot_handle}?start={kind}_{slug}` (VIP-бот клиента или @pluson_bot)
-    - VK: `vk.com/app{vk_app_id}#{kind}_{slug}` (Mini App клиента)
-    - MAX: `max.ru/{handle}?start={kind}_{slug}` (только если есть собственный MAX-бот)
+    - TG: `t.me/{bot_handle}?start={kind}_{slug}` (только свой бот клиента)
+    - VK: `vk.com/app{vk_app_id}#{kind}_{slug}` (только Mini App клиента)
+    - MAX: `max.ru/{handle}?start={kind}_{slug}` (только свой MAX-бот клиента)
 
-    Логика показа платформы:
-    - TG: VIP-бот клиента ИЛИ системный @pluson_bot (мультиклиентный через payload)
-    - VK / MAX — ТОЛЬКО собственный канал клиента (системные принадлежат ПЛЮСОНу
-      и не имеют права писать в личку подписчикам клиента).
+    ⚠️ Ссылка на площадку возвращается ТОЛЬКО если у клиента подключён
+    собственный канал на этой платформе. Системные каналы ПЛЮСОНа
+    (@pluson_bot и т.п.) больше не используются как fallback.
     """
     if kind not in ("m", "p"):
         raise ValueError(f"kind must be 'm' or 'p', got {kind!r}")
@@ -227,31 +225,19 @@ async def build_funnel_landing_links(
     handles = await get_client_bot_handles(db, client_id)
     result: dict[str, str] = {}
 
-    # TG: VIP-бот клиента, либо системный @pluson_bot (мультиклиентный)
-    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
-    if tg_handle == PLUSON_TG_HANDLE:
-        if not await _has_system_channel(db, "telegram", allow_test=False):
-            tg_handle = ""
-    if tg_handle:
-        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+    # TG: только свой бот клиента
+    if handles.get("telegram"):
+        result["telegram"] = f"https://t.me/{handles['telegram'].lstrip('@')}?start={payload}"
 
-    # VK: собственное сообщество клиента (его vk_app_id), либо системный VK
-    # Mini App ПЛЮСОНа (если выведен клиентам, is_test=FALSE). Системный VK Mini App
-    # парсит `m_<slug>`/`p_<slug>` в hash и сам запускает воронку — для этого ему
-    # не нужно писать в личку (в отличие от событий). Аналогично TG.
+    # VK: только собственное сообщество клиента (его vk_app_id)
     if handles.get("vk"):
         vk_app_id = await get_client_vk_app_id(db, client_id)
         if vk_app_id:
             result["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
-    elif await _has_system_channel(db, "vk", allow_test=False):
-        result["vk"] = f"https://vk.com/app{PLUSON_VK_APP_ID}#{payload}"
 
-    # MAX: собственный MAX-бот клиента, либо системный MAX-бот ПЛЮСОНа
-    # (если выведен клиентам, is_test=FALSE).
+    # MAX: только собственный MAX-бот клиента
     if handles.get("max"):
         result["max"] = f"https://max.ru/{handles['max'].lstrip('@')}?start={payload}"
-    elif await _has_system_channel(db, "max", allow_test=False):
-        result["max"] = f"https://max.ru/{PLUSON_MAX_HANDLE}?start={payload}"
 
     return result
 
@@ -284,12 +270,9 @@ async def build_invite_links_for_collaborator(
     handles = await get_client_bot_handles(db, client_id)
     result: dict[str, str] = {}
 
-    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
-    if tg_handle == PLUSON_TG_HANDLE:
-        if not await _has_system_channel(db, "telegram", allow_test=False):
-            tg_handle = ""
-    if tg_handle:
-        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+    # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
+    if handles.get("telegram"):
+        result["telegram"] = f"https://t.me/{handles['telegram'].lstrip('@')}?start={payload}"
 
     # VK: используем Mini App клиента (как лид-магниты) — `vk.com/app{vk_app_id}#spkinv_<code>`.
     # Mini App при загрузке парсит hash и шлёт POST /api/v1/vk/speaker-invite — бэк сам
@@ -326,12 +309,9 @@ async def build_speaker_self_register_links(
     handles = await get_client_bot_handles(db, client_id)
     result: dict[str, str] = {}
 
-    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
-    if tg_handle == PLUSON_TG_HANDLE:
-        if not await _has_system_channel(db, "telegram", allow_test=False):
-            tg_handle = ""
-    if tg_handle:
-        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+    # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
+    if handles.get("telegram"):
+        result["telegram"] = f"https://t.me/{handles['telegram'].lstrip('@')}?start={payload}"
 
     # VK: через Mini App клиента (как spkinv_). vk.me/{handle}?ref=
     # ненадёжен — VK не передаёт ref если пользователь раньше уже писал
@@ -363,12 +343,9 @@ async def build_speaker_self_edit_links(
     handles = await get_client_bot_handles(db, client_id)
     result: dict[str, str] = {}
 
-    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
-    if tg_handle == PLUSON_TG_HANDLE:
-        if not await _has_system_channel(db, "telegram", allow_test=False):
-            tg_handle = ""
-    if tg_handle:
-        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+    # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
+    if handles.get("telegram"):
+        result["telegram"] = f"https://t.me/{handles['telegram'].lstrip('@')}?start={payload}"
 
     if handles.get("vk"):
         vk_app_id = await get_client_vk_app_id(db, client_id)
@@ -404,12 +381,9 @@ async def build_event_chat_bot_links(
     handles = await get_client_bot_handles(db, client_id)
     result: dict[str, str] = {}
 
-    tg_handle = handles.get("telegram") or PLUSON_TG_HANDLE
-    if tg_handle == PLUSON_TG_HANDLE:
-        if not await _has_system_channel(db, "telegram", allow_test=False):
-            tg_handle = ""
-    if tg_handle:
-        result["telegram"] = f"https://t.me/{tg_handle.lstrip('@')}?start={payload}"
+    # TG: только свой бот клиента (системный @pluson_bot больше не fallback)
+    if handles.get("telegram"):
+        result["telegram"] = f"https://t.me/{handles['telegram'].lstrip('@')}?start={payload}"
 
     if handles.get("vk"):
         result["vk"] = f"https://vk.me/{handles['vk'].lstrip('@')}?ref={payload}"

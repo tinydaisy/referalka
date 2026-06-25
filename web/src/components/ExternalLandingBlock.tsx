@@ -25,8 +25,6 @@ interface Props {
 // Mini App при загрузке парсит `ref_pg{slug}_reg` → ставит is_registered=true и
 // открывает «Интро» (welcomed_at IS NULL). Идентично потоку TG, что был раньше.
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
-const PLUSON_TG_HANDLE = 'pluson_bot'
-const TG_SHORT_NAME = 'pluson'
 
 type Platform = 'telegram' | 'vk' | 'max'
 const PLATFORM_LABEL: Record<Platform, string> = {
@@ -67,8 +65,11 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
   function urlFor(p: Platform): string | null {
     if (!slugStr) return null
     if (p === 'telegram') {
-      const handle = (handles.telegram || PLUSON_TG_HANDLE).replace(/^@/, '')
-      return `https://t.me/${handle}/${TG_SHORT_NAME}?startapp=ref_pg${encodeURIComponent(slugStr)}_reg`
+      // Только свой TG-бот клиента — системный @pluson_bot больше не fallback.
+      const handle = (handles.telegram || '').replace(/^@/, '')
+      if (!handle) return null
+      // У VIP-бота Main Mini App без short-name — t.me/{handle}?startapp=…
+      return `https://t.me/${handle}?startapp=ref_pg${encodeURIComponent(slugStr)}_reg`
     }
     if (p === 'vk') {
       // VK работает только при собственном Mini App клиента — системный
@@ -84,10 +85,9 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
     return null
   }
 
-  // Какие платформы показывать. TG показываем всегда (fallback на pluson_bot).
-  // VK / MAX — только если у клиента подключён свой канал (см. urlFor).
+  // Какие платформы показывать — ТОЛЬКО те, где у клиента подключён свой канал
+  // (available_platforms) и удалось собрать ссылку. Системные каналы не предлагаем.
   const platforms: Platform[] = (['telegram', 'vk', 'max'] as Platform[]).filter(p => {
-    if (p === 'telegram') return true
     if (!available.includes(p)) return false
     return urlFor(p) !== null
   })

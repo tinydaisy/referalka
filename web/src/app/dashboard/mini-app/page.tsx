@@ -12,7 +12,7 @@
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
 import { useEffect, useState } from 'react'
-import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Calendar, Globe, Building2, User, ChevronUp, ChevronDown } from 'lucide-react'
+import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
@@ -212,38 +212,10 @@ export default function MiniAppSettingsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <a href="/dashboard/help/connect-bot"
-             className="flex items-center gap-2 text-sm rounded-lg px-3 py-2 text-white hover:opacity-90 transition-colors"
-             style={{ background: GRADIENT }}>
-            📖 Как подключить к боту
-          </a>
           <a href="/tg/" target="_blank" rel="noreferrer"
              className="flex items-center gap-2 text-sm border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50 transition-colors">
             <Eye size={15} /> Открыть Mini App
           </a>
-        </div>
-      </div>
-
-      {/* Подсказка о структуре Mini App */}
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6 max-w-3xl">
-        <p className="text-sm text-gray-700 mb-3">
-          Внизу Mini App две вкладки:
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex items-start gap-2 flex-1">
-            <Calendar size={18} className="mt-0.5 text-gray-500 shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-gray-800">📅 Календарь</p>
-              <p className="text-xs text-gray-500 mt-0.5">События — заполняются автоматически из «Мероприятий»</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 flex-1">
-            <Globe size={18} className="mt-0.5 text-amber-500 shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-gray-800">🌐 Экосистема ← настраивается здесь</p>
-              <p className="text-xs text-gray-500 mt-0.5">Бренд + основатель + продукты, которые продвигаете</p>
-            </div>
-          </div>
         </div>
       </div>
 

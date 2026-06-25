@@ -1414,7 +1414,6 @@ function ContactFieldEditor({
 /* ─────── Партнёрская ссылка контакта (миграция 105) ─────── */
 // Партнёрка живёт ТОЛЬКО в TG/VK/MAX. Email сюда не входит (нет интерактивности).
 const PARTNER_PLATFORMS = ['telegram', 'vk', 'max']
-const PLUSON_BOT_HANDLE = 'pluson_bot'
 
 function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
   const { me } = useMe()
@@ -1424,10 +1423,14 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
   const botHandles: { telegram?: string | null; vk?: string | null; max?: string | null } | null = me?.bot_handles || null
   const vkAppId: number | null = (me as any)?.vk_app_id ? Number((me as any).vk_app_id) : null
 
-  // Только TG/VK/MAX, из подключённых клиентом. TG показываем всегда (fallback на @pluson_bot).
+  // Регистрация партнёров — единый функционал с разделом «Интеграция» в Настройках:
+  // только тариф Экстра (vip). У Профи (1900) и ниже блок не показываем.
+  const isVipTariff = (me as any)?.subscription?.tariff_slug === 'vip'
+  if (!isVipTariff) return null
+
+  // Только TG/VK/MAX, из подключённых клиентом (свой канал). Системные не используем.
   const available: string[] = me?.available_platforms || []
   const platforms = PARTNER_PLATFORMS.filter(p => available.includes(p))
-  if (!platforms.includes('telegram')) platforms.unshift('telegram')
 
   function copy(label: string, text: string) {
     if (!text) return
@@ -1446,7 +1449,9 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
   // Прямая личная ссылка: t.me/{bot}?start=prtp_{contact_id} (бот резолвит client_id + external_ref_param из contacts).
   function personalUrlFor(p: string): string | null {
     if (p === 'telegram') {
-      const handle = (botHandles?.telegram || PLUSON_BOT_HANDLE).replace(/^@/, '')
+      // Только свой TG-бот клиента — системный @pluson_bot больше не fallback.
+      const handle = (botHandles?.telegram || '').replace(/^@/, '')
+      if (!handle) return null
       return `https://t.me/${handle}?start=prtp_${contactId}`
     }
     if (p === 'vk') {

@@ -330,20 +330,17 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     # VK App ID подключённого Mini App (если есть) — фронт PublicLinks
     # подставляет его в реф-ссылку https://vk.com/app{ID}#ref_pg{slug}.
     # Без него ссылка вела бы на системный 54592404, а не на клиентский.
-    from app.services.share_links import get_client_vk_app_id, get_active_platforms, _has_system_channel, get_client_bot_handles
+    from app.services.share_links import get_client_vk_app_id, get_active_platforms, get_client_bot_handles
     out["vk_app_id"] = await get_client_vk_app_id(db, client_id)
-    # Handles per-platform: ник клиентского бота/сообщества (или None если нет
-    # своего канала — фолбэк на системный). Используется UI для построения
+    # Handles per-platform: ник клиентского бота/сообщества (или None если у клиента
+    # нет своего канала на платформе). Используется UI для построения
     # «ссылок возврата партнёра» (миграция 105) — t.me/{bot}?start=partner_done_{id} и т.п.
     out["bot_handles"] = await get_client_bot_handles(db, client_id)
     # Какие платформы показывать в PublicLinks / RefLinkInline:
-    # — те, где у клиента есть свой канал, ИЛИ есть системный НЕ в test-режиме.
-    # Test-режим = админ ещё не вывел канал в прод (см. is_test в channels).
-    avail = set(await get_active_platforms(db, client_id))
-    for ps in ("telegram", "vk", "max"):
-        if await _has_system_channel(db, ps, allow_test=False):
-            avail.add(ps)
-    out["available_platforms"] = sorted(avail)
+    # — ТОЛЬКО те, где у клиента подключён собственный канал (channels.is_system=FALSE).
+    # Системные каналы ПЛЮСОНа (@pluson_bot и т.п.) больше не дают ссылок —
+    # площадка предлагается клиенту только если он сам её настроил.
+    out["available_platforms"] = sorted(set(await get_active_platforms(db, client_id)))
     return out
 
 

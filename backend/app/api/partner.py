@@ -34,7 +34,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from typing import Optional
 from app.database import get_pool
-from app.services.share_links import get_client_bot_handles, _has_system_channel
+from app.services.share_links import get_client_bot_handles
 from app.config import settings
 import asyncpg
 import logging
@@ -57,27 +57,23 @@ _RESERVED_QUERY_KEYS = {'to', 'pluson_cid'}
 
 
 async def _client_bot_username(client_id: int, db: asyncpg.Connection) -> str:
-    """@username TG-бота: свой бот клиента (если фича channels) или @pluson_bot."""
-    from app.services.features import client_has_feature
-    has_channels = await client_has_feature(db, client_id, "channels")
-    if has_channels:
-        row = await db.fetchrow(
-            """SELECT ch.handle
-                 FROM client_channels cc
-                 JOIN channels ch ON ch.id = cc.channel_id
-                WHERE cc.client_id = $1
-                  AND cc.is_active = TRUE
-                  AND ch.platform_slug = 'telegram'
-                  AND ch.is_system = FALSE
-                  AND ch.bot_token IS NOT NULL
-                ORDER BY ch.id ASC LIMIT 1""",
-            client_id,
-        )
-        if row and row["handle"]:
-            h = row["handle"].lstrip('@')
-            if h:
-                return h
-    return getattr(settings, 'plusson_bot_username', None) or 'pluson_bot'
+    """@username СВОЕГО TG-бота клиента. Если своего бота нет — пустая строка
+    (системный @pluson_bot больше не используется как fallback)."""
+    row = await db.fetchrow(
+        """SELECT ch.handle
+             FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1
+              AND cc.is_active = TRUE
+              AND ch.platform_slug = 'telegram'
+              AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL
+            ORDER BY ch.id ASC LIMIT 1""",
+        client_id,
+    )
+    if row and row["handle"]:
+        return row["handle"].lstrip('@')
+    return ""
 
 
 async def _platform_redirect_url(client_id: int, platform: str, run_id: int,
@@ -85,6 +81,8 @@ async def _platform_redirect_url(client_id: int, platform: str, run_id: int,
     """Deeplink в чат бота / VK-сообщества / MAX-бота, чтобы там попасть в /start prt_<id>."""
     if platform == 'telegram':
         bot_username = await _client_bot_username(client_id, db)
+        if not bot_username:
+            raise HTTPException(status_code=404, detail="У клиента не подключён Telegram-бот")
         return f"https://t.me/{bot_username}?start=prt_{run_id}"
     if platform == 'vk':
         # VK через Mini App клиента — `vk.com/app{vk_app_id}#prt_<run_id>`.
@@ -142,20 +140,18 @@ async def partner_landing(client_id: int, request: Request) -> RedirectResponse:
             raise HTTPException(status_code=404,
                                 detail="У клиента не настроена партнёрская ссылка")
 
+        # Только СВОЙ канал клиента (channels.is_system=FALSE).
+        # Системные каналы ПЛЮСОНа больше не используются как fallback.
         own_channel = await db.fetchval(
             """SELECT 1 FROM client_channels cc
                  JOIN channels ch ON ch.id = cc.channel_id
                 WHERE cc.client_id = $1 AND cc.is_active = TRUE
-                  AND ch.platform_slug = $2 LIMIT 1""",
+                  AND ch.platform_slug = $2 AND ch.is_system = FALSE LIMIT 1""",
             client_id, platform,
         )
         if not own_channel:
-            if platform == 'telegram':
-                if not await _has_system_channel(db, 'telegram', allow_test=False):
-                    raise HTTPException(status_code=404, detail="Платформа telegram не подключена")
-            else:
-                raise HTTPException(status_code=404,
-                                    detail=f"Платформа {platform} не подключена клиентом")
+            raise HTTPException(status_code=404,
+                                detail=f"Платформа {platform} не подключена клиентом")
 
         referrer_contact_id: Optional[int] = None
         pluson_cid_raw = qp.get('pluson_cid')

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, CreditCard, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck, ShieldAlert, UserPlus } from 'lucide-react'
+import { Save, Globe, Eye, EyeOff, FlaskConical, UserCheck, Gauge, HardDrive, Lock, X, CheckCircle2, User as UserIcon, Wrench, Smartphone, Plug, Copy, Check, RefreshCw, ExternalLink, Bell, ShieldCheck, ShieldAlert, UserPlus, ChevronDown } from 'lucide-react'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { setTimezone } from '@/lib/timezone'
@@ -142,7 +142,7 @@ export default function SettingsPage() {
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     { id: 'assistant',    label: 'Ассистент',    icon: UserPlus  },
-    { id: 'subscription', label: 'Подписка',     icon: CreditCard},
+    // «Подписка» вынесена в отдельную страницу /dashboard/subscription (меню пользователя).
     { id: 'legal',        label: 'Юр. данные',   icon: ShieldCheck},
   ]
 
@@ -358,20 +358,60 @@ export default function SettingsPage() {
         {effectiveTab === 'tech' && (
         <>
 
-        {/* Test recipient IDs (TG / VK / MAX) */}
+        {/* Notifications channel — первый блок (важнейшая настройка) */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-start gap-3 mb-4">
             <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
-              <FlaskConical size={18} className="text-white" />
+              <Bell size={18} className="text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-800">Тестовые рассылки</h3>
+              <h3 id="tg-chat-id" className="font-semibold text-gray-800">Канал уведомлений</h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Сюда бот будет писать о новых интересантах на ваши лид-магниты и других важных
+                событиях. Заведите отдельный <strong>закрытый</strong> Telegram-канал для этих
+                уведомлений, добавьте туда админом <strong>@{notifyBotHandle}</strong> (оставьте
+                все права) и впишите ID канала в поле ниже.
+              </p>
+            </div>
+          </div>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={form.notifications_telegram_chat_id}
+            onChange={set('notifications_telegram_chat_id')}
+            placeholder="-1001234567890"
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+          />
+          <details className="mt-3 text-sm text-gray-600">
+            <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>
+            <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
+              <li>Создайте <strong>закрытый</strong> Telegram-канал (тип «Частный канал»).</li>
+              <li>Добавьте <a href={`https://t.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
+              <li>Откройте личный чат с @{notifyBotHandle} и перешлите ему любое сообщение из вашего канала.</li>
+              <li>Бот ответит с ID канала — скопируйте число (вместе со знаком минус) и вставьте в поле выше.</li>
+            </ol>
+          </details>
+        </div>
+
+        {/* Test recipient IDs (TG / VK / MAX) — разворачиваемый блок */}
+        <details className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 group">
+          <summary className="flex items-start gap-3 cursor-pointer list-none">
+            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
+              <FlaskConical size={18} className="text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                Тестовые рассылки
+                <ChevronDown size={16} className="text-gray-400 transition-transform group-open:rotate-180" />
+              </h3>
               <p className="text-sm text-gray-500 mt-0.5">
                 ID аккаунтов, на которые отправляется тестовое сообщение из шаблонов рассылок.
                 По каждой платформе указывайте через запятую или пробел.
               </p>
             </div>
-          </div>
+          </summary>
+
+          <div className="mt-4">
 
           {/* Telegram */}
           <div className="mb-4">
@@ -479,7 +519,8 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
-        </div>
+          </div>
+        </details>
 
         {/* Broadcast speed */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -533,41 +574,6 @@ export default function SettingsPage() {
               <option key={tz.value} value={tz.value}>{tz.label}</option>
             ))}
           </select>
-        </div>
-
-        {/* Notifications channel */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-start gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg gradient-bg flex items-center justify-center shrink-0">
-              <Bell size={18} className="text-white" />
-            </div>
-            <div>
-              <h3 id="tg-chat-id" className="font-semibold text-gray-800">Канал уведомлений</h3>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Сюда бот будет писать о новых интересантах на ваши лид-магниты и других важных
-                событиях. Заведите отдельный <strong>закрытый</strong> Telegram-канал для этих
-                уведомлений, добавьте туда админом <strong>@{notifyBotHandle}</strong> (оставьте
-                все права) и впишите ID канала в поле ниже.
-              </p>
-            </div>
-          </div>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={form.notifications_telegram_chat_id}
-            onChange={set('notifications_telegram_chat_id')}
-            placeholder="-1001234567890"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
-          />
-          <details className="mt-3 text-sm text-gray-600">
-            <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>
-            <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
-              <li>Создайте <strong>закрытый</strong> Telegram-канал (тип «Частный канал»).</li>
-              <li>Добавьте <a href={`https://t.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
-              <li>Откройте личный чат с @{notifyBotHandle} и перешлите ему любое сообщение из вашего канала.</li>
-              <li>Бот ответит с ID канала — скопируйте число (вместе со знаком минус) и вставьте в поле выше.</li>
-            </ol>
-          </details>
         </div>
 
         {/* Storage usage */}
