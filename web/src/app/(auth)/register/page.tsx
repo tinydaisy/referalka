@@ -39,7 +39,7 @@ export default function RegisterPage() {
       })
       localStorage.setItem('plusson_token', res.access_token)
       localStorage.removeItem('pluson_referrer_pid')  // pid использован
-      window.location.href = '/dashboard'
+      window.location.href = '/dashboard/events'
     } catch (err: any) {
       setError(err.message)
     } finally {

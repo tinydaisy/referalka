@@ -42,7 +42,6 @@ export default function Sidebar() {
   const sections = [
     {
       items: [
-        { href: '/dashboard', label: t.nav.dashboard, icon: LayoutDashboard, exact: true },
         { href: '/dashboard/broadcasts', label: t.nav.broadcasts, icon: Send },
       ],
     },
