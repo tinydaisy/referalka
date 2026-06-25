@@ -80,10 +80,20 @@ function CriteriaSub({ eventId }: { eventId: number }) {
   )
 }
 
+const SCHEMES: { value: string; label: string; hint: string }[] = [
+  { value: 's1', label: 'Схема 1 · Сырая сумма ÷ лидера',
+    hint: 'Балл = (значение₁×вес₁ + значение₂×вес₂ + …) ÷ такая же сумма у ЛИДЕРА × 10. Лидер пакета получает 10, остальные — долю от него. Берёт сырые числа (зрители, лид-магниты, рефералы) как есть. Для пакета «Вовлечение».' },
+  { value: 's2', label: 'Схема 2 · Доля от лучшего ÷ сумму весов',
+    hint: 'Каждый критерий сначала к доле от лучшего (значение ÷ рекорд критерия), потом средневзвешенное ÷ сумму весов × 10. Сглаживает разный масштаб критериев. Для разномасштабных показателей.' },
+  { value: 's3', label: 'Схема 3 · Среднее оценок (жюри)',
+    hint: 'Балл = сумма(оценка×вес) ÷ сумму весов — честное среднее. Оценки уже в шкале 0–10, лидера нет, накрутки нет. ⚠️ При выборе все критерии пакета становятся «жюри». Для пакета «Оценки жюри».' },
+  { value: 's4', label: 'Схема 4 · Чистая сумма баллов',
+    hint: 'Балл = сумма(значение×вес), без деления. Копилка: сделал задание — капают баллы. Для пакетов с заданиями (как Этап 0).' },
+]
+
 function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
   const [weight, setWeight] = useState(String(pkg.weight))
-  const [normalize, setNormalize] = useState(!!pkg.normalize)
-  const [sumMode, setSumMode] = useState(pkg.aggregate === 'sum')
+  const scheme = pkg.scheme || (pkg.aggregate === 'sum' ? 's4' : pkg.normalize ? 's2' : 's3')
 
   // Правки полей пакета не требуют рефетча — локальный state/uncontrolled-инпуты
   // уже отражают значение, расчёт ИТОГ в этой подвкладке не показывается.
@@ -113,13 +123,17 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
           <input type="number" step="0.1" className="w-14 border rounded px-1.5 py-0.5 text-sm" value={weight}
             onChange={(e) => setWeight(e.target.value)} onBlur={() => savePkg({ weight: Number(weight) || 0 })} />
         </label>
-        <label className="text-xs text-gray-500 flex items-center gap-1" title="Каждый критерий приводится к доле от лучшего результата СРЕДИ ВСЕХ УЧАСТНИКОВ: у лидера по критерию — 1.0, у остальных — их число делится на число лидера (привёл 50 при лидере 60 → 0.83). Сравнение идёт по каждому критерию отдельно, числа разных критериев между собой НЕ складываются. Включайте, когда критерии в разных масштабах (зрители в сотнях, рефералы в десятках) — иначе большие числа задавят маленькие, и веса перестанут работать.">
-          <input type="checkbox" checked={normalize} onChange={(e) => { setNormalize(e.target.checked); savePkg({ normalize: e.target.checked }) }} />
-          доля от лучшего, 0–1 (?)
-        </label>
-        <label className="text-xs text-gray-500 flex items-center gap-1" title="Складывать баллы критериев, а не усреднять. По умолчанию балл пакета = среднее по критериям. Включите, если хотите, чтобы баллы за задания суммировались (6 заданий по 6 → 36, а не 6).">
-          <input type="checkbox" checked={sumMode} onChange={(e) => { setSumMode(e.target.checked); savePkg({ aggregate: e.target.checked ? 'sum' : 'avg' }) }} />
-          складывать, не усреднять (?)
+        <label className="text-xs text-gray-500 flex items-center gap-1"
+          title={SCHEMES.find(s => s.value === scheme)?.hint || 'Схема расчёта балла пакета'}>
+          схема
+          <select className="border rounded px-1.5 py-0.5 text-sm max-w-[260px]" value={scheme}
+            onChange={async (e) => {
+              const v = e.target.value
+              if (v === 's3' && !confirm('Схема 3 (жюри): все критерии этого пакета станут «жюри» (ручной/авто-критерии потеряют свой тип). Продолжить?')) return
+              await savePkg({ scheme: v }); onChange()
+            }}>
+            {SCHEMES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
         </label>
         <button onClick={delPkg} className="ml-auto text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
       </div>
@@ -514,13 +528,17 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
       groups.push({ title: c.package_title, weight: pkg?.weight ?? 1, span: 1, normalize: !!pkg?.normalize, aggregate: pkg?.aggregate || 'avg' })
     }
   })
-  // подпись режима пакета: вес, сумма/среднее, нормализация
-  const pkgMode = (p: any) => {
-    const parts: string[] = [`вес ×${p.weight ?? 1}`]
-    parts.push((p.aggregate || 'avg') === 'sum' ? 'сумма' : 'среднее')
-    if (p.normalize) parts.push('норм. 0–1')
-    return parts.join(' · ')
+  // подпись режима пакета: схема + вес
+  const SCHEME_SHORT: Record<string, string> = {
+    s1: 'сырая ÷ лидера ×10', s2: 'доля от лучшего ×10', s3: 'среднее (жюри)', s4: 'чистая сумма' }
+  const pkgScheme = (p: any) => p?.scheme || ((p?.aggregate || 'avg') === 'sum' ? 's4' : p?.normalize ? 's2' : 's3')
+  const pkgMode = (g: any) => {
+    const p = board.packages.find((x: any) => x.title === g.title) || g
+    return `${SCHEME_SHORT[pkgScheme(p)] || ''} · вес ×${p.weight ?? 1}`
   }
+  // лидеры пакетов (схема 1) и критериев (схема 2) — для строки над таблицей
+  const pkgLeaders = (board.packages || []).filter((p: any) => p.leader && pkgScheme(p) === 's1')
+  const critLeaders = cols.filter((c: any) => c.leader && pkgScheme(board.packages.find((p: any) => p.id === c.package_id)) === 's2')
   const scorerOf = (cid: number) => cols.find(c => c.criterion_id === cid)?.scorer
   const normalizeOf = (cid: number) => {
     const c = cols.find(x => x.criterion_id === cid)
@@ -541,6 +559,26 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
       </div>
       {stageId != null && (
         <PublicTableLink eventId={eventId} stageId={stageId} stageTitle={stages.find((s: any) => s.id === stageId)?.title} />
+      )}
+      {(pkgLeaders.length > 0 || critLeaders.length > 0) && (
+        <div className="mb-2 text-xs text-[#25455D] bg-amber-50 border border-[#FFCFA4] rounded-lg px-3 py-2 space-y-1">
+          {pkgLeaders.map((p: any) => (
+            <div key={p.id}>
+              <span className="text-gray-500">Лидер пакета</span> «{p.title}»: <b>{p.leader.name || '—'}</b>
+              {p.leader.username ? ` (@${p.leader.username})` : ''} — сумма {p.leader.value}
+            </div>
+          ))}
+          {critLeaders.length > 0 && (
+            <div>
+              <span className="text-gray-500">Лидеры по критериям:</span>{' '}
+              {critLeaders.map((c: any, i: number) => (
+                <span key={c.criterion_id}>
+                  {i > 0 && '; '}{c.title} — <b>{c.leader.name || '—'}</b> ({c.leader.value})
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       )}
       <div className="overflow-auto border rounded-xl" style={{ maxHeight: '75vh' }}>
         <table className="text-sm w-full border-separate" style={{ borderSpacing: 0 }}>
