@@ -52,6 +52,7 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
               COALESCE(NULLIF(brand_name, ''), name) AS brand_name,
               name AS owner_name,
               bio,
+              owner_positioning,
               owner_achievements,
               social_links
              FROM clients WHERE id = $1""",
@@ -129,6 +130,7 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
         "brand_name": row["brand_name"] or "",
         "owner_name": row["owner_name"] or "",
         "owner_bio": row["bio"] or "",
+        "owner_positioning": row["owner_positioning"] or "",
         "owner_achievements": achievements_text,
         "subscription_channel": sub_channel,                   # https-ссылка (или список через \n) для текста
         "subscription_channel_api": sub_channel_api,           # TG @username первого канала / VK screen_name
@@ -171,6 +173,7 @@ def _format_text(template: str, ctx: dict, materials: list[dict]) -> str:
         "client_brand_name": ctx.get("brand_name", ""),
         "client_owner_name": ctx.get("owner_name", ""),
         "client_owner_bio": ctx.get("owner_bio", ""),
+        "client_owner_positioning": ctx.get("owner_positioning", ""),
         "client_owner_achievements": ctx.get("owner_achievements", ""),
         "subscription_channel": ctx.get("subscription_channel", ""),
         "owner_telegram": ctx.get("owner_telegram", ""),
