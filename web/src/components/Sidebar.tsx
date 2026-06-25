@@ -150,8 +150,10 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom */}
-      <div className="px-3 pb-4 pt-3 border-t border-white/10 space-y-0.5">
+      {/* Bottom — на мобильном крупный нижний отступ, чтобы панель браузера на
+          iPhone не перекрывала имя пользователя и раскрывающееся меню под ним.
+          На десктопе (lg) отступ обычный. */}
+      <div className="px-3 pt-3 pb-24 lg:pb-4 sidebar-bottom-safe border-t border-white/10 space-y-0.5">
         {/* Тех.поддержка с подменю */}
         <button
           onClick={() => setSupportOpen(o => !o)}

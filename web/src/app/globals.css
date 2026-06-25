@@ -65,6 +65,15 @@ body {
   flex-shrink: 0;
 }
 
+/* Нижний блок сайдбара: на мобильных добавляем safe-area iPhone к отступу,
+   чтобы панель браузера не перекрывала имя и меню под ним.
+   Только до lg — на десктопе нижней панели нет, оставляем Tailwind lg:pb-4. */
+@media (max-width: 1023px) {
+  .sidebar-bottom-safe {
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom)) !important;
+  }
+}
+
 /* ─── Spinner / Loading state ─────────────────────────────────────────────── */
 /* Используется компонентом <Spinner /> и классом .btn-loading.
    Чтобы изменить цвет / размер спиннера на всём сайте — правь только здесь. */
