@@ -1450,11 +1450,12 @@ async def handle_event_word_command(message: Message):
 
 @router.message(F.text.regexp(r"^/menu\d+"))
 async def handle_event_menu_command(message: Message):
-    """Команда `/menu{event_id}` — показать меню кабинета участника события.
+    """Команда `/menu{event_id}` — открыть событие в чат-боте.
 
-    Резолвит contact_id по tg_id текущего пользователя для события из команды.
-    Если человек не зарегистрирован/не участник — всё равно показываем меню
-    (он сам открыл свой кабинет; кнопки публичные/по контакту)."""
+    Делегирует общему флоу `_handle_ref_event_bot_flow`: он сам решает по
+    регистрации tg_id — зарегистрирован → меню кабинета, не зарегистрирован →
+    приглашение на регистрацию (как при `ивент<id>`). Раньше меню показывалось
+    безусловно — незарегистрированный получал кабинет минуя регистрацию."""
     user = message.from_user
     if not user:
         return
@@ -1465,36 +1466,14 @@ async def handle_event_menu_command(message: Message):
     event_id = int(m.group(1))
     pool = await get_pool()
     async with pool.acquire() as db:
-        ev = await db.fetchrow(
-            """SELECT id,
-                      (SELECT eo.client_id FROM event_owners eo
-                        WHERE eo.event_id = events.id AND eo.status = 'accepted'
-                        ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id
-                 FROM events WHERE id = $1 LIMIT 1""",
-            event_id,
+        slug = await db.fetchval(
+            "SELECT slug FROM events WHERE id = $1 LIMIT 1", event_id
         )
-        if not ev:
-            await message.answer("Событие не найдено.")
-            return
-        # contact_id по tg_id (если есть участие/идентичность), иначе создаём.
-        contact_id = await db.fetchval(
-            """SELECT ep.contact_id
-                 FROM event_participants ep
-                 JOIN platform_users pu
-                   ON pu.contact_id = ep.contact_id
-                  AND pu.platform_slug = 'telegram'
-                  AND pu.platform_user_id = $2
-                WHERE ep.event_id = $1
-                LIMIT 1""",
-            event_id, str(user.id),
-        )
-        if contact_id is None:
-            from app.services.external_landing import resolve_or_create_participant
-            _pid, contact_id = await resolve_or_create_participant(
-                db, client_id=ev["client_id"], event_id=event_id,
-                platform_slug="telegram", platform_user_id=str(user.id),
-            )
-        await send_event_menu(message, event_id, contact_id, db)
+    if not slug:
+        await message.answer("Событие не найдено.")
+        return
+    # Делегируем общему флоу — он сам отправит приглашение или меню.
+    await _handle_ref_event_bot_flow(message, f"ref_pg{slug}")
 
 
 @router.message(F.text.regexp(r"(?i)^\s*/?vip_link\s*\d+"))
