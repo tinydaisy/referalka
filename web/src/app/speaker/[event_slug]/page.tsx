@@ -226,6 +226,21 @@ export default function SpeakerCabinetPage() {
     return () => { cancelled = true }
   }, [token, me, activeTab])
 
+  // ПЛЮСОН-привязка: подгружаем лид-магниты клиента когда спикер привязал кабинет.
+  // ⚠️ Этот useEffect ОБЯЗАН быть выше early-return (if !token||!me) — иначе при
+  // появлении me меняется число хуков → React error #310 (белый экран).
+  useEffect(() => {
+    if (!token || !me?.linked_client_id) { setMyMagnets(null); return }
+    let cancelled = false
+    fetch(`${API}/api/v1/public/speaker-cabinet/me/my-lead-magnets`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(j => { if (!cancelled) setMyMagnets(j.linked ? { magnets: j.magnets || [], packages: j.packages || [] } : null) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [token, me?.linked_client_id])
+
   const onAuth = async () => {
     if (!chosenId) { setError('Выберите свою фамилию'); return }
     if (!code.trim()) { setError('Введите код доступа'); return }
@@ -433,23 +448,8 @@ export default function SpeakerCabinetPage() {
 
   const update = (patch: Partial<SpeakerMe>) => setMe((m) => m ? ({ ...m, ...patch }) : m)
 
-  // ── Привязка ПЛЮСОН-аккаунта (миграция 167) ──
-  const loadMyMagnets = async () => {
-    if (!token) return
-    try {
-      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/my-lead-magnets`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const j = await r.json()
-      if (j.linked) setMyMagnets({ magnets: j.magnets || [], packages: j.packages || [] })
-      else setMyMagnets(null)
-    } catch { /* пропускаем */ }
-  }
-  useEffect(() => {
-    if (me?.linked_client_id) loadMyMagnets()
-    else setMyMagnets(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me?.linked_client_id, token])
+  // ── Привязка ПЛЮСОН-аккаунта (миграция 167). Загрузка магнитов — в useEffect
+  // выше early-return (см. комментарий там). Здесь только обработчики действий. ──
 
   const doPlusonAuth = async () => {
     if (!token || !plusonModal) return
