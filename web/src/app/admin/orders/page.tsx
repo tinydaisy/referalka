@@ -10,6 +10,39 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   cancelled: { label: 'Отменён',               cls: 'bg-gray-100 text-gray-600' },
 }
 
+// Все ники клиента (TG/VK/MAX) — резолвятся на бэке через email клиента.
+const PLATFORM_LABELS: Record<string, string> = { telegram: 'TG', vk: 'VK', max: 'MAX' }
+const PLATFORM_COLORS: Record<string, string> = { telegram: '#0088CC', vk: '#0077FF', max: '#5B2FC0' }
+
+function ClientIdentities({ order }: { order: any }) {
+  const ids: { platform: string; username?: string | null; platform_user_id?: string }[] = order.identities || []
+  // Фолбэк на старое поле, если по email ничего не нашлось
+  if (ids.length === 0) {
+    if (order.telegram_username) {
+      return <div className="text-xs text-gray-400">@{order.telegram_username}</div>
+    }
+    return null
+  }
+  return (
+    <div className="flex flex-wrap gap-1 mt-0.5">
+      {ids.map((it, i) => {
+        const label = PLATFORM_LABELS[it.platform] || it.platform.toUpperCase()
+        const shown = it.username ? `@${it.username}` : `id${it.platform_user_id}`
+        return (
+          <span
+            key={i}
+            className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-gray-50 border border-gray-100"
+            title={`${label}: ${shown}`}
+          >
+            <span className="font-semibold" style={{ color: PLATFORM_COLORS[it.platform] || '#6B7280' }}>{label}</span>
+            <span className="text-gray-500">{shown}</span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function AdminOrdersPage() {
   const [list, setList] = useState<any[]>([])
   const [summary, setSummary] = useState<any>({})
@@ -147,9 +180,7 @@ export default function AdminOrdersPage() {
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{o.client_name}</div>
                         <div className="text-xs text-gray-500">{o.client_email}</div>
-                        {o.telegram_username && (
-                          <div className="text-xs text-gray-400">@{o.telegram_username}</div>
-                        )}
+                        <ClientIdentities order={o} />
                       </td>
                       <td className="px-4 py-3 text-gray-700">{o.tariff_name}</td>
                       <td className="px-4 py-3 text-right">

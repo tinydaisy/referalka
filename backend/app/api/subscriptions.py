@@ -184,6 +184,21 @@ async def list_all_orders(
                    t.slug AS tariff_slug, t.name AS tariff_name,
                    c.id AS client_id, c.name AS client_name, c.email AS client_email,
                    c.telegram_username,
+                   -- Все ники клиента (TG/VK/MAX) — резолв через контакты с тем же email.
+                   -- clients не связан с platform_users напрямую, единственная связка — email.
+                   (SELECT json_agg(json_build_object(
+                              'platform', x.platform_slug,
+                              'username', x.username,
+                              'platform_user_id', x.platform_user_id))
+                      FROM (
+                        SELECT DISTINCT ON (pu.platform_slug)
+                               pu.platform_slug, pu.username, pu.platform_user_id
+                          FROM contacts ct
+                          JOIN platform_users pu ON pu.contact_id = ct.id
+                         WHERE ct.email_normalized = lower(c.email)
+                           AND pu.platform_slug <> 'email'
+                         ORDER BY pu.platform_slug, pu.id
+                      ) x) AS identities,
                    ref.id AS referrer_id, ref.name AS referrer_name
               FROM subscription_orders so
               JOIN clients c ON c.id = so.client_id
@@ -211,8 +226,16 @@ async def list_all_orders(
            FROM subscription_orders"""
     )
 
+    orders = []
+    for r in rows:
+        o = dict(r)
+        # identities приходит JSON-строкой от json_agg — парсим в список словарей.
+        raw = o.get("identities")
+        o["identities"] = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        orders.append(o)
+
     return {
-        "orders": [dict(r) for r in rows],
+        "orders": orders,
         "total": total,
         "summary": dict(summary) if summary else {},
     }
