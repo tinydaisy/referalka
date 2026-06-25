@@ -517,6 +517,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    connectMaxBot: (bot_token: string) =>
+      request('/api/v1/channels/connect-max-bot', {
+        method: 'POST',
+        body: JSON.stringify({ bot_token }),
+      }),
     vkOauthUrl: (channel_id: number) =>
       request(`/api/v1/channels/vk/oauth-url?channel_id=${channel_id}`),
     vkDeleteAdminToken: (channel_id: number) =>

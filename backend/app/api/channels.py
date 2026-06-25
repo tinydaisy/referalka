@@ -617,6 +617,117 @@ async def connect_vk_community(
     }
 
 
+# ─── POST /connect-max-bot ────────────────────────────────────────────
+
+class ConnectMaxBotRequest(BaseModel):
+    bot_token: str   # токен MAX-бота из @MasterBot (dev.max.ru)
+
+
+@router.post("/connect-max-bot", summary="VIP-онбординг: подключить свой MAX-бот")
+async def connect_max_bot(
+    data: ConnectMaxBotRequest,
+    client=Depends(get_current_client),
+    db=Depends(get_db),
+):
+    """VIP-онбординг MAX: вставил токен → бэк делает getMe → INSERT channels +
+    client_channels → регистрирует webhook (POST /subscriptions у MAX).
+
+    Webhook URL детерминированный: {frontend_url}/api/v1/max/webhook/{secret},
+    где secret = sha256(token)[:32] (см. max_webhook.webhook_secret_for_token).
+    Резолв входящих апдейтов по этому secret уже работает в max_webhook.py для
+    любых не-системных MAX-каналов — отдельный polling/reload не нужен.
+    """
+    client_id = int(client["sub"])
+    await _assert_can_use_custom_bot(db, client_id)
+
+    token = data.bot_token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Введите токен MAX-бота")
+
+    from app.services.max_api import get_me as max_get_me, set_webhook as max_set_webhook
+    from app.api.max_webhook import webhook_secret_for_token
+
+    try:
+        me = await max_get_me(token)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"MAX не принял токен: {e}")
+
+    # getMe в MAX отдаёт инфу о боте: user_id, name, username
+    bot_username = (me.get("username") or "").lstrip("@")
+    bot_name = me.get("name") or me.get("first_name") or bot_username or "MAX-бот"
+    if not bot_username:
+        raise HTTPException(status_code=400, detail="MAX вернул пустой username бота")
+
+    # Регистрируем webhook у MAX (идемпотентно — повторный вызов не ломает)
+    base = settings.frontend_url.rstrip("/")
+    secret = webhook_secret_for_token(token)
+    webhook_url = f"{base}/api/v1/max/webhook/{secret}"
+    try:
+        await max_set_webhook(webhook_url, token=token)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Не удалось зарегистрировать webhook у MAX: {e}")
+
+    # Upsert: если у клиента уже есть не-системный MAX-канал — обновить, иначе создать
+    existing = await db.fetchrow(
+        """SELECT ch.id, cc.id AS cc_id
+             FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1
+              AND ch.platform_slug = 'max'
+              AND ch.is_system = FALSE
+            ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
+        client_id,
+    )
+    async with db.transaction():
+        if existing:
+            await db.execute(
+                """UPDATE channels
+                      SET bot_token = $1, display_name = $2, handle = $3, updated_at = NOW()
+                    WHERE id = $4""",
+                token, f"MAX {bot_name}", f"@{bot_username}", existing["id"],
+            )
+            channel_id = existing["id"]
+            await db.execute(
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id
+                      AND cc.client_id = $1 AND ch.platform_slug = 'max'
+                      AND cc.is_active = TRUE AND cc.id <> $2""",
+                client_id, existing["cc_id"],
+            )
+            await db.execute(
+                "UPDATE client_channels SET is_active = TRUE WHERE id = $1", existing["cc_id"]
+            )
+        else:
+            channel_id = await db.fetchval(
+                """INSERT INTO channels (platform_slug, display_name, handle, bot_token, is_system, is_test)
+                   VALUES ('max', $1, $2, $3, FALSE, FALSE) RETURNING id""",
+                f"MAX {bot_name}", f"@{bot_username}", token,
+            )
+            await db.execute(
+                """UPDATE client_channels cc
+                      SET is_active = FALSE
+                     FROM channels ch
+                    WHERE cc.channel_id = ch.id
+                      AND cc.client_id = $1 AND ch.platform_slug = 'max'
+                      AND cc.is_active = TRUE""",
+                client_id,
+            )
+            await db.execute(
+                "INSERT INTO client_channels (client_id, channel_id, is_active) VALUES ($1, $2, TRUE)",
+                client_id, channel_id,
+            )
+
+    return {
+        "ok": True,
+        "channel_id": channel_id,
+        "bot_username": bot_username,
+        "bot_name": bot_name,
+        "bot_handle": f"max.ru/{bot_username}",
+    }
+
+
 # ─── VK OAuth: токен админа для нативного видео (VK ID 2.0 Code Flow + PKCE) ─
 #
 # Community-токен VK не имеет прав на video.save (error 27 «method is unavailable

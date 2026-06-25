@@ -57,6 +57,7 @@ export default function ChannelsPage() {
   const [creating, setCreating] = useState(false)
   const [vipWizardOpen, setVipWizardOpen] = useState(false)
   const [vkWizardOpen, setVkWizardOpen] = useState(false)
+  const [maxWizardOpen, setMaxWizardOpen] = useState(false)
   const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null)
   const [importingChannel, setImportingChannel] = useState<Channel | null>(null)
 
@@ -111,6 +112,7 @@ export default function ChannelsPage() {
           onDelete={ch => setDeletingChannel(ch)}
           onOpenWizard={() => setVipWizardOpen(true)}
           onOpenVkWizard={() => setVkWizardOpen(true)}
+          onOpenMaxWizard={() => setMaxWizardOpen(true)}
           onImport={ch => setImportingChannel(ch)}
         />
       )}
@@ -139,6 +141,14 @@ export default function ChannelsPage() {
           clientId={me!.id}
           onClose={() => setVkWizardOpen(false)}
           onDone={() => { setVkWizardOpen(false); load() }}
+        />
+      )}
+
+      {maxWizardOpen && (
+        <VipMaxWizard
+          clientId={me!.id}
+          onClose={() => setMaxWizardOpen(false)}
+          onDone={() => { setMaxWizardOpen(false); load() }}
         />
       )}
 
@@ -234,7 +244,7 @@ function NonVipView({ channels, onUpgrade }: { channels: Channel[]; onUpgrade: (
 }
 
 /* ─────── VIP: полный CRUD + кнопка wizard ─────── */
-function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onImport }: {
+function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard, onOpenVkWizard, onOpenMaxWizard, onImport }: {
   channels: Channel[]
   platforms: Platform[]
   onEdit: (ch: Channel) => void
@@ -242,11 +252,13 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
   onDelete: (ch: Channel) => void
   onOpenWizard: () => void
   onOpenVkWizard: () => void
+  onOpenMaxWizard: () => void
   onImport: (ch: Channel) => void
 }) {
   const mainTgChannel = channels.find(c => c.platform_slug === 'telegram' && c.is_active && !c.is_system)
   const mainVkChannel = channels.find(c => c.platform_slug === 'vk' && c.is_active && !c.is_system)
-  const restChannels = channels.filter(c => c !== mainTgChannel && c !== mainVkChannel)
+  const mainMaxChannel = channels.find(c => c.platform_slug === 'max' && c.is_active && !c.is_system)
+  const restChannels = channels.filter(c => c !== mainTgChannel && c !== mainVkChannel && c !== mainMaxChannel)
 
   return (
     <div className="space-y-4">
@@ -287,6 +299,24 @@ function VipView({ channels, platforms, onEdit, onCreate, onDelete, onOpenWizard
           />
           <VkVideoTokenBlock channel={mainVkChannel} />
         </>
+      )}
+
+      {!mainMaxChannel ? (
+        <ConnectInvite
+          title="Подключите свой MAX-бот"
+          description="Создайте бота в @MasterBot на платформе MAX, вставьте токен — мы проверим его и зарегистрируем webhook. Бот начнёт принимать сообщения и слать ваши рассылки от вашего имени."
+          buttonText="Запустить мастер MAX"
+          badge="MX"
+          badgeColor="#5B2FC0"
+          onClick={onOpenMaxWizard}
+        />
+      ) : (
+        <ChannelCard
+          channel={mainMaxChannel}
+          onEdit={() => onEdit(mainMaxChannel)}
+          onDelete={() => onDelete(mainMaxChannel)}
+          onImport={() => onImport(mainMaxChannel)}
+        />
       )}
 
       {/* Остальные каналы (системные + дополнительные TG-боты для рассылок) */}
@@ -814,6 +844,165 @@ function VipVkWizard({ clientId, onClose, onDone }: {
                   Открыть vk.com/{result.screen_name}
                 </a>
               )}
+
+              <button
+                onClick={onDone}
+                className="w-full py-3 rounded-xl font-semibold text-sm text-white"
+                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+              >Готово</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────── VIP-wizard MAX: подключение своего MAX-бота ─────── */
+function VipMaxWizard({ clientId, onClose, onDone }: {
+  clientId: number
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [token, setToken] = useState('')
+  const [showToken, setShowToken] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState<{ bot_username: string; bot_name: string; bot_handle: string } | null>(null)
+
+  async function submitToken() {
+    setError('')
+    setSubmitting(true)
+    try {
+      const r = await api.channels.connectMaxBot(token.trim())
+      setResult({ bot_username: r.bot_username, bot_name: r.bot_name, bot_handle: r.bot_handle })
+      setStep(3)
+    } catch (e: any) {
+      setError(e.message || 'Не удалось подключить бот')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <Crown size={18} style={{ color: '#FFCFA4' }} />
+            Подключение своего MAX-бота
+          </h2>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Шаг-индикатор */}
+        <div className="flex items-center px-5 py-3 border-b border-gray-100 text-xs text-gray-500">
+          {[1, 2, 3].map(n => (
+            <div key={n} className="flex items-center flex-1 last:flex-none">
+              <div
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold
+                  ${step >= n ? 'text-white' : 'text-gray-400 bg-gray-100'}`}
+                style={step >= n ? { background: '#25455D' } : undefined}
+              >
+                {step > n ? '✓' : n}
+              </div>
+              {n < 3 && <div className={`flex-1 h-0.5 mx-2 ${step > n ? 'bg-[#25455D]' : 'bg-gray-100'}`} />}
+            </div>
+          ))}
+        </div>
+
+        <div className="p-5">
+          {step === 1 && (
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-900">Шаг 1. Создайте бота в @MasterBot</h3>
+              <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
+                <li>Откройте в MAX бота <b>@MasterBot</b> (официальный бот для создания ботов)</li>
+                <li>Отправьте команду <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs">/newbot</code></li>
+                <li>Придумайте имя и адрес (username) бота</li>
+                <li>@MasterBot пришлёт <b>токен</b> — скопируйте его</li>
+              </ol>
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-900">
+                💡 Если бот уже есть — пропустите этот шаг. Токен можно получить заново через @MasterBot → <code className="bg-blue-100 px-1 rounded">/mybots</code> → выбрать бота → «Токен».
+              </div>
+              <button
+                onClick={() => setStep(2)}
+                className="w-full py-3 rounded-xl font-semibold text-sm text-white"
+                style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+              >
+                У меня есть токен →
+              </button>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-900">Шаг 2. Вставьте токен</h3>
+              <p className="text-sm text-gray-600">
+                Мы проверим токен через MAX, сохраним его и зарегистрируем webhook —
+                после этого бот начнёт принимать сообщения и слать ваши рассылки.
+              </p>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Токен MAX-бота</label>
+                <div className="relative">
+                  <input
+                    type={showToken ? 'text' : 'password'}
+                    value={token}
+                    onChange={e => setToken(e.target.value)}
+                    className="w-full px-3 py-2.5 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                    placeholder="вставьте токен из @MasterBot"
+                    disabled={submitting}
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowToken(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700"
+                  >{showToken ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                </div>
+              </div>
+              {error && (
+                <div className="bg-red-50 border border-red-100 text-red-700 text-sm rounded-xl p-3">
+                  {error}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setStep(1)}
+                  className="flex-1 py-2.5 rounded-xl font-medium text-sm border border-gray-200 text-gray-600 hover:bg-gray-50"
+                  disabled={submitting}
+                >Назад</button>
+                <button
+                  onClick={submitToken}
+                  disabled={!token.trim() || submitting}
+                  className="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white disabled:opacity-50"
+                  style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+                >
+                  {submitting ? 'Подключаем…' : 'Подключить'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && result && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
+                <CheckCircle2 size={20} className="text-green-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold text-green-900">Бот {result.bot_name} (@{result.bot_username}) подключён</p>
+                  <p className="text-sm text-green-800 mt-0.5">
+                    Webhook зарегистрирован — бот уже принимает сообщения подписчиков
+                    и готов слать ваши рассылки в MAX.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-900">
+                💡 Ссылки на бот в MAX выглядят как <code className="bg-blue-100 px-1 rounded">{result.bot_handle}</code>.
+                В рассылках и реф-ссылках MAX подставляется автоматически.
+              </div>
 
               <button
                 onClick={onDone}
