@@ -113,9 +113,9 @@ function PackageCard({ eventId, pkg, stages, defaultStage, onChange }: any) {
           <input type="number" step="0.1" className="w-14 border rounded px-1.5 py-0.5 text-sm" value={weight}
             onChange={(e) => setWeight(e.target.value)} onBlur={() => savePkg({ weight: Number(weight) || 0 })} />
         </label>
-        <label className="text-xs text-gray-500 flex items-center gap-1" title="Привести критерии к доле от лучшего результата. Включайте, если в пакете критерии с разными масштабами (например голоса в сотнях и баллы жюри до 10) — тогда большие числа не задавят маленькие.">
+        <label className="text-xs text-gray-500 flex items-center gap-1" title="Каждый критерий приводится к доле от лучшего результата СРЕДИ ВСЕХ УЧАСТНИКОВ: у лидера по критерию — 1.0, у остальных — их число делится на число лидера (привёл 50 при лидере 60 → 0.83). Сравнение идёт по каждому критерию отдельно, числа разных критериев между собой НЕ складываются. Включайте, когда критерии в разных масштабах (зрители в сотнях, рефералы в десятках) — иначе большие числа задавят маленькие, и веса перестанут работать.">
           <input type="checkbox" checked={normalize} onChange={(e) => { setNormalize(e.target.checked); savePkg({ normalize: e.target.checked }) }} />
-          нормализовать (?)
+          доля от лучшего, 0–1 (?)
         </label>
         <label className="text-xs text-gray-500 flex items-center gap-1" title="Складывать баллы критериев, а не усреднять. По умолчанию балл пакета = среднее по критериям. Включите, если хотите, чтобы баллы за задания суммировались (6 заданий по 6 → 36, а не 6).">
           <input type="checkbox" checked={sumMode} onChange={(e) => { setSumMode(e.target.checked); savePkg({ aggregate: e.target.checked ? 'sum' : 'avg' }) }} />
@@ -526,7 +526,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
     const c = cols.find(x => x.criterion_id === cid)
     return !!board.packages.find((p: any) => p.id === c?.package_id)?.normalize
   }
-  const NormBadge = () => <span className="ml-1 align-middle text-[9px] font-bold text-amber-700 bg-amber-50 border border-[#FFCFA4] rounded px-1" title="Критерий нормализуется: баллы приводятся к доле от лучшего результата">норм.</span>
+  const NormBadge = () => <span className="ml-1 align-middle text-[9px] font-bold text-amber-700 bg-amber-50 border border-[#FFCFA4] rounded px-1" title="Критерий нормализуется: число участника делится на максимум этого критерия среди всех участников (лидер = 1.0). Сравнение по этому критерию между участниками, а не между критериями одного участника.">норм.</span>
 
   return (
     <div>

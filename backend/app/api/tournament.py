@@ -327,6 +327,62 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                             "code_phrase": c.get("code_phrase"),
                             "package_id": p["id"], "package_title": p["title"]})
 
+    # ── Схема расчёта пакета (поле tournament_packages.scheme):
+    #   s1 «Сырая ÷ лидера»     pkg = Σ(знач×вес) / сумма_лидера × 10        [0..10]
+    #   s2 «Доля от лучшего»    pkg = Σ(доля×вес) / Σвесов × 10              [0..10]
+    #   s3 «Среднее значений»   pkg = Σ(знач×вес) / Σвесов                   (жюри: 0..10)
+    #   s4 «Чистая сумма»       pkg = Σ(знач×вес), без деления               (задания)
+    # Совместимость для старых пакетов без scheme: normalize/aggregate → схема.
+    def _scheme_of(p):
+        s = p.get("scheme")
+        if s in ("s1", "s2", "s3", "s4"):
+            return s
+        if p.get("aggregate") == "sum":
+            return "s4"
+        if p.get("normalize"):
+            return "s2"
+        return "s3"
+
+    # ── ПРЕДРАСЧЁТ для схемы 1: сырая сумма пакета у каждого subject + рекорд (лидер).
+    #    pkg_raw_sum[pkg_id][skey] = Σ(сырое_значение × вес) по критериям пакета.
+    pkg_raw_sum = {}      # pkg_id -> skey -> сырая взвешенная сумма
+    for p in pkgs:
+        pid = p["id"]
+        pkg_raw_sum[pid] = {}
+        for subj in subjects:
+            s = 0.0
+            for c in crits_by_pkg.get(pid, []):
+                v = crit_raw[c["id"]].get(subj["key"])
+                if v is not None:
+                    s += v * float(c["weight"])
+            pkg_raw_sum[pid][subj["key"]] = s
+    # рекорд суммы пакета (для s1) + кто лидер
+    pkg_leader = {}       # pkg_id -> {"key","name","username","value"}  (для вывода над таблицей)
+    pkg_sum_max = {}      # pkg_id -> max сырой суммы
+    subj_by_key = {s["key"]: s for s in subjects}
+    for p in pkgs:
+        pid = p["id"]
+        best_key, best_val = None, 0.0
+        for k, v in pkg_raw_sum[pid].items():
+            if v > best_val:
+                best_val, best_key = v, k
+        pkg_sum_max[pid] = best_val
+        if _scheme_of(p) == "s1" and best_key is not None and best_val > 0:
+            ls = subj_by_key.get(best_key, {})
+            pkg_leader[pid] = {"key": best_key, "name": ls.get("name"),
+                               "username": ls.get("username"), "value": round(best_val, 3)}
+    # лидеры по каждому критерию (для схемы 2): crit_max уже посчитан выше
+    crit_leader = {}      # crit_id -> {"name","username","value"}
+    for cid, vals in crit_raw.items():
+        mx = crit_max.get(cid, 0.0)
+        if mx > 0:
+            for k, v in vals.items():
+                if v is not None and v == mx:
+                    ls = subj_by_key.get(k, {})
+                    crit_leader[cid] = {"name": ls.get("name"), "username": ls.get("username"),
+                                        "value": round(mx, 3)}
+                    break
+
     table = []
     for subj in subjects:
         cells = {}            # criterion_id -> value (для колонок-критериев)
@@ -334,14 +390,15 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         package_scores = {}   # package_id -> балл пакета
         total = 0.0
         for p in pkgs:
-            weighted_sum = 0.0; weight_total = 0.0
+            scheme = _scheme_of(p)
+            weighted_sum = 0.0; weight_total = 0.0   # для s2/s3/s4 (s2 — по долям)
             for c in crits_by_pkg.get(p["id"], []):
                 val = crit_raw[c["id"]].get(subj["key"])
                 cells[c["id"]] = val
-                if p["normalize"]:
+                if scheme == "s2":   # доля от лучшего по критерию
                     mx = crit_max[c["id"]]
                     use = (val / mx) if (val is not None and mx > 0) else (0.0 if val is not None else None)
-                else:
+                else:                # s1/s3/s4 — сырое значение
                     use = val
                 w = float(c["weight"])
                 if use is not None:
@@ -355,9 +412,18 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                             det.append({"juror_name": jr["name"], "value": jv})
                     if det:
                         jury_detail[c["id"]] = det
-            if p.get("aggregate") == "sum":
-                pkg_score = weighted_sum  # складываем взвешенные баллы критериев, без усреднения
-            else:
+            if scheme == "s1":
+                # сырая сумма ÷ рекорд суммы пакета × 10
+                smax = pkg_sum_max.get(p["id"], 0.0)
+                raw_sum = pkg_raw_sum[p["id"]].get(subj["key"], 0.0)
+                pkg_score = (raw_sum / smax * 10.0) if smax > 0 else 0.0
+            elif scheme == "s2":
+                # средневзвешенное долей × 10
+                pkg_score = (weighted_sum / weight_total * 10.0) if weight_total > 0 else 0.0
+            elif scheme == "s4":
+                # чистая взвешенная сумма, без деления
+                pkg_score = weighted_sum
+            else:  # s3 — среднее значений (÷ сумму весов)
                 pkg_score = (weighted_sum / weight_total) if weight_total > 0 else 0.0
             package_scores[p["id"]] = round(pkg_score, 3)
             total += pkg_score * float(p["weight"])
@@ -391,8 +457,11 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         r["place"] = place
 
     return {
-        "packages": [{"id": p["id"], "title": p["title"], "weight": float(p["weight"]), "normalize": p["normalize"], "aggregate": p.get("aggregate", "avg")} for p in pkgs],
-        "columns": columns,
+        "packages": [{"id": p["id"], "title": p["title"], "weight": float(p["weight"]),
+                      "normalize": p["normalize"], "aggregate": p.get("aggregate", "avg"),
+                      "scheme": _scheme_of(p),
+                      "leader": pkg_leader.get(p["id"])} for p in pkgs],
+        "columns": [{**col, "leader": crit_leader.get(col["criterion_id"])} for col in columns],
         "jurors": [{"juror_ec_id": j["juror_ec_id"], "name": j["name"]} for j in jurors],
         "table": table,
     }
@@ -417,13 +486,27 @@ async def list_criteria(event_id: int, client=Depends(get_current_client), db: a
     return {"packages": out, "stages": [dict(s) for s in stages]}
 
 
+_VALID_SCHEMES = ("s1", "s2", "s3", "s4")
+
+
 class PackageIn(BaseModel):
     title: str
     weight: float = 1
+    scheme: str = "s3"   # s1/s2/s3/s4 — см. _compute
     normalize: bool = False
-    aggregate: str = "avg"  # 'avg' — усреднять критерии, 'sum' — складывать
+    aggregate: str = "avg"  # legacy, держим в синхроне со scheme
     sort_order: int = 0
     stage_id: Optional[int] = None  # этап пакета (NULL = весь турнир)
+
+
+def _legacy_from_scheme(scheme: str):
+    """Держим старые normalize/aggregate в синхроне со scheme (на случай кода, читающего их)."""
+    if scheme == "s2":
+        return True, "avg"
+    if scheme == "s4":
+        return False, "sum"
+    # s1, s3 — нормализации по критериям нет, агрегат среднее (s1 делит на лидера в _compute)
+    return False, "avg"
 
 
 @router.post("/packages", summary="Создать пакет")
@@ -431,18 +514,21 @@ async def create_package(event_id: int, data: PackageIn, client=Depends(get_curr
     await _check_access(event_id, int(client["sub"]), db)
     if not data.title.strip():
         raise HTTPException(status_code=422, detail="Название пакета обязательно")
-    if data.aggregate not in ("avg", "sum"):
-        raise HTTPException(status_code=422, detail="aggregate должен быть avg или sum")
+    if data.scheme not in _VALID_SCHEMES:
+        raise HTTPException(status_code=422, detail="scheme должен быть s1/s2/s3/s4")
+    norm, agg = _legacy_from_scheme(data.scheme)
     p = await db.fetchrow(
-        """INSERT INTO tournament_packages (event_id, title, weight, normalize, aggregate, sort_order, stage_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""",
-        event_id, data.title.strip(), data.weight, data.normalize, data.aggregate, data.sort_order, data.stage_id)
+        """INSERT INTO tournament_packages (event_id, title, weight, scheme, normalize, aggregate, sort_order, stage_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *""",
+        event_id, data.title.strip(), data.weight, data.scheme, norm, agg, data.sort_order, data.stage_id)
+    # Схема 3 = жюри: все критерии пакета становятся jury-типа (но при создании их ещё нет)
     return {"package": dict(p)}
 
 
 class PackageUpdate(BaseModel):
     title: Optional[str] = None
     weight: Optional[float] = None
+    scheme: Optional[str] = None
     normalize: Optional[bool] = None
     aggregate: Optional[str] = None
     sort_order: Optional[int] = None
@@ -453,13 +539,25 @@ class PackageUpdate(BaseModel):
 async def update_package(event_id: int, package_id: int, data: PackageUpdate, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
     payload = data.model_dump(exclude_unset=True)
+    if payload.get("scheme") and payload["scheme"] not in _VALID_SCHEMES:
+        raise HTTPException(status_code=422, detail="scheme должен быть s1/s2/s3/s4")
     if payload.get("aggregate") and payload["aggregate"] not in ("avg", "sum"):
         raise HTTPException(status_code=422, detail="aggregate должен быть avg или sum")
+    # при смене схемы держим legacy normalize/aggregate в синхроне
+    if payload.get("scheme"):
+        norm, agg = _legacy_from_scheme(payload["scheme"])
+        payload.setdefault("normalize", norm)
+        payload.setdefault("aggregate", agg)
     if payload:
         cols = list(payload.keys())
         sets = ", ".join(f"{c} = ${i+3}" for i, c in enumerate(cols))
         await db.execute(f"UPDATE tournament_packages SET {sets}, updated_at=now() WHERE id=$1 AND event_id=$2",
                          package_id, event_id, *payload.values())
+    # Схема 3 = жюри: все критерии этого пакета автоматически становятся jury-типа
+    if payload.get("scheme") == "s3":
+        await db.execute(
+            "UPDATE tournament_criteria SET scorer='jury', auto_kind=NULL WHERE package_id=$1 AND scorer<>'jury'",
+            package_id)
     p = await db.fetchrow("SELECT * FROM tournament_packages WHERE id=$1 AND event_id=$2", package_id, event_id)
     if not p:
         raise HTTPException(status_code=404, detail="Пакет не найден")
