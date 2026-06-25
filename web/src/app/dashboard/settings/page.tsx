@@ -131,16 +131,23 @@ export default function SettingsPage() {
     }
   }
 
+  // Раздел «Интеграция» (токен чат-ботов + регистрация партнёров) — только тариф Экстра (vip).
+  // У Профи (1900) / Стандарт / Триал — скрыт.
+  const isVipTariff = tariff?.tariff_slug === 'vip'
+
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: 'profile',      label: 'Профиль',      icon: UserIcon  },
     { id: 'tech',         label: 'Техническое',  icon: Wrench    },
-    { id: 'integration',  label: 'Интеграция',   icon: Plug      },
+    ...(isVipTariff ? [{ id: 'integration' as Tab, label: 'Интеграция', icon: Plug }] : []),
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     { id: 'assistant',    label: 'Ассистент',    icon: UserPlus  },
     { id: 'subscription', label: 'Подписка',     icon: CreditCard},
     { id: 'legal',        label: 'Юр. данные',   icon: ShieldCheck},
   ]
+
+  // Защита от прямого перехода ?tab=integration у не-vip: переключаем на профиль.
+  const effectiveTab: Tab = (tab === 'integration' && !isVipTariff) ? 'profile' : tab
 
   // Бот, который реально пишет в канал уведомлений: свой (VIP) бот клиента, если подключён,
   // иначе системный @pluson_bot.
@@ -173,28 +180,28 @@ export default function SettingsPage() {
       </div>
 
       {/* Mini App таб — отдельная страница, без общей формы */}
-      {tab === 'mini-app' && <MiniAppSettingsPage />}
+      {effectiveTab === 'mini-app' && <MiniAppSettingsPage />}
 
       {/* Гейт по подписке в TG-чатах — миграция 115 */}
-      {tab === 'chat-gates' && <ChatGatesTab />}
+      {effectiveTab === 'chat-gates' && <ChatGatesTab />}
 
-      {/* Интеграция — токен для чат-ботов */}
-      {tab === 'integration' && <IntegrationTab />}
+      {/* Интеграция — токен для чат-ботов (только vip) */}
+      {effectiveTab === 'integration' && <IntegrationTab />}
 
       {/* Подписка — отдельный блок */}
-      {tab === 'subscription' && <SubscriptionTab />}
+      {effectiveTab === 'subscription' && <SubscriptionTab />}
 
       {/* Юр. данные + Политика — отдельный блок */}
-      {tab === 'legal' && <LegalTab />}
+      {effectiveTab === 'legal' && <LegalTab />}
 
       {/* Ассистент кабинета — миграция 106 */}
-      {tab === 'assistant' && <AssistantTab />}
+      {effectiveTab === 'assistant' && <AssistantTab />}
 
-      {/* Профиль и Техническое — общая форма с одной кнопкой Сохранить */}
-      {(tab === 'profile' || tab === 'tech') && (
+      {/* Профиль, Техническое и Интеграция — общая форма с одной кнопкой Сохранить */}
+      {(effectiveTab === 'profile' || effectiveTab === 'tech' || effectiveTab === 'integration') && (
       <form onSubmit={handleSave} className="space-y-6">
 
-        {tab === 'profile' && (
+        {effectiveTab === 'profile' && (
         <>
         {/* Profile */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -332,7 +339,23 @@ export default function SettingsPage() {
         </>
         )}
 
-        {tab === 'tech' && (
+        {effectiveTab === 'integration' && (
+        <>
+        {/* Регистрация партнёров (миграция 105) — перенесено из «Техническое» в «Интеграция» */}
+        <PartnerRegistrationBlock
+          form={form}
+          set={set}
+          clientId={clientId}
+          availablePlatforms={availablePlatforms}
+          botHandles={botHandles}
+          vkAppId={vkAppId}
+          visibleRoles={partnerVisibleRoles}
+          setVisibleRoles={setPartnerVisibleRoles}
+        />
+        </>
+        )}
+
+        {effectiveTab === 'tech' && (
         <>
 
         {/* Test recipient IDs (TG / VK / MAX) */}
@@ -546,18 +569,6 @@ export default function SettingsPage() {
             </ol>
           </details>
         </div>
-
-        {/* Partner registration (миграция 105) */}
-        <PartnerRegistrationBlock
-          form={form}
-          set={set}
-          clientId={clientId}
-          availablePlatforms={availablePlatforms}
-          botHandles={botHandles}
-          vkAppId={vkAppId}
-          visibleRoles={partnerVisibleRoles}
-          setVisibleRoles={setPartnerVisibleRoles}
-        />
 
         {/* Storage usage */}
         {storage && (
