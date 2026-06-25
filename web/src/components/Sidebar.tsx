@@ -30,8 +30,8 @@ export default function Sidebar() {
   const hasContests = features.includes('contests')
   const hasCollabHub = features.includes('collab_hub')
   const isAssistant = me?.role === 'assistant'
-  // «Партнёры» (collaborations) — только тариф Экстра (vip). На Профи (1900) и ниже скрыт.
-  const isVipTariff = me?.tariff_slug === 'vip'
+  // «Партнёры» (collaborations) — по фиче event_organizers (vip + admin).
+  const hasEventOrganizers = features.includes('event_organizers')
 
   function isActive(href: string, exact?: boolean) {
     if (href === '#') return false
@@ -63,8 +63,8 @@ export default function Sidebar() {
       label: t.nav.base,
       items: [
         { href: '/dashboard/clients', label: t.nav.clients, icon: UserCircle },
-        // «Партнёры» (коллабораторы/спикеры) — только тариф Экстра (vip).
-        ...(isVipTariff ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
+        // «Партнёры» (коллабораторы/спикеры) — по фиче event_organizers.
+        ...(hasEventOrganizers ? [{ href: '/dashboard/collaborations', label: t.nav.collaborations, icon: Users }] : []),
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
         // Каналы — у ассистента нет доступа даже на чтение (миграция 106)
         ...(isAssistant ? [] : [{ href: '/dashboard/channels', label: t.nav.channels, icon: Radio }]),

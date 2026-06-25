@@ -1423,10 +1423,10 @@ function PartnerLinksBlock({ contact }: { contact: ContactDetail }) {
   const botHandles: { telegram?: string | null; vk?: string | null; max?: string | null } | null = me?.bot_handles || null
   const vkAppId: number | null = (me as any)?.vk_app_id ? Number((me as any).vk_app_id) : null
 
-  // Регистрация партнёров — единый функционал с разделом «Интеграция» в Настройках:
-  // только тариф Экстра (vip). У Профи (1900) и ниже блок не показываем.
-  const isVipTariff = (me as any)?.subscription?.tariff_slug === 'vip'
-  if (!isVipTariff) return null
+  // Регистрация партнёров — единый функционал с разделом «Интеграция» в Настройках.
+  // Гейтинг по фиче partner_registration (vip + admin).
+  const hasPartnerRegistration = (me?.features || []).includes('partner_registration')
+  if (!hasPartnerRegistration) return null
 
   // Только TG/VK/MAX, из подключённых клиентом (свой канал). Системные не используем.
   const available: string[] = me?.available_platforms || []

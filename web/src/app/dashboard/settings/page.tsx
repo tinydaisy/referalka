@@ -44,6 +44,7 @@ export default function SettingsPage() {
   const [botHandles, setBotHandles] = useState<{ telegram?: string | null; vk?: string | null; max?: string | null } | null>(null)
   const [vkAppId, setVkAppId] = useState<number | null>(null)
   const [tariff, setTariff] = useState<any>(null)
+  const [clientFeatures, setClientFeatures] = useState<string[]>([])
   const [storage, setStorage] = useState<{ used_bytes: number; quota_bytes: number; used_human: string; quota_human: string; used_percent: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -75,6 +76,7 @@ export default function SettingsPage() {
       })
       setPartnerVisibleRoles(Array.isArray(c.partner_visible_roles) ? c.partner_visible_roles : [])
       setTariff(c.subscription || null)
+      setClientFeatures(Array.isArray(c.features) ? c.features : [])
       setClientId(c.id || null)
       setAvailablePlatforms(Array.isArray(c.available_platforms) ? c.available_platforms : ['telegram'])
       setBotHandles(c.bot_handles || null)
@@ -131,14 +133,14 @@ export default function SettingsPage() {
     }
   }
 
-  // Раздел «Интеграция» (токен чат-ботов + регистрация партнёров) — только тариф Экстра (vip).
-  // У Профи (1900) / Стандарт / Триал — скрыт.
-  const isVipTariff = tariff?.tariff_slug === 'vip'
+  // Раздел «Интеграция» (токен чат-ботов + регистрация партнёров) — по фиче
+  // partner_registration (vip + admin). У Профи / Стандарт / Триал — скрыт.
+  const hasPartnerRegistration = clientFeatures.includes('partner_registration')
 
   const TABS: { id: Tab; label: string; icon: any }[] = [
     { id: 'profile',      label: 'Профиль',      icon: UserIcon  },
     { id: 'tech',         label: 'Техническое',  icon: Wrench    },
-    ...(isVipTariff ? [{ id: 'integration' as Tab, label: 'Интеграция', icon: Plug }] : []),
+    ...(hasPartnerRegistration ? [{ id: 'integration' as Tab, label: 'Интеграция', icon: Plug }] : []),
     { id: 'mini-app',     label: 'Mini App',     icon: Smartphone},
     { id: 'chat-gates',   label: 'Гейт в чатах', icon: ShieldAlert},
     { id: 'assistant',    label: 'Ассистент',    icon: UserPlus  },
@@ -147,7 +149,7 @@ export default function SettingsPage() {
   ]
 
   // Защита от прямого перехода ?tab=integration у не-vip: переключаем на профиль.
-  const effectiveTab: Tab = (tab === 'integration' && !isVipTariff) ? 'profile' : tab
+  const effectiveTab: Tab = (tab === 'integration' && !hasPartnerRegistration) ? 'profile' : tab
 
   // Бот, который реально пишет в канал уведомлений: свой (VIP) бот клиента, если подключён,
   // иначе системный @pluson_bot.

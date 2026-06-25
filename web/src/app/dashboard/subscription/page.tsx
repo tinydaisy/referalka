@@ -172,8 +172,6 @@ export default function SubscriptionPage() {
                     {(t.feature_slugs || []).map((slug: string) => (
                       <div key={slug}>· {featureLabels[slug] || slug}</div>
                     ))}
-                    {/* Преимущество только тарифа Экстра (vip) — несколько организаторов у событий */}
-                    {t.slug === 'vip' && <div>· Несколько организаторов у событий</div>}
                   </div>
                 </button>
               )
