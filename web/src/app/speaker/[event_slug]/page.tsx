@@ -66,6 +66,11 @@ type SpeakerMe = {
   topics: string[]
   gift_after_speech_title: string | null
   gift_after_speech_url: string | null
+  gift_lead_magnet_id: number | null
+  gift_package_id: number | null
+  gift_lead_magnet: { kind: string; id: number; name: string } | null
+  linked_client_id: number | null
+  linked_client_email: string | null
   gift_raffle_title: string | null
   gift_raffle_url: string | null
   knowledge_base_title: string | null
@@ -145,6 +150,13 @@ export default function SpeakerCabinetPage() {
   const [activeTab, setActiveTab] = useState<CabinetTab>('profile')
   const [materials, setMaterials] = useState<SpeakerMaterials | null>(null)
   const [photoLinkCopied, setPhotoLinkCopied] = useState(false)
+  // Привязка ПЛЮСОН-аккаунта спикера (миграция 167)
+  const [plusonModal, setPlusonModal] = useState<null | 'login' | 'register'>(null)
+  const [plEmail, setPlEmail] = useState('')
+  const [plPassword, setPlPassword] = useState('')
+  const [plBusy, setPlBusy] = useState(false)
+  const [plError, setPlError] = useState<string | null>(null)
+  const [myMagnets, setMyMagnets] = useState<{ magnets: { id: number; name: string }[]; packages: { id: number; name: string }[] } | null>(null)
 
   // Восстановить токен из localStorage
   useEffect(() => {
@@ -404,6 +416,10 @@ export default function SpeakerCabinetPage() {
     width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, background: '#fff'
   }
   const labelCss: React.CSSProperties = { display: 'block', fontSize: 12, color: '#5c7589', marginBottom: 4, marginTop: 14 }
+  const btnCss: React.CSSProperties = {
+    padding: '8px 14px', borderRadius: 8, border: '1px solid #cfd9e2', background: '#fff',
+    color: DARK, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+  }
   const buttonSmall: React.CSSProperties = {
     padding: '6px 12px',
     background: '#fff',
@@ -416,6 +432,88 @@ export default function SpeakerCabinetPage() {
   }
 
   const update = (patch: Partial<SpeakerMe>) => setMe((m) => m ? ({ ...m, ...patch }) : m)
+
+  // ── Привязка ПЛЮСОН-аккаунта (миграция 167) ──
+  const loadMyMagnets = async () => {
+    if (!token) return
+    try {
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/my-lead-magnets`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const j = await r.json()
+      if (j.linked) setMyMagnets({ magnets: j.magnets || [], packages: j.packages || [] })
+      else setMyMagnets(null)
+    } catch { /* пропускаем */ }
+  }
+  useEffect(() => {
+    if (me?.linked_client_id) loadMyMagnets()
+    else setMyMagnets(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.linked_client_id, token])
+
+  const doPlusonAuth = async () => {
+    if (!token || !plusonModal) return
+    setPlBusy(true); setPlError(null)
+    try {
+      const path = plusonModal === 'register' ? 'register-pluson' : 'link-pluson'
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: plEmail.trim(), password: plPassword }),
+      })
+      const j = await r.json()
+      if (!r.ok) { setPlError(j.detail || 'Не удалось подключить ПЛЮСОН'); setPlBusy(false); return }
+      update({ linked_client_id: j.linked_client_id, linked_client_email: j.linked_client_email })
+      setPlusonModal(null); setPlEmail(''); setPlPassword('')
+    } catch {
+      setPlError('Ошибка сети')
+    }
+    setPlBusy(false)
+  }
+
+  const unlinkPluson = async () => {
+    if (!token) return
+    if (!confirm('Отвязать ПЛЮСОН-аккаунт? Выбранный подарок-лид-магнит тоже снимется.')) return
+    await fetch(`${API}/api/v1/public/speaker-cabinet/me/unlink-pluson`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` },
+    })
+    update({ linked_client_id: null, linked_client_email: null, gift_lead_magnet_id: null, gift_package_id: null, gift_lead_magnet: null })
+    setMyMagnets(null)
+  }
+
+  // Выбор магнита/пакета из списка → сохраняем сразу
+  const pickGiftMagnet = async (val: string) => {
+    if (!token) return
+    let body: any = { gift_lead_magnet_id: 0 } // снять
+    let chosen: SpeakerMe['gift_lead_magnet'] = null
+    if (val.startsWith('m:')) {
+      const id = parseInt(val.slice(2), 10)
+      body = { gift_lead_magnet_id: id }
+      const m = myMagnets?.magnets.find((x) => x.id === id)
+      if (m) chosen = { kind: 'magnet', id, name: m.name }
+    } else if (val.startsWith('p:')) {
+      const id = parseInt(val.slice(2), 10)
+      body = { gift_package_id: id }
+      const p = myMagnets?.packages.find((x) => x.id === id)
+      if (p) chosen = { kind: 'package', id, name: p.name }
+    }
+    const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    })
+    if (r.ok) {
+      update({
+        gift_lead_magnet_id: body.gift_lead_magnet_id && body.gift_lead_magnet_id > 0 ? body.gift_lead_magnet_id : null,
+        gift_package_id: body.gift_package_id && body.gift_package_id > 0 ? body.gift_package_id : null,
+        gift_lead_magnet: chosen,
+      })
+    } else {
+      const j = await r.json().catch(() => ({}))
+      alert(j.detail || 'Не удалось сохранить выбор')
+    }
+  }
+
   const updTopics = (i: number, v: string) => {
     const arr = [...(me?.topics || [])]
     arr[i] = v
@@ -824,10 +922,57 @@ export default function SpeakerCabinetPage() {
 
         {me.show_gift_after_speech_field && (
           <Section title="Подарок после эфира">
-            <label style={labelCss}>Название</label>
+            {/* ── Блок «Мой ПЛЮСОН» — для подсчёта баллов за лид-магнит ── */}
+            <div style={{ background: '#F0F7FF', border: '1px solid #cfe2f5', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+              {!me.linked_client_id ? (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 4 }}>🎁 Подарок-лид-магнит из ПЛЮСОН</div>
+                  <div style={{ fontSize: 12, color: '#5b7286', lineHeight: 1.5, marginBottom: 10 }}>
+                    Подключите свой кабинет ПЛЮСОН — и выберите свой лид-магнит как подарок.
+                    Тогда система автоматически посчитает, сколько людей зашло по нему, и начислит вам баллы в турнире.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => { setPlusonModal('login'); setPlError(null) }}
+                      style={{ ...btnCss, background: DARK, color: '#fff' }}>Войти в ПЛЮСОН</button>
+                    <button onClick={() => { setPlusonModal('register'); setPlError(null) }}
+                      style={{ ...btnCss }}>Создать кабинет</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ fontSize: 12.5, color: '#1d6b3a', fontWeight: 600 }}>✓ Подключён ПЛЮСОН: {me.linked_client_email}</div>
+                    <button onClick={unlinkPluson} style={{ background: 'none', border: 'none', color: '#b04a4a', fontSize: 11.5, cursor: 'pointer', textDecoration: 'underline' }}>отвязать</button>
+                  </div>
+                  <label style={labelCss}>Выберите лид-магнит / пакет (подарок)</label>
+                  <select style={inputCss}
+                    value={me.gift_lead_magnet_id ? `m:${me.gift_lead_magnet_id}` : me.gift_package_id ? `p:${me.gift_package_id}` : ''}
+                    onChange={(e) => pickGiftMagnet(e.target.value)}>
+                    <option value="">— не выбран —</option>
+                    {(myMagnets?.magnets || []).map((m) => (
+                      <option key={`m${m.id}`} value={`m:${m.id}`}>🎁 {m.name}</option>
+                    ))}
+                    {(myMagnets?.packages || []).map((p) => (
+                      <option key={`p${p.id}`} value={`p:${p.id}`}>📦 Пакет: {p.name}</option>
+                    ))}
+                  </select>
+                  {myMagnets && myMagnets.magnets.length === 0 && myMagnets.packages.length === 0 && (
+                    <div style={{ fontSize: 11.5, color: '#a06a2a', marginTop: 6 }}>
+                      В вашем ПЛЮСОН пока нет лид-магнитов. Создайте их в кабинете → раздел «Лид-магниты».
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* ── Ручной ввод (для тех, кто не привязал ПЛЮСОН) ── */}
+            <label style={labelCss}>Название (вручную)</label>
             <input style={inputCss} value={me.gift_after_speech_title || ''} onChange={(e) => update({ gift_after_speech_title: e.target.value })} placeholder="Например: Чек-лист по нутрициологии" />
-            <label style={labelCss}>Ссылка</label>
+            <label style={labelCss}>Ссылка (вручную)</label>
             <input style={inputCss} value={me.gift_after_speech_url || ''} onChange={(e) => update({ gift_after_speech_url: e.target.value })} placeholder="https://…" />
+            <div style={{ fontSize: 11, color: '#94a3b0', marginTop: 4 }}>
+              Ручную ссылку используем для рассылок и карточки. Баллы за лид-магнит в турнире считаются только при выборе из ПЛЮСОН.
+            </div>
           </Section>
         )}
 
@@ -1004,6 +1149,50 @@ export default function SpeakerCabinetPage() {
             >
               Закрыть
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка входа/регистрации ПЛЮСОН (миграция 167) ── */}
+      {plusonModal && (
+        <div onClick={() => !plBusy && setPlusonModal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(10,21,32,0.6)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 14, padding: 22, width: '100%', maxWidth: 380, boxShadow: '0 12px 40px rgba(0,0,0,.3)' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 6 }}>
+              {plusonModal === 'register' ? 'Создать кабинет ПЛЮСОН' : 'Войти в ПЛЮСОН'}
+            </div>
+            <div style={{ fontSize: 12.5, color: '#6b7c8e', marginBottom: 14, lineHeight: 1.5 }}>
+              {plusonModal === 'register'
+                ? 'Создадим вам бесплатный кабинет — там вы заведёте свои лид-магниты и подключите их как подарок.'
+                : 'Введите email и пароль вашего кабинета ПЛЮСОН, чтобы выбрать свой лид-магнит.'}
+            </div>
+            <label style={labelCss}>Email</label>
+            <input style={inputCss} type="email" value={plEmail} onChange={(e) => setPlEmail(e.target.value)} placeholder="you@example.com" autoFocus />
+            <label style={labelCss}>Пароль</label>
+            <input style={inputCss} type="password" value={plPassword} onChange={(e) => setPlPassword(e.target.value)} placeholder="••••••••" />
+            {plError && <div style={{ color: '#b04a4a', fontSize: 12.5, marginTop: 10 }}>{plError}</div>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+              <button onClick={doPlusonAuth} disabled={plBusy || !plEmail.trim() || !plPassword}
+                style={{ ...btnCss, background: DARK, color: '#fff', opacity: (plBusy || !plEmail.trim() || !plPassword) ? 0.6 : 1, flex: 1 }}>
+                {plBusy ? '…' : plusonModal === 'register' ? 'Создать и подключить' : 'Подключить'}
+              </button>
+              <button onClick={() => !plBusy && setPlusonModal(null)} style={{ ...btnCss }}>Отмена</button>
+            </div>
+            <div style={{ marginTop: 12, textAlign: 'center', fontSize: 12 }}>
+              {plusonModal === 'login' ? (
+                <button onClick={() => { setPlusonModal('register'); setPlError(null) }}
+                  style={{ background: 'none', border: 'none', color: DARK, cursor: 'pointer', textDecoration: 'underline' }}>
+                  Ещё нет кабинета? Создать
+                </button>
+              ) : (
+                <button onClick={() => { setPlusonModal('login'); setPlError(null) }}
+                  style={{ background: 'none', border: 'none', color: DARK, cursor: 'pointer', textDecoration: 'underline' }}>
+                  Уже есть кабинет? Войти
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -844,15 +844,43 @@ async def _send_broadcast_vk_part(
         if not rows:
             return 0
 
+    # ── Кнопки в VK ──
+    # ⚠️ VK НЕ показывает inline-кнопки open_link с внешними ссылками
+    # (pluson.ru / t.me и любой не-vk домен): сообщество должно явно
+    # разрешить домен, иначе VK молча отбрасывает кнопку — сообщение
+    # уходит БЕЗ неё. Симптом «в TG/MAX кнопка есть, в VK нет».
+    # Поэтому внешние URL-кнопки в VK пишем СССЫЛКОЙ В ТЕКСТ (доходит
+    # всегда), а inline-клавиатуру с open_link не используем. Callback-кнопки
+    # (внутренние, без url) VK показывает нормально — их оставляем в клавиатуре.
+    def _is_vk_internal(u: str) -> bool:
+        u = (u or "").lower()
+        return ("vk.com" in u) or ("vk.me" in u) or ("vk.ru" in u)
+
     keyboard = None
+    link_lines: list[str] = []  # «Текст кнопки: url» — допишем в конец сообщения
+    kb_rows: list[list[dict]] = []
+
+    # Собираем список (label, url) из всех источников кнопок
+    btn_pairs: list[tuple[str, str]] = []
     if buttons:
-        # Конвертация массива кнопок [{text|label, url}, ...] в VK keyboard.
-        # snapshot_buttons из broadcasts/general хранит поле text;
-        # шаблоны конференций могут хранить label.
-        keyboard_rows = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b.get("url", "")}] for b in buttons]
-        keyboard = tg_inline_to_vk_keyboard(keyboard_rows)
+        for b in buttons:
+            lbl = b.get("text") or b.get("label") or "Открыть"
+            url = b.get("url", "")
+            if url:
+                btn_pairs.append((lbl, url))
     elif button_text and button_url:
-        keyboard = tg_inline_to_vk_keyboard([[{"text": button_text, "url": button_url}]])
+        btn_pairs.append((button_text, button_url))
+
+    for lbl, url in btn_pairs:
+        if _is_vk_internal(url):
+            # внутренняя VK-ссылка — open_link работает, оставляем кнопкой
+            kb_rows.append([{"text": lbl, "url": url}])
+        else:
+            # внешняя ссылка — в текст (VK кнопку всё равно срежет)
+            link_lines.append(f"{lbl}: {url}")
+
+    if kb_rows:
+        keyboard = tg_inline_to_vk_keyboard(kb_rows)
 
     # Загружаем фото в VK один раз для всей рассылки — получаем attachment-строку
     # `photo{owner_id}_{id}`, которую можно слать многим получателям. Без этого
@@ -908,6 +936,10 @@ async def _send_broadcast_vk_part(
         except (TypeError, ValueError):
             continue
         message_text = text or ""
+        # Внешние URL-кнопки в VK дописываем ссылкой в текст (см. выше).
+        if link_lines:
+            suffix = "\n\n" + "\n".join(link_lines)
+            message_text = f"{message_text}{suffix}" if message_text else suffix.strip()
         attachment = video_attachment if media_type == "video" else photo_attachment
         if media_type == "video" and vk_link_fallback:
             message_text = f"{message_text}\n\n🎬 Видео: {video_url}" if message_text else video_url

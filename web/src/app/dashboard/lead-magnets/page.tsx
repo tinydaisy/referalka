@@ -280,6 +280,7 @@ function MagnetsList() {
                   <ExternalLink size={12} />
                   <span className="truncate">{lm.url}</span>
                 </a>
+                <div><CopyIdButton slug={lm.slug} /></div>
                 <div className="mt-2">
                   <PlatformShareLinks kind="m" slug={lm.slug} links={lm.platform_links} name={lm.name} />
                 </div>
@@ -447,6 +448,7 @@ function PackagesList() {
                     {pkg.items.length > 5 && <li className="text-gray-400">…ещё {pkg.items.length - 5}</li>}
                   </ul>
                 )}
+                <div><CopyIdButton slug={pkg.slug} /></div>
                 <div className="mt-2">
                   <PlatformShareLinks kind="p" slug={pkg.slug} links={pkg.platform_links} name={pkg.name} />
                 </div>
@@ -910,6 +912,22 @@ const PLATFORM_META: Record<PlatformKey, { label: string; color: string; Icon: (
       </svg>
     ),
   },
+}
+
+// Кнопка «копировать уникальный идентификатор» (слаг) — спикеры вставляют его
+// в кабинете, чтобы привязать лид-магнит как подарок (миграция 167).
+function CopyIdButton({ slug }: { slug: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={() => navigator.clipboard.writeText(slug).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })}
+      title="Скопировать уникальный идентификатор — спикер вставит его в своём кабинете, чтобы привязать этот подарок"
+      className="inline-flex items-center gap-1 text-[11px] mt-1 px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
+    >
+      {copied ? <Check size={11} className="text-green-600" /> : <Copy size={11} className="text-gray-400" />}
+      <span className="font-mono">ID: {slug}</span>
+    </button>
+  )
 }
 
 function PlatformShareLinks({ kind, slug, links, name }: {

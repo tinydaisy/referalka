@@ -136,6 +136,9 @@ async def get_me(
         """SELECT cse.id AS speaker_event_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
                   cse.gift_raffle_title, cse.gift_raffle_url,
+                  cse.gift_lead_magnet_id, cse.gift_package_id,
+                  c.linked_client_id,
+                  (SELECT lc.email FROM clients lc WHERE lc.id = c.linked_client_id) AS linked_client_email,
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
                   cse.show_knowledge_base_field,
@@ -233,6 +236,17 @@ async def get_me(
             d["ref_links"] = {}
     except Exception:
         d["ref_links"] = {}
+
+    # Выбранный лид-магнит/пакет как «подарок после эфира» — название для UI.
+    d["gift_lead_magnet"] = None
+    if d.get("gift_lead_magnet_id"):
+        nm = await db.fetchval("SELECT name FROM lead_magnets WHERE id = $1", d["gift_lead_magnet_id"])
+        if nm:
+            d["gift_lead_magnet"] = {"kind": "magnet", "id": d["gift_lead_magnet_id"], "name": nm}
+    elif d.get("gift_package_id"):
+        nm = await db.fetchval("SELECT name FROM lead_magnet_packages WHERE id = $1", d["gift_package_id"])
+        if nm:
+            d["gift_lead_magnet"] = {"kind": "package", "id": d["gift_package_id"], "name": nm}
     return d
 
 
@@ -275,6 +289,11 @@ class CabinetUpdate(BaseModel):
     gift_raffle_url: Optional[str] = None
     knowledge_base_title: Optional[str] = None
     knowledge_base_url: Optional[str] = None
+    # Подарок-лид-магнит из ПЛЮСОН-аккаунта спикера (миграция 167).
+    # Передаётся {gift_lead_magnet_id} ИЛИ {gift_package_id}; чтобы снять —
+    # передать gift_lead_magnet_id=0 (обнуляет обе привязки).
+    gift_lead_magnet_id: Optional[int] = None
+    gift_package_id: Optional[int] = None
 
 
 @router.patch("/me", summary="Сохранить правки спикера")
@@ -409,6 +428,42 @@ async def patch_me(
             f"UPDATE event_collaborators SET {', '.join(parts)} WHERE id = $1",
             se_id, *ev_upd.values()
         )
+
+    # 5b. Подарок-лид-магнит из ПЛЮСОН (миграция 167). Привязка валидируется:
+    # выбранный магнит/пакет должен принадлежать linked_client_id спикера.
+    # gift_lead_magnet_id=0 (или package=0) → снять обе привязки.
+    if data.gift_lead_magnet_id is not None or data.gift_package_id is not None:
+        linked = await db.fetchval(
+            "SELECT linked_client_id FROM collaborators WHERE id = $1", c_id
+        )
+        lm_id = data.gift_lead_magnet_id
+        pkg_id = data.gift_package_id
+        if (lm_id or 0) <= 0 and (pkg_id or 0) <= 0:
+            # снять привязку
+            await db.execute(
+                "UPDATE event_collaborators SET gift_lead_magnet_id = NULL, gift_package_id = NULL WHERE id = $1",
+                se_id,
+            )
+        elif lm_id and lm_id > 0:
+            ok = await db.fetchval(
+                "SELECT 1 FROM lead_magnets WHERE id = $1 AND client_id = $2", lm_id, linked
+            )
+            if not ok:
+                raise HTTPException(status_code=400, detail="Лид-магнит не найден в вашем ПЛЮСОН-аккаунте")
+            await db.execute(
+                "UPDATE event_collaborators SET gift_lead_magnet_id = $2, gift_package_id = NULL WHERE id = $1",
+                se_id, lm_id,
+            )
+        elif pkg_id and pkg_id > 0:
+            ok = await db.fetchval(
+                "SELECT 1 FROM lead_magnet_packages WHERE id = $1 AND client_id = $2", pkg_id, linked
+            )
+            if not ok:
+                raise HTTPException(status_code=400, detail="Пакет не найден в вашем ПЛЮСОН-аккаунте")
+            await db.execute(
+                "UPDATE event_collaborators SET gift_package_id = $2, gift_lead_magnet_id = NULL WHERE id = $1",
+                se_id, pkg_id,
+            )
 
     return await get_me(session, db)
 
@@ -890,4 +945,119 @@ async def get_me_invited(
         "registered": registered,
         "in_chat": in_chat,
         "people": people,
+    }
+
+
+# ════════════════ Привязка ПЛЮСОН-аккаунта спикера (миграция 167) ════════════════
+# Спикеры чемпионата становятся клиентами ПЛЮСОН. Из своего кабинета спикер
+# подключает свой ПЛЮСОН-аккаунт (вход или регистрация прямо здесь) — связка
+# пишется в collaborators.linked_client_id. После этого он выбирает СВОЙ
+# лид-магнит/пакет как «подарок после эфира», и турнирный критерий считает
+# по нему переходы (funnel_runs).
+
+class LinkPlusonIn(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/me/link-pluson", summary="Подключить существующий ПЛЮСОН-аккаунт спикера")
+async def link_pluson(
+    data: LinkPlusonIn,
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    from app.auth import verify_password
+    c_id = int(session["c_id"])
+    email = (data.email or "").strip().lower()
+
+    client = await db.fetchrow(
+        "SELECT id, name, email, password_hash, is_active FROM clients WHERE LOWER(email) = $1",
+        email,
+    )
+    if not client or not verify_password(data.password, client["password_hash"]):
+        raise HTTPException(status_code=401, detail="Неверный email или пароль ПЛЮСОН")
+    if not client["is_active"]:
+        raise HTTPException(status_code=403, detail="Этот ПЛЮСОН-аккаунт заблокирован")
+
+    await db.execute(
+        "UPDATE collaborators SET linked_client_id = $2, updated_at = NOW() WHERE id = $1",
+        c_id, client["id"],
+    )
+    return {"ok": True, "linked_client_id": client["id"], "linked_client_email": client["email"]}
+
+
+@router.post("/me/register-pluson", summary="Зарегистрировать новый ПЛЮСОН-аккаунт и привязать")
+async def register_pluson(
+    data: LinkPlusonIn,
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Создаёт новый кабинет ПЛЮСОН (тариф trial) и сразу привязывает к спикеру.
+    Имя берём из карточки коллаба."""
+    from app.api.auth import register as auth_register, RegisterRequest
+    c_id = int(session["c_id"])
+    email = (data.email or "").strip().lower()
+
+    exists = await db.fetchval("SELECT 1 FROM clients WHERE LOWER(email) = $1", email)
+    if exists:
+        raise HTTPException(status_code=409, detail="Этот email уже зарегистрирован — войдите вместо регистрации")
+
+    coll = await db.fetchrow("SELECT name FROM collaborators WHERE id = $1", c_id)
+    name = (coll["name"] if coll else None) or "Спикер"
+
+    # Переиспользуем штатную регистрацию (trial, реф-код, подписка и т.п.)
+    res = await auth_register(
+        RegisterRequest(name=name, email=email, password=data.password),
+        db,
+    )
+    new_client_id = res["client"]["id"] if isinstance(res, dict) and res.get("client") else None
+    if not new_client_id:
+        raise HTTPException(status_code=500, detail="Не удалось создать ПЛЮСОН-аккаунт")
+
+    await db.execute(
+        "UPDATE collaborators SET linked_client_id = $2, updated_at = NOW() WHERE id = $1",
+        c_id, new_client_id,
+    )
+    return {"ok": True, "linked_client_id": new_client_id, "linked_client_email": email}
+
+
+@router.post("/me/unlink-pluson", summary="Отвязать ПЛЮСОН-аккаунт")
+async def unlink_pluson(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    c_id = int(session["c_id"])
+    await db.execute(
+        "UPDATE collaborators SET linked_client_id = NULL, updated_at = NOW() WHERE id = $1",
+        c_id,
+    )
+    # снимаем и выбранный подарок-магнит на этом событии
+    se_id = int(session["se_id"])
+    await db.execute(
+        "UPDATE event_collaborators SET gift_lead_magnet_id = NULL, gift_package_id = NULL WHERE id = $1",
+        se_id,
+    )
+    return {"ok": True}
+
+
+@router.get("/me/my-lead-magnets", summary="Лид-магниты и пакеты привязанного ПЛЮСОН-аккаунта")
+async def my_lead_magnets(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    c_id = int(session["c_id"])
+    linked = await db.fetchval("SELECT linked_client_id FROM collaborators WHERE id = $1", c_id)
+    if not linked:
+        return {"linked": False, "magnets": [], "packages": []}
+
+    magnets = await db.fetch(
+        "SELECT id, name, slug FROM lead_magnets WHERE client_id = $1 ORDER BY id DESC", linked
+    )
+    packages = await db.fetch(
+        "SELECT id, name, slug FROM lead_magnet_packages WHERE client_id = $1 ORDER BY id DESC", linked
+    )
+    return {
+        "linked": True,
+        "magnets": [{"id": m["id"], "name": m["name"], "slug": m["slug"]} for m in magnets],
+        "packages": [{"id": p["id"], "name": p["name"], "slug": p["slug"]} for p in packages],
     }

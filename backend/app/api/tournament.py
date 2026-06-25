@@ -18,7 +18,8 @@
 
 Расчёт итога:
   балл критерия:  jury → AVG по жюри; vote/manual → введённое число; auto → из БД.
-  балл пакета:    normalize=TRUE — каждый критерий = доля от лучшего, потом взвеш.среднее;
+  балл пакета:    normalize=TRUE — каждый критерий = доля от лучшего СРЕДИ ВСЕХ УЧАСТНИКОВ
+                  (val / max_по_столбцу, лидер=1.0), потом взвеш.среднее;
                   иначе — взвешенное среднее сырых баллов.
   итог участника: Σ (балл пакета × вес пакета). Сортировка по итогу убыванием.
 
@@ -185,7 +186,34 @@ async def _jurors(event_id: int, db: asyncpg.Connection) -> List[dict]:
     return [dict(r) for r in rows]
 
 
-async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str, db: asyncpg.Connection) -> float:
+async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
+                      db: asyncpg.Connection, subj: dict | None = None) -> float:
+    # 'lead_magnet' — считаем переходы (funnel_runs) в лид-магнит/пакет,
+    # который спикер выбрал «подарком после эфира» (event_collaborators).
+    # Привязка живёт на ec → считаем только для субъектов-спикеров (kind='ec').
+    # «Просто зашло» = любой funnel_run (без фильтра по stage и по рефереру).
+    if auto_kind == "lead_magnet":
+        if not subj or subj.get("kind") != "ec":
+            return 0.0
+        link = await db.fetchrow(
+            "SELECT gift_lead_magnet_id, gift_package_id FROM event_collaborators WHERE id = $1",
+            subj["sid"],
+        )
+        if not link:
+            return 0.0
+        if link["gift_lead_magnet_id"]:
+            v = await db.fetchval(
+                "SELECT COUNT(*) FROM funnel_runs WHERE lead_magnet_id = $1",
+                link["gift_lead_magnet_id"],
+            )
+            return float(v or 0)
+        if link["gift_package_id"]:
+            v = await db.fetchval(
+                "SELECT COUNT(*) FROM funnel_runs WHERE package_id = $1",
+                link["gift_package_id"],
+            )
+            return float(v or 0)
+        return 0.0
     if not contact_id:
         return 0.0
     if auto_kind == "referrals":
@@ -208,9 +236,6 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str, db: a
             f"WHERE event_id = $1 AND referrer_ref_code = $2{cond}",
             event_id, ref_code,
         )
-        return float(v or 0)
-    if auto_kind == "lead_magnet":
-        v = await db.fetchval("SELECT COUNT(*) FROM funnel_runs WHERE referrer_contact_id = $1", contact_id)
         return float(v or 0)
     return 0.0
 
@@ -265,7 +290,8 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                 return sum(vals) / len(vals)
             return None
         if crit["scorer"] == "auto":
-            return await _auto_value(event_id, subj["contact_id"], subj["ref_code"], crit["auto_kind"] or "", db)
+            return await _auto_value(event_id, subj["contact_id"], subj["ref_code"],
+                                     crit["auto_kind"] or "", db, subj=subj)
         return cell["single"] if cell and cell["single"] is not None else None
 
     # сырые значения критерия по всем участникам (для нормализации + колонок)

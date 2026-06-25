@@ -2723,8 +2723,14 @@ async def public_tournament_table(slug: str, stage_id: int,
   .note {{ font-size:12.5px; color:#6b7c8e; margin: 0 0 12px; }}
   .scroll {{ overflow-x:auto; border:1px solid #e6eaee; border-radius:12px; background:#fff; }}
   table {{ border-collapse:collapse; width:100%; font-size:13px; }}
-  th, td {{ padding:8px 10px; border-bottom:1px solid #eef1f4; text-align:center; white-space:nowrap; }}
-  thead th {{ background:#f1f4f7; color:#41566a; font-weight:700; position:sticky; top:0; }}
+  th, td {{ padding:8px 10px; border-bottom:1px solid #e0e6ec; border-right:1px solid #e6eaee;
+    text-align:center; white-space:nowrap; }}
+  /* Закреплённые заголовки: шапка из двух строк. 1-я прилипает к top:0,
+     2-я — под ней (на высоту 1-й ≈ 40px). z-index выше тела таблицы. */
+  thead th {{ background:#f1f4f7; color:#41566a; font-weight:700; position:sticky; z-index:3; }}
+  thead tr:first-child th {{ top:0; }}
+  thead tr:nth-child(2) th {{ top:40px; }}
+  thead th.c-place, thead th.c-name {{ z-index:5; }}
   .c-grp {{ border-left:1px solid #dfe5ea; color:#25455D; }}
   .c-grp .w {{ display:block; font-size:10.5px; font-weight:500; color:#8593a1; }}
   .c-crit {{ font-weight:500; color:#5b6b7a; font-size:11.5px; min-width:64px; max-width:96px; white-space:normal; word-break:break-word; vertical-align:bottom; }}
