@@ -538,10 +538,11 @@ def _allowed_preset_types_for_event(is_conf: bool, is_turnir: bool, for_presets:
         "day_before_09_12_unreg", "day_before_09_12_reg", "event_live",
     }
     TURNIR_EXTRA_TYPES = {"speaker_intro"}
-    # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf)
-    # и «за 5 мин до выступления» (5min_before).
+    # При ручном добавлении турнир тоже может взять анонс знакомства (pre_conf),
+    # «за 5 мин до выступления» (5min_before) и «подарок спикера после
+    # выступления» (gift) — у турнира есть спикеры и программа по сессиям.
     if for_presets:
-        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "5min_before"}
+        TURNIR_EXTRA_TYPES = TURNIR_EXTRA_TYPES | {"pre_conf", "5min_before", "gift"}
     out = []
     for tpl in DEFAULT_TEMPLATES:
         if tpl["type"] == "event_live" and is_conf:
@@ -1122,7 +1123,9 @@ async def generate_schedules(
         d = s["day"] or 1
         days.setdefault(d, []).append(s)
 
-    # ── 5min_before и gift — по каждой сессии со спикером (только конф) ──
+    # ── 5min_before и gift — по каждой сессии со спикером (конференция ИЛИ
+    #    турнир с программой по дням). Раньше было только is_conf — из-за чего
+    #    у турнира эти шаблоны не генерировали расписание. ──
     sessions_with_speaker = await db.fetch(
         """
         SELECT cs.id, cs.start_time, cs.end_time, cs.day,
@@ -1135,7 +1138,7 @@ async def generate_schedules(
         ORDER BY cs.day, cs.start_time
         """,
         event_id
-    ) if is_conf else []
+    ) if use_day_program else []
 
     for s in sessions_with_speaker:
         s_start_utc = _msk_str_to_utc(s["day_date"], s["start_time"])

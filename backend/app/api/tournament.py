@@ -379,7 +379,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             for k, v in vals.items():
                 if v is not None and v == mx:
                     ls = subj_by_key.get(k, {})
-                    crit_leader[cid] = {"name": ls.get("name"), "username": ls.get("username"),
+                    crit_leader[cid] = {"key": k, "name": ls.get("name"), "username": ls.get("username"),
                                         "value": round(mx, 3)}
                     break
 
@@ -455,6 +455,14 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             place += 1
             prev_total = cur
         r["place"] = place
+
+    # Позиция (rank) лидера в итоговом рейтинге — чтобы под колонкой показать
+    # «ФИО (место N)»: лидер по критерию может быть не первым в общем итоге.
+    place_by_key = {r["key"]: r["place"] for r in table}
+    for _ld in pkg_leader.values():
+        _ld["rank"] = place_by_key.get(_ld.get("key"))
+    for _ld in crit_leader.values():
+        _ld["rank"] = place_by_key.get(_ld.get("key"))
 
     return {
         "packages": [{"id": p["id"], "title": p["title"], "weight": float(p["weight"]),

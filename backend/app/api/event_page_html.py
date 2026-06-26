@@ -2654,7 +2654,44 @@ async def public_tournament_table(slug: str, stage_id: int,
             _first_crit_head = False
 
     total_cols = 3 + len(groups) + sum(g["span"] for g in groups)
-    rows_html = ""
+
+    # ── Строка «Лидеры по критериям» — на кого делить (максимум) ──
+    # Схема 1 (s1, сумма÷лидера): лидер показывается под колонкой ПАКЕТА.
+    # Схема 2 (s2, нормализация по критериям): лидер под каждым КРИТЕРИЕМ.
+    def _leader_cell(ld):
+        if not ld or not ld.get("name"):
+            return "<td class='lead-cell'></td>"
+        rank = ld.get("rank")
+        rank_html = f"<span class='lr-rank'>место {rank}</span>" if rank else ""
+        return (f"<td class='lead-cell'>"
+                f"<span class='lr-name'>{esc(ld.get('name') or '')}</span>"
+                f"<span class='lr-val'>макс {_fmt_num(ld.get('value'))}</span>{rank_html}</td>")
+
+    col_by_id = {col["criterion_id"]: col for col in columns}
+    any_leader = any((pkg_by_id.get(g["pkg_id"], {}).get("leader")) for g in groups) or \
+                 any(col.get("leader") for col in columns)
+    leaders_html = ""
+    if table and any_leader:
+        lc = "<tr class='leaders-row'>"
+        lc += "<td class='c-place'></td><td class='c-name'>🏆 Лидеры (на кого делить)</td><td class='c-total'></td>"
+        # под блоком «Баллы по пакетам» — лидер пакета (для s1)
+        for g in groups:
+            pkg = pkg_by_id.get(g["pkg_id"], {})
+            lc += _leader_cell(pkg.get("leader"))
+        # под каждым критерием — лидер критерия (для s2)
+        _first = True
+        for g in groups:
+            for c in crit_by_pkg_seq.get(g["pkg_id"], []):
+                col = col_by_id.get(c["criterion_id"], {})
+                cell = _leader_cell(col.get("leader"))
+                if _first:
+                    cell = cell.replace("lead-cell", "lead-cell crit-start", 1)
+                lc += cell
+                _first = False
+        lc += "</tr>"
+        leaders_html = lc
+
+    rows_html = leaders_html
     if not table:
         rows_html = (f"<tr><td colspan='{total_cols}' class='empty'>"
                      "Пока нет участников или оценок на этом этапе.</td></tr>")
@@ -2723,7 +2760,9 @@ async def public_tournament_table(slug: str, stage_id: int,
   .brand-logo {{ height:54px; width:auto; max-width:120px; object-fit:contain; flex:0 0 auto; }}
   .content {{ padding: 16px; }}
   .note {{ font-size:12.5px; color:#6b7c8e; margin: 0 0 12px; }}
-  .scroll {{ overflow-x:auto; border:1px solid #e6eaee; border-radius:12px; background:#fff; }}
+  /* Ограничиваем высоту + внутренний скролл (по X и Y) — чтобы заголовки
+     колонок и строка лидеров оставались закреплёнными при прокрутке. */
+  .scroll {{ overflow:auto; max-height:78vh; border:1px solid #e6eaee; border-radius:12px; background:#fff; -webkit-overflow-scrolling:touch; }}
   table {{ border-collapse:collapse; width:100%; font-size:13px; }}
   th, td {{ padding:8px 10px; border-bottom:1px solid #e0e6ec; border-right:1px solid #e6eaee;
     text-align:center; white-space:nowrap; }}
@@ -2756,6 +2795,15 @@ async def public_tournament_table(slug: str, stage_id: int,
   tbody tr:nth-child(even) td {{ background:#fafbfc; }}
   tbody tr:nth-child(even) .c-name {{ background:#fafbfc; }}
   tbody tr:nth-child(even) .c-total {{ background:#FFF2E6; }}
+  /* Строка «Лидеры по критериям» — на кого делить (максимум). Закреплена
+     сразу под заголовком: sticky к верху скролл-контейнера (под thead). */
+  .leaders-row td {{ background:#F4F8FD; border-bottom:2px solid #cdd9e6; vertical-align:top;
+    position:sticky; top:74px; z-index:2; }}
+  .leaders-row .c-name {{ left:0; z-index:4; background:#F4F8FD; font-size:11.5px; color:#25455D; font-weight:700; }}
+  .lead-cell {{ font-size:10.5px; line-height:1.25; }}
+  .lr-name {{ display:block; font-weight:700; color:#1f2d3a; }}
+  .lr-val {{ display:block; color:#b45309; font-weight:700; }}
+  .lr-rank {{ display:block; color:#8593a1; }}
   .empty {{ color:#8593a1; padding:24px; text-align:center !important; }}
   .foot {{ font-size:11.5px; color:#9aa7b4; text-align:center; padding:18px 12px 30px; }}
   .foot a {{ color:#25455D; font-weight:600; text-decoration:none; }}
