@@ -194,9 +194,10 @@ export default function Sidebar() {
             </Link>
           </div>
         )}
-        {/* Current user — кликабельный, раскрывает меню Настройки / Партнёрская / Подписка */}
-        {me && (me.name || me.email) && (
-          <>
+        {/* Current user — кликабельный, раскрывает меню Настройки / Партнёрская / Подписка.
+            Показываем ВСЕГДА (имя/email опциональны) — иначе при не загруженном /auth/me
+            пропадает доступ к Настройкам. */}
+        <>
             <button
               onClick={() => setUserMenuOpen(o => !o)}
               className={`flex items-center gap-3 px-3 py-2 mt-2 w-full rounded-lg transition-colors ${
@@ -205,17 +206,15 @@ export default function Sidebar() {
             >
               <UserCircle size={28} className="text-white/60 shrink-0" />
               <div className="min-w-0 flex-1 text-left">
-                {me.name && (
-                  <div className="text-sm font-medium text-white truncate">
-                    {me.name}
-                    {isAssistant && (
-                      <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-[#FFCFA4]">
-                        · ассистент
-                      </span>
-                    )}
-                  </div>
-                )}
-                {me.email && (
+                <div className="text-sm font-medium text-white truncate">
+                  {me?.name || me?.email || 'Мой кабинет'}
+                  {isAssistant && (
+                    <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-[#FFCFA4]">
+                      · ассистент
+                    </span>
+                  )}
+                </div>
+                {me?.name && me?.email && (
                   <div className="text-[11px] text-white/50 truncate">{me.email}</div>
                 )}
               </div>
@@ -271,8 +270,7 @@ export default function Sidebar() {
                 )}
               </div>
             )}
-          </>
-        )}
+        </>
         <button
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/10 w-full transition-colors"
           onClick={() => {
