@@ -406,7 +406,8 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         cells = {}            # criterion_id -> value (для колонок-критериев)
         cells_norm = {}       # criterion_id -> нормализованная доля (для s2: значение ÷ макс)
         jury_detail = {}      # criterion_id -> [{juror_name, value}]
-        package_scores = {}   # package_id -> балл пакета
+        package_scores = {}   # package_id -> балл пакета (для ИТОГа)
+        package_wnorm = {}    # package_id -> средневзвеш. долей БЕЗ ×10 (для столбца s2)
         total = 0.0
         for p in pkgs:
             scheme = _scheme_of(p)
@@ -438,8 +439,11 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                 raw_sum = pkg_raw_sum[p["id"]].get(subj["key"], 0.0)
                 pkg_score = (raw_sum / smax * 10.0) if smax > 0 else 0.0
             elif scheme == "s2":
-                # средневзвешенное долей × 10
-                pkg_score = (weighted_sum / weight_total * 10.0) if weight_total > 0 else 0.0
+                # средневзвешенное долей (0..1) — для столбца «Σ средневзвеш.» БЕЗ ×10;
+                # ×10 идёт только в балл пакета (для ИТОГа).
+                wnorm = (weighted_sum / weight_total) if weight_total > 0 else 0.0
+                package_wnorm[p["id"]] = round(wnorm, 3)
+                pkg_score = wnorm * 10.0
             elif scheme == "s4":
                 # чистая взвешенная сумма, без деления
                 pkg_score = weighted_sum
@@ -463,6 +467,8 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             "package_scores": {str(k): v for k, v in package_scores.items()},
             # сырая взвешенная сумма по пакету (Σ критерий×вес) — для колонки «Σ» при схеме 1
             "package_raw_sums": {str(p["id"]): round(pkg_raw_sum[p["id"]].get(subj["key"], 0.0), 3) for p in pkgs},
+            # средневзвеш. долей БЕЗ ×10 — для столбца «Σ средневзвеш.» при схеме 2
+            "package_wnorm": {str(k): v for k, v in package_wnorm.items()},
             "jury_detail": {str(k): v for k, v in jury_detail.items()},
             "total": round(total, 3), "assigned_jury": len(assigned), "done_jury": done,
         })

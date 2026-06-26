@@ -2623,12 +2623,6 @@ async def public_tournament_table(slug: str, stage_id: int,
                            "scheme": p.get("scheme", "s3"), "span": 1})
     NORM_BADGE = "<span class='norm' title='Критерий нормализуется: баллы приводятся к доле от лучшего результата'>норм.</span>"
 
-    # Порядок колонок (как в дашборде): Место · Участник · ИТОГ ·
-    # блок «Баллы по пакетам» (по 1 колонке на пакет) · затем группы критериев.
-    thead_grp = "<th rowspan='2' class='c-place'>Место</th><th rowspan='2' class='c-name'>Участник</th>"
-    thead_grp += "<th rowspan='2' class='c-total'>ИТОГ</th>"
-    if groups:
-        thead_grp += f"<th colspan='{len(groups)}' class='c-grp'>Баллы по пакетам</th>"
     # Схема пакета определяет раскладку колонок:
     #   s1 → каждый критерий 1 колонка (сырое) + замыкающая Σ сумма (крит×вес)
     #   s2 → каждый критерий 2 колонки (сырое + норм. доля) + замыкающая Σ средневзвеш.
@@ -2639,53 +2633,81 @@ async def public_tournament_table(slug: str, stage_id: int,
         return g.get("scheme") in ("s1", "s2")
     def _grp_span(g):
         return g["span"] * (2 if _is_s2(g) else 1) + (1 if _has_sum_col(g) else 0)
+    # Есть ли хоть один s2-пакет → шапка трёхуровневая (название критерия над
+    # двумя подколонками «значение»/«доля от лучшего»). Иначе двухуровневая.
+    has_s2 = any(_is_s2(g) for g in groups)
+    head_rows = 3 if has_s2 else 2
+    crit_rowspan = 2 if has_s2 else 1   # rowspan названия НЕ-s2-критерия при трёхуровневой шапке
+
     _SCHEME_MODE = {"s1": "сумма ÷ лидера", "s2": "доля от лучшего · норм.",
                     "s3": "среднее", "s4": "чистая сумма"}
-    for g in groups:
-        mode = _SCHEME_MODE.get(g.get("scheme"), "среднее")
-        thead_grp += (f"<th colspan='{_grp_span(g)}' class='c-grp'>{esc(g['title'])}"
-                      f"<span class='w'>вес ×{_fmt_num(g['weight'])} · {mode}</span></th>")
-    crit_by_pkg_seq = {}
-    for c in columns:
-        crit_by_pkg_seq.setdefault(c["package_id"], []).append(c)
-    # 2-я строка шапки: сначала названия пакетов (для блока «Баллы по пакетам»), затем критерии
-    # подпись формулы балла пакета зависит от схемы
     _SCHEME_FORMULA = {
         "s1": "сумма ÷ суммы лидера ×10",
         "s2": "Σ(норм×вес)÷Σвес ×10",
         "s3": "среднее (÷ сумму весов)",
         "s4": "чистая сумма",
     }
+    crit_by_pkg_seq = {}
+    for c in columns:
+        crit_by_pkg_seq.setdefault(c["package_id"], []).append(c)
+
+    # ── СТРОКА 1 шапки: Место/Участник/ИТОГ (rowspan на всю шапку) + пакеты ──
+    thead_grp = (f"<th rowspan='{head_rows}' class='c-place'>Место</th>"
+                 f"<th rowspan='{head_rows}' class='c-name'>Участник</th>"
+                 f"<th rowspan='{head_rows}' class='c-total'>ИТОГ</th>")
+    if groups:
+        thead_grp += f"<th colspan='{len(groups)}' class='c-grp'>Баллы по пакетам</th>"
+    for g in groups:
+        mode = _SCHEME_MODE.get(g.get("scheme"), "среднее")
+        thead_grp += (f"<th colspan='{_grp_span(g)}' class='c-grp'>{esc(g['title'])}"
+                      f"<span class='w'>вес ×{_fmt_num(g['weight'])} · {mode}</span></th>")
+
+    # ── СТРОКА 2 шапки: названия пакетов (блок «Баллы по пакетам») + названия критериев ──
+    # s2-критерий → colspan=2 (над «значение»/«доля»); НЕ-s2 → rowspan=crit_rowspan.
+    # Замыкающие Σ и c-pkg — rowspan на всю оставшуюся высоту.
     thead_crit = ""
     for g in groups:
         formula = _SCHEME_FORMULA.get(g.get("scheme"), "")
-        thead_crit += (f"<th class='c-pkg'>{esc(g['title'])}"
+        thead_crit += (f"<th rowspan='{head_rows - 1}' class='c-pkg'>{esc(g['title'])}"
                        f"<span class='cw'>{formula} · вес ×{_fmt_num(g['weight'])} → итог</span></th>")
     for g in groups:
-        _first_of_pkg = True  # первый критерий пакета → жирная граница-разделитель
+        _first_of_pkg = True
         for c in crit_by_pkg_seq.get(g["pkg_id"], []):
             cw = float(c.get("weight", 1))
-            cls = "c-crit crit-start" if _first_of_pkg else "c-crit"
+            base = "c-crit crit-start" if _first_of_pkg else "c-crit"
             cp = (c.get("code_phrase") or "").strip()
             cp_html = (f"<span class='cph'>Кодовая фраза для выкладки отчёта:<br>«{esc(cp)}»</span>"
                        if cp else "")
-            # Описание критерия скрыто под «?» — CSS-тултип (нативный title ненадёжен и пуст)
             cdesc = (c.get("description") or "").strip()
             q_html = (f"<span class='qmark' tabindex='0'><span class='qtip'>{_rich_text(cdesc)}</span>?</span>" if cdesc else "")
-            thead_crit += (f"<th class='{cls}'>{esc(c['title'])}{q_html}"
-                           f"<span class='cw'>значение · ×{_fmt_num(cw)}</span>{cp_html}</th>")
-            # для s2 — вторая колонка «норм.» (доля от лучшего)
             if _is_s2(g):
-                thead_crit += ("<th class='c-crit c-norm'>норм."
-                               "<span class='cw'>значение ÷ макс</span></th>")
+                # название критерия — над двумя подколонками
+                thead_crit += (f"<th colspan='2' class='{base}'>{esc(c['title'])}{q_html}"
+                               f"<span class='cw'>×{_fmt_num(cw)}</span>{cp_html}</th>")
+            else:
+                thead_crit += (f"<th rowspan='{crit_rowspan}' class='{base}'>{esc(c['title'])}{q_html}"
+                               f"<span class='cw'>×{_fmt_num(cw)}</span>{cp_html}</th>")
             _first_of_pkg = False
-        # замыкающая колонка: s1 → Σ сумма (крит×вес); s2 → Σ средневзвеш. долей
         if g.get("scheme") == "s1":
-            thead_crit += ("<th class='c-pkgsum'>Σ сумма"
+            thead_crit += (f"<th rowspan='{crit_rowspan}' class='c-pkgsum'>Σ сумма"
                            "<span class='cw'>крит₁×вес₁ + крит₂×вес₂ + …</span></th>")
         elif _is_s2(g):
-            thead_crit += ("<th class='c-pkgsum'>Σ средневзвеш."
+            thead_crit += (f"<th rowspan='{crit_rowspan}' class='c-pkgsum'>Σ средневзвеш."
                            "<span class='cw'>Σ(норм×вес) ÷ Σвес</span></th>")
+
+    # ── СТРОКА 3 шапки (только при s2): подколонки «значение»/«доля от лучшего» ──
+    thead_sub = ""
+    if has_s2:
+        for g in groups:
+            if not _is_s2(g):
+                continue  # НЕ-s2 критерии заняли rowspan, в этой строке ячеек не дают
+            _first_of_pkg = True
+            for c in crit_by_pkg_seq.get(g["pkg_id"], []):
+                vcls = "c-sub crit-start" if _first_of_pkg else "c-sub"
+                thead_sub += f"<th class='{vcls}'>значение</th>"
+                thead_sub += "<th class='c-sub c-norm'>доля от лучшего</th>"
+                _first_of_pkg = False
+
     # 3 (место/имя/итог) + блок «Баллы по пакетам» (len) + сумма колонок групп
     total_cols = 3 + len(groups) + sum(_grp_span(g) for g in groups)
 
@@ -2706,7 +2728,8 @@ async def public_tournament_table(slug: str, stage_id: int,
                  any(col.get("leader") for col in columns)
     leaders_html = ""
     if table and any_leader:
-        lc = "<tr class='leaders-row'>"
+        _lead_top = 126 if has_s2 else 96  # высота шапки (3 или 2 строки)
+        lc = f"<tr class='leaders-row' style='--lead-top:{_lead_top}px'>"
         lc += "<td class='c-place'></td><td class='c-name'>🏆 Лидеры (на кого делить)</td><td class='c-total'></td>"
         # блок «Баллы по пакетам» (отдельные колонки слева) — лидеров тут НЕ показываем
         for g in groups:
@@ -2764,9 +2787,9 @@ async def public_tournament_table(slug: str, stage_id: int,
                 rs = r.get("package_raw_sums", {}).get(str(g["pkg_id"]))
                 cells += f"<td class='pkgsum-val'>{_fmt_num(rs)}</td>"
             elif _is_s2(g):
-                # Σ средневзвеш. долей = балл пакета (до ×вес в ИТОГе)
-                ps = r.get("package_scores", {}).get(str(g["pkg_id"]))
-                cells += f"<td class='pkgsum-val'>{_fmt_num(ps)}</td>"
+                # Σ средневзвеш. долей (0..1) БЕЗ ×10 и БЕЗ ×вес — на вес умножаем в ИТОГе
+                wn = r.get("package_wnorm", {}).get(str(g["pkg_id"]))
+                cells += f"<td class='pkgsum-val'>{_fmt_num(wn)}</td>"
         place = r["place"]
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(place, "")
         rows_html += (
@@ -2829,9 +2852,12 @@ async def public_tournament_table(slug: str, stage_id: int,
      (жёсткие top в px работают только при фиксированных высотах строк). */
   thead tr:first-child th {{ height:44px; }}
   thead tr:nth-child(2) th {{ height:52px; }}
+  thead tr:nth-child(3) th {{ height:30px; }}
   thead th {{ background:#f1f4f7; color:#41566a; font-weight:700; position:sticky; z-index:3; }}
   thead tr:first-child th {{ top:0; }}
   thead tr:nth-child(2) th {{ top:44px; }}
+  thead tr:nth-child(3) th {{ top:96px; }}
+  .c-sub {{ font-weight:600; color:#5b6b7a; font-size:10px; min-width:48px; }}
   thead th.c-place, thead th.c-name {{ z-index:5; }}
   .c-grp {{ border-left:1px solid #dfe5ea; color:#25455D; }}
   .c-grp .w {{ display:block; font-size:10.5px; font-weight:500; color:#8593a1; }}
@@ -2884,9 +2910,10 @@ async def public_tournament_table(slug: str, stage_id: int,
   tbody tr:nth-child(even) .c-total {{ background:#FFF2E6; }}
   /* Строка «Лидеры по критериям» — на кого делить (максимум). Закреплена
      сразу под заголовком: sticky к верху скролл-контейнера (под thead). */
-  .leaders-row td {{ background:#F4F8FD; border-bottom:2px solid #cdd9e6; vertical-align:top;
-    position:sticky; top:96px; z-index:2; }}
-  .leaders-row .c-name {{ left:0; z-index:4; background:#F4F8FD; font-size:11.5px; color:#25455D; font-weight:700; }}
+  .leaders-row td {{ background:#DCEAF7; border-bottom:2px solid #9fb8d4; vertical-align:top;
+    position:sticky; top:var(--lead-top, 96px); z-index:2; }}
+  .leaders-row .c-name {{ left:0; z-index:4; background:#DCEAF7; font-size:11.5px; color:#25455D; font-weight:700; }}
+  .leaders-row td.c-norm, .leaders-row td.pkgsum-lead {{ background:#DCEAF7; }}
   .lead-cell {{ font-size:10.5px; line-height:1.25; }}
   .lr-name {{ display:block; font-weight:700; color:#1f2d3a; }}
   .lr-val {{ display:block; color:#b45309; font-weight:700; }}
@@ -2916,6 +2943,7 @@ async def public_tournament_table(slug: str, stage_id: int,
         <thead>
           <tr>{thead_grp}</tr>
           <tr>{thead_crit}</tr>
+          {('<tr>' + thead_sub + '</tr>') if thead_sub else ''}
         </thead>
         <tbody>
           {rows_html}
