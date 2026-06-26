@@ -1121,7 +1121,7 @@ function AudienceDropdown({ value, onToggle }: { value: string[]; onToggle: (rol
         <ChevronDown size={16} className="text-gray-400 shrink-0" />
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg py-1">
+        <div className="absolute right-0 z-[60] mt-1 w-full min-w-max bg-white border border-gray-200 rounded-lg shadow-lg py-1">
           {AUDIENCE_OPTS.map(o => (
             <label key={o.v}
               className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer select-none">
