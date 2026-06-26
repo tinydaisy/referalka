@@ -9,6 +9,7 @@ import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
+import { useMe } from '@/hooks/useMe'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -82,6 +83,7 @@ export default function GeneralBroadcastsPage() {
     media_type: 'photo' | 'video' | null
     buttons: { text: string; url: string }[]
     target_channel_ids: number[] | null
+    send_to_client_chats: boolean
   }>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
@@ -464,6 +466,7 @@ export default function GeneralBroadcastsPage() {
                               media_type: s.snapshot_media_type || (s.snapshot_photo ? 'photo' : null),
                               buttons: btns.map(b => ({ text: b.text || '', url: b.url || '' })),
                               target_channel_ids: Array.isArray(s.target_channel_ids) ? s.target_channel_ids : null,
+                              send_to_client_chats: !!s.send_to_client_chats,
                             })
                           }}
                             className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
@@ -527,6 +530,7 @@ export default function GeneralBroadcastsPage() {
             buttons: editModal.buttons,
             is_test: editModal.is_test,
             target_channel_ids: editModal.target_channel_ids,
+            send_to_client_chats: editModal.send_to_client_chats,
           }}
           onClose={() => setEditModal(null)}
           onSaved={async () => { setEditModal(null); await load(); showMsg('Сохранено') }}
@@ -739,8 +743,11 @@ function CustomBroadcastModal(props: {
     buttons?: { text: string; url: string }[]
     is_test?: boolean
     target_channel_ids?: number[] | null
+    send_to_client_chats?: boolean
   }
 }) {
+  const { me } = useMe()
+  const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
   const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
   const [subject, setSubject] = useState(props.initial?.subject || '')
   const [text, setText] = useState(props.initial?.text || '')
@@ -751,6 +758,7 @@ function CustomBroadcastModal(props: {
   })
   const [buttons, setButtons] = useState<{text: string; url: string}[]>(props.initial?.buttons || [])
   const [isTest, setIsTest] = useState(!!props.initial?.is_test)
+  const [sendToClientChats, setSendToClientChats] = useState(!!props.initial?.send_to_client_chats)
   // target_channel_ids: null = «пока не выбрано» (BroadcastChannelPicker
   // проставит все каналы клиента); массив = подмножество.
   const [targetChannels, setTargetChannels] = useState<number[] | null>(
@@ -810,6 +818,7 @@ function CustomBroadcastModal(props: {
         media_type: media.media_type,
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
+        send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
       }
       // target_channel_ids передаём только когда picker уже отрисовался
       // (после useEffect он точно перешёл из null в массив).
@@ -928,6 +937,19 @@ function CustomBroadcastModal(props: {
             </div>
           </div>
           <BroadcastChannelPicker value={targetChannels} onChange={setTargetChannels} />
+          {hasChatsFeature && (
+            <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
+                className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+              <span>
+                <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+                <span className="block text-[11px] text-gray-500 mt-0.5">
+                  В дополнение к базе подписчиков — ещё и в группы/каналы из вашей базы чатов
+                  (Каналы → «Чаты для рассылок»).
+                </span>
+              </span>
+            </label>
+          )}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX / Email из настроек)</span>

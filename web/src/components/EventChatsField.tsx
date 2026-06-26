@@ -226,7 +226,7 @@ export default function EventChatsField({ value, onChange, helpHref = '/dashboar
       <div className="pt-3 mt-2 border-t border-gray-200">
         <label className="block text-xs text-gray-600 mb-1">
           ID Telegram-каналов (через запятую){' '}
-          <span className="text-gray-400">— нужен для рассылок в этот чат</span>
+          <span className="text-gray-400">— для кнопки «Проверить чаты» (членство участников). Рассылки в группы теперь настраиваются в «Каналы» → «Чаты для рассылок».</span>
         </label>
         <div className="flex gap-2 items-stretch flex-wrap">
           <input

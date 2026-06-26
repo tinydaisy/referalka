@@ -9,6 +9,7 @@ import {
 import { api } from '@/lib/api'
 import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml'
 import FileUploader from '@/components/FileUploader'
+import { useMe } from '@/hooks/useMe'
 
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все уч. конфы',
@@ -1383,6 +1384,9 @@ function CustomBroadcastModal(props: {
   const [audIn, setAudIn] = useState(ed?.audience_include || 'all_event')
   const [audEx, setAudEx] = useState(ed?.audience_exclude || 'none')
   const [sendToChats, setSendToChats] = useState(!!ed?.send_to_event_chats)
+  const [sendToClientChats, setSendToClientChats] = useState(!!ed?.send_to_client_chats)
+  const { me } = useMe()
+  const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
   const [saving, setSaving] = useState(false)
 
   const htmlErrors = validateTelegramHtml(text)
@@ -1406,6 +1410,7 @@ function CustomBroadcastModal(props: {
         audience_include: audIn,
         audience_exclude: audEx,
         send_to_event_chats: sendToChats,
+        send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
       }
       if (ed?.id) {
         await api.conference.schedules.editCustom(props.eventId, ed.id, payload)
@@ -1541,6 +1546,18 @@ function CustomBroadcastModal(props: {
               </span>
             </span>
           </label>
+          {hasChatsFeature && (
+            <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
+                className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+              <span>
+                <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+                <span className="block text-[11px] text-gray-500 mt-0.5">
+                  Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
+                </span>
+              </span>
+            </label>
+          )}
         </div>
         <div className="flex gap-2 mt-5">
           <button onClick={save} disabled={saving || htmlErrors.length > 0 || hasButtonErrors}

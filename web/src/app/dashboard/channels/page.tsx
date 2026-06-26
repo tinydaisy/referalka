@@ -1,11 +1,12 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import {
   Plus, Radio, Users, BellOff, Edit2, Trash2, X, Eye, EyeOff,
   Crown, Copy, ExternalLink, CheckCircle2, ArrowRight, Megaphone, AlertTriangle,
   Upload, Download, FileText, HelpCircle, Sparkles, Loader2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import BroadcastChatsTab from '@/components/channels/BroadcastChatsTab'
 
 interface Platform {
   slug: string
@@ -48,7 +49,21 @@ function PlatformBadge({ slug, color }: { slug: string; color?: string | null })
   )
 }
 
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2.5 text-sm font-medium -mb-px border-b-2 transition-colors ${
+        active ? 'border-[#25455D] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
 export default function ChannelsPage() {
+  const [tab, setTab] = useState<'bots' | 'chats'>('bots')
   const [me, setMe] = useState<Me | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [platforms, setPlatforms] = useState<Platform[]>([])
@@ -98,24 +113,34 @@ export default function ChannelsPage() {
         </p>
       </div>
 
-      {!isVip ? (
-        <NonVipView
-          channels={channels}
-          onUpgrade={() => { window.location.href = '/dashboard/subscription' }}
-        />
-      ) : (
-        <VipView
-          channels={channels}
-          platforms={platforms}
-          onEdit={ch => setEditing(ch)}
-          onCreate={() => setCreating(true)}
-          onDelete={ch => setDeletingChannel(ch)}
-          onOpenWizard={() => setVipWizardOpen(true)}
-          onOpenVkWizard={() => setVkWizardOpen(true)}
-          onOpenMaxWizard={() => setMaxWizardOpen(true)}
-          onImport={ch => setImportingChannel(ch)}
-        />
+      {/* Подвкладки: Боты / Чаты для рассылок */}
+      <div className="flex gap-2 mb-6 border-b border-gray-200">
+        <TabBtn active={tab === 'bots'} onClick={() => setTab('bots')}>Боты</TabBtn>
+        <TabBtn active={tab === 'chats'} onClick={() => setTab('chats')}>Чаты для рассылок</TabBtn>
+      </div>
+
+      {tab === 'bots' && (
+        !isVip ? (
+          <NonVipView
+            channels={channels}
+            onUpgrade={() => { window.location.href = '/dashboard/subscription' }}
+          />
+        ) : (
+          <VipView
+            channels={channels}
+            platforms={platforms}
+            onEdit={ch => setEditing(ch)}
+            onCreate={() => setCreating(true)}
+            onDelete={ch => setDeletingChannel(ch)}
+            onOpenWizard={() => setVipWizardOpen(true)}
+            onOpenVkWizard={() => setVkWizardOpen(true)}
+            onOpenMaxWizard={() => setMaxWizardOpen(true)}
+            onImport={ch => setImportingChannel(ch)}
+          />
+        )
       )}
+
+      {tab === 'chats' && <BroadcastChatsTab />}
 
       {(creating || editing) && (
         <ChannelModal

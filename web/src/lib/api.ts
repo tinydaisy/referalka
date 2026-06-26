@@ -664,6 +664,14 @@ export const api = {
       update: (id: number, data: any) => request(`/api/v1/client-offerings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
       delete: (id: number) => request(`/api/v1/client-offerings/${id}`, { method: 'DELETE' }),
     },
+    // База внешних чатов/групп клиента для рассылок (миграция 170, фича broadcast_chats)
+    broadcastChats: {
+      list:    () => request('/api/v1/clients/me/broadcast-chats/'),
+      resolve: (data: any) => request('/api/v1/clients/me/broadcast-chats/resolve', { method: 'POST', body: JSON.stringify(data) }),
+      create:  (data: any) => request('/api/v1/clients/me/broadcast-chats/', { method: 'POST', body: JSON.stringify(data) }),
+      update:  (id: number, data: any) => request(`/api/v1/clients/me/broadcast-chats/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      delete:  (id: number) => request(`/api/v1/clients/me/broadcast-chats/${id}`, { method: 'DELETE' }),
+    },
   },
   referralProgram: {
     posters: {

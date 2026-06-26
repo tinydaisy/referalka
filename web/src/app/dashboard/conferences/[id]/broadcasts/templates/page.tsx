@@ -5,6 +5,7 @@ import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Load
 import { api } from '@/lib/api'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker from '@/components/BroadcastMediaPicker'
+import { useMe } from '@/hooks/useMe'
 
 type TypeDef = {
   type: string
@@ -188,6 +189,7 @@ const emptyForm = {
   intro_start_time: '11:00', intro_interval_min: 15, intro_days_before: 1,
   intro_roles: null as string[] | null,
   send_to_event_chats: false,
+  send_to_client_chats: false,
   custom_day_ref: '', custom_time: '12:00',
   // target_channel_ids: null = «по всем каналам клиента» (default),
   // [] = никуда не слать, [N,M] = только эти channel_id.
@@ -233,6 +235,8 @@ function customDayRefLabel(ref: string, confDays: number[]): string {
 export default function TemplatesPage() {
   const { id } = useParams()
   const eventId = Number(id)
+  const { me } = useMe()
+  const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
 
   const [templates, setTemplates] = useState<any[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
@@ -377,6 +381,8 @@ export default function TemplatesPage() {
         audience_exclude: f.audience_exclude || 'none',
         custom_day_ref: f.custom_day_ref,
         custom_time: f.custom_time,
+        send_to_event_chats: !!f.send_to_event_chats,
+        send_to_client_chats: hasChatsFeature ? !!f.send_to_client_chats : false,
       }
       if (f.target_channel_ids !== null && f.target_channel_ids !== undefined) {
         payload.target_channel_ids = f.target_channel_ids
@@ -418,6 +424,7 @@ export default function TemplatesPage() {
       intro_days_before: t.intro_days_before || 1,
       intro_roles: Array.isArray(t.intro_roles) ? t.intro_roles : null,
       send_to_event_chats: !!t.send_to_event_chats,
+      send_to_client_chats: !!t.send_to_client_chats,
       custom_day_ref: t.custom_day_ref || '',
       custom_time: t.custom_time || '12:00',
       target_channel_ids: Array.isArray(t.target_channel_ids) ? t.target_channel_ids : null,
@@ -1164,6 +1171,22 @@ export default function TemplatesPage() {
                   </span>
                 </span>
               </label>
+
+              {/* Галочка: слать ещё и в общую базу чатов клиента */}
+              {hasChatsFeature && (
+                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                  <input type="checkbox"
+                    checked={!!(form as any).send_to_client_chats}
+                    onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
+                    className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                  <span>
+                    <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+                    <span className="block text-[11px] text-gray-500 mt-0.5">
+                      Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={save}
@@ -1379,6 +1402,36 @@ export default function TemplatesPage() {
                 value={(form as any).target_channel_ids ?? null}
                 onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
               />
+
+              {/* Галочка: слать ещё и в чаты события */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_event_chats}
+                  onChange={e => setForm({ ...form, send_to_event_chats: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    Ещё и в групповые чаты события (Telegram / VK / MAX) из настроек события.
+                  </span>
+                </span>
+              </label>
+
+              {/* Галочка: слать ещё и в общую базу чатов клиента */}
+              {hasChatsFeature && (
+                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                  <input type="checkbox"
+                    checked={!!(form as any).send_to_client_chats}
+                    onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
+                    className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                  <span>
+                    <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+                    <span className="block text-[11px] text-gray-500 mt-0.5">
+                      Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={createCustom}
