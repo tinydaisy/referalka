@@ -2650,9 +2650,9 @@ async def public_tournament_table(slug: str, stage_id: int,
             cp = (c.get("code_phrase") or "").strip()
             cp_html = (f"<span class='cph'>Кодовая фраза для выкладки отчёта:<br>«{esc(cp)}»</span>"
                        if cp else "")
-            # Описание критерия скрыто под «?» (тултип), не раздувает столбец
+            # Описание критерия скрыто под «?» — CSS-тултип (нативный title ненадёжен и пуст)
             cdesc = (c.get("description") or "").strip()
-            q_html = (f"<span class='qmark' title='{esc(cdesc)}'>?</span>" if cdesc else "")
+            q_html = (f"<span class='qmark' tabindex='0'><span class='qtip'>{_rich_text(cdesc)}</span>?</span>" if cdesc else "")
             thead_crit += (f"<th class='{cls}'>{esc(c['title'])}{q_html}"
                            f"<span class='cw'>×{_fmt_num(cw)}</span>{cp_html}</th>")
             _first_of_pkg = False
@@ -2819,10 +2819,18 @@ async def public_tournament_table(slug: str, stage_id: int,
   .crit-start {{ border-left:3px solid #9fb0c0 !important; }}
   thead th.crit-start {{ border-left:3px solid #9fb0c0 !important; }}
   /* «?» с расшифровкой критерия (тултип при наведении) */
-  .qmark {{ display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
+  .qmark {{ position:relative; display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
     margin-left:3px; font-size:10px; font-weight:700; color:#fff; background:#9fb0c0; border-radius:50%;
-    cursor:help; vertical-align:middle; }}
-  .qmark:hover {{ background:#25455D; }}
+    cursor:help; vertical-align:middle; outline:none; }}
+  .qmark:hover, .qmark:focus {{ background:#25455D; }}
+  /* CSS-тултип с расшифровкой критерия — мгновенно при наведении/фокусе */
+  .qtip {{ visibility:hidden; opacity:0; position:absolute; top:140%; left:50%; transform:translateX(-50%);
+    width:240px; max-width:62vw; background:#1f2d3a; color:#fff; text-align:left; font-weight:400;
+    font-size:11.5px; line-height:1.45; padding:9px 11px; border-radius:8px; box-shadow:0 6px 22px rgba(0,0,0,.35);
+    white-space:normal; z-index:50; transition:opacity .12s; pointer-events:none; text-transform:none; }}
+  .qtip::after {{ content:''; position:absolute; bottom:100%; left:50%; transform:translateX(-50%);
+    border:6px solid transparent; border-bottom-color:#1f2d3a; }}
+  .qmark:hover .qtip, .qmark:focus .qtip {{ visibility:visible; opacity:1; }}
   .cph {{ display:block; font-size:9.5px; font-weight:600; color:#b45309; margin-top:3px; line-height:1.2; font-family:'Roboto Mono',monospace; white-space:normal; }}
   tbody tr:nth-child(even) td {{ background:#fafbfc; }}
   tbody tr:nth-child(even) .c-name {{ background:#fafbfc; }}

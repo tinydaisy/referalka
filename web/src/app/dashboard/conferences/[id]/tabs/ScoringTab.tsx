@@ -638,7 +638,10 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                   <div className="whitespace-normal break-words leading-tight">
                     {c.title}{normalizeOf(c.criterion_id) && <NormBadge />}
                     {c.description && (
-                      <span title={c.description} className="ml-0.5 inline-flex align-middle text-gray-300 hover:text-gray-500 cursor-help"><HelpCircle size={12} /></span>
+                      <span className="ml-0.5 relative inline-flex align-middle text-gray-300 hover:text-gray-500 cursor-help group/qm">
+                        <HelpCircle size={12} />
+                        <span className="invisible opacity-0 group-hover/qm:visible group-hover/qm:opacity-100 transition-opacity absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 w-56 bg-[#1f2d3a] text-white text-[11px] font-normal normal-case leading-snug text-left whitespace-pre-line rounded-lg px-2.5 py-2 shadow-xl pointer-events-none">{c.description}</span>
+                      </span>
                     )}
                   </div>
                   <div className="text-[10px] font-normal text-gray-400">×{c.weight ?? 1}</div>
