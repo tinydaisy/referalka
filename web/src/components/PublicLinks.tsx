@@ -136,6 +136,15 @@ export default function PublicLinks({
   const miniappRows = buildRows(miniappLinks, 'miniapp')
   const botRows = buildRows(botLinks, 'bot')
 
+  // Есть ли хоть одна платформенная ссылка (TG/VK/MAX) — бэк отдаёт их только при
+  // подключённом своём канале. Если нет ни одной — показываем баннер «Каналы не
+  // подключены» внутри блока. Завязка на реальные ссылки (не на кешированный /auth/me).
+  const hasAnyPlatformLink =
+    !!(miniappLinks.telegram || miniappLinks.vk || miniappLinks.max ||
+       botLinks.telegram || botLinks.vk || botLinks.max)
+  // Пока slug не загружен — ссылки ещё не запрашивались, баннер не показываем (не мигаем).
+  const showNoChannelsBanner = !!slug && !hasAnyPlatformLink
+
   const copy = async (key: string, url: string) => {
     if (isDraft) {
       alert('Событие в черновике — ссылка не сработает у получателя. Сначала опубликуйте событие (статус справа сверху).')
@@ -230,6 +239,27 @@ export default function PublicLinks({
         Выберите, какие ссылки актуальны — они и будут выдаваться спикерам и участникам
         (в кабинетах и материалах).
       </p>
+
+      {/* Баннер «Каналы не подключены» — красный полупрозрачный, только если
+          реально нет ни одной платформенной ссылки (TG/VK/MAX). */}
+      {showNoChannelsBanner && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-500/10 p-4 flex items-start gap-3">
+          <svg className="text-red-600 shrink-0 mt-0.5" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          <div className="flex-1 text-sm">
+            <div className="font-semibold text-red-800 mb-1">Каналы не подключены</div>
+            <div className="text-red-700/90">
+              Без подключённого бота/сообщества ссылки на площадки ниже не появятся, а регистрация
+              и рассылки работать не будут. Подключите хотя бы один канал.
+            </div>
+            <a
+              href="/dashboard/channels"
+              className="inline-flex items-center gap-1 mt-2 text-sm font-medium underline text-red-800 hover:text-red-600"
+            >
+              Подключить каналы →
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Редактор slug */}
       {editable && (

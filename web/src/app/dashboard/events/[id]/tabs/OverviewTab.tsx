@@ -1,8 +1,7 @@
 'use client'
 import { useState } from 'react'
-import { Save, AlertTriangle } from 'lucide-react'
+import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
-import { useMe } from '@/hooks/useMe'
 import PublicLinks from '@/components/PublicLinks'
 import ExternalLandingBlock from '@/components/ExternalLandingBlock'
 import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
@@ -46,12 +45,6 @@ export default function OverviewTab({
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-
-  const { me } = useMe()
-  // У клиента нет ни одного своего канала → ссылок на площадки не будет.
-  // me не загружен (undefined available_platforms) → баннер не показываем,
-  // чтобы он не мигал до ответа /auth/me.
-  const noChannels = Array.isArray(me?.available_platforms) && me!.available_platforms.length === 0
 
   function toLocalInput(iso: string | null | undefined) {
     if (!iso) return ''
@@ -274,27 +267,9 @@ export default function OverviewTab({
         </label>
       </div>
 
-      {/* Предупреждение: у клиента нет ни одного своего канала → ссылок не будет */}
-      {noChannels && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
-          <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
-          <div className="flex-1 text-sm">
-            <div className="font-semibold text-amber-900 mb-1">Каналы не подключены</div>
-            <div className="text-amber-800">
-              Без подключённого бота/сообщества ссылки на площадки ниже не появятся, а регистрация и
-              рассылки работать не будут. Подключите хотя бы один канал.
-            </div>
-            <a
-              href="/dashboard/channels"
-              className="inline-flex items-center gap-1 mt-2 text-sm font-medium underline text-amber-900 hover:text-amber-700"
-            >
-              Подключить каналы →
-            </a>
-          </div>
-        </div>
-      )}
-
-      {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже */}
+      {/* 5) ПУБЛИЧНЫЕ ССЫЛКИ — выбор типа сохраняется общей кнопкой ниже.
+          Баннер «Каналы не подключены» теперь ВНУТРИ PublicLinks (по реальному
+          наличию ссылок, без зависимости от кешированного me). */}
       <PublicLinks
         slug={event?.slug}
         eventId={eventId}

@@ -12,7 +12,7 @@
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
 import { useEffect, useState } from 'react'
-import { Smartphone, Plus, Pencil, Trash2, X, Save, Eye, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown } from 'lucide-react'
+import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
@@ -210,12 +210,6 @@ export default function MiniAppSettingsPage() {
               Что видят участники в Telegram — на всех страницах.
             </p>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <a href="/tg/" target="_blank" rel="noreferrer"
-             className="flex items-center gap-2 text-sm border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50 transition-colors">
-            <Eye size={15} /> Открыть Mini App
-          </a>
         </div>
       </div>
 
