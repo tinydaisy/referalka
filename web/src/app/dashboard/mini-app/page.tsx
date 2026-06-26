@@ -67,6 +67,13 @@ const SOCIAL_FIELDS: { key: string; label: string; placeholder: string; hint?: s
 
 type Tab = 'brand' | 'owner' | 'products' | 'bot'
 
+// Дефолтные значения приветствия /start — те же, что бот ставит, если поля
+// пустые. Показываем их предзаполненными, чтобы клиент видел готовый шаблон.
+const DEFAULT_GREETING =
+  'Привет, {имя}! 👋\n\nДобро пожаловать в бот {бренд}.\n\nЗагляните в события и узнайте об организаторе по кнопкам ниже 👇'
+const DEFAULT_BTN_EVENTS = '📅 Все события'
+const DEFAULT_BTN_OWNER  = '🌐 Об основателе'
+
 export default function MiniAppSettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [offerings, setOfferings] = useState<Offering[]>([])
@@ -89,6 +96,11 @@ export default function MiniAppSettingsPage() {
         achievements:       Array.isArray(p.achievements)       ? p.achievements       : [],
         owner_achievements: Array.isArray(p.owner_achievements) ? p.owner_achievements : [],
         social_links:       p.social_links || {},
+        // Предзаполняем приветствие дефолтным шаблоном, если поле пустое —
+        // клиент видит готовый текст и правит его.
+        start_greeting_text:    p.start_greeting_text    || DEFAULT_GREETING,
+        start_btn_events_label: p.start_btn_events_label || DEFAULT_BTN_EVENTS,
+        start_btn_owner_label:  p.start_btn_owner_label  || DEFAULT_BTN_OWNER,
       })
     }).catch(() => {})
     loadOfferings()
