@@ -450,7 +450,10 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             else:  # s3 — среднее значений (÷ сумму весов)
                 pkg_score = (weighted_sum / weight_total) if weight_total > 0 else 0.0
             package_scores[p["id"]] = round(pkg_score, 3)
-            total += pkg_score * float(p["weight"])
+            # ИТОГ = простая сумма баллов пакетов (вес пакета уже учтён ВНУТРИ
+            # балла пакета: s1/s2 — через ×10, s4 — через взвеш.сумму; на вес
+            # пакета итог НЕ домножаем).
+            total += pkg_score
         # прогресс жюри
         assigned = assigned_by.get(subj["key"], set())
         done = 0

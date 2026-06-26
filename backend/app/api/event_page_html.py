@@ -2660,7 +2660,7 @@ async def public_tournament_table(slug: str, stage_id: int,
     for g in groups:
         mode = _SCHEME_MODE.get(g.get("scheme"), "среднее")
         thead_grp += (f"<th colspan='{_grp_span(g)}' class='c-grp'>{esc(g['title'])}"
-                      f"<span class='w'>вес ×{_fmt_num(g['weight'])} · {mode}</span></th>")
+                      f"<span class='w'>{mode}</span></th>")
 
     # ── СТРОКА 2 шапки: названия пакетов (блок «Баллы по пакетам») + названия критериев ──
     # s2-критерий → colspan=2 (над «значение»/«доля»); НЕ-s2 → rowspan=crit_rowspan.
@@ -2669,7 +2669,7 @@ async def public_tournament_table(slug: str, stage_id: int,
     for g in groups:
         formula = _SCHEME_FORMULA.get(g.get("scheme"), "")
         thead_crit += (f"<th rowspan='{head_rows - 1}' class='c-pkg'>{esc(g['title'])}"
-                       f"<span class='cw'>{formula} · вес ×{_fmt_num(g['weight'])} → итог</span></th>")
+                       f"<span class='cw'>{formula}</span></th>")
     for g in groups:
         _first_of_pkg = True
         for c in crit_by_pkg_seq.get(g["pkg_id"], []):
