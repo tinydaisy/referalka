@@ -2610,7 +2610,7 @@ async def public_tournament_table(slug: str, stage_id: int,
     favicon_uri = "data:image/svg+xml," + _up.quote(favicon_svg)
 
     # ── Шапка таблицы: группировка колонок по пакетам ──
-    groups = []  # [{pkg_id, title, weight, normalize, aggregate, span}]
+    groups = []  # [{pkg_id, title, weight, normalize, aggregate, scheme, span}]
     for c in columns:
         if groups and groups[-1]["pkg_id"] == c["package_id"]:
             groups[-1]["span"] += 1
@@ -2619,7 +2619,8 @@ async def public_tournament_table(slug: str, stage_id: int,
             groups.append({"pkg_id": c["package_id"], "title": c["package_title"],
                            "weight": p.get("weight", 1),
                            "normalize": bool(p.get("normalize")),
-                           "aggregate": p.get("aggregate", "avg"), "span": 1})
+                           "aggregate": p.get("aggregate", "avg"),
+                           "scheme": p.get("scheme", "s3"), "span": 1})
     NORM_BADGE = "<span class='norm' title='Критерий нормализуется: баллы приводятся к доле от лучшего результата'>норм.</span>"
 
     # Порядок колонок (как в дашборде): Место · Участник · ИТОГ ·
@@ -2628,11 +2629,14 @@ async def public_tournament_table(slug: str, stage_id: int,
     thead_grp += "<th rowspan='2' class='c-total'>ИТОГ</th>"
     if groups:
         thead_grp += f"<th colspan='{len(groups)}' class='c-grp'>Баллы по пакетам</th>"
+    # Σ-колонка («сумма критерий×вес») — ТОЛЬКО у пакетов со схемой 1.
+    def _has_sum_col(g):
+        return g.get("scheme") == "s1"
     for g in groups:
         mode = "сумма" if g.get("aggregate") == "sum" else "среднее"
         extra = (" · норм." if g["normalize"] else "")
-        # span+1 — последняя колонка пакета = его суммарный балл
-        thead_grp += (f"<th colspan='{g['span'] + 1}' class='c-grp'>{esc(g['title'])}"
+        span = g["span"] + (1 if _has_sum_col(g) else 0)
+        thead_grp += (f"<th colspan='{span}' class='c-grp'>{esc(g['title'])}"
                       f"<span class='w'>вес ×{_fmt_num(g['weight'])} · {mode}{extra}</span></th>")
     crit_by_pkg_seq = {}
     for c in columns:
@@ -2656,12 +2660,14 @@ async def public_tournament_table(slug: str, stage_id: int,
             thead_crit += (f"<th class='{cls}'>{esc(c['title'])}{q_html}"
                            f"<span class='cw'>×{_fmt_num(cw)}</span>{cp_html}</th>")
             _first_of_pkg = False
-        # замыкающая колонка пакета — его суммарный балл
-        thead_crit += ("<th class='c-pkgsum'>Σ балл пакета"
-                       "<span class='cw'>сумма по пакету</span></th>")
+        # замыкающая колонка — сырая сумма (критерий×вес) ТОЛЬКО для схемы 1
+        if _has_sum_col(g):
+            thead_crit += ("<th class='c-pkgsum'>Σ сумма"
+                           "<span class='cw'>крит₁×вес₁ + крит₂×вес₂ + …</span></th>")
 
-    # 3 (место/имя/итог) + блок «Баллы по пакетам» (len) + критерии + по 1 сумме на пакет
-    total_cols = 3 + len(groups) + sum(g["span"] for g in groups) + len(groups)
+    # 3 (место/имя/итог) + блок «Баллы по пакетам» (len) + критерии + по 1 Σ только на s1-пакеты
+    n_sum_cols = sum(1 for g in groups if _has_sum_col(g))
+    total_cols = 3 + len(groups) + sum(g["span"] for g in groups) + n_sum_cols
 
     # ── Строка «Лидеры по критериям» — на кого делить (максимум) ──
     # Схема 1 (s1, сумма÷лидера): лидер показывается под колонкой ПАКЕТА.
@@ -2682,24 +2688,24 @@ async def public_tournament_table(slug: str, stage_id: int,
     if table and any_leader:
         lc = "<tr class='leaders-row'>"
         lc += "<td class='c-place'></td><td class='c-name'>🏆 Лидеры (на кого делить)</td><td class='c-total'></td>"
-        # под блоком «Баллы по пакетам» — лидер пакета (для s1)
+        # блок «Баллы по пакетам» (отдельные колонки слева) — лидеров тут НЕ показываем
         for g in groups:
-            pkg = pkg_by_id.get(g["pkg_id"], {})
-            lc += _leader_cell(pkg.get("leader"))
-        # под каждым критерием — лидер критерия (для s2). Жирная граница на первом критерии пакета.
-        # В конце пакета — лидер пакета (для s1) под колонкой суммы.
+            lc += "<td class='lead-cell'></td>"
+        # под критериями — лидер критерия ТОЛЬКО для схемы 2.
+        # В конце s1-пакета — лидер пакета под колонкой Σ-суммы (макс сумма, на кого делить).
         for g in groups:
             _first_of_pkg = True
             for c in crit_by_pkg_seq.get(g["pkg_id"], []):
                 col = col_by_id.get(c["criterion_id"], {})
-                cell = _leader_cell(col.get("leader"))
+                cell = _leader_cell(col.get("leader"))  # leader заполнен только у s2
                 if _first_of_pkg:
                     cell = cell.replace("lead-cell", "lead-cell crit-start", 1)
                 lc += cell
                 _first_of_pkg = False
-            pkg = pkg_by_id.get(g["pkg_id"], {})
-            sumcell = _leader_cell(pkg.get("leader"))
-            lc += sumcell.replace("lead-cell", "lead-cell pkgsum-lead", 1)
+            if _has_sum_col(g):
+                pkg = pkg_by_id.get(g["pkg_id"], {})
+                sumcell = _leader_cell(pkg.get("leader"))
+                lc += sumcell.replace("lead-cell", "lead-cell pkgsum-lead", 1)
         lc += "</tr>"
         leaders_html = lc
 
@@ -2714,7 +2720,7 @@ async def public_tournament_table(slug: str, stage_id: int,
             ps = r.get("package_scores", {}).get(str(g["pkg_id"]))
             cells += f"<td class='pkg-val'>{_fmt_num(ps)}</td>"
         # затем значения критериев. Первый критерий пакета → жирная граница-разделитель,
-        # в конце пакета — его суммарный балл
+        # в конце s1-пакета — сырая сумма (крит×вес)
         for g in groups:
             _first_of_pkg = True
             for c in crit_by_pkg_seq.get(g["pkg_id"], []):
@@ -2722,8 +2728,9 @@ async def public_tournament_table(slug: str, stage_id: int,
                 cls = "val crit-start" if _first_of_pkg else "val"
                 cells += f"<td class='{cls}'>{_fmt_num(v)}</td>"
                 _first_of_pkg = False
-            ps = r.get("package_scores", {}).get(str(g["pkg_id"]))
-            cells += f"<td class='pkgsum-val'>{_fmt_num(ps)}</td>"
+            if _has_sum_col(g):
+                rs = r.get("package_raw_sums", {}).get(str(g["pkg_id"]))
+                cells += f"<td class='pkgsum-val'>{_fmt_num(rs)}</td>"
         place = r["place"]
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(place, "")
         rows_html += (

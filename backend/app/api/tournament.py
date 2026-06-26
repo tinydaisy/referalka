@@ -384,9 +384,14 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             ls = subj_by_key.get(best_key, {})
             pkg_leader[pid] = {"key": best_key, "name": ls.get("name"),
                                "username": ls.get("username"), "value": round(best_val, 3)}
-    # лидеры по каждому критерию (для схемы 2): crit_max уже посчитан выше
+    # лидеры по каждому критерию — ТОЛЬКО для пакетов со схемой 2 (нормализация).
+    # У s1 лидер показывается под колонкой суммы пакета, у s3/s4 лидеров по критериям нет.
+    s2_crit_ids = {c["id"] for p in pkgs if _scheme_of(p) == "s2"
+                   for c in crits_by_pkg.get(p["id"], [])}
     crit_leader = {}      # crit_id -> {"name","username","value"}
     for cid, vals in crit_raw.items():
+        if cid not in s2_crit_ids:
+            continue
         mx = crit_max.get(cid, 0.0)
         if mx > 0:
             for k, v in vals.items():
@@ -452,6 +457,8 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             "name": subj["name"], "username": subj.get("username"), "is_speaker": subj["is_speaker"],
             "cells": {str(k): v for k, v in cells.items()},
             "package_scores": {str(k): v for k, v in package_scores.items()},
+            # сырая взвешенная сумма по пакету (Σ критерий×вес) — для колонки «Σ» при схеме 1
+            "package_raw_sums": {str(p["id"]): round(pkg_raw_sum[p["id"]].get(subj["key"], 0.0), 3) for p in pkgs},
             "jury_detail": {str(k): v for k, v in jury_detail.items()},
             "total": round(total, 3), "assigned_jury": len(assigned), "done_jury": done,
         })
