@@ -1508,8 +1508,10 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
 }) {
   const [confirmText, setConfirmText] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [deactivating, setDeactivating] = useState(false)
   const [error, setError] = useState('')
   const canDelete = confirmText === 'ПОДТВЕРДИТЬ'
+  const busy = submitting || deactivating
 
   async function doDelete() {
     if (!canDelete) return
@@ -1522,6 +1524,21 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
       setError(e?.message || 'Не удалось удалить канал')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // Деактивировать = сделать канал неактивным (база сохраняется, рассылки работают,
+  // но событийный флоу/воронка через него не идёт). Альтернатива удалению.
+  async function doDeactivate() {
+    setError('')
+    setDeactivating(true)
+    try {
+      await api.channels.update(channel.id, { is_active: false } as any)
+      onDone()
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось деактивировать канал')
+    } finally {
+      setDeactivating(false)
     }
   }
 
@@ -1543,7 +1560,7 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
             <div className="font-semibold mb-1">Перед удалением подумайте</div>
             <p className="leading-snug">
               Если вы хотите перестать использовать этот бот, но <b>сохранить базу подписчиков</b> —
-              лучше переведите его в неактивный (рассылки по нему всё равно можно будет делать).
+              нажмите <b>«Сделать неактивным»</b> ниже (рассылки по нему всё равно можно будет делать).
               Удалять стоит только если бот вам совсем не нужен — например, вы передаёте управление
               этим ботом в другой сервис.
             </p>
@@ -1577,17 +1594,26 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
           )}
         </div>
 
-        <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
+        <div className="flex flex-wrap justify-end gap-2 p-5 border-t border-gray-100">
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
-            disabled={submitting}
+            disabled={busy}
           >
             Отмена
           </button>
+          {channel.is_active && (
+            <button
+              onClick={doDeactivate}
+              disabled={busy}
+              className="px-4 py-2 text-sm rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+            >
+              {deactivating ? 'Деактивируем…' : 'Сделать неактивным'}
+            </button>
+          )}
           <button
             onClick={doDelete}
-            disabled={!canDelete || submitting}
+            disabled={!canDelete || busy}
             className="px-4 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed bg-red-600 hover:bg-red-700"
           >
             {submitting ? 'Удаляем…' : 'ОК, удалить навсегда'}

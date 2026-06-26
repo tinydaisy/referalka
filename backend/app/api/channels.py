@@ -1026,10 +1026,13 @@ async def delete_channel(channel_id: int, client=Depends(get_current_client), db
 
     Запреты:
       - is_system — нельзя удалить (общий сервисный канал, управляется админом).
-      - канал с подписчиками — 409 (предупреждение, чтобы не потерять базу).
+
+    Канал с подписчиками УДАЛИТЬ МОЖНО — подписки (platform_user_channels)
+    уходят каскадом вместе с client_channels. Клиент подтверждает удаление
+    словом «ПОДТВЕРДИТЬ» во фронте; если база нужна — есть кнопка «Деактивировать».
 
     Логика:
-      - Удаляем запись из client_channels (привязка клиент-канал).
+      - Удаляем запись из client_channels (привязка клиент-канал) + её подписки каскадом.
       - Если на channel больше нет ссылок из client_channels — это orphan, чистим channels тоже.
     """
     client_id = int(client["sub"])
@@ -1050,20 +1053,11 @@ async def delete_channel(channel_id: int, client=Depends(get_current_client), db
             detail="Системный канал нельзя удалить из дашборда — это общий канал сервиса."
         )
 
-    # Проверка: у канала клиента есть подписчики? Предупреждаем (нельзя удалить молча).
-    subs = await db.fetchval(
-        """SELECT COUNT(*) FROM platform_user_channels puc
-            WHERE puc.client_channel_id = $1""",
-        info["cc_id"]
-    )
-    if subs and subs > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=f"У канала {subs} подписчиков. Удаление запрещено — иначе потеряется база. "
-                   "Деактивируйте канал (выключите воронку) вместо удаления."
-        )
-
     async with db.transaction():
+        # Явно сносим подписки этой привязки (на случай если нет ON DELETE CASCADE).
+        await db.execute(
+            "DELETE FROM platform_user_channels WHERE client_channel_id = $1", info["cc_id"]
+        )
         await db.execute("DELETE FROM client_channels WHERE id = $1", info["cc_id"])
         # Если на channel больше нет ссылок — удаляем сам канал (он был только у этого клиента)
         other_refs = await db.fetchval(
