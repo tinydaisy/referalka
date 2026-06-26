@@ -404,6 +404,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
     table = []
     for subj in subjects:
         cells = {}            # criterion_id -> value (для колонок-критериев)
+        cells_norm = {}       # criterion_id -> нормализованная доля (для s2: значение ÷ макс)
         jury_detail = {}      # criterion_id -> [{juror_name, value}]
         package_scores = {}   # package_id -> балл пакета
         total = 0.0
@@ -416,6 +417,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
                 if scheme == "s2":   # доля от лучшего по критерию
                     mx = crit_max[c["id"]]
                     use = (val / mx) if (val is not None and mx > 0) else (0.0 if val is not None else None)
+                    cells_norm[c["id"]] = round(use, 3) if use is not None else None
                 else:                # s1/s3/s4 — сырое значение
                     use = val
                 w = float(c["weight"])
@@ -456,6 +458,8 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             "subject_kind": subj["kind"], "subject_id": subj["sid"], "key": subj["key"],
             "name": subj["name"], "username": subj.get("username"), "is_speaker": subj["is_speaker"],
             "cells": {str(k): v for k, v in cells.items()},
+            # нормализованные доли по критериям (для схемы 2: значение ÷ макс критерия)
+            "cells_norm": {str(k): v for k, v in cells_norm.items()},
             "package_scores": {str(k): v for k, v in package_scores.items()},
             # сырая взвешенная сумма по пакету (Σ критерий×вес) — для колонки «Σ» при схеме 1
             "package_raw_sums": {str(p["id"]): round(pkg_raw_sum[p["id"]].get(subj["key"], 0.0), 3) for p in pkgs},
