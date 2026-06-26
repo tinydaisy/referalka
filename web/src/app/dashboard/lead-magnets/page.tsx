@@ -656,6 +656,16 @@ function TemplateEditor() {
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setData((d: any) => ({ ...d, [k]: e.target.value }))
 
+  // Заполнить поле заводским текстом из шаблона (на случай если клиент очистил).
+  function fillFromDefault(k: 'text_1' | 'text_2' | 'button_label') {
+    setData((d: any) => {
+      const def = d?.defaults?.[k]
+      if (def == null) return d
+      if (d[k] && d[k].trim() && !confirm('Заменить текущий текст заводским шаблоном?')) return d
+      return { ...d, [k]: def }
+    })
+  }
+
   return (
     <div className="space-y-5 max-w-2xl">
       <div className="text-sm text-gray-600 bg-amber-50 border border-amber-100 rounded-lg p-3">
@@ -677,9 +687,15 @@ function TemplateEditor() {
 
       {/* === Текст 1 === */}
       <section className="bg-white rounded-xl border-2 border-gray-300 p-5 space-y-4">
-        <header className="border-b border-gray-200 pb-3">
-          <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 1 — приветствие со списком подарков</h3>
-          <p className="text-xs text-gray-500 mt-1">Уходит сразу когда человек открыл бота по ссылке лид-магнита.</p>
+        <header className="border-b border-gray-200 pb-3 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 1 — приветствие со списком подарков</h3>
+            <p className="text-xs text-gray-500 mt-1">Уходит сразу когда человек открыл бота по ссылке лид-магнита.</p>
+          </div>
+          <button type="button" onClick={() => fillFromDefault('text_1')}
+                  className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+            Заполнить из шаблона
+          </button>
         </header>
 
         <Field label="Текст сообщения">
@@ -712,9 +728,15 @@ function TemplateEditor() {
 
       {/* === Текст 2 === */}
       <section className="bg-white rounded-xl border-2 border-gray-300 p-5 space-y-4">
-        <header className="border-b border-gray-200 pb-3">
-          <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 2 — выдача материалов</h3>
-          <p className="text-xs text-gray-500 mt-1">Уходит после того как человек нажал «ГОТОВО» и подписка на канал подтверждена.</p>
+        <header className="border-b border-gray-200 pb-3 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold" style={{ color: DARK }}>Текст 2 — выдача материалов</h3>
+            <p className="text-xs text-gray-500 mt-1">Уходит после того как человек нажал «ГОТОВО» и подписка на канал подтверждена.</p>
+          </div>
+          <button type="button" onClick={() => fillFromDefault('text_2')}
+                  className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap">
+            Заполнить из шаблона
+          </button>
         </header>
 
         <Field label="Текст сообщения">

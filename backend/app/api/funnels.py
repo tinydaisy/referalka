@@ -121,7 +121,17 @@ async def get_template(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    return await _get_or_create_template(int(client["sub"]), type, db)
+    tpl = await _get_or_create_template(int(client["sub"]), type, db)
+    # Дефолтные тексты — чтобы фронт мог показать кнопку «Заполнить из шаблона»
+    # (клиент случайно очистил поле и хочет вернуть заводской текст).
+    tpl["defaults"] = {
+        "text_1": DEFAULT_TEXT_1,
+        "button_label": DEFAULT_BUTTON_LABEL,
+        "text_2": DEFAULT_TEXT_2,
+        "text_3_delivered": DEFAULT_TEXT_3_DELIVERED,
+        "text_3_stuck": DEFAULT_TEXT_3_STUCK,
+    }
+    return tpl
 
 
 @template_router.patch("/{type}", summary="Обновить шаблон воронки")
