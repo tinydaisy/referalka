@@ -871,7 +871,7 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
     # ── Контроль заданий: ловим кодовые фразы критериев.
     from app.services.chat_archive import process_task_submissions
     try:
-        unrecognized = await process_task_submissions(
+        submissions = await process_task_submissions(
             platform="vk",
             chat_id=chat_id,
             platform_user_id=str(from_id),
@@ -883,8 +883,8 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
             sent_at=None,
             owner_client_id=ctx.client_id,  # VK chat_id неуникален между сообществами!
         )
-        if unrecognized:
-            await _reply_unrecognized_vk(peer_id, from_id, ctx)
+        if submissions:
+            await _reply_submission_vk(peer_id, submissions[0], ctx)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"VK task submissions failed: {e}")
 
@@ -963,18 +963,20 @@ async def _reply_greeting_vk(peer_id: int, message: dict, text: str, ctx: "Group
         logger.warning(f"VK reply greeting failed: {e}")
 
 
-async def _reply_unrecognized_vk(peer_id: int, from_id: int, ctx: "GroupCtx") -> None:
-    """Неопознанному автору в беседе — ответ что не зарегистрирован."""
+async def _reply_submission_vk(peer_id: int, info: dict, ctx: "GroupCtx") -> None:
+    """Авто-ответ автору в беседе после сдачи задания — «✅ Принято: …» (plain)."""
+    from app.services.chat_archive import build_submission_reply_text
+    msg = build_submission_reply_text(info, html=False)
+    if not msg:
+        return
     try:
-        msg = ("Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано. "
-               "Напишите сообществу в личку команду /support — там контакты для связи.")
         import random as _rnd
         await vk_call("messages.send", {
             "peer_id": peer_id, "message": msg,
             "random_id": _rnd.randint(1, 2**31 - 1),
         }, token=ctx.token)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"VK reply unrecognized failed: {e}")
+        logger.warning(f"VK reply submission failed: {e}")
 
 
 async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:

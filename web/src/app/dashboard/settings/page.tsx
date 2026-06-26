@@ -664,7 +664,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <form onSubmit={submit}
             className="bg-white rounded-2xl max-w-md w-full p-6"
             onClick={e => e.stopPropagation()}>

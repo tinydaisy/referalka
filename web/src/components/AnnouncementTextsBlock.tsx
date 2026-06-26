@@ -160,7 +160,7 @@ function AnnouncementTextForm({ eventId, initial, onClose, onSaved }: any) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4" style={{ color: '#25455D' }}>
           {initial ? 'Изменить текст-анонс' : 'Новый текст-анонс'}

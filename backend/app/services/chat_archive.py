@@ -283,6 +283,29 @@ def _build_message_link(platform: str, chat_id: str, message_ref: Optional[str])
     return None
 
 
+def build_submission_reply_text(info: dict, *, html: bool = False) -> str | None:
+    """Текст авто-ответа автору после сдачи задания (самодиагностика).
+
+    Общий для TG (html=True — жирный через <b>) и VK/MAX (plain).
+    • Есть зачтённые критерии → «✅ Принято:» + список.
+    • Иначе (автор не участник) → пояснение про регистрацию.
+    • В конце ВСЕГДА — напоминание прислать ПОВТОРНО НОВЫМ сообщением.
+    """
+    recognized = info.get("recognized_titles") or []
+    new_msg = "<b>новым сообщением</b>" if html else "НОВЫМ сообщением"
+    note = (
+        "\n\nЕсли что-то не учтено — проверьте корректность кодовых фраз для сдачи "
+        f"заданий и отправьте повторно {new_msg} (изменение старого сообщения бот не увидит)."
+    )
+    if recognized:
+        lines = "\n".join(f"• {t}" for t in recognized if t)
+        return f"✅ Принято:\n{lines}{note}"
+    return (
+        "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано. "
+        "Напишите в личку команду /support — там контакты для связи." + note
+    )
+
+
 async def process_task_submissions(
     *,
     platform: str,
@@ -332,7 +355,7 @@ async def process_task_submissions(
 
             # Критерии с кодовой фразой (только manual).
             criteria = await db.fetch(
-                """SELECT tc.id, tc.code_phrase, tc.scale_max, tc.stage_id,
+                """SELECT tc.id, tc.title, tc.code_phrase, tc.scale_max, tc.stage_id,
                           COALESCE(cs.listen_audiences, ARRAY['registered']::text[]) AS audiences
                      FROM tournament_criteria tc
                      LEFT JOIN conf_stages cs ON cs.id = tc.stage_id
@@ -350,6 +373,7 @@ async def process_task_submissions(
 
             matched_any = False
             unrecognized_phrases: list[str] = []
+            recognized_titles: list[str] = []   # названия зачтённых критериев (для ответа «Принято»)
 
             for c in criteria:
                 phrase = (c["code_phrase"] or "").strip().lower()
@@ -383,6 +407,7 @@ async def process_task_submissions(
                         event_id, c["id"], subject_kind, subject_id,
                     )
                     score_applied = True
+                    recognized_titles.append((c["title"] or c["code_phrase"] or "").strip())
 
                 # Лог в task_submissions (дедуп по сообщение×критерий).
                 import json as _json
@@ -410,15 +435,18 @@ async def process_task_submissions(
                 if not recognized:
                     unrecognized_phrases.append(c["code_phrase"])
 
-            if matched_any and unrecognized_phrases:
+            # Один объект-ответ на сообщение: что зачлось + что не распозналось.
+            # Бот по нему пишет автору «Принято: …» (самодиагностика для участника).
+            if matched_any:
                 results.append({
-                    "recognized": False,
+                    "recognized": bool(recognized_titles),
                     "platform": platform,
                     "chat_id": chat_id,
                     "platform_user_id": platform_user_id,
                     "client_id": client_id,
                     "event_id": event_id,
-                    "phrases": unrecognized_phrases,
+                    "phrases": unrecognized_phrases,           # неопознанные (автор не участник)
+                    "recognized_titles": recognized_titles,    # названия зачтённых критериев
                 })
     except Exception as e:  # noqa: BLE001 — движок не должен ронять слушалку
         log.warning("process_task_submissions failed (%s chat=%s): %s", platform, chat_id, e)

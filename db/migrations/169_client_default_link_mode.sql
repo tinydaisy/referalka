@@ -18,6 +18,25 @@ ALTER TABLE clients
   ADD COLUMN IF NOT EXISTS start_btn_events_label TEXT NULL,
   ADD COLUMN IF NOT EXISTS start_btn_owner_label  TEXT NULL;
 
+-- Что открывать при /start: общее приветствие (greeting) или сразу
+-- конкретное событие (event). При 'event' бот ведёт человека прямо в это
+-- событие (лендинг/рега/меню по статусу), Mini App или веб — по default_link_mode.
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS start_mode     TEXT NOT NULL DEFAULT 'greeting',
+  ADD COLUMN IF NOT EXISTS start_event_id INTEGER NULL REFERENCES events(id) ON DELETE SET NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.constraint_column_usage
+    WHERE table_name = 'clients' AND constraint_name = 'clients_start_mode_chk'
+  ) THEN
+    ALTER TABLE clients
+      ADD CONSTRAINT clients_start_mode_chk
+      CHECK (start_mode IN ('greeting', 'event'));
+  END IF;
+END$$;
+
 -- Допустимые значения: 'miniapp' | 'bot'
 DO $$
 BEGIN

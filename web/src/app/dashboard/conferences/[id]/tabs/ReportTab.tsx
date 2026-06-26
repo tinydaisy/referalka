@@ -681,7 +681,7 @@ export default function ReportTab({ eventId, moduleSlug }: { eventId: number; mo
       {/* Модалка */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowCreateModal(false)} />
+          <div className="absolute inset-0 bg-black/50" />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <h3 className="font-bold text-gray-900 mb-1">Создать отчёт</h3>
             <p className="text-sm text-gray-500 mb-5">Система подсчитает трафик от каждого спикера прямо сейчас. Укажите, сколько анонсов уже сделано.</p>

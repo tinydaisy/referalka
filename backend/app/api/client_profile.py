@@ -814,6 +814,9 @@ class ProfileUpdate(BaseModel):
     start_greeting_text:    Optional[str] = None
     start_btn_events_label: Optional[str] = None
     start_btn_owner_label:  Optional[str] = None
+    # Что открывать при /start: 'greeting' | 'event'
+    start_mode:     Optional[str] = None
+    start_event_id: Optional[int] = None
 
 
 @profile_router.get("/profile", summary="Получить свою визитку")
@@ -827,7 +830,8 @@ async def get_my_profile(
                   owner_photo_url, owner_positioning, owner_achievements,
                   bio, social_links,
                   default_link_mode, start_greeting_text,
-                  start_btn_events_label, start_btn_owner_label
+                  start_btn_events_label, start_btn_owner_label,
+                  start_mode, start_event_id
              FROM clients WHERE id = $1""",
         int(client["sub"])
     )
@@ -872,6 +876,25 @@ async def update_my_profile(
     if data.start_greeting_text    is not None: add("start_greeting_text",    data.start_greeting_text or None)
     if data.start_btn_events_label is not None: add("start_btn_events_label", data.start_btn_events_label or None)
     if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)
+
+    if data.start_mode is not None:
+        if data.start_mode not in ("greeting", "event"):
+            raise HTTPException(status_code=400, detail="start_mode должен быть 'greeting' или 'event'")
+        add("start_mode", data.start_mode)
+    if data.start_event_id is not None:
+        # 0 / отрицательное → сбросить выбор. Иначе — событие ОБЯЗАНО принадлежать
+        # этому клиенту (иначе межклиентская утечка: бот показал бы чужое событие).
+        if data.start_event_id and data.start_event_id > 0:
+            owns = await db.fetchval(
+                """SELECT 1 FROM event_owners
+                    WHERE event_id = $1 AND client_id = $2 AND status = 'accepted'""",
+                data.start_event_id, int(client["sub"]),
+            )
+            if not owns:
+                raise HTTPException(status_code=403, detail="Это событие вам не принадлежит")
+            add("start_event_id", data.start_event_id)
+        else:
+            add("start_event_id", None)
 
     if data.social_links is not None:
         # Приводим TG/VK ссылки к https-формату — для воронки лид-магнитов и согласованности.

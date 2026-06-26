@@ -399,7 +399,7 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
       </div>
 
       {autoOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !autoBusy && setAutoOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-bold text-[#25455D] mb-1">Автораспределение по жюри</h3>
             <p className="text-xs text-gray-500 mb-4">Система раскидает выбранных участников по жюри равномерно, стараясь не назначать жюри тех, кого оно само привело.</p>
@@ -728,7 +728,7 @@ function ReportsSub({ eventId }: { eventId: number }) {
 function SnapshotView({ snap, onClose }: any) {
   const itog = (snap.rows || []).filter((r: any) => r.package_id === null)
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-semibold text-[#25455D] mb-1">{snap.snapshot.title || 'Отчёт'}</h3>
         <p className="text-xs text-gray-400 mb-4">{new Date(snap.snapshot.frozen_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}</p>

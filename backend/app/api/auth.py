@@ -282,6 +282,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
                 c.notifications_telegram_chat_id,
                 c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
                 c.integration_token, c.default_link_mode,
+                c.start_mode, c.start_event_id,
                 (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                    FROM channels ch
                    JOIN client_channels cc ON cc.channel_id = ch.id

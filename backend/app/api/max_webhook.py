@@ -304,7 +304,7 @@ async def _archive_max_chat_message(
     # ── Контроль заданий: ловим кодовые фразы критериев.
     from app.services.chat_archive import process_task_submissions
     try:
-        unrecognized = await process_task_submissions(
+        submissions = await process_task_submissions(
             platform="max",
             chat_id=chat_id,
             platform_user_id=user_id,
@@ -315,13 +315,11 @@ async def _archive_max_chat_message(
             message_ref=str(mid) if mid else None,
             sent_at=None,
         )
-        if unrecognized:
-            info = unrecognized[0]
-            from app.database import get_pool
-            pool = await get_pool()
-            m = ("Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано. "
-                 "Напишите боту в личку команду /support — там контакты для связи.")
-            await max_send_message(chat_id, m, token=bot_token)
+        if submissions:
+            from app.services.chat_archive import build_submission_reply_text
+            m = build_submission_reply_text(submissions[0], html=False)
+            if m:
+                await max_send_message(chat_id, m, token=bot_token)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"MAX task submissions failed: {e}")
 

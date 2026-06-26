@@ -239,7 +239,6 @@ export function FounderTgChannelsField({ value, onChange, helpHref = '/dashboard
       {promptOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => { setPromptOpen(null); setUsernameDraft('') }}
         >
           <div className="bg-white rounded-xl max-w-md w-full p-5 space-y-3" onClick={e => e.stopPropagation()}>
             <h3 className="text-base font-bold text-gray-900">Получить ID канала</h3>

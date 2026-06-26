@@ -1277,17 +1277,61 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                 """SELECT id, name, brand_name,
                           profile_photo_url, owner_photo_url,
                           default_link_mode, start_greeting_text,
-                          start_btn_events_label, start_btn_owner_label
+                          start_btn_events_label, start_btn_owner_label,
+                          start_mode, start_event_id
                      FROM clients WHERE id = $1""",
                 client_id,
             )
             if not client:
                 return False
 
-        # Текст приветствия. Если клиент задал свой — используем его
-        # (плейсхолдеры {имя} и {бренд}); иначе — дефолт.
+            # Режим «открывать конкретное событие при /start»: если клиент
+            # выбрал событие — отдаём приветствие/вход именно этого события
+            # (его лендинг/рега/меню по статусу), а не общее приветствие.
+            start_event = None
+            if client["start_mode"] == "event" and client["start_event_id"]:
+                start_event = await db.fetchrow(
+                    """SELECT e.id, e.slug, e.title FROM events e
+                        WHERE e.id = $1 AND e.status = 'published'
+                          AND EXISTS (SELECT 1 FROM event_owners eo
+                                       WHERE eo.event_id = e.id AND eo.client_id = $2
+                                         AND eo.status = 'accepted')""",
+                    client["start_event_id"], client_id,
+                )
+
         brand_name = (client["brand_name"] or client["name"] or "").strip()
         greet_name = (user.first_name or "").strip()
+        web_mode = (client["default_link_mode"] or "miniapp") == "bot"
+        base = f"https://pluson.ru/c/{client_id}/tg"
+
+        # ── Режим «конкретное событие»: одна кнопка-вход в выбранное событие ──
+        if start_event:
+            ev_title = _html.escape(start_event["title"] or "событие")
+            greeting = f"Привет, {_html.escape(greet_name)}! 👋" if greet_name else "Привет! 👋"
+            text = f"{greeting}\n\nДобро пожаловать на <b>«{ev_title}»</b> 🎉"
+            ev_slug = start_event["slug"]
+            if web_mode:
+                ev_btn = InlineKeyboardButton(text="Перейти к событию",
+                                              url=f"https://pluson.ru/event/{ev_slug}")
+            else:
+                ev_btn = InlineKeyboardButton(text="Перейти к событию",
+                                              web_app=WebAppInfo(url=f"{base}/event/{ev_slug}"))
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[ev_btn]])
+            photo_url = client["owner_photo_url"] or client["profile_photo_url"]
+            TG_CAPTION_LIMIT = 1024
+            if photo_url and len(text) <= TG_CAPTION_LIMIT:
+                try:
+                    await message.answer_photo(photo=photo_url, caption=text,
+                                               parse_mode="HTML", reply_markup=keyboard)
+                    return True
+                except Exception as e:
+                    log.warning("vip_start(event) answer_photo failed: %s", e)
+            await message.answer(text, parse_mode="HTML", reply_markup=keyboard,
+                                 disable_web_page_preview=True)
+            return True
+
+        # Текст приветствия. Если клиент задал свой — используем его
+        # (плейсхолдеры {имя} и {бренд}); иначе — дефолт.
         custom_greeting = (client["start_greeting_text"] or "").strip()
 
         if custom_greeting:
@@ -1305,10 +1349,7 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
             intro_lines.append("Загляните в события и узнайте об организаторе по кнопкам ниже 👇")
             text = "\n".join(intro_lines)
 
-        # Куда ведут кнопки: общая настройка клиента (miniapp = Mini App / bot = веб).
-        web_mode = (client["default_link_mode"] or "miniapp") == "bot"
-        base = f"https://pluson.ru/c/{client_id}/tg"
-
+        # Куда ведут кнопки: общая настройка клиента (web_mode/base заданы выше).
         def _btn(label: str, *, miniapp_path: str, web_url: str) -> InlineKeyboardButton:
             if web_mode:
                 return InlineKeyboardButton(text=label, url=web_url)

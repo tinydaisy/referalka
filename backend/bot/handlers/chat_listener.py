@@ -57,16 +57,16 @@ async def _collect_tg_attachments(message: Message, bot: Bot) -> list[dict]:
     return out
 
 
-async def _reply_unrecognized_tg(message: Message, info: dict) -> None:
-    """Автор написал кодовую фразу, но не участник турнира — отвечаем ему
-    в чат (reply) что он не зарегистрирован, со ссылкой на поддержку клиента."""
+async def _reply_submission_tg(message: Message, info: dict) -> None:
+    """Авто-ответ автору (reply) после сдачи задания — «✅ Принято: …»."""
+    from app.services.chat_archive import build_submission_reply_text
+    txt = build_submission_reply_text(info, html=True)
+    if not txt:
+        return
     try:
-        await message.reply(
-            "Похоже, вы не регистрировались на чемпионат, поэтому задание не засчитано. "
-            "Напишите боту в личку команду /support — там контакты для связи."
-        )
+        await message.reply(txt, parse_mode="HTML")
     except Exception as e:  # noqa: BLE001
-        log.warning("reply unrecognized failed: %s", e)
+        log.warning("reply submission failed: %s", e)
 
 
 async def _client_id_for_bot(bot_id: int, db) -> int | None:
@@ -198,7 +198,7 @@ async def on_group_message(message: Message, bot: Bot):
     # ── Контроль заданий: ищем кодовые фразы критериев → балл + лог.
     atts = await _collect_tg_attachments(message, bot)
     try:
-        unrecognized = await process_task_submissions(
+        submissions = await process_task_submissions(
             platform="telegram",
             chat_id=str(message.chat.id),
             platform_user_id=str(author.id),
@@ -209,9 +209,10 @@ async def on_group_message(message: Message, bot: Bot):
             message_ref=str(message.message_id),
             sent_at=sent_at,
         )
-        # Неопознанным — ответ «вы не регистрировались» (один раз на сообщение).
-        if unrecognized:
-            await _reply_unrecognized_tg(message, unrecognized[0])
+        # Авто-ответ автору: «✅ Принято: …» (или «не зарегистрированы») +
+        # напоминание прислать повторно новым сообщением. Один на сообщение.
+        if submissions:
+            await _reply_submission_tg(message, submissions[0])
     except Exception as e:  # noqa: BLE001
         log.warning("chat_listener task submissions failed: %s", e)
 

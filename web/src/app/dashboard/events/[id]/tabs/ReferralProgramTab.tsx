@@ -195,7 +195,7 @@ function ImportModal({ eventId, onClose, onImported }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto"
            onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
@@ -501,7 +501,7 @@ function ThresholdForm({ eventId, initial, leadMagnets, onClose, onSaved }: any)
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4" style={{ color: '#25455D' }}>
           {initial ? 'Изменить порог' : 'Новый порог'}
@@ -721,7 +721,7 @@ function ShareTextForm({ eventId, initial, onClose, onSaved }: any) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4" style={{ color: '#25455D' }}>
           {initial ? 'Изменить текст' : 'Новый текст для шеринга'}
@@ -886,7 +886,7 @@ function MaterialForm({ eventId, posters, eventVideoUrl, onClose, onSaved }: any
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4" style={{ color: '#25455D' }}>Добавить материал</h3>
         <form onSubmit={handleSubmit} className="space-y-4">

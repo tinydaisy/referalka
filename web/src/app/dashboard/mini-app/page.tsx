@@ -44,6 +44,8 @@ interface Profile {
   start_greeting_text?: string | null
   start_btn_events_label?: string | null
   start_btn_owner_label?: string | null
+  start_mode?: 'greeting' | 'event' | null
+  start_event_id?: number | null
 }
 interface Offering {
   id: number
@@ -82,6 +84,7 @@ export default function MiniAppSettingsPage() {
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [editing, setEditing] = useState<Offering | null>(null)
   const [creating, setCreating] = useState(false)
+  const [eventList, setEventList] = useState<{ id: number; title: string; status?: string }[]>([])
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'brand'
     const t = new URLSearchParams(window.location.search).get('tab')
@@ -104,6 +107,10 @@ export default function MiniAppSettingsPage() {
       })
     }).catch(() => {})
     loadOfferings()
+    api.events.list().then((r: any) => {
+      const arr = Array.isArray(r) ? r : (r?.events || r?.items || [])
+      setEventList(arr.map((e: any) => ({ id: e.id, title: e.title, status: e.status })))
+    }).catch(() => {})
   }, [])
 
   async function loadOfferings() {
@@ -172,6 +179,8 @@ export default function MiniAppSettingsPage() {
         start_greeting_text:    profile.start_greeting_text    || null,
         start_btn_events_label: profile.start_btn_events_label || null,
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
+        start_mode:             profile.start_mode || 'greeting',
+        start_event_id:         profile.start_mode === 'event' ? (profile.start_event_id || null) : null,
       })
       setProfile(p => p ? { ...p, ...updated } : updated)
       setSavedAt(Date.now()); setTimeout(() => setSavedAt(null), 2000)
@@ -467,48 +476,88 @@ export default function MiniAppSettingsPage() {
 
           <Section
             step={2}
-            title="Приветствие в боте (/start)"
-            hint="Сообщение, которое получает человек, когда впервые пишет вашему боту. Под ним — 2 кнопки."
+            title="Что открывать при /start"
+            hint="Когда человек впервые пишет вашему боту: показать общее приветствие с кнопками или сразу вход в одно конкретное событие."
           >
-            <div className="space-y-4">
+            <div className="space-y-2 mb-4">
+              {([
+                { v: 'greeting', t: 'Общее приветствие', d: 'Текст-приветствие + 2 кнопки (все события / об основателе).' },
+                { v: 'event',    t: 'Конкретное событие', d: 'Сразу открывается выбранное событие — его вход/регистрация/меню.' },
+              ] as const).map(opt => {
+                const active = (profile.start_mode || 'greeting') === opt.v
+                return (
+                  <button key={opt.v} type="button"
+                          onClick={() => update('start_mode', opt.v)}
+                          className={`w-full text-left rounded-xl border p-3 transition ${active ? 'border-amber-300 bg-amber-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${active ? 'border-amber-400 bg-amber-400' : 'border-gray-300'}`} />
+                      <span className="font-semibold text-gray-900 text-sm">{opt.t}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1 ml-6">{opt.d}</p>
+                  </button>
+                )
+              })}
+            </div>
+
+            {(profile.start_mode || 'greeting') === 'event' ? (
               <div>
-                <label className="block text-sm text-gray-700 mb-1">Текст приветствия</label>
-                <textarea
-                  value={profile.start_greeting_text || ''}
-                  onChange={e => update('start_greeting_text', e.target.value)}
-                  rows={4}
-                  placeholder={'Привет, {имя}! 👋\n\nДобро пожаловать в бот {бренд}.'}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
-                />
+                <label className="block text-sm text-gray-700 mb-1">Событие, которое откроется при /start</label>
+                <select
+                  value={profile.start_event_id || ''}
+                  onChange={e => update('start_event_id', e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400 bg-white"
+                >
+                  <option value="">— выберите событие —</option>
+                  {eventList.map(ev => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.title}{ev.status === 'draft' ? ' (черновик)' : ev.status === 'ended' ? ' (завершено)' : ''}
+                    </option>
+                  ))}
+                </select>
                 <p className="text-xs text-gray-400 mt-1">
-                  Можно использовать <code className="font-mono">{'{имя}'}</code> (имя человека) и
-                  {' '}<code className="font-mono">{'{бренд}'}</code> (ваш бренд). Пусто — будет стандартный текст.
-                  Поддерживается HTML: <code className="font-mono">{'<b>жирный</b>'}</code>.
+                  Опубликуйте событие, чтобы оно открывалось у людей. Черновик/завершённое — не откроется.
                 </p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            ) : (
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">Кнопка «Все события»</label>
-                  <input
-                    value={profile.start_btn_events_label || ''}
-                    onChange={e => update('start_btn_events_label', e.target.value)}
-                    placeholder="📅 Все события"
+                  <label className="block text-sm text-gray-700 mb-1">Текст приветствия</label>
+                  <textarea
+                    value={profile.start_greeting_text || ''}
+                    onChange={e => update('start_greeting_text', e.target.value)}
+                    rows={4}
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Ведёт на список всех ваших событий.</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Можно использовать <code className="font-mono">{'{имя}'}</code> (имя человека) и
+                    {' '}<code className="font-mono">{'{бренд}'}</code> (ваш бренд).
+                    Поддерживается HTML: <code className="font-mono">{'<b>жирный</b>'}</code>.
+                  </p>
                 </div>
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">Кнопка «Об основателе»</label>
-                  <input
-                    value={profile.start_btn_owner_label || ''}
-                    onChange={e => update('start_btn_owner_label', e.target.value)}
-                    placeholder="🌐 Об основателе"
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">Ведёт в раздел «Экосистема» (об основателе).</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Кнопка «Все события»</label>
+                    <input
+                      value={profile.start_btn_events_label || ''}
+                      onChange={e => update('start_btn_events_label', e.target.value)}
+                      placeholder="📅 Все события"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Ведёт на список всех ваших событий.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Кнопка «Об основателе»</label>
+                    <input
+                      value={profile.start_btn_owner_label || ''}
+                      onChange={e => update('start_btn_owner_label', e.target.value)}
+                      placeholder="🌐 Об основателе"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Ведёт в раздел «Экосистема» (об основателе).</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </Section>
         </div>
       )}
