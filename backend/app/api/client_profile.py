@@ -808,6 +808,12 @@ class ProfileUpdate(BaseModel):
     owner_achievements: Optional[list] = None       # [{label, value}] факты основателя
     bio:                Optional[str]  = None       # биография основателя
     social_links:       Optional[dict] = None       # соцсети основателя
+    # Общая настройка открытия ссылок: 'miniapp' | 'bot'
+    default_link_mode:  Optional[str]  = None
+    # Приветствие /start у бота клиента
+    start_greeting_text:    Optional[str] = None
+    start_btn_events_label: Optional[str] = None
+    start_btn_owner_label:  Optional[str] = None
 
 
 @profile_router.get("/profile", summary="Получить свою визитку")
@@ -819,7 +825,9 @@ async def get_my_profile(
         """SELECT id, name, telegram_username, email,
                   brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
-                  bio, social_links
+                  bio, social_links,
+                  default_link_mode, start_greeting_text,
+                  start_btn_events_label, start_btn_owner_label
              FROM clients WHERE id = $1""",
         int(client["sub"])
     )
@@ -856,6 +864,15 @@ async def update_my_profile(
     if data.owner_achievements is not None: add("owner_achievements", data.owner_achievements, jsonb=True)
 
     if data.bio          is not None: add("bio",          data.bio or None)
+
+    if data.default_link_mode is not None:
+        if data.default_link_mode not in ("miniapp", "bot"):
+            raise HTTPException(status_code=400, detail="default_link_mode должен быть 'miniapp' или 'bot'")
+        add("default_link_mode", data.default_link_mode)
+    if data.start_greeting_text    is not None: add("start_greeting_text",    data.start_greeting_text or None)
+    if data.start_btn_events_label is not None: add("start_btn_events_label", data.start_btn_events_label or None)
+    if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)
+
     if data.social_links is not None:
         # Приводим TG/VK ссылки к https-формату — для воронки лид-магнитов и согласованности.
         normalized = normalize_social_links(data.social_links)

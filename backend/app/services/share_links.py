@@ -17,6 +17,24 @@ from __future__ import annotations
 from typing import Optional
 
 
+async def resolve_event_link_mode(db, *, client_id: int, event_link_mode: str | None) -> str:
+    """Итоговый режим открытия публичных ссылок события.
+
+    Приоритет: явный режим события (events.link_mode) → общий клиентский
+    (clients.default_link_mode) → 'miniapp'. Радио в UI событий сейчас скрыто,
+    поэтому event_link_mode почти всегда NULL и берётся клиентский флаг.
+    """
+    if event_link_mode in ('miniapp', 'bot'):
+        return event_link_mode
+    if client_id:
+        row = await db.fetchval(
+            "SELECT default_link_mode FROM clients WHERE id = $1", client_id
+        )
+        if row in ('miniapp', 'bot'):
+            return row
+    return 'miniapp'
+
+
 PLUSON_TG_HANDLE = "pluson_bot"
 PLUSON_TG_APP = "pluson"          # short-name Mini App у общего бота
 PLUSON_VK_APP_ID = 54592404       # системный VK Mini App ПЛЮСОН (см. memory/vk_prod.md)

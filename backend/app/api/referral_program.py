@@ -799,7 +799,8 @@ async def export_speaker_materials(
     # ── Коллабораторы нужных ролей (с реф-кодом) ──
     from app.services import collaborator_sort
     from app.api.modules.conference import ensure_collaborator_contact
-    from app.services.share_links import build_share_links
+    from app.services.share_links import build_share_links, resolve_event_link_mode
+    _lm = await resolve_event_link_mode(db, client_id=client_id, event_link_mode=ev["link_mode"])
 
     rows = await db.fetch(
         f"""SELECT ec.id AS ec_id, ec.role, ec.announcement_poster_ids,
@@ -831,7 +832,7 @@ async def export_speaker_materials(
             try:
                 links = await build_share_links(
                     db, client_id=client_id, event_slug=ev["slug"], partner_id=ref_code,
-                    link_mode=ev["link_mode"] or "miniapp",
+                    link_mode=_lm,
                 )
             except Exception:
                 links = {}

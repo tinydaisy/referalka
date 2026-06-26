@@ -42,10 +42,17 @@ export default function PublicLinks({
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  // Активный режим (радиокнопка). Управляемый: по умолчанию — из пропа события.
+  // Активный режим. Источник истины — общая настройка клиента
+  // (clients.default_link_mode из /auth/me). Проп linkMode — необязательный
+  // override (заложено на будущее пер-событийное переопределение).
   const [mode, setMode] = useState<'miniapp' | 'bot'>(linkMode === 'bot' ? 'bot' : 'miniapp')
-  const [modeSaving, setModeSaving] = useState(false)
-  useEffect(() => { setMode(linkMode === 'bot' ? 'bot' : 'miniapp') }, [linkMode])
+  useEffect(() => {
+    if (linkMode === 'miniapp' || linkMode === 'bot') { setMode(linkMode); return }
+    // Иначе берём общий клиентский флаг.
+    api.auth.me().then((m: any) => {
+      setMode(m?.default_link_mode === 'bot' ? 'bot' : 'miniapp')
+    }).catch(() => {})
+  }, [linkMode])
 
   // Грузим ОБА набора ссылок (Mini App и через ботов), чтобы показать обе группы.
   const [miniappLinks, setMiniappLinks] = useState<PlatformLinks>({})
@@ -80,28 +87,6 @@ export default function PublicLinks({
     }
   }
 
-  // Смена активного режима ссылок (радиокнопка).
-  // Управляемый режим (onLinkModeChange передан) — только меняем локально и
-  // сообщаем родителю; сохранение делает общая кнопка «Сохранить».
-  // Иначе (legacy) — сразу PATCH events.link_mode.
-  async function changeMode(next: 'miniapp' | 'bot') {
-    if (next === mode) return
-    if (onLinkModeChange) {
-      setMode(next)
-      onLinkModeChange(next)
-      return
-    }
-    if (!editable) { setMode(next); return }
-    const prev = mode
-    setMode(next); setModeSaving(true)
-    try {
-      await api.events.update(eventId!, { link_mode: next } as any)
-    } catch {
-      setMode(prev)  // откат при ошибке
-    } finally {
-      setModeSaving(false)
-    }
-  }
 
   // Сборка строк одной группы.
   const buildRows = (pl: PlatformLinks, kind: 'miniapp' | 'bot'): LinkRow[] => {
@@ -202,32 +187,16 @@ export default function PublicLinks({
     </div>
   )
 
-  // Заголовок группы с радиокнопкой выбора активного режима.
-  const groupHeader = (kind: 'miniapp' | 'bot', title: string, desc: string) => {
-    const active = mode === kind
-    return (
-      <button
-        type="button"
-        onClick={() => changeMode(kind)}
-        disabled={!editable || modeSaving}
-        className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border transition ${
-          active ? 'border-[#FFCFA4] bg-[#FFF8F1]' : 'border-gray-200 bg-white hover:border-gray-300'
-        }`}
-      >
-        <span className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
-          active ? 'border-[#25455D]' : 'border-gray-300'
-        }`}>
-          {active && <span className="w-2 h-2 rounded-full bg-[#25455D]" />}
-        </span>
-        <span className="min-w-0">
-          <span className="block text-sm font-semibold text-gray-800">
-            {title} {active && <span className="text-[#b5793f] text-xs font-medium">· актуальные</span>}
-          </span>
-          <span className="block text-xs text-gray-500 mt-0.5">{desc}</span>
-        </span>
-      </button>
-    )
-  }
+  // Заголовок группы (информационный, без выбора — режим задаётся общей
+  // настройкой клиента в /dashboard/mini-app → «Бот и ссылки»).
+  const groupHeader = (title: string, desc: string) => (
+    <div className="w-full text-left flex items-start gap-3 p-3 rounded-xl border border-[#FFCFA4] bg-[#FFF8F1]">
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-gray-800">{title}</span>
+        <span className="block text-xs text-gray-500 mt-0.5">{desc}</span>
+      </span>
+    </div>
+  )
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-6">
@@ -236,8 +205,8 @@ export default function PublicLinks({
         <h2 className="text-sm font-bold uppercase tracking-wider text-gray-800">Публичные ссылки</h2>
       </div>
       <p className="text-xs text-gray-400 mb-4">
-        Выберите, какие ссылки актуальны — они и будут выдаваться спикерам и участникам
-        (в кабинетах и материалах).
+        Эти ссылки выдаются спикерам и участникам (в кабинетах и материалах). Режим открытия
+        (Mini App / веб) задаётся общей настройкой в разделе «Mini App» → «Бот и ссылки».
       </p>
 
       {/* Баннер «Каналы не подключены» — красный полупрозрачный, только если
@@ -308,25 +277,27 @@ export default function PublicLinks({
             </div>
           )}
 
-          {/* Группа 1 — Mini App */}
-          <div className="mb-4">
-            {groupHeader('miniapp', 'Регистрация через Mini App',
-              'Открывает приложение (Mini App) внутри Telegram/VK. + веб-лендинг.')}
-            <div className="space-y-2 mt-2">{miniappRows.map(renderRow)}</div>
-          </div>
-
-          {/* Группа 2 — через ботов */}
-          <div>
-            {groupHeader('bot', 'Регистрация через ботов',
-              'Открывает бота — он пишет в личку сообщение события с кнопкой «Зарегистрироваться». Быстрее, чем Mini App.')}
-            {botRows.length ? (
-              <div className="space-y-2 mt-2">{botRows.map(renderRow)}</div>
-            ) : (
-              <p className="text-xs text-gray-400 mt-2 ml-1">
-                Ссылки появятся, когда у клиента подключён бот на платформе.
-              </p>
-            )}
-          </div>
+          {/* Показываем только актуальный набор — режим задаётся общей
+              настройкой клиента (Mini App / веб). */}
+          {mode === 'miniapp' ? (
+            <div>
+              {groupHeader('Регистрация через Mini App',
+                'Открывает приложение (Mini App) внутри Telegram/VK. + веб-лендинг.')}
+              <div className="space-y-2 mt-2">{miniappRows.map(renderRow)}</div>
+            </div>
+          ) : (
+            <div>
+              {groupHeader('Регистрация через ботов',
+                'Открывает бота — он пишет в личку сообщение события с кнопкой «Зарегистрироваться».')}
+              {botRows.length ? (
+                <div className="space-y-2 mt-2">{botRows.map(renderRow)}</div>
+              ) : (
+                <p className="text-xs text-gray-400 mt-2 ml-1">
+                  Ссылки появятся, когда у клиента подключён бот на платформе.
+                </p>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

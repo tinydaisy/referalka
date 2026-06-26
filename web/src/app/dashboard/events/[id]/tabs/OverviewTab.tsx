@@ -41,7 +41,6 @@ export default function OverviewTab({
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
   const [skipContactForm, setSkipContactForm] = useState<boolean>(!!event.skip_contact_form)
-  const [linkMode, setLinkMode] = useState<'miniapp' | 'bot'>(event.link_mode === 'bot' ? 'bot' : 'miniapp')
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -103,7 +102,6 @@ export default function OverviewTab({
       if (endIso !== eventEndIso)                               payload.end_at = endIso
       if (requireSubscription !== !!event.require_subscription) payload.require_subscription = requireSubscription
       if (skipContactForm !== !!event.skip_contact_form)        payload.skip_contact_form = skipContactForm
-      if (linkMode !== (event.link_mode === 'bot' ? 'bot' : 'miniapp')) payload.link_mode = linkMode
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -275,8 +273,6 @@ export default function OverviewTab({
         eventId={eventId}
         onSlugSaved={onReload}
         eventStatus={event?.status}
-        linkMode={linkMode}
-        onLinkModeChange={setLinkMode}
       />
 
       {/* Save bar — в самом низу страницы */}

@@ -257,11 +257,13 @@ async def _load_ref_cabinet(db, event, contact_id):
     # Персональные реф-ссылки
     links = {}
     try:
-        from app.services.share_links import build_share_links
+        from app.services.share_links import build_share_links, resolve_event_link_mode
+        _ev_lm = event["link_mode"] if "link_mode" in event else None
+        _lm = await resolve_event_link_mode(db, client_id=event["client_id"], event_link_mode=_ev_lm)
         links = await build_share_links(
             db, event_slug=event["slug"], client_id=event["client_id"],
             partner_id=ref_code,
-            link_mode=(event["link_mode"] if "link_mode" in event else None) or "miniapp",
+            link_mode=_lm,
         )
     except Exception:
         links = {}

@@ -39,6 +39,11 @@ interface Profile {
   // social_links — словарь соцсетей основателя. Ключи строковые (instagram, youtube, vk, website),
   // отдельный ключ `telegram_channels` — МАССИВ TG-каналов основателя (миграция 114).
   social_links: Record<string, any>
+  // Бот и ссылки
+  default_link_mode?: 'miniapp' | 'bot' | null
+  start_greeting_text?: string | null
+  start_btn_events_label?: string | null
+  start_btn_owner_label?: string | null
 }
 interface Offering {
   id: number
@@ -60,7 +65,7 @@ const SOCIAL_FIELDS: { key: string; label: string; placeholder: string; hint?: s
   { key: 'website',   label: 'Сайт',      placeholder: 'https://yourwebsite.ru' },
 ]
 
-type Tab = 'brand' | 'owner' | 'products'
+type Tab = 'brand' | 'owner' | 'products' | 'bot'
 
 export default function MiniAppSettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -73,7 +78,7 @@ export default function MiniAppSettingsPage() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'brand'
     const t = new URLSearchParams(window.location.search).get('tab')
-    return (t === 'owner' || t === 'products') ? t as Tab : 'brand'
+    return (t === 'owner' || t === 'products' || t === 'bot') ? t as Tab : 'brand'
   })
 
   useEffect(() => {
@@ -150,6 +155,11 @@ export default function MiniAppSettingsPage() {
         owner_achievements: cleanAch(profile.owner_achievements),
         bio:                profile.bio || null,
         social_links:       profile.social_links,
+        // бот и ссылки
+        default_link_mode:      profile.default_link_mode || 'miniapp',
+        start_greeting_text:    profile.start_greeting_text    || null,
+        start_btn_events_label: profile.start_btn_events_label || null,
+        start_btn_owner_label:  profile.start_btn_owner_label  || null,
       })
       setProfile(p => p ? { ...p, ...updated } : updated)
       setSavedAt(Date.now()); setTimeout(() => setSavedAt(null), 2000)
@@ -218,6 +228,7 @@ export default function MiniAppSettingsPage() {
         <TabBtn active={tab === 'brand'}    onClick={() => setTab('brand')}    icon={<Building2 size={15} />} label="Бренд" />
         <TabBtn active={tab === 'owner'}    onClick={() => setTab('owner')}    icon={<User size={15} />}      label="Основатель" />
         <TabBtn active={tab === 'products'} onClick={() => setTab('products')} icon={<Globe size={15} />}     label="Продукты" />
+        <TabBtn active={tab === 'bot'}      onClick={() => setTab('bot')}      icon={<Smartphone size={15} />} label="Бот и ссылки" />
       </div>
 
       {/* ════════════════════════════════════════════════
@@ -412,6 +423,85 @@ export default function MiniAppSettingsPage() {
       )}
 
       {/* ════════════════════════════════════════════════
+           ВКЛАДКА: БОТ И ССЫЛКИ
+         ════════════════════════════════════════════════ */}
+      {tab === 'bot' && profile && (
+        <div className="space-y-5 max-w-2xl pb-28">
+          <Section
+            step={1}
+            title="Как открываются ваши ссылки"
+            hint="Общая настройка для всего кабинета. Определяет, куда ведут публичные ссылки событий и кнопки приветствия в боте."
+          >
+            <div className="space-y-2">
+              {([
+                { v: 'miniapp', t: 'Mini App', d: 'Ссылки открывают приложение внутри Telegram/VK (Mini App). + веб-лендинг.' },
+                { v: 'bot',     t: 'Веб-версия', d: 'Ссылки открывают веб-страницы на pluson.ru (без Mini App).' },
+              ] as const).map(opt => {
+                const active = (profile.default_link_mode || 'miniapp') === opt.v
+                return (
+                  <button key={opt.v} type="button"
+                          onClick={() => update('default_link_mode', opt.v)}
+                          className={`w-full text-left rounded-xl border p-3 transition ${active ? 'border-amber-300 bg-amber-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${active ? 'border-amber-400 bg-amber-400' : 'border-gray-300'}`} />
+                      <span className="font-semibold text-gray-900 text-sm">{opt.t}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1 ml-6">{opt.d}</p>
+                  </button>
+                )
+              })}
+            </div>
+          </Section>
+
+          <Section
+            step={2}
+            title="Приветствие в боте (/start)"
+            hint="Сообщение, которое получает человек, когда впервые пишет вашему боту. Под ним — 2 кнопки."
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">Текст приветствия</label>
+                <textarea
+                  value={profile.start_greeting_text || ''}
+                  onChange={e => update('start_greeting_text', e.target.value)}
+                  rows={4}
+                  placeholder={'Привет, {имя}! 👋\n\nДобро пожаловать в бот {бренд}.'}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Можно использовать <code className="font-mono">{'{имя}'}</code> (имя человека) и
+                  {' '}<code className="font-mono">{'{бренд}'}</code> (ваш бренд). Пусто — будет стандартный текст.
+                  Поддерживается HTML: <code className="font-mono">{'<b>жирный</b>'}</code>.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Кнопка «Все события»</label>
+                  <input
+                    value={profile.start_btn_events_label || ''}
+                    onChange={e => update('start_btn_events_label', e.target.value)}
+                    placeholder="📅 Все события"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Ведёт на список всех ваших событий.</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Кнопка «Об основателе»</label>
+                  <input
+                    value={profile.start_btn_owner_label || ''}
+                    onChange={e => update('start_btn_owner_label', e.target.value)}
+                    placeholder="🌐 Об основателе"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Ведёт в раздел «Экосистема» (об основателе).</p>
+                </div>
+              </div>
+            </div>
+          </Section>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════
            ВКЛАДКА: ПРОДУКТЫ
          ════════════════════════════════════════════════ */}
       {tab === 'products' && (
@@ -461,7 +551,7 @@ export default function MiniAppSettingsPage() {
         <div className="fixed bottom-4 left-4 right-4 lg:left-[256px] lg:right-6 bg-white border border-gray-200 rounded-xl shadow-lg p-3 flex items-center justify-between gap-3 z-30">
           <div className="text-sm">
             <p className="text-gray-700 font-medium">
-              {savedAt ? '✓ Сохранено — изменения уже видны в Mini App' : (tab === 'brand' ? 'Настройки бренда' : 'Настройки основателя')}
+              {savedAt ? '✓ Сохранено — изменения уже видны в Mini App' : (tab === 'brand' ? 'Настройки бренда' : tab === 'bot' ? 'Бот и ссылки' : 'Настройки основателя')}
             </p>
             <p className="text-gray-400 text-xs">Файлы сохраняются в момент загрузки. Текстовые поля — по кнопке.</p>
           </div>

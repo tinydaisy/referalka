@@ -215,16 +215,17 @@ async def get_me(
     # VK: vk.com/app{vk_app_id}#ref_pg{slug}_pid{ref_code}  (через Mini App)
     # MAX: max.ru/{handle}?startapp=ref_pg{slug}_pid{ref_code}
     try:
-        from app.services.share_links import build_share_links
+        from app.services.share_links import build_share_links, resolve_event_link_mode
         # Узнаём client_id коллаба
         coll_client_id = await db.fetchval(
             "SELECT created_by_client_id FROM collaborators WHERE id = $1",
             d.get("collaborator_id"),
         )
         if coll_client_id and d.get("event_slug") and d.get("ref_code"):
-            _lm = await db.fetchval(
+            _ev_lm = await db.fetchval(
                 "SELECT link_mode FROM events WHERE slug = $1", d["event_slug"]
-            ) or "miniapp"
+            )
+            _lm = await resolve_event_link_mode(db, client_id=int(coll_client_id), event_link_mode=_ev_lm)
             d["ref_links"] = await build_share_links(
                 db,
                 client_id=int(coll_client_id),
@@ -753,14 +754,15 @@ async def get_me_materials(
     )
 
     # Реф-ссылки спикера (та же логика, что в get_me)
-    from app.services.share_links import build_share_links
+    from app.services.share_links import build_share_links, resolve_event_link_mode
+    _base_lm = await resolve_event_link_mode(db, client_id=int(base["client_id"]), event_link_mode=base["link_mode"])
     try:
         ref_links = await build_share_links(
             db,
             client_id=int(base["client_id"]),
             event_slug=base["event_slug"],
             partner_id=base["speaker_ref_code"],
-            link_mode=base["link_mode"] or "miniapp",
+            link_mode=_base_lm,
         ) if base.get("speaker_ref_code") else {}
     except Exception:
         ref_links = {}

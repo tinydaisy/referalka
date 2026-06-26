@@ -300,12 +300,13 @@ async def get_event_share_links_by_slug(
     mode: str | None = None,
     db: asyncpg.Connection = Depends(get_db),
 ):
-    from ..services.share_links import build_share_links
+    from ..services.share_links import build_share_links, resolve_event_link_mode
     ev = await db.fetchrow("SELECT id, slug, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE slug = $1", slug)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
-    # mode из query (для дашборда — оба набора) или актуальный режим события.
-    lm = mode if mode in ("miniapp", "bot") else (ev["link_mode"] or "miniapp")
+    # mode из query (для дашборда — оба набора) или общий клиентский режим
+    # (event.link_mode пока всегда NULL — radio в UI скрыт).
+    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=ev["client_id"], event_link_mode=ev["link_mode"])
     links = await build_share_links(
         db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
     )
@@ -327,11 +328,11 @@ async def get_event_share_links(
     `mode` ('miniapp'|'bot') — для дашборда (оба набора); без mode берётся
     актуальный режим события `events.link_mode`.
     """
-    from ..services.share_links import build_share_links
+    from ..services.share_links import build_share_links, resolve_event_link_mode
     ev = await db.fetchrow("SELECT slug, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, link_mode FROM events WHERE id = $1", event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Событие не найдено")
-    lm = mode if mode in ("miniapp", "bot") else (ev["link_mode"] or "miniapp")
+    lm = mode if mode in ("miniapp", "bot") else await resolve_event_link_mode(db, client_id=ev["client_id"], event_link_mode=ev["link_mode"])
     links = await build_share_links(
         db, client_id=ev["client_id"], event_slug=ev["slug"], partner_id=pid, tab=tab, link_mode=lm,
     )

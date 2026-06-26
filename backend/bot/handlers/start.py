@@ -1257,7 +1257,6 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         return False
     try:
         from app.services.channels import find_channel_by_bot_id
-        from app.services.event_welcome import _fmt_event_period
 
         pool = await get_pool()
         async with pool.acquire() as db:
@@ -1276,107 +1275,54 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
 
             client = await db.fetchrow(
                 """SELECT id, name, brand_name,
-                          profile_photo_url, owner_photo_url
+                          profile_photo_url, owner_photo_url,
+                          default_link_mode, start_greeting_text,
+                          start_btn_events_label, start_btn_owner_label
                      FROM clients WHERE id = $1""",
                 client_id,
             )
             if not client:
                 return False
 
-            events = await db.fetch(
-                """
-                SELECT * FROM (
-                    SELECT e.id, e.slug, e.title, e.module_slug,
-                           COALESCE(
-                             CASE WHEN e.module_slug IN ('conference','turnir') THEN
-                               (SELECT (d.day_date + COALESCE(NULLIF(d.open_time,'')::time, '00:00'::time))
-                                        AT TIME ZONE 'Europe/Moscow'
-                                  FROM conf_days d WHERE d.event_id = e.id
-                                  ORDER BY d.day_number ASC LIMIT 1)
-                             END,
-                             e.start_at
-                           ) AS effective_start_at,
-                           COALESCE(
-                             CASE WHEN e.module_slug IN ('conference','turnir') THEN
-                               (SELECT (d.day_date + COALESCE(NULLIF(d.close_time,'')::time, '23:59'::time))
-                                        AT TIME ZONE 'Europe/Moscow'
-                                  FROM conf_days d WHERE d.event_id = e.id
-                                  ORDER BY d.day_number DESC LIMIT 1)
-                             END,
-                             e.end_at
-                           ) AS effective_end_at
-                      FROM events e
-                     WHERE e.id IN (SELECT event_id FROM event_owners WHERE client_id = $1 AND status = 'accepted')
-                       AND e.status = 'published'
-                ) t
-                WHERE t.effective_start_at IS NOT NULL
-                  AND (t.effective_end_at IS NULL OR t.effective_end_at > NOW())
-                ORDER BY t.effective_start_at ASC
-                LIMIT 4
-                """,
-                client_id,
-            )
-
-        # Текст приветствия
+        # Текст приветствия. Если клиент задал свой — используем его
+        # (плейсхолдеры {имя} и {бренд}); иначе — дефолт.
         brand_name = (client["brand_name"] or client["name"] or "").strip()
         greet_name = (user.first_name or "").strip()
-        greeting = f"Привет, {_html.escape(greet_name)}! 👋" if greet_name else "Привет! 👋"
+        custom_greeting = (client["start_greeting_text"] or "").strip()
 
-        intro_lines = [greeting, ""]
-        if brand_name:
-            intro_lines.append(f"Добро пожаловать в бот <b>{_html.escape(brand_name)}</b>.")
+        if custom_greeting:
+            text = (custom_greeting
+                    .replace("{имя}", _html.escape(greet_name))
+                    .replace("{бренд}", _html.escape(brand_name)))
         else:
-            intro_lines.append("Добро пожаловать!")
-        intro_lines.append("")
-        intro_lines.append("🌐 По кнопке <b>«ЭКОСИСТЕМА»</b> — полезные материалы и продукты организатора.")
-
-        if events:
+            greeting = f"Привет, {_html.escape(greet_name)}! 👋" if greet_name else "Привет! 👋"
+            intro_lines = [greeting, ""]
+            if brand_name:
+                intro_lines.append(f"Добро пожаловать в бот <b>{_html.escape(brand_name)}</b>.")
+            else:
+                intro_lines.append("Добро пожаловать!")
             intro_lines.append("")
-            intro_lines.append("📅 Выберите событие, которое вас интересует:")
-            intro_lines.append("")
-            for idx, ev in enumerate(events, start=1):
-                is_conf = ev["module_slug"] == "conference"
-                date_str = _fmt_event_period(
-                    ev["effective_start_at"], ev["effective_end_at"], is_conf
-                )
-                title = _html.escape(ev["title"] or "Без названия")
-                intro_lines.append(f"<b>{idx}.</b> {title}")
-                if date_str:
-                    intro_lines.append(f"🗓 {date_str}")
-                intro_lines.append("")
-            # убираем последний пустой
-            while intro_lines and intro_lines[-1] == "":
-                intro_lines.pop()
+            intro_lines.append("Загляните в события и узнайте об организаторе по кнопкам ниже 👇")
+            text = "\n".join(intro_lines)
 
-        text = "\n".join(intro_lines)
+        # Куда ведут кнопки: общая настройка клиента (miniapp = Mini App / bot = веб).
+        web_mode = (client["default_link_mode"] or "miniapp") == "bot"
+        base = f"https://pluson.ru/c/{client_id}/tg"
 
-        # Клавиатура: «Открыть N» (по 2 в ряд) + «ВСЕ СОБЫТИЯ» + «ЭКОСИСТЕМА»
-        rows: list[list[InlineKeyboardButton]] = []
-        buf: list[InlineKeyboardButton] = []
-        for idx, ev in enumerate(events, start=1):
-            url = f"https://pluson.ru/c/{client_id}/tg/event/{ev['slug']}"
-            buf.append(InlineKeyboardButton(
-                text=f"Открыть {idx}",
-                web_app=WebAppInfo(url=url),
-            ))
-            if len(buf) == 2:
-                rows.append(buf)
-                buf = []
-        if buf:
-            rows.append(buf)
+        def _btn(label: str, *, miniapp_path: str, web_url: str) -> InlineKeyboardButton:
+            if web_mode:
+                return InlineKeyboardButton(text=label, url=web_url)
+            return InlineKeyboardButton(text=label, web_app=WebAppInfo(url=f"{base}{miniapp_path}"))
 
-        rows.append([InlineKeyboardButton(
-            text="📋 ВЫБРАТЬ СОБЫТИЕ",
-            url=f"https://pluson.ru/o/{client_id}",
-        )])
-        rows.append([InlineKeyboardButton(
-            text="📅 ВСЕ СОБЫТИЯ",
-            web_app=WebAppInfo(url=f"https://pluson.ru/c/{client_id}/tg/"),
-        )])
-        rows.append([InlineKeyboardButton(
-            text="🌐 ЭКОСИСТЕМА",
-            web_app=WebAppInfo(url=f"https://pluson.ru/c/{client_id}/tg/?_tab=ecosystem"),
-        )])
+        events_label = (client["start_btn_events_label"] or "").strip() or "📅 Все события"
+        owner_label  = (client["start_btn_owner_label"] or "").strip() or "🌐 Об основателе"
+
+        rows: list[list[InlineKeyboardButton]] = [
+            [_btn(events_label, miniapp_path="/",
+                  web_url=f"https://pluson.ru/o/{client_id}")],
+            [_btn(owner_label, miniapp_path="/?_tab=ecosystem",
+                  web_url=f"https://pluson.ru/o/{client_id}?tab=ecosystem")],
+        ]
         keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
 
         # Фото клиента — приоритет фото основателя, fallback на фото бренда

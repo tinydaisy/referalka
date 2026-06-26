@@ -53,7 +53,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     skip_contact_form: !!event?.skip_contact_form,
-    link_mode: (event?.link_mode === 'bot' ? 'bot' : 'miniapp') as 'miniapp' | 'bot',
   })
   // Чаты события — отдельный state (3 URL + radio + chat-IDs).
   const [chats, setChats] = useState<EventChatsValue>({
@@ -84,7 +83,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       skip_contact_form: !!event?.skip_contact_form,
-      link_mode: (event?.link_mode === 'bot' ? 'bot' : 'miniapp'),
     }))
     setChats({
       tg:  conf?.chat_url_tg  || (conf?.primary_chat_platform === 'telegram' ? (conf?.chat_url || '') : ''),
@@ -96,7 +94,7 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       vkChatId: conf?.vk_chat_id || '',
       maxChatId: conf?.max_chat_id || '',
     })
-  }, [conf, event?.landing_url, event?.skip_contact_form, event?.description, event?.description_post_register, event?.link_mode])
+  }, [conf, event?.landing_url, event?.skip_contact_form, event?.description, event?.description_post_register])
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -116,8 +114,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         eventPatch.description = form.description || null
       if (form.description_post_register !== (event?.description_post_register || ''))
         eventPatch.description_post_register = form.description_post_register || null
-      if (form.link_mode !== (event?.link_mode === 'bot' ? 'bot' : 'miniapp'))
-        eventPatch.link_mode = form.link_mode
       if (Object.keys(eventPatch).length > 0) {
         await api.events.update(eventId, eventPatch)
         onEventUpdated?.(eventPatch)
@@ -320,8 +316,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
         eventId={eventId}
         onSlugSaved={(s) => onEventUpdated?.({ slug: s })}
         eventStatus={event?.status}
-        linkMode={form.link_mode}
-        onLinkModeChange={(m) => setForm(f => ({ ...f, link_mode: m }))}
       />
 
       {/* Кнопка сохранения — в самом низу страницы */}

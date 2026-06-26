@@ -31,7 +31,6 @@ export default function ContestOverviewTab({
   })
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
-  const [linkMode, setLinkMode] = useState<'miniapp' | 'bot'>(event.link_mode === 'bot' ? 'bot' : 'miniapp')
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -76,7 +75,6 @@ export default function ContestOverviewTab({
       const endIso = endAt ? new Date(endAt).toISOString() : null
       const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
       if (endIso !== eventEndIso)                               payload.end_at = endIso
-      if (linkMode !== (event.link_mode === 'bot' ? 'bot' : 'miniapp')) payload.link_mode = linkMode
 
       if (Object.keys(payload).length === 0) {
         setSavedFlash(true)
@@ -157,8 +155,6 @@ export default function ContestOverviewTab({
         eventId={eventId}
         onSlugSaved={onReload}
         eventStatus={event?.status}
-        linkMode={linkMode}
-        onLinkModeChange={setLinkMode}
       />
 
       {/* Save bar — в самом низу страницы */}
