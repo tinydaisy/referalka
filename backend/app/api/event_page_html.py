@@ -2632,20 +2632,29 @@ async def public_tournament_table(slug: str, stage_id: int,
     # Σ-колонка («сумма критерий×вес») — ТОЛЬКО у пакетов со схемой 1.
     def _has_sum_col(g):
         return g.get("scheme") == "s1"
+    _SCHEME_MODE = {"s1": "сумма ÷ лидера", "s2": "доля от лучшего · норм.",
+                    "s3": "среднее", "s4": "чистая сумма"}
     for g in groups:
-        mode = "сумма" if g.get("aggregate") == "sum" else "среднее"
-        extra = (" · норм." if g["normalize"] else "")
+        mode = _SCHEME_MODE.get(g.get("scheme"), "среднее")
         span = g["span"] + (1 if _has_sum_col(g) else 0)
         thead_grp += (f"<th colspan='{span}' class='c-grp'>{esc(g['title'])}"
-                      f"<span class='w'>вес ×{_fmt_num(g['weight'])} · {mode}{extra}</span></th>")
+                      f"<span class='w'>вес ×{_fmt_num(g['weight'])} · {mode}</span></th>")
     crit_by_pkg_seq = {}
     for c in columns:
         crit_by_pkg_seq.setdefault(c["package_id"], []).append(c)
     # 2-я строка шапки: сначала названия пакетов (для блока «Баллы по пакетам»), затем критерии
+    # подпись формулы балла пакета зависит от схемы
+    _SCHEME_FORMULA = {
+        "s1": "сумма ÷ суммы лидера ×10",
+        "s2": "доля от лучшего ×10",
+        "s3": "среднее (÷ сумму весов)",
+        "s4": "чистая сумма",
+    }
     thead_crit = ""
     for g in groups:
+        formula = _SCHEME_FORMULA.get(g.get("scheme"), "")
         thead_crit += (f"<th class='c-pkg'>{esc(g['title'])}"
-                       f"<span class='cw'>вес ×{_fmt_num(g['weight'])} → итог</span></th>")
+                       f"<span class='cw'>{formula} · вес ×{_fmt_num(g['weight'])} → итог</span></th>")
     for g in groups:
         _first_of_pkg = True  # первый критерий пакета → жирная граница-разделитель
         for c in crit_by_pkg_seq.get(g["pkg_id"], []):

@@ -80,6 +80,37 @@ async def _client_id_for_bot(bot_id: int, db) -> int | None:
     )
 
 
+async def _client_has_own_tg_bot(client_id: int, db) -> bool:
+    """У клиента есть подключённый СВОЙ (не системный) активный TG-бот."""
+    return bool(await db.fetchval(
+        """SELECT 1 FROM client_channels cc
+             JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND cc.is_active = TRUE
+              AND ch.platform_slug = 'telegram' AND ch.is_system = FALSE
+            LIMIT 1""",
+        client_id,
+    ))
+
+
+async def _should_this_bot_reply(bot_id: int, chat_id: str, db) -> bool:
+    """Только ОДИН бот отвечает в чат события (иначе и @pluson_bot, и VIP-бот
+    клиента пишут дубль). Правило:
+      • у владельца события есть свой VIP-бот → отвечает ТОЛЬКО он;
+      • своего бота нет → отвечает ТОЛЬКО системный @pluson_bot.
+    Чат не привязан к событию → отвечать некому (False)."""
+    from app.services.chat_archive import _resolve_event_for_chat
+    resolved = await _resolve_event_for_chat(db, "telegram", str(chat_id))
+    if not resolved:
+        return False
+    _event_id, event_client_id = resolved
+    bot_client_id = await _client_id_for_bot(bot_id, db)
+    if await _client_has_own_tg_bot(event_client_id, db):
+        # отвечает только собственный бот клиента-владельца события
+        return bot_client_id == event_client_id
+    # своего бота нет → отвечает только системный
+    return bot_client_id is None
+
+
 def _attachment_info(message: Message) -> tuple[bool, str | None]:
     """Есть ли вложение и какого рода."""
     if message.video:
@@ -138,6 +169,7 @@ async def on_group_message(message: Message, bot: Bot):
     # Команда /chatid — единственный случай, когда бот отвечает в чат: присылает
     # числовой ID этого чата (чтобы вписать в поле чата события в дашборде).
     # Срабатывает ТОЛЬКО на точное «/chatid» (с возможным @упоминанием бота).
+    # /chatid отвечает любой бот (нужно при первичной настройке, события ещё нет).
     raw = (message.text or "").strip()
     cmd = raw.split("@", 1)[0].lower()
     if cmd == "/chatid":
@@ -146,6 +178,17 @@ async def on_group_message(message: Message, bot: Bot):
         except Exception:  # noqa: BLE001
             pass
         return
+
+    # ── ГЕЙТ ДВОЙНОГО ОТВЕТА ──
+    # В чате события может сидеть и @pluson_bot, и VIP-бот клиента — оба получают
+    # один и тот же апдейт. Отвечать (и начислять баллы) должен ТОЛЬКО ОДИН.
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            should_reply = await _should_this_bot_reply(bot.id, str(message.chat.id), db)
+    except Exception as e:  # noqa: BLE001
+        log.warning("chat_listener should-reply check failed: %s", e)
+        should_reply = False
 
     has_att, att_kind = _attachment_info(message)
     text = message.text or message.caption
@@ -166,6 +209,11 @@ async def on_group_message(message: Message, bot: Bot):
         sent_at=sent_at,
     )
     if not written:
+        return
+
+    # Приветствие и начисление/ответ по заданиям — ТОЛЬКО у «своего» бота (гейт выше).
+    # Иначе и системный, и VIP-бот ответят/начислят дважды.
+    if not should_reply:
         return
 
     # ── Приветствие в чатах: кодовое слово → ОТВЕТ случайной фразой (reply),
