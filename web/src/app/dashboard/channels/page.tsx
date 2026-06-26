@@ -1613,10 +1613,10 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
           )}
         </div>
 
-        <div className="flex flex-wrap justify-end gap-2 p-5 border-t border-gray-100">
+        <div className="flex flex-nowrap items-center justify-end gap-2 p-5 border-t border-gray-100">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+            className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 whitespace-nowrap"
             disabled={busy}
           >
             Отмена
@@ -1625,7 +1625,8 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
             <button
               onClick={doDeactivate}
               disabled={busy}
-              className="px-4 py-2 text-sm rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+              className="px-4 py-2 text-sm rounded-lg font-medium text-white whitespace-nowrap disabled:opacity-40"
+              style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
             >
               {deactivating ? 'Деактивируем…' : 'Сделать неактивным'}
             </button>
@@ -1633,7 +1634,7 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
           <button
             onClick={doDelete}
             disabled={!canDelete || busy}
-            className="px-4 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed bg-red-600 hover:bg-red-700"
+            className="px-4 py-2 text-sm rounded-lg text-white font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed bg-red-600 hover:bg-red-700"
           >
             {submitting
               ? 'Удаляем…'
