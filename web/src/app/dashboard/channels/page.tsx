@@ -1510,11 +1510,22 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
   const [submitting, setSubmitting] = useState(false)
   const [deactivating, setDeactivating] = useState(false)
   const [error, setError] = useState('')
+  // Второе предупреждение: при наличии подписчиков реально удаляем только
+  // после второго нажатия (первое — показ красного «точно?»).
+  const [secondConfirm, setSecondConfirm] = useState(false)
+  const hasSubscribers = channel.subscribers > 0
   const canDelete = confirmText === 'ПОДТВЕРДИТЬ'
   const busy = submitting || deactivating
 
   async function doDelete() {
     if (!canDelete) return
+    // Если есть подписчики и второе подтверждение ещё не показано — показываем
+    // его и ждём повторного клика. Реально удаляем только на втором нажатии.
+    if (hasSubscribers && !secondConfirm) {
+      setSecondConfirm(true)
+      setError('')
+      return
+    }
     setError('')
     setSubmitting(true)
     try {
@@ -1587,6 +1598,14 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
             />
           </div>
 
+          {secondConfirm && (
+            <div className="rounded-xl border-2 border-red-400 bg-red-100 p-3 text-sm text-red-900 font-medium">
+              ⚠️ У канала <b>{channel.subscribers.toLocaleString('ru')}</b> подписчик(ов). База будет
+              стёрта безвозвратно. Если точно нужно — нажмите ещё раз
+              «<b>Да, всё равно удалить</b>». Чтобы сохранить базу — нажмите «Сделать неактивным».
+            </div>
+          )}
+
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl p-3">
               {error}
@@ -1616,7 +1635,11 @@ function DeleteChannelModal({ channel, onClose, onDone }: {
             disabled={!canDelete || busy}
             className="px-4 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed bg-red-600 hover:bg-red-700"
           >
-            {submitting ? 'Удаляем…' : 'ОК, удалить навсегда'}
+            {submitting
+              ? 'Удаляем…'
+              : secondConfirm
+                ? 'Да, всё равно удалить'
+                : 'ОК, удалить навсегда'}
           </button>
         </div>
       </div>
