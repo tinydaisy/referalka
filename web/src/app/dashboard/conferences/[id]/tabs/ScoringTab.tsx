@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
-import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react'
 
 // Подвкладки раздела «Турнир» — каждая отдельная вкладка 2-го уровня
 // (навигация рисуется в page.tsx, своего ряда табов здесь больше нет).
@@ -152,6 +152,8 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
   // reload=true: правка меняет структуру UI (scorer/auto_kind) — нужен перечит.
   const save = async (patch: any, reload = false) => { await api.tournament.updateCriterion(eventId, crit.id, patch); if (reload) onChange() }
   const del = async () => { if (confirm('Удалить критерий?')) { await api.tournament.deleteCriterion(eventId, crit.id); onChange() } }
+  // Описание скрыто под «?»; редактирование — по клику (раскрывается textarea).
+  const [descOpen, setDescOpen] = useState(false)
   return (
    <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-2">
     <div className="flex flex-wrap items-center gap-2">
@@ -160,19 +162,27 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
         <input className="flex-1 bg-white border border-gray-200 rounded-md px-2 py-1 text-sm outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] placeholder:text-gray-300 placeholder:italic"
           defaultValue={crit.title} title="Нажмите, чтобы переименовать критерий" placeholder="Название критерия"
           onBlur={(e) => e.target.value.trim() && e.target.value !== crit.title && save({ title: e.target.value.trim() })} />
+        <button type="button" onClick={() => setDescOpen(o => !o)}
+          title={crit.description ? crit.description : 'Добавить описание критерия (увидят жюри в своём кабинете)'}
+          className={`shrink-0 ${crit.description ? 'text-[#FFCFA4]' : 'text-gray-300'} hover:text-gray-500`}>
+          <HelpCircle size={15} />
+        </button>
       </div>
-      <select className="text-xs border rounded px-1.5 py-1" value={crit.scorer} onChange={(e) => save({ scorer: e.target.value }, true)}>
-        <option value="jury">Ставит: Жюри</option>
-        <option value="vote">Ставит: Народное</option>
-        <option value="manual">Ставит: Ручной</option>
-        <option value="auto">Ставит: Авто</option>
+      {/* Единый плоский тип критерия: Жюри / Народное / Ручной / Рефералы (авто) / Лиды в ПЛЮСОН (авто).
+          Авто-типы внутри = scorer:auto + auto_kind. */}
+      <select className="text-xs border rounded px-1.5 py-1"
+        value={crit.scorer === 'auto' ? `auto:${crit.auto_kind || 'referrals'}` : crit.scorer}
+        onChange={(e) => {
+          const v = e.target.value
+          if (v.startsWith('auto:')) save({ scorer: 'auto', auto_kind: v.slice(5) }, true)
+          else save({ scorer: v }, true)
+        }}>
+        <option value="jury">Тип: Жюри (оценивают)</option>
+        <option value="vote">Тип: Народное (голосование)</option>
+        <option value="manual">Тип: Ручной (вписать)</option>
+        <option value="auto:referrals">Тип: Рефералы (авто)</option>
+        <option value="auto:lead_magnet">Тип: Лиды в ПЛЮСОН (авто)</option>
       </select>
-      {crit.scorer === 'auto' && (
-        <select className="text-xs border rounded px-1.5 py-1" value={crit.auto_kind || 'referrals'} onChange={(e) => save({ auto_kind: e.target.value }, true)}>
-          <option value="referrals">Привёл по реф-ссылке</option>
-          <option value="lead_magnet">Пришло в лид-магнит</option>
-        </select>
-      )}
       {crit.scorer === 'jury' && (
         <label className="text-xs text-gray-400 flex items-center gap-1">макс
           <input type="number" className="w-12 border rounded px-1 py-0.5 text-xs" defaultValue={crit.scale_max}
@@ -185,13 +195,17 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
       </label>
       <button onClick={del} className="text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
     </div>
-    {/* Описание критерия — что это и как оценивать (видят жюри в кабинете) */}
-    <textarea
-      className="w-full bg-white border border-gray-200 rounded-md px-2 py-1 text-xs outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] resize-y placeholder:text-gray-300 placeholder:italic"
-      rows={crit.description ? 2 : 1}
-      defaultValue={crit.description || ''}
-      placeholder="Описание критерия — что это, как оценивать (увидят жюри в своём кабинете)"
-      onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.description || '')) save({ description: v || null }) }} />
+    {/* Описание критерия скрыто под «?» — раскрывается только по клику, не занимает страницу.
+        Просмотр — тултип на «?»; видят жюри в своём кабинете. */}
+    {descOpen && (
+      <textarea
+        autoFocus
+        className="w-full bg-white border border-gray-200 rounded-md px-2 py-1 text-xs outline-none hover:border-gray-300 focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] resize-y placeholder:text-gray-300 placeholder:italic"
+        rows={2}
+        defaultValue={crit.description || ''}
+        placeholder="Описание критерия — что это, как оценивать (увидят жюри в своём кабинете)"
+        onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.description || '')) save({ description: v || null }); setDescOpen(false) }} />
+    )}
     {crit.scorer === 'manual' && (
       <div className="flex items-center gap-1.5">
         <span className="text-[11px] text-gray-500 shrink-0">Кодовая фраза</span>
@@ -513,9 +527,43 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
     if (r?.board) setBoard(r.board)
     else load()
   }
+  // Кого показывать в таблице под этап (тот же listen_audiences, что и в «Контроле заданий»)
+  const setAudience = async (role: string) => {
+    if (stageId == null) return
+    const st = stages.find((s: any) => s.id === stageId)
+    const cur: string[] = st?.listen_audiences || []
+    const next = cur.includes(role) ? cur.filter(r => r !== role) : [...cur, role]
+    setStages(prev => prev.map((s: any) => s.id === stageId ? { ...s, listen_audiences: next } : s))
+    await api.tournament.setStageAudience(eventId, stageId, next)
+    load()
+  }
+  const curStage = stages.find((s: any) => s.id === stageId)
 
   if (loading) return <Spinner />
-  if (!board?.table?.length) return <p className="text-sm text-gray-500">Нет участников/спикеров или критериев. Заведите критерии; участники появятся после регистрации, спикеры — на вкладке «Спикеры».</p>
+
+  // Панель управления (этап + кого показывать) — ВСЕГДА видна, даже если таблица пуста,
+  // иначе при отфильтрованной аудитории нельзя вернуть участников.
+  const controls = (
+    <div className="flex flex-wrap items-center gap-2 mb-3">
+      <select className="text-sm border rounded-lg px-2 py-1.5" value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}>
+        {stages.length === 0 && <option value="">Весь турнир</option>}
+        {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
+      </select>
+      {stageId != null && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-gray-500">Показывать в таблице:</span>
+          <AudienceDropdown value={curStage?.listen_audiences || []} onToggle={setAudience} />
+        </div>
+      )}
+    </div>
+  )
+
+  if (!board?.table?.length) return (
+    <div>
+      {controls}
+      <p className="text-sm text-gray-500">Никого не выбрано для показа, либо нет критериев. Проверьте «Показывать в таблице» выше, заведите критерии; участники появятся после регистрации, спикеры — на вкладке «Спикеры».</p>
+    </div>
+  )
 
   const cols: any[] = board.columns || []
   // группировка колонок по пакетам для шапки
@@ -536,9 +584,10 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
     const p = board.packages.find((x: any) => x.title === g.title) || g
     return `${SCHEME_SHORT[pkgScheme(p)] || ''} · вес ×${p.weight ?? 1}`
   }
-  // лидеры пакетов (схема 1) и критериев (схема 2) — для строки над таблицей
-  const pkgLeaders = (board.packages || []).filter((p: any) => p.leader && pkgScheme(p) === 's1')
-  const critLeaders = cols.filter((c: any) => c.leader && pkgScheme(board.packages.find((p: any) => p.id === c.package_id)) === 's2')
+  // лидер пакета (схема 1) → показывается ПОД колонкой пакета; лидер критерия (схема 2) → под колонкой критерия
+  const pkgOf = (c: any) => board.packages.find((p: any) => p.id === c.package_id)
+  // первая колонка каждого пакета (для жирной границы-разделителя)
+  const firstInPkg = (i: number) => i === 0 || cols[i - 1].package_id !== cols[i].package_id
   const scorerOf = (cid: number) => cols.find(c => c.criterion_id === cid)?.scorer
   const normalizeOf = (cid: number) => {
     const c = cols.find(x => x.criterion_id === cid)
@@ -548,37 +597,14 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        <select className="text-sm border rounded-lg px-2 py-1.5" value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}>
-          {stages.length === 0 && <option value="">Весь турнир</option>}
-          {stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
-        </select>
-        <button onClick={snapshot} disabled={saving} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-[#25455D] text-[#FFCFA4] disabled:opacity-50">
+      <div className="flex flex-wrap items-end gap-2 mb-2">
+        <div className="flex-1">{controls}</div>
+        <button onClick={snapshot} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-[#25455D] text-[#FFCFA4] disabled:opacity-50 mb-3">
           <Camera size={14} /> Сохранить отчёт
         </button>
       </div>
       {stageId != null && (
         <PublicTableLink eventId={eventId} stageId={stageId} stageTitle={stages.find((s: any) => s.id === stageId)?.title} />
-      )}
-      {(pkgLeaders.length > 0 || critLeaders.length > 0) && (
-        <div className="mb-2 text-xs text-[#25455D] bg-amber-50 border border-[#FFCFA4] rounded-lg px-3 py-2 space-y-1">
-          {pkgLeaders.map((p: any) => (
-            <div key={p.id}>
-              <span className="text-gray-500">Лидер пакета</span> «{p.title}»: <b>{p.leader.name || '—'}</b>
-              {p.leader.username ? ` (@${p.leader.username})` : ''} — сумма {p.leader.value}
-            </div>
-          ))}
-          {critLeaders.length > 0 && (
-            <div>
-              <span className="text-gray-500">Лидеры по критериям:</span>{' '}
-              {critLeaders.map((c: any, i: number) => (
-                <span key={c.criterion_id}>
-                  {i > 0 && '; '}{c.title} — <b>{c.leader.name || '—'}</b> ({c.leader.value})
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
       )}
       <div className="overflow-auto border rounded-xl" style={{ maxHeight: '75vh' }}>
         <table className="text-sm w-full border-separate" style={{ borderSpacing: 0 }}>
@@ -591,9 +617,9 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
               <th rowSpan={2} className="px-3 py-2 font-semibold text-[#25455D] border-l sticky top-0 z-30 bg-gray-50">ИТОГ</th>
               {/* итоговые баллы пакетов */}
               <th colSpan={board.packages.length} className="px-3 py-1.5 text-center border-l sticky top-0 z-30 bg-gray-50">Баллы по пакетам</th>
-              {/* критерии, сгруппированные по пакетам — с режимом расчёта */}
+              {/* критерии, сгруппированные по пакетам — с режимом расчёта. Жирная граница между пакетами */}
               {groups.map((g, i) => (
-                <th key={i} colSpan={g.span} className="px-2 py-1.5 text-center border-l align-top sticky top-0 z-30 bg-gray-50">
+                <th key={i} colSpan={g.span} className="px-2 py-1.5 text-center border-l-2 border-l-gray-300 align-top sticky top-0 z-30 bg-gray-50">
                   <div>{g.title}</div>
                   <div className="text-[10px] font-normal text-gray-400 normal-case">{pkgMode(g)}</div>
                 </th>
@@ -608,12 +634,14 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                 </th>
               ))}
               {cols.map((c, i) => (
-                <th key={c.criterion_id} className={`px-1.5 py-1.5 align-top font-medium sticky z-30 bg-gray-50 ${i===0?'border-l':''}`} style={{ minWidth: 64, maxWidth: 90, top: 33 }} title={c.scorer}>
-                  <div className="whitespace-normal break-words leading-tight">{c.title}{normalizeOf(c.criterion_id) && <NormBadge />}</div>
+                <th key={c.criterion_id} className={`px-1.5 py-1.5 align-top font-medium sticky z-30 bg-gray-50 ${firstInPkg(i)?'border-l-2 border-l-gray-300':''}`} style={{ minWidth: 64, maxWidth: 90, top: 33 }}>
+                  <div className="whitespace-normal break-words leading-tight">
+                    {c.title}{normalizeOf(c.criterion_id) && <NormBadge />}
+                    {c.description && (
+                      <span title={c.description} className="ml-0.5 inline-flex align-middle text-gray-300 hover:text-gray-500 cursor-help"><HelpCircle size={12} /></span>
+                    )}
+                  </div>
                   <div className="text-[10px] font-normal text-gray-400">×{c.weight ?? 1}</div>
-                  {c.description && (
-                    <div className="text-[10px] font-normal text-gray-400 leading-tight whitespace-pre-line mt-0.5 normal-case">{c.description}</div>
-                  )}
                   {c.code_phrase && (
                     <div className="text-[9px] font-semibold text-amber-700 leading-tight mt-1 normal-case font-mono whitespace-normal break-words">Кодовая фраза для выкладки отчёта:<br/>«{c.code_phrase}»</div>
                   )}
@@ -622,6 +650,33 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
             </tr>
           </thead>
           <tbody>
+            {/* Строка «Лидеры (на кого делить)» — сразу под заголовками.
+                Схема 1: лидер под колонкой ПАКЕТА. Схема 2 (норм.): лидер под каждым КРИТЕРИЕМ. */}
+            {(board.packages.some((p: any) => p.leader && pkgScheme(p) === 's1') || cols.some((c: any) => c.leader && pkgScheme(pkgOf(c)) === 's2')) && (
+              <tr className="bg-amber-50 text-[11px] text-[#25455D] border-t">
+                <td className="px-3 py-2 sticky left-0 z-20 bg-amber-50 align-top" style={{ width: 56, minWidth: 56 }}>🏆</td>
+                <td className="px-2 py-2 sticky z-20 bg-amber-50 border-r font-semibold align-top" style={{ left: 56, width: 180, minWidth: 180, maxWidth: 180 }}>Лидеры<div className="text-[10px] font-normal text-gray-500">на кого делят</div></td>
+                <td className="bg-amber-50"></td>
+                <td className="border-l bg-amber-50"></td>
+                {/* под колонками пакетов — лидер пакета (схема 1) */}
+                {board.packages.map((p: any, i: number) => (
+                  <td key={p.id} className={`px-2 py-2 text-center align-top ${i===0?'border-l-2 border-l-gray-300':''}`}>
+                    {p.leader && pkgScheme(p) === 's1' ? (
+                      <><div className="font-semibold leading-tight">{p.leader.name || '—'}</div>{p.leader.rank ? <div className="text-[10px] text-gray-500">место {p.leader.rank}</div> : null}<div className="text-[10px] text-gray-500">макс {p.leader.value}</div></>
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                ))}
+                {/* под колонками критериев — лидер критерия (схема 2 / норм.) */}
+                {cols.map((c: any, i: number) => (
+                  <td key={c.criterion_id} className={`px-2 py-2 text-center align-top ${firstInPkg(i)?'border-l-2 border-l-gray-300':''}`}>
+                    {c.leader && pkgScheme(pkgOf(c)) === 's2' ? (
+                      <><div className="font-semibold leading-tight">{c.leader.name || '—'}</div>{c.leader.rank ? <div className="text-[10px] text-gray-500">место {c.leader.rank}</div> : null}<div className="text-[10px] text-gray-500">макс {c.leader.value}</div></>
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                ))}
+                <td className="border-l bg-amber-50"></td>
+              </tr>
+            )}
             {board.table.map((row: any) => {
               const fbs = feedback.filter((f: any) => f.key === row.key)
               const isOpen = expanded === row.key
@@ -634,14 +689,14 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                     <td className="px-3 py-2 text-center font-semibold text-[#25455D] border-l">{row.total}</td>
                     {/* баллы пакетов */}
                     {board.packages.map((p: any, i: number) => (
-                      <td key={p.id} className={`px-2 py-2 text-center text-gray-700 ${i===0?'border-l':''}`}>{row.package_scores?.[String(p.id)] ?? '—'}</td>
+                      <td key={p.id} className={`px-2 py-2 text-center text-gray-700 ${i===0?'border-l-2 border-l-gray-300':''}`}>{row.package_scores?.[String(p.id)] ?? '—'}</td>
                     ))}
                     {/* критерии */}
                     {cols.map((c, i) => {
                       const val = row.cells[String(c.criterion_id)]
                       const editable = c.scorer === 'vote' || c.scorer === 'manual'
                       return (
-                        <td key={c.criterion_id} className={`px-2 py-2 text-center ${i===0?'border-l':''}`}>
+                        <td key={c.criterion_id} className={`px-2 py-2 text-center ${firstInPkg(i)?'border-l-2 border-l-gray-300':''}`}>
                           {editable ? (
                             <input type="number" min={0} className="w-16 border rounded px-1 py-0.5 text-sm text-center" defaultValue={val ?? ''}
                               onBlur={(e) => setManual(c.criterion_id, row.key, e.target.value)} />

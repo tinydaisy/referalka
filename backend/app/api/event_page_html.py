@@ -2631,7 +2631,8 @@ async def public_tournament_table(slug: str, stage_id: int,
     for g in groups:
         mode = "сумма" if g.get("aggregate") == "sum" else "среднее"
         extra = (" · норм." if g["normalize"] else "")
-        thead_grp += (f"<th colspan='{g['span']}' class='c-grp'>{esc(g['title'])}"
+        # span+1 — последняя колонка пакета = его суммарный балл
+        thead_grp += (f"<th colspan='{g['span'] + 1}' class='c-grp'>{esc(g['title'])}"
                       f"<span class='w'>вес ×{_fmt_num(g['weight'])} · {mode}{extra}</span></th>")
     crit_by_pkg_seq = {}
     for c in columns:
@@ -2641,19 +2642,26 @@ async def public_tournament_table(slug: str, stage_id: int,
     for g in groups:
         thead_crit += (f"<th class='c-pkg'>{esc(g['title'])}"
                        f"<span class='cw'>вес ×{_fmt_num(g['weight'])} → итог</span></th>")
-    _first_crit_head = True
     for g in groups:
+        _first_of_pkg = True  # первый критерий пакета → жирная граница-разделитель
         for c in crit_by_pkg_seq.get(g["pkg_id"], []):
             cw = float(c.get("weight", 1))
-            cls = "c-crit crit-start" if _first_crit_head else "c-crit"
+            cls = "c-crit crit-start" if _first_of_pkg else "c-crit"
             cp = (c.get("code_phrase") or "").strip()
             cp_html = (f"<span class='cph'>Кодовая фраза для выкладки отчёта:<br>«{esc(cp)}»</span>"
                        if cp else "")
-            thead_crit += (f"<th class='{cls}'>{esc(c['title'])}"
+            # Описание критерия скрыто под «?» (тултип), не раздувает столбец
+            cdesc = (c.get("description") or "").strip()
+            q_html = (f"<span class='qmark' title='{esc(cdesc)}'>?</span>" if cdesc else "")
+            thead_crit += (f"<th class='{cls}'>{esc(c['title'])}{q_html}"
                            f"<span class='cw'>×{_fmt_num(cw)}</span>{cp_html}</th>")
-            _first_crit_head = False
+            _first_of_pkg = False
+        # замыкающая колонка пакета — его суммарный балл
+        thead_crit += ("<th class='c-pkgsum'>Σ балл пакета"
+                       "<span class='cw'>сумма по пакету</span></th>")
 
-    total_cols = 3 + len(groups) + sum(g["span"] for g in groups)
+    # 3 (место/имя/итог) + блок «Баллы по пакетам» (len) + критерии + по 1 сумме на пакет
+    total_cols = 3 + len(groups) + sum(g["span"] for g in groups) + len(groups)
 
     # ── Строка «Лидеры по критериям» — на кого делить (максимум) ──
     # Схема 1 (s1, сумма÷лидера): лидер показывается под колонкой ПАКЕТА.
@@ -2678,16 +2686,20 @@ async def public_tournament_table(slug: str, stage_id: int,
         for g in groups:
             pkg = pkg_by_id.get(g["pkg_id"], {})
             lc += _leader_cell(pkg.get("leader"))
-        # под каждым критерием — лидер критерия (для s2)
-        _first = True
+        # под каждым критерием — лидер критерия (для s2). Жирная граница на первом критерии пакета.
+        # В конце пакета — лидер пакета (для s1) под колонкой суммы.
         for g in groups:
+            _first_of_pkg = True
             for c in crit_by_pkg_seq.get(g["pkg_id"], []):
                 col = col_by_id.get(c["criterion_id"], {})
                 cell = _leader_cell(col.get("leader"))
-                if _first:
+                if _first_of_pkg:
                     cell = cell.replace("lead-cell", "lead-cell crit-start", 1)
                 lc += cell
-                _first = False
+                _first_of_pkg = False
+            pkg = pkg_by_id.get(g["pkg_id"], {})
+            sumcell = _leader_cell(pkg.get("leader"))
+            lc += sumcell.replace("lead-cell", "lead-cell pkgsum-lead", 1)
         lc += "</tr>"
         leaders_html = lc
 
@@ -2701,14 +2713,17 @@ async def public_tournament_table(slug: str, stage_id: int,
         for g in groups:
             ps = r.get("package_scores", {}).get(str(g["pkg_id"]))
             cells += f"<td class='pkg-val'>{_fmt_num(ps)}</td>"
-        # затем значения критериев
-        _first_crit = True
+        # затем значения критериев. Первый критерий пакета → жирная граница-разделитель,
+        # в конце пакета — его суммарный балл
         for g in groups:
+            _first_of_pkg = True
             for c in crit_by_pkg_seq.get(g["pkg_id"], []):
                 v = r["cells"].get(str(c["criterion_id"]))
-                cls = "val crit-start" if _first_crit else "val"
+                cls = "val crit-start" if _first_of_pkg else "val"
                 cells += f"<td class='{cls}'>{_fmt_num(v)}</td>"
-                _first_crit = False
+                _first_of_pkg = False
+            ps = r.get("package_scores", {}).get(str(g["pkg_id"]))
+            cells += f"<td class='pkgsum-val'>{_fmt_num(ps)}</td>"
         place = r["place"]
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(place, "")
         rows_html += (
@@ -2766,11 +2781,14 @@ async def public_tournament_table(slug: str, stage_id: int,
   table {{ border-collapse:collapse; width:100%; font-size:13px; }}
   th, td {{ padding:8px 10px; border-bottom:1px solid #e0e6ec; border-right:1px solid #e6eaee;
     text-align:center; white-space:nowrap; }}
-  /* Закреплённые заголовки: шапка из двух строк. 1-я прилипает к top:0,
-     2-я — под ней (на высоту 1-й ≈ 40px). z-index выше тела таблицы. */
+  /* Закреплённые заголовки: шапка из двух строк фиксированной высоты,
+     чтобы 2-я строка и строка лидеров приклеивались точно под 1-й
+     (жёсткие top в px работают только при фиксированных высотах строк). */
+  thead tr:first-child th {{ height:44px; }}
+  thead tr:nth-child(2) th {{ height:52px; }}
   thead th {{ background:#f1f4f7; color:#41566a; font-weight:700; position:sticky; z-index:3; }}
   thead tr:first-child th {{ top:0; }}
-  thead tr:nth-child(2) th {{ top:40px; }}
+  thead tr:nth-child(2) th {{ top:44px; }}
   thead th.c-place, thead th.c-name {{ z-index:5; }}
   .c-grp {{ border-left:1px solid #dfe5ea; color:#25455D; }}
   .c-grp .w {{ display:block; font-size:10.5px; font-weight:500; color:#8593a1; }}
@@ -2780,6 +2798,13 @@ async def public_tournament_table(slug: str, stage_id: int,
   .c-pkg .cw {{ display:block; font-size:9.5px; font-weight:600; color:#8593a1; margin-top:2px; }}
   .pkg-val {{ font-weight:800; color:#25455D; background:#FFF7F0; border-left:1px solid #FFCFA4; }}
   tbody tr:nth-child(even) .pkg-val {{ background:#FFF2E6; }}
+  /* замыкающая колонка пакета — суммарный балл (в конце набора критериев пакета) */
+  .c-pkgsum {{ font-weight:700; color:#25455D; font-size:11px; min-width:64px; max-width:88px;
+    white-space:normal; word-break:break-word; background:#FFF7F0; border-left:3px solid #FFCFA4; vertical-align:bottom; }}
+  .c-pkgsum .cw {{ display:block; font-size:9.5px; font-weight:600; color:#8593a1; margin-top:2px; }}
+  .pkgsum-val {{ font-weight:800; color:#25455D; background:#FFF7F0; border-left:3px solid #FFCFA4; }}
+  tbody tr:nth-child(even) .pkgsum-val {{ background:#FFF2E6; }}
+  .pkgsum-lead {{ border-left:3px solid #FFCFA4 !important; }}
   .norm {{ display:inline-block; margin-left:4px; font-size:9.5px; font-weight:700; color:#b45309;
     background:#FFF3E0; border:1px solid #FFCFA4; border-radius:5px; padding:0 4px; vertical-align:middle; }}
   .c-place {{ text-align:center; font-weight:700; color:#25455D; width:54px; }}
@@ -2790,7 +2815,14 @@ async def public_tournament_table(slug: str, stage_id: int,
   .c-total {{ font-weight:800; color:#25455D; border-left:2px solid #FFCFA4; background:#FFF7F0; }}
   thead .c-total {{ background:#FFEFE0; }}
   .val {{ color:#41566a; }}
-  .crit-start {{ border-left:2px solid #cdd6df; }}
+  /* жирная граница-разделитель между пакетами критериев */
+  .crit-start {{ border-left:3px solid #9fb0c0 !important; }}
+  thead th.crit-start {{ border-left:3px solid #9fb0c0 !important; }}
+  /* «?» с расшифровкой критерия (тултип при наведении) */
+  .qmark {{ display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
+    margin-left:3px; font-size:10px; font-weight:700; color:#fff; background:#9fb0c0; border-radius:50%;
+    cursor:help; vertical-align:middle; }}
+  .qmark:hover {{ background:#25455D; }}
   .cph {{ display:block; font-size:9.5px; font-weight:600; color:#b45309; margin-top:3px; line-height:1.2; font-family:'Roboto Mono',monospace; white-space:normal; }}
   tbody tr:nth-child(even) td {{ background:#fafbfc; }}
   tbody tr:nth-child(even) .c-name {{ background:#fafbfc; }}
@@ -2798,7 +2830,7 @@ async def public_tournament_table(slug: str, stage_id: int,
   /* Строка «Лидеры по критериям» — на кого делить (максимум). Закреплена
      сразу под заголовком: sticky к верху скролл-контейнера (под thead). */
   .leaders-row td {{ background:#F4F8FD; border-bottom:2px solid #cdd9e6; vertical-align:top;
-    position:sticky; top:74px; z-index:2; }}
+    position:sticky; top:96px; z-index:2; }}
   .leaders-row .c-name {{ left:0; z-index:4; background:#F4F8FD; font-size:11.5px; color:#25455D; font-weight:700; }}
   .lead-cell {{ font-size:10.5px; line-height:1.25; }}
   .lr-name {{ display:block; font-weight:700; color:#1f2d3a; }}

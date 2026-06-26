@@ -268,6 +268,19 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         crits_by_pkg.setdefault(c["package_id"], []).append(c)
 
     subjects = await _subjects(event_id, db)
+    # ── Фильтр «кого отображать в таблице» — по настройке этапа listen_audiences ──
+    #   speakers → показываем спикеров (ec); all/registered → участников (ep).
+    #   Если этап не выбран или настройка пустая/не задана — показываем всех (как было).
+    if stage_id is not None:
+        st_aud = await db.fetchval(
+            "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
+            stage_id, event_id)
+        aud = set(st_aud or [])
+        if aud:  # пустой массив = «показывать всех» (обратная совместимость)
+            show_ep = bool(aud & {"all", "registered"})
+            show_ec = "speakers" in aud
+            subjects = [s for s in subjects
+                        if (s["kind"] == "ep" and show_ep) or (s["kind"] == "ec" and show_ec)]
     jurors = await _jurors(event_id, db)
 
     # сырые баллы (по subject_kind+subject_id)
