@@ -39,6 +39,8 @@ class AddCustomRequest(BaseModel):
     # Каналы для отправки: NULL/None = все каналы клиента (default),
     # [] = никуда не слать, [N,M] = только эти channel_id.
     target_channel_ids: Optional[List[int]] = None
+    # Слать также в общую базу чатов клиента (client_broadcast_chats).
+    send_to_client_chats: bool = False
 
 
 class BulkItem(BaseModel):
@@ -292,14 +294,14 @@ async def add_custom(
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
-           snapshot_video, snapshot_media_type)
+           snapshot_video, snapshot_media_type, send_to_client_chats)
         VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                $4, $5, $6, $7::jsonb, $8, $9, $10)
+                $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
         RETURNING id, fire_at, status
         """,
         client_id, dt_utc, data.is_test, data.text,
         (data.subject or None), snap_photo, _json.dumps(buttons),
-        data.target_channel_ids, snap_video, snap_mtype,
+        data.target_channel_ids, snap_video, snap_mtype, data.send_to_client_chats,
     )
     return dict(row)
 

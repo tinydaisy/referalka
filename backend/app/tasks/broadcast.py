@@ -127,10 +127,20 @@ async def _send_broadcast(schedule_id: int):
         # чтобы правки шаблона применились даже если очередь уже активирована
         tmpl = await conn.fetchrow(
             "SELECT subject, text, photo_url, video_url, media_type, video_file_id, "
-            "button_text, button_url, target_channel_ids "
+            "button_text, button_url, target_channel_ids, "
+            "send_to_event_chats, send_to_client_chats "
             "FROM broadcast_templates WHERE id=$1",
             schedule["template_id"]
         ) if schedule["template_id"] else None
+
+        # Флаги «слать в чаты» наследуются от шаблона, если в schedule не заданы
+        # явно (как target_channel_ids). Так авто-сгенерированные schedule
+        # подхватывают актуальное значение шаблона в момент отправки.
+        if tmpl is not None:
+            if not schedule.get("send_to_event_chats") and tmpl["send_to_event_chats"]:
+                schedule = dict(schedule); schedule["send_to_event_chats"] = True
+            if not schedule.get("send_to_client_chats") and tmpl["send_to_client_chats"]:
+                schedule = dict(schedule); schedule["send_to_client_chats"] = True
         tmpl_subject_val  = tmpl["subject"]      if tmpl else None
         tmpl_text_val  = tmpl["text"]         if tmpl else ""
         tmpl_photo_val = tmpl["photo_url"]    if tmpl else None
@@ -481,30 +491,32 @@ async def _send_broadcast(schedule_id: int):
             if success:
                 sent += 1
 
-        # Отправка копии в групповые TG-чаты события — ТОЛЬКО если включена галочка
-        # «Отправлять в чаты события» (send_to_event_chats) и это не тест.
-        # Собираем чаты из обеих колонок (telegram_chat_ids CSV + tg_chat_id) в
-        # УНИКАЛЬНОЕ множество — иначе если один чат указан в обеих, шлём дважды.
-        if not schedule["is_test"] and schedule.get("send_to_event_chats"):
-            chat_ids_row = await conn.fetchrow(
-                "SELECT telegram_chat_ids, tg_chat_id FROM events WHERE id = $1",
-                event_id
-            )
+        # Отправка копии в групповые TG-чаты — две независимые галочки:
+        #   send_to_event_chats   → чат СОБЫТИЯ (events.tg_chat_id);
+        #   send_to_client_chats  → общая база чатов клиента (client_broadcast_chats, platform='telegram').
+        # Дедуп: ведём общий set отправленных chat_id (sent_tg_chats), чтобы один и
+        # тот же чат не получил сообщение дважды (если он и чат события, и в базе).
+        # ⚠️ Не для теста (is_test) — тест не спамит реальные групповые чаты.
+        sent_tg_chats: set[str] = set()
+        if not schedule["is_test"]:
             tg_chats: list[str] = []
-            seen_chats: set[str] = set()
-            if chat_ids_row:
-                raw = []
-                if chat_ids_row["telegram_chat_ids"]:
-                    raw += [c.strip() for c in chat_ids_row["telegram_chat_ids"].split(",")]
-                if chat_ids_row["tg_chat_id"]:
-                    raw.append(str(chat_ids_row["tg_chat_id"]).strip())
-                for c in raw:
-                    if c and c not in seen_chats:
-                        seen_chats.add(c)
-                        tg_chats.append(c)
+            if schedule.get("send_to_event_chats") and event_id:
+                ev_tg = await conn.fetchval("SELECT tg_chat_id FROM events WHERE id = $1", event_id)
+                if ev_tg and str(ev_tg).strip():
+                    tg_chats.append(str(ev_tg).strip())
+            if schedule.get("send_to_client_chats"):
+                rows_cl = await conn.fetch(
+                    """SELECT chat_id FROM client_broadcast_chats
+                        WHERE client_id = $1 AND platform = 'telegram' AND is_active = TRUE""",
+                    schedule["client_id"],
+                )
+                tg_chats += [str(r["chat_id"]).strip() for r in rows_cl if r["chat_id"]]
             if tg_chats:
                 async with httpx.AsyncClient(timeout=15) as http_extra:
                     for cid in tg_chats:
+                        if not cid or cid in sent_tg_chats:
+                            continue
+                        sent_tg_chats.add(cid)
                         await send_telegram_message(
                             http_extra, default_bot_token, cid, text, photo_url, button_text, button_url,
                             buttons=buttons,
@@ -562,16 +574,34 @@ async def _send_broadcast(schedule_id: int):
         # vk_chat_id / max_chat_id (по платформам, у которых чат задан).
         # ⚠️ При тестовой рассылке (is_test) в чаты НЕ шлём — тест только на
         # тестовые ID, чтобы не спамить реальные групповые чаты события.
+        # Дедуп VK/MAX между чатами события и базой чатов клиента — общий set.
+        _sent_vk: set = set()
+        _sent_max: set = set()
         if schedule.get("send_to_event_chats") and event_id and not schedule.get("is_test"):
             try:
                 chats_sent = await _send_broadcast_to_event_chats(
                     conn, schedule, event_id, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
+                    sent_vk=_sent_vk, sent_max=_sent_max,
                 )
                 sent += chats_sent
                 logger.info(f"Чаты события для рассылки {schedule_id}: отправлено {chats_sent}")
             except Exception as ex:
                 logger.warning(f"Отправка в чаты события для рассылки {schedule_id} упала: {ex}")
+
+        # === Общая база чатов клиента (доп. слой) — VK/MAX, по флагу send_to_client_chats ===
+        # TG-чаты этой базы уже ушли в общем TG-блоке выше (с дедупом).
+        if schedule.get("send_to_client_chats") and not schedule.get("is_test"):
+            try:
+                cl_sent = await _send_broadcast_to_client_chats(
+                    conn, schedule, text, photo_url, button_text, button_url,
+                    buttons=buttons, video_url=video_url, media_type=media_type,
+                    sent_vk=_sent_vk, sent_max=_sent_max,
+                )
+                sent += cl_sent
+                logger.info(f"Чаты клиента для рассылки {schedule_id}: отправлено {cl_sent}")
+            except Exception as ex:
+                logger.warning(f"Отправка в чаты клиента для рассылки {schedule_id} упала: {ex}")
 
         await conn.execute(
             "UPDATE broadcast_schedules SET status='done', finished_at=NOW(), recipients_sent=$1 WHERE id=$2",
@@ -594,11 +624,14 @@ async def _send_broadcast_to_event_chats(
     text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
     buttons: list | None = None,
     video_url: str | None = None, media_type: str | None = None,
+    sent_vk: set | None = None, sent_max: set | None = None,
 ) -> int:
     """Шлёт рассылку в ГРУППОВЫЕ чаты события VK/MAX (по флагу send_to_event_chats):
     events.vk_chat_id (VK-беседа), max_chat_id (MAX-чат).
-    Telegram-чаты обрабатываются отдельно выше (с дедупом telegram_chat_ids+tg_chat_id),
-    поэтому ЗДЕСЬ TG НЕ дублируем. Возвращает число успешно отправленных чатов."""
+    Telegram-чаты обрабатываются отдельно выше (с дедупом),
+    поэтому ЗДЕСЬ TG НЕ дублируем. Возвращает число успешно отправленных чатов.
+    В sent_vk/sent_max (если переданы) регистрирует отправленные chat_id —
+    для дедупа с базой чатов клиента."""
     ev = await conn.fetchrow(
         "SELECT vk_chat_id, max_chat_id FROM events WHERE id=$1", event_id
     )
@@ -655,6 +688,8 @@ async def _send_broadcast_to_event_chats(
                                          attachments=[attach] if attach else None)
                     if res:
                         sent += 1
+                    if sent_max is not None:
+                        sent_max.add(str(max_chat))
         except Exception as ex:
             logger.warning(f"Отправка в MAX-чат события {event_id} упала: {ex}")
 
@@ -705,8 +740,137 @@ async def _send_broadcast_to_event_chats(
                         res = await vk_call("messages.send", params, token=vk_row["bot_token"])
                         if res:
                             sent += 1
+                    if sent_vk is not None:
+                        sent_vk.add(str(vk_chat))
         except Exception as ex:
             logger.warning(f"Отправка в VK-чат события {event_id} упала: {ex}")
+
+    return sent
+
+
+async def _send_broadcast_to_client_chats(
+    conn, schedule,
+    text: str, photo_url: str | None, button_text: str | None, button_url: str | None,
+    buttons: list | None = None,
+    video_url: str | None = None, media_type: str | None = None,
+    sent_vk: set | None = None, sent_max: set | None = None,
+) -> int:
+    """Шлёт рассылку в общую базу чатов клиента (client_broadcast_chats) для VK и MAX.
+    Telegram-чаты этой базы обрабатываются выше (общий TG-блок с дедупом).
+    Дедуп: пропускает chat_id, уже отправленные как чаты события (sent_vk/sent_max).
+    Возвращает число успешно отправленных чатов."""
+    client_id = schedule["client_id"]
+    rows = await conn.fetch(
+        """SELECT platform, chat_id FROM client_broadcast_chats
+            WHERE client_id = $1 AND platform IN ('vk','max') AND is_active = TRUE""",
+        client_id,
+    )
+    if not rows:
+        return 0
+    sent = 0
+    sent_vk = sent_vk if sent_vk is not None else set()
+    sent_max = sent_max if sent_max is not None else set()
+
+    # ── MAX-чаты ──
+    max_chats = [str(r["chat_id"]).strip() for r in rows if r["platform"] == "max" and r["chat_id"]]
+    max_chats = [c for c in max_chats if c and c not in sent_max]
+    if max_chats:
+        try:
+            from app.services.max_api import send_message as max_send, tg_inline_to_max_keyboard, upload_media as max_upload_media
+            from app.services.message_builder import html_to_telegram
+            from app.config import settings as _settings
+            max_token = await conn.fetchval(
+                """SELECT ch.bot_token FROM client_channels cc
+                     JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.client_id=$1 AND cc.is_active=TRUE AND ch.platform_slug='max'
+                      AND ch.is_system=FALSE AND ch.bot_token IS NOT NULL AND ch.bot_token<>''
+                    LIMIT 1""",
+                client_id,
+            ) or _settings.max_system_bot_token
+            if max_token:
+                max_buttons = None
+                if buttons:
+                    rows_btn = [[{"text": (b.get("text") or b.get("label") or "Открыть"), "url": b.get("url", "")}] for b in buttons]
+                    max_buttons = tg_inline_to_max_keyboard(rows_btn)
+                elif button_text and button_url:
+                    max_buttons = tg_inline_to_max_keyboard([[{"text": button_text, "url": button_url}]])
+                msg = html_to_telegram(text or "")
+                if media_type == "video" and video_url:
+                    msg = f"{msg}\n\n🎬 Видео: {video_url}" if msg else video_url
+                attach = None
+                if photo_url and media_type != "video":
+                    import tempfile, os as _os
+                    async with httpx.AsyncClient(timeout=60.0) as _cli:
+                        _img = await _cli.get(photo_url)
+                    if _img.status_code == 200 and _img.content:
+                        _tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+                        try:
+                            _tmp.write(_img.content); _tmp.flush(); _tmp.close()
+                            attach = await max_upload_media(_tmp.name, token=max_token, kind="image")
+                        finally:
+                            try: _os.unlink(_tmp.name)
+                            except OSError: pass
+                for c in max_chats:
+                    try:
+                        cid_int = int(c)
+                    except (TypeError, ValueError):
+                        continue
+                    try:
+                        res = await max_send(cid_int, msg, token=max_token, buttons=max_buttons,
+                                             recipient_kind="chat", parse_mode="html",
+                                             attachments=[attach] if attach else None)
+                        if res:
+                            sent += 1
+                        sent_max.add(c)
+                    except Exception as ex:
+                        logger.warning(f"Отправка в MAX-чат клиента {c} упала: {ex}")
+        except Exception as ex:
+            logger.warning(f"MAX-часть чатов клиента упала: {ex}")
+
+    # ── VK-беседы ──
+    vk_chats = [str(r["chat_id"]).strip() for r in rows if r["platform"] == "vk" and r["chat_id"]]
+    vk_chats = [c for c in vk_chats if c and c not in sent_vk]
+    if vk_chats:
+        try:
+            import random as _random
+            from app.services.vk_api import vk_call, upload_photo_to_messages
+            from app.services.message_builder import html_to_vk_text
+            vk_row = await conn.fetchrow(
+                """SELECT ch.bot_token FROM client_channels cc
+                     JOIN channels ch ON ch.id = cc.channel_id
+                    WHERE cc.client_id=$1 AND cc.is_active=TRUE AND ch.platform_slug='vk'
+                      AND ch.bot_token IS NOT NULL AND ch.bot_token<>'' LIMIT 1""",
+                client_id,
+            )
+            if vk_row and vk_row["bot_token"]:
+                vk_text = html_to_vk_text(text or "")
+                if button_url:
+                    vk_text = f"{vk_text}\n\n{button_text or 'Подробнее'}: {button_url}"
+                vk_attachment = None
+                if photo_url and media_type != "video":
+                    try:
+                        vk_attachment = await upload_photo_to_messages(photo_url, token=vk_row["bot_token"])
+                    except Exception as up_ex:
+                        logger.warning(f"VK-чат клиента: загрузка фото не удалась: {up_ex}")
+                for c in vk_chats:
+                    try:
+                        peer = int(c)
+                    except (TypeError, ValueError):
+                        continue
+                    params = {"peer_id": peer, "message": vk_text,
+                              "random_id": _random.randint(1, 2**31 - 1)}
+                    if vk_attachment:
+                        params["attachment"] = vk_attachment
+                    if vk_text or vk_attachment:
+                        try:
+                            res = await vk_call("messages.send", params, token=vk_row["bot_token"])
+                            if res:
+                                sent += 1
+                            sent_vk.add(c)
+                        except Exception as ex:
+                            logger.warning(f"Отправка в VK-чат клиента {c} упала: {ex}")
+        except Exception as ex:
+            logger.warning(f"VK-часть чатов клиента упала: {ex}")
 
     return sent
 

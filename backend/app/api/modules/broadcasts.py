@@ -68,6 +68,8 @@ class TemplateCreate(BaseModel):
     target_channel_ids: Optional[List[int]] = None
     # Слать ещё и в групповые чаты события (tg/vk/max_chat_id) — в ДОПОЛНЕНИЕ к базе.
     send_to_event_chats: Optional[bool] = None
+    # Слать ещё и в общую базу чатов клиента (client_broadcast_chats).
+    send_to_client_chats: Optional[bool] = None
 
 
 class TemplateUpdate(BaseModel):
@@ -92,6 +94,7 @@ class TemplateUpdate(BaseModel):
     custom_time: Optional[str] = None           # для type='custom'
     target_channel_ids: Optional[List[int]] = None
     send_to_event_chats: Optional[bool] = None
+    send_to_client_chats: Optional[bool] = None
     # Роли коллабораторов для speaker_intro (NULL = все). Пустой массив [] = никто.
     intro_roles: Optional[List[str]] = None
 
@@ -392,7 +395,7 @@ async def list_templates(
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
-               target_channel_ids, send_to_event_chats, intro_roles,
+               target_channel_ids, send_to_event_chats, send_to_client_chats, intro_roles,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -500,15 +503,15 @@ async def create_template(
           (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
            audience_include, audience_exclude, custom_day_ref, custom_time,
            schedule_mode, allow_custom_datetime, target_channel_ids,
-           video_url, media_type)
+           video_url, media_type, send_to_event_chats, send_to_client_chats)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
                 COALESCE($10, 'all_event'), COALESCE($11, 'none'),
                 $12, $13,
                 COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16,
-                $17, $18)
+                $17, $18, COALESCE($19, FALSE), COALESCE($20, FALSE))
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
-                  custom_day_ref, custom_time, target_channel_ids, created_at
+                  custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, send_to_client_chats, created_at
         """,
         client_id, event_id, data.name, data.type, data.subject,
         data.text, data.photo_url, data.button_text, data.button_url,
@@ -517,6 +520,7 @@ async def create_template(
         schedule_mode, allow_custom_datetime,
         data.target_channel_ids,
         data.video_url, data.media_type,
+        data.send_to_event_chats, data.send_to_client_chats,
     )
     return dict(row)
 
@@ -678,12 +682,14 @@ async def update_template(
             video_url = $21, media_type = $22,
             send_to_event_chats = COALESCE($23, send_to_event_chats),
             intro_roles = COALESCE($24::text[], intro_roles),
+            send_to_client_chats = COALESCE($25, send_to_client_chats),
             updated_at = NOW()
         WHERE id = $19 AND event_id = $20
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
-                  custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, intro_roles
+                  custom_day_ref, custom_time, target_channel_ids, send_to_event_chats,
+                  send_to_client_chats, intro_roles
         """,
         data.name, data.type, data.subject, new_text,
         data.photo_url, data.button_text, data.button_url,
@@ -696,6 +702,7 @@ async def update_template(
         data.video_url, data.media_type,
         data.send_to_event_chats,
         data.intro_roles,
+        data.send_to_client_chats,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
@@ -770,7 +777,8 @@ async def list_schedules(
                bs.error_log,
                -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
                bs.snapshot_text, bs.snapshot_photo, bs.snapshot_video,
-               bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats
+               bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats,
+               bs.send_to_client_chats
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type != 'speaker_intro'
@@ -888,7 +896,7 @@ async def generate_schedules(
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
                text, photo_url, button_text, button_url,
-               name, send_to_event_chats, intro_roles
+               name, send_to_event_chats, send_to_client_chats, intro_roles
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
@@ -1327,6 +1335,15 @@ async def generate_schedules(
                WHERE event_id = $1 AND template_id = ANY($2::int[])""",
             event_id, chat_tpl_ids,
         )
+    # То же для базы чатов клиента.
+    client_tpl_ids = [t["id"] for t in templates if t.get("send_to_client_chats")]
+    if client_tpl_ids:
+        await db.execute(
+            """UPDATE broadcast_schedules
+                 SET send_to_client_chats = TRUE
+               WHERE event_id = $1 AND template_id = ANY($2::int[])""",
+            event_id, client_tpl_ids,
+        )
 
     return {"ok": True, "created": created, "skipped": skipped}
 
@@ -1463,6 +1480,7 @@ class AddCustomRequest(BaseModel):
     audience_include: str = "all_event"
     audience_exclude: str = "none"
     send_to_event_chats: bool = False
+    send_to_client_chats: bool = False
 
 
 def _resolve_snapshot_media(photo_url: Optional[str], video_url: Optional[str],
@@ -1548,13 +1566,13 @@ async def add_custom_schedule(
           (event_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_buttons,
-           snapshot_video, snapshot_media_type, send_to_event_chats)
-        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
+           snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats)
+        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
-        data.send_to_event_chats
+        data.send_to_event_chats, data.send_to_client_chats
     )
     return dict(row)
 
@@ -1604,13 +1622,13 @@ async def edit_custom_schedule(
             audience_include = $3, audience_exclude = $4,
             snapshot_text = $5, snapshot_photo = $6, snapshot_buttons = $7::jsonb,
             snapshot_video = $8, snapshot_media_type = $9,
-            send_to_event_chats = $12
+            send_to_event_chats = $12, send_to_client_chats = $13
         WHERE id = $10 AND event_id = $11 AND type = 'custom'
         RETURNING id, type, fire_at, status, is_test
         """,
         dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
-        schedule_id, event_id, data.send_to_event_chats,
+        schedule_id, event_id, data.send_to_event_chats, data.send_to_client_chats,
     )
     return dict(row)
 
