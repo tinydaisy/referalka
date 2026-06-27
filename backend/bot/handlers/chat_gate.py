@@ -220,8 +220,8 @@ async def handle_group_message(message: Message, bot: Bot):
         if sub.get("ok"):
             # «Подписан» НЕ кешируем — юзер мог отписаться, гейт не должен его пропускать.
             log.info(
-                "chat_gate: gate=%s user=%s ALLOW in %.2fs",
-                gate["id"], user_id, time.monotonic() - t_start,
+                "chat_gate: gate=%s chat=%s user=%s ALLOW in %.2fs → SkipHandler",
+                gate["id"], chat_id_str, user_id, time.monotonic() - t_start,
             )
             # Подписчик прошёл гейт — сообщение валидно, пробрасываем его дальше
             # в chat_listener (контроль заданий + приветствия). Без SkipHandler
