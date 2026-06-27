@@ -274,6 +274,12 @@ async def handle_group_message(message: Message, bot: Bot):
                 log.warning("chat_gate: delete_message failed for gate=%s: %s", gate["id"], e)
 
         async def _do_warn():
+            # reply_to_message_id указывает на сообщение, которое мы тут же удаляем
+            # (_do_delete). Из-за гонки Telegram часто отвечает «message to be
+            # replied not found» — тогда предупреждение НЕ уходит, и человек видит
+            # лишь молчаливое удаление. Поэтому: пробуем с reply, а при этой ошибке
+            # шлём ОБЫЧНЫМ сообщением в чат (без reply) — предупреждение придёт всегда.
+            warn = None
             try:
                 warn = await bot.send_message(
                     chat_id=message.chat.id,
@@ -281,13 +287,30 @@ async def handle_group_message(message: Message, bot: Bot):
                     reply_to_message_id=message.message_id,
                     parse_mode=ParseMode.HTML,
                 )
+            except Exception as e:
+                low = str(e).lower()
+                if "reply" in low or "not found" in low:
+                    # сообщение-цель уже удалено — шлём без привязки
+                    try:
+                        warn = await bot.send_message(
+                            chat_id=message.chat.id,
+                            text=warning_text,
+                            parse_mode=ParseMode.HTML,
+                        )
+                    except Exception as e2:
+                        log.warning("chat_gate: send warning (no-reply) failed for gate=%s: %s", gate["id"], e2)
+                else:
+                    log.warning("chat_gate: send warning failed for gate=%s: %s", gate["id"], e)
+            if warn is not None:
                 asyncio.create_task(
                     _delete_later(bot, message.chat.id, warn.message_id, gate["warning_ttl_sec"])
                 )
-            except Exception as e:
-                log.warning("chat_gate: send warning failed for gate=%s: %s", gate["id"], e)
 
-        await asyncio.gather(_do_delete(), _do_warn())
+        # Сначала отправляем предупреждение (пытаясь reply на ещё-живое сообщение),
+        # ПОТОМ удаляем — так reply чаще успевает привязаться, а при сбое
+        # сработает фолбэк без reply. Порядок важен: не gather.
+        await _do_warn()
+        await _do_delete()
 
         log.info(
             "chat_gate: gate=%s user=%s DELETE+WARN in %.2fs (missing=%d)",
