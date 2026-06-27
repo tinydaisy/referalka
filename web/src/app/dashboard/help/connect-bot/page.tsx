@@ -172,19 +172,88 @@ export default function ConnectBotInstructionPage() {
         </div>
       </Section>
 
-      <Section step="5" title="Настроить Menu Button">
-        <p className="text-sm text-gray-700 mb-3">
-          Чтобы внизу чата с ботом появилась большая кнопка-вход вместо обычного <code>/</code>:
+      <Section step="5" title="Кнопка меню бота: приложение ИЛИ команды — выберите одно">
+        <p className="text-sm text-gray-700 mb-4">
+          У бота есть <strong>одна</strong> кнопка меню слева от поля ввода. Она может работать в
+          двух режимах — выберите тот, что вам нужен. <strong>Два режима одновременно не работают:</strong>{' '}
+          если включена кнопка-приложение, списка команд не будет, и наоборот.
         </p>
-        <ol className="text-sm text-gray-700 space-y-1.5 list-decimal pl-5">
-          <li>В @BotFather: <code>/mybots</code> → выбрать бота → <strong>«Bot Settings»</strong></li>
-          <li>Нажать <strong>«Menu Button»</strong> → <strong>«Configure menu button»</strong></li>
-          <li><strong>Текст кнопки:</strong> <code>Открыть iViSiON: ПЛЮСОН</code></li>
-          <li>
-            <strong>URL:</strong> вставьте эту ссылку →
-            <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
-          </li>
-        </ol>
+
+        {/* Вариант A — кнопка открывает Mini App */}
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 mb-4">
+          <div className="text-sm font-bold text-blue-900 mb-2">
+            Вариант A · Кнопка «Открыть приложение» (Mini App)
+          </div>
+          <p className="text-sm text-blue-900 mb-3">
+            Внизу чата — большая кнопка, по нажатию сразу открывается Mini App. Подходит, если
+            участник заходит только в приложение.
+          </p>
+          <ol className="text-sm text-blue-900 space-y-1.5 list-decimal pl-5 mb-1">
+            <li>В @BotFather: <code>/mybots</code> → выбрать бота → <strong>«Bot Settings»</strong></li>
+            <li>Нажать <strong>«Menu Button»</strong> → <strong>«Configure menu button»</strong></li>
+            <li><strong>Текст кнопки:</strong> <code>Открыть приложение</code> (или своё)</li>
+            <li>
+              <strong>URL:</strong> вставьте ссылку Mini App →
+              <div className="mt-2"><CopyBlock value={miniAppUrl} /></div>
+            </li>
+          </ol>
+        </div>
+
+        {/* Вариант B — меню команд */}
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <div className="text-sm font-bold text-emerald-900 mb-2">
+            Вариант B · Меню команд (<code>/app</code>, <code>/menu…</code>, <code>/support</code>)
+          </div>
+          <p className="text-sm text-emerald-900 mb-3">
+            Кнопка меню раскрывает список команд. Подходит, если хотите дать участнику несколько
+            быстрых действий: открыть приложение, перейти к конкретному событию, написать в поддержку.
+          </p>
+
+          <p className="text-sm font-semibold text-emerald-900 mb-1">Шаг 1 — выключить кнопку-приложение</p>
+          <ol className="text-sm text-emerald-900 space-y-1.5 list-decimal pl-5 mb-3">
+            <li>В @BotFather: <code>/mybots</code> → ваш бот → <strong>«Bot Settings»</strong> → <strong>«Menu Button»</strong></li>
+            <li>
+              Выбрать <strong>«Use default menu button (Commands)»</strong> — это вернёт обычную кнопку,
+              которая показывает список команд (а не открывает Mini App).
+            </li>
+          </ol>
+
+          <p className="text-sm font-semibold text-emerald-900 mb-1">Шаг 2 — задать сами команды</p>
+          <ol className="text-sm text-emerald-900 space-y-1.5 list-decimal pl-5 mb-3">
+            <li>В @BotFather отправьте команду <code>/setcommands</code></li>
+            <li>Выберите вашего бота</li>
+            <li>
+              Пришлите список команд — каждая строкой в формате <code>команда - описание</code>.
+              Пример (как настроено в боте <code>@ivision_conf_bot</code>):
+            </li>
+          </ol>
+
+          <CopyBlock value={`app - Открыть приложение\nmenu24 - Меню: Чемпионат спикеров Ж.И.В.У.\nsupport - Служба поддержки`} />
+
+          <div className="bg-white border border-emerald-200 rounded-xl p-3 text-sm text-emerald-900 mt-3 space-y-2">
+            <div><strong>Что это за команды:</strong></div>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><code>/app</code> — открывает Mini App (главный экран приложения).</li>
+              <li>
+                <code>/menu{'{ID события}'}</code> — открывает меню конкретного события
+                (кнопки: формат участия, кабинет·подарки, чат, эфир, поддержка).{' '}
+                <strong>{'{ID события}'}</strong> — это номер события из адреса его карточки
+                в дашборде: <code>…/tournaments/<u>24</u></code> → команда <code>/menu24</code>.
+              </li>
+              <li><code>/support</code> — единое сообщение со способами связи (служба поддержки).</li>
+            </ul>
+            <div className="pt-1">
+              <strong>Свои примеры под ваши события</strong> (поменяйте номер после <code>menu</code> на ID вашего события):
+            </div>
+            <CopyBlock value={`app - Открыть приложение\nmenu24 - Меню: Чемпионат спикеров\nmenu41 - Меню: Весенняя конференция\nsupport - Служба поддержки`} />
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 mt-3">
+            💡 ID события смотрите в адресной строке его карточки в дашборде — число после
+            <code className="mx-1">/events/</code>, <code className="mx-1">/conferences/</code>
+            или <code className="mx-1">/tournaments/</code>. Например <code>…/tournaments/24</code> → <code>/menu24</code>.
+          </div>
+        </div>
       </Section>
 
       <Section step="6" title="Прописать домен бота">

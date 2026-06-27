@@ -181,7 +181,6 @@ function StatsBlock({
               <th className="font-medium pb-2 pr-3">Площадка</th>
               <th className="font-medium pb-2 px-2 text-center">Зашло</th>
               <th className="font-medium pb-2 px-2 text-center">Зарегано</th>
-              <th className="font-medium pb-2 px-2 text-center">{clickLabel}</th>
               <th className="font-medium pb-2 px-2 text-center">В чате</th>
               <th className="font-medium pb-2 pl-3 text-center">Конверсия</th>
             </tr>
@@ -198,7 +197,6 @@ function StatsBlock({
                   </td>
                   <NumCell platform={r.key} stage="landed" value={r.s.landed} />
                   <NumCell platform={r.key} stage="registered" value={r.s.registered} />
-                  <NumCell platform={r.key} stage="attended" value={r.s.attended} />
                   <td className="py-1.5 px-2 text-center">
                     {/* «В чате» проверяется только в Telegram (getChatMember).
                         Для VK/MAX членство в беседе через API не получить → «—». */}
@@ -230,7 +228,7 @@ function StatsBlock({
         </table>
       </div>
       <p className="text-xs text-gray-400 mt-3">
-        Зашло — открыли событие. Зарегано — завершили регистрацию. {clickLabel} — дошли до эфира/действия.
+        Зашло — открыли событие. Зарегано — завершили регистрацию.
         В чате — состоят в Telegram-чате события (обновляется по кнопке «Проверить чаты»).
         Конверсия = зарегано ÷ зашло. Один человек попадает в строку каждой своей площадки, поэтому сумма по площадкам может быть больше «Всего».
       </p>
