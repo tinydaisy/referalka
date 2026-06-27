@@ -28,7 +28,9 @@ export default function LoginPage() {
       if (role === 'admin') {
         window.location.href = '/admin'
       } else {
-        window.location.href = '/dashboard/events'
+        // Через корень /dashboard — он сам решит: нет своего бота → «Каналы»
+        // (с плашкой «Подключите хотя бы 1 бот»), иначе → «Мероприятия».
+        window.location.href = '/dashboard'
       }
     } catch (err: any) {
       setError(err.message)

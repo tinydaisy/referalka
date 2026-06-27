@@ -39,8 +39,8 @@ export default function RegisterPage() {
       })
       localStorage.setItem('plusson_token', res.access_token)
       localStorage.removeItem('pluson_referrer_pid')  // pid использован
-      // Сразу ведём в «Каналы» — без своего бота сервис не работает (см. плашку там)
-      window.location.href = '/dashboard/channels'
+      // Через корень /dashboard — нет своего бота → «Каналы» (с плашкой), иначе → события
+      window.location.href = '/dashboard'
     } catch (err: any) {
       setError(err.message)
     } finally {
