@@ -86,6 +86,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   const [deletedDayNums, setDeletedDayNums] = useState<number[]>([])
   // Сессии, помеченные на удаление (реальные id) — реально удаляются при сохранении.
   const [deletedSessionIds, setDeletedSessionIds] = useState<number[]>([])
+  // Этапы, помеченные на удаление (реальные серверные id) — реально удаляются при сохранении.
+  const [deletedStageIds, setDeletedStageIds] = useState<number[]>([])
 
   // Активная вкладка-этап (id этапа, либо ORPHAN_TAB для «без группировки»).
   const [activeTab, setActiveTab] = useState<number | null>(null)
@@ -130,6 +132,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       })
       setDeletedDayNums([])
       setDeletedSessionIds([])
+      setDeletedStageIds([])
       // Выбираем активную вкладку: текущая (если ещё существует) → первый этап → орфаны.
       setActiveTab(prev => {
         const sortedIds = [...loadedStages].sort((a, b) => a.sort_order - b.sort_order).map(s => s.id)
@@ -148,7 +151,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   // ─── Признак «есть несохранённые изменения» ──────────────────────────────────
 
   const dirty = useMemo(() => {
-    if (deletedDayNums.length > 0 || deletedSessionIds.length > 0) return true
+    if (deletedDayNums.length > 0 || deletedSessionIds.length > 0 || deletedStageIds.length > 0) return true
     // новые/изменённые этапы
     if (stages.length !== serverSnap.stages.length) return true
     for (const s of stages) {
@@ -183,7 +186,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           s.day !== orig.day) return true
     }
     return false
-  }, [stages, days, sessions, serverSnap, deletedDayNums, deletedSessionIds])
+  }, [stages, days, sessions, serverSnap, deletedDayNums, deletedSessionIds, deletedStageIds])
 
   // ─── Этапы (локально) ─────────────────────────────────────────────────────────
 
@@ -197,12 +200,19 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     setActiveTab(id)
   }
 
+  // Помечает этап на удаление: если он уже есть на сервере (id>0) — добавляет в
+  // список на DELETE при сохранении. Новые (id<0) просто выкидываются локально.
+  function markStageDeleted(stageId: number) {
+    if (stageId > 0) setDeletedStageIds(prev => prev.includes(stageId) ? prev : [...prev, stageId])
+    setStages(prev => prev.filter(s => s.id !== stageId))
+    if (activeTab === stageId) setActiveTab(null)
+  }
+
   function deleteStage(stageId: number) {
     const stageDays = days.filter(d => d.stage_id === stageId)
     if (stageDays.length === 0) {
       if (!confirm('Удалить этап?')) return
-      setStages(prev => prev.filter(s => s.id !== stageId))
-      if (activeTab === stageId) setActiveTab(null)
+      markStageDeleted(stageId)
       return
     }
     const withDays = confirm(
@@ -217,8 +227,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       // Отвязываем дни от этапа (оставляем «без группировки»)
       setDays(prev => prev.map(d => d.stage_id === stageId ? { ...d, stage_id: null } : d))
     }
-    setStages(prev => prev.filter(s => s.id !== stageId))
-    if (activeTab === stageId) setActiveTab(null)
+    markStageDeleted(stageId)
   }
 
   function deleteAllOrphans() {
@@ -417,6 +426,12 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
         } else {
           await api.conference.sessions.update(eventId, s.id, payload)
         }
+      }
+
+      // 5) Удаляем помеченные этапы — В КОНЦЕ, когда их дни уже откреплены
+      //    (stage_id=null) или удалены, чтобы FK не помешал DELETE.
+      for (const stId of deletedStageIds) {
+        try { await api.conference.stages.delete(eventId, stId) } catch {}
       }
 
       await load()
