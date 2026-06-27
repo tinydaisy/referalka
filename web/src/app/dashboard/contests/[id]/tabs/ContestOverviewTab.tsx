@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { Save } from 'lucide-react'
 import { api } from '@/lib/api'
 import PublicLinks from '@/components/PublicLinks'
-import EventChatsField, { EventChatsValue, ChatPlatform } from '@/components/EventChatsField'
 
 export default function ContestOverviewTab({
   event, eventId, onReload,
@@ -19,15 +18,6 @@ export default function ContestOverviewTab({
   // (то же поле, что у мероприятий — там оно для ZOOM/стрима). Mini App
   // в режиме контестa показывает её плиткой «Перейти к голосованию».
   const [votingUrl, setVotingUrl] = useState(event.stream_url || '')
-  const [chats, setChats] = useState<EventChatsValue>({
-    tg:  event.chat_url_tg  || (event.primary_chat_platform === 'telegram' ? (event.chat_url || '') : ''),
-    vk:  event.chat_url_vk  || '',
-    max: event.chat_url_max || '',
-    primary: (event.primary_chat_platform as ChatPlatform | null) || (event.chat_url ? 'telegram' : null),
-    tgChatId: event.tg_chat_id || '',
-    vkChatId: event.vk_chat_id || '',
-    maxChatId: event.max_chat_id || '',
-  })
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [saving, setSaving] = useState(false)
@@ -53,19 +43,6 @@ export default function ContestOverviewTab({
       if (dpr !== (event.description_post_register || ''))      payload.description_post_register = dpr || null
       const v = votingUrl.trim()
       if (v !== (event.stream_url || ''))                       payload.stream_url = v || null
-      const tg  = chats.tg.trim()
-      const vk  = chats.vk.trim()
-      const mx  = chats.max.trim()
-      if (tg  !== (event.chat_url_tg  || ''))                   payload.chat_url_tg  = tg  || null
-      if (vk  !== (event.chat_url_vk  || ''))                   payload.chat_url_vk  = vk  || null
-      if (mx  !== (event.chat_url_max || ''))                   payload.chat_url_max = mx  || null
-      const initPrimary = (event.primary_chat_platform as ChatPlatform | null) || null
-      if (chats.primary !== initPrimary)                        payload.primary_chat_platform = chats.primary || null
-      // chat_id беседы для слушалки заданий (TG/VK/MAX)
-      const tgci = (chats.tgChatId || '').trim(), vkci = (chats.vkChatId || '').trim(), mxci = (chats.maxChatId || '').trim()
-      if (tgci !== (event.tg_chat_id  || ''))                   payload.tg_chat_id  = tgci || null
-      if (vkci !== (event.vk_chat_id  || ''))                   payload.vk_chat_id  = vkci || null
-      if (mxci !== (event.max_chat_id || ''))                   payload.max_chat_id = mxci || null
       const startIso = startAt ? new Date(startAt).toISOString() : null
       const eventStartIso = event.start_at ? new Date(event.start_at).toISOString() : null
       if (startIso !== eventStartIso)                           payload.start_at = startIso
@@ -141,8 +118,6 @@ export default function ContestOverviewTab({
             <input value={votingUrl} onChange={e => setVotingUrl(e.target.value)}
                    className="input" placeholder="https://forbes.ru/vote/..." />
           </Field>
-
-          <EventChatsField value={chats} onChange={setChats} />
         </div>
       </div>
 

@@ -54,15 +54,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     subscription_mode: conf?.subscription_mode || 'none',
     skip_contact_form: !!event?.skip_contact_form,
   })
-  // Чаты события — отдельный state (3 URL + radio + chat-IDs).
+  // Чаты события — ref на записи client_broadcast_chats + radio (primary).
   const [chats, setChats] = useState<EventChatsValue>({
-    tg:  conf?.chat_url_tg  || (conf?.primary_chat_platform === 'telegram' ? (conf?.chat_url || '') : ''),
-    vk:  conf?.chat_url_vk  || '',
-    max: conf?.chat_url_max || '',
-    primary: (conf?.primary_chat_platform as ChatPlatform | null) || (conf?.chat_url ? 'telegram' : null),
-    tgChatId: conf?.tg_chat_id || '',
-    vkChatId: conf?.vk_chat_id || '',
-    maxChatId: conf?.max_chat_id || '',
+    tgChatRef:  conf?.tg_chat_ref  ?? null,
+    vkChatRef:  conf?.vk_chat_ref  ?? null,
+    maxChatRef: conf?.max_chat_ref ?? null,
+    primary: (conf?.primary_chat_platform as ChatPlatform | null) || null,
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -84,13 +81,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       skip_contact_form: !!event?.skip_contact_form,
     }))
     setChats({
-      tg:  conf?.chat_url_tg  || (conf?.primary_chat_platform === 'telegram' ? (conf?.chat_url || '') : ''),
-      vk:  conf?.chat_url_vk  || '',
-      max: conf?.chat_url_max || '',
-      primary: (conf?.primary_chat_platform as ChatPlatform | null) || (conf?.chat_url ? 'telegram' : null),
-      tgChatId: conf?.tg_chat_id || '',
-      vkChatId: conf?.vk_chat_id || '',
-      maxChatId: conf?.max_chat_id || '',
+      tgChatRef:  conf?.tg_chat_ref  ?? null,
+      vkChatRef:  conf?.vk_chat_ref  ?? null,
+      maxChatRef: conf?.max_chat_ref ?? null,
+      primary: (conf?.primary_chat_platform as ChatPlatform | null) || null,
     })
   }, [conf, event?.landing_url, event?.skip_contact_form, event?.description, event?.description_post_register])
 
@@ -127,18 +121,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.accent_button !== initAccent)                           confPatch.accent_button = form.accent_button
       if (form.raffle_url !== (conf?.raffle_url || ''))                confPatch.raffle_url = form.raffle_url || null
       if (form.subscription_mode !== (conf?.subscription_mode || 'none')) confPatch.subscription_mode = form.subscription_mode
-      // Чаты события — 3 URL + primary
-      const tg = chats.tg.trim(), vk = chats.vk.trim(), mx = chats.max.trim()
+      // Чаты события — ref на записи client_broadcast_chats + primary
       const initPrimary = (conf?.primary_chat_platform as ChatPlatform | null) || null
-      if (tg !== (conf?.chat_url_tg  || ''))                           confPatch.chat_url_tg  = tg || null
-      if (vk !== (conf?.chat_url_vk  || ''))                           confPatch.chat_url_vk  = vk || null
-      if (mx !== (conf?.chat_url_max || ''))                           confPatch.chat_url_max = mx || null
+      if (chats.tgChatRef  !== (conf?.tg_chat_ref  ?? null))           confPatch.tg_chat_ref  = chats.tgChatRef
+      if (chats.vkChatRef  !== (conf?.vk_chat_ref  ?? null))           confPatch.vk_chat_ref  = chats.vkChatRef
+      if (chats.maxChatRef !== (conf?.max_chat_ref ?? null))           confPatch.max_chat_ref = chats.maxChatRef
       if (chats.primary !== initPrimary)                               confPatch.primary_chat_platform = chats.primary || null
-      // chat_id беседы для слушалки заданий (TG/VK/MAX)
-      const tgci = (chats.tgChatId || '').trim(), vkci = (chats.vkChatId || '').trim(), mxci = (chats.maxChatId || '').trim()
-      if (tgci !== (conf?.tg_chat_id  || ''))                          confPatch.tg_chat_id  = tgci || null
-      if (vkci !== (conf?.vk_chat_id  || ''))                          confPatch.vk_chat_id  = vkci || null
-      if (mxci !== (conf?.max_chat_id || ''))                          confPatch.max_chat_id = mxci || null
 
       if (Object.keys(confPatch).length > 0) {
         const updated = await api.conference.update(eventId, confPatch)

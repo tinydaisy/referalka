@@ -99,4 +99,13 @@ CREATE INDEX IF NOT EXISTS events_tg_chat_ref_idx  ON events (tg_chat_ref)  WHER
 CREATE INDEX IF NOT EXISTS events_vk_chat_ref_idx  ON events (vk_chat_ref)  WHERE vk_chat_ref  IS NOT NULL;
 CREATE INDEX IF NOT EXISTS events_max_chat_ref_idx ON events (max_chat_ref) WHERE max_chat_ref IS NOT NULL;
 
--- DROP старых колонок — добавляется в КОНЦЕ после grep-проверки кода (см. ниже).
+-- DROP старых колонок. Проверено 3× grep'ом: tg_chat_id/vk_chat_id/max_chat_id/
+-- chat_url_tg/vk/max/chat_url нигде не читаются напрямую из БД — только через
+-- ref-подзапросы на client_broadcast_chats. primary_chat_platform НЕ трогаем.
+ALTER TABLE events DROP COLUMN IF EXISTS tg_chat_id;
+ALTER TABLE events DROP COLUMN IF EXISTS vk_chat_id;
+ALTER TABLE events DROP COLUMN IF EXISTS max_chat_id;
+ALTER TABLE events DROP COLUMN IF EXISTS chat_url_tg;
+ALTER TABLE events DROP COLUMN IF EXISTS chat_url_vk;
+ALTER TABLE events DROP COLUMN IF EXISTS chat_url_max;
+ALTER TABLE events DROP COLUMN IF EXISTS chat_url;

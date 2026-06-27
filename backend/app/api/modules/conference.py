@@ -111,7 +111,16 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
     conf = await db.fetchrow("SELECT * FROM conf_conferences WHERE event_id = $1", event_id)
     if not conf:
         return
-    event = await db.fetchrow("SELECT * FROM events WHERE id = $1", event_id)
+    event = await db.fetchrow(
+        """SELECT e.*,
+                  (SELECT chat_url FROM client_broadcast_chats
+                     WHERE id = CASE e.primary_chat_platform
+                                  WHEN 'vk'  THEN e.vk_chat_ref
+                                  WHEN 'max' THEN e.max_chat_ref
+                                  ELSE e.tg_chat_ref END) AS chat_url
+             FROM events e WHERE e.id = $1""",
+        event_id,
+    )
     # Спикеры: JOIN глобальной базы + данных участия в событии
     speakers = await db.fetch(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
@@ -237,10 +246,10 @@ class ConferenceUpdate(BaseModel):
     # chat_url, stream_url, vip_url пишутся в events, не conf_conferences —
     # источник истины один. Оставлены здесь как поля, чтобы фронт мог
     # отправить их в одном PATCH со всеми остальными настройками.
-    chat_url: Optional[str] = None
-    chat_url_tg: Optional[str] = None
-    chat_url_vk: Optional[str] = None
-    chat_url_max: Optional[str] = None
+    # Чаты события — ссылки на client_broadcast_chats (миграция 174)
+    tg_chat_ref: Optional[int] = None
+    vk_chat_ref: Optional[int] = None
+    max_chat_ref: Optional[int] = None
     primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     stream_url: Optional[str] = None
     vip_url: Optional[str] = None
@@ -257,9 +266,6 @@ class ConferenceUpdate(BaseModel):
     status: Optional[str] = None
     test_telegram_ids: Optional[List[str]] = None
     raffle_url: Optional[str] = None
-    tg_chat_id: Optional[str] = None            # chat_id TG-беседы события (слушалка заданий)
-    vk_chat_id: Optional[str] = None            # chat_id ВК-беседы события (слушалка заданий)
-    max_chat_id: Optional[str] = None           # chat_id МАХ-беседы события (слушалка заданий)
     chat_greeting_enabled: Optional[bool] = None  # приветствие в чатах (миграция 163)
     chat_greeting_keyword: Optional[str] = None   # кодовое слово приветствия
     chat_greeting_exact: Optional[bool] = None    # точное / любое вхождение
@@ -277,10 +283,14 @@ async def get_conference(
         SELECT cc.*, e.title as event_title,
                e.slug        AS event_slug,
                e.status      AS event_status,
-               e.chat_url    AS event_chat_url,
-               e.chat_url_tg  AS event_chat_url_tg,
-               e.chat_url_vk  AS event_chat_url_vk,
-               e.chat_url_max AS event_chat_url_max,
+               (SELECT chat_url FROM client_broadcast_chats
+                  WHERE id = CASE e.primary_chat_platform
+                               WHEN 'vk'  THEN e.vk_chat_ref
+                               WHEN 'max' THEN e.max_chat_ref
+                               ELSE e.tg_chat_ref END) AS event_chat_url,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_chat_url_tg,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_chat_url_vk,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_chat_url_max,
                e.primary_chat_platform AS event_primary_chat_platform,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
@@ -290,9 +300,10 @@ async def get_conference(
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
-               e.tg_chat_id AS event_tg_chat_id,
-               e.vk_chat_id AS event_vk_chat_id,
-               e.max_chat_id AS event_max_chat_id,
+               (SELECT chat_id FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_tg_chat_id,
+               (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
+               (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
+               e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
                e.link_mode AS event_link_mode
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
@@ -361,12 +372,12 @@ async def update_conference(
     raw = data.model_dump(exclude_unset=True)
     # Поля, которые живут в events (не в conf_conferences) — единый источник истины.
     EVENT_FIELDS = (
-        "chat_url", "chat_url_tg", "chat_url_vk", "chat_url_max",
         "primary_chat_platform",
         "stream_url", "vip_url", "vip_button_label", "offer_url",
         "chat_button_label", "accent_button", "hide_stream_button",
         "link_mode",
-        "tg_chat_id", "vk_chat_id", "max_chat_id",
+        # Чаты события — ссылки на client_broadcast_chats (миграция 174)
+        "tg_chat_ref", "vk_chat_ref", "max_chat_ref",
         "chat_greeting_enabled", "chat_greeting_keyword", "chat_greeting_exact",
     )
     sent = data.model_dump(exclude_unset=True)
@@ -392,11 +403,7 @@ async def update_conference(
             f"UPDATE events SET {', '.join(set_parts)} WHERE id = $1",
             event_id, *event_updates.values()
         )
-        # chat_url — legacy shadow. После UPDATE chat_url_* / primary
-        # пересчитываем chat_url = chat_url_<primary>.
-        if any(k in event_updates for k in ("chat_url_tg", "chat_url_vk", "chat_url_max", "primary_chat_platform")):
-            from ..events import _refresh_chat_url_shadow
-            await _refresh_chat_url_shadow(db, event_id)
+        # (chat_url теперь вычисляется из ref при чтении — shadow-пересчёт не нужен)
 
     await regenerate_landing_data(event_id, db)
     # Возвращаем тот же обогащённый объект что и в GET /conference/ —
@@ -406,10 +413,14 @@ async def update_conference(
     conf = await db.fetchrow(
         """
         SELECT cc.*, e.title AS event_title,
-               e.chat_url    AS event_chat_url,
-               e.chat_url_tg  AS event_chat_url_tg,
-               e.chat_url_vk  AS event_chat_url_vk,
-               e.chat_url_max AS event_chat_url_max,
+               (SELECT chat_url FROM client_broadcast_chats
+                  WHERE id = CASE e.primary_chat_platform
+                               WHEN 'vk'  THEN e.vk_chat_ref
+                               WHEN 'max' THEN e.max_chat_ref
+                               ELSE e.tg_chat_ref END) AS event_chat_url,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_chat_url_tg,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_chat_url_vk,
+               (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_chat_url_max,
                e.primary_chat_platform AS event_primary_chat_platform,
                e.stream_url  AS event_stream_url,
                e.vip_url     AS event_vip_url,
@@ -419,9 +430,10 @@ async def update_conference(
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
-               e.tg_chat_id AS event_tg_chat_id,
-               e.vk_chat_id AS event_vk_chat_id,
-               e.max_chat_id AS event_max_chat_id,
+               (SELECT chat_id FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS event_tg_chat_id,
+               (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
+               (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
+               e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
                e.link_mode AS event_link_mode
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id

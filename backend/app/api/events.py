@@ -100,13 +100,6 @@ class UpdateEventRequest(BaseModel):
     # Оферта мероприятия (миграция 157) — одна на событие, ссылкой.
     offer_url: Optional[str] = None
     # Чат события — отдельная ссылка на каждую платформу + выбор главной.
-    # chat_url оставлено как legacy shadow: при PATCH chat_url_* / primary
-    # бэк сам пересчитывает его = chat_url_<primary>. Старые места кода
-    # (broadcast templates, public landing) продолжают читать его как раньше.
-    chat_url: Optional[str] = None
-    chat_url_tg: Optional[str] = None
-    chat_url_vk: Optional[str] = None
-    chat_url_max: Optional[str] = None
     primary_chat_platform: Optional[str] = None   # 'telegram' | 'vk' | 'max'
     chat_subscriptions_required: Optional[bool] = None
     chat_member_count_label: Optional[str] = None
@@ -115,11 +108,11 @@ class UpdateEventRequest(BaseModel):
     # Какая из главных кнопок красная: 'vip' | 'chat' | 'none' (миграция 117).
     # NULL = 'vip' (обратная совместимость).
     accent_button: Optional[str] = None
-    # chat_id чатов СОБЫТИЯ для слушалки заданий и проверки членства.
-    # Узнаётся командой /chatid в самой беседе.
-    tg_chat_id: Optional[str] = None
-    vk_chat_id: Optional[str] = None
-    max_chat_id: Optional[str] = None
+    # Чаты события — ссылки на client_broadcast_chats (база чатов клиента).
+    # Один чат на платформу. chat_id и chat_url берутся JOIN-ом из базы (миграция 174).
+    tg_chat_ref: Optional[int] = None
+    vk_chat_ref: Optional[int] = None
+    max_chat_ref: Optional[int] = None
     # Приветствие в чатах (миграция 163): включатель + кодовое слово. Бот ловит
     # кодовое слово в сообщении чата события (TG/VK/MAX) и отвечает reply'ем
     # случайной фразой из набора event_chat_greetings.
@@ -138,6 +131,9 @@ class UpdateEventRequest(BaseModel):
     welcome_enabled: Optional[bool] = None
     welcome_text: Optional[str] = None
     welcome_email_subject: Optional[str] = None
+    # Текст меню события в чат-боте (миграция 175). NULL = дефолт из кода.
+    # Плейсхолдер {title} → название события. См. send_event_menu.
+    bot_menu_text: Optional[str] = None
     # Общее видео события (миграция 113). Для скачивания спикерами на странице
     # самоправки → вкладка «Материалы».
     video_url: Optional[str] = None
@@ -283,9 +279,30 @@ _POSTER_SUBQ = """(
 ) AS poster_url"""
 
 
+# Чаты события — читаются через ссылки на client_broadcast_chats (миграция 174).
+# Алиасы сохранены прежние (chat_url / chat_url_tg/vk/max / tg/vk/max_chat_id),
+# чтобы фронт и остальной код, читающий row["chat_url_tg"] и т.п., не менялись.
+# chat_url — legacy shadow: chat_url выбранной primary-платформы.
+_CHAT_SUBQ = """
+    (SELECT chat_url FROM client_broadcast_chats
+       WHERE id = CASE e.primary_chat_platform
+                    WHEN 'vk'  THEN e.vk_chat_ref
+                    WHEN 'max' THEN e.max_chat_ref
+                    ELSE e.tg_chat_ref END) AS chat_url,
+    (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
+    (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
+    (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
+    (SELECT chat_id  FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_id,
+    (SELECT chat_id  FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_id,
+    (SELECT chat_id  FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_id,
+    (SELECT title    FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS tg_chat_title,
+    (SELECT title    FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_title,
+    (SELECT title    FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_title"""
+
+
 @router.get("/slug/{slug}", summary="Получить событие по slug")
 async def get_event_by_slug(slug: str, db: asyncpg.Connection = Depends(get_db)):
-    event = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.slug = $1", slug)
+    event = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.slug = $1", slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
     return {"event": dict(event)}
@@ -346,7 +363,7 @@ async def get_event(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $2 AND eo.status='accepted')",
+        f"SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = e.id AND eo.client_id = $2 AND eo.status='accepted')",
         event_id, client_id
     )
     if not event:
@@ -420,33 +437,18 @@ async def update_event(
         event_id, *values
     )
 
-    # chat_url — legacy shadow поле. После PATCH chat_url_* / primary
-    # пересчитываем его = chat_url_<primary>. Если primary пустой ИЛИ
-    # соответствующее поле пустое — chat_url становится NULL.
-    if any(k in updates for k in ("chat_url_tg", "chat_url_vk", "chat_url_max", "primary_chat_platform")):
-        await _refresh_chat_url_shadow(db, event_id)
-
-    updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ} FROM events e WHERE e.id = $1", event_id)
+    updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.id = $1", event_id)
     return {"event": dict(updated)}
 
 
 async def _refresh_chat_url_shadow(db: asyncpg.Connection, event_id: int) -> None:
-    """Синхронизирует events.chat_url с chat_url_<primary> для обратной
-    совместимости. Вызывается после UPDATE chat_url_* / primary_chat_platform.
+    """No-op (миграция 174). Раньше синхронизировала legacy-колонку
+    events.chat_url с chat_url_<primary>. Теперь чат события хранится ссылками
+    (tg/vk/max_chat_ref → client_broadcast_chats), а chat_url вычисляется на
+    чтении (см. _CHAT_SUBQ). Функция оставлена, чтобы не ломать импорт
+    в modules/conference.py.
     """
-    await db.execute(
-        """UPDATE events
-              SET chat_url = NULLIF(
-                  CASE primary_chat_platform
-                    WHEN 'telegram' THEN chat_url_tg
-                    WHEN 'vk'       THEN chat_url_vk
-                    WHEN 'max'      THEN chat_url_max
-                    ELSE NULL
-                  END, ''
-              )
-            WHERE id = $1""",
-        event_id,
-    )
+    return
 
 
 @router.post("/{event_id}/copy", summary="Скопировать событие со всеми настройками")
@@ -478,7 +480,7 @@ async def copy_event(
                   start_at, end_at,
                   webhook_url, module_slug, points_free, points_paid, points_scope,
                   require_subscription, status,
-                  chat_url, chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform,
+                  tg_chat_ref, vk_chat_ref, max_chat_ref, primary_chat_platform,
                   stream_url, vip_url, vip_button_label,
                   chat_subscriptions_required, chat_member_count_label,
                   chat_button_label, accent_button,
@@ -487,11 +489,11 @@ async def copy_event(
                        NULL,NULL,
                        $7,$8,$9,$10,$11,
                        $12,'draft',
-                       $13,$14,$15,$16,$17,
-                       $18,$19,$20,
-                       $21,$22,
-                       $23,$24,
-                       $25)
+                       $13,$14,$15,$16,
+                       $17,$18,$19,
+                       $20,$21,
+                       $22,$23,
+                       $24)
                RETURNING *""",
             new_slug, new_title, src['description'],
             src.get('description_post_register'),
@@ -500,8 +502,7 @@ async def copy_event(
             src['webhook_url'], src['module_slug'],
             src['points_free'], src['points_paid'], src['points_scope'],
             src['require_subscription'],
-            src.get('chat_url'),
-            src.get('chat_url_tg'), src.get('chat_url_vk'), src.get('chat_url_max'),
+            src.get('tg_chat_ref'), src.get('vk_chat_ref'), src.get('max_chat_ref'),
             src.get('primary_chat_platform'),
             src.get('stream_url'), src.get('vip_url'),
             src.get('vip_button_label'),

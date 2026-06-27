@@ -1149,7 +1149,9 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
                     WHERE eo.event_id = e.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS default_link_mode,
                   vip_url, vip_button_label, hide_stream_button,
-                  chat_url_tg, chat_url_vk, chat_url_max,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
                   (SELECT url FROM event_posters
                      WHERE event_id = e.id
                      ORDER BY CASE orientation

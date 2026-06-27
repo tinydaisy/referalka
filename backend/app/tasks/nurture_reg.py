@@ -71,8 +71,11 @@ async def build_chats_block(db: asyncpg.Connection, *, event_id: int, html: bool
     html=False → для VK (plain): «Телеграм (главный) — <url>»
     """
     row = await db.fetchrow(
-        """SELECT chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform
-             FROM events WHERE id = $1""",
+        """SELECT (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
+                  primary_chat_platform
+             FROM events e WHERE e.id = $1""",
         event_id,
     )
     if not row:

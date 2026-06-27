@@ -703,7 +703,14 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    CASE WHEN e.module_slug IN ('conference','turnir')
                         THEN cd.end_at   ELSE e.end_at   END AS end_at,
                    e.vip_url, e.vip_button_label,
-                   e.chat_url, e.chat_url_tg, e.chat_url_vk, e.chat_url_max,
+                   (SELECT chat_url FROM client_broadcast_chats
+                      WHERE id = CASE e.primary_chat_platform
+                                   WHEN 'vk'  THEN e.vk_chat_ref
+                                   WHEN 'max' THEN e.max_chat_ref
+                                   ELSE e.tg_chat_ref END) AS chat_url,
+                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
+                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
+                   (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
                    e.primary_chat_platform,
                    e.chat_member_count_label, e.chat_button_label, e.accent_button,
                    e.require_subscription,

@@ -1165,7 +1165,9 @@ async def handle_vk_event(body: VkEventRequest):
 _EVENT_FUNNEL_FIELDS = """
     e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.module_slug, e.status,
     e.landing_url, e.vip_url, e.vip_button_label,
-    e.chat_url_tg, e.chat_url_vk, e.chat_url_max,
+    (SELECT chat_url FROM client_broadcast_chats WHERE id = e.tg_chat_ref) AS chat_url_tg,
+    (SELECT chat_url FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS chat_url_vk,
+    (SELECT chat_url FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS chat_url_max,
     (SELECT url FROM event_posters
        WHERE event_id = e.id
        ORDER BY CASE orientation

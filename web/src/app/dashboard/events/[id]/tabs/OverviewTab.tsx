@@ -24,13 +24,10 @@ export default function OverviewTab({
   const [streamUrl, setStreamUrl] = useState(event.stream_url || event.address || '')
   const [hideStreamButton, setHideStreamButton] = useState<boolean>(!!event.hide_stream_button)
   const [chats, setChats] = useState<EventChatsValue>({
-    tg:  event.chat_url_tg  || (event.primary_chat_platform === 'telegram' ? (event.chat_url || '') : ''),
-    vk:  event.chat_url_vk  || '',
-    max: event.chat_url_max || '',
-    primary: (event.primary_chat_platform as ChatPlatform | null) || (event.chat_url ? 'telegram' : null),
-    tgChatId: event.tg_chat_id || '',
-    vkChatId: event.vk_chat_id || '',
-    maxChatId: event.max_chat_id || '',
+    tgChatRef:  event.tg_chat_ref  ?? null,
+    vkChatRef:  event.vk_chat_ref  ?? null,
+    maxChatRef: event.max_chat_ref ?? null,
+    primary: (event.primary_chat_platform as ChatPlatform | null) || null,
   })
   const [vipUrl, setVipUrl] = useState(event.vip_url || '')
   const [vipButtonLabel, setVipButtonLabel] = useState(event.vip_button_label || '')
@@ -70,19 +67,12 @@ export default function OverviewTab({
       const initStream = event.stream_url || event.address || ''
       if (su !== initStream)                                    payload.stream_url = su || null
       if (hideStreamButton !== !!event.hide_stream_button)      payload.hide_stream_button = hideStreamButton
-      const tg  = chats.tg.trim()
-      const vk  = chats.vk.trim()
-      const mx  = chats.max.trim()
-      if (tg  !== (event.chat_url_tg  || ''))                   payload.chat_url_tg  = tg  || null
-      if (vk  !== (event.chat_url_vk  || ''))                   payload.chat_url_vk  = vk  || null
-      if (mx  !== (event.chat_url_max || ''))                   payload.chat_url_max = mx  || null
+      // Чаты события — ref на записи client_broadcast_chats + primary
+      if (chats.tgChatRef  !== (event.tg_chat_ref  ?? null))    payload.tg_chat_ref  = chats.tgChatRef
+      if (chats.vkChatRef  !== (event.vk_chat_ref  ?? null))    payload.vk_chat_ref  = chats.vkChatRef
+      if (chats.maxChatRef !== (event.max_chat_ref ?? null))    payload.max_chat_ref = chats.maxChatRef
       const initPrimary = (event.primary_chat_platform as ChatPlatform | null) || null
       if (chats.primary !== initPrimary)                        payload.primary_chat_platform = chats.primary || null
-      // chat_id беседы для слушалки заданий (TG/VK/MAX)
-      const tgci = (chats.tgChatId || '').trim(), vkci = (chats.vkChatId || '').trim(), mxci = (chats.maxChatId || '').trim()
-      if (tgci !== (event.tg_chat_id  || ''))                   payload.tg_chat_id  = tgci || null
-      if (vkci !== (event.vk_chat_id  || ''))                   payload.vk_chat_id  = vkci || null
-      if (mxci !== (event.max_chat_id || ''))                   payload.max_chat_id = mxci || null
       const v = vipUrl.trim()
       if (v !== (event.vip_url || ''))                          payload.vip_url = v || null
       const vbl = vipButtonLabel.trim()

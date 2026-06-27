@@ -127,7 +127,10 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
                       (SELECT eo.client_id FROM event_owners eo
                         WHERE eo.event_id = events.id AND eo.status = 'accepted'
                         ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
-                      chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform
+                      (SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg,
+                      (SELECT chat_url FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS chat_url_vk,
+                      (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
+                      primary_chat_platform
                  FROM events WHERE id = $1 LIMIT 1""",
             event_id,
         )

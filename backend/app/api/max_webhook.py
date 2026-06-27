@@ -1217,7 +1217,9 @@ async def _send_max_event_menu(
                     WHERE eo.event_id = events.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                   vip_url, vip_button_label,
-                  chat_url_tg, chat_url_vk, chat_url_max,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS chat_url_vk,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
                   stream_url, hide_stream_button, start_at,
                   (SELECT url FROM event_posters
                      WHERE event_id = events.id
@@ -1408,7 +1410,11 @@ async def _handle_max_chat_join(
     каналы по ролям и проверять подписку.
     """
     ev = await conn.fetchrow(
-        """SELECT id, chat_url_tg, chat_url_vk, chat_url_max, primary_chat_platform
+        """SELECT id,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS chat_url_vk,
+                  (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
+                  primary_chat_platform
              FROM events WHERE id = $1 LIMIT 1""",
         event_id,
     )

@@ -1092,7 +1092,10 @@ async def _chat_listen_status(event_id: int, db: asyncpg.Connection) -> list[dic
     """
     import json as _json
     ev = await db.fetchrow(
-        "SELECT tg_chat_id, vk_chat_id, max_chat_id, chat_listen_check FROM events WHERE id=$1", event_id)
+        """SELECT (SELECT chat_id FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS tg_chat_id,
+                  (SELECT chat_id FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS vk_chat_id,
+                  (SELECT chat_id FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS max_chat_id,
+                  chat_listen_check FROM events WHERE id=$1""", event_id)
     # Сохранённые результаты последней проверки (по платформам), чтобы статус
     # «прилипал» после перезагрузки страницы, а не сбрасывался в «не проверено».
     raw = ev["chat_listen_check"] if ev else None
@@ -1220,13 +1223,17 @@ async def task_control_verify_chat(
     await _check_access(event_id, int(client["sub"]), db)
     cid_client = int(client["sub"])
 
-    col = {"telegram": "tg_chat_id", "vk": "vk_chat_id", "max": "max_chat_id"}.get(platform)
-    if not col:
+    ref_col = {"telegram": "tg_chat_ref", "vk": "vk_chat_ref", "max": "max_chat_ref"}.get(platform)
+    if not ref_col:
         raise HTTPException(status_code=422, detail="Неверная площадка")
     import json as _json
     from datetime import datetime, timezone
 
-    chat_id = await db.fetchval(f"SELECT {col} FROM events WHERE id=$1", event_id)
+    chat_id = await db.fetchval(
+        f"SELECT (SELECT chat_id FROM client_broadcast_chats WHERE id = events.{ref_col}) "
+        f"FROM events WHERE id=$1",
+        event_id,
+    )
     chat_id = (chat_id or "").strip()
 
     async def _save_and_return(result: dict):
