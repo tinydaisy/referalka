@@ -113,14 +113,29 @@ async def main() -> None:
     else:
         logger.warning("TELEGRAM_BOT_TOKEN не задан — основной бот не запустится")
 
-    # VIP-боты клиентов
+    # VIP-боты клиентов — грузим ПАРАЛЛЕЛЬНО.
+    # ⚠️ Свежесозданный бот Telegram первые минуты иногда отвечает на getMe с
+    # большой задержкой/таймаутом (прогрев на стороне Telegram). При
+    # последовательной загрузке один зависший getMe блокировал старт ВСЕХ
+    # последующих ботов и затягивал запуск. asyncio.gather делает каждый getMe
+    # независимым — зависший бот не мешает остальным, а ретраи в _make_bot
+    # дают ему дополнительные попытки.
+    vip: list[tuple[str, str]] = []
     for label, token in await _load_vip_tokens():
         if token in seen_tokens:
             continue
         seen_tokens.add(token)
-        b = await _make_bot(token, label)
-        if b:
-            bots.append(b)
+        vip.append((label, token))
+    if vip:
+        results = await asyncio.gather(
+            *[_make_bot(token, label) for label, token in vip],
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, Bot):
+                bots.append(r)
+            elif isinstance(r, Exception):
+                logger.warning("VIP-бот не запущен (исключение): %s", r)
 
     if not bots:
         logger.error("Нет ни одного бота для запуска — выходим")
