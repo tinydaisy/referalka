@@ -310,8 +310,19 @@ export default function SpeakerCabinetPage() {
         media_assets: Array.isArray(me.media_assets) ? me.media_assets : [],
       }
       if (me.show_gift_after_speech_field) {
-        payload.gift_after_speech_title = me.gift_after_speech_title
-        payload.gift_after_speech_url = me.gift_after_speech_url
+        // Подарок взаимоисключающий: ручной ИЛИ из ПЛЮСОНа. При сохранении
+        // ручного — обнуляем ПЛЮСОН-подарок (иначе в БД остаются оба и шаблон
+        // подставляет не то). Источник запоминаем по giftSource.
+        if (giftSource === 'manual') {
+          payload.gift_after_speech_title = me.gift_after_speech_title
+          payload.gift_after_speech_url = me.gift_after_speech_url
+          payload.gift_lead_magnet_id = null
+          payload.gift_package_id = null
+        } else {
+          // источник ПЛЮСОН — ручной текст не сохраняем (магнит сохранён через pickGiftMagnet)
+          payload.gift_after_speech_title = null
+          payload.gift_after_speech_url = null
+        }
       }
       if (me.raffle_enabled) {
         payload.gift_raffle_title = me.gift_raffle_title
@@ -502,19 +513,21 @@ export default function SpeakerCabinetPage() {
     setMyMagnets(null)
   }
 
-  // Выбор магнита/пакета из списка → сохраняем сразу
+  // Выбор магнита/пакета из списка → сохраняем сразу.
+  // Подарок взаимоисключающий: выбор ПЛЮСОН-магнита обнуляет ручной текст.
   const pickGiftMagnet = async (val: string) => {
     if (!token) return
-    let body: any = { gift_lead_magnet_id: 0 } // снять
+    // снять выбор: обнуляем оба ПЛЮСОН-поля; ручной не трогаем (его источник свой)
+    let body: any = { gift_lead_magnet_id: 0, gift_package_id: 0 }
     let chosen: SpeakerMe['gift_lead_magnet'] = null
     if (val.startsWith('m:')) {
       const id = parseInt(val.slice(2), 10)
-      body = { gift_lead_magnet_id: id }
+      body = { gift_lead_magnet_id: id, gift_package_id: 0, gift_after_speech_title: null, gift_after_speech_url: null }
       const m = myMagnets?.magnets.find((x) => x.id === id)
       if (m) chosen = { kind: 'magnet', id, name: m.name }
     } else if (val.startsWith('p:')) {
       const id = parseInt(val.slice(2), 10)
-      body = { gift_package_id: id }
+      body = { gift_package_id: id, gift_lead_magnet_id: 0, gift_after_speech_title: null, gift_after_speech_url: null }
       const p = myMagnets?.packages.find((x) => x.id === id)
       if (p) chosen = { kind: 'package', id, name: p.name }
     }
@@ -528,6 +541,7 @@ export default function SpeakerCabinetPage() {
         gift_lead_magnet_id: body.gift_lead_magnet_id && body.gift_lead_magnet_id > 0 ? body.gift_lead_magnet_id : null,
         gift_package_id: body.gift_package_id && body.gift_package_id > 0 ? body.gift_package_id : null,
         gift_lead_magnet: chosen,
+        ...(val ? { gift_after_speech_title: '', gift_after_speech_url: '' } : {}),
       })
     } else {
       const j = await r.json().catch(() => ({}))

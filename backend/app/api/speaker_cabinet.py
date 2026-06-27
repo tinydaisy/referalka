@@ -415,14 +415,16 @@ async def patch_me(
                 "UPDATE event_collaborators SET speaker_topic = NULL WHERE id = $1", se_id
             )
 
-    # 5. Подарки и материал
+    # 5. Подарки и материал. Различаем «не передано» (не трогаем) и «передано null»
+    # (обнуляем) через model_fields_set — иначе нельзя стереть ручной подарок при
+    # переключении на ПЛЮСОН-магнит (раньше null игнорировался, оставался старый текст).
+    sent_fields = data.model_fields_set
     ev_upd = {}
     for f in ("gift_after_speech_title", "gift_after_speech_url",
               "gift_raffle_title", "gift_raffle_url",
               "knowledge_base_title", "knowledge_base_url"):
-        v = getattr(data, f, None)
-        if v is not None:
-            ev_upd[f] = v
+        if f in sent_fields:
+            ev_upd[f] = getattr(data, f, None)  # может быть и None → SET NULL
     if ev_upd:
         parts = [f"{k} = ${i+2}" for i, k in enumerate(ev_upd.keys())]
         await db.execute(
