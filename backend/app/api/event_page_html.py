@@ -40,7 +40,11 @@ async def _resolve_event(db: asyncpg.Connection, ref: str):
             "(SELECT eo.client_id FROM event_owners eo WHERE eo.event_id = events.id "
             "AND eo.status = 'accepted' ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id, "
             "landing_url, start_at, end_at, link_mode, "
-            "chat_url, chat_url_tg, chat_url_vk, chat_url_max, "
+            "(SELECT chat_url FROM client_broadcast_chats WHERE id = CASE events.primary_chat_platform "
+            "WHEN 'vk' THEN events.vk_chat_ref WHEN 'max' THEN events.max_chat_ref ELSE events.tg_chat_ref END) AS chat_url, "
+            "(SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg, "
+            "(SELECT chat_url FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS chat_url_vk, "
+            "(SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max, "
             "primary_chat_platform, chat_button_label, require_subscription, "
             "(SELECT subscription_mode FROM conf_conferences cc WHERE cc.event_id = events.id) AS subscription_mode")
     if ref.isdigit():
@@ -382,6 +386,29 @@ def _fmt_time_range(t1, t2):
     return ""
 
 
+def _fmt_date_eu(v):
+    """Дата по-европейски: 'ДД.ММ.ГГГГ'. На вход — date/datetime или строка
+    'YYYY-MM-DD'. Пусто → ''."""
+    if not v:
+        return ""
+    s = str(v)[:10]  # 'YYYY-MM-DD'
+    parts = s.split("-")
+    if len(parts) == 3 and len(parts[0]) == 4:
+        y, m, d = parts
+        return f"{d}.{m}.{y}"
+    return s
+
+
+def _fmt_date_range_eu(sd, ed):
+    """Диапазон дат по-европейски. Если даты совпадают (или одна задана) —
+    одна дата. Пусто → ''."""
+    a = _fmt_date_eu(sd)
+    b = _fmt_date_eu(ed)
+    if a and b:
+        return a if a == b else f"{a} – {b}"
+    return a or b
+
+
 def _fmt_event_date(start_at):
     """'DD.MM.YYYY HH:MM МСК' для плейсхолдера {date}. МСК = UTC+3."""
     if not start_at:
@@ -673,7 +700,7 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
     def _render_day(day):
         dn = day.get("day_number")
         dtitle = esc(day.get("title") or (f"День {dn}" if dn else "День"))
-        ddate = esc(str(day.get("day_date") or ""))
+        ddate = esc(_fmt_date_eu(day.get("day_date")))
         # Время работы дня (open_time–close_time, строки "HH:MM" по МСК).
         dtime = _fmt_time_range(day.get("open_time"), day.get("close_time"))
         day_sessions = [s for s in sessions if s.get("day") == dn]
@@ -717,12 +744,8 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
         st_sub = esc(st.get("subtitle") or "")
         sub_html = f'<div class="stage-sub">{st_sub}</div>' if st_sub else ""
         # Диапазон дат этапа
-        sd = str(st.get("start_date") or "")
-        ed = str(st.get("end_date") or "")
-        date_html = ""
-        if sd or ed:
-            rng = f"{sd} – {ed}" if (sd and ed and sd != ed) else (sd or ed)
-            date_html = f'<div class="stage-date">{esc(rng)}</div>'
+        rng = _fmt_date_range_eu(st.get("start_date"), st.get("end_date"))
+        date_html = f'<div class="stage-date">{esc(rng)}</div>' if rng else ""
         desc = (st.get("description") or "").strip()
         desc_html = f'<div class="stage-desc">{desc}</div>' if desc else ""
         return (f'<div class="stage-h">{st_title}{sub_html}{date_html}</div>'
