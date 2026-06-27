@@ -434,11 +434,14 @@ export default function TemplatesPage() {
   }
 
   async function openPreview(tpl: any, def: TypeDef) {
-    // Ждём актуальных данных из БД перед открытием превью
-    const [daysR, confR, sessionsR] = await Promise.all([
+    // Ждём актуальных данных из БД перед открытием превью.
+    // Спикеров тоже перезагружаем — чтобы свежий подарок (ручной/ПЛЮСОН)
+    // подставлялся при смене спикера в модалке БЕЗ перезагрузки страницы.
+    const [daysR, confR, sessionsR, speakersR] = await Promise.all([
       api.conference.days.list(eventId).catch(() => ({ days: [] })),
       api.conference.get(eventId).catch(() => ({ conference: null })),
       api.conference.sessions.list(eventId).catch(() => ({ sessions: [] })),
+      api.conference.speakers.list(eventId).catch(() => ({ speakers: [] })),
     ])
     const days = daysR.days || []
     const dayNums = days.map((d: any) => d.day_number).sort((a: number, b: number) => a - b)
@@ -446,8 +449,11 @@ export default function TemplatesPage() {
     setConfDaysData(days)
     if (confR.conference) setConfData(confR.conference)
     setConfSessions(sessionsR.sessions || [])
+    const freshSpeakers = [...(speakersR.speakers || [])].sort(
+      (a: any, b: any) => (a.name || '').localeCompare(b.name || '', 'ru'))
+    setSpeakers(freshSpeakers)
     setPreviewModal({ tpl, def })
-    setPreviewSpeakerId(speakers[0]?.id ?? null)
+    setPreviewSpeakerId(freshSpeakers[0]?.id ?? null)
   }
 
   function openTest(tpl: any, def: TypeDef) {
