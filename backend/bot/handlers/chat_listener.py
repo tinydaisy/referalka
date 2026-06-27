@@ -218,9 +218,6 @@ async def on_group_message(message: Message, bot: Bot):
     if settings.telegram_bot_token and bot.token == settings.telegram_bot_token:
         return
 
-    log.info("chat_listener: got group msg chat=%s user=%s bot=%s text=%r",
-             message.chat.id, message.from_user.id, bot.id, (message.text or message.caption or "")[:40])
-
     has_att, att_kind = _attachment_info(message)
     text = message.text or message.caption
     author = message.from_user

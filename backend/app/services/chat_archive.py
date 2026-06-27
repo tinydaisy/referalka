@@ -64,11 +64,26 @@ async def remember_known_chat(
 
 
 async def _resolve_event_for_chat(db, platform: str, chat_id: str,
-                                  owner_client_id: Optional[int] = None) -> Optional[tuple[int, int]]:
+                                  owner_client_id: Optional[int] = None,
+                                  for_tasks: bool = False) -> Optional[tuple[int, int]]:
     """По (платформа, chat_id) найти событие, чей чат это. Возвращает (event_id, client_id) или None.
 
     Резолв через event_owners (новая co-ownership-архитектура): берём первого
     владельца события (accepted) как client_id для резолва автора.
+
+    ⚠️ ОДИН чат привязан к НЕСКОЛЬКИМ событиям клиента (чат iViSiON используется
+    конференциями, нетворкингами, голосованиями И чемпионатом). Раньше LIMIT 1 без
+    сортировки брал СЛУЧАЙНОЕ событие — после правки данных стал отдавать старую
+    конференцию вместо чемпионата, и задания перестали считаться.
+
+    `for_tasks=True` (контроль заданий) — выбираем именно событие с НАСТРОЕННЫМИ
+    заданиями: есть турнирные критерии с непустой code_phrase. Среди таких приоритет
+    турниру (module_slug='turnir'), потом самое свежее (e.id DESC). Конференции/
+    голосования без заданий чат заданий не перехватывают. `task_listen_enabled` как
+    приоритет НЕ годится — клиент его не выключает после события, и он включён у
+    многих сразу.
+
+    `for_tasks=False` (архив/приветствия) — просто самое свежее событие на чате.
 
     ⚠️ owner_client_id — клиент-владелец БОТА/СООБЩЕСТВА, откуда пришло сообщение.
     Обязателен для VK: локальный chat_id беседы (2000000001, 2000000002…) НЕ
@@ -86,6 +101,22 @@ async def _resolve_event_for_chat(db, platform: str, chat_id: str,
     }.get(platform)
     if not ref_col:
         return None
+    # Только ЖИВЫЕ события: не черновики и не завершённые. Мёртвое/неопубликованное
+    # событие не должно перехватывать чат (раньше draft-конференция 14 ловила задания).
+    alive = "AND e.status NOT IN ('draft', 'ended')"
+    # Для контроля заданий: дополнительно только события с реально настроенными
+    # заданиями (есть активный критерий с code_phrase), приоритет турниру.
+    if for_tasks:
+        # ТОЛЬКО турниры с настроенными заданиями (активный критерий с code_phrase).
+        has_tasks = """AND e.module_slug = 'turnir'
+              AND EXISTS (
+                SELECT 1 FROM tournament_criteria tc
+                 WHERE tc.event_id = e.id AND tc.is_active = TRUE
+                   AND tc.code_phrase IS NOT NULL AND TRIM(tc.code_phrase) <> '')"""
+    else:
+        has_tasks = ""
+    # Самое свежее по дате старта (NULL — в конец), затем по id.
+    order_by = "e.start_at DESC NULLS LAST, e.id DESC"
     if owner_client_id is not None:
         # Событие должно принадлежать клиенту, чей бот/сообщество получило сообщение.
         row = await db.fetchrow(
@@ -96,7 +127,8 @@ async def _resolve_event_for_chat(db, platform: str, chat_id: str,
                    AND cbc.platform = $3 AND cbc.chat_id = $1
               JOIN event_owners eo ON eo.event_id = e.id
                    AND eo.status = 'accepted' AND eo.client_id = $2
-             ORDER BY eo.id
+             WHERE TRUE {alive} {has_tasks}
+             ORDER BY {order_by}
              LIMIT 1
             """,
             str(chat_id), owner_client_id, platform,
@@ -111,6 +143,8 @@ async def _resolve_event_for_chat(db, platform: str, chat_id: str,
               FROM events e
               JOIN client_broadcast_chats cbc ON cbc.id = e.{ref_col}
                    AND cbc.platform = $2 AND cbc.chat_id = $1
+             WHERE TRUE {alive} {has_tasks}
+             ORDER BY {order_by}
              LIMIT 1
             """,
             str(chat_id), platform,
@@ -374,7 +408,9 @@ async def process_task_submissions(
     try:
         pool = await get_pool()
         async with pool.acquire() as db:
-            resolved = await _resolve_event_for_chat(db, platform, chat_id, owner_client_id)
+            # for_tasks=True → резолвим ТОЛЬКО живой турнир с настроенными заданиями
+            # (а не первую попавшуюся конференцию/черновик на этом же чате).
+            resolved = await _resolve_event_for_chat(db, platform, chat_id, owner_client_id, for_tasks=True)
             if not resolved:
                 return []
             event_id, client_id = resolved

@@ -37,48 +37,6 @@ from app.services.funnel_service import check_telegram_channels_subscription
 router = Router()
 log = logging.getLogger(__name__)
 
-# In-memory кеш ТОЛЬКО для отрицательных решений («не подписан»).
-# Кешировать «подписан» опасно: юзер мог пройти проверку, потом отписаться,
-# а кеш бы 60 сек пропускал его сообщения — это пробой гейта. Поэтому
-# для «подписан» каждый раз делаем полную проверку (это безопасный путь),
-# а для спамеров-не-подписанных короткий кеш экономит API-запросы и
-# ускоряет повторные удаления.
-#
-# Ключ: (chat_id_str, user_id). Значение: (expires_at, missing_channels).
-# missing_channels хранится чтобы повторное удаление использовало тот же
-# список «подпишитесь на канал X, Y, Z» без повторного фетча БД.
-_NOT_SUBSCRIBED_CACHE: dict[tuple[str, int], tuple[float, list[dict]]] = {}
-_CACHE_TTL_SEC = 60.0
-_CACHE_MAX = 5000  # защита от бесконечного роста
-
-
-def _get_cached_not_subscribed(chat_id: str, user_id: int) -> list[dict] | None:
-    """Если юзер недавно был помечен «не подписан» и кеш не протух — возвращает
-    список missing-каналов. Иначе None."""
-    entry = _NOT_SUBSCRIBED_CACHE.get((chat_id, user_id))
-    if entry is None:
-        return None
-    expires_at, missing = entry
-    if expires_at < time.monotonic():
-        _NOT_SUBSCRIBED_CACHE.pop((chat_id, user_id), None)
-        return None
-    return missing
-
-
-def _mark_not_subscribed(chat_id: str, user_id: int, missing: list[dict]) -> None:
-    if len(_NOT_SUBSCRIBED_CACHE) >= _CACHE_MAX:
-        now = time.monotonic()
-        expired = [k for k, (exp, _) in _NOT_SUBSCRIBED_CACHE.items() if exp < now]
-        for k in expired:
-            _NOT_SUBSCRIBED_CACHE.pop(k, None)
-        if len(_NOT_SUBSCRIBED_CACHE) >= _CACHE_MAX:
-            _NOT_SUBSCRIBED_CACHE.clear()
-    _NOT_SUBSCRIBED_CACHE[(chat_id, user_id)] = (
-        time.monotonic() + _CACHE_TTL_SEC,
-        missing,
-    )
-
-
 DEFAULT_WARNING_TEMPLATE = (
     "{user_name}, чтобы писать в этот чат, подпишитесь на канал(ы) основателя:\n{channels_list}"
 )
@@ -176,18 +134,13 @@ async def handle_group_message(message: Message, bot: Bot):
                     raise SkipHandler()
         # (системный @pluson_bot сюда не доходит — отсечён по токену в начале хендлера)
 
-        # 3) Быстрый путь: если этот юзер недавно (≤60 сек) уже был помечен «не подписан»
-        # для этого чата — пропускаем дорогостоящий getChatMember и берём список missing
-        # из кеша. Это ускоряет удаление спама с одного аккаунта (10 сообщений подряд
-        # → только 1 проверка getChatMember).
-        cached_missing = _get_cached_not_subscribed(chat_id_str, user_id)
-        if cached_missing is not None:
-            sub = {"ok": False, "missing": cached_missing, "bot_not_in": [], "no_token": False, "no_channels": False}
-        else:
-            # 3b) Полная проверка подписки на все TG-каналы основателя.
-            sub = await check_telegram_channels_subscription(
-                gate["client_id"], str(message.from_user.id), db
-            )
+        # 3) Полная проверка подписки на все TG-каналы основателя — КАЖДЫЙ раз свежо.
+        # Кеш «не подписан» убран: он держал отрицательное решение 60 сек, из-за чего
+        # человек, ТОЛЬКО ЧТО подписавшийся, всё равно получал удаление ещё минуту.
+        # getChatMember быстрый — лучше проверять каждое сообщение честно.
+        sub = await check_telegram_channels_subscription(
+            gate["client_id"], str(message.from_user.id), db
+        )
 
         # Бот сам не админ хоть в одном канале → автоматически выключаем гейт.
         # Сообщение НЕ удаляем, юзер пишет (fail-open).
@@ -228,17 +181,9 @@ async def handle_group_message(message: Message, bot: Bot):
             # aiogram считал бы апдейт обработанным и слушалка заданий его не видела.
             raise SkipHandler()
 
-        # 4) Запомним «не подписан» на 60 сек вместе со списком missing.
-        # Следующее сообщение этого юзера в этом чате пройдёт мимо
-        # getChatMember и сразу пойдёт на delete+warn. Если он за эту минуту
-        # подписался — досадно (одно сообщение зря удалится), но не критично:
-        # через минуту проверка свежая.
-        # Если в текущем запросе мы использовали кеш (cached_missing!=None),
-        # повторная запись просто продлит TTL — это окей.
         missing = sub.get("missing") or []
-        _mark_not_subscribed(chat_id_str, user_id, missing)
 
-        # 5) Не подписан хоть на один — параллельно: удаляем сообщение + готовим
+        # Не подписан хоть на один — параллельно: удаляем сообщение + готовим
         # предупреждение + достаём имя основателя из БД. delete и send выполняются
         # одновременно через asyncio.gather — это экономит ~500ms (раньше было
         # последовательно). reply_to_message_id указывает на УЖЕ удалённое сообщение —
