@@ -833,28 +833,6 @@ function DayAccordion({
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Открытие (МСК)</label>
-                <input
-                  type="time"
-                  value={day.open_time || ''}
-                  onChange={e => onPatchLocal({ open_time: e.target.value })}
-                  onBlur={() => onCommit()}
-                  className="input"
-                />
-              </div>
-              <div>
-                <label className="label">Закрытие (МСК)</label>
-                <input
-                  type="time"
-                  value={day.close_time || ''}
-                  onChange={e => onPatchLocal({ close_time: e.target.value })}
-                  onBlur={() => onCommit()}
-                  className="input"
-                />
-              </div>
-            </div>
           </div>
 
           <div className="px-4 py-2.5">
