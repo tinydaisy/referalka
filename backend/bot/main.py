@@ -123,9 +123,11 @@ async def main() -> None:
         await dp.start_polling(
             *bots,
             skip_updates=True,
-            # my_chat_member нужен чтобы ловить блок/разблок бота юзером
-            # (для отметки is_unsubscribed в platform_user_channels)
-            allowed_updates=["message", "callback_query", "my_chat_member"],
+            # my_chat_member — блок/разблок бота юзером (is_unsubscribed).
+            # chat_member — вход/выход ЛЮБОГО участника в группах: ловим, чтобы
+            # авто-метить event_participants.is_in_chat для Telegram-чата события
+            # (бот ОБЯЗАН быть админом, иначе Telegram эти апдейты не шлёт).
+            allowed_updates=["message", "callback_query", "my_chat_member", "chat_member"],
         )
     finally:
         for b in bots:

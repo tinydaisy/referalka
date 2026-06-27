@@ -116,7 +116,7 @@ interface PlatformStat {
   landed: number
   registered: number
   attended: number
-  in_chat?: number
+  in_chat?: number | null   // null/отсутствует для VK/MAX — членство в беседе не проверяется
 }
 
 interface Stats {
@@ -200,9 +200,20 @@ function StatsBlock({
                   <NumCell platform={r.key} stage="registered" value={r.s.registered} />
                   <NumCell platform={r.key} stage="attended" value={r.s.attended} />
                   <td className="py-1.5 px-2 text-center">
-                    <span className="inline-block min-w-[44px] py-1.5 px-2 text-sm tabular-nums font-semibold text-gray-900">
-                      {r.s.in_chat ?? 0}
-                    </span>
+                    {/* «В чате» проверяется только в Telegram (getChatMember).
+                        Для VK/MAX членство в беседе через API не получить → «—». */}
+                    {(r.key === 'vk' || r.key === 'max') ? (
+                      <span
+                        className="inline-block min-w-[44px] py-1.5 px-2 text-sm text-gray-300"
+                        title="Проверка членства в чате доступна только для Telegram"
+                      >
+                        —
+                      </span>
+                    ) : (
+                      <span className="inline-block min-w-[44px] py-1.5 px-2 text-sm tabular-nums font-semibold text-gray-900">
+                        {r.s.in_chat ?? 0}
+                      </span>
+                    )}
                   </td>
                   <td className="py-1.5 pl-3 text-center">
                     <span
@@ -1089,15 +1100,18 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
           </button>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={checkChats}
-            disabled={checkingChats}
-            title="Проверить, кто из участников состоит в Telegram-чате события. Бот должен быть админом чата."
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {checkingChats ? <Spinner className="text-gray-500 text-base" /> : <MessagesSquare size={15} />}
-            {checkingChats ? 'Проверяю…' : 'Проверить чаты'}
-          </button>
+          <div className="flex flex-col items-end">
+            <button
+              onClick={checkChats}
+              disabled={checkingChats}
+              title="Проверить, кто из участников состоит в Telegram-чате события. Бот должен быть админом чата."
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {checkingChats ? <Spinner className="text-gray-500 text-base" /> : <MessagesSquare size={15} />}
+              {checkingChats ? 'Проверяю…' : 'Проверить чаты'}
+            </button>
+            <span className="text-[10px] text-gray-400 mt-0.5 leading-none">работает только в Telegram</span>
+          </div>
           <button onClick={() => setShowAdd(true)}
             className="btn-gold inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold">
             <Plus size={15} /> Добавить из контактов

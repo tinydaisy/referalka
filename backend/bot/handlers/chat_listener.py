@@ -125,6 +125,67 @@ async def on_added_to_chat(update: ChatMemberUpdated):
         log.warning("chat_listener on_added_to_chat failed: %s", e)
 
 
+# Статусы, означающие «человек в чате» / «человека нет в чате».
+_IN_CHAT_STATUSES = {"member", "administrator", "creator", "restricted"}
+_OUT_CHAT_STATUSES = {"left", "kicked"}
+
+
+@router.chat_member(F.chat.type.in_({"group", "supergroup"}))
+async def on_member_changed(update: ChatMemberUpdated):
+    """Любой участник вошёл/вышел из группы → авто-метим event_participants.is_in_chat.
+
+    Работает ТОЛЬКО для Telegram-чата, привязанного к событию (events.tg_chat_ref
+    → client_broadcast_chats.chat_id == этот чат). Бот обязан быть админом, иначе
+    Telegram не шлёт chat_member про обычных людей.
+
+    VK/MAX аналога нет — там членство в беседе через API не отслеживается.
+    """
+    member = update.new_chat_member
+    if not member or not member.user or member.user.is_bot:
+        return
+    new_status = member.status
+    if new_status in _IN_CHAT_STATUSES:
+        is_in = True
+    elif new_status in _OUT_CHAT_STATUSES:
+        is_in = False
+    else:
+        return  # неизвестный статус — не трогаем
+
+    tg_id = str(member.user.id)
+    chat_id = str(update.chat.id)
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            # Все события, чей Telegram-чат = этот чат (через ref на базу чатов).
+            event_ids = await db.fetch(
+                """SELECT e.id
+                     FROM events e
+                     JOIN client_broadcast_chats cbc ON cbc.id = e.tg_chat_ref
+                    WHERE cbc.platform = 'telegram' AND cbc.chat_id = $1""",
+                chat_id,
+            )
+            if not event_ids:
+                return  # чат не привязан ни к одному событию
+            ids = [r["id"] for r in event_ids]
+            # Метим участника по его telegram-идентичности в этих событиях.
+            updated = await db.fetch(
+                """UPDATE event_participants ep
+                      SET is_in_chat = $1, chat_check_at = NOW()
+                     FROM platform_users pu
+                    WHERE pu.contact_id = ep.contact_id
+                      AND pu.platform_slug = 'telegram'
+                      AND pu.platform_user_id = $2
+                      AND ep.event_id = ANY($3::int[])
+                  RETURNING ep.id""",
+                is_in, tg_id, ids,
+            )
+        if updated:
+            log.info("chat_listener: chat_member tg=%s chat=%s → is_in_chat=%s (%d участ.)",
+                     tg_id, chat_id, is_in, len(updated))
+    except Exception as e:  # noqa: BLE001
+        log.warning("chat_listener on_member_changed failed: %s", e)
+
+
 @router.message(F.chat.type.in_({"group", "supergroup"}))
 async def on_group_message(message: Message, bot: Bot):
     """Каждое групповое сообщение → в архив, ЕСЛИ чат привязан к событию.

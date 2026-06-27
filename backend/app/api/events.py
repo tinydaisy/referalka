@@ -907,11 +907,16 @@ async def event_participants(
     # Для каждой платформы: landed (все участники), registered (is_registered),
     # attended (дошли до эфира/действия — link_clicked_at не пуст).
     platform_rows = await db.fetch(
+        -- in_chat честно проверяется ТОЛЬКО в Telegram (кнопка «Проверить чаты»
+        -- → getChatMember по TG-чату). Для VK/MAX членство в беседе через API
+        -- получить нельзя → отдаём NULL, фронт рисует «—», а не фейковую цифру.
         """SELECT p.slug AS platform,
                   COUNT(DISTINCT ep.id) AS landed,
                   COUNT(DISTINCT ep.id) FILTER (WHERE ep.is_registered) AS registered,
                   COUNT(DISTINCT ep.id) FILTER (WHERE ep.link_clicked_at IS NOT NULL) AS attended,
-                  COUNT(DISTINCT ep.id) FILTER (WHERE ep.is_in_chat) AS in_chat
+                  CASE WHEN p.slug = 'telegram'
+                       THEN COUNT(DISTINCT ep.id) FILTER (WHERE ep.is_in_chat)
+                       ELSE NULL END AS in_chat
              FROM event_participants ep
              JOIN platform_users pu ON pu.contact_id = ep.contact_id
              JOIN platforms p ON p.slug = pu.platform_slug

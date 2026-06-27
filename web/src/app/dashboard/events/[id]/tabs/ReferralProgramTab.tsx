@@ -393,15 +393,18 @@ function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSl
   useEffect(() => {
     api.referralProgram.settings.get(eventId)
       .then((d: any) => {
-        const m: GiftMode =
+        let m: GiftMode =
           d.gift_count_mode === 'visited'      ? 'visited'      :
           d.gift_count_mode === 'clicked_link' ? 'clicked_link' :
           'registered'
+        // «clicked_link» (присутствовавшие в эфире) скрыт из фронта для не-конкурсов
+        // — если в БД он стоит, показываем как «registered», чтобы радио не повисло.
+        if (m === 'clicked_link' && moduleSlug !== 'contest') m = 'registered'
         setMode(m)
         setEnabled(!!d.is_enabled)
       })
       .catch(() => setMode('registered'))
-  }, [eventId])
+  }, [eventId, moduleSlug])
 
   async function save(next: GiftMode) {
     setSaving(true); setErr(null)
@@ -434,16 +437,21 @@ function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSl
             2) registered  — средне (заполнил форму)
             3) visited     — самое мягкое (просто перешёл по ссылке) */}
       <div className="space-y-2">
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input type="radio" className="mt-1" name={`gcm-${eventId}`}
-                 disabled={saving}
-                 checked={mode === 'clicked_link'}
-                 onChange={() => save('clicked_link')} />
-          <div>
-            <div className="text-sm font-medium">{clickedLabel}</div>
-            <div className="text-xs text-gray-500">{clickedHint}</div>
-          </div>
-        </label>
+        {/* «За присутствовавших в эфире» (clicked_link) пока не поддержано — скрыто
+            из фронта для всех событий, КРОМЕ конкурса (там это «За проголосовавших»,
+            поддержанный кейс голосования). */}
+        {isContest && (
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="radio" className="mt-1" name={`gcm-${eventId}`}
+                   disabled={saving}
+                   checked={mode === 'clicked_link'}
+                   onChange={() => save('clicked_link')} />
+            <div>
+              <div className="text-sm font-medium">{clickedLabel}</div>
+              <div className="text-xs text-gray-500">{clickedHint}</div>
+            </div>
+          </label>
+        )}
         <label className="flex items-start gap-2 cursor-pointer">
           <input type="radio" className="mt-1" name={`gcm-${eventId}`}
                  disabled={saving}
