@@ -349,6 +349,86 @@ async def _archive_max_chat_message(
         logger.warning(f"MAX greeting failed: {e}")
 
 
+async def _forward_max_user_message_to_organizer(
+    *, client_id: int, user_id: str, username: str | None,
+    display_name: str | None, text: str,
+) -> None:
+    """Шлёт уведомление #user_message в TG-канал клиента (notifications_telegram_chat_id)
+    о личном сообщении в MAX-бот. Никнейм MAX — кликабельной ссылкой на профиль,
+    чтобы из Telegram попасть в диалог с человеком.
+    """
+    import html as _html
+    import httpx as _httpx
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:  # pragma: no cover
+        from backports.zoneinfo import ZoneInfo  # type: ignore
+    from app.services.profile_links import nick_html, link_html
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT c.notifications_telegram_chat_id,
+                      pu.contact_id, ct.name AS contact_name, ct.utm_source
+                 FROM clients c
+            LEFT JOIN platform_users pu
+                   ON pu.client_id = c.id AND pu.platform_slug = 'max'
+                  AND pu.platform_user_id = $2
+            LEFT JOIN contacts ct ON ct.id = pu.contact_id
+                WHERE c.id = $1""",
+            client_id, str(user_id),
+        )
+    if not row or not row["notifications_telegram_chat_id"]:
+        return
+
+    when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+    user_nick = nick_html("max", user_id=user_id, username=username)
+    prof_link = link_html("max", user_id=user_id, username=username)
+    contact_id = row["contact_id"]
+    card_url = (
+        f"{settings.frontend_url}/dashboard/clients?contact={contact_id}"
+        if contact_id else "—"
+    )
+    name = display_name or row["contact_name"] or "—"
+    parts = [
+        "#user_message 💬",
+        "",
+        f"<b>Когда:</b> {when_str}",
+        "<b>Платформа:</b> MAX",
+        "",
+        "<b>Кто написал</b>",
+        f"<b>Никнейм:</b> {user_nick}",
+        f"<b>Имя:</b> {_html.escape(name)}",
+        f"<b>MAX ID:</b> <code>{_html.escape(str(user_id))}</code>",
+    ]
+    if prof_link:
+        parts.append(f"<b>Ссылка:</b> {prof_link}")
+    parts += [
+        f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
+        f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",
+        f"<b>Карточка:</b> {card_url}",
+        "",
+        "<b>Сообщение:</b>",
+        _html.escape(text or ""),
+    ]
+    notif_text = "\n".join(parts)
+
+    token = settings.telegram_bot_token
+    if not token:
+        return
+    async with _httpx.AsyncClient(timeout=10) as http:
+        await http.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={
+                "chat_id": row["notifications_telegram_chat_id"],
+                "text": notif_text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            },
+        )
+
+
 async def _handle_message_created(update: dict, *, bot_token: str, client_id_override: int | None) -> None:
     msg = update.get("message", {}) or {}
     body = msg.get("body", {}) or {}
@@ -530,6 +610,19 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
                 return
         except Exception as e:  # noqa: BLE001
             logger.warning(f"MAX dialog archive failed: {e}")
+
+        # Уведомление #user_message организатору в его TG-канал (с кликабельной
+        # ссылкой на профиль MAX — чтобы из Telegram попасть в диалог с человеком).
+        try:
+            await _forward_max_user_message_to_organizer(
+                client_id=client_id_override,
+                user_id=str(user_id),
+                username=(sender.get("username") if isinstance(sender, dict) else None),
+                display_name=(sender.get("name") if isinstance(sender, dict) else None),
+                text=(text or ("[медиа]" if has_att else "")),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"MAX user_message notify failed: {e}")
 
     # VIP-бот клиента: приветствие + прямые контакты поддержки клиента.
     # ⚠️ Никаких упоминаний ПЛЮСОНа — у VIP/PRO клиента бот «свой».

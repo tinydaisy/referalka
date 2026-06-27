@@ -557,6 +557,10 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
         from app.services.channels import get_bot_handle_for_user
         bot_handle = await get_bot_handle_for_user(client_id, str(run["platform_user_id"]), db)
 
+    from .profile_links import nick_html, link_html
+    _plat = run['platform_slug'] or 'telegram'
+    came_nick = nick_html(_plat, user_id=run['platform_user_id'], username=run['contact_username'])
+    came_link = link_html(_plat, user_id=run['platform_user_id'], username=run['contact_username'])
     parts = [
         "🆕 <b>Новый интерес</b>",
         "",
@@ -565,12 +569,14 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
         f"<b>Когда:</b> {when_str or '—'}",
         "",
         "<b>Кто пришёл</b>",
-        f"<b>Никнейм:</b> {('@' + run['contact_username']) if run['contact_username'] else '—'}",
+        f"<b>Никнейм:</b> {came_nick}",
         f"<b>Имя:</b> {run['contact_name'] or '—'}",
         f"<b>ID контакта:</b> {('#' + str(run['contact_id'])) if run['contact_id'] else '—'}",
         f"<b>Платформа:</b> {(run['platform_slug'] or '—').title()}",
         f"<b>ID в платформе:</b> {run['platform_user_id'] or '—'}",
     ]
+    if came_link:
+        parts.append(f"<b>Ссылка:</b> {came_link}")
 
     src = utm.get("utm_source") if isinstance(utm, dict) else None
     parts.append(f"<b>Источник (utm_source):</b> {src or '—'}")
@@ -585,10 +591,14 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
 
     parts.append("")
     if run["referrer_contact_id"]:
+        ref_nick = nick_html(_plat, username=run['referrer_username'])
+        ref_link = link_html(_plat, username=run['referrer_username'])
         parts.append("<b>Кто привёл</b>")
-        parts.append(f"<b>Никнейм:</b> {('@' + run['referrer_username']) if run['referrer_username'] else '—'}")
+        parts.append(f"<b>Никнейм:</b> {ref_nick}")
         parts.append(f"<b>Имя:</b> {run['referrer_name'] or '—'}")
         parts.append(f"<b>ID контакта:</b> #{run['referrer_contact_id']}")
+        if ref_link:
+            parts.append(f"<b>Ссылка:</b> {ref_link}")
         parts.append(f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={run['referrer_contact_id']}")
     else:
         parts.append("<b>Кто привёл:</b> —")

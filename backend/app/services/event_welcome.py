@@ -114,6 +114,11 @@ async def _send_event_organizer_notification(
         bot_handle = await get_bot_handle_for_user(client_id, tg_id, conn)
 
     when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+    from .profile_links import nick_html, link_html
+    c_username = contact['username'] if contact else None
+    c_puid = contact['platform_user_id'] if contact else None
+    came_nick = nick_html(platform_slug, user_id=c_puid, username=c_username)
+    came_link = link_html(platform_slug, user_id=c_puid, username=c_username)
     parts = [
         "🆕 <b>Новый интерес</b>",
         "",
@@ -122,21 +127,31 @@ async def _send_event_organizer_notification(
         f"<b>Когда:</b> {when_str}",
         "",
         "<b>Кто пришёл</b>",
-        f"<b>Никнейм:</b> {('@' + contact['username']) if (contact and contact['username']) else '—'}",
+        f"<b>Никнейм:</b> {came_nick}",
         f"<b>Имя:</b> {(contact['name'] if contact else None) or '—'}",
         f"<b>ID контакта:</b> #{contact_id}",
         f"<b>Платформа:</b> {'ВКонтакте' if platform_slug == 'vk' else ('MAX' if platform_slug == 'max' else 'Telegram')}",
-        f"<b>ID в платформе:</b> {(contact['platform_user_id'] if contact else None) or '—'}",
+        f"<b>ID в платформе:</b> {c_puid or '—'}",
+    ]
+    if came_link:
+        parts.append(f"<b>Ссылка:</b> {came_link}")
+    parts += [
         f"<b>Источник (utm_source):</b> {(contact['utm_source'] if contact else None) or '—'}",
         f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={contact_id}",
         "",
     ]
     if referrer_contact_id and referrer:
+        # Ник реферера ищется по любой его платформе — у него нет platform_user_id
+        # в контексте этого события, ссылку строим по username (если есть).
+        ref_nick = nick_html(platform_slug, username=referrer['username'])
+        ref_link = link_html(platform_slug, username=referrer['username'])
         parts.append("<b>Кто привёл</b>")
         parts.append(f"<b>Роль:</b> {referrer_role_label}")
-        parts.append(f"<b>Никнейм:</b> {('@' + referrer['username']) if referrer['username'] else '—'}")
+        parts.append(f"<b>Никнейм:</b> {ref_nick}")
         parts.append(f"<b>Имя:</b> {referrer['name'] or '—'}")
         parts.append(f"<b>ID контакта:</b> #{referrer_contact_id}")
+        if ref_link:
+            parts.append(f"<b>Ссылка:</b> {ref_link}")
         parts.append(f"<b>Карточка:</b> {settings.frontend_url}/dashboard/clients?contact={referrer_contact_id}")
     else:
         parts.append("<b>Кто привёл:</b> —")

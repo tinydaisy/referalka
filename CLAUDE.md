@@ -135,6 +135,17 @@
 
 **Ограничения платформ (известны, не баг):** VK — ответ в ЛС только если человек разрешил сообществу сообщения (иначе 901 → «не доставлено» с причиной); голосовые запретить нельзя — авто-ответ. Демо-сидер `backend/scripts/seed_demo_dialogs.py` (разово прогнан на проде для client 1).
 
+### Кликабельные ссылки на профиль в уведомлениях организатору (2026-06-27)
+
+Во ВСЕ уведомления организатору в TG-канал (`#user_message` и «🆕 Новый интерес») добавлена прямая кликабельная ссылка на аккаунт человека — чтобы из Telegram одним кликом попасть в диалог с ним на любой платформе. Раньше слался просто `@ник`: в TG/VK он не открывает диалог из чужого TG-канала, в MAX был вообще некликабелен.
+
+**Хелпер** [backend/app/services/profile_links.py](backend/app/services/profile_links.py): `profile_url(platform, user_id, username)` + `nick_html(...)` (поле «Никнейм» — кликабельный `<a>`) + `link_html(...)` (отдельная строка «Ссылка» — полный URL). Форматы:
+- **Telegram** — `https://t.me/{username}` или `tg://user?id={id}` (без ника).
+- **VK** — `https://vk.com/{screen_name}` или `https://vk.com/id{vk_id}`.
+- **MAX** — `https://max.ru/{username}` (публичный ник) или `https://max.ru/u/{user_id}` (числовой id) — как в `speaker_cabinet.py`/`participants.py`.
+
+Поле «Никнейм» теперь = кликабельная ссылка; добавлена отдельная строка «Ссылка» с полным URL. Подключено в 4 точках: TG `#user_message` ([start.py](backend/bot/handlers/start.py)), VK `#user_message` ([vk_main.py](backend/bot/vk_main.py)), MAX `#user_message` (**новый** `_forward_max_user_message_to_organizer` в [max_webhook.py](backend/app/api/max_webhook.py) — раньше MAX вообще не слал это уведомление), «Новый интерес» по событию ([event_welcome.py](backend/app/services/event_welcome.py)) и по лид-магниту ([funnel_service.py](backend/app/services/funnel_service.py)).
+
 
 ### Тарифы мероприятия + вебхук «оплатил» (миграция 157 от 2026-06-19)
 

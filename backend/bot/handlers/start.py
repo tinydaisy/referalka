@@ -1846,7 +1846,9 @@ async def handle_user_message(message: Message):
                 ((user.first_name or "") + " " + (user.last_name or "")).strip()
                 or contact_name or "—"
             )
-            user_nick = f"@{user.username}" if user.username else "—"
+            from app.services.profile_links import nick_html, link_html
+            user_nick = nick_html("telegram", user_id=user.id, username=user.username)
+            prof_link = link_html("telegram", user_id=user.id, username=user.username)
             card_url = (
                 f"{settings.frontend_url}/dashboard/clients?contact={contact_id}"
                 if contact_id else "—"
@@ -1861,6 +1863,10 @@ async def handle_user_message(message: Message):
                 f"<b>Никнейм:</b> {user_nick}",
                 f"<b>Имя:</b> {_html.escape(display_name)}",
                 f"<b>TG ID:</b> <code>{user.id}</code>",
+            ]
+            if prof_link:
+                parts.append(f"<b>Ссылка:</b> {prof_link}")
+            parts += [
                 f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
                 f"<b>Источник (utm_source):</b> {_html.escape(utm_source) if utm_source else '—'}",
                 f"<b>Карточка:</b> {card_url}",

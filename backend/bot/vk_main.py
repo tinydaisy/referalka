@@ -1509,7 +1509,9 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
             pass
 
         when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
-        user_nick = f"@{vk_screen}" if vk_screen else "—"
+        from app.services.profile_links import nick_html, link_html
+        user_nick = nick_html("vk", user_id=from_id, username=vk_screen)
+        prof_link = link_html("vk", user_id=from_id, username=vk_screen)
         card_url = (
             f"{_s.frontend_url}/dashboard/clients?contact={row['contact_id']}"
             if row['contact_id'] else "—"
@@ -1524,6 +1526,10 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
             f"<b>Никнейм:</b> {user_nick}",
             f"<b>Имя:</b> {_html.escape(display_name or row['contact_name'] or '—')}",
             f"<b>VK ID:</b> <code>{from_id}</code>",
+        ]
+        if prof_link:
+            parts.append(f"<b>Ссылка:</b> {prof_link}")
+        parts += [
             f"<b>ID контакта:</b> {('#' + str(row['contact_id'])) if row['contact_id'] else '—'}",
             f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",
             f"<b>Карточка:</b> {card_url}",
