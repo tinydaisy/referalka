@@ -674,6 +674,8 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
         dn = day.get("day_number")
         dtitle = esc(day.get("title") or (f"День {dn}" if dn else "День"))
         ddate = esc(str(day.get("day_date") or ""))
+        # Время работы дня (open_time–close_time, строки "HH:MM" по МСК).
+        dtime = _fmt_time_range(day.get("open_time"), day.get("close_time"))
         day_sessions = [s for s in sessions if s.get("day") == dn]
         rows = ""
         for s in day_sessions:
@@ -704,8 +706,10 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
                 f'{spk_html}</div></div>'
             )
         date_sfx = f' · {ddate}' if ddate else ""
-        body = rows if rows else '<div class="empty-sm">—</div>'
-        return (f'<div class="day"><div class="day-h">{dtitle}{date_sfx}</div>'
+        time_sfx = f' · {dtime}' if dtime else ""
+        # Нет слотов → не показываем прочерк, только шапку дня.
+        body = rows
+        return (f'<div class="day"><div class="day-h">{dtitle}{date_sfx}{time_sfx}</div>'
                 f'{body}</div>')
 
     def _stage_header(st):
