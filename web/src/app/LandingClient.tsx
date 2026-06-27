@@ -42,6 +42,8 @@ interface Feature {
   is_addon: boolean
   price_monthly: number | null
   price_6mo: number | null
+  promo_old_monthly: number | null
+  promo_old_6mo: number | null
   min_tariff_slug: string | null
   tagline: string | null
   bullet_points: string[]
@@ -317,6 +319,11 @@ function ModuleCard({ m, registerHref }: { m: Feature; registerHref: string }) {
       {m.tagline && <p className="mt-1 text-sm text-gray-500">{m.tagline}</p>}
 
       <div className="mt-4 mb-1 flex items-baseline gap-2">
+        {m.promo_old_monthly && m.promo_old_monthly > (m.price_monthly || 0) && (
+          <span className="text-xl line-through text-gray-400">
+            {m.promo_old_monthly.toLocaleString('ru-RU')} ₽
+          </span>
+        )}
         <span className="text-3xl font-bold" style={{ color: '#25455D' }}>
           {m.price_monthly?.toLocaleString('ru-RU')} ₽
         </span>

@@ -1055,7 +1055,10 @@ function ModulesBlock() {
                 {owned && <span className="text-xs font-semibold text-emerald-600">Подключён</span>}
               </div>
               {a.tagline && <p className="text-xs text-gray-500 mt-0.5">{a.tagline}</p>}
-              <div className="mt-3 mb-1">
+              <div className="mt-3 mb-1 flex items-baseline gap-2">
+                {a.promo_old_monthly && a.promo_old_monthly > (a.price_monthly || 0) && (
+                  <span className="text-base line-through text-gray-400">{a.promo_old_monthly.toLocaleString('ru-RU')} ₽</span>
+                )}
                 <span className="text-2xl font-bold" style={{ color: '#25455D' }}>{a.price_monthly?.toLocaleString('ru-RU')} ₽</span>
                 <span className="text-xs text-gray-400"> / мес</span>
               </div>

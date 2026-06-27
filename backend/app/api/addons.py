@@ -69,7 +69,8 @@ async def list_addons(
 
     feats = await db.fetch(
         """SELECT id, slug, name, description, tagline, bullet_points,
-                  price_monthly, price_6mo, min_tariff_slug
+                  price_monthly, price_6mo, promo_old_monthly, promo_old_6mo,
+                  min_tariff_slug
              FROM features
             WHERE is_addon = TRUE
             ORDER BY price_monthly NULLS LAST, sort"""

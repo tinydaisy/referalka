@@ -61,6 +61,7 @@ async def public_features(db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
         """SELECT slug, name, description, sort,
                   is_addon, price_monthly, price_6mo, min_tariff_slug,
+                  promo_old_monthly, promo_old_6mo,
                   tagline, bullet_points
              FROM features ORDER BY sort, slug"""
     )
