@@ -513,7 +513,7 @@ async def _send_broadcast(schedule_id: int):
             if schedule.get("send_to_client_chats"):
                 rows_cl = await conn.fetch(
                     """SELECT chat_id FROM client_broadcast_chats
-                        WHERE client_id = $1 AND platform = 'telegram' AND is_active = TRUE""",
+                        WHERE client_id = $1 AND platform = 'telegram' AND is_active = TRUE AND use_for_broadcasts = TRUE""",
                     schedule["client_id"],
                 )
                 tg_chats += [str(r["chat_id"]).strip() for r in rows_cl if r["chat_id"]]
@@ -768,7 +768,7 @@ async def _send_broadcast_to_client_chats(
     client_id = schedule["client_id"]
     rows = await conn.fetch(
         """SELECT platform, chat_id FROM client_broadcast_chats
-            WHERE client_id = $1 AND platform IN ('vk','max') AND is_active = TRUE""",
+            WHERE client_id = $1 AND platform IN ('vk','max') AND is_active = TRUE AND use_for_broadcasts = TRUE""",
         client_id,
     )
     if not rows:

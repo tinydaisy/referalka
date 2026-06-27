@@ -30,6 +30,7 @@ interface BroadcastChat {
   is_public: boolean
   added_via: string | null
   is_active: boolean
+  use_for_broadcasts: boolean
   created_at: string
 }
 
@@ -182,6 +183,7 @@ export default function BroadcastChatsTab() {
                   key={chat.id}
                   chat={chat}
                   onEdit={() => setEditing(chat)}
+                  onChanged={load}
                   onDeleted={load}
                 />
               ))}
@@ -216,11 +218,22 @@ export default function BroadcastChatsTab() {
 }
 
 /* ─────── Карточка чата ─────── */
-function ChatCard({ chat, onEdit, onDeleted }: {
+function ChatCard({ chat, onEdit, onChanged, onDeleted }: {
   chat: BroadcastChat
   onEdit: () => void
+  onChanged: () => void
   onDeleted: () => void
 }) {
+  const [saving, setSaving] = useState(false)
+  async function toggleUse() {
+    setSaving(true)
+    try {
+      await api.miniApp.broadcastChats.update(chat.id, { use_for_broadcasts: !chat.use_for_broadcasts })
+      onChanged()
+    } catch (e: any) {
+      alert('Не удалось сохранить: ' + (e.message || ''))
+    } finally { setSaving(false) }
+  }
   async function remove() {
     if (!confirm(`Удалить чат «${chat.title || chat.chat_id}» из базы рассылок?`)) return
     try {
@@ -250,6 +263,16 @@ function ChatCard({ chat, onEdit, onDeleted }: {
             </a>
           )}
         </div>
+        <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={chat.use_for_broadcasts}
+            disabled={saving}
+            onChange={toggleUse}
+            className="accent-[#25455D] w-4 h-4"
+          />
+          Использовать для рассылок анонсов
+        </label>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <button

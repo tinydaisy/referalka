@@ -50,6 +50,7 @@ class ChatIn(BaseModel):
 class ChatPatch(BaseModel):
     title: Optional[str] = None
     is_active: Optional[bool] = None
+    use_for_broadcasts: Optional[bool] = None  # галочка «использовать для рассылок»
 
 
 class ResolveIn(BaseModel):
@@ -65,7 +66,7 @@ async def list_chats(
 ):
     client_id = int(client["sub"])
     rows = await db.fetch(
-        """SELECT id, platform, chat_id, title, chat_url, is_public, added_via, is_active, created_at
+        """SELECT id, platform, chat_id, title, chat_url, is_public, added_via, is_active, use_for_broadcasts, created_at
              FROM client_broadcast_chats
             WHERE client_id = $1
             ORDER BY platform, id""",
@@ -183,7 +184,7 @@ async def add_chat(
                              is_public = EXCLUDED.is_public,
                              is_active = TRUE,
                              updated_at = now()
-               RETURNING id, platform, chat_id, title, chat_url, is_public, added_via, is_active, created_at""",
+               RETURNING id, platform, chat_id, title, chat_url, is_public, added_via, is_active, use_for_broadcasts, created_at""",
             client_id, platform, chat_id, title,
             (data.chat_url or "").strip() or None,
             bool(data.is_public), (data.added_via or "manual"),
@@ -207,13 +208,15 @@ async def patch_chat(
         args.append(data.title.strip() or None); sets.append(f"title = ${len(args)}")
     if data.is_active is not None:
         args.append(bool(data.is_active)); sets.append(f"is_active = ${len(args)}")
+    if data.use_for_broadcasts is not None:
+        args.append(bool(data.use_for_broadcasts)); sets.append(f"use_for_broadcasts = ${len(args)}")
     if not sets:
         raise HTTPException(status_code=400, detail="Нечего обновлять")
     args.extend([chat_id, client_id])
     row = await db.fetchrow(
         f"""UPDATE client_broadcast_chats SET {', '.join(sets)}, updated_at = now()
              WHERE id = ${len(args)-1} AND client_id = ${len(args)}
-         RETURNING id, platform, chat_id, title, chat_url, is_public, added_via, is_active, created_at""",
+         RETURNING id, platform, chat_id, title, chat_url, is_public, added_via, is_active, use_for_broadcasts, created_at""",
         *args,
     )
     if not row:
