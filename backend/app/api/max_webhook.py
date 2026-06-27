@@ -82,15 +82,12 @@ def webhook_secret_for_token(token: str) -> str:
 async def _resolve_token_by_secret(secret: str) -> tuple[str, int | None] | None:
     """Найти бот-токен и client_id по secret из URL.
 
-    1) Сравниваем с системным токеном.
-    2) Иначе ищем среди клиентских MAX-каналов (bot_token в channels).
+    Системный MAX-бот ПЛЮСОНа больше НЕ обслуживает клиентские флоу (системным
+    остаётся только email) — его secret здесь не резолвится, webhook от него
+    игнорируется. Резолвим ТОЛЬКО клиентские MAX-каналы (bot_token в channels).
 
     :return: (token, client_id) либо None.
     """
-    sys_secret = webhook_secret_for_token(settings.max_system_bot_token)
-    if sys_secret and secret == sys_secret:
-        return settings.max_system_bot_token, None  # системный бот, client_id=None
-
     pool = await get_pool()
     if not pool:
         return None

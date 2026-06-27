@@ -1765,30 +1765,13 @@ async def long_poll_loop(ctx: GroupCtx):
 
 
 async def load_groups() -> list[GroupCtx]:
-    """Собирает список обслуживаемых VK-групп: системная + все клиентские VIP."""
-    out: list[GroupCtx] = []
+    """Собирает список обслуживаемых VK-групп: ТОЛЬКО клиентские VIP-сообщества.
 
-    # 1. Системная группа — из settings
-    sys_gid = settings.vk_system_group_id
-    sys_token = settings.vk_system_group_token
-    if sys_gid and sys_token:
-        pool = await get_pool()
-        async with pool.acquire() as db:
-            sys_client_id = await db.fetchval("SELECT id FROM clients WHERE email='system@pluson.ru' LIMIT 1")
-            sys_channel_id = settings.vk_system_channel_id
-        if sys_client_id and sys_channel_id:
-            out.append(GroupCtx(
-                channel_id=sys_channel_id,
-                client_id=sys_client_id,
-                group_id=int(sys_gid),
-                token=sys_token,
-                vk_app_id=int(settings.vk_app_id or 0),
-                is_system=True,
-            ))
-        else:
-            logger.warning("System VK group skipped: system client or channel id missing")
-    else:
-        logger.warning("VK_SYSTEM_GROUP_ID/TOKEN not set, system VK polling skipped")
+    Системное VK-сообщество ПЛЮСОНа больше НЕ обслуживает клиентские флоу
+    (воронки, события, чаты) — каждый клиент работает только своим VK-сообществом.
+    Системным остаётся только email. Поэтому системное сообщество в polling не грузим.
+    """
+    out: list[GroupCtx] = []
 
     # 2. Клиентские VIP-группы — все active в client_channels, не системные
     pool = await get_pool()

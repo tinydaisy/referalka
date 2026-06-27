@@ -161,7 +161,7 @@ async def get_client_bot_handles(db, client_id: int) -> dict[str, str | None]:
 async def get_client_vk_app_id(db, client_id: int) -> Optional[int]:
     """Возвращает VK App ID клиентского Mini App (из channels.platform_meta).
     Если клиент не подключил своё сообщество — None (фронт/бэк должны
-    зафолбэчиться на системный PLUSON_VK_APP_ID).
+    своего VK Mini App нет → ссылка не строится (системный VK-app не используется).
     """
     val = await db.fetchval(
         """SELECT (ch.platform_meta->>'vk_app_id')::int
