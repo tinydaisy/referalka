@@ -1,7 +1,5 @@
 'use client'
-import { useState } from 'react'
-import { Copy, Check, Globe } from 'lucide-react'
-import { useMe } from '@/hooks/useMe'
+import { Globe } from 'lucide-react'
 
 interface Props {
   slug?: string | null
@@ -24,79 +22,7 @@ interface Props {
 //
 // Mini App при загрузке парсит `ref_pg{slug}_reg` → ставит is_registered=true и
 // открывает «Интро» (welcomed_at IS NULL). Идентично потоку TG, что был раньше.
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
-
-type Platform = 'telegram' | 'vk' | 'max'
-const PLATFORM_LABEL: Record<Platform, string> = {
-  telegram: 'Telegram',
-  vk: 'VK',
-  max: 'MAX',
-}
-
-export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
-  const { me } = useMe()
-  const [copied, setCopied] = useState<string | null>(null)
-
-  function copy(key: string, text: string) {
-    if (!text) return
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key)
-      setTimeout(() => setCopied(null), 1500)
-    })
-  }
-
-  const slugStr = slug || ''
-  const available: string[] = Array.isArray(me?.available_platforms)
-    ? me!.available_platforms
-    : []
-  const handles = (me?.bot_handles || {}) as {
-    telegram?: string | null; vk?: string | null; max?: string | null
-  }
-  const vkAppId = me?.vk_app_id ? Number(me.vk_app_id) : null
-
-  // Прямая ссылка возврата для платформы. `null` — платформа недоступна для
-  // этого клиента (нет своего канала, и системного нет/не используется).
-  //
-  // Суффикс `_reg` сигнализирует Mini App «юзер вернулся с лендинга после
-  // регистрации» — Mini App сразу вызывает /participants/register и ставит
-  // is_registered=true (без ожидания webhook GetCourse). Условие в TG —
-  // зарегистрированный short-name `pluson` у бота через BotFather /newapp,
-  // иначе Telegram падает в fallback `/start` и открывает чат вместо Mini App.
-  function urlFor(p: Platform): string | null {
-    if (!slugStr) return null
-    if (p === 'telegram') {
-      // Только свой TG-бот клиента — системный @pluson_bot больше не fallback.
-      const handle = (handles.telegram || '').replace(/^@/, '')
-      if (!handle) return null
-      // У VIP-бота Main Mini App без short-name — t.me/{handle}?startapp=…
-      return `https://t.me/${handle}?startapp=ref_pg${encodeURIComponent(slugStr)}_reg`
-    }
-    if (p === 'vk') {
-      // VK работает только при собственном Mini App клиента — системный
-      // ПЛЮСОНовский VK не используется для чужих клиентов (нет права писать).
-      if (!handles.vk || !vkAppId) return null
-      return `https://vk.com/app${vkAppId}#ref_pg${encodeURIComponent(slugStr)}_reg`
-    }
-    if (p === 'max') {
-      const handle = (handles.max || '').replace(/^@/, '')
-      if (!handle) return null
-      return `https://max.ru/${handle}?startapp=ref_pg${encodeURIComponent(slugStr)}_reg`
-    }
-    return null
-  }
-
-  // Какие платформы показывать — ТОЛЬКО те, где у клиента подключён свой канал
-  // (available_platforms) и удалось собрать ссылку. Системные каналы не предлагаем.
-  const platforms: Platform[] = (['telegram', 'vk', 'max'] as Platform[]).filter(p => {
-    if (!available.includes(p)) return false
-    return urlFor(p) !== null
-  })
-
-  // Для синего блока «можно сразу передать email/телефон» используем TG-ссылку
-  // как универсальный пример — параметры через ?/& работают одинаково на всех.
-  const exampleUrl = urlFor('telegram') || ''
-  const hasAnyUrl = slugStr && platforms.some(p => urlFor(p))
-
+export default function ExternalLandingBlock({ value, onChange }: Props) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-1.5">
@@ -122,85 +48,6 @@ export default function ExternalLandingBlock({ slug, value, onChange }: Props) {
         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand"
       />
 
-      {hasAnyUrl && (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3.5">
-          <p className="text-xs font-semibold text-amber-900 mb-1">
-            После регистрации направляйте людей сюда:
-          </p>
-          <p className="text-xs text-amber-800 mb-3 leading-relaxed">
-            В настройках формы вашего лендинга укажите редирект после успешной
-            регистрации на ссылку под нужную платформу — человек попадёт в Mini App
-            и сразу увидит экран поздравления. Выберите ту платформу, через
-            которую вы привлекаете участников.
-          </p>
-
-          <div className="space-y-2">
-            {platforms.map((p) => {
-              const url = urlFor(p)
-              if (!url) return null
-              return (
-                <div key={p} className="flex gap-2 items-center">
-                  <span className="w-20 shrink-0 text-xs font-semibold text-gray-500">
-                    {PLATFORM_LABEL[p]}
-                  </span>
-                  <input
-                    type="text"
-                    value={url}
-                    readOnly
-                    className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-white border border-amber-200 text-[11px] text-gray-700 font-mono"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => copy(p, url)}
-                    className="px-2.5 py-2 rounded-lg border border-amber-200 bg-white hover:bg-amber-50 shrink-0"
-                    title="Скопировать"
-                  >
-                    {copied === p
-                      ? <Check size={13} className="text-green-600" />
-                      : <Copy size={13} className="text-amber-900" />}
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-
-          {exampleUrl && (
-            <div className="mt-3 rounded-lg bg-blue-50 border border-blue-200 p-2.5">
-              <p className="text-[11px] font-bold text-blue-900 mb-1">
-                💡 Можно сразу передать email/телефон/имя
-              </p>
-              <p className="text-[11px] text-blue-800 leading-relaxed mb-1.5">
-                Допишите параметры через <code className="bg-white px-1 rounded">&amp;</code>{' '}
-                — мы создадим контакт сразу с этими данными, без отдельного webhook.
-                GetCourse/Tilda сами подставят значения вместо плейсхолдеров:
-              </p>
-              <code className="block text-[10px] text-blue-900 font-mono bg-white px-2 py-1.5 rounded break-all leading-relaxed">
-                {exampleUrl}&amp;email={'{email}'}&amp;phone={'{phone}'}&amp;first_name={'{first_name}'}
-              </code>
-              <p className="text-[10px] text-blue-700 mt-1.5 leading-relaxed">
-                Поддерживаемые параметры: <code className="bg-white px-1 rounded">email</code>,{' '}
-                <code className="bg-white px-1 rounded">phone</code>,{' '}
-                <code className="bg-white px-1 rounded">first_name</code>,{' '}
-                <code className="bg-white px-1 rounded">last_name</code>,{' '}
-                <code className="bg-white px-1 rounded">pid</code> (партнёрский код),{' '}
-                <code className="bg-white px-1 rounded">utm_source</code>.
-              </p>
-            </div>
-          )}
-
-          <details className="mt-3 group">
-            <summary className="text-[11px] text-amber-900/70 cursor-pointer hover:text-amber-900 select-none">
-              Старая универсальная ссылка ({APP_URL}/r/{slug || '...'})
-            </summary>
-            <p className="text-[10px] text-amber-800/80 mt-1.5 leading-relaxed">
-              Раньше клиенты ставили в редирект единственную ссылку
-              <code className="bg-white px-1 rounded mx-0.5">{APP_URL}/r/{slug || '...'}</code>
-              — она работала только в Telegram. Если у вас уже настроен этот URL —
-              он продолжит работать. Для VK и MAX используйте прямые ссылки выше.
-            </p>
-          </details>
-        </div>
-      )}
     </div>
   )
 }
