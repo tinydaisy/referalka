@@ -562,6 +562,9 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                        cst.topic as speaker_topic,
                        cse.gift_after_speech_title as gift_title,
                        cse.gift_after_speech_url as gift_url,
+                       cse.gift_lead_magnet_id, cse.gift_package_id,
+                       lm.name AS lm_name, lm.url AS lm_url,
+                       lp.name AS lp_name, lp.slug AS lp_slug,
                        e.stream_url
                 FROM conf_sessions cs
                 LEFT JOIN events e ON e.id = cs.event_id
@@ -570,12 +573,24 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
                 LEFT JOIN platform_users pu_tg
                   ON pu_tg.contact_id = c.contact_id AND pu_tg.platform_slug = 'telegram'
                 LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
+                LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
+                LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
                 WHERE cs.id=$1
                 """,
                 session_id
             )
             if session:
                 session_data = dict(session)
+                # Подарок: приоритет ручному вводу; иначе берём из ПЛЮСОНа
+                # (лид-магнит → его название+ссылка; пакет → название+ссылка /p/{slug}).
+                if not session_data.get("gift_title"):
+                    if session_data.get("lm_name"):
+                        session_data["gift_title"] = session_data["lm_name"]
+                        session_data["gift_url"] = session_data.get("lm_url") or session_data.get("gift_url")
+                    elif session_data.get("lp_name"):
+                        session_data["gift_title"] = session_data["lp_name"]
+                        if session_data.get("lp_slug"):
+                            session_data["gift_url"] = f"https://pluson.ru/p/{session_data['lp_slug']}"
         if not photo:
             photo = session_data.get("speaker_poster")
         stream_url = session_data.get("stream_url") or ""

@@ -24,7 +24,6 @@ export default function ContestOverviewTab({
     vk:  event.chat_url_vk  || '',
     max: event.chat_url_max || '',
     primary: (event.primary_chat_platform as ChatPlatform | null) || (event.chat_url ? 'telegram' : null),
-    chatIds: event.telegram_chat_ids || '',
     tgChatId: event.tg_chat_id || '',
     vkChatId: event.vk_chat_id || '',
     maxChatId: event.max_chat_id || '',
@@ -62,8 +61,6 @@ export default function ContestOverviewTab({
       if (mx  !== (event.chat_url_max || ''))                   payload.chat_url_max = mx  || null
       const initPrimary = (event.primary_chat_platform as ChatPlatform | null) || null
       if (chats.primary !== initPrimary)                        payload.primary_chat_platform = chats.primary || null
-      const ids = chats.chatIds.trim()
-      if (ids !== (event.telegram_chat_ids || ''))              payload.telegram_chat_ids = ids || null
       // chat_id беседы для слушалки заданий (TG/VK/MAX)
       const tgci = (chats.tgChatId || '').trim(), vkci = (chats.vkChatId || '').trim(), mxci = (chats.maxChatId || '').trim()
       if (tgci !== (event.tg_chat_id  || ''))                   payload.tg_chat_id  = tgci || null

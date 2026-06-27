@@ -80,8 +80,10 @@ async def check_event_chat_membership(db, event_id: int, client_id: int) -> dict
     Пишет event_participants.is_in_chat + chat_check_at.
     Возвращает сводку для UI.
     """
+    # Проверяем по чату СОБЫТИЯ (events.tg_chat_id) — тот же чат, где идёт подсчёт
+    # заданий. Отдельное legacy-поле telegram_chat_ids (CSV) убрано.
     chat_ids_raw = await db.fetchval(
-        "SELECT telegram_chat_ids FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
+        "SELECT tg_chat_id FROM events WHERE id = $1 AND id IN (SELECT event_id FROM event_owners WHERE client_id = $2 AND status='accepted')",
         event_id, client_id,
     )
     chat_ids = _parse_chat_ids(chat_ids_raw)
@@ -89,7 +91,7 @@ async def check_event_chat_membership(db, event_id: int, client_id: int) -> dict
         return {
             "ok": False,
             "reason": "no_chat_ids",
-            "message": "У события не задан ID Telegram-чата. Впишите его в блоке «Чаты события» → «ID Telegram-каналов».",
+            "message": "У события не задан ID чата. Впишите его в блоке «Чаты события» → «ID чата для подсчёта заданий».",
         }
 
     token = await get_client_telegram_token(client_id, db)

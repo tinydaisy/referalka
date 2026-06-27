@@ -11,7 +11,7 @@
  *
  * Авторизация stateless, спикер может передать код ассистенту — тот заполнит за него.
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
@@ -245,14 +245,19 @@ export default function SpeakerCabinetPage() {
   }, [token, me?.linked_client_id])
 
   // Источник подарка: при загрузке выставляем по тому, что уже заполнено.
-  // Если выбран лид-магнит/пакет ПЛЮСОН → 'pluson'; если заполнен ручной ввод
-  // (и нет ПЛЮСОН-выбора) → 'manual'; иначе по умолчанию 'pluson'. ⚠️ Хук выше early-return.
+  // Инициализация источника подарка ПРИ ПЕРВОЙ загрузке профиля: выбран
+  // лид-магнит/пакет ПЛЮСОН → 'pluson'; заполнен только ручной ввод → 'manual';
+  // иначе 'pluson'. ⚠️ НЕ завязываем на linked_client_id — привязка ПЛЮСОНа НЕ
+  // должна сбрасывать выбор обратно на ручной (источник там ставится явно).
+  // ⚠️ Хук выше early-return.
+  const giftInitDone = useRef(false)
   useEffect(() => {
-    if (!me) return
+    if (!me || giftInitDone.current) return
+    giftInitDone.current = true
     const hasPluson = !!(me.gift_lead_magnet_id || me.gift_package_id)
     const hasManual = !!(me.gift_after_speech_title || me.gift_after_speech_url)
     setGiftSource(hasManual && !hasPluson ? 'manual' : 'pluson')
-  }, [me?.linked_client_id, me?.gift_lead_magnet_id, me?.gift_package_id])
+  }, [me])
 
   const onAuth = async () => {
     if (!chosenId) { setError('Выберите свою фамилию'); return }
@@ -477,6 +482,9 @@ export default function SpeakerCabinetPage() {
       const j = await r.json()
       if (!r.ok) { setPlError(j.detail || 'Не удалось подключить ПЛЮСОН'); setPlBusy(false); return }
       update({ linked_client_id: j.linked_client_id, linked_client_email: j.linked_client_email })
+      // После привязки ПЛЮСОНа остаёмся на подвкладке «лид-магнит из ПЛЮСОНа»,
+      // не перекидываем на ручной ввод.
+      setGiftSource('pluson')
       setPlusonModal(null); setPlEmail(''); setPlPassword('')
     } catch {
       setPlError('Ошибка сети')
@@ -650,7 +658,10 @@ export default function SpeakerCabinetPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
             <div>
               <div style={{ fontSize: 13, opacity: 0.7 }}>«{me.event_title}»</div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>{me.name || 'Спикер'}</div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>
+                {me.name || 'Спикер'}
+                {me.role && <span style={{ fontWeight: 400, opacity: 0.85 }}> — {({ jury: 'жюри', organizer: 'организатор', headliner: 'хедлайнер', speaker: 'спикер', general_partner: 'генеральный партнёр', partner: 'партнёр' } as Record<string, string>)[me.role] || me.role}</span>}
+              </div>
             </div>
             <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Выйти</button>
           </div>

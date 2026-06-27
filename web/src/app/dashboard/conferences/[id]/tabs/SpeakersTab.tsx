@@ -104,12 +104,12 @@ function defaultRoleFor(moduleSlug?: string | null): string {
 }
 
 // Группы для турнира — в этом порядке. Каждый спикер попадает ровно в одну
-// группу по роли; «спикеры» собирают всех, кого нет в жюри/партнёрах
-// (организаторы, хедлайнеры, спикеры).
+// группу по роли. Организаторы выделены ОТДЕЛЬНОЙ группой (не в куче со спикерами).
 const TOURNAMENT_GROUPS: Array<{ key: string; title: string; roles: string[] }> = [
+  { key: 'organizer', title: 'Организаторы', roles: ['organizer'] },
   { key: 'jury', title: 'Жюри', roles: ['jury'] },
   { key: 'partners', title: 'Партнёры', roles: ['partner', 'general_partner'] },
-  { key: 'speakers', title: 'Спикеры', roles: ['organizer', 'headliner', 'speaker'] },
+  { key: 'speakers', title: 'Спикеры', roles: ['headliner', 'speaker'] },
 ]
 
 export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, hideSubNav }: { eventId: number; moduleSlug?: string | null; subTab?: 'list' | 'links'; hideSubNav?: boolean }) {

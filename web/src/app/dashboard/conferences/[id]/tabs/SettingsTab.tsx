@@ -60,7 +60,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     vk:  conf?.chat_url_vk  || '',
     max: conf?.chat_url_max || '',
     primary: (conf?.primary_chat_platform as ChatPlatform | null) || (conf?.chat_url ? 'telegram' : null),
-    chatIds: conf?.telegram_chat_ids || '',
     tgChatId: conf?.tg_chat_id || '',
     vkChatId: conf?.vk_chat_id || '',
     maxChatId: conf?.max_chat_id || '',
@@ -89,7 +88,6 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       vk:  conf?.chat_url_vk  || '',
       max: conf?.chat_url_max || '',
       primary: (conf?.primary_chat_platform as ChatPlatform | null) || (conf?.chat_url ? 'telegram' : null),
-      chatIds: conf?.telegram_chat_ids || '',
       tgChatId: conf?.tg_chat_id || '',
       vkChatId: conf?.vk_chat_id || '',
       maxChatId: conf?.max_chat_id || '',
@@ -129,15 +127,13 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.accent_button !== initAccent)                           confPatch.accent_button = form.accent_button
       if (form.raffle_url !== (conf?.raffle_url || ''))                confPatch.raffle_url = form.raffle_url || null
       if (form.subscription_mode !== (conf?.subscription_mode || 'none')) confPatch.subscription_mode = form.subscription_mode
-      // Чаты события — 3 URL + primary + chatIds
+      // Чаты события — 3 URL + primary
       const tg = chats.tg.trim(), vk = chats.vk.trim(), mx = chats.max.trim()
-      const ids = chats.chatIds.trim()
       const initPrimary = (conf?.primary_chat_platform as ChatPlatform | null) || null
       if (tg !== (conf?.chat_url_tg  || ''))                           confPatch.chat_url_tg  = tg || null
       if (vk !== (conf?.chat_url_vk  || ''))                           confPatch.chat_url_vk  = vk || null
       if (mx !== (conf?.chat_url_max || ''))                           confPatch.chat_url_max = mx || null
       if (chats.primary !== initPrimary)                               confPatch.primary_chat_platform = chats.primary || null
-      if (ids !== (conf?.telegram_chat_ids || ''))                     confPatch.telegram_chat_ids = ids || null
       // chat_id беседы для слушалки заданий (TG/VK/MAX)
       const tgci = (chats.tgChatId || '').trim(), vkci = (chats.vkChatId || '').trim(), mxci = (chats.maxChatId || '').trim()
       if (tgci !== (conf?.tg_chat_id  || ''))                          confPatch.tg_chat_id  = tgci || null

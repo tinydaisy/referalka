@@ -257,7 +257,6 @@ class ConferenceUpdate(BaseModel):
     status: Optional[str] = None
     test_telegram_ids: Optional[List[str]] = None
     raffle_url: Optional[str] = None
-    telegram_chat_ids: Optional[str] = None     # ID чатов/каналов через запятую
     tg_chat_id: Optional[str] = None            # chat_id TG-беседы события (слушалка заданий)
     vk_chat_id: Optional[str] = None            # chat_id ВК-беседы события (слушалка заданий)
     max_chat_id: Optional[str] = None           # chat_id МАХ-беседы события (слушалка заданий)
@@ -291,7 +290,6 @@ async def get_conference(
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
-               e.telegram_chat_ids AS event_telegram_chat_ids,
                e.tg_chat_id AS event_tg_chat_id,
                e.vk_chat_id AS event_vk_chat_id,
                e.max_chat_id AS event_max_chat_id,
@@ -305,8 +303,8 @@ async def get_conference(
     if not conf:
         return {"conference": None}
     d = dict(conf)
-    # chat_url / stream_url / vip_url / landing_url / telegram_chat_ids — единый
-    # источник истины events (миграция 076 для telegram_chat_ids).
+    # chat_url / stream_url / vip_url / landing_url — единый
+    # источник истины events.
     d["chat_url"]      = d.pop("event_chat_url")     or d.get("chat_url") or ""
     d["chat_url_tg"]   = d.pop("event_chat_url_tg")  or ""
     d["chat_url_vk"]   = d.pop("event_chat_url_vk")  or ""
@@ -319,7 +317,6 @@ async def get_conference(
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
-    d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
     d["tg_chat_id"] = d.pop("event_tg_chat_id", None) or ""
     d["vk_chat_id"] = d.pop("event_vk_chat_id", None) or ""
     d["max_chat_id"] = d.pop("event_max_chat_id", None) or ""
@@ -368,7 +365,7 @@ async def update_conference(
         "primary_chat_platform",
         "stream_url", "vip_url", "vip_button_label", "offer_url",
         "chat_button_label", "accent_button", "hide_stream_button",
-        "telegram_chat_ids", "link_mode",
+        "link_mode",
         "tg_chat_id", "vk_chat_id", "max_chat_id",
         "chat_greeting_enabled", "chat_greeting_keyword", "chat_greeting_exact",
     )
@@ -422,7 +419,6 @@ async def update_conference(
                e.accent_button AS event_accent_button,
                e.hide_stream_button AS event_hide_stream_button,
                e.landing_url AS event_landing_url,
-               e.telegram_chat_ids AS event_telegram_chat_ids,
                e.tg_chat_id AS event_tg_chat_id,
                e.vk_chat_id AS event_vk_chat_id,
                e.max_chat_id AS event_max_chat_id,
@@ -447,7 +443,6 @@ async def update_conference(
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
     d["event_landing_url"] = d.pop("event_landing_url") or ""
-    d["telegram_chat_ids"] = d.pop("event_telegram_chat_ids") or ""
     d["tg_chat_id"] = d.pop("event_tg_chat_id", None) or ""
     d["vk_chat_id"] = d.pop("event_vk_chat_id", None) or ""
     d["max_chat_id"] = d.pop("event_max_chat_id", None) or ""
@@ -658,6 +653,9 @@ async def list_event_speakers(
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.event_id, cse.role,
                   cse.speaker_topic, cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.gift_lead_magnet_id, cse.gift_package_id,
+                  lm.name AS gift_lm_name, lm.url AS gift_lm_url,
+                  lp.name AS gift_lp_name, lp.slug AS gift_lp_slug,
                   cse.gift_raffle_title, cse.gift_raffle_url,
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   cse.show_topic_field, cse.show_gift_after_speech_field,
@@ -689,6 +687,8 @@ async def list_event_speakers(
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
            LEFT JOIN collaborator_posters cp_cse ON cp_cse.id = cse.poster_id
+           LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
+           LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
            LEFT JOIN contacts c ON c.id = sp.contact_id
            LEFT JOIN platform_users pu_tg
              ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
@@ -706,6 +706,17 @@ async def list_event_speakers(
         d = dict(r)
         d["topics"] = topics_map.get(d["id"], [])
         d["poster_url"] = d.get("cse_poster_url") or d.get("speaker_poster_url")
+        # Подарок спикера: приоритет ручному вводу; иначе резолвим из ПЛЮСОНа
+        # (лид-магнит → name+url; пакет → name + ссылка /p/{slug}).
+        # Так предпросмотр рассылки gift показывает реальный подарок.
+        if not (d.get("gift_after_speech_title") or "").strip():
+            if d.get("gift_lm_name"):
+                d["gift_after_speech_title"] = d["gift_lm_name"]
+                d["gift_after_speech_url"] = d.get("gift_lm_url") or d.get("gift_after_speech_url")
+            elif d.get("gift_lp_name"):
+                d["gift_after_speech_title"] = d["gift_lp_name"]
+                if d.get("gift_lp_slug"):
+                    d["gift_after_speech_url"] = f"https://pluson.ru/p/{d['gift_lp_slug']}"
         result.append(d)
     return {"speakers": result}
 

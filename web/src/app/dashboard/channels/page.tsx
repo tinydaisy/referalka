@@ -101,6 +101,10 @@ export default function ChannelsPage() {
   }
 
   const isVip = (me?.features || []).includes('channels')
+  // Есть ли у клиента хоть один СВОЙ (не системный) бот/сообщество — TG/VK/MAX.
+  // Без него сервис не работает: воронки, события, рассылки, чаты идут только
+  // через бот клиента (системный @pluson_bot для клиентов больше не используется).
+  const hasOwnBot = channels.some(c => !c.is_system)
 
   return (
     <div className="p-6 max-w-5xl">
@@ -112,6 +116,17 @@ export default function ChannelsPage() {
           Боты Telegram, группы VK и MAX-каналы для рассылок и подписок
         </p>
       </div>
+
+      {!hasOwnBot && (
+        <div className="mb-6 rounded-xl bg-red-600 text-white px-5 py-4 shadow-lg">
+          <div className="text-lg font-bold">Подключите хотя бы 1 бот</div>
+          <div className="text-sm text-white/90 mt-1">
+            Подключите своего бота Telegram, сообщество ВКонтакте или бота MAX —
+            чтобы сервис работал и вы могли пользоваться полным функционалом
+            (воронки, события, рассылки, чаты).
+          </div>
+        </div>
+      )}
 
       {/* Подвкладки: Боты / Чаты для рассылок */}
       <div className="flex gap-2 mb-6 border-b border-gray-200">

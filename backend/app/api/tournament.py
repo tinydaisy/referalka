@@ -108,16 +108,22 @@ def _skey(kind: str, sid: int) -> str:
     return f"{kind}:{sid}"
 
 
-async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
+async def _subjects(event_id: int, db: asyncpg.Connection, *,
+                    show_ep: bool = True, show_ec: bool = True) -> List[dict]:
     """Оцениваемые = спикеры-коллабораторы (ec) + ВСЕ зарегистрированные участники (ep).
-    Сортировка: спикеры (по фамилии-имени) → участники (по имени)."""
+    Сортировка: спикеры (по фамилии-имени) → участники (по имени).
+
+    show_ep/show_ec — какие аудитории показывать (по настройке этапа listen_audiences).
+    ⚠️ Дедуп «спикер-который-ещё-и-участник → показываем строкой-участником» работает
+    ТОЛЬКО когда показываем обе аудитории. Если этап = только спикеры (show_ep=False),
+    спикеров показываем строкой-спикером (ec) целиком, иначе они бы пропали."""
     out: List[dict] = []
     seen_contacts: set = set()  # contact_id, уже добавленные строкой-участником (ep)
     # ── Участники (ep). Исключаем только организаторов/жюри/партнёров —
     #    их в таблице оцениваемых быть не должно. СПИКЕРЫ остаются: человек,
     #    который сдавал задания как участник, показывается строкой-участником
     #    со своими ep-баллами (даже если его потом записали спикером).
-    ep_rows = await db.fetch(
+    ep_rows = [] if not show_ep else await db.fetch(
         """SELECT ep.id AS sid, ct.name, ct.ref_code, ct.id AS contact_id,
                   (SELECT pu.username FROM platform_users pu
                      WHERE pu.contact_id = ct.id AND pu.username IS NOT NULL
@@ -144,10 +150,10 @@ async def _subjects(event_id: int, db: asyncpg.Connection) -> List[dict]:
                     "name": d["name"] or "Без имени", "username": d.get("username"),
                     "ref_code": d["ref_code"], "contact_id": d["contact_id"],
                     "material": None, "is_speaker": False})
-    # ── Спикеры/хедлайнеры (ec). Добавляем ТОЛЬКО тех, кого ещё нет среди
-    #    участников — иначе один человек (и спикер, и участник) задвоится.
-    #    Его ep-строка уже содержит баллы; пустую спикерскую не плодим.
-    ec_rows = await db.fetch(
+    # ── Спикеры/хедлайнеры (ec). При показе обеих аудиторий добавляем ТОЛЬКО тех,
+    #    кого ещё нет среди участников (иначе человек-и-спикер-и-участник задвоится).
+    #    Если ep не показываем (этап = только спикеры) — добавляем всех спикеров.
+    ec_rows = [] if not show_ec else await db.fetch(
         """SELECT cse.id AS sid, c.name, ct.ref_code, ct.id AS contact_id,
                   c.video_url, c.video_folder_url,
                   (SELECT pu.username FROM platform_users pu
@@ -267,10 +273,11 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
     for c in crits:
         crits_by_pkg.setdefault(c["package_id"], []).append(c)
 
-    subjects = await _subjects(event_id, db)
-    # ── Фильтр «кого отображать в таблице» — по настройке этапа listen_audiences ──
-    #   speakers → показываем спикеров (ec); all/registered → участников (ep).
-    #   Если этап не выбран или настройка пустая/не задана — показываем всех (как было).
+    # ── Кого отображать в таблице — по настройке этапа listen_audiences ──
+    #   speakers → спикеры (ec); all/registered → участники (ep). Пусто/не задан этап
+    #   → показываем всех. Передаём в _subjects, чтобы дедуп спикер/участник учитывал
+    #   аудиторию (иначе на этапе «только спикеры» спикеры-участники пропадали).
+    show_ep, show_ec = True, True
     if stage_id is not None:
         st_aud = await db.fetchval(
             "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
@@ -279,8 +286,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         if aud:  # пустой массив = «показывать всех» (обратная совместимость)
             show_ep = bool(aud & {"all", "registered"})
             show_ec = "speakers" in aud
-            subjects = [s for s in subjects
-                        if (s["kind"] == "ep" and show_ep) or (s["kind"] == "ec" and show_ec)]
+    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec)
     jurors = await _jurors(event_id, db)
 
     # сырые баллы (по subject_kind+subject_id)

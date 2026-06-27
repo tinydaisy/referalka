@@ -115,9 +115,8 @@ class UpdateEventRequest(BaseModel):
     # Какая из главных кнопок красная: 'vip' | 'chat' | 'none' (миграция 117).
     # NULL = 'vip' (обратная совместимость).
     accent_button: Optional[str] = None
-    telegram_chat_ids: Optional[str] = None  # ID чатов/каналов через запятую — общее для меропр и конференций
-    # chat_id чатов СОБЫТИЯ для слушалки заданий (НЕ путать с telegram_chat_ids —
-    # тот для рассылок). Узнаётся командой /chatid в самой беседе.
+    # chat_id чатов СОБЫТИЯ для слушалки заданий и проверки членства.
+    # Узнаётся командой /chatid в самой беседе.
     tg_chat_id: Optional[str] = None
     vk_chat_id: Optional[str] = None
     max_chat_id: Optional[str] = None
@@ -770,7 +769,7 @@ async def check_chats(
     client=Depends(get_current_client),
     db: asyncpg.Connection = Depends(get_db)
 ):
-    """Массово проверяет членство участников в TG-чате события (events.telegram_chat_ids)
+    """Массово проверяет членство участников в TG-чате события (events.tg_chat_id)
     через бот-админа. Пишет event_participants.is_in_chat + chat_check_at.
     ВК/МАХ-беседы платформы проверить не дают — фича пока только Telegram."""
     client_id = int(client["sub"])
