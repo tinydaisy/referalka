@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { Plus, Calendar, Trash2, Save, ChevronUp, ChevronDown, ChevronRight, Layers } from 'lucide-react'
+import { Plus, Calendar, Trash2, Save, ChevronLeft, ChevronRight, ChevronDown, Layers } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 
@@ -8,6 +8,11 @@ import { Spinner } from '@/components/Spinner'
 // Добавление/удаление/правка этапов, дней и слотов НЕ ходит на сервер, пока
 // пользователь не нажмёт «Сохранить программу». Это убирает баг, когда добавление
 // дня вызывало load() и стирало все несохранённые поля.
+//
+// UI (2026-06-27): этапы — это ВКЛАДКИ сверху (как браузерные табы). Над ними —
+// кнопка «Добавить этап». Стрелки ← → меняют порядок активного этапа. Под вкладками
+// открывается содержимое только выбранного этапа. Дни внутри этапа — сворачиваемый
+// аккордеон (стрелочка ▸), чтобы не было каши из десятков раскрытых форм сразу.
 //
 // Идентификаторы:
 //  • Этапы — серверный id (положительный) или временный (отрицательный, для новых).
@@ -45,6 +50,9 @@ type Sess = {
   sort_order: number
 }
 
+// Спец-id «вкладки» для дней без этапа.
+const ORPHAN_TAB = 0
+
 let tmpCounter = -1
 const nextTmpId = () => tmpCounter--
 
@@ -79,7 +87,10 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   // Сессии, помеченные на удаление (реальные id) — реально удаляются при сохранении.
   const [deletedSessionIds, setDeletedSessionIds] = useState<number[]>([])
 
-  const [collapsedStages, setCollapsedStages] = useState<Set<number>>(new Set())
+  // Активная вкладка-этап (id этапа, либо ORPHAN_TAB для «без группировки»).
+  const [activeTab, setActiveTab] = useState<number | null>(null)
+  // Раскрытые дни внутри активного этапа (по day_number).
+  const [openDays, setOpenDays] = useState<Set<number>>(new Set())
 
   // Модалка добавления/редактирования слота
   const [sessionModal, setSessionModal] = useState<{ day: number; editId: number | null } | null>(null)
@@ -119,6 +130,15 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       })
       setDeletedDayNums([])
       setDeletedSessionIds([])
+      // Выбираем активную вкладку: текущая (если ещё существует) → первый этап → орфаны.
+      setActiveTab(prev => {
+        const sortedIds = [...loadedStages].sort((a, b) => a.sort_order - b.sort_order).map(s => s.id)
+        const hasOrphans = loadedDays.some(d => d.stage_id == null)
+        if (prev != null && (sortedIds.includes(prev) || (prev === ORPHAN_TAB && hasOrphans))) return prev
+        if (sortedIds.length > 0) return sortedIds[0]
+        if (hasOrphans) return ORPHAN_TAB
+        return null
+      })
     } finally {
       setLoading(false)
     }
@@ -146,8 +166,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     for (const d of days) {
       const orig = serverSnap.days.find(x => x.day_number === d.day_number)
       if (!orig) return true
-      const origStageId = mapStageIdToServerForCompare(orig.stage_id)
-      const curStageId = mapStageIdToServerForCompare(d.stage_id)
+      const origStageId = orig.stage_id
+      const curStageId = d.stage_id
       if ((d.title || '') !== (orig.title || '') || (d.day_date || '') !== (orig.day_date || '') ||
           (d.open_time || '') !== (orig.open_time || '') || (d.close_time || '') !== (orig.close_time || '') ||
           (d.stream_url || '') !== (orig.stream_url || '') || curStageId !== origStageId) return true
@@ -163,14 +183,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           s.day !== orig.day) return true
     }
     return false
-    // mapStageIdToServerForCompare не зависит от стейта-снимка → eslint ок
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stages, days, sessions, serverSnap, deletedDayNums, deletedSessionIds])
-
-  // Для сравнения stage_id: отрицательные (новые) и положительные совпадают как есть.
-  function mapStageIdToServerForCompare(id: number | null): number | null {
-    return id == null ? null : id
-  }
 
   // ─── Этапы (локально) ─────────────────────────────────────────────────────────
 
@@ -181,6 +194,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       id, sort_order: nextOrder,
       title: `Этап ${prev.length + 1}`, subtitle: '', description: '', start_date: '', end_date: '',
     }])
+    setActiveTab(id)
   }
 
   function deleteStage(stageId: number) {
@@ -188,6 +202,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     if (stageDays.length === 0) {
       if (!confirm('Удалить этап?')) return
       setStages(prev => prev.filter(s => s.id !== stageId))
+      if (activeTab === stageId) setActiveTab(null)
       return
     }
     const withDays = confirm(
@@ -203,6 +218,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       setDays(prev => prev.map(d => d.stage_id === stageId ? { ...d, stage_id: null } : d))
     }
     setStages(prev => prev.filter(s => s.id !== stageId))
+    if (activeTab === stageId) setActiveTab(null)
   }
 
   function deleteAllOrphans() {
@@ -212,6 +228,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     for (const d of orphans) removeDayLocal(d.day_number)
   }
 
+  // Перемещает активный этап в табах влево/вправо (меняет его порядок в программе).
   function moveStage(stageId: number, dir: -1 | 1) {
     const sorted = [...stages].sort((a, b) => a.sort_order - b.sort_order)
     const idx = sorted.findIndex(s => s.id === stageId)
@@ -230,14 +247,6 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     setStages(prev => prev.map(s => s.id === stageId ? { ...s, ...patch } : s))
   }
 
-  function toggleStageCollapsed(stageId: number) {
-    setCollapsedStages(prev => {
-      const n = new Set(prev)
-      if (n.has(stageId)) n.delete(stageId); else n.add(stageId)
-      return n
-    })
-  }
-
   // ─── Дни (локально) ─────────────────────────────────────────────────────────
 
   function addDayToStage(stageId: number | null) {
@@ -248,6 +257,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       day_date: '', open_time: '', close_time: '', stream_url: '',
       stage_id: stageId, title: '',
     }])
+    // Сразу раскрываем новый день, чтобы пользователь его заполнил.
+    setOpenDays(prev => new Set(prev).add(nextNum))
   }
 
   // Удаляет день из локального состояния + помечает на удаление на сервере (если он там есть)
@@ -270,6 +281,14 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 
   function patchDayForm(dayNum: number, patch: Partial<Day>) {
     setDays(prev => prev.map(d => d.day_number === dayNum ? { ...d, ...patch } : d))
+  }
+
+  function toggleDayOpen(dayNum: number) {
+    setOpenDays(prev => {
+      const n = new Set(prev)
+      if (n.has(dayNum)) n.delete(dayNum); else n.add(dayNum)
+      return n
+    })
   }
 
   // ─── Слоты (локально) ─────────────────────────────────────────────────────────
@@ -422,11 +441,19 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       return a.day_number - b.day_number
     })
   const orphanDays = daysByStage(null)
+  const hasOrphans = orphanDays.length > 0
 
-  return (
-    <div className="max-w-2xl space-y-6 pb-24">
-      {/* Подсказка для пустого состояния */}
-      {stages.length === 0 && days.length === 0 && (
+  // Активный этап (если активна вкладка-этап).
+  const activeStage = activeTab != null && activeTab !== ORPHAN_TAB
+    ? stagesSorted.find(s => s.id === activeTab) || null
+    : null
+  const activeStageIdx = activeStage ? stagesSorted.findIndex(s => s.id === activeStage.id) : -1
+  const activeStageDays = activeStage ? daysByStage(activeStage.id) : []
+
+  // Пустое состояние — ни этапов, ни дней.
+  if (stages.length === 0 && days.length === 0) {
+    return (
+      <div className="max-w-3xl">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400">
           <Layers size={32} className="mx-auto mb-3 opacity-40" />
           <p className="text-sm mb-2">У турнира пока нет программы.</p>
@@ -435,61 +462,107 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
             <Plus size={15} /> Добавить этап
           </button>
         </div>
-      )}
+      </div>
+    )
+  }
 
-      {/* Этапы */}
-      {stagesSorted.map((stage, sIdx) => {
-        const stageDays = daysByStage(stage.id)
-        const isCollapsed = collapsedStages.has(stage.id)
-        return (
-          <div key={stage.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="gradient-bg px-5 py-3.5 flex items-center justify-between gap-2">
-              <button
-                onClick={() => toggleStageCollapsed(stage.id)}
-                className="flex items-center gap-2 text-white text-left min-w-0"
-                title={isCollapsed ? 'Развернуть этап' : 'Свернуть этап'}
-              >
-                {isCollapsed
-                  ? <ChevronRight size={16} className="opacity-80 shrink-0" />
-                  : <ChevronDown size={16} className="opacity-80 shrink-0" />}
-                <Layers size={16} className="opacity-80 shrink-0" />
-                <span className="font-semibold truncate">
-                  Этап {sIdx + 1}
-                  {isCollapsed && stage.title ? ` — ${stage.title}` : ''}
-                </span>
-              </button>
+  return (
+    <div className="max-w-3xl pb-28">
+      {/* Кнопка «Добавить этап» НАД вкладками */}
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-gray-400">
+          Каждый этап — на отдельной вкладке. Стрелки ← → меняют порядок этапа в программе.
+        </p>
+        <button
+          onClick={addStage}
+          className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 shrink-0"
+        >
+          <Plus size={15} /> Добавить этап
+        </button>
+      </div>
+
+      {/* Ряд вкладок-этапов (+ вкладка «Без группировки») */}
+      <div className="flex items-end gap-1 overflow-x-auto -mb-px">
+        {stagesSorted.map((stage, i) => {
+          const active = activeTab === stage.id
+          return (
+            <button
+              key={stage.id}
+              onClick={() => setActiveTab(stage.id)}
+              className={`shrink-0 max-w-[220px] px-4 py-2.5 rounded-t-xl border border-b-0 text-sm font-semibold transition-colors flex items-center gap-2 ${
+                active
+                  ? 'bg-white border-gray-200 text-gray-900 relative z-10'
+                  : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200/70'
+              }`}
+              title={stage.title || `Этап ${i + 1}`}
+            >
+              <span className="truncate">
+                {stage.title?.trim() || `Этап ${i + 1}`}
+              </span>
+            </button>
+          )
+        })}
+        {hasOrphans && (
+          <button
+            onClick={() => setActiveTab(ORPHAN_TAB)}
+            className={`shrink-0 px-4 py-2.5 rounded-t-xl border border-b-0 text-sm font-semibold transition-colors flex items-center gap-2 ${
+              activeTab === ORPHAN_TAB
+                ? 'bg-white border-gray-200 text-gray-900 relative z-10'
+                : 'bg-gray-100 border-transparent text-gray-500 hover:bg-gray-200/70'
+            }`}
+          >
+            <Calendar size={13} className="opacity-60" />
+            Без группировки
+          </button>
+        )}
+      </div>
+
+      {/* Тело активной вкладки */}
+      <div className="bg-white rounded-2xl rounded-tl-none border border-gray-200 shadow-sm p-5">
+        {/* ── Вкладка этапа ── */}
+        {activeStage && (
+          <>
+            {/* Шапка этапа: порядок + удаление */}
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2 text-gray-400 text-sm">
+                <Layers size={16} className="opacity-70" />
+                <span>Этап {activeStageIdx + 1} из {stagesSorted.length}</span>
+              </div>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => moveStage(stage.id, -1)}
-                  disabled={sIdx === 0}
-                  className="text-white/50 hover:text-white disabled:opacity-20 disabled:hover:text-white/50 p-1"
-                  title="Выше"
+                  onClick={() => moveStage(activeStage.id, -1)}
+                  disabled={activeStageIdx === 0}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-brand hover:bg-gray-50 disabled:opacity-20 disabled:hover:text-gray-400 disabled:hover:bg-transparent transition-colors"
+                  title="Передвинуть этап левее"
                 >
-                  <ChevronUp size={15} />
+                  <ChevronLeft size={17} />
                 </button>
                 <button
-                  onClick={() => moveStage(stage.id, 1)}
-                  disabled={sIdx === stagesSorted.length - 1}
-                  className="text-white/50 hover:text-white disabled:opacity-20 disabled:hover:text-white/50 p-1"
-                  title="Ниже"
+                  onClick={() => moveStage(activeStage.id, 1)}
+                  disabled={activeStageIdx === stagesSorted.length - 1}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-brand hover:bg-gray-50 disabled:opacity-20 disabled:hover:text-gray-400 disabled:hover:bg-transparent transition-colors"
+                  title="Передвинуть этап правее"
                 >
-                  <ChevronDown size={15} />
+                  <ChevronRight size={17} />
                 </button>
-                <button onClick={() => deleteStage(stage.id)} className="text-white/50 hover:text-red-300 p-1" title="Удалить этап">
+                <button
+                  onClick={() => deleteStage(activeStage.id)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors ml-1"
+                  title="Удалить этап"
+                >
                   <Trash2 size={15} />
                 </button>
               </div>
             </div>
 
-            {!isCollapsed && (
-            <>
-            <div className="px-5 py-4 space-y-3 border-b border-gray-50">
+            {/* Поля этапа */}
+            <div className="space-y-3 mb-5">
               <div>
                 <label className="label">Название этапа</label>
                 <input
                   type="text"
-                  value={stage.title || ''}
-                  onChange={e => patchStageForm(stage.id, { title: e.target.value })}
+                  value={activeStage.title || ''}
+                  onChange={e => patchStageForm(activeStage.id, { title: e.target.value })}
                   className="input"
                   placeholder="Например, «Предстарт: Живой автор в контенте»"
                 />
@@ -498,8 +571,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 <label className="label">Подпись (опционально)</label>
                 <input
                   type="text"
-                  value={stage.subtitle || ''}
-                  onChange={e => patchStageForm(stage.id, { subtitle: e.target.value })}
+                  value={activeStage.subtitle || ''}
+                  onChange={e => patchStageForm(activeStage.id, { subtitle: e.target.value })}
                   className="input"
                   placeholder="«2 недели», «офлайн», «финал»"
                 />
@@ -509,8 +582,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   <label className="label">Дата старта</label>
                   <input
                     type="date"
-                    value={stage.start_date || ''}
-                    onChange={e => patchStageForm(stage.id, { start_date: e.target.value })}
+                    value={activeStage.start_date || ''}
+                    onChange={e => patchStageForm(activeStage.id, { start_date: e.target.value })}
                     className="input"
                   />
                 </div>
@@ -518,8 +591,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   <label className="label">Дата окончания</label>
                   <input
                     type="date"
-                    value={stage.end_date || ''}
-                    onChange={e => patchStageForm(stage.id, { end_date: e.target.value })}
+                    value={activeStage.end_date || ''}
+                    onChange={e => patchStageForm(activeStage.id, { end_date: e.target.value })}
                     className="input"
                   />
                 </div>
@@ -528,25 +601,76 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 <label className="label">Описание (опционально)</label>
                 <textarea
                   rows={2}
-                  value={stage.description || ''}
-                  onChange={e => patchStageForm(stage.id, { description: e.target.value })}
+                  value={activeStage.description || ''}
+                  onChange={e => patchStageForm(activeStage.id, { description: e.target.value })}
                   className="input resize-none"
                   placeholder="Что происходит на этом этапе"
                 />
               </div>
             </div>
 
-            {/* Дни этапа */}
-            <div className="px-3 py-3 space-y-3 bg-gray-50/50">
-              {stageDays.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-3">
-                  В этом этапе пока нет дней. Этап может оставаться «анонсом» (только заголовок и диапазон дат) — или вы можете добавить программу по дням.
+            {/* Дни этапа — аккордеон */}
+            <div className="border-t border-gray-100 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-gray-700">
+                  Дни этапа{activeStageDays.length > 0 ? ` (${activeStageDays.length})` : ''}
+                </span>
+              </div>
+              {activeStageDays.length === 0 && (
+                <p className="text-xs text-gray-400 py-2">
+                  В этом этапе пока нет дней. Этап может оставаться «анонсом» (только заголовок и даты) — или добавьте программу по дням.
                 </p>
               )}
-              {stageDays.map(day => (
-                <DayBlock
+              <div className="space-y-2">
+                {activeStageDays.map(day => (
+                  <DayAccordion
+                    key={day.day_number}
+                    day={day}
+                    open={openDays.has(day.day_number)}
+                    onToggle={() => toggleDayOpen(day.day_number)}
+                    sessions={sessions.filter(s => s.day === day.day_number).sort((a, b) => a.sort_order - b.sort_order)}
+                    stages={stagesSorted}
+                    onPatchDay={(patch) => patchDayForm(day.day_number, patch)}
+                    onDelete={() => deleteDay(day.day_number)}
+                    onAddSession={() => setSessionModal({ day: day.day_number, editId: null })}
+                    onEditSession={openSessionEdit}
+                    onDeleteSession={deleteSession}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={() => addDayToStage(activeStage.id)}
+                className="mt-3 w-full py-2.5 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400 hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus size={14} /> Добавить день в этап
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Вкладка «Без группировки» ── */}
+        {activeTab === ORPHAN_TAB && (
+          <>
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2 text-gray-400 text-sm">
+                <Calendar size={15} className="opacity-70" />
+                <span>Дни без этапа ({orphanDays.length})</span>
+              </div>
+              <button
+                onClick={deleteAllOrphans}
+                className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                title="Удалить все дни без группировки"
+              >
+                <Trash2 size={12} /> Удалить все
+              </button>
+            </div>
+            <div className="space-y-2">
+              {orphanDays.map(day => (
+                <DayAccordion
                   key={day.day_number}
                   day={day}
+                  open={openDays.has(day.day_number)}
+                  onToggle={() => toggleDayOpen(day.day_number)}
                   sessions={sessions.filter(s => s.day === day.day_number).sort((a, b) => a.sort_order - b.sort_order)}
                   stages={stagesSorted}
                   onPatchDay={(patch) => patchDayForm(day.day_number, patch)}
@@ -556,70 +680,25 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   onDeleteSession={deleteSession}
                 />
               ))}
-              <button
-                onClick={() => addDayToStage(stage.id)}
-                className="w-full py-2 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400 hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2"
-              >
-                <Plus size={13} /> Добавить день в этап
-              </button>
             </div>
-            </>
-            )}
-          </div>
-        )
-      })}
+          </>
+        )}
 
-      {/* Дни без этапа */}
-      {orphanDays.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 bg-gray-100 text-sm font-semibold text-gray-600 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Calendar size={14} className="opacity-60" />
-              Без группировки
-            </div>
-            <button
-              onClick={deleteAllOrphans}
-              className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
-              title="Удалить все дни без группировки"
-            >
-              <Trash2 size={12} /> Удалить все
-            </button>
+        {/* Нет активной вкладки (этапов нет, орфанов нет — но что-то есть) */}
+        {!activeStage && activeTab !== ORPHAN_TAB && (
+          <div className="text-center text-gray-400 text-sm py-8">
+            Выберите этап сверху или создайте новый.
           </div>
-          <div className="px-3 py-3 space-y-3">
-            {orphanDays.map(day => (
-              <DayBlock
-                key={day.day_number}
-                day={day}
-                sessions={sessions.filter(s => s.day === day.day_number).sort((a, b) => a.sort_order - b.sort_order)}
-                stages={stagesSorted}
-                onPatchDay={(patch) => patchDayForm(day.day_number, patch)}
-                onDelete={() => deleteDay(day.day_number)}
-                onAddSession={() => setSessionModal({ day: day.day_number, editId: null })}
-                onEditSession={openSessionEdit}
-                onDeleteSession={deleteSession}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Действия снизу */}
-      {(stages.length > 0 || days.length > 0) && (
-        <div className="flex flex-col gap-3">
-          <button
-            onClick={addStage}
-            className="w-full py-3 rounded-2xl border-2 border-dashed border-gray-200 text-sm text-gray-400 hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2"
-          >
-            <Plus size={16} /> Добавить этап
-          </button>
-          <button
-            onClick={() => addDayToStage(null)}
-            className="w-full py-2.5 rounded-2xl border border-dashed border-gray-200 text-xs text-gray-400 hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2"
-          >
-            <Plus size={13} /> Добавить день без этапа
-          </button>
-        </div>
-      )}
+      {/* Добавить день без этапа (отдельно, мелко) */}
+      <button
+        onClick={() => addDayToStage(null)}
+        className="mt-4 text-xs text-gray-400 hover:text-brand transition-colors flex items-center gap-1.5"
+      >
+        <Plus size={13} /> Добавить день без этапа
+      </button>
 
       {/* Sticky-кнопка «Сохранить» */}
       {dirty && (
@@ -709,13 +788,15 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   )
 }
 
-// ─── Подкомпонент: блок дня ─────────────────────────────────────────────────────
+// ─── Подкомпонент: день-аккордеон ──────────────────────────────────────────────
 
-function DayBlock({
-  day, sessions, stages,
+function DayAccordion({
+  day, open, onToggle, sessions, stages,
   onPatchDay, onDelete, onAddSession, onEditSession, onDeleteSession,
 }: {
   day: Day
+  open: boolean
+  onToggle: () => void
   sessions: Sess[]
   stages: Stage[]
   onPatchDay: (patch: Partial<Day>) => void
@@ -724,108 +805,125 @@ function DayBlock({
   onEditSession: (s: Sess) => void
   onDeleteSession: (id: number) => void
 }) {
+  const dateLabel = day.day_date
+    ? new Date(day.day_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', timeZone: 'Europe/Moscow' })
+    : ''
   return (
-    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-      <div className="px-4 py-2.5 bg-gray-50 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm">
-          <Calendar size={14} className="text-gray-400 shrink-0" />
-          <span className="font-semibold text-gray-700">
-            {day.title || `День ${day.day_number}`}
-          </span>
-        </div>
-        <button onClick={onDelete} className="text-gray-300 hover:text-red-400 transition-colors p-1" title="Удалить день">
-          <Trash2 size={13} />
-        </button>
-      </div>
-
-      <div className="px-4 py-3 space-y-3 border-b border-gray-50">
-        <div>
-          <label className="label">Название дня (опционально)</label>
-          <input
-            type="text"
-            value={day.title || ''}
-            onChange={e => onPatchDay({ title: e.target.value })}
-            className="input"
-            placeholder={`По умолчанию — «День ${day.day_number}»`}
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      {/* Шапка дня — кликабельна, сворачивает/разворачивает */}
+      <div className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100/70 transition-colors">
+        <button onClick={onToggle} className="flex items-center gap-2 flex-1 px-3 py-2.5 text-left min-w-0">
+          <ChevronDown
+            size={16}
+            className={`text-gray-400 shrink-0 transition-transform ${open ? '' : '-rotate-90'}`}
           />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Дата</label>
-            <input
-              type="date"
-              value={day.day_date || ''}
-              onChange={e => onPatchDay({ day_date: e.target.value })}
-              className="input"
-            />
-          </div>
-          <div>
-            <label className="label">Этап</label>
-            <select
-              value={day.stage_id == null ? '' : String(day.stage_id)}
-              onChange={e => onPatchDay({ stage_id: e.target.value === '' ? null : Number(e.target.value) })}
-              className="input bg-white"
-            >
-              <option value="">— без этапа —</option>
-              {stages.map((s, i) => <option key={s.id} value={s.id}>Этап {i + 1}: {s.title}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Открытие (МСК)</label>
-            <input
-              type="time"
-              value={day.open_time || ''}
-              onChange={e => onPatchDay({ open_time: e.target.value })}
-              className="input"
-            />
-          </div>
-          <div>
-            <label className="label">Закрытие (МСК)</label>
-            <input
-              type="time"
-              value={day.close_time || ''}
-              onChange={e => onPatchDay({ close_time: e.target.value })}
-              className="input"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="px-4 py-2.5">
-        {sessions.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-2">Нет слотов</p>
-        ) : (
-          <div className="space-y-1 mb-2">
-            {sessions.map(s => (
-              <div key={s.id} className="flex items-start gap-3 group py-1">
-                <button
-                  onClick={() => onEditSession(s)}
-                  className="flex items-start gap-3 flex-1 text-left rounded-lg -mx-1 px-1 hover:bg-gray-50 transition-colors"
-                  title="Редактировать слот"
-                >
-                  <span className="text-[11px] text-gray-400 w-32 shrink-0 pt-0.5 font-mono whitespace-nowrap">
-                    {s.start_time || ''}{s.end_time ? ` — ${s.end_time}` : ''}{s.start_time ? ' МСК' : ''}
-                  </span>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900 group-hover:text-brand transition-colors">{s.title}</p>
-                    {s.speaker_name && <p className="text-xs text-gray-400">{s.speaker_name}</p>}
-                  </div>
-                </button>
-                <button onClick={() => onDeleteSession(s.id)}
-                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-1 rounded shrink-0">
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <button onClick={onAddSession}
-          className="text-xs text-brand hover:text-brand/80 flex items-center gap-1.5 transition-colors">
-          <Plus size={13} /> Добавить слот
+          <span className="font-semibold text-sm text-gray-800 truncate">
+            {day.title?.trim() || `День ${day.day_number}`}
+          </span>
+          {dateLabel && <span className="text-xs text-gray-400 shrink-0">· {dateLabel}</span>}
+          {sessions.length > 0 && (
+            <span className="text-[11px] text-gray-400 shrink-0">· {sessions.length} слот.</span>
+          )}
+        </button>
+        <button onClick={onDelete} className="text-gray-300 hover:text-red-400 transition-colors p-2 shrink-0" title="Удалить день">
+          <Trash2 size={14} />
         </button>
       </div>
+
+      {open && (
+        <div className="bg-white">
+          {/* Поля дня */}
+          <div className="px-4 py-3 space-y-3 border-b border-gray-50">
+            <div>
+              <label className="label">Название дня (опционально)</label>
+              <input
+                type="text"
+                value={day.title || ''}
+                onChange={e => onPatchDay({ title: e.target.value })}
+                className="input"
+                placeholder={`По умолчанию — «День ${day.day_number}»`}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Дата</label>
+                <input
+                  type="date"
+                  value={day.day_date || ''}
+                  onChange={e => onPatchDay({ day_date: e.target.value })}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Этап</label>
+                <select
+                  value={day.stage_id == null ? '' : String(day.stage_id)}
+                  onChange={e => onPatchDay({ stage_id: e.target.value === '' ? null : Number(e.target.value) })}
+                  className="input bg-white"
+                >
+                  <option value="">— без этапа —</option>
+                  {stages.map((s, i) => <option key={s.id} value={s.id}>Этап {i + 1}: {s.title}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Открытие (МСК)</label>
+                <input
+                  type="time"
+                  value={day.open_time || ''}
+                  onChange={e => onPatchDay({ open_time: e.target.value })}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">Закрытие (МСК)</label>
+                <input
+                  type="time"
+                  value={day.close_time || ''}
+                  onChange={e => onPatchDay({ close_time: e.target.value })}
+                  className="input"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Слоты дня */}
+          <div className="px-4 py-2.5">
+            {sessions.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-2">Нет слотов</p>
+            ) : (
+              <div className="space-y-1 mb-2">
+                {sessions.map(s => (
+                  <div key={s.id} className="flex items-start gap-3 group py-1">
+                    <button
+                      onClick={() => onEditSession(s)}
+                      className="flex items-start gap-3 flex-1 text-left rounded-lg -mx-1 px-1 hover:bg-gray-50 transition-colors"
+                      title="Редактировать слот"
+                    >
+                      <span className="text-[11px] text-gray-400 w-32 shrink-0 pt-0.5 font-mono whitespace-nowrap">
+                        {s.start_time || ''}{s.end_time ? ` — ${s.end_time}` : ''}{s.start_time ? ' МСК' : ''}
+                      </span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900 group-hover:text-brand transition-colors">{s.title}</p>
+                        {s.speaker_name && <p className="text-xs text-gray-400">{s.speaker_name}</p>}
+                      </div>
+                    </button>
+                    <button onClick={() => onDeleteSession(s.id)}
+                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-1 rounded shrink-0">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={onAddSession}
+              className="text-xs text-brand hover:text-brand/80 flex items-center gap-1.5 transition-colors">
+              <Plus size={13} /> Добавить слот
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
