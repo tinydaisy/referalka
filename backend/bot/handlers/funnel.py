@@ -160,7 +160,9 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
             from app.api.subscription_check import _check_one_channel
             from app.services.channels import get_client_telegram_token
             from app.config import settings as _settings
-            token = await get_client_telegram_token(ev["client_id"], db) or _settings.telegram_bot_token
+            # Только свой TG-бот клиента. Системный @pluson_bot как fallback убран —
+            # нет своего бота → проверку подписки пропускаем (не блокируем, см. ниже).
+            token = await get_client_telegram_token(ev["client_id"], db)
             if token:
                 async with httpx.AsyncClient() as http:
                     for ch in channels:

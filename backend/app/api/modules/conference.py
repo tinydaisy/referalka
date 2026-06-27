@@ -1097,7 +1097,7 @@ async def verify_speaker_channel(
 
     from app.config import settings
     from app.services.channels import get_client_telegram_token
-    token = (await get_client_telegram_token(client_id, db)) or settings.telegram_bot_token
+    token = await get_client_telegram_token(client_id, db)  # только свой бот клиента
     if not token:
         raise HTTPException(status_code=400, detail="Не настроен главный бот клиента — подключите его в разделе «Каналы»")
 

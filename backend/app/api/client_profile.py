@@ -981,9 +981,10 @@ async def resolve_telegram_chat_id(
             status_code=400,
             detail="invite_only",  # фронт превратит в попап «введите @username или см. инструкцию»
         )
-    token = settings.telegram_bot_token
+    from app.services.channels import get_client_telegram_token
+    token = await get_client_telegram_token(int(client["sub"]), db)  # только свой бот клиента
     if not token:
-        raise HTTPException(status_code=500, detail="Bot token не настроен")
+        raise HTTPException(status_code=400, detail="Не настроен главный бот клиента — подключите его в разделе «Каналы»")
     try:
         async with httpx.AsyncClient(timeout=10) as http:
             r = await http.get(

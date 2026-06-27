@@ -35,14 +35,9 @@ router = APIRouter(prefix="/clients/me/chat-gates", tags=["Гейт по под�
 # ───────────────────── helpers ─────────────────────
 
 async def _bot_token_for_client(client_id: int, db) -> Optional[str]:
-    """Какой бот будет проверять подписку: VIP-бот клиента если есть фича channels,
-    иначе системный @pluson_bot. Та же логика что в funnel_service._bot_token_for_client."""
-    from app.services.features import client_has_feature
-    if await client_has_feature(db, client_id, "channels"):
-        token = await get_client_telegram_token(client_id, db)
-        if token:
-            return token
-    return settings.telegram_bot_token or None
+    """Какой бот проверяет подписку — ТОЛЬКО свой бот клиента (системный @pluson_bot
+    больше не используется как fallback; он только для самого ПЛЮСОНа)."""
+    return await get_client_telegram_token(client_id, db)
 
 
 def _normalize_chat_id(raw: str) -> str:

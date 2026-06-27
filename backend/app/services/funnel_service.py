@@ -185,15 +185,10 @@ def _format_text(template: str, ctx: dict, materials: list[dict]) -> str:
 
 
 async def _bot_token_for_client(client_id: int, db) -> Optional[str]:
-    """Какой бот шлёт сообщения участнику воронки.
-    Если у клиента активна фича 'channels' и есть свой бот → его токен.
-    Иначе → общий @pluson_bot (settings.telegram_bot_token)."""
-    from app.services.features import client_has_feature
-    if await client_has_feature(db, client_id, "channels"):
-        token = await get_client_telegram_token(client_id, db)
-        if token:
-            return token
-    return settings.telegram_bot_token or None
+    """Какой бот шлёт сообщения участнику воронки — ТОЛЬКО собственный бот клиента.
+    Системный @pluson_bot больше не используется как fallback (он только для самого
+    ПЛЮСОНа). Нет своего TG-бота → None (воронка на TG не работает, остаётся email/VK/MAX)."""
+    return await get_client_telegram_token(client_id, db)
 
 
 async def _vk_token_for_client(client_id: int, db) -> Optional[str]:

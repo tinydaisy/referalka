@@ -131,6 +131,12 @@ async def handle_group_message(message: Message, bot: Bot):
     """Каждое сообщение в группе/супергруппе — проверка подписки автора."""
     if not message.from_user or message.from_user.is_bot:
         return
+    # Системный @pluson_bot НЕ обслуживает гейты подписки клиентов — гейт работает
+    # только через собственный VIP-бот клиента. Системный остаётся лишь для самого
+    # ПЛЮСОНа (личка/техподдержка). Отсекаем по токену.
+    from app.config import settings
+    if settings.telegram_bot_token and bot.token == settings.telegram_bot_token:
+        raise SkipHandler()
     chat_id_str = str(message.chat.id)
     user_id = message.from_user.id
     t_start = time.monotonic()
@@ -166,7 +172,7 @@ async def handle_group_message(message: Message, bot: Bot):
                 )
                 if not client_owns:
                     return
-        # Системный @pluson_bot — обрабатывает гейты любых клиентов на bare-тарифе.
+        # (системный @pluson_bot сюда не доходит — отсечён по токену в начале хендлера)
 
         # 3) Быстрый путь: если этот юзер недавно (≤60 сек) уже был помечен «не подписан»
         # для этого чата — пропускаем дорогостоящий getChatMember и берём список missing

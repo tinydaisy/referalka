@@ -145,8 +145,6 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     from app.services.channels import get_client_telegram_token
     token = await get_client_telegram_token(event["client_id"], db)
     if not token:
-        token = settings.telegram_bot_token
-    if not token:
         return {"status": 0, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
 
     speakers = [dict(r) for r in rows]

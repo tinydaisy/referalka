@@ -489,12 +489,13 @@ async def send_event_open_message(
         logger.warning(f"event_welcome prep failed tg_id={tg_id} slug={event_slug}: {e}")
         return {"ok": True, "warning": "prep failed"}
 
-    if not bot_token:
-        bot_token = settings.telegram_bot_token
-    if not bot_token:
-        return {"ok": True, "warning": "no bot token configured"}
+    # Системный @pluson_bot как fallback убран: приветствие при открытии события
+    # шлёт только свой TG-бот клиента. Нет токена ИЛИ нет handle (ссылки кнопок
+    # вести некуда) → приветствие не отправляем (graceful, без падения).
+    if not bot_token or not bot_handle:
+        return {"ok": True, "warning": "no client bot token/handle"}
 
-    bot_url_base = f"https://t.me/{bot_handle}" if bot_handle else "https://t.me/pluson_bot/pluson"
+    bot_url_base = f"https://t.me/{bot_handle}"
     name = display_name or "друг"
     ev_title = ev["title"] or "событие"
 

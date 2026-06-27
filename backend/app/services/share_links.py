@@ -49,7 +49,11 @@ def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id:
     чтобы при клике на чужой платформе человек привязался к своему контакту,
     а не создал дубль. Если None — поведение как раньше (обратная совместимость).
     """
-    handle = (bot_handle or PLUSON_TG_HANDLE).lstrip('@')
+    # ТОЛЬКО свой бот клиента. Системный @pluson_bot как fallback убран — если у
+    # клиента нет своего TG-бота, ссылки в Telegram не строим (пусто).
+    handle = (bot_handle or '').lstrip('@')
+    if not handle:
+        return ''
     parts = [f"ref_pg{event_slug}"]
     if partner_id:
         parts.append(f"pid{partner_id}")
@@ -62,10 +66,8 @@ def telegram_link(event_slug: str, *, bot_handle: str | None = None, partner_id:
     # в ЛС). link_mode='miniapp' (дефолт) → открывается Mini App через startapp.
     if link_mode == 'bot':
         return f"https://t.me/{handle}?start={payload}"
-    # У общего @pluson_bot Mini App имеет short-name `pluson` (one 's')
     # У VIP-бота Main Mini App без short-name — `t.me/{handle}?startapp=…`
-    app_part = f"/{PLUSON_TG_APP}" if handle == PLUSON_TG_HANDLE else ""
-    return f"https://t.me/{handle}{app_part}?startapp={payload}"
+    return f"https://t.me/{handle}?startapp={payload}"
 
 
 def vk_link(event_slug: str, *, app_id: int | None = None, partner_id: str | None = None, tab: str | None = None, contact_id: Optional[int] = None, link_mode: str = 'miniapp') -> str:
@@ -75,7 +77,10 @@ def vk_link(event_slug: str, *, app_id: int | None = None, partner_id: str | Non
     link_mode='miniapp' (дефолт) → полный Mini App `#ref_pg{slug}…`.
     Маркер evl_ парсится в mini-app/src/App.tsx как evl_{slug}[_pid][_src][_ct].
     """
-    aid = app_id or PLUSON_VK_APP_ID
+    # ТОЛЬКО свой VK Mini App клиента. Системный VK-app как fallback убран.
+    if not app_id:
+        return ''
+    aid = app_id
     marker = "evl_" if link_mode == 'bot' else "ref_pg"
     parts = [f"{marker}{event_slug}"]
     if partner_id:
@@ -94,7 +99,10 @@ def max_link(event_slug: str, *, bot_handle: str | None = None, partner_id: str 
     link_mode='miniapp' (дефолт) → Mini App `?startapp=ref_pg{slug}…`.
     bot_username для системного: id890306512862_1_bot («ПЛЮСОН-СЕРВИС»).
     """
-    handle = (bot_handle or PLUSON_MAX_HANDLE).lstrip('@')
+    # ТОЛЬКО свой MAX-бот клиента. Системный MAX-бот как fallback убран.
+    handle = (bot_handle or '').lstrip('@')
+    if not handle:
+        return ''
     parts = [f"ref_pg{event_slug}"]
     if partner_id:
         parts.append(f"pid{partner_id}")

@@ -28,13 +28,15 @@ log = logging.getLogger(__name__)
 
 
 async def _bot_token_for_client(client_id: int, db) -> Optional[str]:
-    """Какой бот шлёт сообщения. Свой бот VIP-клиента (если фича channels) или @pluson_bot."""
+    """Какой бот шлёт сообщения — только свой бот VIP-клиента (если фича channels).
+    Системный @pluson_bot как fallback убран: нет своего бота → партнёрский
+    TG-флоу на этой платформе не работает (None, без падения)."""
     from app.services.features import client_has_feature
     if await client_has_feature(db, client_id, "channels"):
         token = await get_client_telegram_token(client_id, db)
         if token:
             return token
-    return settings.telegram_bot_token or None
+    return None
 
 
 async def _get_brand_owner(client_id: int, db) -> dict:

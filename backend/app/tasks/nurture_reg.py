@@ -298,7 +298,9 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
                 )
                 url = f"{app_base}_tabprogram"
             if plat == "telegram":
-                tok = await get_client_telegram_token(client_id, db) or settings.telegram_bot_token
+                # Только свой VIP-бот клиента. Системный @pluson_bot как fallback убран —
+                # нет своего бота → шаг на TG не отправляем (graceful, без падения).
+                tok = await get_client_telegram_token(client_id, db)
                 if not tok:
                     continue
                 await _send_via_telegram(tok, pid, text, button_label or None, url)

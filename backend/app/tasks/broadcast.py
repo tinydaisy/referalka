@@ -190,14 +190,10 @@ async def _send_broadcast(schedule_id: int):
                     ORDER BY cc.is_active DESC, ch.id ASC LIMIT 1""",
                 schedule["client_id"],
             )
-        if not default_bot_token:
-            default_bot_token = settings.telegram_bot_token
-        if not default_bot_token:
-            await conn.execute(
-                "UPDATE broadcast_schedules SET status='cancelled', error_log=$1, finished_at=NOW() WHERE id=$2",
-                "Нет токена бота", schedule_id
-            )
-            return
+        # Системный @pluson_bot как 3-й уровень fallback убран: если у клиента нет
+        # своего TG-бота — TG-часть рассылки просто пропускается (default_bot_token=None),
+        # а VK/MAX/email-части ниже отрабатывают как обычно. Раньше тут стоял
+        # cancel-and-return, который убивал ВСЮ рассылку — это поведение тоже убрано.
 
         # Часовой пояс клиента + настройка скорости рассылки
         client_row = await conn.fetchrow(
@@ -337,9 +333,13 @@ async def _send_broadcast(schedule_id: int):
                     LIMIT 1""",
                 schedule["client_id"]
             )
-            glink_bot_url = (f"https://t.me/{bot_handle}" if bot_handle
-                             else "https://t.me/pluson_bot/pluson")
-            game_link_url = f"{glink_bot_url}?startapp=ref_pg{event_slug_for_glink}_tabgame"
+            # Системный @pluson_bot как fallback убран: без своего бота клиента
+            # {game_link} вести некуда — оставляем ссылку пустой (плейсхолдер
+            # подставится пустотой, кнопка/текст без рабочей ссылки на этой платформе).
+            if bot_handle:
+                game_link_url = f"https://t.me/{bot_handle}?startapp=ref_pg{event_slug_for_glink}_tabgame"
+            else:
+                game_link_url = ""
 
         # Персональный сквозной маркер контакта `_ct{contact_id}` в {game_link}.
         # При клике на чужой платформе человек привяжется к своему контакту,
@@ -400,7 +400,11 @@ async def _send_broadcast(schedule_id: int):
                         continue
                     send_jobs.append((tg_id, t["channel_id"], t["bot_token"]))
             else:
-                # Легаси-контакт без записи в platform_user_channels — fallback на главный канал.
+                # Легаси-контакт без записи в platform_user_channels — fallback на главный
+                # канал клиента. Если у клиента нет своего TG-бота (default_bot_token=None) —
+                # отправить таким нечем (системный @pluson_bot как fallback убран), пропускаем.
+                if not default_bot_token:
+                    continue
                 if not _channel_allowed(default_channel_id):
                     continue
                 if (tg_id, default_channel_id) in already_sent_set:
@@ -497,8 +501,10 @@ async def _send_broadcast(schedule_id: int):
         # Дедуп: ведём общий set отправленных chat_id (sent_tg_chats), чтобы один и
         # тот же чат не получил сообщение дважды (если он и чат события, и в базе).
         # ⚠️ Не для теста (is_test) — тест не спамит реальные групповые чаты.
+        # Без своего TG-бота (default_bot_token=None) в групповые TG-чаты слать нечем —
+        # системный @pluson_bot как fallback убран.
         sent_tg_chats: set[str] = set()
-        if not schedule["is_test"]:
+        if not schedule["is_test"] and default_bot_token:
             tg_chats: list[str] = []
             if schedule.get("send_to_event_chats") and event_id:
                 ev_tg = await conn.fetchval("SELECT tg_chat_id FROM events WHERE id = $1", event_id)

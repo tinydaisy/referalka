@@ -509,7 +509,7 @@ async def verify_channel(
         raise HTTPException(status_code=400, detail="Ваш Telegram-аккаунт ещё не привязан. Откройте invite-ссылку через бота и попробуйте ещё раз")
 
     client_id = int(row["created_by_client_id"])
-    token = (await get_client_telegram_token(client_id, db)) or settings.telegram_bot_token
+    token = await get_client_telegram_token(client_id, db)  # только свой бот клиента
     if not token:
         raise HTTPException(status_code=400, detail="У клиента не подключён бот для проверки канала")
 
@@ -808,8 +808,11 @@ async def get_me_materials(
             platforms.add("telegram")
 
         if "telegram" in platforms:
-            tg_handle = (handles.get("telegram") or PLUSON_TG_HANDLE).lstrip("@")
-            partner_link["telegram"] = f"https://t.me/{tg_handle}?start={payload}"
+            # Системный @pluson_bot (PLUSON_TG_HANDLE) как fallback убран: если у
+            # клиента нет своего TG-бота — TG invite-ссылку спикеру не показываем.
+            tg_handle = (handles.get("telegram") or "").lstrip("@")
+            if tg_handle:
+                partner_link["telegram"] = f"https://t.me/{tg_handle}?start={payload}"
         if "vk" in platforms and vk_app_id:
             partner_link["vk"] = f"https://vk.com/app{vk_app_id}#{payload}"
         if "max" in platforms and handles.get("max"):

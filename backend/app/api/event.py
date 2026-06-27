@@ -157,10 +157,10 @@ async def share_to_bot(body: ShareToBotRequest):
             bot_token = await get_client_telegram_token(client_id, conn)
     except Exception as e:
         logger.warning(f"get_client_telegram_token failed: {e}")
+    # Системный @pluson_bot как fallback убран: без своего TG-бота клиента
+    # отправлять в бот нечем. Graceful — не падаем 500, а тихо пропускаем.
     if not bot_token:
-        bot_token = settings.telegram_bot_token
-    if not bot_token:
-        raise HTTPException(status_code=500, detail="no bot token configured")
+        return {"ok": False, "skipped": "no client bot token", "posters_sent": 0, "texts_sent": 0}
 
     base = f"https://api.telegram.org/bot{bot_token}"
 

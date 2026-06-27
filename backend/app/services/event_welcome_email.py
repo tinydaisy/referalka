@@ -125,10 +125,10 @@ async def send_welcome_email_if_needed(
             LIMIT 1""",
         event["client_id"],
     )
+    # Только свой бот клиента. Системный @pluson_bot убран — нет своего бота → нет TG-кнопки.
     tg_url = (
         f"https://t.me/{tg_bot_handle}?startapp=ref_pg{event['slug']}"
-        if tg_bot_handle
-        else f"https://t.me/pluson_bot/pluson?startapp=ref_pg{event['slug']}"
+        if tg_bot_handle else ""
     )
 
     vk_handle = await db.fetchval(

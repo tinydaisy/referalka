@@ -458,27 +458,21 @@ async def send_to_notifications_channel(
     """Отправка служебного уведомления в канал уведомлений клиента
     (clients.notifications_telegram_chat_id).
 
-    Бот: СВОЙ (VIP) бот клиента, если есть; иначе системный @pluson_bot.
-    Автофолбэк: если VIP-бот не смог доставить (он не админ канала и т.п.) —
-    повторяем системным, чтобы уведомление не потерялось.
+    Бот: ТОЛЬКО свой (VIP) бот клиента. Системный @pluson_bot как fallback убран —
+    он используется только для самого ПЛЮСОНа. Нет своего TG-бота → уведомление в
+    Telegram не уходит (клиент видит интерес в кабинете; email-канал работает отдельно).
 
-    Возвращает True если доставлено хоть одним ботом.
+    Возвращает True если доставлено.
     """
     import httpx
-    from app.config import settings
 
     if not chat_id or not text:
         return False
 
     vip_token = await get_client_vip_telegram_token(client_id, db)
-    sys_token = settings.telegram_bot_token
-
-    # Порядок попыток: сначала VIP (если есть), потом системный как fallback.
-    tokens: list[str] = []
-    if vip_token:
-        tokens.append(vip_token)
-    if sys_token and sys_token not in tokens:
-        tokens.append(sys_token)
+    if not vip_token:
+        return False
+    tokens: list[str] = [vip_token]
 
     payload = {
         "chat_id": chat_id,

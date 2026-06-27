@@ -137,9 +137,10 @@ async def _build_app_url(
             )
         if vip_handle:
             return f"https://t.me/{vip_handle}/pluson?startapp=ref_pg{slug}{pid_part}{ct_part}"
-        # Системный бот: нужен cid чтобы Mini App знал контекст клиента
-        cid_part = f"_cid{client_id}" if client_id else ""
-        return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}{cid_part}{ct_part}"
+        # Нет своего TG-бота → системный @pluson_bot как fallback убран.
+        # Возвращаем пустую строку — вызывающий код всё равно не отправит TG-шаг
+        # без клиентского токена (token и handle берутся из одного VIP-канала).
+        return ""
 
     if platform == "vk":
         vip_app_id = None
@@ -159,8 +160,8 @@ async def _build_app_url(
         app_id = vip_app_id or settings.vk_app_id
         return f"https://vk.com/app{app_id}#ref_pg{slug}{pid_part}{ct_part}"
 
-    # Прочие платформы — пока нет VIP, fallback на pluson_bot
-    return f"https://t.me/pluson_bot/pluson?startapp=ref_pg{slug}{pid_part}{ct_part}"
+    # Прочие платформы — нет VIP-канала, системный fallback на pluson_bot убран.
+    return ""
 
 
 async def _send_via_telegram(bot_token: str, chat_id: str, text: str, button_label: str, url: str) -> None:
@@ -295,7 +296,9 @@ async def _send_step(db: asyncpg.Connection, run_row, step_row) -> bool:
             else:
                 url = await _build_app_url(db, platform=plat, client_id=client_id, slug=run_row["slug"], ref_code=ref_code, contact_id=run_row["contact_id"])
             if plat == "telegram":
-                tok = await get_client_telegram_token(client_id, db) or settings.telegram_bot_token
+                # Только свой VIP-бот клиента. Системный @pluson_bot как fallback убран —
+                # нет своего бота → шаг на TG не отправляем (graceful, без падения).
+                tok = await get_client_telegram_token(client_id, db)
                 if not tok:
                     continue
                 await _send_via_telegram(tok, pid, text, button_label, url)

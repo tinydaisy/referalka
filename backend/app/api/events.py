@@ -1387,7 +1387,7 @@ async def verify_event_collaborator_channel(
     if not row:
         raise HTTPException(status_code=404, detail="Не найдено")
 
-    token = (await get_client_telegram_token(client_id, db)) or settings.telegram_bot_token
+    token = await get_client_telegram_token(client_id, db)  # только свой бот клиента
     if not token:
         raise HTTPException(status_code=400, detail="Не настроен главный бот клиента — подключите его в разделе «Каналы»")
 

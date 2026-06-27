@@ -94,8 +94,6 @@ async def check_event_chat_membership(db, event_id: int, client_id: int) -> dict
 
     token = await get_client_telegram_token(client_id, db)
     if not token:
-        token = settings.telegram_bot_token
-    if not token:
         return {"ok": False, "reason": "no_bot_token", "message": "Не найден бот для проверки."}
 
     # Участники с числовым tg_id (псевдо-записи @username пропускаем — их не проверить).

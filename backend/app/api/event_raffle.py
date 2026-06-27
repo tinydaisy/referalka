@@ -520,8 +520,8 @@ async def _send_winner_dm(db, row) -> None:
         return  # без tg_id отправлять некуда
 
     bot_token = await get_client_telegram_token(int(row["client_id"]), db)
-    if not bot_token:
-        bot_token = app_settings.telegram_bot_token
+    # Системный @pluson_bot как fallback убран: нет своего TG-бота клиента →
+    # ЛС победителю не шлём (graceful, без падения).
     if not bot_token:
         return
 
