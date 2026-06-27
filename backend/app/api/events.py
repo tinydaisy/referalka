@@ -906,10 +906,10 @@ async def event_participants(
     # попадёт в обе строки — это честный охват площадки).
     # Для каждой платформы: landed (все участники), registered (is_registered),
     # attended (дошли до эфира/действия — link_clicked_at не пуст).
+    # in_chat честно проверяется ТОЛЬКО в Telegram (кнопка «Проверить чаты» →
+    # getChatMember по TG-чату). Для VK/MAX членство в беседе через API получить
+    # нельзя → отдаём NULL, фронт рисует «—», а не фейковую цифру.
     platform_rows = await db.fetch(
-        -- in_chat честно проверяется ТОЛЬКО в Telegram (кнопка «Проверить чаты»
-        -- → getChatMember по TG-чату). Для VK/MAX членство в беседе через API
-        -- получить нельзя → отдаём NULL, фронт рисует «—», а не фейковую цифру.
         """SELECT p.slug AS platform,
                   COUNT(DISTINCT ep.id) AS landed,
                   COUNT(DISTINCT ep.id) FILTER (WHERE ep.is_registered) AS registered,
