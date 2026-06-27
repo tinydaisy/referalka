@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import {
   Plus, X, Trash2, Edit2, Megaphone, Crown, ArrowRight,
-  CheckCircle2, Loader2, Link2, Check,
+  CheckCircle2, Loader2, Link2, Check, Lock,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useMe } from '@/hooks/useMe'
@@ -60,14 +60,19 @@ export default function BroadcastChatsTab() {
   const [editing, setEditing] = useState<BroadcastChat | null>(null)
   // Тариф с фичей broadcast_chats (для апсейл-заглушки) — подтягиваем динамически.
   const [upsellTariff, setUpsellTariff] = useState<{ name: string; price: number } | null>(null)
+  // Уровень доступа с бэка: 'unlimited' (безлимит, Экстра) | 'one' (1/площадка, Профи) | null.
+  const [accessLevel, setAccessLevel] = useState<'unlimited' | 'one' | null>(null)
 
+  // Доступ к разделу — любая из двух фич (по одному / безлимит).
   const hasFeature = (me?.features || []).includes('broadcast_chats')
+                  || (me?.features || []).includes('broadcast_chats_one')
 
   const load = async () => {
     setLoading(true)
     try {
       const r: any = await api.miniApp.broadcastChats.list()
       setChats(r.chats || [])
+      setAccessLevel(r.access_level ?? null)
     } catch (e) {
       console.error(e)
     } finally {
@@ -86,10 +91,14 @@ export default function BroadcastChatsTab() {
     if (me === null) return // ждём загрузки me, чтобы не дёргать зря
     api.publicData.tariffs().then((r: any) => {
       const list: any[] = r?.tariffs || r?.items || (Array.isArray(r) ? r : [])
-      const t = list.find(x =>
+      // Ищем самый дешёвый тариф, дающий ЛЮБОЙ уровень доступа к чатам (по одному
+      // на площадку или безлимит) — чтобы показать минимальную цену входа.
+      const candidates = list.filter(x =>
         (x.slug !== 'admin') &&
-        (x.feature_slugs || x.features || []).includes('broadcast_chats')
-      )
+        ((x.feature_slugs || x.features || []).includes('broadcast_chats') ||
+         (x.feature_slugs || x.features || []).includes('broadcast_chats_one'))
+      ).sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0))
+      const t = candidates[0]
       if (t) setUpsellTariff({ name: t.name, price: Number(t.price) || 0 })
     }).catch(() => {})
   }, [hasFeature, me])
@@ -150,6 +159,43 @@ export default function BroadcastChatsTab() {
     .map(p => ({ platform: p, items: chats.filter(c => c.platform === p) }))
     .filter(g => g.items.length > 0)
 
+  // Площадки, где уже есть хотя бы один чат (для лимита уровня 'one').
+  const usedPlatforms = new Set<Platform>(chats.map(c => c.platform))
+  // На уровне 'one' все три площадки заняты → добавить больше нельзя (нужен безлимит).
+  const allPlatformsUsed = accessLevel === 'one' && (['telegram', 'vk', 'max'] as const).every(p => usedPlatforms.has(p))
+
+  // Кнопка «Добавить чат» — общая (используется в empty-state и под списком).
+  const AddBtn = ({ full }: { full?: boolean }) => {
+    if (allPlatformsUsed) {
+      return (
+        <div className={`${full ? 'w-full' : ''} text-center`}>
+          <button
+            disabled
+            className={`${full ? 'w-full' : ''} py-3 px-4 rounded-xl border border-gray-200 text-sm text-gray-400 flex items-center justify-center gap-2 cursor-not-allowed bg-gray-50`}
+          >
+            <Lock size={15} /> Добавить чат
+          </button>
+          <p className="text-xs text-amber-700 mt-2">
+            На тарифе Профи — по одному чату на каждую площадку (Telegram, VK, MAX).
+            Неограниченное число чатов доступно на тарифе <b>Экстра</b>.{' '}
+            <a href="/dashboard/subscription" className="underline">Перейти</a>
+          </p>
+        </div>
+      )
+    }
+    return (
+      <button
+        onClick={() => setCreating(true)}
+        className={full
+          ? 'w-full py-3 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-2'
+          : 'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-white'}
+        style={full ? undefined : { background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
+      >
+        <Plus size={16} /> Добавить чат
+      </button>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
@@ -158,16 +204,17 @@ export default function BroadcastChatsTab() {
         Потом в рассылке поставьте галочку <b>«Отправлять в общие чаты»</b> — и она уйдёт ещё и в них.
       </div>
 
+      {accessLevel === 'one' && (
+        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-3 text-xs text-blue-900">
+          На вашем тарифе <b>Профи</b> — по одному чату на каждую площадку (Telegram, VK, MAX).
+          Чтобы добавлять чаты без ограничений — тариф <b>Экстра</b>.
+        </div>
+      )}
+
       {chats.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-8 text-center">
           <p className="text-sm text-gray-500 mb-4">Пока нет ни одного чата для рассылок.</p>
-          <button
-            onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-white"
-            style={{ background: 'linear-gradient(45deg, #25455D, #0a1520)' }}
-          >
-            <Plus size={16} /> Добавить чат
-          </button>
+          <AddBtn />
         </div>
       ) : (
         <>
@@ -190,17 +237,14 @@ export default function BroadcastChatsTab() {
             </div>
           ))}
 
-          <button
-            onClick={() => setCreating(true)}
-            className="w-full py-3 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-2"
-          >
-            <Plus size={16} /> Добавить чат
-          </button>
+          <AddBtn full />
         </>
       )}
 
       {creating && (
         <AddChatModal
+          accessLevel={accessLevel}
+          usedPlatforms={usedPlatforms}
           onClose={() => setCreating(false)}
           onSaved={() => { setCreating(false); load() }}
         />
@@ -291,11 +335,17 @@ function ChatCard({ chat, onEdit, onChanged, onDeleted }: {
 }
 
 /* ─────── Модалка добавления ─────── */
-function AddChatModal({ onClose, onSaved }: {
+function AddChatModal({ accessLevel, usedPlatforms, onClose, onSaved }: {
+  accessLevel: 'unlimited' | 'one' | null
+  usedPlatforms: Set<Platform>
   onClose: () => void
   onSaved: () => void
 }) {
-  const [platform, setPlatform] = useState<Platform>('telegram')
+  // На уровне 'one' площадка залочена, если на ней уже есть чат.
+  const isLocked = (p: Platform) => accessLevel === 'one' && usedPlatforms.has(p)
+  // Стартовая площадка — первая НЕзалоченная (для уровня 'one'); иначе telegram.
+  const firstFree = (['telegram', 'vk', 'max'] as const).find(p => !isLocked(p)) || 'telegram'
+  const [platform, setPlatform] = useState<Platform>(firstFree)
   const [url, setUrl] = useState('')
   const [chatId, setChatId] = useState('')
   const [title, setTitle] = useState('')
@@ -376,29 +426,46 @@ function AddChatModal({ onClose, onSaved }: {
               {(['telegram', 'vk', 'max'] as const).map(p => {
                 const meta = PLATFORM_META[p]
                 const active = platform === p
+                const locked = isLocked(p)
                 return (
                   <button
                     key={p}
                     type="button"
+                    disabled={locked}
+                    title={locked ? 'На тарифе Профи уже добавлен чат для этой площадки. Безлимит — на Экстра.' : undefined}
                     onClick={() => {
+                      if (locked) return
                       setPlatform(p)
                       setResolvedOk(false)
                       setResolveErr('')
                     }}
                     className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
-                      active ? 'text-white border-transparent' : 'text-gray-600 border-gray-200 bg-white hover:bg-gray-50'
+                      locked
+                        ? 'text-gray-300 border-gray-100 bg-gray-50 cursor-not-allowed'
+                        : active ? 'text-white border-transparent' : 'text-gray-600 border-gray-200 bg-white hover:bg-gray-50'
                     }`}
-                    style={active ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : undefined}
+                    style={active && !locked ? { background: 'linear-gradient(45deg, #25455D, #0a1520)' } : undefined}
                   >
-                    <span
-                      className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-bold text-white"
-                      style={{ background: meta.color }}
-                    >{meta.badge}</span>
+                    {locked ? (
+                      <Lock size={14} className="text-gray-300" />
+                    ) : (
+                      <span
+                        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-bold text-white"
+                        style={{ background: meta.color }}
+                      >{meta.badge}</span>
+                    )}
                     {meta.label}
                   </button>
                 )
               })}
             </div>
+            {accessLevel === 'one' && (
+              <p className="text-[11px] text-gray-500 mt-1.5">
+                <Lock size={11} className="inline -mt-0.5 mr-0.5" />
+                Площадки с замком уже заняты — на тарифе Профи по одному чату на площадку.
+                Безлимит — на тарифе Экстра.
+              </p>
+            )}
           </div>
 
           {/* Ссылка + Определить ID */}

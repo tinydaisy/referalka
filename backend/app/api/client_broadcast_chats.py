@@ -29,13 +29,28 @@ from app.services.social_links import telegram_api_id, vk_screen_name_from_link
 router = APIRouter(prefix="/clients/me/broadcast-chats", tags=["Чаты для рассылок"])
 
 
-# ── Гейт по фиче ──
-async def _assert_feature(db, client_id: int) -> None:
-    if not await client_has_feature(db, client_id, "broadcast_chats"):
+# ── Гейт по фиче (два уровня) ──
+#   broadcast_chats      — БЕЗЛИМИТ чатов (тариф Экстра 2990 + admin)
+#   broadcast_chats_one  — ПО ОДНОМУ чату на площадку (тариф Профи 1990)
+async def _access_level(db, client_id: int) -> Optional[str]:
+    """Уровень доступа клиента к разделу: 'unlimited' | 'one' | None (нет доступа)."""
+    if await client_has_feature(db, client_id, "broadcast_chats"):
+        return "unlimited"
+    if await client_has_feature(db, client_id, "broadcast_chats_one"):
+        return "one"
+    return None
+
+
+async def _assert_feature(db, client_id: int) -> str:
+    """Проверить доступ к разделу. Возвращает уровень ('unlimited'|'one'). 403 если нет."""
+    level = await _access_level(db, client_id)
+    if level is None:
         raise HTTPException(
             status_code=403,
-            detail="Чаты для рассылок доступны на тарифе Экстра. Перейдите на него в разделе «Подписка».",
+            detail="Чаты для рассылок доступны на тарифе Профи (по одному на площадку) "
+                   "или Экстра (без ограничений). Перейдите на него в разделе «Подписка».",
         )
+    return level
 
 
 class ChatIn(BaseModel):
@@ -72,7 +87,10 @@ async def list_chats(
             ORDER BY platform, id""",
         client_id,
     )
-    return {"chats": [dict(r) for r in rows]}
+    # access_level: 'unlimited' (безлимит чатов) | 'one' (1 на площадку) | null (нет доступа).
+    # Фронт по нему решает, какие площадки залочить замком в модалке «Добавить чат».
+    level = await _access_level(db, client_id)
+    return {"chats": [dict(r) for r in rows], "access_level": level}
 
 
 @router.post("/resolve", summary="Определить chat_id + название по ссылке")
@@ -165,7 +183,7 @@ async def add_chat(
     db: asyncpg.Connection = Depends(get_db),
 ):
     client_id = int(client["sub"])
-    await _assert_feature(db, client_id)
+    level = await _assert_feature(db, client_id)
     platform = (data.platform or "").lower()
     if platform not in ("telegram", "vk", "max"):
         raise HTTPException(status_code=400, detail="platform должен быть telegram | vk | max")
@@ -173,6 +191,22 @@ async def add_chat(
     if not chat_id:
         raise HTTPException(status_code=400, detail="Укажите ID чата")
     title = (data.title or "").strip() or None
+
+    # Уровень 'one' (тариф Профи) — по одному чату на площадку. Разрешаем только если
+    # на этой площадке ещё НЕТ чата, либо это апдейт того же chat_id (тот же чат).
+    if level == "one":
+        existing = await db.fetchval(
+            """SELECT chat_id FROM client_broadcast_chats
+                WHERE client_id = $1 AND platform = $2 LIMIT 1""",
+            client_id, platform,
+        )
+        if existing is not None and str(existing) != chat_id:
+            plat_label = {"telegram": "Telegram", "vk": "VK", "max": "MAX"}.get(platform, platform)
+            raise HTTPException(
+                status_code=403,
+                detail=f"На тарифе Профи можно добавить только один чат для площадки {plat_label}. "
+                       "Неограниченное число чатов доступно на тарифе Экстра.",
+            )
     try:
         row = await db.fetchrow(
             """INSERT INTO client_broadcast_chats
