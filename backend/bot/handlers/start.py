@@ -1304,31 +1304,17 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
         web_mode = (client["default_link_mode"] or "miniapp") == "bot"
         base = f"https://pluson.ru/c/{client_id}/tg"
 
-        # ── Режим «конкретное событие»: одна кнопка-вход в выбранное событие ──
+        # ── Режим «конкретное событие»: запускаем СТАНДАРТНЫЙ флоу события,
+        # ровно как по ссылке t.me/<bot>?start=ref_pg<slug> — афиша + кнопка
+        # «Зарегистрироваться» (если не зарег.) или афиша + «Меню» (если зарег.),
+        # с учётом link_mode (Mini App / веб). Никакого самописного текста. ──
         if start_event:
-            ev_title = _html.escape(start_event["title"] or "событие")
-            greeting = f"Привет, {_html.escape(greet_name)}! 👋" if greet_name else "Привет! 👋"
-            text = f"{greeting}\n\nДобро пожаловать на <b>«{ev_title}»</b> 🎉"
-            ev_slug = start_event["slug"]
-            if web_mode:
-                ev_btn = InlineKeyboardButton(text="Перейти к событию",
-                                              url=f"https://pluson.ru/event/{ev_slug}")
-            else:
-                ev_btn = InlineKeyboardButton(text="Перейти к событию",
-                                              web_app=WebAppInfo(url=f"{base}/event/{ev_slug}"))
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[ev_btn]])
-            photo_url = client["owner_photo_url"] or client["profile_photo_url"]
-            TG_CAPTION_LIMIT = 1024
-            if photo_url and len(text) <= TG_CAPTION_LIMIT:
-                try:
-                    await message.answer_photo(photo=photo_url, caption=text,
-                                               parse_mode="HTML", reply_markup=keyboard)
+            try:
+                if await _handle_ref_event_bot_flow(message, f"ref_pg{start_event['slug']}"):
                     return True
-                except Exception as e:
-                    log.warning("vip_start(event) answer_photo failed: %s", e)
-            await message.answer(text, parse_mode="HTML", reply_markup=keyboard,
-                                 disable_web_page_preview=True)
-            return True
+            except Exception as e:  # noqa: BLE001
+                log.warning("vip_start(event) ref-flow failed: %s", e)
+            # если стандартный флоу не отработал — падаем в общее приветствие ниже
 
         # Текст приветствия. Если клиент задал свой — используем его
         # (плейсхолдеры {имя} и {бренд}); иначе — дефолт.
