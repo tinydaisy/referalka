@@ -507,7 +507,11 @@ async def _send_broadcast(schedule_id: int):
         if not schedule["is_test"] and default_bot_token:
             tg_chats: list[str] = []
             if schedule.get("send_to_event_chats") and event_id:
-                ev_tg = await conn.fetchval("SELECT tg_chat_id FROM events WHERE id = $1", event_id)
+                # Чат события TG — через ref на client_broadcast_chats.
+                ev_tg = await conn.fetchval(
+                    """SELECT cbc.chat_id FROM events e
+                         JOIN client_broadcast_chats cbc ON cbc.id = e.tg_chat_ref
+                        WHERE e.id = $1""", event_id)
                 if ev_tg and str(ev_tg).strip():
                     tg_chats.append(str(ev_tg).strip())
             if schedule.get("send_to_client_chats"):
@@ -638,8 +642,11 @@ async def _send_broadcast_to_event_chats(
     поэтому ЗДЕСЬ TG НЕ дублируем. Возвращает число успешно отправленных чатов.
     В sent_vk/sent_max (если переданы) регистрирует отправленные chat_id —
     для дедупа с базой чатов клиента."""
+    # Чаты события VK/MAX — через ref на client_broadcast_chats.
     ev = await conn.fetchrow(
-        "SELECT vk_chat_id, max_chat_id FROM events WHERE id=$1", event_id
+        """SELECT (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS vk_chat_id,
+                  (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS max_chat_id
+             FROM events e WHERE e.id = $1""", event_id
     )
     if not ev:
         return 0

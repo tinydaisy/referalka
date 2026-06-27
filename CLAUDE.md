@@ -90,6 +90,28 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### ⚠️ Системный бот — только email (с 2026-06-27, коммиты 745eb1f, 143e6f2)
+
+**Главное правило.** Системный `@pluson_bot` (и системное VK-сообщество, и системный MAX-бот) **больше НЕ используется ни в одном клиентском флоу**. Каждый клиент работает только **своим VIP-ботом** на платформе. Нет своего бота на платформе → флоу на этой платформе просто **не работает (graceful)** — токен None, ссылка пустая, шаг пропускается, без падений. Это **отменяет** все старые формулировки в этом файле вида «fallback на @pluson_bot / иначе системный канал».
+
+**Системными остаются ТОЛЬКО:**
+- **Email** — единый email-канал ПЛЮСОНа (письма ассистенту, welcome-email, рассылки по email).
+- **Реф-ссылка регистрации нового клиента** в платформу (промо самого ПЛЮСОНа).
+- **Внутренний дебаг-алерт ошибок ПЛЮСОНа** (техслужебный канал).
+- **Polling @pluson_bot для лички** — приём ЛС, техподдержка, регистрация нового клиента. Сам ПЛЮСОН как продукт, не клиентские события.
+
+**Что конкретно изменилось (нет больше системного fallback):**
+- `chat_listener` + `chat_gate` — системный бот НЕ обрабатывает чаты событий и гейт подписки (отсечён по токену). В чате события отвечает РОВНО ОДИН бот клиента.
+- `funnel_service` / `nurture` / `nurture_reg` / `broadcast` — убран fallback на `settings.telegram_bot_token`; нет своего бота → шаг пропускается.
+- `event_welcome` / `event_welcome_email` / `event_raffle` / `event (share-to-bot)` — без системного fallback, graceful skip.
+- `speaker_cabinet` / `partner_service` / `bot/handlers/funnel.py` — только свой бот клиента.
+- **Уведомления организатору** (`send_to_notifications_channel`, `_send_event_organizer_notification`) — только VIP-бот клиента (раньше слал @pluson_bot).
+- Тех-проверки `getChatMember` (events, conference, subscription_check, chat_membership, client_chat_gates, client_profile, speaker_cabinet) — только свой бот.
+- Билдеры ссылок ([share_links.py](backend/app/services/share_links.py)) **строгие**: нет handle/app_id у клиента → возвращают **пустую** ссылку (не системную). `PLUSON_TG_HANDLE` оставлен только для самой регистрации в ПЛЮСОН.
+- Воронки лид-магнитов: `to=vk`/`to=max` без своего сообщества/бота клиента → ссылка не строится (раньше вела в системное VK-сообщество `app54592404` / системный MAX-бот).
+
+⚠️ При правках любого клиентского флоу — **никогда не возвращать системный бот как fallback**. Старые упоминания «иначе системный @pluson_bot» в разделах ниже считать неактуальными.
+
 ### Личные переписки «Диалоги» — история ЛС + ответы из дашборда (миграция 160 от 2026-06-21, НА ПРОДЕ)
 
 **Зачем.** Раньше личные сообщения людей боту/сообществу клиента нигде не сохранялись — только летело уведомление `#user_message` в TG-канал организатора. Теперь клиент видит ВСЮ историю переписки 1-на-1 (что пишет человек / что отвечает бот / что отвечает он сам) и **отвечает прямо из кабинета** через свои боты TG/VK/MAX, может править и удалять свои сообщения (реально у получателя на платформе).
@@ -146,7 +168,7 @@
 
 **Где используется массив каналов:**
 1. **Воронка лид-магнита** ([funnel_service.py](backend/app/services/funnel_service.py)) — `check_telegram_channels_subscription(client_id, tg_id, db)` параллельно через `asyncio.gather` проверяет подписку на ВСЕ каналы из массива. `run_check_subscription` использует эту функцию вместо одиночного `getChatMember`. Если хоть на один канал не подписан → `'not_subscribed'`, алерт в [handlers/funnel.py](backend/bot/handlers/funnel.py) перечисляет НЕподписанные каналы (до 3 шт).
-2. **Чат-гейт** ([bot/handlers/chat_gate.py](backend/bot/handlers/chat_gate.py)) — на каждое сообщение в group/supergroup ищет активный `client_chat_gates` по `chat.id`, дёргает ту же `check_telegram_channels_subscription`, не подписан → `delete_message` + `send_message` с reply_to_message_id на УЖЕ удалённое сообщение + авто-удаление предупреждения через `warning_ttl_sec`. Бот любого клиента (`bot.id` → `channels.id` → `client_channels`) обрабатывает только гейты СВОЕГО клиента; системный @pluson_bot — обрабатывает гейты любых клиентов на bare-тарифе.
+2. **Чат-гейт** ([bot/handlers/chat_gate.py](backend/bot/handlers/chat_gate.py)) — на каждое сообщение в group/supergroup ищет активный `client_chat_gates` по `chat.id`, дёргает ту же `check_telegram_channels_subscription`, не подписан → `delete_message` + `send_message` с reply_to_message_id на УЖЕ удалённое сообщение + авто-удаление предупреждения через `warning_ttl_sec`. Бот любого клиента (`bot.id` → `channels.id` → `client_channels`) обрабатывает только гейты СВОЕГО клиента. ⚠️ С 2026-06-27 системный @pluson_bot гейт НЕ обрабатывает (отсечён по токену) — гейт работает только у клиента со своим VIP-ботом.
 3. **Mini App / Экосистема / OwnerPage** ([EcosystemTab.tsx](mini-app/src/tabs/EcosystemTab.tsx), [OwnerPage.tsx](mini-app/src/pages/OwnerPage.tsx)) — массив отрисовывается как несколько TG-иконок, под каждой `name` или «Telegram».
 4. **Подсказка в /dashboard/lead-magnets** — баннер «Воронка проверит подписку на N канала(ов)» со списком.
 
@@ -178,8 +200,9 @@
 **⚠️ Миграция 133 — оцениваемые = участники И спикеры (полиморфный subject):** `subject_kind` ∈ `ec` (event_collaborators.id, спикеры role speaker/headliner) | `ep` (event_participants.id, все is_registered) + `subject_id`. В коде ключ `key="ec:N"|"ep:N"`. Старый `subject_ec_id` — легаси, NOT NULL снят. **Этап перенесён с пакета на КРИТЕРИЙ** (`tournament_criteria.stage_id`). Турнирная таблица показывает критерии ОТДЕЛЬНЫМИ КОЛОНКАМИ (не баллы пакетов): `_compute` отдаёт `columns` + `table[].cells` (criterion_id→значение) + `jury_detail`. Ручной/народный ввод (vote/manual) — input прямо в ячейку таблицы, детализация жюри — после ИТОГ. Эндпоинты принимают `key`, не subject_ec_id.
 
 **Модель «Пакеты → Критерии → Баллы»** (8 таблиц):
-- `tournament_packages` — смысловая группа критериев: `title`, `weight` (вес в итоге), `normalize` (галочка — привести критерии к доле от лучшего, для разных масштабов), `stage_id` (FK `conf_stages`, NULL = весь турнир).
-- `tournament_criteria` — внутри пакета, всегда даёт число. `scorer` ∈ `jury|vote|manual|auto`. `auto_kind` ∈ `referrals` (через `event_participants.referrer_ref_code`) | `lead_magnet` (через `funnel_runs.referrer_contact_id`). `scale_max`, `weight` (внутри пакета).
+- `tournament_packages` — смысловая группа критериев: `title`, `weight` (вес пакета), `stage_id` (FK `conf_stages`, NULL = весь турнир). **`scheme` (миграция 168 от 2026-06-25)** — схема расчёта пакета, `s1|s2|s3|s4` (см. «Расчёт» ниже). Старые `normalize`/`aggregate` оставлены для совместимости, расчёт идёт по `scheme` (бэкфилл: `aggregate='sum'`→s4, `normalize+avg`→s2, иначе→s3).
+- `tournament_criteria` — внутри пакета, всегда даёт число. `scorer` ∈ `jury|vote|manual|auto|auto_number`. `auto_kind` ∈ `referrals` (через `event_participants.referrer_ref_code`) | `lead_magnet` (через `funnel_runs.referrer_contact_id`) | `replace` | `sum` (для `auto_number`). `scale_max`, `weight` (внутри пакета), `description` (расшифровка — в таблице под «?» как CSS-тултип).
+  - **`scorer='auto_number'` — тип «авто-число» (миграция 173 от a9c5919).** Участник пишет в чат события **кодовую фразу + число** — число записывается в критерий. Парсинг (`_parse_number_after_phrase` в [chat_archive.py](backend/app/services/chat_archive.py)) терпим к разделителям: «слово:6» = «слово: 6» = «слово   6» = 6 (двоеточие/пробелы игнорируются). Режимы по `auto_kind`: `replace` — новое значение **перезатирает** предыдущее (напр. «деньги: 1000»); `sum` — значения **суммируются** (напр. «лид-магнит: 6», потом «+4» → 10). Слушалка чатов та же, что у `manual` (см. project_task_control_chat_listener).
 - `tournament_scores` — сырые баллы. `jury` → строка на каждое жюри (балл критерия = AVG). `vote`/`manual` → одна строка `juror_ec_id=NULL`. `scorer` денормализован в строку + `CHECK ((scorer='jury')=(juror_ec_id IS NOT NULL))`. **Частичные UNIQUE** (обычный с NULL не защищает): `WHERE juror_ec_id IS NOT NULL` для жюри + `WHERE juror_ec_id IS NULL` для остальных.
 - `tournament_jury_assignments` — many-to-many жюри↔участник. Жюри видит в кабинете **ТОЛЬКО** привязанных (нет записей → не видит никого).
 - `tournament_feedback` — обратная связь жюри→участник (текст), один на (juror, subject, stage). Видят организатор + участник.
@@ -187,9 +210,23 @@
 
 **⚠️ ID:** `subject_ec_id`/`juror_ec_id` = `event_collaborators.id` (коллаб-в-событии), НЕ `collaborators.id`. Оцениваемые = `role IN ('speaker','headliner')`, жюри = `role='jury'` (заводятся как обычные коллабораторы). Участники турнира = коллабораторы, не `event_participants` (обычных участников оценивать — отложено).
 
-**Расчёт** (`_compute` в [tournament.py](backend/app/api/tournament.py)): балл критерия (jury=AVG, vote/manual=число, auto=из БД) → балл пакета (normalize=TRUE: каждый критерий=доля от лучшего, потом взвеш.среднее; иначе взвеш.среднее сырых) → итог = `Σ(балл пакета × вес пакета)`, сортировка убыванием. Прогресс `done_jury/assigned_jury`.
+**Расчёт по схемам пакета** (`_compute` в [tournament.py](backend/app/api/tournament.py), 2026-06-25). Балл критерия: jury=AVG, vote/manual/auto/auto_number=число. Балл пакета — по `scheme` (вес критериев внутри средневзвеш везде, кроме s1):
+- **s1 «Сырая сумма ÷ лидера ×10»** — `Σ(знач×вес) / сумма_лидера × 10` (диапазон 0..10). Для пакетов вовлечения.
+- **s2 «Доля от лучшего ÷ сумму весов»** — на каждый критерий считается доля `значение ÷ макс по столбцу`, затем `Σ(доля×вес) / Σвесов × 10`. Для разномасштабных критериев.
+- **s3 «Среднее значений»** — `Σ(знач×вес) / Σвесов` (без ×10). Для жюри (оценки уже 0..10).
+- **s4 «Чистая сумма»** — `Σ(знач×вес)` без деления. Для заданий (Этап 0).
 
-**Бэкенд** [backend/app/api/tournament.py](backend/app/api/tournament.py): `router` (клиент, `/api/v1/events/{id}/tournament/*`) + `jury_router` (кабинет жюри, `/api/v1/public/tournament-jury/*`, JWT кабинета спикера). Auto-seed `_seed_defaults_if_empty` при первом GET `/criteria` — пакет «Оценка жюри» (вес 3, 6 критериев экспертизы) + «Вовлечение» (вес 1, normalize, 2 авто).
+**ИТОГ = простая сумма баллов пакетов** (вес критериев уже учтён в средневзвеш внутри пакета; коэффициент `×вес пакета` в ИТОГе **убран** — коммиты 54e53f0, 19b6235). Сортировка убыванием. Прогресс `done_jury/assigned_jury`.
+
+**Раскладка турнирной таблицы по схеме пакета** (внешняя `/t/{slug}/{stage}` + дашборд ScoringTab, коммиты b32f2d8…19b6235):
+- **s1** — есть Σ-колонка = сырая сумма `крит×вес` + строка лидера этой суммы.
+- **s2** — на каждый критерий **2 столбца** (значение + норм. доля от лучшего), **трёхуровневая шапка** (название критерия над парой «значение»/«доля от лучшего»), Σ-колонка средневзвеш долей **БЕЗ ×10** (вес пакета учитывается только в ИТОГе), строка «Лидеры по критериям» голубым.
+- **s3** — Σ-колонки нет.
+- **s4** — чистая сумма.
+
+Описания критериев — под значком «?» как CSS-тултип (а не пустой нативный `title`). Sticky-заголовки. **Настройка «Показывать в таблице» — под этап** (`conf_stages.listen_audiences` фильтрует, какие аудитории `ep`/`ec` попадают в `_subjects` таблицы).
+
+**Бэкенд** [backend/app/api/tournament.py](backend/app/api/tournament.py): `router` (клиент, `/api/v1/events/{id}/tournament/*`) + `jury_router` (кабинет жюри, `/api/v1/public/tournament-jury/*`, JWT кабинета спикера). Auto-seed `_seed_defaults_if_empty` при первом GET `/criteria` — пакет «Оценка жюри» (вес 3, 6 критериев экспертизы) + «Вовлечение» (вес 1, 2 авто).
 
 **Фронт:** дашборд — вкладка «Оценки» ТОЛЬКО при `isTournament` ([ScoringTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ScoringTab.tsx), 4 подвкладки: Критерии/Распределение/Турнирная таблица/Отчёты). Кабинет [/speaker/[event_slug]](web/src/app/speaker/%5Bevent_slug%5D/page.tsx): «Оценка участников» (только `role='jury'`) + «Мои результаты» (для оцениваемых). Материалы для жюри = `collaborators.video_url`/`video_folder_url` участника. api-группа `api.tournament.*`.
 
@@ -203,13 +240,40 @@
 
 **БД (миграция 130):** `event_participants.chat_check_at TIMESTAMPTZ NULL` — время последней проверки. Результат пишется в существующее `is_in_chat` (раньше его ставил только Salebot). `chat_check_at` отличает «не проверяли» (?) от «проверили, не в чате» (✕).
 
-**Бэк:** `POST /api/v1/events/{id}/check-chats` ([events.py](backend/app/api/events.py)) → [`check_event_chat_membership`](backend/app/services/chat_membership.py). Берёт chat_id из `events.telegram_chat_ids` (CSV «-100…»), токен — VIP-бот клиента → fallback системный `@pluson_bot` (`get_client_telegram_token` → `settings.telegram_bot_token`). По каждому участнику с числовым tg_id → `getChatMember(chat_id, tg_id)` с троттлингом ~25 rps. Статусы `member/administrator/creator/restricted-is_member` = в чате. Псевдо-записи `@username` и участники без TG — пропускаются (`skipped_no_tg`). Если бот не админ / чат не найден → `getChatMember` ошибка → `undetermined`: статус НЕ перезаписываем, но `chat_check_at` ставим. **⚠️ Бот ОБЯЗАН быть админом чата**, иначе всё уйдёт в `undetermined`.
+**Бэк:** `POST /api/v1/events/{id}/check-chats` ([events.py](backend/app/api/events.py)) → [`check_event_chat_membership`](backend/app/services/chat_membership.py). ⚠️ С миграции 171 (2026-06-27) chat_id берётся из **`events.tg_chat_id`** (чат самого события) — legacy-поле `events.telegram_chat_ids` (CSV «ID Telegram-каналов») **удалено** из БД/API/фронта. Токен — **только VIP-бот клиента** (системный @pluson_bot как fallback убран); нет своего бота → проверка не выполняется. По каждому участнику с числовым tg_id → `getChatMember(chat_id, tg_id)` с троттлингом ~25 rps. Статусы `member/administrator/creator/restricted-is_member` = в чате. Псевдо-записи `@username` и участники без TG — пропускаются (`skipped_no_tg`). Если бот не админ / чат не найден → `getChatMember` ошибка → `undetermined`: статус НЕ перезаписываем, но `chat_check_at` ставим. **⚠️ Бот ОБЯЗАН быть админом чата**, иначе всё уйдёт в `undetermined`.
 
-**Ответ эндпоинта:** `{ok, total, checked, in_chat, not_in_chat, skipped_no_tg, undetermined, chat_ids}`. При пустом `telegram_chat_ids` → `{ok:false, reason:'no_chat_ids', message}`.
+**Ответ эндпоинта:** `{ok, total, checked, in_chat, not_in_chat, skipped_no_tg, undetermined, chat_ids}`. При отсутствии `tg_chat_id` → `{ok:false, reason:'no_chat_ids', message}`.
+
+**⚠️ Внешние чаты для рассылок — отдельная фича.** Дополнительные чаты/группы/каналы клиента, в которые льются рассылки анонсов, теперь живут в **Каналы → «Чаты для рассылок»** (таблица `client_broadcast_chats`, миграции 170/172) — см. раздел «База чатов клиента для рассылок». «Проверить чаты» — это только про чат самого события.
 
 **Фронт** ([EventParticipants.tsx](web/src/components/EventParticipants.tsx)): кнопка «Проверить чаты» (api `events.checkChats`) → после ответа `load()` перечитывает список + `alert` со сводкой. Колонка «В чате»: синяя ✓ (в чате) / серый ✕ (проверен, не в чате) / серый ? (не проверяли), время проверки в тултипе.
 
 **ВК на будущее (отложено).** Проверка ВК возможна ТОЛЬКО если чат события — **сообщество ВК** (а не беседа): тогда `groups.isMember(group_id, user_ids)` (до 500 id за запрос). Для бесед ВК — невозможно. МАХ — невозможно совсем.
+
+### База чатов клиента для рассылок (миграции 170, 172 от 2026-06-26)
+
+**Зачем.** «Доп. чаты для отправки» вынесены с уровня события на уровень **КЛИЕНТА** — единая база чатов/групп/каналов, в которую дополнительно льются рассылки (общие и событийные). Раньше внешние чаты ошибочно держали в `events.telegram_chat_ids` (удалён миграцией 171).
+
+**БД (миграция 170):** `client_broadcast_chats (id, client_id, platform['telegram'|'vk'|'max'], chat_id, title, chat_url, is_public, added_via['link'|'manual'], is_active, use_for_broadcasts, created_at, updated_at)`. `UNIQUE(client_id, platform, chat_id)`. GRANT на `plusson`.
+- **`use_for_broadcasts` (миграция 172, default TRUE)** — галочка «использовать чат для рассылок анонсов», отдельно от `is_active` (чат в базе). Рассылки по базе чатов идут **только** по чатам с этой галочкой.
+- Флаги рассылки `broadcast_templates.send_to_client_chats` + `broadcast_schedules.send_to_client_chats` (BOOL DEFAULT FALSE) — «слать также в общую базу чатов клиента». Наследуются так же, как `target_channel_ids` / `send_to_event_chats` (приоритет schedule → template).
+
+**Гейт по фиче `broadcast_chats`** — только тариф **Экстра (vip, 2990)** + admin.
+
+**Фронт:** в разделе **Каналы** новая вкладка **«Чаты для рассылок»** — CRUD чатов + галочки `use_for_broadcasts`. В формах рассылок (произвольной и шаблонной) — чекбокс `send_to_client_chats`.
+
+### Меню бота события + кнопка стрима в день события (коммит 0eed60e от 2026-06-26)
+
+**Меню бота события** (`send_event_menu` в [start.py](backend/bot/handlers/start.py), вызывается на `/start ref_pg<slug>` для зарегистрированного и командой `/menu{event_id}`). Порядок кнопок: **VIP (формат участия) → Кабинет → Чат → Эфир → Тех. поддержка**:
+1. **«Выбрать формат участия»** (VIP) — только если задан `events.vip_url` (с подстановкой партнёрских/контактных параметров). Текст — `vip_button_label` или дефолт.
+2. **«🎁 Кабинет·Подарки»** (обычные события) / **«🎁 Кабинет·Подарки·Спикеры»** (conference/turnir) — ведёт на **Mini App ИЛИ веб-страницу события** по `clients.default_link_mode` (миграция 169: `miniapp` → Mini App, `bot` → веб `/event/{slug}#cabinet`).
+3. **«📝 Вступить в Чат»** — если есть хоть одна chat-ссылка (`chat_url_tg/vk/max`).
+4. **«📺 Ссылка на эфир»** — callback `evlive_`, **скрывается** галочкой `events.hide_stream_button` (она прячет кнопку стрима и в Mini App/вебе, и в меню бота, и в сообщении эфира — кнопка «Программа» там тоже ведёт на Mini App или веб по `default_link_mode`).
+5. **«🆘 Тех. поддержка»** — callback `evsupport_`, единое сообщение с каналами связи клиента.
+
+⚠️ Кнопка **«Программа и Спикеры» убрана** из меню — программа/спикеры доступны внутри «Кабинет·Подарки» на странице события.
+
+**Кнопка стрима в Mini App — весь день события.** Показывается весь день эфира (дата считается в МСК), не только в момент старта — чтобы участник мог зайти заранее (см. раздел про `hide_stream_button` миграции 128).
 
 ### Воронка догрева ЗАРЕГИСТРИРОВАННЫХ + Служба поддержки (миграция 129 от 2026-06-09)
 
@@ -221,7 +285,7 @@
 
 **`button_kind` ('event'|'support')** — добавлен в ОБЕ таблицы шагов. `event` = кнопка на событие/программу, `support` = на `t.me/{clients.work_tg_username}?text=Есть вопрос по регистрации`.
 
-**Плейсхолдеры reg-воронки:** `{event_title}`, `{chats}` (чаты `events.chat_url_tg/vk/max`, главный по `primary_chat_platform` — сверху и жирным «(главный)»; HTML для TG/MAX, plain для VK), `{bot_handle}` (@ник VIP-бота или @pluson_bot), `{support_link}` (`work_tg_username`), `{program_link}`/`{gifts_link}`/`{speakers_link}`/`{vip_link}` (формат `...startapp=ref_pg{slug}_tab{tab}`). **Пустой раздел → плейсхолдер пропадает:** gifts только при `event_referral_settings.is_enabled`, speakers только conference/turnir + есть `event_collaborators`, vip только при `events.vip_url`.
+**Плейсхолдеры reg-воронки:** `{event_title}`, `{chats}` (чаты `events.chat_url_tg/vk/max`, главный по `primary_chat_platform` — сверху и жирным «(главный)»; HTML для TG/MAX, plain для VK), `{bot_handle}` (@ник VIP-бота клиента; нет своего бота → пусто, системный @pluson_bot не подставляется), `{support_link}` (`work_tg_username`), `{program_link}`/`{gifts_link}`/`{speakers_link}`/`{vip_link}` (формат `...startapp=ref_pg{slug}_tab{tab}`). **Пустой раздел → плейсхолдер пропадает:** gifts только при `event_referral_settings.is_enabled`, speakers только conference/turnir + есть `event_collaborators`, vip только при `events.vip_url`.
 
 **Незарег.-воронка переписана по ТЗ (миграция 129):** новый Шаг 1 «🚨 не получилось зарегистрироваться?» через 15 мин (`button_kind='support'`, кнопка «Написать в поддержку») → бывший Шаг 1 стал 2 → бывший 2 стал 3 → старый 3 удалён. Новые плейсхолдеры `{support_link}` (только `work_tg_username`, БЕЗ fallback на канал основателя — в отличие от `{owner_telegram}`) и `{brand_name}` (`clients.brand_name||name`, оборачивается в «…»).
 
@@ -253,10 +317,18 @@
   1. Афиши события (превью + кнопка «Скачать», открытие в lightbox)
   2. Тексты-анонсы с уже подставленными плейсхолдерами + кнопка «Скопировать»
   3. Реф-ссылки спикера (TG/VK/MAX) — **перенесены сюда из шапки**
-  4. **Партнёрская ссылка спикера** — новое. Логика: если у `contacts.first_referrer_contact_id` есть значение → `prtp_<first_referrer_contact_id>` (партнёр регистрируется через рефовода спикера); если рефовода нет → корневая `prtc_<client_id>`. Только если `clients.partner_landing_url` заполнен. Платформы — те, где у клиента есть подключённый канал; TG fallback на `@pluson_bot`; email/телефон не показываем.
+  4. **Партнёрская ссылка спикера** — новое. Логика: если у `contacts.first_referrer_contact_id` есть значение → `prtp_<first_referrer_contact_id>` (партнёр регистрируется через рефовода спикера); если рефовода нет → корневая `prtc_<client_id>`. Только если `clients.partner_landing_url` заполнен. Платформы — те, где у клиента есть подключённый канал (с 2026-06-27 TG fallback на `@pluson_bot` убран — нет своего бота, ссылка не строится); email/телефон не показываем.
   5. **Ветка «есть код / нет кода»** (миграция 118 от 2026-05-26). Если у спикера-контакта уже заполнен `contacts.external_ref_param` (уже зарегистрирован партнёром во внешней системе клиента) — секция показывает «Ваш партнёрский код: XXX» + кнопку «Открыть кабинет партнёра» (только если у клиента задан `clients.partner_dashboard_url` — общая страница входа в аффилиат-кабинет GetCourse / Bizon360 / Tilda) + подсказку «Пароль был отправлен на ваш email — проверьте папку Спам или восстановите через форму восстановления пароля». Ссылки регистрации (партнёрские TG/VK/MAX) в этом случае **не показываем** — спикер уже партнёр. Если кода нет — старое поведение (ссылки на регистрацию). Поле `clients.partner_dashboard_url` редактируется в `/dashboard/settings` → вкладка «Технические» → блок «Регистрация партнёров» (поле «URL кабинета партнёра») и пробрасывается через `auth.py:get_me` / `update_me` (ProfileUpdate).
 
 **Endpoint поставщика данных** — `GET /api/v1/public/speaker-cabinet/me/materials` ([backend/app/api/speaker_cabinet.py](backend/app/api/speaker_cabinet.py)). Отдаёт `{posters, speaker_poster_url, event_video_url, speaker_video_url, announcement_texts, ref_links, partner_link, partner_landing_configured, speaker_external_ref_param, partner_dashboard_url, placeholders}`. Логика партнёрской ссылки переиспользует `share_links.get_active_platforms / get_client_bot_handles / get_client_vk_app_id / _has_system_channel`.
+
+### Подарок спикера после эфира — взаимоисключающий: ручной ИЛИ лид-магнит из ПЛЮСОНа (миграция 167 от 2026-06-25, коммит 2703993)
+
+**Зачем.** Спикер дарит зрителям подарок после выступления. Два способа, **только один за раз** (не оба сразу):
+1. **Ручной** — `event_collaborators.gift_after_speech_title` + `gift_after_speech_url` (название + ссылка спикер вписывает руками).
+2. **Лид-магнит из ПЛЮСОНа** — спикер сначала подключает свой ПЛЮСОН-аккаунт попапом-логином (`collaborators.linked_client_id`), затем выбирает СВОЙ лид-магнит (`event_collaborators.gift_lead_magnet_id`) или пакет (`gift_package_id`). Турнирный критерий `auto_kind='lead_magnet'` считает `COUNT(funnel_runs)` по этому магниту/пакету.
+
+**Взаимоисключение.** Заполнено максимум одно из двух (FK на `lead_magnets`/`lead_magnet_packages`, `ON DELETE SET NULL`). В `speaker_cabinet.py` (PATCH): передача `gift_lead_magnet_id`/`gift_package_id` зануляет ручные поля, и наоборот; `gift_lead_magnet_id=0` снимает обе ПЛЮСОН-привязки. Шаблон рассылки `gift` подставляет реальный выбранный подарок (для турнира). Превью шаблона перечитывает спикеров при открытии (свежий подарок без перезагрузки страницы), сортировка спикеров по алфавиту (`localeCompare ru`).
 
 ### Видео для спикеров: общее + индивидуальное (миграция 113 от 2026-05-26)
 
@@ -316,10 +388,10 @@ WHERE-логика контактов вынесена в хелпер [`_build_
 - **Платформа обязательна в UI.** Дашборд `/dashboard/lead-magnets` под каждым лид-магнитом и пакетом показывает столько ссылок, сколько у клиента подключено площадок (с учётом `client_channels` + системных каналов с `is_test=FALSE`). Каналы в test-режиме у клиентов не светятся. URL без `?to=` поддержан для обратной совместимости — default = TG.
 - **Формирование ссылок** — [`build_funnel_landing_links`](backend/app/services/share_links.py) (kind='m'|'p') возвращает `{telegram?, vk?, max?}`. Используется в GET `/lead-magnets` и `/lead-magnet-packages` (поле `platform_links`).
 
-**Куда ведёт landing (зависит от `?to=`):**
-- `to=tg` (default): VIP с фичей `channels` и подключённым TG-ботом → `t.me/<его_бот>?start=fnl_<run_id>`, иначе → `t.me/pluson_bot?start=fnl_<run_id>`
-- `to=vk`: VIP с подключённым VK Mini App (`channels.platform_meta.vk_app_id`) → `vk.com/app{vip_app_id}#fnl_<run_id>`, иначе → системный `vk.com/app54592404#fnl_<run_id>`
-- `to=max`: VIP с подключённым MAX-ботом (handle в `channels.handle`) → `max.ru/{vip_handle}?startapp=fnl_<run_id>`, иначе → системный `max.ru/id890306512862_1_bot?startapp=fnl_<run_id>`
+**Куда ведёт landing (зависит от `?to=`).** ⚠️ С 2026-06-27 системный fallback убран — без своего канала клиента на платформе ссылка НЕ строится (раньше вела в системный @pluson_bot / `app54592404` / системный MAX-бот):
+- `to=tg`: подключённый TG-бот клиента → `t.me/<его_бот>?start=fnl_<run_id>`; нет своего бота → ссылки нет.
+- `to=vk`: подключённое VK Mini App клиента (`channels.platform_meta.vk_app_id`) → `vk.com/app{vip_app_id}#fnl_<run_id>`; нет — ссылки нет.
+- `to=max`: подключённый MAX-бот клиента (handle в `channels.handle`) → `max.ru/{vip_handle}?startapp=fnl_<run_id>`; нет — ссылки нет.
 - На этапе landing записывается `funnel_runs.platform_slug` — потом обработчик бота своей платформы подхватывает run по run_id. VK/MAX-обработчики в боте пишутся отдельно — URL уже отдаются клиентам корректно.
 
 В обоих случаях наш polling-сервис ([backend/bot/main.py](backend/bot/main.py)) держит обработчики. Multi-bot polling: один Python-процесс крутит и @pluson_bot, и все VIP-боты клиентов параллельно через asyncio.gather.
@@ -336,7 +408,7 @@ WHERE-логика контактов вынесена в хелпер [`_build_
 **Канал подписки.** Бот проверяет подписку на канал, который клиент вписал в `clients.social_links.telegram` (визитка основателя в `/dashboard/mini-app`, вкладка «Основатель»). Бот должен быть админом этого канала. Если поле пустое — проверку пропускаем, выдаём сразу.
 
 **Канал уведомлений организатору** (`clients.notifications_telegram_chat_id`):
-- Уведомления всегда шлёт @pluson_bot (даже для VIP). Формат: «🆕 Новый интерес: <магнит/пакет> · кто пришёл (`@username` · `#contact_id`) · UTM · кто привёл · ссылки на карточки контактов».
+- Уведомления организатору шлёт **VIP-бот клиента** (с 2026-06-27 — раньше всегда @pluson_bot; теперь нет своего бота → уведомление не уходит). Формат: «🆕 Новый интерес: <магнит/пакет> · кто пришёл (`@username` · `#contact_id`) · UTM · кто привёл · ссылки на карточки контактов».
 - Шлётся при первом переходе `landed → started`.
 - VIP-клиент добавляет @pluson_bot админом в свой служебный канал, пересылает любое сообщение из канала в @pluson_bot — handler `/getchatid` отвечает с chat_id.
 - Поле настраивается в `/dashboard/settings` → вкладка «Технические» → блок «Канал уведомлений» с инструкцией.
@@ -455,10 +527,10 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 **VK consumer** ([backend/bot/vk_main.py](backend/bot/vk_main.py)) — общий хелпер `_extract_ref_with_prefix(event, prefix)` извлекает `prt_<n>` или `partner_done_<n>` из `ref` любого источника (`message.ref`, `payload.ref`, `event.ref`, `ref_source`). Подхватывается в `handle_message_allow` (первое сообщение от подписчика) и `handle_message_new` (если уже подписан).
 
-**Auth /me** отдаёт `bot_handles: {telegram, vk, max}` (никнеймы клиентского бота/сообщества, или null если у клиента нет своего канала на платформе). UI использует это для построения «ссылок возврата» — на TG fallback на `@pluson_bot`, на VK/MAX без своего канала ссылка не показывается.
+**Auth /me** отдаёт `bot_handles: {telegram, vk, max}` (никнеймы клиентского бота/сообщества, или null если у клиента нет своего канала на платформе). UI использует это для построения «ссылок возврата» — на любой платформе без своего канала клиента ссылка не показывается (с 2026-06-27 TG fallback на `@pluson_bot` убран).
 
 **UI** (только TG/VK/MAX — email сюда не входит, нет интерактивности бота):
-- `/dashboard/settings` → вкладка «Технические» → блок **«Регистрация партнёров»**: поле URL + **3 прямые ссылки возврата** + **3 прямые корневые ссылки** для распространения. UI берёт `me.bot_handles` (TG handle для VIP-бота или fallback на `pluson_bot`, VK group handle, MAX handle) и собирает прямые URL.
+- `/dashboard/settings` → вкладка «Технические» → блок **«Регистрация партнёров»**: поле URL + **3 прямые ссылки возврата** + **3 прямые корневые ссылки** для распространения. UI берёт `me.bot_handles` (TG handle VIP-бота клиента — без fallback на `pluson_bot` с 2026-06-27, VK group handle, MAX handle) и собирает прямые URL.
 - `/dashboard/clients` → карточка контакта → блок **«Партнёрская ссылка»**: если `clients.partner_landing_url` пуст → замыленные ссылки + «Сторонняя партнёрская ссылка не настроена». Иначе — 3 личные прямые ссылки `t.me/{bot}?start=prtp_{contact_id}` и аналогичные для VK/MAX. Бот по `contact_id` находит контакт → берёт его `client_id` и `external_ref_param` (партнёрский код этого контакта).
 - Константа `PARTNER_PLATFORMS = ['telegram', 'vk', 'max']` в обоих компонентах. Email не показывается в партнёрке.
 
@@ -468,7 +540,7 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 ### Приветствие при открытии события (миграция 064 от 05.05.2026)
 
-При каждом `event_start` из Mini App ([backend/app/api/event.py](backend/app/api/event.py)) бот клиента (или fallback `@pluson_bot`) шлёт пользователю **контекстное** сообщение с inline-кнопкой. Тип сообщения определяется автоматически:
+При каждом `event_start` из Mini App ([backend/app/api/event.py](backend/app/api/event.py)) **VIP-бот клиента** шлёт пользователю **контекстное** сообщение с inline-кнопкой (с 2026-06-27 fallback на `@pluson_bot` убран — нет своего бота → сообщение не уходит). Тип сообщения определяется автоматически:
 
 | `kind` | Когда | Текст | Кнопка → |
 |---|---|---|---|
@@ -491,7 +563,7 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 
 URL Mini App: для VIP — `https://t.me/{handle}` (бот клиента, без short-name), для общего — `https://t.me/pluson_bot/pluson` (с short-name `pluson`). Резолв `handle` — из `channels` per `client_id` (как в `tasks/broadcast.py`).
 
-**Уведомление организатору о новом интересе на событие (12.05.2026).** В дополнение к сообщению самому пользователю, при **первом** создании `event_participants` (то есть человек впервые открыл событие через Mini App / реф-ссылку / landing-redirect) от `@pluson_bot` улетает сообщение в `clients.notifications_telegram_chat_id` — точно так же, как для лид-магнитов, только первая строка «Событие: <title>» вместо «Лид-магнит». Дедуп по факту вставки в `event_participants` (ON CONFLICT DO NOTHING + RETURNING id): повторные открытия того же события — молчат. Реализация — `_send_event_organizer_notification` в [event_welcome.py](backend/app/services/event_welcome.py).
+**Уведомление организатору о новом интересе на событие (12.05.2026).** В дополнение к сообщению самому пользователю, при **первом** создании `event_participants` (то есть человек впервые открыл событие через Mini App / реф-ссылку / landing-redirect) от **VIP-бота клиента** (с 2026-06-27 — раньше @pluson_bot) улетает сообщение в `clients.notifications_telegram_chat_id` — точно так же, как для лид-магнитов, только первая строка «Событие: <title>» вместо «Лид-магнит». Дедуп по факту вставки в `event_participants` (ON CONFLICT DO NOTHING + RETURNING id): повторные открытия того же события — молчат. Реализация — `_send_event_organizer_notification` в [event_welcome.py](backend/app/services/event_welcome.py).
 
 ### Финализация регистрации участника — единый хелпер (2026-05-29)
 
@@ -721,7 +793,7 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 5. **Margo не может завести коллаба без личного никнейма** хотя бы на одной платформе — валидация на бэке.
 6. **`collaborators.contact_id` остаётся NOT NULL.** Контакт создаётся одновременно с коллабом, никогда не позже.
 7. **Код доступа общий на коллаба** (один `access_code` на все его события у клиента). Invite-ссылки **per-event** (в URL зашит `event_slug`).
-8. **Бот** — клиентский VIP если есть подключённый канал на платформе, иначе системный (по аналогии с лид-магнитами).
+8. **Бот** — только клиентский VIP-бот, если есть подключённый канал на платформе (с 2026-06-27 системный fallback убран — нет своего бота → invite-ссылка на платформе не строится).
 
 **Связанные фичи того же запроса (миграция 104):**
 - **4 кнопки соцсетей** в карточке спикера в Mini App — 2×2 с полным текстом (TG-канал / VK / MAX / Нельзяграм). Показываются только заполненные.
@@ -740,7 +812,7 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 
 **Username без числового ID → резолв → fallback на псевдо-запись.** [`_upsert_personal_identity`](backend/app/api/collaborators.py) при получении только `username` (без `user_id`):
 1. Пробует резолвить `username → числовой id`:
-   - **TG:** `getChat(@username)` через бот клиента (или системный @pluson_bot). Работает только если юзер уже писал боту — для незнакомых редко.
+   - **TG:** `getChat(@username)` через бот клиента (с 2026-06-27 — только свой бот, без системного). Работает только если юзер уже писал боту — для незнакомых редко.
    - **VK:** `users.get?user_ids={screen_name}` через VK API — почти всегда срабатывает.
    - **MAX:** пока без публичного API — всегда fallback.
 2. **Если резолв успешен:** `INSERT platform_users` с реальным id + проверка подписки (`getChatMember` / `groups.isMember`) → `platform_user_channels.is_unsubscribed = !is_subscribed`.
@@ -952,26 +1024,37 @@ SELECT $new_client_id, ch.id, TRUE
 **Концепция.** Тарифы хранят только параметры (цена, лимиты, длительность). Опциональные модули («свой бот», «модуль Конференции», «экспорт контактов» и т.п.) — отдельные сущности (`features`), привязываются к тарифам через junction. Активность тарифа у клиента — отдельная запись (`client_subscriptions`).
 
 **Таблицы:**
-- `features (id, slug, name, description, sort)` — справочник опций. Сейчас 5 фич: `lead_magnets`, `conference`, `awards`, `channels`, `export_contacts`.
+- `features` — справочник опций. С миграции 165 расширен полями модуля-аддона: `is_addon`, `price_monthly`, `price_6mo`, `min_tariff_slug`, `tagline`, `bullet_points` JSONB, `prodamus_payment_url`, `prodamus_payment_url_6mo` + **`promo_old_monthly`/`promo_old_6mo` (миграция 172)** — старая зачёркнутая цена для акции.
 - `tariff_features (tariff_id, feature_id)` — many-to-many. Настройка состава тарифа = INSERT/DELETE строки, без миграций.
-- `client_subscriptions (id, client_id, tariff_id, started_at, expires_at, status, source, notified_7d/3d/1d)` — подписки клиента. Status: `active|expired|paused`. Source: `paid|trial|admin|promo`.
-- `clients.current_subscription_id` — денормализованный указатель на текущую подписку (для быстрого доступа в шапке UI).
-- В `tariffs` колонки `contact_limit`, `broadcasts_daily_limit` (NULL=безлимит), `default_duration_days`. **Удалены:** `allow_custom_bot`, `trial_months`, `max_events`, `max_participants`.
+- **`client_addons (id, client_id, feature_id, started_at, expires_at, status, source, price, months)` (миграция 165)** — модуль, докупленный ЛИЧНО клиентом поверх тарифа. `client_has_feature` = фича в тарифе **ИЛИ** активный аддон. Один активный аддон на (клиент, фича) — продление = UPDATE `expires_at`, не дубль. Строка рождается только при покупке.
+- **`addon_orders` (миграция 165)** — заказы на аддоны через Продамус (зеркало `subscription_orders`).
+- `client_subscriptions (...)` — подписки клиента. Status: `active|expired|paused`. Source: `paid|trial|admin|promo`.
+- `clients.current_subscription_id` — денормализованный указатель на текущую подписку.
 
 **База** (всегда включено, не фичи): контакты, мероприятия, рассылки.
 
-**Тарифы:**
+**Тарифы (актуальные цены — в БД `tariffs.price`, миграция 165):**
 
-| slug | Цена | Длит. | Контакты | Рассылки/сутки | Фичи поверх базы |
-|---|---:|---:|---:|---:|---|
-| `trial` | 0 ₽ | 60 дн | 10 000 | безлимит | все 5 |
-| `start` | 990 ₽ | 30 дн | 1 000 | 10 000 | lead_magnets |
-| `pro`   | 2 490 ₽ | 30 дн | 5 000 | 30 000 | lead_magnets, conference, awards |
-| `vip`   | 3 900 ₽ | 30 дн | 10 000 | безлимит | все 5 |
+| slug | Название | Цена | Статус |
+|---|---|---:|---|
+| `trial` | — | 0 ₽ | пробный 60 дн |
+| `start` | Стандарт | 990 ₽ | **скрыт** с лендинга/покупки (`is_active=FALSE`), существующих нет |
+| `pro`   | Профи | 1990 ₽ | основной |
+| `vip`   | Экстра | 2990 ₽ | топ, фича `broadcast_chats` и др. |
+
+**Модули-аддоны (`features.is_addon=TRUE`, покупка только при тарифе Профи+, `min_tariff_slug='pro'`):**
+
+| slug | Название | Цена/мес | Старая (зачёркнута) |
+|---|---|---:|---:|
+| `collab_hub` | Коллабораторная | **1000 ₽** (акция) | ~~2000 ₽~~ |
+| `conference` | Конференции | 3000 ₽ | — |
+| `tournaments` | Премии и Турниры | 5000 ₽ | — |
+
+> ⚠️ Тариф `start` теперь «Стандарт» и скрыт; `pro` = «Профи» 1990; `vip` = «Экстра» 2990. Модули Конференции/Коллабораторная/Турниры — **аддоны** (отдельная покупка через Продамус), а не фичи внутри тарифа. Гейтить разделы — **только по фиче** (`client_has_feature`), никогда по `tariff_slug`.
 
 **Три режима клиента:**
 1. **Активна** — `cs.status='active' AND cs.expires_at > NOW()` — всё работает.
-2. **Понижена** — клиент сам понизил тариф. Подписка active, но фич меньше. Утраченные фичи: read-only UI. Бот клиента: polling off (если фичи `channels` нет). Воронки → @pluson_bot. Рассылки по существующей базе **разрешены** (URL-кнопки работают без polling).
+2. **Понижена** — клиент сам понизил тариф. Подписка active, но фич меньше. Утраченные фичи: read-only UI. Бот клиента: polling off (если фичи `channels` нет). ⚠️ С 2026-06-27 воронки на @pluson_bot НЕ перенаправляются — без своего бота TG-воронка не работает (graceful). Рассылки по существующей базе **разрешены** (URL-кнопки работают без polling).
 3. **Истекла** — `expires_at < NOW()` или `status='expired'`. Глобальный freeze. Просмотр интерфейса ОК. Любая запись/правка/экспорт — 403. Polling off. Будущие рассылки → `paused_subscription_expired`. **Grace-периода нет**, хард-катит ровно в `expires_at`.
 
 **Backend компоненты:**
@@ -1094,7 +1177,7 @@ API: `/api/v1/events/{event_id}/raffle/{settings|prizes|keywords}` (GET/POST/PAT
 - В рассылках («по базе») — каждый получатель получает сообщение через **тот канал, на который реально подписан** (`platform_user_channels.is_unsubscribed=FALSE`). Если подписан на оба — приоритет главному. Если в базе нет привязки (легаси) — fallback на главный/первый канал клиента. Реализация — helper `get_telegram_send_targets` ([backend/app/services/channels.py](backend/app/services/channels.py)) + цикл в [backend/app/tasks/broadcast.py](backend/app/tasks/broadcast.py).
 - Подписан/не подписан в `_build_audience` определяется как «есть хотя бы один не-отписанный telegram-канал клиента, либо записей в `platform_user_channels` нет». Отписан от ВСЕХ — исключаем.
 
-**Приветствие при входе в Mini App теперь шлётся через бот клиента** — `backend/app/api/event.py` использует `get_client_telegram_token(client_id, db)` (определяя клиента по `event_slug` или `client_id` из startapp-параметра). Если у клиента не настроен канал — fallback на общего `@pluson_bot`.
+**Приветствие при входе в Mini App шлётся через бот клиента** — `backend/app/api/event.py` использует `get_client_telegram_token(client_id, db)` (определяя клиента по `event_slug` или `client_id` из startapp-параметра). ⚠️ С 2026-06-27 fallback на `@pluson_bot` убран: нет своего бота → приветствие не отправляется (graceful).
 
 ### Импорт пользователей в канал из CSV (2026-04-30)
 

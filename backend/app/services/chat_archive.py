@@ -77,12 +77,14 @@ async def _resolve_event_for_chat(db, platform: str, chat_id: str,
     привязанное к беседе сообщества Б с тем же номером. Для TG/MAX chat_id
     глобально уникальны (-100…), фильтр не нужен → owner_client_id=None.
     """
-    col = {
-        "telegram": "tg_chat_id",
-        "vk": "vk_chat_id",
-        "max": "max_chat_id",
+    # Чат события теперь — ссылка на запись в client_broadcast_chats (база чатов
+    # клиента). Матчим по cbc.platform+cbc.chat_id и ref-колонке события.
+    ref_col = {
+        "telegram": "tg_chat_ref",
+        "vk": "vk_chat_ref",
+        "max": "max_chat_ref",
     }.get(platform)
-    if not col:
+    if not ref_col:
         return None
     if owner_client_id is not None:
         # Событие должно принадлежать клиенту, чей бот/сообщество получило сообщение.
@@ -90,13 +92,14 @@ async def _resolve_event_for_chat(db, platform: str, chat_id: str,
             f"""
             SELECT e.id AS event_id, eo.client_id AS client_id
               FROM events e
+              JOIN client_broadcast_chats cbc ON cbc.id = e.{ref_col}
+                   AND cbc.platform = $3 AND cbc.chat_id = $1
               JOIN event_owners eo ON eo.event_id = e.id
                    AND eo.status = 'accepted' AND eo.client_id = $2
-             WHERE e.{col} = $1
              ORDER BY eo.id
              LIMIT 1
             """,
-            str(chat_id), owner_client_id,
+            str(chat_id), owner_client_id, platform,
         )
     else:
         row = await db.fetchrow(
@@ -106,10 +109,11 @@ async def _resolve_event_for_chat(db, platform: str, chat_id: str,
                       WHERE eo.event_id = e.id AND eo.status = 'accepted'
                       ORDER BY eo.id LIMIT 1) AS client_id
               FROM events e
-             WHERE e.{col} = $1
+              JOIN client_broadcast_chats cbc ON cbc.id = e.{ref_col}
+                   AND cbc.platform = $2 AND cbc.chat_id = $1
              LIMIT 1
             """,
-            str(chat_id),
+            str(chat_id), platform,
         )
     if not row or row["client_id"] is None:
         return None

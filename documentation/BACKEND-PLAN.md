@@ -59,9 +59,12 @@
 - ⚠️ **Удалены** колонки `allow_custom_bot`, `trial_months`, `max_events`, `max_participants` — заменены фичами и подписками
 
 **`features`** — справочник опций тарифа (миграция 067)
-- `slug` (`channels`, `conference`, `awards`, `lead_magnets`, `export_contacts`), `name`, `description`, `sort`
+- `slug` (`channels`, `conference`, `awards`, `lead_magnets`, `export_contacts`, `tournaments`, `broadcast_chats`), `name`, `description`, `sort`
+- **Поля модуля-аддона (миграция 165):** `is_addon` BOOL, `price_monthly`, `price_6mo`, `min_tariff_slug`, `tagline`, `bullet_points` JSONB, `prodamus_payment_url`, `prodamus_payment_url_6mo`. **Миграция 172:** `promo_old_monthly`, `promo_old_6mo` — старая зачёркнутая цена для акции.
 
 **`tariff_features (tariff_id, feature_id)`** — junction many-to-many (миграция 068). Какие фичи входят в какой тариф.
+
+**`client_addons` / `addon_orders` (миграция 165)** — модули-аддоны, докупленные клиентом поверх тарифа (Продамус). `client_has_feature` = фича в тарифе ИЛИ активный аддон. Модули-аддоны: `collab_hub` (1000₽ акция / ~~2000~~), `conference` (3000₽), `tournaments` (5000₽), доступны при тарифе Профи+. **Актуальные тарифы:** trial 0, start 990 «Стандарт» (скрыт), pro 1990 «Профи», vip 2990 «Экстра».
 
 **`client_subscriptions`** — подписки клиентов (миграция 069)
 - `client_id`, `tariff_id`, `started_at`, `expires_at`, `status` (active/expired/paused), `source` (paid/trial/admin/promo)
@@ -412,6 +415,18 @@ channels                     ← КАНАЛЫ клиента (его TG-боты
 | `conference` | Конференция | conf_conferences, speakers, conf_speaker_events, conf_sessions, ... |
 | `award` | Премия | award_* (будущее) |
 | `tournament` | Турнир | tournament_* (будущее) |
+
+---
+
+## Изменения схемы 2026-06-26/27
+
+- **Удалено `events.telegram_chat_ids`** (миграция 171) — legacy CSV «ID Telegram-каналов». «Проверить чаты» теперь по `events.tg_chat_id`.
+- **`client_broadcast_chats`** (миграции 170, 172) — база чатов клиента для рассылок: `client_id, platform, chat_id, title, chat_url, is_public, added_via, is_active, use_for_broadcasts`. `UNIQUE(client_id, platform, chat_id)`. Флаги `broadcast_templates.send_to_client_chats` + `broadcast_schedules.send_to_client_chats`. Гейт по фиче `broadcast_chats` (vip/Экстра).
+- **`clients.default_link_mode`** (миграция 169, `miniapp|bot`) + `start_mode`, `start_event_id`, `start_greeting_text`, `start_btn_events_label`, `start_btn_owner_label` — настройка куда ведут публичные ссылки/кнопки бота + приветствие /start.
+- **`tournament_packages.scheme`** (миграция 168, `s1|s2|s3|s4`) — схема расчёта пакета вместо normalize+aggregate.
+- **Тип критерия «авто-число»** (миграция 173): `tournament_criteria.scorer='auto_number'`, `auto_kind='replace'|'sum'` — число из кодовой фразы в чате.
+- **Подарок спикера** (миграция 167): `collaborators.linked_client_id`, `event_collaborators.gift_lead_magnet_id`/`gift_package_id` — лид-магнит из ПЛЮСОНа как подарок (взаимоисключающе с ручным `gift_after_speech_*`).
+- **Системный @pluson_bot убран из клиентских флоу** (коммиты 745eb1f, 143e6f2) — только свой VIP-бот клиента; системным остаётся email + регистрация нового клиента + дебаг-алерт + polling @pluson_bot для лички.
 
 ---
 
