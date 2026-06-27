@@ -1011,18 +1011,25 @@ async def handle_vk_event(body: VkEventRequest):
                     )
                 if err_chat_id:
                     from app.services.event_welcome import send_event_binding_error_notification
+                    from app.services.profile_links import nick_html, link_html
                     full_name = " ".join(
                         x for x in [vk_first or "", vk_last or ""] if x
                     ).strip()
+                    _details = {
+                        "Что случилось": "VK не передал ссылку события (#evl_/#ref_pg) — человек открыл приложение, ввёл данные, но участие на событие НЕ создалось",
+                        "Кто": full_name or "—",
+                        "Никнейм": nick_html("vk", user_id=vk_user_id, username=vk_username),
+                        "VK ID": vk_user_id,
+                    }
+                    _vk_link = link_html("vk", user_id=vk_user_id, username=vk_username)
+                    if _vk_link:
+                        _details["Ссылка"] = _vk_link
                     await send_event_binding_error_notification(
                         conn,
                         chat_id=err_chat_id,
                         title="VK Mini App открылся без привязки к событию",
                         details={
-                            "Что случилось": "VK не передал ссылку события (#evl_/#ref_pg) — человек открыл приложение, ввёл данные, но участие на событие НЕ создалось",
-                            "Кто": full_name or "—",
-                            "Никнейм": ("@" + vk_username) if vk_username else "—",
-                            "VK ID": vk_user_id,
+                            **_details,
                             "Email": body.email or "—",
                             "Телефон": body.phone or "—",
                             "ID контакта": f"#{contact_id}",
