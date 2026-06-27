@@ -192,6 +192,7 @@ export default function ChatGatesTab() {
         <GateModal
           initial={editing}
           botHandle={botHandle}
+          usedChatIds={gates.map(g => g.chat_id)}
           onClose={() => { setCreating(false); setEditing(null) }}
           onSaved={async () => { setCreating(false); setEditing(null); await loadAll() }}
         />
@@ -352,16 +353,40 @@ function CheckLine({ ok, okText, failText }: { ok: boolean; okText?: string; fai
 
 // ───────────────────── Modal ─────────────────────
 
+interface BroadcastChat {
+  id: number
+  platform: string
+  chat_id: string
+  title: string | null
+  chat_url: string | null
+}
+
 function GateModal({
-  initial, botHandle, onClose, onSaved,
+  initial, botHandle, usedChatIds, onClose, onSaved,
 }: {
   initial: Gate | null
   botHandle: string
+  usedChatIds: string[]        // chat_id уже подключённых к гейтам (кроме редактируемого)
   onClose: () => void
   onSaved: () => void
 }) {
   const [chatId, setChatId] = useState(initial?.chat_id || '')
   const [chatTitle, setChatTitle] = useState(initial?.chat_title || '')
+  // TG-чаты из общей базы клиента (Каналы → «Чаты для рассылок»).
+  const [tgChats, setTgChats] = useState<BroadcastChat[]>([])
+  const [chatsLoading, setChatsLoading] = useState(true)
+  useEffect(() => {
+    let alive = true
+    api.miniApp.broadcastChats.list()
+      .then((r: any) => {
+        if (!alive) return
+        const all: BroadcastChat[] = r.chats || r.items || []
+        setTgChats(all.filter(c => c.platform === 'telegram' && (c.chat_id || '').trim()))
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setChatsLoading(false) })
+    return () => { alive = false }
+  }, [])
   // При создании сразу заполняем дефолтным шаблоном, чтобы клиент его видел
   // и мог сразу редактировать, а не вводить с нуля. При редактировании
   // существующего гейта: если в БД NULL (применяется дефолт на бэке) —
@@ -408,31 +433,50 @@ function GateModal({
         </h3>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">ID чата</label>
-          <input
-            type="text"
-            value={chatId}
-            onChange={e => setChatId(e.target.value)}
-            placeholder="-1001234567890"
-            className="w-full px-3 py-2 text-sm font-mono border border-gray-200 rounded focus:outline-none focus:border-[#25455D]"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Числовой ID супергруппы/группы (начинается с «-100»). Как узнать:{' '}
-            <a href="/dashboard/settings#tg-chat-id" className="text-[#25455D] underline">инструкция</a>.
-            Не забудьте добавить бота <code className="font-mono">@{botHandle}</code> админом в этот чат с правом «Удаление сообщений».
+          <label className="block text-sm font-medium text-gray-700 mb-1">Чат Telegram</label>
+          {chatsLoading ? (
+            <p className="text-sm text-gray-400">Загрузка чатов…</p>
+          ) : tgChats.length === 0 ? (
+            <div className="text-sm text-gray-600 rounded border border-gray-200 bg-gray-50 px-3 py-3">
+              У вас нет Telegram-чатов в базе.{' '}
+              <a href="/dashboard/channels" target="_blank" rel="noopener" className="text-[#25455D] underline">
+                Добавьте чат в Каналы → «Чаты для рассылок»
+              </a>{' '}— там определяется ID и название. Потом выберите его здесь.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-56 overflow-y-auto">
+              {tgChats.map(c => {
+                const used = usedChatIds.includes(c.chat_id) && c.chat_id !== initial?.chat_id
+                const selected = chatId === c.chat_id
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    disabled={used}
+                    onClick={() => { setChatId(c.chat_id); setChatTitle(c.title || '') }}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${
+                      used
+                        ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
+                        : selected
+                          ? 'border-[#FFCFA4] bg-[#FFF7F0]'
+                          : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="text-sm font-medium text-gray-800 flex items-center gap-2">
+                      {c.title || <span className="text-gray-400">Без названия</span>}
+                      {selected && <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ background: '#FFCFA4', color: '#25455D' }}>Выбран</span>}
+                      {used && <span className="text-[10px] text-gray-400">уже в гейте</span>}
+                    </div>
+                    <div className="text-[11px] font-mono text-gray-400 mt-0.5">{c.chat_id}</div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mt-2">
+            Чаты берутся из вашей базы (<a href="/dashboard/channels" target="_blank" rel="noopener" className="text-[#25455D] underline">Каналы → «Чаты для рассылок»</a>).
+            Добавьте бота <code className="font-mono">@{botHandle}</code> админом в чат с правом «Удаление сообщений».
           </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Название чата</label>
-          <input
-            type="text"
-            value={chatTitle}
-            onChange={e => setChatTitle(e.target.value)}
-            placeholder="Например, «Чат участников»"
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded focus:outline-none focus:border-[#25455D]"
-          />
-          <p className="text-xs text-gray-500 mt-1">Только для удобства, в Telegram не отправляется.</p>
         </div>
 
         <div>
