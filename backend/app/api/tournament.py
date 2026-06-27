@@ -636,17 +636,25 @@ async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_
     await _check_access(event_id, int(client["sub"]), db)
     if not data.title.strip():
         raise HTTPException(status_code=422, detail="Название критерия обязательно")
-    if data.scorer not in ("jury", "vote", "manual", "auto"):
+    if data.scorer not in ("jury", "vote", "manual", "auto", "auto_number"):
         raise HTTPException(status_code=422, detail="Неверный тип оценщика")
     pkg = await db.fetchrow("SELECT id FROM tournament_packages WHERE id=$1 AND event_id=$2", data.package_id, event_id)
     if not pkg:
         raise HTTPException(status_code=404, detail="Пакет не найден")
+    # auto_kind: для 'auto' → referrals/lead_magnet; для 'auto_number' → replace/sum
+    if data.scorer == "auto":
+        auto_kind = data.auto_kind
+    elif data.scorer == "auto_number":
+        auto_kind = data.auto_kind if data.auto_kind in ("replace", "sum") else "replace"
+    else:
+        auto_kind = None
+    # code_phrase нужен и manual, и auto_number (по фразе ищем сдачу в чате)
+    code_phrase = (data.code_phrase.strip() if (data.code_phrase and data.scorer in ("manual", "auto_number")) else None)
     c = await db.fetchrow(
         """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, weight, sort_order, code_phrase)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *""",
         data.package_id, event_id, data.title.strip(), data.description, data.scorer,
-        data.auto_kind if data.scorer == "auto" else None, data.stage_id, data.scale_max, data.weight, data.sort_order,
-        (data.code_phrase.strip() if (data.code_phrase and data.scorer == "manual") else None))
+        auto_kind, data.stage_id, data.scale_max, data.weight, data.sort_order, code_phrase)
     return {"criterion": dict(c)}
 
 

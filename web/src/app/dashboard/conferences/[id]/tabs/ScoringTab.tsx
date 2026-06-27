@@ -168,18 +168,24 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
           <HelpCircle size={15} />
         </button>
       </div>
-      {/* Единый плоский тип критерия: Жюри / Народное / Ручной / Рефералы (авто) / Лиды в ПЛЮСОН (авто).
-          Авто-типы внутри = scorer:auto + auto_kind. */}
+      {/* Плоский тип критерия. Авто-типы = scorer:auto + auto_kind;
+          авто-число = scorer:auto_number + auto_kind (replace|sum). */}
       <select className="text-xs border rounded px-1.5 py-1"
-        value={crit.scorer === 'auto' ? `auto:${crit.auto_kind || 'referrals'}` : crit.scorer}
+        value={
+          crit.scorer === 'auto' ? `auto:${crit.auto_kind || 'referrals'}`
+          : crit.scorer === 'auto_number' ? `auto_number:${crit.auto_kind === 'sum' ? 'sum' : 'replace'}`
+          : crit.scorer}
         onChange={(e) => {
           const v = e.target.value
-          if (v.startsWith('auto:')) save({ scorer: 'auto', auto_kind: v.slice(5) }, true)
+          if (v.startsWith('auto_number:')) save({ scorer: 'auto_number', auto_kind: v.slice('auto_number:'.length) }, true)
+          else if (v.startsWith('auto:')) save({ scorer: 'auto', auto_kind: v.slice(5) }, true)
           else save({ scorer: v }, true)
         }}>
         <option value="jury">Тип: Жюри (оценивают)</option>
         <option value="vote">Тип: Народное (голосование)</option>
         <option value="manual">Тип: Ручной (вписать)</option>
+        <option value="auto_number:replace">Тип: Авто-число — перезаписывать</option>
+        <option value="auto_number:sum">Тип: Авто-число — суммировать</option>
         <option value="auto:referrals">Тип: Рефералы (авто)</option>
         <option value="auto:lead_magnet">Тип: Лиды в ПЛЮСОН (авто)</option>
       </select>
@@ -206,13 +212,21 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
         placeholder="Описание критерия — что это, как оценивать (увидят жюри в своём кабинете)"
         onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.description || '')) save({ description: v || null }); setDescOpen(false) }} />
     )}
-    {crit.scorer === 'manual' && (
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] text-gray-500 shrink-0">Кодовая фраза</span>
-        <input className="flex-1 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] placeholder:text-gray-300 placeholder:italic placeholder:font-sans"
-          defaultValue={crit.code_phrase || ''}
-          placeholder="не задана — напр. #дз1"
-          onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.code_phrase || '')) save({ code_phrase: v || null }) }} />
+    {(crit.scorer === 'manual' || crit.scorer === 'auto_number') && (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-gray-500 shrink-0">Кодовая фраза</span>
+          <input className="flex-1 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs font-mono outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4] placeholder:text-gray-300 placeholder:italic placeholder:font-sans"
+            defaultValue={crit.code_phrase || ''}
+            placeholder={crit.scorer === 'auto_number' ? 'напр. деньги' : 'не задана — напр. #дз1'}
+            onBlur={(e) => { const v = e.target.value.trim(); if (v !== (crit.code_phrase || '')) save({ code_phrase: v || null }) }} />
+        </div>
+        {crit.scorer === 'auto_number' && (
+          <div className="text-[10px] text-gray-400 leading-tight">
+            Участник пишет в чат «{(crit.code_phrase || 'фраза')}: 1000» (двоеточие и пробелы не важны — «{(crit.code_phrase || 'фраза')} 1000» тоже сработает).
+            Записывается число.{' '}{crit.auto_kind === 'sum' ? 'Каждое новое — прибавляется.' : 'Каждое новое — перезаписывает.'}
+          </div>
+        )}
       </div>
     )}
    </div>

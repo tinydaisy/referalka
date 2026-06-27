@@ -267,6 +267,35 @@ async def _resolve_subject_for_audiences(
     return None
 
 
+def _parse_number_after_phrase(text_low: str, phrase_low: str) -> Optional[float]:
+    """Число после кодовой фразы для типа «авто-число».
+
+    Поддерживает: «слово:6», «слово: 6», «слово   6», «слово : 6» — везде 6.
+    Двоеточие и пробелы между фразой и числом игнорируются. Число — целое или
+    дробное (6 / 6.5 / 6,5). Берём ПЕРВОЕ вхождение фразы, за которой идёт число.
+    Возвращает float или None, если числа нет.
+    """
+    import re
+    # экранируем фразу, после неё: опц. пробелы/двоеточия, затем число (точка/запятая)
+    pat = re.escape(phrase_low) + r"\s*:?\s*(-?\d+(?:[.,]\d+)?)"
+    m = re.search(pat, text_low)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _fmt_num_short(v) -> str:
+    """Короткое число для ответа «Принято»: 6 вместо 6.0, 6.5 как есть."""
+    try:
+        f = float(v)
+        return str(int(f)) if f == int(f) else str(f)
+    except (TypeError, ValueError):
+        return str(v)
+
+
 def _build_message_link(platform: str, chat_id: str, message_ref: Optional[str]) -> Optional[str]:
     """Ссылка на сообщение в чате, где платформа это позволяет.
 
@@ -353,13 +382,15 @@ async def process_task_submissions(
             if not enabled:
                 return []
 
-            # Критерии с кодовой фразой (только manual).
+            # Критерии с кодовой фразой: manual (1 балл за факт) + auto_number
+            # (число после кодовой фразы: replace перезатирает / sum суммирует).
             criteria = await db.fetch(
                 """SELECT tc.id, tc.title, tc.code_phrase, tc.scale_max, tc.stage_id,
+                          tc.scorer, tc.auto_kind,
                           COALESCE(cs.listen_audiences, ARRAY['registered']::text[]) AS audiences
                      FROM tournament_criteria tc
                      LEFT JOIN conf_stages cs ON cs.id = tc.stage_id
-                    WHERE tc.event_id = $1 AND tc.scorer = 'manual'
+                    WHERE tc.event_id = $1 AND tc.scorer IN ('manual','auto_number')
                       AND tc.is_active = TRUE
                       AND tc.code_phrase IS NOT NULL AND TRIM(tc.code_phrase) <> ''""",
                 event_id,
@@ -379,6 +410,12 @@ async def process_task_submissions(
                 phrase = (c["code_phrase"] or "").strip().lower()
                 if not phrase or phrase not in low:
                     continue
+                is_auto_number = (c["scorer"] == "auto_number")
+                # Для auto_number ОБЯЗАТЕЛЬНО должно быть число после фразы —
+                # иначе это не сдача (фраза могла встретиться случайно в тексте).
+                parsed_num = _parse_number_after_phrase(low, phrase) if is_auto_number else None
+                if is_auto_number and parsed_num is None:
+                    continue
                 matched_any = True
                 subj = await _resolve_subject_for_audiences(
                     db, event_id, contact_id, c["audiences"]
@@ -388,12 +425,42 @@ async def process_task_submissions(
                 subject_id = subj[1] if subj else None
                 score_applied = False
 
-                # Опознан → ставим ВСЕГДА 1 балл за выполнение задания (НЕ scale_max!).
-                # Кодовая фраза = «задание выполнено» → 1 балл. Важность критерия
-                # регулируется его ВЕСОМ (он есть в UI), а не баллом. scale_max для
-                # manual в интерфейсе не показывается и у новых критериев = 10 по
-                # умолчанию — поэтому на него НЕ завязываемся.
-                if recognized:
+                if recognized and is_auto_number:
+                    # auto_number: записываем число после кодовой фразы.
+                    #   replace — перезатираем; sum — прибавляем к текущему.
+                    mode = c["auto_kind"] or "replace"
+                    if mode == "sum":
+                        await db.execute(
+                            """
+                            INSERT INTO tournament_scores
+                                (event_id, criterion_id, subject_kind, subject_id,
+                                 juror_ec_id, scorer, value_number)
+                            VALUES ($1, $2, $3, $4, NULL, 'manual', $5)
+                            ON CONFLICT (criterion_id, subject_kind, subject_id)
+                                WHERE juror_ec_id IS NULL
+                            DO UPDATE SET value_number = tournament_scores.value_number + $5,
+                                          updated_at = now()
+                            """,
+                            event_id, c["id"], subject_kind, subject_id, parsed_num,
+                        )
+                    else:  # replace
+                        await db.execute(
+                            """
+                            INSERT INTO tournament_scores
+                                (event_id, criterion_id, subject_kind, subject_id,
+                                 juror_ec_id, scorer, value_number)
+                            VALUES ($1, $2, $3, $4, NULL, 'manual', $5)
+                            ON CONFLICT (criterion_id, subject_kind, subject_id)
+                                WHERE juror_ec_id IS NULL
+                            DO UPDATE SET value_number = $5, updated_at = now()
+                            """,
+                            event_id, c["id"], subject_kind, subject_id, parsed_num,
+                        )
+                    score_applied = True
+                    _title = (c["title"] or c["code_phrase"] or "").strip()
+                    recognized_titles.append(f"{_title}: {_fmt_num_short(parsed_num)}")
+                elif recognized:
+                    # manual: ВСЕГДА 1 балл за факт выполнения задания (важность — через ВЕС).
                     await db.execute(
                         """
                         INSERT INTO tournament_scores
