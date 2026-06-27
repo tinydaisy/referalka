@@ -136,8 +136,9 @@ function formatEventDateRange(startAt?: string | null, endAt?: string | null): s
   return `${s.date} ${s.time} — ${e.date} ${e.time} МСК`
 }
 function todayIso() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  // Дата «сегодня» в МСК (как и nowMsk) — иначе у участников в другом часовом
+  // поясе день события не совпадал и кнопка стрима пропадала.
+  return nowMsk().date
 }
 function dayState(day: Day): 'past' | 'today' | 'future' {
   if (!day.day_date) return 'future'
@@ -198,19 +199,30 @@ async function trackSpeakerClick(
 // Для конференций — если сегодня = одна из дат `conf_days.day_date`
 // (поддерживает любые конфигурации, в т.ч. дни с пропусками).
 // Для одиночных событий — если сегодня попадает в [start_at..end_at].
+// Дата ISO (YYYY-MM-DD) в МСК из ISO-строки.
+function mskDateIso(iso?: string | null): string | null {
+  if (!iso) return null
+  const dt = new Date(iso)
+  if (isNaN(dt.getTime())) return null
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit',
+  })
+  const o: Record<string, string> = {}
+  for (const p of fmt.formatToParts(dt)) o[p.type] = p.value
+  return `${o.year}-${o.month}-${o.day}`
+}
 function isStreamDay(event: any, days: Day[]): boolean {
-  const today = todayIso()
+  const today = todayIso()  // МСК
   if (event?.module_slug === 'conference' && days.length > 0) {
     return days.some(d => d.day_date === today)
   }
-  if (!event?.start_at) return false
-  const start = new Date(event.start_at)
-  if (isNaN(start.getTime())) return false
-  const end = event.end_at ? new Date(event.end_at) : start
-  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0)
-  const endDay   = new Date(end.getFullYear(),   end.getMonth(),   end.getDate(),   23, 59, 59)
-  const now = new Date()
-  return now >= startDay && now <= endDay
+  // Одиночное событие (вебинар и т.п.): показываем ВЕСЬ ДЕНЬ события в МСК —
+  // от даты старта до даты конца включительно (сравниваем по календарной дате,
+  // а не по точному времени, чтобы кнопка была доступна весь день).
+  const startDay = mskDateIso(event?.start_at)
+  if (!startDay) return false
+  const endDay = mskDateIso(event?.end_at) || startDay
+  return today >= startDay && today <= endDay
 }
 
 export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOpenSpeaker }: Props) {

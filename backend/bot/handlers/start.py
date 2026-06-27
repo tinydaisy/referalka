@@ -1144,7 +1144,11 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
                   (SELECT eo.client_id FROM event_owners eo
                     WHERE eo.event_id = e.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
-                  vip_url, vip_button_label,
+                  (SELECT c.default_link_mode FROM event_owners eo
+                     JOIN clients c ON c.id = eo.client_id
+                    WHERE eo.event_id = e.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS default_link_mode,
+                  vip_url, vip_button_label, hide_stream_button,
                   chat_url_tg, chat_url_vk, chat_url_max,
                   (SELECT url FROM event_posters
                      WHERE event_id = e.id
@@ -1164,6 +1168,20 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
     slug = ev["slug"]
     title = _html.escape(ev["title"] or "")
     cid_q = f"?c={contact_id}" if contact_id else ""
+
+    # Куда ведёт «Кабинет и подарки»: по глобальной настройке клиента
+    # (clients.default_link_mode). miniapp → Mini App клиента; иначе → веб события.
+    link_mode = (ev["default_link_mode"] or "miniapp")
+    cabinet_url = f"https://pluson.ru/event/{slug}{cid_q}#cabinet"
+    if link_mode == "miniapp" and ev["client_id"]:
+        from app.services.share_links import get_client_bot_handles, telegram_link
+        handles = await get_client_bot_handles(db, ev["client_id"])
+        tg_handle = handles.get("telegram")
+        if tg_handle:
+            ma = telegram_link(slug, bot_handle=tg_handle, tab="game",
+                               contact_id=contact_id, link_mode="miniapp")
+            if ma:
+                cabinet_url = ma
 
     text = (
         "Вы зарегистрированы на событие:\n"
@@ -1196,7 +1214,18 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
         vip_label = (ev["vip_button_label"] or "").strip() or "Выбрать формат участия"
         rows.append([InlineKeyboardButton(text=vip_label, url=vip_target)])
 
-    # 2. Вступить в Чат — только если есть хоть одна chat-ссылка.
+    # Порядок кнопок: Оплатить орг-взнос (VIP) → Кабинет и подарки →
+    # Вступить в чат → Ссылка на эфир → Тех. поддержка.
+
+    # 2. Кабинет → веб (#cabinet) или Mini App — по настройке клиента.
+    #    Название: для конференций/турниров «Кабинет·Подарки·Спикеры»,
+    #    для обычных событий «Кабинет·Подарки».
+    cabinet_label = ("🎁 Кабинет·Подарки·Спикеры"
+                     if ev["module_slug"] in ("conference", "turnir")
+                     else "🎁 Кабинет·Подарки")
+    rows.append([InlineKeyboardButton(text=cabinet_label, url=cabinet_url)])
+
+    # 3. Вступить в Чат — только если есть хоть одна chat-ссылка.
     has_chat = bool((ev["chat_url_tg"] or "").strip()
                     or (ev["chat_url_vk"] or "").strip()
                     or (ev["chat_url_max"] or "").strip())
@@ -1205,24 +1234,16 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
             text="📝 Вступить в Чат", callback_data=f"evchat_{event_id}"
         )])
 
-    # 3. Кабинет и подарки → вкладка кабинета (#cabinet).
-    rows.append([InlineKeyboardButton(
-        text="🎁 Кабинет и подарки",
-        url=f"https://pluson.ru/event/{slug}{cid_q}#cabinet"
-    )])
+    # 4. Ссылка на эфир — ближайший эфир + кнопка войти в стрим.
+    #    Скрывается, если у события стоит галочка «Скрыть кнопку стрима»
+    #    (hide_stream_button) — она прячет кнопку и в Mini App/вебе, и тут.
+    if not ev["hide_stream_button"]:
+        rows.append([InlineKeyboardButton(
+            text="📺 Ссылка на эфир", callback_data=f"evlive_{event_id}"
+        )])
 
-    # 3. Ссылка на эфир (над Программой) — ближайший эфир + кнопка войти в стрим.
-    rows.append([InlineKeyboardButton(
-        text="📺 Ссылка на эфир", callback_data=f"evlive_{event_id}"
-    )])
-
-    # 4. Программа (и спикеры для конференций/турниров).
-    prog_label = ("Программа и Спикеры"
-                  if ev["module_slug"] in ("conference", "turnir")
-                  else "Программа")
-    rows.append([InlineKeyboardButton(
-        text=prog_label, url=f"https://pluson.ru/event/{slug}{cid_q}#program"
-    )])
+    # (Кнопка «Программа и Спикеры» убрана — программа и спикеры доступны
+    #  внутри «🎁 Кабинет и подарки» на странице события.)
 
     # 5. Тех. поддержка — единое сообщение с каналами связи клиента.
     rows.append([InlineKeyboardButton(

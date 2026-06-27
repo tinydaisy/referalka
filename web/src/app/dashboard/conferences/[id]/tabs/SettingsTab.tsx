@@ -210,9 +210,9 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
               onChange={e => setForm(f => ({ ...f, hide_stream_button: e.target.checked }))}
               className="mt-0.5 accent-[#25455D]" />
             <span className="text-sm text-gray-700">
-              Скрыть кнопку стрима в Mini App
+              Скрыть кнопку стрима
               <span className="block text-xs text-gray-400 mt-0.5">
-                Кнопка не будет показываться участникам, даже если ссылка задана.
+                Кнопка не будет показываться участникам ни в Mini App / на веб-странице, ни в меню бота события — даже если ссылка задана.
               </span>
             </span>
           </label>

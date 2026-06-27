@@ -331,8 +331,15 @@ async def handle_event_live(callback: CallbackQuery):
     async with pool.acquire() as db:
         ev = await db.fetchrow(
             """SELECT id, slug, title, module_slug, start_at,
-                      stream_url, hide_stream_button
-                 FROM events WHERE id = $1 LIMIT 1""",
+                      stream_url, hide_stream_button,
+                      (SELECT eo.client_id FROM event_owners eo
+                        WHERE eo.event_id = e.id AND eo.status='accepted'
+                        ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id,
+                      (SELECT c.default_link_mode FROM event_owners eo
+                         JOIN clients c ON c.id = eo.client_id
+                        WHERE eo.event_id = e.id AND eo.status='accepted'
+                        ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS default_link_mode
+                 FROM events e WHERE e.id = $1 LIMIT 1""",
             event_id,
         )
         if not ev:
@@ -417,9 +424,18 @@ async def handle_event_live(callback: CallbackQuery):
         text += "\n\nЧтобы посмотреть всю программу — нажмите на кнопку 👇"
 
         cid_q = f"?c={contact_id}" if contact_id else ""
-        rows.append([InlineKeyboardButton(
-            text="Программа",
-            url=f"https://pluson.ru/event/{ev['slug']}{cid_q}#program")])
+        # Кнопка «Программа» — Mini App или веб по глобальной настройке клиента.
+        prog_url = f"https://pluson.ru/event/{ev['slug']}{cid_q}#program"
+        if (ev["default_link_mode"] or "miniapp") == "miniapp" and ev["client_id"]:
+            from app.services.share_links import get_client_bot_handles, telegram_link
+            handles = await get_client_bot_handles(db, ev["client_id"])
+            tg_handle = handles.get("telegram")
+            if tg_handle:
+                ma = telegram_link(ev["slug"], bot_handle=tg_handle, tab="program",
+                                   contact_id=contact_id, link_mode="miniapp")
+                if ma:
+                    prog_url = ma
+        rows.append([InlineKeyboardButton(text="Программа", url=prog_url)])
         rows.append([InlineKeyboardButton(
             text="⬅️ Вернуться в меню", callback_data=f"evmenu_{event_id}")])
 
