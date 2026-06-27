@@ -109,11 +109,14 @@ def _skey(kind: str, sid: int) -> str:
 
 
 async def _subjects(event_id: int, db: asyncpg.Connection, *,
-                    show_ep: bool = True, show_ec: bool = True) -> List[dict]:
-    """Оцениваемые = спикеры-коллабораторы (ec) + ВСЕ зарегистрированные участники (ep).
+                    show_ep: bool = True, show_ec: bool = True,
+                    include_unregistered: bool = False) -> List[dict]:
+    """Оцениваемые = спикеры-коллабораторы (ec) + участники (ep).
     Сортировка: спикеры (по фамилии-имени) → участники (по имени).
 
     show_ep/show_ec — какие аудитории показывать (по настройке этапа listen_audiences).
+    include_unregistered — показывать и НЕзарегистрированных ep (аудитория этапа 'all').
+    По умолчанию (audiences='registered') — только зарегистрированные.
     ⚠️ Дедуп «спикер-который-ещё-и-участник → показываем строкой-участником» работает
     ТОЛЬКО когда показываем обе аудитории. Если этап = только спикеры (show_ep=False),
     спикеров показываем строкой-спикером (ec) целиком, иначе они бы пропали."""
@@ -123,15 +126,17 @@ async def _subjects(event_id: int, db: asyncpg.Connection, *,
     #    их в таблице оцениваемых быть не должно. СПИКЕРЫ остаются: человек,
     #    который сдавал задания как участник, показывается строкой-участником
     #    со своими ep-баллами (даже если его потом записали спикером).
+    #    include_unregistered=True (аудитория 'all') → показываем и незарег.
+    reg_cond = "" if include_unregistered else "AND ep.is_registered = TRUE"
     ep_rows = [] if not show_ep else await db.fetch(
-        """SELECT ep.id AS sid, ct.name, ct.ref_code, ct.id AS contact_id,
+        f"""SELECT ep.id AS sid, ct.name, ct.ref_code, ct.id AS contact_id,
                   (SELECT pu.username FROM platform_users pu
                      WHERE pu.contact_id = ct.id AND pu.username IS NOT NULL
                      ORDER BY CASE pu.platform_slug WHEN 'telegram' THEN 1 WHEN 'vk' THEN 2 WHEN 'max' THEN 3 ELSE 4 END
                      LIMIT 1) AS username
              FROM event_participants ep
              JOIN contacts ct ON ct.id = ep.contact_id
-            WHERE ep.event_id = $1 AND ep.is_registered = TRUE
+            WHERE ep.event_id = $1 {reg_cond}
               AND ct.is_staff = FALSE
               AND NOT EXISTS (
                 SELECT 1 FROM event_collaborators ec2
@@ -278,6 +283,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
     #   → показываем всех. Передаём в _subjects, чтобы дедуп спикер/участник учитывал
     #   аудиторию (иначе на этапе «только спикеры» спикеры-участники пропадали).
     show_ep, show_ec = True, True
+    include_unreg = False  # 'all' в аудитории → показываем и незарегистрированных ep
     if stage_id is not None:
         st_aud = await db.fetchval(
             "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
@@ -286,7 +292,9 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
         if aud:  # пустой массив = «показывать всех» (обратная совместимость)
             show_ep = bool(aud & {"all", "registered"})
             show_ec = "speakers" in aud
-    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec)
+            include_unreg = "all" in aud
+    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
+                               include_unregistered=include_unreg)
     jurors = await _jurors(event_id, db)
 
     # сырые баллы (по subject_kind+subject_id)
