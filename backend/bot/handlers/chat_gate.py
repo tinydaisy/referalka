@@ -171,7 +171,9 @@ async def handle_group_message(message: Message, bot: Bot):
                     gate["client_id"], bot_channel["id"],
                 )
                 if not client_owns:
-                    return
+                    # Этот канал гейта не принадлежит клиенту бота — гейт не наш,
+                    # но сообщение всё равно пробрасываем дальше (chat_listener).
+                    raise SkipHandler()
         # (системный @pluson_bot сюда не доходит — отсечён по токену в начале хендлера)
 
         # 3) Быстрый путь: если этот юзер недавно (≤60 сек) уже был помечен «не подписан»
@@ -199,7 +201,9 @@ async def handle_group_message(message: Message, bot: Bot):
                 err, gate["id"],
             )
             log.info("chat_gate: auto-off gate=%s reason=%s", gate["id"], err)
-            return
+            # Сообщение не удаляем — пробрасываем дальше в chat_listener (контроль
+            # заданий/приветствия), иначе в чате с гейтом задания не слушаются.
+            raise SkipHandler()
 
         if sub.get("no_channels"):
             # У клиента нет каналов основателя — нечего проверять.
@@ -211,7 +215,7 @@ async def handle_group_message(message: Message, bot: Bot):
                     WHERE id = $1""",
                 gate["id"],
             )
-            return
+            raise SkipHandler()
 
         if sub.get("ok"):
             # «Подписан» НЕ кешируем — юзер мог отписаться, гейт не должен его пропускать.
@@ -219,7 +223,10 @@ async def handle_group_message(message: Message, bot: Bot):
                 "chat_gate: gate=%s user=%s ALLOW in %.2fs",
                 gate["id"], user_id, time.monotonic() - t_start,
             )
-            return
+            # Подписчик прошёл гейт — сообщение валидно, пробрасываем его дальше
+            # в chat_listener (контроль заданий + приветствия). Без SkipHandler
+            # aiogram считал бы апдейт обработанным и слушалка заданий его не видела.
+            raise SkipHandler()
 
         # 4) Запомним «не подписан» на 60 сек вместе со списком missing.
         # Следующее сообщение этого юзера в этом чате пройдёт мимо
