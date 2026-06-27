@@ -266,7 +266,9 @@ export default function TemplatesPage() {
 
   useEffect(() => {
     api.conference.templates.list(eventId).then(r => setTemplates(r.templates || [])).catch(() => {})
-    api.conference.speakers.list(eventId).then(r => setSpeakers(r.speakers || [])).catch(() => {})
+    api.conference.speakers.list(eventId).then(r => setSpeakers(
+      [...(r.speakers || [])].sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', 'ru'))
+    )).catch(() => {})
     api.conference.days.list(eventId).then(r => {
       const days = r.days || []
       const dayNums = days.map((d: any) => d.day_number).sort((a: number, b: number) => a - b)
