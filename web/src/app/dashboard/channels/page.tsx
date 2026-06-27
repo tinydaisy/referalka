@@ -751,13 +751,20 @@ function VipVkWizard({ clientId, onClose, onDone }: {
                 <label className="block text-xs text-gray-500 mb-1">Access Token сообщества <span className="text-red-500">*</span></label>
                 <div className="relative">
                   <input
-                    type={showToken ? 'text' : 'password'}
+                    type="text"
                     value={form.access_token}
                     onChange={e => setForm(f => ({ ...f, access_token: e.target.value }))}
                     className="w-full px-3 py-2.5 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                    style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
                     placeholder="vk1.a.zZJ..."
                     disabled={submitting}
                     autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    data-1p-ignore
+                    data-lpignore="true"
+                    name="vk_access_token_field"
                   />
                   <button type="button" onClick={() => setShowToken(v => !v)}
                           className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700">
@@ -988,13 +995,20 @@ function VipMaxWizard({ clientId, onClose, onDone }: {
                 <label className="block text-xs text-gray-500 mb-1">Токен MAX-бота</label>
                 <div className="relative">
                   <input
-                    type={showToken ? 'text' : 'password'}
+                    type="text"
                     value={token}
                     onChange={e => setToken(e.target.value)}
                     className="w-full px-3 py-2.5 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                    style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
                     placeholder="вставьте токен из @MasterBot"
                     disabled={submitting}
                     autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    data-1p-ignore
+                    data-lpignore="true"
+                    name="max_bot_token_field"
                   />
                   <button
                     type="button"
@@ -1154,12 +1168,20 @@ function VipBotWizard({ clientId, onClose, onDone }: {
                 <label className="block text-xs text-gray-500 mb-1">Bot Token</label>
                 <div className="relative">
                   <input
-                    type={showToken ? 'text' : 'password'}
+                    type="text"
                     value={token}
                     onChange={e => setToken(e.target.value)}
                     className="w-full px-3 py-2.5 pr-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[#25455D] font-mono"
+                    style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
                     placeholder="123456:ABC-DEF1234..."
                     disabled={submitting}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    data-1p-ignore
+                    data-lpignore="true"
+                    name="bot_token_field"
                   />
                   <button
                     type="button"

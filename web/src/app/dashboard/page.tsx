@@ -1,13 +1,23 @@
 'use client'
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { api } from '@/lib/api'
 
-// Раздел «Дашборд» убран из меню. Корень /dashboard сразу ведёт на «Мероприятия» —
-// это стартовый экран после логина.
+// Раздел «Дашборд» убран из меню. Корень /dashboard ведёт на «Мероприятия» —
+// стартовый экран. НО если у клиента ещё нет ни одного своего бота (TG/VK/MAX) —
+// ведём в «Каналы»: без бота сервис не работает (там крупная плашка-подсказка).
 export default function DashboardPage() {
   const router = useRouter()
   useEffect(() => {
-    router.replace('/dashboard/events')
+    let done = false
+    api.channels.list()
+      .then((chs: any) => {
+        const hasOwnBot = (chs.items || []).some((c: any) => !c.is_system)
+        if (done) return
+        router.replace(hasOwnBot ? '/dashboard/events' : '/dashboard/channels')
+      })
+      .catch(() => { if (!done) router.replace('/dashboard/events') })
+    return () => { done = true }
   }, [router])
 
   return (
