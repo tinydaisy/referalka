@@ -286,6 +286,8 @@
 
 **Кнопка стрима в Mini App — весь день события.** Показывается весь день эфира (дата считается в МСК), не только в момент старта — чтобы участник мог зайти заранее (см. раздел про `hide_stream_button` миграции 128).
 
+**Голый `/start` на VIP-боте — приветствие из настроек клиента, единое для TG/VK/MAX (2026-06-27).** При `/start` без payload (а в MAX — и `bot_started` без payload, в VK — `message_allow` и `/start`) бот читает настройки клиента (миграция 169): `start_mode` (`greeting`|`event`), `start_event_id`, `start_greeting_text` (плейсхолдеры `{имя}`/`{бренд}`), `start_btn_events_label`, `start_btn_owner_label`, фото основателя/бренда. Раньше так умел только TG (`_handle_vip_direct_start` в [start.py](backend/bot/handlers/start.py)); MAX и VK игнорировали настройки и отдавали захардкоженное «Выберите событие». Логика вынесена в общий резолвер [start_greeting.py](backend/app/services/start_greeting.py) `resolve_start_greeting()` → отдаёт `kind='event'` (открыть штатный флоу события — в MAX рекурсия `_process_start(ref_pg{slug})`, в VK `_vk_open_event_funnel`) либо `kind='greeting'` (текст + 2 кнопки «Все события»/«Об основателе» + фото). VK: [`_vk_direct_start_welcome`](backend/bot/vk_main.py); MAX: ветка «событие не задано» в `_process_start` ([max_webhook.py](backend/app/api/max_webhook.py)). Системный бот без контекста клиента — без изменений (молчит / Mini App-кнопка).
+
 ### Воронка догрева ЗАРЕГИСТРИРОВАННЫХ + Служба поддержки (миграция 129 от 2026-06-09)
 
 **Две независимые nurture-воронки на событие:**

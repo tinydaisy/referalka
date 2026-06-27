@@ -249,6 +249,72 @@ def _extract_event_trigger_id(text: str) -> int | None:
         return None
 
 
+async def _vk_open_event_funnel(event_id: int, user_id: int, db, ctx: "GroupCtx") -> bool:
+    """Открыть событие №event_id в личке VK: воронка (незарег → 2 кнопки,
+    зарег → меню кабинета). То же, что триггер «ИВЕНТ<id>». Возвращает True,
+    если событие найдено и сообщение отправлено."""
+    from app.api.vk_event import send_vk_event_funnel, _EVENT_FUNNEL_FIELDS
+    from app.services.external_landing import resolve_or_create_participant
+
+    ev_row = await db.fetchrow(
+        f"SELECT {_EVENT_FUNNEL_FIELDS} FROM events e "
+        f"WHERE e.id = $1 AND e.id IN (SELECT event_id FROM event_owners "
+        f"WHERE client_id = $2 AND status = 'accepted') LIMIT 1",
+        event_id, ctx.client_id,
+    )
+    if not ev_row:
+        return False
+    _pid, contact_id = await resolve_or_create_participant(
+        db, client_id=ctx.client_id, event_id=ev_row["id"],
+        platform_slug="vk", platform_user_id=str(user_id),
+    )
+    is_registered = bool(await db.fetchval(
+        "SELECT is_registered FROM event_participants WHERE event_id = $1 AND contact_id = $2",
+        ev_row["id"], contact_id,
+    )) if contact_id else False
+    client_vk_app_id = await db.fetchval(
+        """SELECT (ch.platform_meta->>'vk_app_id')::int
+             FROM client_channels cc JOIN channels ch ON ch.id = cc.channel_id
+            WHERE cc.client_id = $1 AND cc.is_active = TRUE
+              AND ch.platform_slug = 'vk' AND ch.is_system = FALSE LIMIT 1""",
+        ctx.client_id,
+    )
+    await send_vk_event_funnel(
+        db, vk_user_id=int(user_id), token=ctx.token,
+        client_vk_app_id=client_vk_app_id, event_row=ev_row,
+        contact_id=contact_id, is_registered=is_registered,
+    )
+    return True
+
+
+async def _vk_direct_start_welcome(user_id: int, db, ctx: "GroupCtx") -> None:
+    """Приветствие на голый /start в VIP-сообществе клиента — читает настройки
+    клиента (start_mode/start_greeting_text/подписи кнопок), как TG-бот.
+
+    Режим «конкретное событие» → штатная воронка события. Иначе — текст
+    (кастомный/дефолт) + кнопки «Все события» и «Об основателе»."""
+    from app.services.start_greeting import resolve_start_greeting, greeting_text_plain
+
+    g = await resolve_start_greeting(db, ctx.client_id, greet_name="")
+    if g.get("kind") == "event":
+        ev_id = await db.fetchval("SELECT id FROM events WHERE slug = $1 LIMIT 1", g["event_slug"])
+        if ev_id and await _vk_open_event_funnel(ev_id, user_id, db, ctx):
+            return
+        # событие не отдалось — падаем в обычное приветствие ниже
+        g = {**g, "kind": "greeting", "text": "",
+             "events_label": "📅 Все события",
+             "events_url": f"https://pluson.ru/o/{ctx.client_id}",
+             "owner_label": "🌐 Об основателе",
+             "owner_url": f"https://pluson.ru/o/{ctx.client_id}?tab=ecosystem"}
+
+    txt = greeting_text_plain(g.get("text") or "")
+    kb = tg_inline_to_vk_keyboard([
+        [{"text": g["events_label"], "url": g["events_url"]}],
+        [{"text": g["owner_label"], "url": g["owner_url"]}],
+    ])
+    await vk_send_message(user_id, txt, keyboard=kb, token=ctx.token)
+
+
 async def _handle_speaker_self_register_vk(
     event_id: int, user_id: int, db, ctx: "GroupCtx",
 ) -> None:
@@ -592,21 +658,9 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
 
     try:
         if not ctx.is_system:
-            # VIP-сообщество клиента → приветствие «Выберите событие» с кнопкой
-            # на веб-страницу всех событий клиента /o/{client_id}.
-            cli = await db.fetchrow(
-                "SELECT brand_name, name FROM clients WHERE id = $1", ctx.client_id)
-            brand = ((cli["brand_name"] if cli else None)
-                     or (cli["name"] if cli else None) or "").strip()
-            welcome_text = (
-                "👋 Здравствуйте! Спасибо что разрешили нам писать.\n\n"
-                + (f"Добро пожаловать в сообщество {brand}.\n\n" if brand else "")
-                + "Выберите событие, которое вас интересует 👇"
-            )
-            keyboard = tg_inline_to_vk_keyboard([[
-                {"text": "📋 Выбрать событие",
-                 "url": f"https://pluson.ru/o/{ctx.client_id}"},
-            ]])
+            # VIP-сообщество клиента → приветствие из НАСТРОЕК клиента (как в TG):
+            # режим «конкретное событие» / кастомный текст / дефолт + кнопки.
+            await _vk_direct_start_welcome(int(user_id), db, ctx)
         else:
             # Системное сообщество ПЛЮСОНа → Mini App (HubSelector по всем).
             welcome_text = (
@@ -616,7 +670,7 @@ async def handle_message_allow(event: dict, db, ctx: GroupCtx) -> None:
             keyboard = tg_inline_to_vk_keyboard([[
                 {"text": "Открыть приложение", "url": f"https://vk.com/app{ctx.vk_app_id}"},
             ]])
-        await vk_send_message(int(user_id), welcome_text, keyboard=keyboard, token=ctx.token)
+            await vk_send_message(int(user_id), welcome_text, keyboard=keyboard, token=ctx.token)
     except Exception as e:
         logger.warning(f"VK welcome on message_allow failed for user={user_id}: {e}")
 
@@ -1004,33 +1058,21 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             logger.warning(f"VK chat archive failed: {e}")
         return
 
-    # /start — приветствие «Выберите событие» (как в TG). Для VIP-сообщества
-    # ведём на веб-страницу всех событий клиента /o/{client_id}, для системного
-    # — на Mini App (там HubSelector по всем организаторам).
+    # /start — приветствие из НАСТРОЕК клиента (как в TG): режим «конкретное
+    # событие» / кастомный текст / дефолт + кнопки «Все события» и «Об основателе».
+    # Системное сообщество — на Mini App (HubSelector по всем организаторам).
     if (message.get("text") or "").strip().lower().startswith("/start"):
         try:
-            from app.services.vk_api import send_message as _vk_send, tg_inline_to_vk_keyboard
             if not ctx.is_system:
-                cli = await db.fetchrow(
-                    "SELECT brand_name, name FROM clients WHERE id = $1", ctx.client_id)
-                brand = ((cli["brand_name"] if cli else None)
-                         or (cli["name"] if cli else None) or "").strip()
-                txt = (
-                    "👋 Здравствуйте!\n\n"
-                    + (f"Это сообщество {brand}.\n\n" if brand else "")
-                    + "Выберите событие, которое вас интересует 👇"
-                )
-                kb = tg_inline_to_vk_keyboard([[
-                    {"text": "📋 Выбрать событие",
-                     "url": f"https://pluson.ru/o/{ctx.client_id}"},
-                ]])
+                await _vk_direct_start_welcome(int(from_id), db, ctx)
             else:
+                from app.services.vk_api import send_message as _vk_send, tg_inline_to_vk_keyboard
                 txt = ("👋 Здравствуйте!\n\n"
                        "Откройте приложение, чтобы посмотреть свои события и партнёрские ссылки.")
                 kb = tg_inline_to_vk_keyboard([[
                     {"text": "Открыть приложение", "url": f"https://vk.com/app{ctx.vk_app_id}"},
                 ]])
-            await _vk_send(int(from_id), txt, keyboard=kb, token=ctx.token)
+                await _vk_send(int(from_id), txt, keyboard=kb, token=ctx.token)
         except Exception as e:
             logger.warning(f"VK /start failed: {e}")
         return

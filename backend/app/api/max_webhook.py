@@ -1258,31 +1258,44 @@ async def _process_start(
             return
 
     # ── Событие не задано (прямой /start без контекста) ──
-    # VIP-бот клиента (client_id_override) → приветствие «Выберите событие» с
-    # кнопкой на веб-страницу всех событий клиента /o/{client_id}.
+    # VIP-бот клиента (client_id_override) → приветствие из НАСТРОЕК клиента
+    # (как в TG): режим «конкретное событие» / кастомный текст / дефолт + кнопки
+    # «Все события» и «Об основателе» + фото основателя.
     # Системный бот (client_id_override is None) → молчим: один клиент не
     # определён, вести некуда (и не шлём рекламно-платформенный текст).
     if client_id_override:
         try:
+            from app.services.start_greeting import resolve_start_greeting, greeting_text_plain
             _wp = await get_pool()
             async with _wp.acquire() as _wc:
-                _cli = await _wc.fetchrow(
-                    "SELECT brand_name, name FROM clients WHERE id = $1",
-                    client_id_override,
+                g = await resolve_start_greeting(
+                    _wc, client_id_override, greet_name=first_name or "",
                 )
-            _brand = ((_cli["brand_name"] if _cli else None)
-                      or (_cli["name"] if _cli else None) or "").strip()
-            _hi = f"Привет, {first_name}! 👋\n\n" if first_name else "Привет! 👋\n\n"
-            _txt = (
-                _hi
-                + (f"Добро пожаловать в бот {_brand}.\n\n" if _brand else "")
-                + "Выберите событие, которое вас интересует 👇"
+            # Режим «конкретное событие» → штатный флоу события (ref_pg{slug}),
+            # ровно как по ссылке. Защита от петли: рекурсим только при пустом payload.
+            if g.get("kind") == "event" and not (payload or "").strip():
+                await _process_start(
+                    user_id=user_id, chat_id=chat_id, sender=sender,
+                    payload=f"ref_pg{g['event_slug']}",
+                    bot_token=bot_token, client_id_override=client_id_override,
+                )
+                return
+            _txt = greeting_text_plain(g.get("text") or "")
+            _btn = tg_inline_to_max_keyboard([
+                [{"text": g["events_label"], "url": g["events_url"]}],
+                [{"text": g["owner_label"], "url": g["owner_url"]}],
+            ])
+            _att = None
+            if g.get("photo_url"):
+                try:
+                    a = await _max_image_attachment_from_url(g["photo_url"], bot_token)
+                    if a:
+                        _att = [a]
+                except Exception as _pe:  # noqa: BLE001
+                    logger.warning(f"MAX direct-start photo failed: {_pe}")
+            await max_send_message(
+                chat_id, _txt, token=bot_token, buttons=_btn, attachments=_att,
             )
-            _btn = tg_inline_to_max_keyboard([[
-                {"text": "📋 Выбрать событие",
-                 "url": f"https://pluson.ru/o/{client_id_override}"},
-            ]])
-            await max_send_message(chat_id, _txt, token=bot_token, buttons=_btn)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"MAX direct-start welcome failed for user={user_id}: {e}")
     return
