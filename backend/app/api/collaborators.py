@@ -101,6 +101,10 @@ class CollaboratorCreate(BaseModel):
     # Публичные каналы коллаба на VK/MAX (по аналогии с tg_channel_url). Миграция 108.
     vk_url: Optional[str] = None
     max_url: Optional[str] = None
+    # Числовые id каналов VK/MAX для проверки подписки (миграция 177).
+    # VK — резолвится автоматически из vk_url; MAX — вводится вручную.
+    vk_channel_id: Optional[str] = None
+    max_channel_id: Optional[str] = None
     # Личные идентичности — пишутся в platform_users (миграции 107/108)
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
@@ -128,6 +132,8 @@ class CollaboratorUpdate(BaseModel):
     tg_channel_id: Optional[str] = None
     vk_url: Optional[str] = None
     max_url: Optional[str] = None
+    vk_channel_id: Optional[str] = None
+    max_channel_id: Optional[str] = None
     personal_tg_id: Optional[str] = None
     personal_tg_username: Optional[str] = None
     personal_vk_id: Optional[str] = None
@@ -169,7 +175,7 @@ _COLLAB_SELECT = """
     c.photo_folder_url, c.video_folder_url, c.video_url,
     c.tg_channel_url, c.vk_url, c.max_url,
     c.instagram_url, c.website_url,
-    c.tg_channel_id, c.assistant_tg_username,
+    c.tg_channel_id, c.vk_channel_id, c.max_channel_id, c.assistant_tg_username,
     c.access_code,
     c.media_assets,
     c.contact_id, c.created_by_client_id, c.created_at, c.updated_at,
@@ -564,6 +570,20 @@ async def update_collaborator(
     ])
     # media_assets — JSONB, нужен явный ::jsonb cast и json.dumps. Обрабатываем отдельно.
     media_assets_in = _normalize_media_assets(updates_full.pop("media_assets", None))
+    # Авто-резолв числового id VK-сообщества коллаба из vk_url (для проверки
+    # подписки groups.isMember). Делаем когда меняется vk_url, а vk_channel_id
+    # явно не передан — чтобы клиент не вписывал id руками (как у клиента в профиле).
+    if updates_full.get("vk_url") and not data.vk_channel_id:
+        from app.services.social_links import vk_screen_name_from_link
+        from app.services.vk_api import vk_call
+        screen = vk_screen_name_from_link(updates_full["vk_url"])
+        if screen:
+            try:
+                resp = await vk_call("utils.resolveScreenName", {"screen_name": screen})
+                if isinstance(resp, dict) and resp.get("type") in ("group", "page") and resp.get("object_id"):
+                    updates_full["vk_channel_id"] = str(int(resp["object_id"]))
+            except Exception:
+                pass  # резолв не получился — не блокируем сохранение коллаба
     if "contact_id" in updates_full:
         own = await db.fetchval(
             "SELECT 1 FROM contacts WHERE id = $1 AND client_id = $2 AND merged_into IS NULL",

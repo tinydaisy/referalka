@@ -1567,6 +1567,16 @@ CSS-классы: `.status-pill.status-pill-{new|interested|registered}`. Кон
 
 ⚠️ **Подписки на каналы при регистрации НЕ проверяются.** Чек-листа подписок и `getChatMember` в потоке регистрации нет. Подписка нужна только для доступа в чат события (отдельная плитка/кнопка в Программе, поле `events.chat_subscriptions_required`).
 
+#### Проверка подписки на MAX-канал — РЕАЛЬНАЯ, не заглушка (2026-06-27)
+
+**Старый комментарий «MAX Bot API не умеет getChatMember» был неверным.** MAX умеет: `GET /chats/{channel_id}/members?user_ids=<id>` (заголовок `Authorization: <token>`) → ответ `{"members":[...]}`, непустой массив = подписан. Реализовано в [`max_api.check_channel_membership`](backend/app/services/max_api.py) (возвращает `True`/`False`/`None`, где `None` = бот не админ/нет данных → fail-open). Рецепт повторён из проекта do_name_and_sales (там в проде), адаптирован под нашу авторизацию (заголовок, не query `access_token`).
+
+**Где применяется:** «Вступить в Чат» в MAX-боте ([`_handle_max_chat_join`](backend/app/api/max_webhook.py)) — перед выдачей ссылок на чаты проверяет подписку на MAX-каналы основателя (`clients.social_links.max_channels` с заполненным числовым `chat_id`). Не подписан → список каналов с просьбой подписаться + кнопка «Вступить в Чат» снова. `None` (бот не админ) → канал пропускается.
+
+**⚠️ Числовой id MAX-канала:** MAX не отдаёт id по ссылке (публичного резолва нет) — вводится **вручную** (у основателя — в `social_links.max_channels[].chat_id`, у коллаба — `collaborators.max_channel_id`). Бот ОБЯЗАН быть админом канала.
+
+**Числовые id каналов коллаба для проверки подписки (миграция 177):** `collaborators.vk_channel_id` (резолвится **автоматически** из `vk_url` через `utils.resolveScreenName` при PATCH коллаба — как `vk_group_id` у клиента) + `collaborators.max_channel_id` (вручную). Проверка членства: VK — `groups.isMember` ([`vk_api.is_user_member_of_group`](backend/app/services/vk_api.py)), MAX — `check_channel_membership`. Редактируются на `/dashboard/collaborations/[id]` (блок «Аккаунты»: ссылка VK + ссылка/ID MAX). ⚠️ Mini App-гейт `check-subscription` пока проверяет только TG-каналы коллабов; расширение на VK/MAX каналы коллабов в гейте Mini App — отдельная задача (поля в БД уже есть).
+
 #### Проверка подписки на каналы организаторов (унифицировано 07.05.2026, расширено 08.05.2026)
 
 При тапе на плитку чата в Mini App ([ProgramTab.tsx](mini-app/src/tabs/ProgramTab.tsx) `openChatWithCheck`) проверка подписки идёт через `GET /api/v1/public/conference/{event_id}/check-subscription` ([subscription_check.py](backend/app/api/subscription_check.py)). Логика:

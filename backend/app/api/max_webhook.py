@@ -1497,6 +1497,47 @@ async def _handle_max_live(
     await max_send_message(chat_id, text, token=bot_token, buttons=tg_inline_to_max_keyboard(rows))
 
 
+async def _check_max_founder_subscription(
+    conn, client_id: int | None, user_id, bot_token: str,
+) -> list[dict]:
+    """Возвращает список MAX-каналов основателя, на которые пользователь НЕ
+    подписан (только каналы с заполненным числовым chat_id).
+
+    Пустой список = подписан на всё / нечего проверять → пускаем.
+    Бот не админ канала / MAX не дал данных → канал считаем пройденным
+    (fail-open, как в TG-гейте).
+    """
+    if not client_id:
+        return []
+    from app.services.social_links import normalize_max_channels
+    from app.services.max_api import check_channel_membership
+    row = await conn.fetchrow(
+        "SELECT social_links FROM clients WHERE id = $1", client_id,
+    )
+    if not row:
+        return []
+    social = row["social_links"]
+    if isinstance(social, str):
+        import json as _json
+        try:
+            social = _json.loads(social)
+        except Exception:
+            social = {}
+    channels = normalize_max_channels((social or {}).get("max_channels") or [])
+    # Проверяем только каналы с числовым chat_id — без него MAX API не вызвать.
+    to_check = [c for c in channels if (c.get("chat_id") or "").strip()]
+    if not to_check:
+        return []
+    not_subscribed: list[dict] = []
+    for ch in to_check:
+        is_member = await check_channel_membership(ch["chat_id"], user_id, token=bot_token)
+        # None = нет данных (бот не админ) → fail-open, не блокируем.
+        # False = достоверно не подписан → требуем подписку.
+        if is_member is False:
+            not_subscribed.append(ch)
+    return not_subscribed
+
+
 async def _handle_max_chat_join(
     chat_id: int,
     event_id: int,
@@ -1506,17 +1547,23 @@ async def _handle_max_chat_join(
 ) -> None:
     """«Вступить в Чат» в MAX — зеркало `handle_event_chat_join` из TG.
 
-    Проверка подписки на MAX-каналы коллабов = ЗАГЛУШКА: MAX Bot API пока не
-    умеет getChatMember, поэтому считаем что подписан ВСЕГДА и сразу выдаём
-    ссылки на чаты.
+    Проверка подписки на MAX-каналы основателя клиента — РЕАЛЬНАЯ (MAX Bot API
+    умеет: GET /chats/{id}/members?user_ids=<uid> → непустой members = подписан,
+    см. max_api.check_channel_membership). Источник каналов — массив
+    `clients.social_links.max_channels` с заполненным числовым `chat_id` (зеркало
+    TG-гейта на каналах основателя). Канал без числового chat_id в проверке не
+    участвует (узнать его по одной ссылке MAX не даёт). Бот обязан быть админом
+    канала, иначе ответ трактуем как «нет данных» и канал пропускаем (fail-open).
 
-    TODO: реальная проверка подписки MAX, когда у MAX появится API проверки
-    участия в канале. Тогда здесь, по аналогии с TG (_gather_event_chat_channels
-    + collaborators.max_url + subscription_mode / require_subscription), собрать
-    каналы по ролям и проверять подписку.
+    Если пользователь не подписан хотя бы на один проверяемый канал — шлём список
+    каналов с просьбой подписаться, ссылки на чаты не выдаём. Подписан / нет
+    каналов с id → сразу выдаём ссылки на чаты.
     """
     ev = await conn.fetchrow(
         """SELECT id,
+                  (SELECT eo.client_id FROM event_owners eo
+                    WHERE eo.event_id = events.id AND eo.status = 'accepted'
+                    ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.tg_chat_ref) AS chat_url_tg,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.vk_chat_ref) AS chat_url_vk,
                   (SELECT chat_url FROM client_broadcast_chats WHERE id = events.max_chat_ref) AS chat_url_max,
@@ -1525,6 +1572,27 @@ async def _handle_max_chat_join(
         event_id,
     )
     if not ev:
+        return
+
+    # ── Проверка подписки на MAX-каналы основателя (реальная) ──
+    not_subscribed_channels = await _check_max_founder_subscription(
+        conn, ev["client_id"], chat_id, bot_token,
+    )
+    if not_subscribed_channels:
+        lines = [
+            "Чтобы войти в чаты события, подпишитесь на каналы организатора:",
+            "",
+        ]
+        for idx, ch in enumerate(not_subscribed_channels, start=1):
+            label = ch.get("name") or "MAX-канал"
+            lines.append(f"{idx}. {label}: {ch['url']}")
+        lines.append("")
+        lines.append('Подпишитесь и нажмите «Вступить в Чат» снова.')
+        again_btn = tg_inline_to_max_keyboard([
+            [{"text": "Вступить в Чат", "callback_data": f"evchat_{event_id}"}],
+            [{"text": "Меню", "callback_data": f"evmenu_{event_id}"}],
+        ])
+        await max_send_message(chat_id, "\n".join(lines), token=bot_token, buttons=again_btn)
         return
 
     tg = (ev["chat_url_tg"] or "").strip()

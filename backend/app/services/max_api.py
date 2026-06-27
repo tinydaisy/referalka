@@ -75,6 +75,47 @@ async def get_me(token: str) -> dict[str, Any]:
     return await max_call("GET", "/me", token=token)
 
 
+async def check_channel_membership(channel_id: str | int, user_id: str | int, *, token: str) -> bool | None:
+    """Проверка, состоит ли пользователь в MAX-канале/чате.
+
+    MAX Bot API УМЕЕТ это (вопреки старому комментарию-заглушке): эндпоинт
+    `GET /chats/{chat_id}/members?user_ids=<id>` возвращает {"members": [...]}.
+    Непустой массив members → пользователь подписан.
+
+    Требования:
+    - бот должен быть админом канала (иначе MAX вернёт ошибку доступа);
+    - `channel_id` — числовой id MAX-канала (формат вида -71606981728842), НЕ ссылка.
+
+    Возвращает:
+    - True  — достоверно подписан;
+    - False — достоверно НЕ подписан (бот видит канал, человека среди участников нет);
+    - None  — нет данных (бот не админ / канал недоступен / сетевой сбой) → вызывающий
+              код решает по fail-open (обычно пропускает).
+
+    Рецепт повторён из проекта do_name_and_sales (там работает в проде), но
+    адаптирован под нашу авторизацию MAX (заголовок Authorization, не query
+    access_token).
+    """
+    cid = str(channel_id).strip()
+    uid = str(user_id).strip()
+    if not cid or not uid:
+        return None
+    try:
+        data = await max_call(
+            "GET", f"/chats/{cid}/members",
+            token=token,
+            params={"user_ids": uid},
+            timeout=6.0,
+        )
+    except RuntimeError as e:
+        logger.warning(f"MAX check_channel_membership chat={cid} user={uid}: {e}")
+        return None
+    members = data.get("members") if isinstance(data, dict) else None
+    if members is None:
+        return None
+    return bool(members)
+
+
 def _build_inline_keyboard_attachment(buttons: list[list[dict]]) -> dict:
     """Формат MAX inline-кнопок:
     {"type": "inline_keyboard", "payload": {"buttons": [[{type, text, ...}]]}}
