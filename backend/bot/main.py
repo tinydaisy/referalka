@@ -17,6 +17,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.exceptions import TelegramUnauthorizedError
 from bot.handlers import start, funnel, chat_member, chat_gate, chat_listener
 from app.config import settings
 from app.database import get_pool
@@ -24,19 +25,41 @@ from app.database import get_pool
 logger = logging.getLogger(__name__)
 
 
-async def _make_bot(token: str, label: str) -> Bot | None:
+async def _make_bot(token: str, label: str, *, retries: int = 3) -> Bot | None:
+    """Создать бот и проверить токен через getMe.
+
+    ⚠️ getMe — сетевой вызов к api.telegram.org. Разовый таймаут при старте
+    раньше НАВСЕГДА выкидывал бот из поллинга (до следующего рестарта) — так
+    бот VIP-клиента переставал отвечать на /start из-за секундного сбоя сети.
+    Поэтому ретраим несколько раз с нарастающей паузой; бот отсеивается только
+    если токен реально невалиден (повторный 401) или сеть не поднялась за все
+    попытки.
+    """
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    try:
-        me = await bot.get_me()
-        logger.info("Bot %s (@%s) ready", label, me.username)
-        return bot
-    except Exception as e:
-        logger.warning("Bot %s — getMe failed (%s), пропускаем", label, e)
+    last_err = None
+    for attempt in range(1, retries + 1):
         try:
-            await bot.session.close()
-        except Exception:
-            pass
-        return None
+            me = await bot.get_me()
+            logger.info("Bot %s (@%s) ready", label, me.username)
+            return bot
+        except TelegramUnauthorizedError as e:
+            # Токен невалиден — ретраить бессмысленно.
+            logger.warning("Bot %s — токен невалиден (%s), пропускаем", label, e)
+            break
+        except Exception as e:  # noqa: BLE001 — сетевые/таймаут → ретраим
+            last_err = e
+            logger.warning("Bot %s — getMe попытка %d/%d не удалась (%s)",
+                           label, attempt, retries, e)
+            if attempt < retries:
+                await asyncio.sleep(2 * attempt)  # 2с, 4с, …
+    else:
+        logger.error("Bot %s — getMe не прошёл за %d попыток (%s), пропускаем",
+                     label, retries, last_err)
+    try:
+        await bot.session.close()
+    except Exception:
+        pass
+    return None
 
 
 async def _load_vip_tokens() -> list[tuple[str, str]]:
