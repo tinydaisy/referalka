@@ -1,25 +1,18 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
-import { Plus, Calendar, Trash2, Save, ChevronLeft, ChevronRight, ChevronDown, Layers } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Calendar, Trash2, ChevronLeft, ChevronRight, ChevronDown, Layers, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 
-// ВАЖНО (2026-06-23): вся работа этой вкладки — ЛОКАЛЬНАЯ, в памяти браузера.
-// Добавление/удаление/правка этапов, дней и слотов НЕ ходит на сервер, пока
-// пользователь не нажмёт «Сохранить программу». Это убирает баг, когда добавление
-// дня вызывало load() и стирало все несохранённые поля.
-//
-// UI (2026-06-27): этапы — это ВКЛАДКИ сверху (как браузерные табы). Над ними —
-// кнопка «Добавить этап». Стрелки ← → меняют порядок активного этапа. Под вкладками
-// открывается содержимое только выбранного этапа. Дни внутри этапа — сворачиваемый
-// аккордеон (стрелочка ▸), чтобы не было каши из десятков раскрытых форм сразу.
-//
-// Идентификаторы:
-//  • Этапы — серверный id (положительный) или временный (отрицательный, для новых).
-//  • Дни — идентифицируются day_number (число дня). Стабильно, через PUT-upsert.
-//  • Слоты — серверный id (положительный) или временный (отрицательный).
-// При сохранении: создаём новые этапы → маппим временные id → реальные →
-// upsert-им дни → синхронизируем слоты (create/update/delete) → удаляем помеченное.
+// AJAX-режим (2026-06-27): НИКАКОГО локального буфера и кнопки «Сохранить
+// программу». Каждое действие сразу пишется в БД:
+//  • Добавить/удалить этап, день, слот — POST/DELETE сразу по клику.
+//  • Текстовые поля (название, даты, описание, время) — PATCH на blur (уход
+//    из поля), чтобы не спамить сервер на каждую букву.
+//  • Спикер/тема/время слота — POST/PATCH по «Сохранить слот».
+//  • Порядок этапов (стрелки ← →) — PATCH sort_order сразу.
+// load() НЕ дёргается после каждого действия — обновляем только нужный кусок
+// стейта ответом сервера (фокус и значения других полей не сбрасываются).
 
 type Stage = {
   id: number
@@ -53,9 +46,6 @@ type Sess = {
 // Спец-id «вкладки» для дней без этапа.
 const ORPHAN_TAB = 0
 
-let tmpCounter = -1
-const nextTmpId = () => tmpCounter--
-
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
@@ -72,22 +62,13 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 }
 
 export default function TournamentProgramTab({ eventId }: { eventId: number }) {
-  // Текущее (рабочее) состояние — то, что пользователь видит и правит.
   const [stages, setStages] = useState<Stage[]>([])
   const [days, setDays] = useState<Day[]>([])
   const [sessions, setSessions] = useState<Sess[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [savingAll, setSavingAll] = useState(false)
-
-  // Снимок данных как они лежат на сервере (для вычисления что создать/обновить/удалить).
-  const [serverSnap, setServerSnap] = useState<{ stages: Stage[]; days: Day[]; sessions: Sess[] }>({ stages: [], days: [], sessions: [] })
-  // Дни, помеченные на удаление (по day_number) — реально удаляются при сохранении.
-  const [deletedDayNums, setDeletedDayNums] = useState<number[]>([])
-  // Сессии, помеченные на удаление (реальные id) — реально удаляются при сохранении.
-  const [deletedSessionIds, setDeletedSessionIds] = useState<number[]>([])
-  // Этапы, помеченные на удаление (реальные серверные id) — реально удаляются при сохранении.
-  const [deletedStageIds, setDeletedStageIds] = useState<number[]>([])
+  // Индикатор фонового сохранения (показывается ненавязчиво в углу).
+  const [busy, setBusy] = useState(false)
 
   // Активная вкладка-этап (id этапа, либо ORPHAN_TAB для «без группировки»).
   const [activeTab, setActiveTab] = useState<number | null>(null)
@@ -99,8 +80,22 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   const [sessionForm, setSessionForm] = useState({ title: '', topic_id: '', speaker_id: '', start_time: '', end_time: '' })
   const [speakerTopics, setSpeakerTopics] = useState<{ id: number; topic: string }[]>([])
   const [customTitle, setCustomTitle] = useState(false)
+  const [savingSession, setSavingSession] = useState(false)
 
-  async function load() {
+  // Обёртка для любого фонового запроса: ставит busy, ловит ошибку алертом.
+  async function run<T>(fn: () => Promise<T>): Promise<T | null> {
+    setBusy(true)
+    try {
+      return await fn()
+    } catch (err: any) {
+      alert(err?.message || 'Не удалось сохранить. Попробуйте ещё раз.')
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function load(keepTab = true) {
     setLoading(true)
     try {
       const [stRes, dRes, sRes, spRes] = await Promise.all([
@@ -119,25 +114,14 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
         day_date: d.day_date || '', open_time: d.open_time || '', close_time: d.close_time || '',
         stream_url: d.stream_url || '', stage_id: d.stage_id ?? null, title: d.title || '',
       }))
-      const loadedSessions: Sess[] = sRes.sessions || []
       setStages(loadedStages)
       setDays(loadedDays)
-      setSessions(loadedSessions)
+      setSessions(sRes.sessions || [])
       setSpeakers(spRes.speakers || [])
-      // Глубокая копия в снимок
-      setServerSnap({
-        stages: loadedStages.map(s => ({ ...s })),
-        days: loadedDays.map(d => ({ ...d })),
-        sessions: loadedSessions.map(s => ({ ...s })),
-      })
-      setDeletedDayNums([])
-      setDeletedSessionIds([])
-      setDeletedStageIds([])
-      // Выбираем активную вкладку: текущая (если ещё существует) → первый этап → орфаны.
       setActiveTab(prev => {
         const sortedIds = [...loadedStages].sort((a, b) => a.sort_order - b.sort_order).map(s => s.id)
         const hasOrphans = loadedDays.some(d => d.stage_id == null)
-        if (prev != null && (sortedIds.includes(prev) || (prev === ORPHAN_TAB && hasOrphans))) return prev
+        if (keepTab && prev != null && (sortedIds.includes(prev) || (prev === ORPHAN_TAB && hasOrphans))) return prev
         if (sortedIds.length > 0) return sortedIds[0]
         if (hasOrphans) return ORPHAN_TAB
         return null
@@ -148,71 +132,33 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   }
   useEffect(() => { load() }, [eventId])
 
-  // ─── Признак «есть несохранённые изменения» ──────────────────────────────────
+  // ─── Этапы ───────────────────────────────────────────────────────────────────
 
-  const dirty = useMemo(() => {
-    if (deletedDayNums.length > 0 || deletedSessionIds.length > 0 || deletedStageIds.length > 0) return true
-    // новые/изменённые этапы
-    if (stages.length !== serverSnap.stages.length) return true
-    for (const s of stages) {
-      if (s.id < 0) return true
-      const orig = serverSnap.stages.find(x => x.id === s.id)
-      if (!orig) return true
-      if (s.title !== orig.title || (s.subtitle || '') !== (orig.subtitle || '') ||
-          (s.description || '') !== (orig.description || '') ||
-          (s.start_date || '') !== (orig.start_date || '') ||
-          (s.end_date || '') !== (orig.end_date || '') ||
-          s.sort_order !== orig.sort_order) return true
-    }
-    // новые/изменённые дни
-    if (days.length !== serverSnap.days.length) return true
-    for (const d of days) {
-      const orig = serverSnap.days.find(x => x.day_number === d.day_number)
-      if (!orig) return true
-      const origStageId = orig.stage_id
-      const curStageId = d.stage_id
-      if ((d.title || '') !== (orig.title || '') || (d.day_date || '') !== (orig.day_date || '') ||
-          (d.open_time || '') !== (orig.open_time || '') || (d.close_time || '') !== (orig.close_time || '') ||
-          (d.stream_url || '') !== (orig.stream_url || '') || curStageId !== origStageId) return true
-    }
-    // новые/изменённые слоты
-    if (sessions.length !== serverSnap.sessions.length) return true
-    for (const s of sessions) {
-      if (s.id < 0) return true
-      const orig = serverSnap.sessions.find(x => x.id === s.id)
-      if (!orig) return true
-      if (s.title !== orig.title || (s.speaker_id ?? null) !== (orig.speaker_id ?? null) ||
-          (s.start_time || '') !== (orig.start_time || '') || (s.end_time || '') !== (orig.end_time || '') ||
-          s.day !== orig.day) return true
-    }
-    return false
-  }, [stages, days, sessions, serverSnap, deletedDayNums, deletedSessionIds, deletedStageIds])
-
-  // ─── Этапы (локально) ─────────────────────────────────────────────────────────
-
-  function addStage() {
+  async function addStage() {
     const nextOrder = stages.length > 0 ? Math.max(...stages.map(s => s.sort_order)) + 1 : 0
-    const id = nextTmpId()
-    setStages(prev => [...prev, {
-      id, sort_order: nextOrder,
-      title: `Этап ${prev.length + 1}`, subtitle: '', description: '', start_date: '', end_date: '',
-    }])
-    setActiveTab(id)
+    const res = await run(() => api.conference.stages.create(eventId, {
+      title: `Этап ${stages.length + 1}`, subtitle: null, description: null,
+      start_date: null, end_date: null, sort_order: nextOrder,
+    }))
+    if (!res?.stage) return
+    const s = res.stage
+    const newStage: Stage = {
+      id: s.id, sort_order: s.sort_order,
+      title: s.title || '', subtitle: s.subtitle || '', description: s.description || '',
+      start_date: s.start_date || '', end_date: s.end_date || '',
+    }
+    setStages(prev => [...prev, newStage])
+    setActiveTab(newStage.id)
   }
 
-  // Помечает этап на удаление: если он уже есть на сервере (id>0) — добавляет в
-  // список на DELETE при сохранении. Новые (id<0) просто выкидываются локально.
-  function markStageDeleted(stageId: number) {
-    if (stageId > 0) setDeletedStageIds(prev => prev.includes(stageId) ? prev : [...prev, stageId])
-    setStages(prev => prev.filter(s => s.id !== stageId))
-    if (activeTab === stageId) setActiveTab(null)
-  }
-
-  function deleteStage(stageId: number) {
+  async function deleteStage(stageId: number) {
     const stageDays = days.filter(d => d.stage_id === stageId)
     if (stageDays.length === 0) {
       if (!confirm('Удалить этап?')) return
-      markStageDeleted(stageId)
+      const ok = await run(() => api.conference.stages.delete(eventId, stageId))
+      if (ok == null) return
+      setStages(prev => prev.filter(s => s.id !== stageId))
+      if (activeTab === stageId) setActiveTab(null)
       return
     }
     const withDays = confirm(
@@ -221,30 +167,62 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
       `Отмена — оставить дни «без группировки».\n\n` +
       `Что выбрать?`
     )
+    const ok = await run(async () => {
+      if (withDays) {
+        for (const d of stageDays) await api.conference.days.delete(eventId, d.day_number)
+      } else {
+        // Открепляем дни от этапа на сервере (stage_id=null), потом удаляем этап.
+        for (const d of stageDays) {
+          await api.conference.days.upsert(eventId, d.day_number, {
+            day_date: d.day_date || null, open_time: d.open_time || null,
+            close_time: d.close_time || null, stream_url: d.stream_url || null,
+            stage_id: null, title: d.title || null,
+          })
+        }
+      }
+      return api.conference.stages.delete(eventId, stageId)
+    })
+    if (ok == null) return
     if (withDays) {
-      for (const d of stageDays) removeDayLocal(d.day_number)
+      const delNums = new Set(stageDays.map(d => d.day_number))
+      setDays(prev => prev.filter(d => !delNums.has(d.day_number)))
+      setSessions(prev => prev.filter(s => !delNums.has(s.day)))
     } else {
-      // Отвязываем дни от этапа (оставляем «без группировки»)
       setDays(prev => prev.map(d => d.stage_id === stageId ? { ...d, stage_id: null } : d))
     }
-    markStageDeleted(stageId)
+    setStages(prev => prev.filter(s => s.id !== stageId))
+    if (activeTab === stageId) setActiveTab(null)
   }
 
-  function deleteAllOrphans() {
+  async function deleteAllOrphans() {
     const orphans = days.filter(d => !d.stage_id)
     if (orphans.length === 0) return
     if (!confirm(`Удалить все ${orphans.length} ${orphans.length === 1 ? 'день' : 'дня(дней)'} без группировки? Все слоты в них тоже удалятся.`)) return
-    for (const d of orphans) removeDayLocal(d.day_number)
+    const ok = await run(async () => {
+      for (const d of orphans) await api.conference.days.delete(eventId, d.day_number)
+      return true
+    })
+    if (ok == null) return
+    const delNums = new Set(orphans.map(d => d.day_number))
+    setDays(prev => prev.filter(d => !delNums.has(d.day_number)))
+    setSessions(prev => prev.filter(s => !delNums.has(s.day)))
+    if (activeTab === ORPHAN_TAB) setActiveTab(null)
   }
 
-  // Перемещает активный этап в табах влево/вправо (меняет его порядок в программе).
-  function moveStage(stageId: number, dir: -1 | 1) {
+  // Перемещает активный этап в табах влево/вправо — меняем sort_order пары на сервере.
+  async function moveStage(stageId: number, dir: -1 | 1) {
     const sorted = [...stages].sort((a, b) => a.sort_order - b.sort_order)
     const idx = sorted.findIndex(s => s.id === stageId)
     if (idx < 0) return
     const target = idx + dir
     if (target < 0 || target >= sorted.length) return
     const a = sorted[idx], b = sorted[target]
+    const ok = await run(async () => {
+      await api.conference.stages.update(eventId, a.id, { sort_order: b.sort_order })
+      await api.conference.stages.update(eventId, b.id, { sort_order: a.sort_order })
+      return true
+    })
+    if (ok == null) return
     setStages(prev => prev.map(s => {
       if (s.id === a.id) return { ...s, sort_order: b.sort_order }
       if (s.id === b.id) return { ...s, sort_order: a.sort_order }
@@ -252,44 +230,66 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     }))
   }
 
-  function patchStageForm(stageId: number, patch: Partial<Stage>) {
+  // Локальная правка поля этапа (без запроса — запрос уйдёт на blur).
+  function patchStageLocal(stageId: number, patch: Partial<Stage>) {
     setStages(prev => prev.map(s => s.id === stageId ? { ...s, ...patch } : s))
   }
-
-  // ─── Дни (локально) ─────────────────────────────────────────────────────────
-
-  function addDayToStage(stageId: number | null) {
-    const allNums = [...days.map(d => d.day_number), ...deletedDayNums]
-    const nextNum = allNums.length > 0 ? Math.max(...allNums) + 1 : 1
-    setDays(prev => [...prev, {
-      day_number: nextNum,
-      day_date: '', open_time: '', close_time: '', stream_url: '',
-      stage_id: stageId, title: '',
-    }])
-    // Сразу раскрываем новый день, чтобы пользователь его заполнил.
-    setOpenDays(prev => new Set(prev).add(nextNum))
-  }
-
-  // Удаляет день из локального состояния + помечает на удаление на сервере (если он там есть)
-  function removeDayLocal(dayNum: number) {
-    const existsOnServer = serverSnap.days.some(d => d.day_number === dayNum)
-    if (existsOnServer) setDeletedDayNums(prev => prev.includes(dayNum) ? prev : [...prev, dayNum])
-    setDays(prev => prev.filter(d => d.day_number !== dayNum))
-    // Слоты этого дня — тоже на удаление (только реальные, новые просто выкидываем)
-    setSessions(prev => prev.filter(s => {
-      if (s.day !== dayNum) return true
-      if (s.id > 0) setDeletedSessionIds(p => p.includes(s.id) ? p : [...p, s.id])
-      return false
+  // Сохранение поля этапа на сервере (на blur).
+  async function commitStage(stageId: number) {
+    const s = stages.find(x => x.id === stageId)
+    if (!s) return
+    await run(() => api.conference.stages.update(eventId, stageId, {
+      title: s.title || 'Без названия',
+      subtitle: s.subtitle || null,
+      description: s.description || null,
+      start_date: s.start_date || null,
+      end_date: s.end_date || null,
+      sort_order: s.sort_order,
     }))
   }
 
-  function deleteDay(dayNum: number) {
-    if (!confirm(`Удалить день ${dayNum} и все его слоты?`)) return
-    removeDayLocal(dayNum)
+  // ─── Дни ─────────────────────────────────────────────────────────────────────
+
+  async function addDayToStage(stageId: number | null) {
+    const nextNum = days.length > 0 ? Math.max(...days.map(d => d.day_number)) + 1 : 1
+    const res = await run(() => api.conference.days.upsert(eventId, nextNum, {
+      day_date: null, open_time: null, close_time: null, stream_url: null,
+      stage_id: stageId, title: null,
+    }))
+    if (!res?.day) return
+    const d = res.day
+    setDays(prev => [...prev, {
+      day_number: d.day_number, day_date: d.day_date || '', open_time: d.open_time || '',
+      close_time: d.close_time || '', stream_url: d.stream_url || '',
+      stage_id: d.stage_id ?? null, title: d.title || '',
+    }])
+    setOpenDays(prev => new Set(prev).add(nextNum))
   }
 
-  function patchDayForm(dayNum: number, patch: Partial<Day>) {
+  async function deleteDay(dayNum: number) {
+    if (!confirm(`Удалить день и все его слоты?`)) return
+    const ok = await run(() => api.conference.days.delete(eventId, dayNum))
+    if (ok == null) return
+    setDays(prev => prev.filter(d => d.day_number !== dayNum))
+    setSessions(prev => prev.filter(s => s.day !== dayNum))
+  }
+
+  function patchDayLocal(dayNum: number, patch: Partial<Day>) {
     setDays(prev => prev.map(d => d.day_number === dayNum ? { ...d, ...patch } : d))
+  }
+  // Сохранение полей дня (на blur, и сразу при смене этапа в селекте).
+  async function commitDay(dayNum: number, override?: Partial<Day>) {
+    const cur = days.find(d => d.day_number === dayNum)
+    if (!cur) return
+    const d = { ...cur, ...(override || {}) }
+    await run(() => api.conference.days.upsert(eventId, dayNum, {
+      day_date: d.day_date || null,
+      open_time: d.open_time || null,
+      close_time: d.close_time || null,
+      stream_url: d.stream_url || null,
+      stage_id: d.stage_id ?? null,
+      title: d.title || null,
+    }))
   }
 
   function toggleDayOpen(dayNum: number) {
@@ -300,7 +300,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     })
   }
 
-  // ─── Слоты (локально) ─────────────────────────────────────────────────────────
+  // ─── Слоты ───────────────────────────────────────────────────────────────────
 
   function onSpeakerChange(speakerId: string) {
     const sp = speakers.find((s: any) => String(s.id) === speakerId)
@@ -335,117 +335,59 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     setCustomTitle(false)
   }
 
-  function saveSession() {
+  async function saveSession() {
     if (!sessionModal || !sessionForm.title.trim()) return
     const speakerId = sessionForm.speaker_id ? Number(sessionForm.speaker_id) : null
     const speakerName = speakerId != null ? (speakers.find((s: any) => s.id === speakerId)?.name || null) : null
     const start_time = sessionForm.start_time || null
     const end_time = sessionForm.end_time || null
     const title = sessionForm.title.trim()
-    if (sessionModal.editId != null) {
-      setSessions(prev => prev.map(s => s.id === sessionModal.editId
-        ? { ...s, title, speaker_id: speakerId, speaker_name: speakerName, start_time, end_time }
-        : s))
-    } else {
-      const daySessions = sessions.filter(s => s.day === sessionModal.day)
-      const nextSort = daySessions.length > 0 ? Math.max(...daySessions.map(s => s.sort_order)) + 1 : 0
-      setSessions(prev => [...prev, {
-        id: nextTmpId(), day: sessionModal.day,
-        title, speaker_id: speakerId, speaker_name: speakerName,
-        start_time, end_time, sort_order: nextSort,
-      }])
+    const payload = {
+      day: sessionModal.day,
+      title,
+      speaker_id: speakerId,
+      start_time,
+      end_time,
     }
-    closeSessionModal()
-  }
-
-  function deleteSession(id: number) {
-    if (!confirm('Удалить этот слот?')) return
-    if (id > 0) setDeletedSessionIds(prev => prev.includes(id) ? prev : [...prev, id])
-    setSessions(prev => prev.filter(s => s.id !== id))
-  }
-
-  // ─── Глобальное сохранение ──────────────────────────────────────────────────
-
-  async function saveAll() {
-    if (!dirty) return
-    setSavingAll(true)
+    setSavingSession(true)
     try {
-      // 1) Удаляем помеченные слоты и дни (сначала, чтобы не мешали).
-      for (const sid of deletedSessionIds) {
-        try { await api.conference.sessions.delete(eventId, sid) } catch {}
+      if (sessionModal.editId != null) {
+        const res = await api.conference.sessions.update(eventId, sessionModal.editId, payload)
+        const srv = res?.session
+        setSessions(prev => prev.map(s => s.id === sessionModal.editId
+          ? { ...s, title, speaker_id: speakerId, speaker_name: speakerName, start_time, end_time, ...(srv ? {} : {}) }
+          : s))
+      } else {
+        const res = await api.conference.sessions.create(eventId, payload)
+        const srv = res?.session
+        const daySessions = sessions.filter(s => s.day === sessionModal.day)
+        const nextSort = daySessions.length > 0 ? Math.max(...daySessions.map(s => s.sort_order)) + 1 : 0
+        setSessions(prev => [...prev, {
+          id: srv?.id ?? -Date.now(),
+          day: sessionModal.day,
+          title, speaker_id: speakerId, speaker_name: speakerName,
+          start_time, end_time,
+          sort_order: srv?.sort_order ?? nextSort,
+        }])
       }
-      for (const dn of deletedDayNums) {
-        try { await api.conference.days.delete(eventId, dn) } catch {}
-      }
-
-      // 2) Этапы: новые (id<0) создаём, существующие — обновляем. Собираем маппинг tmp→real.
-      const stageIdMap: Record<number, number> = {}
-      const sortedStages = [...stages].sort((a, b) => a.sort_order - b.sort_order)
-      for (const s of sortedStages) {
-        const payload = {
-          title: s.title || 'Без названия',
-          subtitle: s.subtitle || null,
-          description: s.description || null,
-          start_date: s.start_date || null,
-          end_date: s.end_date || null,
-          sort_order: s.sort_order,
-        }
-        if (s.id < 0) {
-          const res = await api.conference.stages.create(eventId, payload)
-          stageIdMap[s.id] = res.stage.id
-        } else {
-          await api.conference.stages.update(eventId, s.id, payload)
-          stageIdMap[s.id] = s.id
-        }
-      }
-
-      // 3) Дни: upsert по day_number, stage_id переводим через маппинг.
-      for (const d of days) {
-        const realStageId = d.stage_id == null ? null : (stageIdMap[d.stage_id] ?? d.stage_id)
-        await api.conference.days.upsert(eventId, d.day_number, {
-          day_date: d.day_date || null,
-          open_time: d.open_time || null,
-          close_time: d.close_time || null,
-          stream_url: d.stream_url || null,
-          stage_id: realStageId,
-          title: d.title || null,
-        })
-      }
-
-      // 4) Слоты: новые создаём, существующие обновляем.
-      for (const s of sessions) {
-        const payload = {
-          day: s.day,
-          title: s.title || undefined,
-          speaker_id: s.speaker_id ?? null,
-          start_time: s.start_time || null,
-          end_time: s.end_time || null,
-        }
-        if (s.id < 0) {
-          await api.conference.sessions.create(eventId, payload)
-        } else {
-          await api.conference.sessions.update(eventId, s.id, payload)
-        }
-      }
-
-      // 5) Удаляем помеченные этапы — В КОНЦЕ, когда их дни уже откреплены
-      //    (stage_id=null) или удалены, чтобы FK не помешал DELETE.
-      for (const stId of deletedStageIds) {
-        try { await api.conference.stages.delete(eventId, stId) } catch {}
-      }
-
-      await load()
+      closeSessionModal()
     } catch (err: any) {
-      alert(err.message || 'Не удалось сохранить программу')
+      alert(err?.message || 'Не удалось сохранить слот')
     } finally {
-      setSavingAll(false)
+      setSavingSession(false)
     }
+  }
+
+  async function deleteSession(id: number) {
+    if (!confirm('Удалить этот слот?')) return
+    const ok = await run(() => api.conference.sessions.delete(eventId, id))
+    if (ok == null) return
+    setSessions(prev => prev.filter(s => s.id !== id))
   }
 
   if (loading) return <div className="flex justify-center py-12"><Spinner className="text-brand text-2xl" /></div>
 
   const stagesSorted = [...stages].sort((a, b) => a.sort_order - b.sort_order)
-  // Дни выстраиваются по введённой дате; дни без даты — в конце, по номеру.
   const dayDate = (d: Day) => d.day_date || ''
   const daysByStage = (stageId: number | null) =>
     days.filter(d => d.stage_id === stageId).sort((a, b) => {
@@ -458,7 +400,6 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   const orphanDays = daysByStage(null)
   const hasOrphans = orphanDays.length > 0
 
-  // Активный этап (если активна вкладка-этап).
   const activeStage = activeTab != null && activeTab !== ORPHAN_TAB
     ? stagesSorted.find(s => s.id === activeTab) || null
     : null
@@ -473,7 +414,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           <Layers size={32} className="mx-auto mb-3 opacity-40" />
           <p className="text-sm mb-2">У турнира пока нет программы.</p>
           <p className="text-xs text-gray-400 mb-4">Создайте первый этап (например, «Предстарт» или «Основной этап»). В этап можно добавить дни — с программой по спикерам.</p>
-          <button onClick={addStage} className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 mx-auto">
+          <button onClick={addStage} disabled={busy} className="btn-gold px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 mx-auto disabled:opacity-60">
             <Plus size={15} /> Добавить этап
           </button>
         </div>
@@ -482,15 +423,23 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   }
 
   return (
-    <div className="max-w-3xl pb-28">
+    <div className="max-w-3xl pb-16">
+      {/* Индикатор фонового сохранения */}
+      {busy && (
+        <div className="fixed bottom-6 right-6 z-50 bg-gray-900 text-white text-xs px-3 py-2 rounded-xl shadow-lg flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin" /> Сохраняю…
+        </div>
+      )}
+
       {/* Кнопка «Добавить этап» НАД вкладками */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 gap-3">
         <p className="text-xs text-gray-400">
-          Каждый этап — на отдельной вкладке. Стрелки ← → меняют порядок этапа в программе.
+          Каждый этап — на отдельной вкладке. Стрелки ← → меняют порядок этапа. Всё сохраняется автоматически.
         </p>
         <button
           onClick={addStage}
-          className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 shrink-0"
+          disabled={busy}
+          className="btn-gold px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 shrink-0 disabled:opacity-60"
         >
           <Plus size={15} /> Добавить этап
         </button>
@@ -534,10 +483,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 
       {/* Тело активной вкладки */}
       <div className="bg-white rounded-2xl rounded-tl-none border border-gray-200 shadow-sm p-5">
-        {/* ── Вкладка этапа ── */}
         {activeStage && (
           <>
-            {/* Шапка этапа: порядок + удаление */}
             <div className="flex items-center justify-between gap-2 mb-4">
               <div className="flex items-center gap-2 text-gray-400 text-sm">
                 <Layers size={16} className="opacity-70" />
@@ -546,7 +493,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => moveStage(activeStage.id, -1)}
-                  disabled={activeStageIdx === 0}
+                  disabled={activeStageIdx === 0 || busy}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-brand hover:bg-gray-50 disabled:opacity-20 disabled:hover:text-gray-400 disabled:hover:bg-transparent transition-colors"
                   title="Передвинуть этап левее"
                 >
@@ -554,7 +501,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 </button>
                 <button
                   onClick={() => moveStage(activeStage.id, 1)}
-                  disabled={activeStageIdx === stagesSorted.length - 1}
+                  disabled={activeStageIdx === stagesSorted.length - 1 || busy}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-brand hover:bg-gray-50 disabled:opacity-20 disabled:hover:text-gray-400 disabled:hover:bg-transparent transition-colors"
                   title="Передвинуть этап правее"
                 >
@@ -562,7 +509,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 </button>
                 <button
                   onClick={() => deleteStage(activeStage.id)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors ml-1"
+                  disabled={busy}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors ml-1 disabled:opacity-40"
                   title="Удалить этап"
                 >
                   <Trash2 size={15} />
@@ -570,14 +518,14 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
               </div>
             </div>
 
-            {/* Поля этапа */}
             <div className="space-y-3 mb-5">
               <div>
                 <label className="label">Название этапа</label>
                 <input
                   type="text"
                   value={activeStage.title || ''}
-                  onChange={e => patchStageForm(activeStage.id, { title: e.target.value })}
+                  onChange={e => patchStageLocal(activeStage.id, { title: e.target.value })}
+                  onBlur={() => commitStage(activeStage.id)}
                   className="input"
                   placeholder="Например, «Предстарт: Живой автор в контенте»"
                 />
@@ -587,7 +535,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 <input
                   type="text"
                   value={activeStage.subtitle || ''}
-                  onChange={e => patchStageForm(activeStage.id, { subtitle: e.target.value })}
+                  onChange={e => patchStageLocal(activeStage.id, { subtitle: e.target.value })}
+                  onBlur={() => commitStage(activeStage.id)}
                   className="input"
                   placeholder="«2 недели», «офлайн», «финал»"
                 />
@@ -598,7 +547,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   <input
                     type="date"
                     value={activeStage.start_date || ''}
-                    onChange={e => patchStageForm(activeStage.id, { start_date: e.target.value })}
+                    onChange={e => patchStageLocal(activeStage.id, { start_date: e.target.value })}
+                    onBlur={() => commitStage(activeStage.id)}
                     className="input"
                   />
                 </div>
@@ -607,7 +557,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   <input
                     type="date"
                     value={activeStage.end_date || ''}
-                    onChange={e => patchStageForm(activeStage.id, { end_date: e.target.value })}
+                    onChange={e => patchStageLocal(activeStage.id, { end_date: e.target.value })}
+                    onBlur={() => commitStage(activeStage.id)}
                     className="input"
                   />
                 </div>
@@ -617,14 +568,14 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 <textarea
                   rows={2}
                   value={activeStage.description || ''}
-                  onChange={e => patchStageForm(activeStage.id, { description: e.target.value })}
+                  onChange={e => patchStageLocal(activeStage.id, { description: e.target.value })}
+                  onBlur={() => commitStage(activeStage.id)}
                   className="input resize-none"
                   placeholder="Что происходит на этом этапе"
                 />
               </div>
             </div>
 
-            {/* Дни этапа — аккордеон */}
             <div className="border-t border-gray-100 pt-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-semibold text-gray-700">
@@ -637,15 +588,18 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 </p>
               )}
               <div className="space-y-2">
-                {activeStageDays.map(day => (
+                {activeStageDays.map((day, dIdx) => (
                   <DayAccordion
                     key={day.day_number}
                     day={day}
+                    indexInStage={dIdx + 1}
                     open={openDays.has(day.day_number)}
                     onToggle={() => toggleDayOpen(day.day_number)}
                     sessions={sessions.filter(s => s.day === day.day_number).sort((a, b) => a.sort_order - b.sort_order)}
                     stages={stagesSorted}
-                    onPatchDay={(patch) => patchDayForm(day.day_number, patch)}
+                    busy={busy}
+                    onPatchLocal={(patch) => patchDayLocal(day.day_number, patch)}
+                    onCommit={(override) => commitDay(day.day_number, override)}
                     onDelete={() => deleteDay(day.day_number)}
                     onAddSession={() => setSessionModal({ day: day.day_number, editId: null })}
                     onEditSession={openSessionEdit}
@@ -655,7 +609,8 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
               </div>
               <button
                 onClick={() => addDayToStage(activeStage.id)}
-                className="mt-3 w-full py-2.5 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400 hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2"
+                disabled={busy}
+                className="mt-3 w-full py-2.5 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400 hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Plus size={14} /> Добавить день в этап
               </button>
@@ -663,7 +618,6 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           </>
         )}
 
-        {/* ── Вкладка «Без группировки» ── */}
         {activeTab === ORPHAN_TAB && (
           <>
             <div className="flex items-center justify-between gap-2 mb-4">
@@ -673,22 +627,26 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
               </div>
               <button
                 onClick={deleteAllOrphans}
-                className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                disabled={busy}
+                className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 disabled:opacity-40"
                 title="Удалить все дни без группировки"
               >
                 <Trash2 size={12} /> Удалить все
               </button>
             </div>
             <div className="space-y-2">
-              {orphanDays.map(day => (
+              {orphanDays.map((day, dIdx) => (
                 <DayAccordion
                   key={day.day_number}
                   day={day}
+                  indexInStage={dIdx + 1}
                   open={openDays.has(day.day_number)}
                   onToggle={() => toggleDayOpen(day.day_number)}
                   sessions={sessions.filter(s => s.day === day.day_number).sort((a, b) => a.sort_order - b.sort_order)}
                   stages={stagesSorted}
-                  onPatchDay={(patch) => patchDayForm(day.day_number, patch)}
+                  busy={busy}
+                  onPatchLocal={(patch) => patchDayLocal(day.day_number, patch)}
+                  onCommit={(override) => commitDay(day.day_number, override)}
                   onDelete={() => deleteDay(day.day_number)}
                   onAddSession={() => setSessionModal({ day: day.day_number, editId: null })}
                   onEditSession={openSessionEdit}
@@ -699,7 +657,6 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           </>
         )}
 
-        {/* Нет активной вкладки (этапов нет, орфанов нет — но что-то есть) */}
         {!activeStage && activeTab !== ORPHAN_TAB && (
           <div className="text-center text-gray-400 text-sm py-8">
             Выберите этап сверху или создайте новый.
@@ -707,31 +664,17 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
         )}
       </div>
 
-      {/* Добавить день без этапа (отдельно, мелко) */}
       <button
         onClick={() => addDayToStage(null)}
-        className="mt-4 text-xs text-gray-400 hover:text-brand transition-colors flex items-center gap-1.5"
+        disabled={busy}
+        className="mt-4 text-xs text-gray-400 hover:text-brand transition-colors flex items-center gap-1.5 disabled:opacity-50"
       >
         <Plus size={13} /> Добавить день без этапа
       </button>
 
-      {/* Sticky-кнопка «Сохранить» */}
-      {dirty && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
-          <button
-            onClick={saveAll}
-            disabled={savingAll}
-            className="btn-gold px-7 py-3 rounded-2xl text-sm font-bold shadow-2xl flex items-center gap-2 disabled:opacity-70"
-          >
-            {savingAll ? <Spinner /> : <Save size={16} />}
-            {savingAll ? 'Сохраняем...' : 'Сохранить программу'}
-          </button>
-        </div>
-      )}
-
       {/* Модалка добавления/правки слота */}
       {sessionModal && (
-        <Modal title={`${sessionModal.editId != null ? 'Редактировать слот' : 'Слот'} · день ${sessionModal.day}`} onClose={closeSessionModal}>
+        <Modal title={`${sessionModal.editId != null ? 'Редактировать слот' : 'Слот'}`} onClose={closeSessionModal}>
           <div className="space-y-3">
             <div>
               <label className="label">Спикер</label>
@@ -790,13 +733,13 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
             </div>
           </div>
           <div className="flex gap-3 mt-5">
-            <button onClick={saveSession} disabled={!sessionForm.title.trim()}
+            <button onClick={saveSession} disabled={!sessionForm.title.trim() || savingSession}
               className="btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+              {savingSession ? <Spinner /> : null}
               {sessionModal.editId != null ? 'Сохранить слот' : 'Добавить слот'}
             </button>
             <button onClick={closeSessionModal} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Отмена</button>
           </div>
-          <p className="text-[11px] text-gray-400 mt-3 text-center">Слот добавится в список. Изменения сохранятся кнопкой «Сохранить программу».</p>
         </Modal>
       )}
     </div>
@@ -806,15 +749,18 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 // ─── Подкомпонент: день-аккордеон ──────────────────────────────────────────────
 
 function DayAccordion({
-  day, open, onToggle, sessions, stages,
-  onPatchDay, onDelete, onAddSession, onEditSession, onDeleteSession,
+  day, indexInStage, open, onToggle, sessions, stages, busy,
+  onPatchLocal, onCommit, onDelete, onAddSession, onEditSession, onDeleteSession,
 }: {
   day: Day
+  indexInStage: number
   open: boolean
   onToggle: () => void
   sessions: Sess[]
   stages: Stage[]
-  onPatchDay: (patch: Partial<Day>) => void
+  busy: boolean
+  onPatchLocal: (patch: Partial<Day>) => void
+  onCommit: (override?: Partial<Day>) => void
   onDelete: () => void
   onAddSession: () => void
   onEditSession: (s: Sess) => void
@@ -823,9 +769,10 @@ function DayAccordion({
   const dateLabel = day.day_date
     ? new Date(day.day_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', timeZone: 'Europe/Moscow' })
     : ''
+  // Подпись по умолчанию — порядковый номер дня ВНУТРИ этапа (а не глобальный day_number).
+  const defaultLabel = `День ${indexInStage}`
   return (
     <div className="rounded-xl border border-gray-200 overflow-hidden">
-      {/* Шапка дня — кликабельна, сворачивает/разворачивает */}
       <div className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100/70 transition-colors">
         <button onClick={onToggle} className="flex items-center gap-2 flex-1 px-3 py-2.5 text-left min-w-0">
           <ChevronDown
@@ -833,30 +780,30 @@ function DayAccordion({
             className={`text-gray-400 shrink-0 transition-transform ${open ? '' : '-rotate-90'}`}
           />
           <span className="font-semibold text-sm text-gray-800 truncate">
-            {day.title?.trim() || `День ${day.day_number}`}
+            {day.title?.trim() || defaultLabel}
           </span>
           {dateLabel && <span className="text-xs text-gray-400 shrink-0">· {dateLabel}</span>}
           {sessions.length > 0 && (
             <span className="text-[11px] text-gray-400 shrink-0">· {sessions.length} слот.</span>
           )}
         </button>
-        <button onClick={onDelete} className="text-gray-300 hover:text-red-400 transition-colors p-2 shrink-0" title="Удалить день">
+        <button onClick={onDelete} disabled={busy} className="text-gray-300 hover:text-red-400 transition-colors p-2 shrink-0 disabled:opacity-40" title="Удалить день">
           <Trash2 size={14} />
         </button>
       </div>
 
       {open && (
         <div className="bg-white">
-          {/* Поля дня */}
           <div className="px-4 py-3 space-y-3 border-b border-gray-50">
             <div>
               <label className="label">Название дня (опционально)</label>
               <input
                 type="text"
                 value={day.title || ''}
-                onChange={e => onPatchDay({ title: e.target.value })}
+                onChange={e => onPatchLocal({ title: e.target.value })}
+                onBlur={() => onCommit()}
                 className="input"
-                placeholder={`По умолчанию — «День ${day.day_number}»`}
+                placeholder={`По умолчанию — «${defaultLabel}»`}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -865,7 +812,8 @@ function DayAccordion({
                 <input
                   type="date"
                   value={day.day_date || ''}
-                  onChange={e => onPatchDay({ day_date: e.target.value })}
+                  onChange={e => onPatchLocal({ day_date: e.target.value })}
+                  onBlur={() => onCommit()}
                   className="input"
                 />
               </div>
@@ -873,7 +821,11 @@ function DayAccordion({
                 <label className="label">Этап</label>
                 <select
                   value={day.stage_id == null ? '' : String(day.stage_id)}
-                  onChange={e => onPatchDay({ stage_id: e.target.value === '' ? null : Number(e.target.value) })}
+                  onChange={e => {
+                    const v = e.target.value === '' ? null : Number(e.target.value)
+                    onPatchLocal({ stage_id: v })
+                    onCommit({ stage_id: v })  // смена этапа — сохраняем сразу
+                  }}
                   className="input bg-white"
                 >
                   <option value="">— без этапа —</option>
@@ -887,7 +839,8 @@ function DayAccordion({
                 <input
                   type="time"
                   value={day.open_time || ''}
-                  onChange={e => onPatchDay({ open_time: e.target.value })}
+                  onChange={e => onPatchLocal({ open_time: e.target.value })}
+                  onBlur={() => onCommit()}
                   className="input"
                 />
               </div>
@@ -896,14 +849,14 @@ function DayAccordion({
                 <input
                   type="time"
                   value={day.close_time || ''}
-                  onChange={e => onPatchDay({ close_time: e.target.value })}
+                  onChange={e => onPatchLocal({ close_time: e.target.value })}
+                  onBlur={() => onCommit()}
                   className="input"
                 />
               </div>
             </div>
           </div>
 
-          {/* Слоты дня */}
           <div className="px-4 py-2.5">
             {sessions.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-2">Нет слотов</p>
@@ -924,8 +877,8 @@ function DayAccordion({
                         {s.speaker_name && <p className="text-xs text-gray-400">{s.speaker_name}</p>}
                       </div>
                     </button>
-                    <button onClick={() => onDeleteSession(s.id)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-1 rounded shrink-0">
+                    <button onClick={() => onDeleteSession(s.id)} disabled={busy}
+                      className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all p-1 rounded shrink-0 disabled:opacity-40">
                       <Trash2 size={12} />
                     </button>
                   </div>
