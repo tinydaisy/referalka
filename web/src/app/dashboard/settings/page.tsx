@@ -148,6 +148,7 @@ export default function SettingsPage() {
         broadcast_concurrency: concurrency,
         notifications_telegram_chat_id: form.notifications_telegram_chat_id ? Number(form.notifications_telegram_chat_id) : null,
         notifications_max_chat_id: form.notifications_max_chat_id?.trim() || null,
+        notifications_max_url: form.notifications_max_url?.trim() || null,
         notifications_vk_peer_id: form.notifications_vk_peer_id?.trim() || null,
         partner_landing_url: form.partner_landing_url.trim() || null,
         partner_dashboard_url: form.partner_dashboard_url.trim() || null,
@@ -475,15 +476,26 @@ export default function SettingsPage() {
                   {maxResolving ? '...' : 'Получить ID'}
                 </button>
               </div>
-              <div className="mt-2 flex items-center gap-2 text-sm">
-                <span className="text-gray-500">ID канала:</span>
-                <span className="font-mono text-gray-800">{form.notifications_max_chat_id || '— не получен'}</span>
-              </div>
+              {form.notifications_max_chat_id ? (
+                <div className="mt-3 flex items-center gap-2 flex-wrap rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3">
+                  <span className="text-emerald-700 text-sm font-medium">✓ Канал уведомлений подключён</span>
+                  <span className="font-mono text-sm text-emerald-900">ID {form.notifications_max_chat_id}</span>
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, notifications_max_chat_id: '', notifications_max_url: '' }))}
+                    className="ml-auto text-xs text-gray-500 hover:text-red-600 underline"
+                  >
+                    Очистить
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-2 text-sm text-gray-500">ID канала пока не получен — вставьте ссылку и нажмите «Получить ID».</div>
+              )}
               <p className="mt-3 text-sm text-gray-600">
                 Добавьте свой MAX-бот{botHandles?.max ? <> (<strong>{botHandles.max}</strong>)</> : null} <strong>администратором</strong> в
                 нужный MAX-канал, вставьте ссылку на него и нажмите <strong>«Получить ID»</strong> — ID
-                определится сам. Команды в самом MAX-канале не работают (MAX не отдаёт боту посты канала),
-                поэтому ID берётся по ссылке. Нужен подключённый MAX-бот клиента.
+                определится сам. После — нажмите <strong>«Сохранить визитку»</strong> внизу. Команды в самом
+                MAX-канале не работают (MAX не отдаёт боту посты канала), поэтому ID берётся по ссылке.
               </p>
             </div>
           )}
