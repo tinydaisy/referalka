@@ -156,8 +156,9 @@ def _is_getmyid_command(text: str | None) -> bool:
     Терпима к регистру, слэшу и хвосту (например '/getmyid@bot').
     """
     t = (text or "").strip().lower().lstrip("/")
-    t = t.split("@", 1)[0].split()[0] if t else t
-    return t == "getmyid"
+    t = t.split("@", 1)[0].strip()
+    parts = t.split()
+    return bool(parts) and parts[0] == "getmyid"
 
 
 def _extract_user_and_chat(update: dict) -> tuple[dict, int | None, int | None]:
