@@ -201,6 +201,54 @@ def normalize_max_channels(value) -> list[dict]:
     return out
 
 
+def normalize_vk_channels(value) -> list[dict]:
+    """Нормализует массив VK-сообществ основателя `social_links.vk_channels`.
+
+    Формат элемента: {"url": "...", "group_id": "", "name": "..."}.
+    url — ссылка на сообщество (vk.com/club123 или vk.com/screenname), мягкая
+    нормализация (trim + https://). group_id — числовой id сообщества для
+    groups.isMember; резолвится автоматически из url при сохранении в
+    client_profile (через VK API resolveScreenName), здесь только чистим.
+    Дубли по url убираются, порядок сохраняется (первый = главный).
+    """
+    if not isinstance(value, list):
+        return []
+    seen: set[str] = set()
+    out: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        url = (item.get("url") or "").strip()
+        if not url:
+            continue
+        url = normalize_vk_link(url)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        raw_gid = str(item.get("group_id") or "").strip()
+        gid = "".join(ch for ch in raw_gid if ch.isdigit())  # group_id всегда положительный
+        name = (item.get("name") or "").strip()[:60]
+        out.append({"url": url, "group_id": gid, "name": name})
+    return out
+
+
+def get_founder_vk_channels(social: Optional[dict]) -> list[dict]:
+    """Массив VK-сообществ основателя. Fallback на legacy одиночный `vk`+`vk_group_id`."""
+    if not isinstance(social, dict):
+        return []
+    raw = social.get("vk_channels")
+    if isinstance(raw, list) and raw:
+        return normalize_vk_channels(raw)
+    legacy_url = (social.get("vk") or "").strip()
+    if legacy_url:
+        return normalize_vk_channels([{
+            "url": legacy_url,
+            "group_id": social.get("vk_group_id"),
+            "name": "",
+        }])
+    return []
+
+
 def get_founder_tg_channels(social: Optional[dict]) -> list[dict]:
     """Достаёт массив TG-каналов основателя из социал-линков клиента.
 
@@ -243,6 +291,8 @@ def normalize_social_links(social: Optional[dict]) -> dict:
         out["telegram_channels"] = normalize_telegram_channels(out["telegram_channels"])
     if out.get("max_channels") is not None:
         out["max_channels"] = normalize_max_channels(out["max_channels"])
+    if out.get("vk_channels") is not None:
+        out["vk_channels"] = normalize_vk_channels(out["vk_channels"])
     if out.get("vk"):
         out["vk"] = normalize_vk_link(out["vk"])
     return out

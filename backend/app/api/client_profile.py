@@ -924,6 +924,23 @@ async def update_my_profile(
                     pass
         else:
             normalized.pop("vk_group_id", None)
+        # Авто-резолв group_id для КАЖДОГО VK-сообщества основателя из массива
+        # vk_channels (для groups.isMember при проверке подписки).
+        if isinstance(normalized.get("vk_channels"), list):
+            from app.services.social_links import vk_screen_name_from_link as _vk_screen
+            from app.services.vk_api import vk_call as _vk_call
+            for _vc in normalized["vk_channels"]:
+                if _vc.get("group_id"):
+                    continue  # уже задан вручную
+                _screen = _vk_screen(_vc.get("url") or "")
+                if not _screen:
+                    continue
+                try:
+                    _r = await _vk_call("utils.resolveScreenName", {"screen_name": _screen})
+                    if isinstance(_r, dict) and _r.get("type") in ("group", "page") and _r.get("object_id"):
+                        _vc["group_id"] = str(int(_r["object_id"]))
+                except Exception:  # noqa: BLE001 — не блокируем сохранение
+                    pass
         add("social_links", normalized, jsonb=True)
 
     if not sets:

@@ -510,6 +510,44 @@ async def check_telegram_channels_subscription(
     }
 
 
+async def check_vk_channels_subscription(client_id: int, vk_id: str, db) -> dict:
+    """Проверяет подписку vk_id на ВСЕ VK-сообщества основателя клиента.
+
+    Источник — `clients.social_links.vk_channels` (массив с group_id), fallback
+    на legacy одиночный `vk_group_id`. Возвращает {ok, missing[], no_channels}.
+    fail-open: нет сообществ / не резолвится group_id → ok=True.
+    """
+    import asyncio
+    from app.services.vk_api import is_user_member_of_group
+    from app.services.social_links import get_founder_vk_channels
+
+    social = await db.fetchval("SELECT social_links FROM clients WHERE id = $1", client_id)
+    if isinstance(social, str):
+        try:
+            social = json.loads(social)
+        except Exception:
+            social = {}
+    channels = get_founder_vk_channels(social or {})
+    channels = [c for c in channels if (c.get("group_id") or "").isdigit()]
+    if not channels:
+        return {"ok": True, "missing": [], "no_channels": True}
+
+    vk_token = await get_client_vk_token(client_id, db) if "get_client_vk_token" in globals() else None
+    if not vk_token:
+        from app.services.channels import get_client_vk_token as _gvt
+        vk_token = await _gvt(client_id, db)
+
+    async def _one(ch: dict) -> dict:
+        gid = int(ch["group_id"])
+        member = await is_user_member_of_group(gid, int(vk_id), token=vk_token)
+        # member: True/False/None(не удалось) → None = fail-open (не блокируем)
+        return {"channel": ch, "member": member}
+
+    results = await asyncio.gather(*[_one(c) for c in channels])
+    missing = [r["channel"] for r in results if r["member"] is False]
+    return {"ok": len(missing) == 0, "missing": missing, "no_channels": False}
+
+
 async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
     """Шлёт уведомление организатору о новом интересе во ВСЕ его каналы (TG+MAX+VK)."""
     _ch = await db.fetchrow(
@@ -1066,22 +1104,12 @@ async def run_check_subscription(run_id: int, tg_id: str, db, platform: str = "t
     client_id = run["client_id"]
 
     if platform == "vk":
-        # Берём VK-сообщество клиента для проверки подписки (`social_links.vk_group_id`).
-        # Если не настроено — выдаём без проверки (нечего проверять).
-        ctx = await _get_brand_context(client_id, db, platform="vk")
-        vk_group_id_raw = ctx.get("subscription_channel_chat_id", "")
-        if vk_group_id_raw:
-            try:
-                vk_group_id = int(vk_group_id_raw)
-            except (TypeError, ValueError):
-                vk_group_id = 0
-            if vk_group_id > 0:
-                from app.services.vk_api import is_user_member_of_group
-                # service token — системный (работает для любого публичного сообщества)
-                is_member = await is_user_member_of_group(vk_group_id, int(tg_id))
-                if is_member is False:
-                    return "not_subscribed"
-                # is_member is None означает ошибку API — пропускаем (доверяем).
+        # Проверка подписки на ВСЕ VK-сообщества основателя (массив vk_channels,
+        # fallback на legacy одиночный vk_group_id). Не подписан хоть на одно →
+        # not_subscribed. Нет сообществ / ошибка API → выдаём (fail-open).
+        vk_sub = await check_vk_channels_subscription(client_id, str(tg_id), db)
+        if not vk_sub["ok"]:
+            return "not_subscribed"
 
         from app.services.vk_api import send_message_with_media as vk_send_with_media
         # Шлём от того же сообщества, через которое прилетел клик. Токен этого

@@ -16,6 +16,7 @@ import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Buildin
 import FileUploader from '@/components/FileUploader'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
+import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
 import { api } from '@/lib/api'
 
 const BRAND = '#25455D'
@@ -140,6 +141,11 @@ export default function MiniAppSettingsPage() {
   function updateMaxChannels(list: FounderMaxChannel[]) {
     if (!profile) return
     const next = { ...profile.social_links, max_channels: list }
+    update('social_links', next)
+  }
+  function updateVkChannels(list: FounderVkChannel[]) {
+    if (!profile) return
+    const next = { ...profile.social_links, vk_channels: list }
     update('social_links', next)
   }
   function updateAch(field: 'achievements' | 'owner_achievements', idx: number, key: 'label' | 'value', value: string) {
@@ -423,6 +429,21 @@ export default function MiniAppSettingsPage() {
 
           <Section
             step={6}
+            title="VK сообщества основателя"
+            hint="Список ваших сообществ в VK. Используются для проверки подписки в воронках лид-магнитов в VK — участник должен быть подписан на ВСЕ сообщества из списка. ID определяется автоматически по ссылке."
+          >
+            <div className="max-w-2xl">
+              <FounderVkChannelsField
+                value={Array.isArray(profile.social_links.vk_channels)
+                  ? profile.social_links.vk_channels as FounderVkChannel[]
+                  : []}
+                onChange={updateVkChannels}
+              />
+            </div>
+          </Section>
+
+          <Section
+            step={7}
             title="Другие соцсети основателя"
             hint="Ряд иконок на странице «Об основателе». Заполняйте только то что хотите показать."
           >
