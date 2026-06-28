@@ -568,8 +568,19 @@ async def notify_organizer_all_channels(
         try:
             vk_token = await get_client_vk_token(client_id, db)
             if vk_token:
-                from app.services.vk_api import send_message as vk_send
-                await vk_send(int(row["notifications_vk_peer_id"]), plain, token=vk_token)
+                import random as _rnd
+                from app.services.vk_api import vk_call
+                from app.services.message_builder import html_to_vk_text
+                peer = int(row["notifications_vk_peer_id"])
+                # peer_id ≥ 2000000000 = БЕСЕДА → слать через peer_id (user_id даёт
+                # «incorrect user_id»). Меньше = личка пользователя → user_id.
+                send_param = "peer_id" if peer >= 2_000_000_000 else "user_id"
+                await vk_call("messages.send", {
+                    send_param: peer,
+                    "message": html_to_vk_text(plain) if plain else "",
+                    "random_id": _rnd.randint(1, 2**31 - 1),
+                    "dont_parse_links": 0,
+                }, token=vk_token)
                 result["vk"] = True
         except Exception:  # noqa: BLE001
             pass
