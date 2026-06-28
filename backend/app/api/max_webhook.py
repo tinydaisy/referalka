@@ -390,7 +390,11 @@ async def _forward_max_user_message_to_organizer(
 
     when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
     user_nick = nick_html("max", user_id=user_id, username=username)
-    prof_link = link_html("max", user_id=user_id, username=username)
+    # Рабочая https-ссылка на профиль MAX есть ТОЛЬКО если у человека задан
+    # публичный username (max.ru/{username}). По числовому id MAX ссылку не даёт
+    # (закрыто ради приватности) — поэтому max://user/{id} в Telegram мёртв, не
+    # показываем его. Без username отвечаем человеку через карточку → Диалоги.
+    _max_url = f"https://max.ru/{username.lstrip('@')}" if username else None
     contact_id = row["contact_id"]
     card_url = (
         f"{settings.frontend_url}/dashboard/clients?contact={contact_id}"
@@ -408,8 +412,10 @@ async def _forward_max_user_message_to_organizer(
         f"<b>Имя:</b> {_html.escape(name)}",
         f"<b>MAX ID:</b> <code>{_html.escape(str(user_id))}</code>",
     ]
-    if prof_link:
-        parts.append(f"<b>Ссылка:</b> {prof_link}")
+    if _max_url:
+        parts.append(f'<b>Ссылка:</b> <a href="{_max_url}">{_max_url}</a>')
+    elif contact_id:
+        parts.append(f'<b>Ответить:</b> <a href="{card_url}">в карточке → Диалоги</a> (MAX не даёт прямую ссылку на профиль)')
     parts += [
         f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
         f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",
