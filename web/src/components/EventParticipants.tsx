@@ -1125,7 +1125,7 @@ export default function EventParticipants({ eventId, moduleSlug }: { eventId: nu
           </div>
         ) : (
           <>
-            <ListHeader clickLabel={clickLabel} />
+            <ListHeader />
             {filtered.map(p => (
               <ContactCard
                 key={p.id}
