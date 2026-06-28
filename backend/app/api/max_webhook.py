@@ -419,13 +419,12 @@ async def _forward_max_user_message_to_organizer(
     # (TG линкует лишь http(s)/tg) — поэтому в TG-канале это просто текст для
     # копирования, а в MAX-канале уведомлений (notifications_max_chat_id) — клик.
     _uid = _html.escape(str(user_id))
-    if _max_url:  # есть публичный username → рабочая https-ссылка
+    if _max_url:
         parts.append(f'<b>Ссылка:</b> <a href="{_max_url}">{_max_url}</a>')
     else:
-        parts.append(f'<b>Ссылка (откроется в MAX):</b> <a href="max://user/{_uid}">написать в MAX</a>')
-        parts.append(f'<code>max://user/{_uid}</code>')
+        parts.append(f'<b>Ссылка:</b> <a href="max://user/{_uid}">написать в MAX</a>')
         if contact_id:
-            parts.append(f'<b>Или ответить:</b> <a href="{card_url}">в карточке → Диалоги</a>')
+            parts.append(f'<b>Или:</b> <a href="{card_url}">в карточке → Диалоги</a>')
     parts += [
         f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
         f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",

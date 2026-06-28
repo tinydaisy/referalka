@@ -1040,16 +1040,45 @@ async def resolve_max_chat_id(
 ):
     """Получить chat_id MAX-канала по ссылке.
 
-    ⚠️ У MAX нет публичного метода «getChat по ссылке» как в Telegram. ID канала
-    MAX отдаёт только боту-администратору канала. Надёжно зарезолвить chat_id по
-    одной лишь ссылке нельзя — поэтому endpoint возвращает 400 `not_found`, а
-    клиент вписывает ID вручную (поле в UI есть). Эндпоинт существует, чтобы
-    кнопка «Получить автоматически» давала понятное сообщение, а не падала.
+    MAX отдаёт chat_id только боту-АДМИНИСТРАТОРУ канала. Через GET /chats бот
+    видит все каналы/чаты, где он состоит, с их chat_id и link. Ищем среди них
+    канал по совпадению ссылки (по join-токену из max.ru/join/<token> или по
+    точному url). Нашли → возвращаем chat_id. Не нашли → 400 not_found (бот не
+    админ канала / неверная ссылка).
     """
-    raise HTTPException(
-        status_code=400,
-        detail="not_found",  # фронт показывает «добавьте бота админом / впишите ID вручную»
-    )
+    url = (payload.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="no_url")
+
+    client_id = int(client["id"]) if isinstance(client, dict) else int(client.id)
+    from app.services.channels import get_client_max_token
+    token = await get_client_max_token(client_id, db)
+    if not token:
+        raise HTTPException(status_code=400, detail="no_max_bot")
+
+    # join-токен из ссылки max.ru/join/<token> для надёжного сравнения
+    def _join_token(s: str) -> str:
+        s = (s or "").strip().rstrip("/")
+        if "/join/" in s:
+            return s.split("/join/", 1)[1].split("?", 1)[0]
+        return ""
+    target_join = _join_token(url)
+    target_url = url.rstrip("/")
+
+    from app.services.max_api import max_call
+    try:
+        resp = await max_call("GET", "/chats", token=token, params={"count": 200})
+    except Exception:
+        raise HTTPException(status_code=400, detail="not_found")
+    chats = (resp or {}).get("chats") or []
+    for c in chats:
+        c_link = (c.get("link") or "").strip().rstrip("/")
+        if not c_link:
+            continue
+        c_join = _join_token(c_link)
+        if (target_join and c_join and target_join == c_join) or (c_link == target_url):
+            return {"chat_id": c.get("chat_id"), "title": c.get("title")}
+    raise HTTPException(status_code=400, detail="not_found")
 
 
 # ═══════════════════════════════════════════

@@ -37,9 +37,10 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant' || t === 'chat-gates') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_max_url: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
   const [notifyTab, setNotifyTab] = useState<'telegram' | 'max' | 'vk'>('telegram')
+  const [maxResolving, setMaxResolving] = useState(false)
   const [clientId, setClientId] = useState<number | null>(null)
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [botHandles, setBotHandles] = useState<{ telegram?: string | null; vk?: string | null; max?: string | null } | null>(null)
@@ -96,6 +97,29 @@ export default function SettingsPage() {
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
+
+  // Получить chat_id MAX-канала уведомлений по ссылке (бот должен быть админом).
+  async function resolveMaxNotifyChatId() {
+    const url = (form.notifications_max_url || '').trim()
+    if (!url) { alert('Сначала вставьте ссылку на MAX-канал'); return }
+    try {
+      setMaxResolving(true)
+      const res: any = await api.miniApp.profile.resolveMaxChatId({ url })
+      if (res?.chat_id) {
+        setForm(f => ({ ...f, notifications_max_chat_id: String(res.chat_id) }))
+        alert(`ID канала получен: ${res.chat_id}. Не забудьте сохранить.`)
+      } else {
+        alert('Не удалось получить ID. Проверьте, что бот добавлен админом в этот MAX-канал.')
+      }
+    } catch (e: any) {
+      const msg = e?.message || ''
+      alert(msg === 'not_found'
+        ? 'Не нашёл этот канал у бота. Добавьте свой MAX-бот АДМИНИСТРАТОРОМ в канал и попробуйте снова.'
+        : (msg || 'Не получилось получить ID'))
+    } finally {
+      setMaxResolving(false)
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
@@ -432,17 +456,33 @@ export default function SettingsPage() {
 
           {notifyTab === 'max' && (
             <div>
-              <input
-                type="text"
-                value={form.notifications_max_chat_id}
-                onChange={set('notifications_max_chat_id')}
-                placeholder="-76342280100426"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
-              />
+              <label className="block text-sm text-gray-600 mb-1">Ссылка на MAX-канал уведомлений</label>
+              <div className="flex gap-2 items-stretch flex-wrap">
+                <input
+                  type="url"
+                  value={form.notifications_max_url || ''}
+                  onChange={set('notifications_max_url')}
+                  placeholder="https://max.ru/join/... или ссылка на канал"
+                  className="flex-1 min-w-0 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={resolveMaxNotifyChatId}
+                  disabled={maxResolving}
+                  className="px-4 py-3 text-sm rounded-xl bg-[#25455D] text-white whitespace-nowrap disabled:opacity-50"
+                >
+                  {maxResolving ? '...' : 'Получить ID'}
+                </button>
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-sm">
+                <span className="text-gray-500">ID канала:</span>
+                <span className="font-mono text-gray-800">{form.notifications_max_chat_id || '— не получен'}</span>
+              </div>
               <p className="mt-3 text-sm text-gray-600">
-                Добавьте свой MAX-бот{botHandles?.max ? <> (<strong>{botHandles.max}</strong>)</> : null} админом
-                в нужный MAX-канал/беседу и напишите там <strong>/getmyid</strong> — бот ответит с ID.
-                Вставьте число сюда. Нужен подключённый MAX-бот клиента.
+                Добавьте свой MAX-бот{botHandles?.max ? <> (<strong>{botHandles.max}</strong>)</> : null} <strong>администратором</strong> в
+                нужный MAX-канал, вставьте ссылку на него и нажмите <strong>«Получить ID»</strong> — ID
+                определится сам. Команды в самом MAX-канале не работают (MAX не отдаёт боту посты канала),
+                поэтому ID берётся по ссылке. Нужен подключённый MAX-бот клиента.
               </p>
             </div>
           )}
