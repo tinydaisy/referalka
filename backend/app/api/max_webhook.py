@@ -721,7 +721,7 @@ async def _handle_message_callback(update: dict, *, bot_token: str, client_id_ov
         async with pool.acquire() as conn:
             contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
             try:
-                await _handle_max_chat_join(chat_id, event_id, contact_id, bot_token, conn)
+                await _handle_max_chat_join(chat_id, event_id, contact_id, bot_token, conn, user_id=user_id)
             except Exception as e:
                 logger.warning(f"MAX chat join failed (event={event_id}, user={user_id}): {e}")
         return
@@ -951,7 +951,7 @@ async def _process_start(
                 async with _ecp.acquire() as conn:
                     contact_id = await _resolve_max_contact_id(conn, event_id, user_id)
                     try:
-                        await _handle_max_chat_join(chat_id, event_id, contact_id, bot_token, conn)
+                        await _handle_max_chat_join(chat_id, event_id, contact_id, bot_token, conn, user_id=user_id)
                     except Exception as e:  # noqa: BLE001
                         logger.warning(f"MAX evchat deeplink failed (event={event_id}): {e}")
             return
@@ -1555,6 +1555,7 @@ async def _handle_max_chat_join(
     contact_id: int | None,
     bot_token: str,
     conn,
+    user_id: int | str | None = None,
 ) -> None:
     """«Вступить в Чат» в MAX — зеркало `handle_event_chat_join` из TG.
 
@@ -1586,8 +1587,12 @@ async def _handle_max_chat_join(
         return
 
     # ── Проверка подписки на MAX-каналы основателя (реальная) ──
+    # ⚠️ Проверять членство нужно по USER_ID человека, НЕ по chat_id диалога
+    # (раньше передавался chat_id → MAX всегда отвечал «не подписан»).
+    check_uid = user_id if user_id is not None else chat_id
+    logger.info(f"MAX chat-join subcheck: event={event_id} user_id={check_uid} chat_id={chat_id}")
     not_subscribed_channels = await _check_max_founder_subscription(
-        conn, ev["client_id"], chat_id, bot_token,
+        conn, ev["client_id"], check_uid, bot_token,
     )
     if not_subscribed_channels:
         lines = [
@@ -1598,9 +1603,9 @@ async def _handle_max_chat_join(
             label = ch.get("name") or "MAX-канал"
             lines.append(f"{idx}. {label}: {ch['url']}")
         lines.append("")
-        lines.append('Подпишитесь и нажмите «Вступить в Чат» снова.')
+        lines.append('Подпишитесь и нажмите «Готово».')
         again_btn = tg_inline_to_max_keyboard([
-            [{"text": "Вступить в Чат", "callback_data": f"evchat_{event_id}"}],
+            [{"text": "Готово", "callback_data": f"evchat_{event_id}"}],
             [{"text": "Меню", "callback_data": f"evmenu_{event_id}"}],
         ])
         await max_send_message(chat_id, "\n".join(lines), token=bot_token, buttons=again_btn)
