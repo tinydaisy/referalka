@@ -412,17 +412,20 @@ async def _forward_max_user_message_to_organizer(
         f"<b>Имя:</b> {_html.escape(name)}",
         f"<b>MAX ID:</b> <code>{_html.escape(str(user_id))}</code>",
     ]
-    if _max_url:
+    # Ссылка на человека в MAX. Официально (dev.max.ru) единственный формат —
+    # max://user/{id} (аналог tg://user?id=). https-ссылки по id у MAX НЕТ.
+    # max:// кликается только там, где приложение перехватывает схему: внутри
+    # MAX, в мобильном браузере с установленным MAX. В Telegram max:// мёртв
+    # (TG линкует лишь http(s)/tg) — поэтому в TG-канале это просто текст для
+    # копирования, а в MAX-канале уведомлений (notifications_max_chat_id) — клик.
+    _uid = _html.escape(str(user_id))
+    if _max_url:  # есть публичный username → рабочая https-ссылка
         parts.append(f'<b>Ссылка:</b> <a href="{_max_url}">{_max_url}</a>')
     else:
-        # У человека нет публичного username — пробуем РАЗНЫЕ форматы ссылки на
-        # профиль по числовому id. Какой реально откроет диалог в MAX — тестируем.
-        _uid = _html.escape(str(user_id))
-        parts.append("<b>Ссылки на человека (тест — что откроет диалог):</b>")
-        parts.append(f'1) <a href="https://max.ru/u/{_uid}">max.ru/u/{_uid}</a>')
-        parts.append(f'2) <a href="https://max.ru/id{_uid}">max.ru/id{_uid}</a>')
-        parts.append(f'3) <a href="https://max.ru/{_uid}">max.ru/{_uid}</a>')
-        parts.append(f'<code>max://user/{_uid}</code> (скопировать в MAX)')
+        parts.append(f'<b>Ссылка (откроется в MAX):</b> <a href="max://user/{_uid}">написать в MAX</a>')
+        parts.append(f'<code>max://user/{_uid}</code>')
+        if contact_id:
+            parts.append(f'<b>Или ответить:</b> <a href="{card_url}">в карточке → Диалоги</a>')
     parts += [
         f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
         f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",
