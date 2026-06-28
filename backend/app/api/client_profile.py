@@ -1050,7 +1050,7 @@ async def resolve_max_chat_id(
     if not url:
         raise HTTPException(status_code=400, detail="no_url")
 
-    client_id = int(client["id"]) if isinstance(client, dict) else int(client.id)
+    client_id = int(client["sub"])
     from app.services.channels import get_client_max_token
     token = await get_client_max_token(client_id, db)
     if not token:
