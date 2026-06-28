@@ -573,6 +573,15 @@ async def update_collaborator(
     # Авто-резолв числового id VK-сообщества коллаба из vk_url (для проверки
     # подписки groups.isMember). Делаем когда меняется vk_url, а vk_channel_id
     # явно не передан — чтобы клиент не вписывал id руками (как у клиента в профиле).
+    # Очистка vk_url (пришла пустая строка) → зануляем и кешированный vk_channel_id,
+    # иначе старый id останется и проверка подписки будет идти на удалённое сообщество.
+    if "vk_url" in updates_full and not (updates_full.get("vk_url") or "").strip():
+        updates_full["vk_url"] = None
+        updates_full["vk_channel_id"] = None
+    # Очистка max_url → зануляем max_channel_id.
+    if "max_url" in updates_full and not (updates_full.get("max_url") or "").strip():
+        updates_full["max_url"] = None
+        updates_full["max_channel_id"] = None
     if updates_full.get("vk_url") and not data.vk_channel_id:
         from app.services.social_links import vk_screen_name_from_link
         from app.services.vk_api import vk_call

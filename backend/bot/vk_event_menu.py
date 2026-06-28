@@ -56,24 +56,60 @@ async def _resolve_vk_group_id(vk_url: str, token: str | None) -> int | None:
     return None
 
 
-async def _gather_event_vk_channels(event_id: int, mode: str, db):
+async def _gather_event_vk_channels(event_id: int, mode: str, db, client_id: int | None = None):
     """Каналы спикеров события для VK-проверки подписки. Источник — collaborators.vk_url
-    (публичное VK-сообщество спикера). mode: 'organizer' → только орги, иначе все.
-    Исключает exclude_channel_from_subscription=TRUE и пустые vk_url."""
+    (публичное VK-сообщество спикера) + кешированный vk_channel_id. mode: 'organizer'
+    → только орги, иначе все. Исключает exclude_channel_from_subscription=TRUE и
+    пустые vk_url. Дедуп: исключает self-коллаба (clients.self_collaborator_id) —
+    его каналы добавляются отдельно как «каналы основателя»."""
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
     rows = await db.fetch(
-        f"""SELECT sp.id AS speaker_id, sp.name, sp.vk_url, cse.role
+        f"""SELECT sp.id AS speaker_id, sp.name, sp.vk_url, sp.vk_channel_id, cse.role
               FROM event_collaborators cse
               JOIN collaborators sp ON sp.id = cse.speaker_id
              WHERE cse.event_id = $1
                AND cse.exclude_channel_from_subscription = FALSE
                AND sp.vk_url IS NOT NULL
                AND sp.vk_url <> ''
+               AND sp.id <> COALESCE((SELECT self_collaborator_id FROM clients WHERE id = $2), 0)
                {role_filter}
              ORDER BY COALESCE(cse.priority, 60), cse.sort_order, cse.id""",
-        event_id,
+        event_id, client_id or 0,
     )
     return [dict(r) for r in rows]
+
+
+async def _gather_founder_vk_channels(client_id: int | None, db):
+    """VK-сообщества ОСНОВАТЕЛЯ клиента (clients.social_links.vk_channels) как
+    псевдо-«каналы» в формате _gather_event_vk_channels: role='organizer',
+    отрицательный speaker_id. group_id (если уже резолвлен) кладём в vk_channel_id."""
+    if not client_id:
+        return []
+    from app.services.social_links import get_founder_vk_channels
+    row = await db.fetchrow("SELECT social_links FROM clients WHERE id = $1", client_id)
+    if not row:
+        return []
+    social = row["social_links"]
+    if isinstance(social, str):
+        import json as _json
+        try:
+            social = _json.loads(social)
+        except Exception:
+            social = {}
+    channels = get_founder_vk_channels(social or {})
+    out = []
+    for idx, ch in enumerate(channels):
+        url = (ch.get("url") or "").strip()
+        if not url:
+            continue
+        out.append({
+            "speaker_id": -(idx + 1),
+            "name": ch.get("name") or "Сообщество основателя",
+            "vk_url": url,
+            "vk_channel_id": (ch.get("group_id") or "").strip() or None,
+            "role": "organizer",
+        })
+    return out
 
 
 def _build_chat_links_message_vk(ev, event_id: int, work_tg: str | None = None):
@@ -141,13 +177,21 @@ async def handle_vk_event_chat(event_id: int, vk_user_id: int, db, ctx) -> None:
     else:
         mode = "organizer" if ev["require_subscription"] else "none"
 
-    channels = [] if mode == "none" else await _gather_event_vk_channels(event_id, mode, db)
+    # Объединение каналов ОСНОВАТЕЛЯ клиента + каналов организаторов/спикеров
+    # события (с дедупом self-коллаба внутри _gather_event_vk_channels).
+    channels = []
+    if mode != "none":
+        founder = await _gather_founder_vk_channels(ev["client_id"], db)
+        speakers = await _gather_event_vk_channels(event_id, mode, db, ev["client_id"])
+        channels = founder + speakers
 
     # Проверяем подписку на каждое VK-сообщество спикера.
     not_all_subscribed = False
     verdicts: dict[int, str] = {}  # speaker_id → 'subscribed'|'not_subscribed'|'fake_pass'
     for ch in channels:
-        gid = await _resolve_vk_group_id(ch["vk_url"], ctx.token)
+        # Кешированный group_id (vk_channel_id) — без лишнего resolveScreenName.
+        cached = (ch.get("vk_channel_id") or "")
+        gid = int(cached) if str(cached).isdigit() else await _resolve_vk_group_id(ch["vk_url"], ctx.token)
         if not gid:
             # Не смогли резолвить group_id → fail-open (не блокируем).
             verdicts[ch["speaker_id"]] = "fake_pass"

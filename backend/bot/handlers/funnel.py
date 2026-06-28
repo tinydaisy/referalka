@@ -26,12 +26,14 @@ _ROLE_GROUPS: list[tuple[str, set[str]]] = [
 ]
 
 
-async def _gather_event_chat_channels(event_id: int, mode: str, db):
+async def _gather_event_chat_channels(event_id: int, mode: str, db, client_id: int | None = None):
     """Возвращает список каналов события (для проверки подписки на чат),
     с ролью/именем/каналом/личным tg спикера. Учитывает mode:
       • organizer    → только role='organizer'
       • all_speakers → все роли
     Исключает exclude_channel_from_subscription=TRUE и пустые tg_channel_id.
+    Дедуп: исключает self-коллаба клиента (clients.self_collaborator_id) — его
+    каналы добавляются отдельно как «каналы основателя».
     """
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
     rows = await db.fetch(
@@ -46,11 +48,47 @@ async def _gather_event_chat_channels(event_id: int, mode: str, db):
                AND cse.exclude_channel_from_subscription = FALSE
                AND sp.tg_channel_id IS NOT NULL
                AND sp.tg_channel_id <> ''
+               AND sp.id <> COALESCE((SELECT self_collaborator_id FROM clients WHERE id = $2), 0)
                {role_filter}
              ORDER BY COALESCE(cse.priority, 60), cse.sort_order, cse.id""",
-        event_id,
+        event_id, client_id or 0,
     )
     return [dict(r) for r in rows]
+
+
+async def _gather_founder_tg_channels(client_id: int | None, db):
+    """Каналы ОСНОВАТЕЛЯ клиента (clients.social_links.telegram_channels) как
+    псевдо-«каналы» в формате _gather_event_chat_channels: role='organizer',
+    отрицательный speaker_id (чтобы не пересекаться с реальными коллабами).
+    Берёт только каналы с числовым chat_id (без него getChatMember не вызвать)."""
+    if not client_id:
+        return []
+    from app.services.social_links import get_founder_tg_channels
+    row = await db.fetchrow("SELECT social_links FROM clients WHERE id = $1", client_id)
+    if not row:
+        return []
+    social = row["social_links"]
+    if isinstance(social, str):
+        import json as _json
+        try:
+            social = _json.loads(social)
+        except Exception:
+            social = {}
+    channels = get_founder_tg_channels(social or {})
+    out = []
+    for idx, ch in enumerate(channels):
+        cid = (ch.get("chat_id") or "").strip()
+        if not cid:
+            continue  # без числового chat_id getChatMember не вызвать
+        out.append({
+            "speaker_id": -(idx + 1),
+            "name": ch.get("name") or "Канал основателя",
+            "tg_channel_id": cid,
+            "tg_channel_url": ch.get("url") or "",
+            "role": "organizer",
+            "personal_tg_id": None,
+        })
+    return out
 
 
 def _build_chat_links_message(
@@ -152,8 +190,14 @@ async def run_event_chat_gate(message, event_id: int, user_tg_id: int):
         else:
             mode = "organizer" if ev["require_subscription"] else "none"
 
-        # Каналы для проверки (если mode != none).
-        channels = [] if mode == "none" else await _gather_event_chat_channels(event_id, mode, db)
+        # Каналы для проверки (если mode != none): объединение каналов
+        # ОСНОВАТЕЛЯ клиента + каналов организаторов/спикеров события (с дедупом
+        # self-коллаба внутри _gather_event_chat_channels).
+        channels = []
+        if mode != "none":
+            founder = await _gather_founder_tg_channels(ev["client_id"], db)
+            speakers = await _gather_event_chat_channels(event_id, mode, db, ev["client_id"])
+            channels = founder + speakers
 
         # Проверяем подписку по каждому каналу.
         not_all_subscribed = False

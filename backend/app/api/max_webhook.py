@@ -465,6 +465,26 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
             logger.warning(f"MAX /getmyid reply failed chat={chat_id}: {e}")
         return
 
+    # Команда /menu24 (со слешем) в личке — открыть меню события по id.
+    # Резолвим slug по event_id и делегируем _process_start как ref_pg{slug}
+    # (зеркало TG /menu{id} и VK «menu24»).
+    import re as _re_menu
+    _mm = _re_menu.match(r"^\s*/menu\s*(\d{1,9})\b", (text or "").strip(), _re_menu.IGNORECASE)
+    if _mm:
+        ev_id = int(_mm.group(1))
+        _p = await get_pool()
+        async with _p.acquire() as _c:
+            _slug = await _c.fetchval("SELECT slug FROM events WHERE id = $1", ev_id)
+        if _slug:
+            await _process_start(
+                user_id=user_id, chat_id=chat_id, sender=sender,
+                payload=f"ref_pg{_slug}", bot_token=bot_token,
+                client_id_override=client_id_override,
+            )
+        else:
+            await max_send_message(chat_id, "Событие не найдено. Проверьте номер.", token=bot_token)
+        return
+
     # Сообщения из групповых чатов/бесед (chat_type='chat'): НЕ запускаем логику
     # лички (бот ничего не слать в чаты), но СЛУШАЕМ для архива заданий
     # (отдельная слушалка чатов). chat_archive сам проверит привязку чата к событию.
@@ -1508,23 +1528,13 @@ async def _handle_max_live(
     await max_send_message(chat_id, text, token=bot_token, buttons=tg_inline_to_max_keyboard(rows))
 
 
-async def _check_max_founder_subscription(
-    conn, client_id: int | None, user_id, bot_token: str,
-) -> list[dict]:
-    """Возвращает список MAX-каналов основателя, на которые пользователь НЕ
-    подписан (только каналы с заполненным числовым chat_id).
-
-    Пустой список = подписан на всё / нечего проверять → пускаем.
-    Бот не админ канала / MAX не дал данных → канал считаем пройденным
-    (fail-open, как в TG-гейте).
-    """
+async def _gather_max_founder_channels(conn, client_id: int | None) -> list[dict]:
+    """MAX-каналы ОСНОВАТЕЛЯ клиента (clients.social_links.max_channels) с числовым
+    chat_id. Формат элемента: {chat_id, url, name}."""
     if not client_id:
         return []
     from app.services.social_links import normalize_max_channels
-    from app.services.max_api import check_channel_membership
-    row = await conn.fetchrow(
-        "SELECT social_links FROM clients WHERE id = $1", client_id,
-    )
+    row = await conn.fetchrow("SELECT social_links FROM clients WHERE id = $1", client_id)
     if not row:
         return []
     social = row["social_links"]
@@ -1535,8 +1545,63 @@ async def _check_max_founder_subscription(
         except Exception:
             social = {}
     channels = normalize_max_channels((social or {}).get("max_channels") or [])
-    # Проверяем только каналы с числовым chat_id — без него MAX API не вызвать.
-    to_check = [c for c in channels if (c.get("chat_id") or "").strip()]
+    return [
+        {"chat_id": (c.get("chat_id") or "").strip(),
+         "url": c.get("url") or "", "name": c.get("name") or "MAX-канал основателя"}
+        for c in channels if (c.get("chat_id") or "").strip()
+    ]
+
+
+async def _gather_max_event_collab_channels(
+    conn, event_id: int, client_id: int | None, mode: str,
+) -> list[dict]:
+    """MAX-каналы организаторов/спикеров события (collaborators.max_channel_id).
+    mode: 'organizer' → только орги, иначе все. Дедуп self-коллаба
+    (clients.self_collaborator_id). Только каналы с числовым max_channel_id."""
+    role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
+    rows = await conn.fetch(
+        f"""SELECT sp.id AS speaker_id, sp.name, sp.max_channel_id, sp.max_url, cse.role
+              FROM event_collaborators cse
+              JOIN collaborators sp ON sp.id = cse.speaker_id
+             WHERE cse.event_id = $1
+               AND cse.exclude_channel_from_subscription = FALSE
+               AND sp.max_channel_id IS NOT NULL
+               AND sp.max_channel_id <> ''
+               AND sp.id <> COALESCE((SELECT self_collaborator_id FROM clients WHERE id = $2), 0)
+               {role_filter}
+             ORDER BY COALESCE(cse.priority, 60), cse.sort_order, cse.id""",
+        event_id, client_id or 0,
+    )
+    return [
+        {"chat_id": (r["max_channel_id"] or "").strip(),
+         "url": r["max_url"] or "", "name": r["name"] or "MAX-канал спикера"}
+        for r in rows if (r["max_channel_id"] or "").strip()
+    ]
+
+
+async def _check_max_subscription(
+    conn, client_id: int | None, event_id: int, mode: str, user_id, bot_token: str,
+) -> list[dict]:
+    """Возвращает список MAX-каналов (основателя + организаторов/спикеров события),
+    на которые пользователь НЕ подписан. Проверяются только каналы с числовым
+    chat_id/max_channel_id — без него MAX API не вызвать.
+
+    Пустой список = подписан на всё / нечего проверять → пускаем.
+    Бот не админ канала / MAX не дал данных → канал считаем пройденным
+    (fail-open, как в TG-гейте).
+    """
+    from app.services.max_api import check_channel_membership
+    founder = await _gather_max_founder_channels(conn, client_id)
+    collabs = await _gather_max_event_collab_channels(conn, event_id, client_id, mode)
+    # Дедуп по chat_id (основатель приоритетнее).
+    seen: set[str] = set()
+    to_check: list[dict] = []
+    for ch in founder + collabs:
+        cid = (ch.get("chat_id") or "").strip()
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        to_check.append(ch)
     if not to_check:
         return []
     not_subscribed: list[dict] = []
@@ -1572,7 +1637,7 @@ async def _handle_max_chat_join(
     каналов с id → сразу выдаём ссылки на чаты.
     """
     ev = await conn.fetchrow(
-        """SELECT id,
+        """SELECT id, require_subscription,
                   (SELECT eo.client_id FROM event_owners eo
                     WHERE eo.event_id = events.id AND eo.status = 'accepted'
                     ORDER BY (eo.role = 'owner') DESC, eo.id LIMIT 1) AS client_id,
@@ -1586,13 +1651,23 @@ async def _handle_max_chat_join(
     if not ev:
         return
 
-    # ── Проверка подписки на MAX-каналы основателя (реальная) ──
+    # Режим проверки: конференция → conf_conferences.subscription_mode,
+    # мероприятие → require_subscription (true=organizer, false=none).
+    conf = await conn.fetchrow(
+        "SELECT subscription_mode FROM conf_conferences WHERE event_id = $1", event_id
+    )
+    if conf:
+        mode = (dict(conf).get("subscription_mode") or "all_speakers")
+    else:
+        mode = "organizer" if ev["require_subscription"] else "none"
+
+    # ── Проверка подписки на MAX-каналы основателя + организаторов/спикеров ──
     # ⚠️ Проверять членство нужно по USER_ID человека, НЕ по chat_id диалога
     # (раньше передавался chat_id → MAX всегда отвечал «не подписан»).
     check_uid = user_id if user_id is not None else chat_id
-    logger.info(f"MAX chat-join subcheck: event={event_id} user_id={check_uid} chat_id={chat_id}")
-    not_subscribed_channels = await _check_max_founder_subscription(
-        conn, ev["client_id"], check_uid, bot_token,
+    logger.info(f"MAX chat-join subcheck: event={event_id} user_id={check_uid} chat_id={chat_id} mode={mode}")
+    not_subscribed_channels = [] if mode == "none" else await _check_max_subscription(
+        conn, ev["client_id"], event_id, mode, check_uid, bot_token,
     )
     if not_subscribed_channels:
         lines = [

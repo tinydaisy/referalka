@@ -75,6 +75,7 @@ export default function CollaborationPage({ params }: { params: { id: string } }
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
+  const [chanTab, setChanTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
 
   useEffect(() => {
     api.collaborators.get(collaboratorId)
@@ -110,10 +111,10 @@ export default function CollaborationPage({ params }: { params: { id: string } }
         instagram_url: form.instagram_url,
         website_url: form.website_url,
         tg_channel_id: form.tg_channel_id,
-        vk_url: form.vk_url || null,
-        max_url: form.max_url || null,
-        vk_channel_id: form.vk_channel_id || null,
-        max_channel_id: form.max_channel_id || null,
+        vk_url: form.vk_url ?? '',
+        max_url: form.max_url ?? '',
+        vk_channel_id: form.vk_channel_id ?? '',
+        max_channel_id: form.max_channel_id ?? '',
         personal_tg_id: form.personal_tg_id,
         personal_tg_username: form.personal_tg_username,
         assistant_tg_username: form.assistant_tg_username,
@@ -326,30 +327,67 @@ export default function CollaborationPage({ params }: { params: { id: string } }
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">{t.fields.accounts}</h2>
-          <TelegramChannelField
-            title="Telegram канал коллаборатора"
-            mode="single"
-            value={{ url: form.tg_channel_url || '', chatId: form.tg_channel_id || '' }}
-            onChange={(next) => setForm((f: any) => ({ ...f, tg_channel_url: next.url, tg_channel_id: next.chatId }))}
-          />
-          <div className="border-t border-gray-100 pt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка на VK-сообщество</label>
-            <input type="url" value={form.vk_url || ''} onChange={set('vk_url')}
-              placeholder="https://vk.com/club..."
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-            <p className="text-xs text-gray-500 mt-1">ID сообщества для проверки подписки определится автоматически при сохранении.{form.vk_channel_id ? ` Сейчас: ${form.vk_channel_id}` : ''}</p>
+          <p className="text-sm text-gray-500 -mt-1">Каналы коллаборатора для проверки подписки при входе в чат события.</p>
+
+          {/* Вкладки площадок */}
+          <div className="flex gap-1 border-b border-gray-200">
+            {([
+              { k: 'telegram', label: 'Telegram' },
+              { k: 'vk', label: 'VK' },
+              { k: 'max', label: 'MAX' },
+            ] as const).map(tt => (
+              <button
+                key={tt.k}
+                type="button"
+                onClick={() => setChanTab(tt.k)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  chanTab === tt.k
+                    ? 'border-[#25455D] text-[#25455D]'
+                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {tt.label}
+                {((tt.k === 'telegram' && form.tg_channel_url) ||
+                  (tt.k === 'vk' && form.vk_url) ||
+                  (tt.k === 'max' && form.max_url)) && (
+                  <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 align-middle" />
+                )}
+              </button>
+            ))}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка на MAX-канал</label>
-            <input type="url" value={form.max_url || ''} onChange={set('max_url')}
-              placeholder="https://max.ru/..."
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-            <label className="block text-sm font-medium text-gray-700 mb-1.5 mt-3">ID MAX-канала (для проверки подписки)</label>
-            <input type="text" value={form.max_channel_id || ''} onChange={set('max_channel_id')}
-              placeholder="-71606981728842"
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
-            <p className="text-xs text-gray-500 mt-1">MAX не отдаёт ID по ссылке — впишите вручную. Бот должен быть админом канала, иначе проверка подписки не сработает.</p>
-          </div>
+
+          {chanTab === 'telegram' && (
+            <TelegramChannelField
+              title="Telegram канал коллаборатора"
+              mode="single"
+              value={{ url: form.tg_channel_url || '', chatId: form.tg_channel_id || '' }}
+              onChange={(next) => setForm((f: any) => ({ ...f, tg_channel_url: next.url, tg_channel_id: next.chatId }))}
+            />
+          )}
+
+          {chanTab === 'vk' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка на VK-сообщество</label>
+              <input type="url" value={form.vk_url || ''} onChange={set('vk_url')}
+                placeholder="https://vk.com/club..."
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              <p className="text-xs text-gray-500 mt-1">ID сообщества для проверки подписки определится автоматически при сохранении.{form.vk_channel_id ? ` Сейчас: ${form.vk_channel_id}` : ''}</p>
+            </div>
+          )}
+
+          {chanTab === 'max' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Ссылка на MAX-канал</label>
+              <input type="url" value={form.max_url || ''} onChange={set('max_url')}
+                placeholder="https://max.ru/..."
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              <label className="block text-sm font-medium text-gray-700 mb-1.5 mt-3">ID MAX-канала (для проверки подписки)</label>
+              <input type="text" value={form.max_channel_id || ''} onChange={set('max_channel_id')}
+                placeholder="-71606981728842"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+              <p className="text-xs text-gray-500 mt-1">MAX не отдаёт ID по ссылке — впишите вручную. Бот должен быть админом канала, иначе проверка подписки не сработает.</p>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fields.personalAccountId}</label>
             <input type="text" value={form.personal_tg_id || ''} onChange={set('personal_tg_id')}
