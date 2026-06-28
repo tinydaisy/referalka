@@ -458,21 +458,6 @@ function ContactCard({
           </button>
         </div>
 
-        {/* Колонка «Был в эфире» / «Проголосовал» — read-only по link_clicked_at */}
-        <div className="w-24 flex justify-center shrink-0">
-          <span
-            title={p.link_clicked_at
-              ? `${clickLabel} — ${new Date(p.link_clicked_at).toLocaleString('ru')}`
-              : 'Не нажал главную ссылку события'}
-            className={`w-6 h-6 rounded-md border flex items-center justify-center ${
-              p.link_clicked_at
-                ? 'bg-emerald-500 border-emerald-500 text-white'
-                : 'bg-white border-gray-300'
-            }`}
-          >
-            {p.link_clicked_at && <Check size={14} strokeWidth={3} />}
-          </span>
-        </div>
 
         {/* Колонка «В чате» — read-only, ставится кнопкой «Проверить чаты» (только TG) */}
         <div className="w-24 flex justify-center shrink-0">
@@ -614,15 +599,14 @@ function ContactCard({
   )
 }
 
-function ListHeader({ clickLabel }: { clickLabel: string }) {
+function ListHeader() {
   return (
     <div className="hidden sm:flex items-center gap-3 px-5 py-2.5 border-b border-gray-100 bg-gray-50/50 text-[11px] font-medium uppercase tracking-wider text-gray-400">
       <div className="flex-1 min-w-0">Имя</div>
       <div className="flex-1 max-w-xs">Кто привёл</div>
       <div className="w-24 text-center">Регистрация</div>
       <div className="w-24 text-center">Зарегистр.</div>
-      <div className="w-24 text-center">{clickLabel}</div>
-      <div className="w-24 text-center">В чате</div>
+      <div className="w-24 text-center">В чате ТГ</div>
       <div className="w-24 text-center">Подписка</div>
       <div className="w-8" />
       <div className="w-4" />
