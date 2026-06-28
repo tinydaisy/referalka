@@ -891,6 +891,20 @@ async def delete_collaborator(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Коллаборация не найдена")
+    # Карточка основателя (self_collaborator, миграция 141) — удалять нельзя:
+    # она связана с профилем клиента и используется в событиях/Коллабораторной.
+    is_self = await db.fetchval(
+        "SELECT 1 FROM clients WHERE id = $1 AND self_collaborator_id = $2",
+        client_id, collaborator_id,
+    )
+    if is_self:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Это ваша карточка организатора — её нельзя удалить. "
+                "Она связана с вашим профилем и используется в событиях."
+            ),
+        )
     count = await db.fetchval(
         "SELECT COUNT(*) FROM event_collaborators WHERE speaker_id = $1", collaborator_id
     )
