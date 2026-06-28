@@ -74,6 +74,7 @@ export default function SettingsPage() {
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
         notifications_max_chat_id: c.notifications_max_chat_id ? String(c.notifications_max_chat_id) : '',
+        notifications_max_url: c.notifications_max_url ? String(c.notifications_max_url) : '',
         notifications_vk_peer_id: c.notifications_vk_peer_id ? String(c.notifications_vk_peer_id) : '',
         partner_landing_url: c.partner_landing_url || '',
         partner_dashboard_url: c.partner_dashboard_url || '',
