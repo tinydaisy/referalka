@@ -414,8 +414,15 @@ async def _forward_max_user_message_to_organizer(
     ]
     if _max_url:
         parts.append(f'<b>Ссылка:</b> <a href="{_max_url}">{_max_url}</a>')
-    elif contact_id:
-        parts.append(f'<b>Ответить:</b> <a href="{card_url}">в карточке → Диалоги</a> (MAX не даёт прямую ссылку на профиль)')
+    else:
+        # У человека нет публичного username — пробуем РАЗНЫЕ форматы ссылки на
+        # профиль по числовому id. Какой реально откроет диалог в MAX — тестируем.
+        _uid = _html.escape(str(user_id))
+        parts.append("<b>Ссылки на человека (тест — что откроет диалог):</b>")
+        parts.append(f'1) <a href="https://max.ru/u/{_uid}">max.ru/u/{_uid}</a>')
+        parts.append(f'2) <a href="https://max.ru/id{_uid}">max.ru/id{_uid}</a>')
+        parts.append(f'3) <a href="https://max.ru/{_uid}">max.ru/{_uid}</a>')
+        parts.append(f'<code>max://user/{_uid}</code> (скопировать в MAX)')
     parts += [
         f"<b>ID контакта:</b> {('#' + str(contact_id)) if contact_id else '—'}",
         f"<b>Источник (utm_source):</b> {_html.escape(row['utm_source']) if row['utm_source'] else '—'}",
