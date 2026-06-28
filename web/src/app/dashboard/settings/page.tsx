@@ -494,8 +494,7 @@ export default function SettingsPage() {
               <p className="mt-3 text-sm text-gray-600">
                 Добавьте свой MAX-бот{botHandles?.max ? <> (<strong>{botHandles.max}</strong>)</> : null} <strong>администратором</strong> в
                 нужный MAX-канал, вставьте ссылку на него и нажмите <strong>«Получить ID»</strong> — ID
-                определится сам. После — нажмите <strong>«Сохранить визитку»</strong> внизу. Команды в самом
-                MAX-канале не работают (MAX не отдаёт боту посты канала), поэтому ID берётся по ссылке.
+                определится сам. После — нажмите <strong>«Сохранить визитку»</strong> внизу.
               </p>
             </div>
           )}
