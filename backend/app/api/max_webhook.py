@@ -606,13 +606,6 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         except Exception as e:  # noqa: BLE001
             logger.warning(f"MAX dialog archive failed: {e}")
 
-        # DEBUG (временно): сырой sender от MAX — ищем скрытое поле ссылки на
-        # профиль (link/url), которого нет в офиц. доке User. Удалить после анализа.
-        try:
-            logger.warning(f"MAX_SENDER_DEBUG keys={list(sender.keys()) if isinstance(sender, dict) else type(sender)} raw={sender}")
-        except Exception:
-            pass
-
         # Уведомление #user_message организатору в его TG-канал (с кликабельной
         # ссылкой на профиль MAX — чтобы из Telegram попасть в диалог с человеком).
         try:
