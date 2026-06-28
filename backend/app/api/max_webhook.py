@@ -151,6 +151,15 @@ async def handle_max_update(secret: str, request: Request):
     return {"ok": True}
 
 
+def _is_getmyid_command(text: str | None) -> bool:
+    """Команда /getmyid — узнать ID. Работает в личке, беседе и канале.
+    Терпима к регистру, слэшу и хвосту (например '/getmyid@bot').
+    """
+    t = (text or "").strip().lower().lstrip("/")
+    t = t.split("@", 1)[0].split()[0] if t else t
+    return t == "getmyid"
+
+
 def _extract_user_and_chat(update: dict) -> tuple[dict, int | None, int | None]:
     """Из update достаём sender-объект, user_id и chat_id."""
     msg = update.get("message", {}) or {}
@@ -258,21 +267,13 @@ async def _archive_max_chat_message(
 ) -> None:
     """Слушалка чатов: архивирует сообщение MAX-беседы события (для подсчёта заданий).
 
-    ⚠️ Отдельно от логики лички — ничего не отвечает (кроме /chatid), только пишет
-    в event_chat_messages, если беседа привязана к событию (по events.max_chat_id).
+    ⚠️ Отдельно от логики лички — ничего не отвечает, только пишет в
+    event_chat_messages, если беседа привязана к событию (по events.max_chat_id).
+    Команда /getmyid обрабатывается ВЫШЕ по стеку (до этой слушалки), здесь её нет.
     """
     from app.services.chat_archive import archive_chat_message, remember_known_chat
 
-    # Команда /chatid — единственный случай отправки в беседу: числовой chat_id
-    # для поля чата MAX у события в дашборде. Только на точное «/chatid».
-    if (text or "").strip().lower() == "/chatid":
-        try:
-            await max_send_message(chat_id, f"ID этого чата: {chat_id}", token=bot_token)
-        except Exception:  # noqa: BLE001
-            pass
-        return
-
-    # В остальном слушалка НЕМАЯ — только архивирует.
+    # Слушалка НЕМАЯ — только архивирует.
     has_att, att_kind = _max_attachment_info(body)
     sender = msg.get("sender") or {}
     author_name = sender.get("name") or None
@@ -436,6 +437,21 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
     sender, user_id, chat_id = _extract_user_and_chat(update)
     if not user_id or not chat_id:
         return
+    # ── /getmyid — работает ВЕЗДЕ: личка / беседа / канал ────────────────────
+    # Бот отвечает chat_id этого места + ваш user_id. Стоит ВЫШЕ ветки chat_type,
+    # иначе в беседе/канале не сработает (там ранний return в слушалку). Бот
+    # обязан быть в этом чате/канале.
+    if _is_getmyid_command(text):
+        try:
+            await max_send_message(
+                chat_id,
+                f"ID этого чата/канала: {chat_id}\nВаш ID: {user_id}",
+                token=bot_token,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"MAX /getmyid reply failed chat={chat_id}: {e}")
+        return
+
     # Сообщения из групповых чатов/бесед (chat_type='chat'): НЕ запускаем логику
     # лички (бот ничего не слать в чаты), но СЛУШАЕМ для архива заданий
     # (отдельная слушалка чатов). chat_archive сам проверит привязку чата к событию.
@@ -452,26 +468,8 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
         return
     low = text.lower()
 
-    if low.startswith("/getchatid"):
-        await max_send_message(
-            chat_id,
-            f"user_id: {user_id}\nchat_id: {chat_id}\n\n"
-            "Чтобы получать уведомления о новых интересах — добавьте бота админом "
-            "в ваш служебный канал и перешлите сюда любое сообщение из него.",
-            token=bot_token,
-        )
-        return
-
-    if low.startswith("/getmyid"):
-        await max_send_message(
-            chat_id,
-            f"Ваш MAX ID: {user_id}\n\n"
-            "Вставьте это число в поле тестовых MAX-ID в Настройках → Технические, "
-            "чтобы получать тестовые рассылки. Также используется для объединения "
-            "аккаунтов (/merge) на других площадках.",
-            token=bot_token,
-        )
-        return
+    # /getmyid и алиасы обработаны выше универсально (_is_max_id_command) —
+    # отдельные ветки здесь больше не нужны.
 
     if low.startswith("/support"):
         from app.services.support_message import build_support_message_plain
