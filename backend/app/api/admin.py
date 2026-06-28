@@ -273,6 +273,24 @@ async def list_tariffs(
     return {"tariffs": [dict(t) for t in tariffs]}
 
 
+async def _mirror_pro_features_to_trial(db, changed_tariff_id: int) -> None:
+    """Правило проекта: тариф `trial` ВСЕГДА имеет те же фичи, что `pro`.
+    Если изменили фичи именно у pro — выравниваем trial под pro (добавляем
+    недостающие; лишние у trial не трогаем, он не должен быть беднее pro).
+    """
+    pro = await db.fetchval("SELECT id FROM tariffs WHERE slug = 'pro'")
+    trial = await db.fetchval("SELECT id FROM tariffs WHERE slug = 'trial'")
+    if not pro or not trial or changed_tariff_id != pro:
+        return
+    await db.execute(
+        """INSERT INTO tariff_features (tariff_id, feature_id)
+           SELECT $1, tf.feature_id FROM tariff_features tf
+            WHERE tf.tariff_id = $2
+           ON CONFLICT DO NOTHING""",
+        trial, pro,
+    )
+
+
 @router.post("/tariffs", summary="Создать тариф")
 async def create_tariff(
     data: TariffCreate,
@@ -297,6 +315,7 @@ async def create_tariff(
                SELECT $1, f.id FROM features f WHERE f.slug = ANY($2::text[])""",
             tariff["id"], data.feature_slugs,
         )
+    await _mirror_pro_features_to_trial(db, tariff["id"])
     return {"tariff": dict(tariff)}
 
 
@@ -347,6 +366,8 @@ async def update_tariff(
                    SELECT $1, f.id FROM features f WHERE f.slug = ANY($2::text[])""",
                 tariff_id, data.feature_slugs,
             )
+        # Правило: trial всегда = pro по фичам (если меняли pro — зеркалим).
+        await _mirror_pro_features_to_trial(db, tariff_id)
 
     tariff = await db.fetchrow(
         """SELECT t.*,

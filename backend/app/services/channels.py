@@ -491,3 +491,101 @@ async def send_to_notifications_channel(
         except Exception:  # noqa: BLE001 — пробуем следующий токен
             continue
     return False
+
+
+async def get_client_max_token(client_id: int, db) -> Optional[str]:
+    """Токен MAX-бота клиента (его VIP MAX-бот). None если нет."""
+    return await db.fetchval(
+        """SELECT ch.bot_token FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1 AND ch.platform_slug = 'max'
+              AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY cc.is_active DESC, cc.id ASC LIMIT 1""",
+        client_id,
+    )
+
+
+async def get_client_vk_token(client_id: int, db) -> Optional[str]:
+    """Токен VK-сообщества клиента. None если нет."""
+    return await db.fetchval(
+        """SELECT ch.bot_token FROM channels ch
+             JOIN client_channels cc ON cc.channel_id = ch.id
+            WHERE cc.client_id = $1 AND ch.platform_slug = 'vk'
+              AND ch.is_system = FALSE
+              AND ch.bot_token IS NOT NULL AND ch.bot_token <> ''
+            ORDER BY cc.is_active DESC, cc.id ASC LIMIT 1""",
+        client_id,
+    )
+
+
+async def notify_organizer_all_channels(
+    client_id: int, text_html: str, db, *, text_plain: Optional[str] = None
+) -> dict:
+    """ЕДИНАЯ точка отправки уведомления организатору во ВСЕ его каналы уведомлений:
+    Telegram + MAX + VK. Уведомление ДУБЛИРУЕТСЯ в каждый заполненный канал,
+    независимо от площадки человека (правило клиента — «слать во все»).
+
+    - TG  — HTML (clients.notifications_telegram_chat_id) ботом клиента.
+    - MAX — plain-текст (clients.notifications_max_chat_id) MAX-ботом клиента.
+            MAX не поддерживает HTML так же — шлём text_plain (или strip тегов).
+    - VK  — plain-текст (clients.notifications_vk_peer_id) сообществом клиента.
+
+    Пустое поле канала / нет токена бота на платформе → канал пропускается (graceful).
+    Возвращает {'tg': bool, 'max': bool, 'vk': bool}.
+    """
+    row = await db.fetchrow(
+        """SELECT notifications_telegram_chat_id, notifications_max_chat_id,
+                  notifications_vk_peer_id
+             FROM clients WHERE id = $1""",
+        client_id,
+    )
+    result = {"tg": False, "max": False, "vk": False}
+    if not row or not text_html:
+        return result
+
+    plain = text_plain or _strip_html(text_html)
+
+    # ── Telegram ──
+    if row["notifications_telegram_chat_id"]:
+        result["tg"] = await send_to_notifications_channel(
+            client_id, row["notifications_telegram_chat_id"], text_html, db
+        )
+
+    # ── MAX ──
+    if row["notifications_max_chat_id"]:
+        try:
+            max_token = await get_client_max_token(client_id, db)
+            if max_token:
+                from app.services.max_api import send_message as max_send
+                await max_send(row["notifications_max_chat_id"], plain, token=max_token)
+                result["max"] = True
+        except Exception:  # noqa: BLE001 — не роняем остальные каналы
+            pass
+
+    # ── VK ──
+    if row["notifications_vk_peer_id"]:
+        try:
+            vk_token = await get_client_vk_token(client_id, db)
+            if vk_token:
+                from app.services.vk_api import send_message as vk_send
+                await vk_send(int(row["notifications_vk_peer_id"]), plain, token=vk_token)
+                result["vk"] = True
+        except Exception:  # noqa: BLE001
+            pass
+
+    return result
+
+
+def _strip_html(s: str) -> str:
+    """Грубое снятие HTML-тегов для MAX/VK (они не парсят TG-HTML).
+    <a href=URL>текст</a> → «текст (URL)», остальные теги срезаются.
+    """
+    import re
+    # ссылки: вытащим URL рядом с текстом, чтобы был кликабельный адрес
+    s = re.sub(r'<a\s+href="([^"]+)">(.*?)</a>', r'\2 (\1)', s, flags=re.IGNORECASE | re.DOTALL)
+    s = re.sub(r'<[^>]+>', '', s)  # прочие теги
+    # html entities назад
+    s = (s.replace('&lt;', '<').replace('&gt;', '>')
+           .replace('&amp;', '&').replace('&quot;', '"').replace('&#39;', "'"))
+    return s

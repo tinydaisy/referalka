@@ -37,8 +37,9 @@ export default function SettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab') as Tab | null
     return (t === 'tech' || t === 'integration' || t === 'mini-app' || t === 'subscription' || t === 'legal' || t === 'assistant' || t === 'chat-gates') ? t : 'profile'
   })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', partner_landing_url: '', partner_dashboard_url: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', telegram_username: '', timezone: 'Europe/Moscow', test_telegram_ids_raw: '', test_vk_ids_raw: '', test_max_ids_raw: '', test_email_ids_raw: '', work_tg_username: '', work_vk: '', work_max: '', broadcast_concurrency: '30', notifications_telegram_chat_id: '', notifications_max_chat_id: '', notifications_vk_peer_id: '', partner_landing_url: '', partner_dashboard_url: '' })
   const [partnerVisibleRoles, setPartnerVisibleRoles] = useState<string[]>([])
+  const [notifyTab, setNotifyTab] = useState<'telegram' | 'max' | 'vk'>('telegram')
   const [clientId, setClientId] = useState<number | null>(null)
   const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([])
   const [botHandles, setBotHandles] = useState<{ telegram?: string | null; vk?: string | null; max?: string | null } | null>(null)
@@ -71,6 +72,8 @@ export default function SettingsPage() {
         work_max: c.work_max || '',
         broadcast_concurrency: c.broadcast_concurrency ? String(c.broadcast_concurrency) : '30',
         notifications_telegram_chat_id: c.notifications_telegram_chat_id ? String(c.notifications_telegram_chat_id) : '',
+        notifications_max_chat_id: c.notifications_max_chat_id ? String(c.notifications_max_chat_id) : '',
+        notifications_vk_peer_id: c.notifications_vk_peer_id ? String(c.notifications_vk_peer_id) : '',
         partner_landing_url: c.partner_landing_url || '',
         partner_dashboard_url: c.partner_dashboard_url || '',
       })
@@ -119,6 +122,8 @@ export default function SettingsPage() {
         work_max: form.work_max || null,
         broadcast_concurrency: concurrency,
         notifications_telegram_chat_id: form.notifications_telegram_chat_id ? Number(form.notifications_telegram_chat_id) : null,
+        notifications_max_chat_id: form.notifications_max_chat_id?.trim() || null,
+        notifications_vk_peer_id: form.notifications_vk_peer_id?.trim() || null,
         partner_landing_url: form.partner_landing_url.trim() || null,
         partner_dashboard_url: form.partner_dashboard_url.trim() || null,
         partner_visible_roles: partnerVisibleRoles,
@@ -367,32 +372,97 @@ export default function SettingsPage() {
               <Bell size={18} className="text-white" />
             </div>
             <div>
-              <h3 id="tg-chat-id" className="font-semibold text-gray-800">Канал уведомлений</h3>
+              <h3 id="tg-chat-id" className="font-semibold text-gray-800">Каналы уведомлений</h3>
               <p className="text-sm text-gray-500 mt-0.5">
-                Сюда бот будет писать о новых интересантах на ваши лид-магниты и других важных
-                событиях. Заведите отдельный <strong>закрытый</strong> Telegram-канал для этих
-                уведомлений, добавьте туда админом <strong>@{notifyBotHandle}</strong> (оставьте
-                все права) и впишите ID канала в поле ниже.
+                Сюда бот пишет о новых интересантах и других важных событиях. Можно задать
+                канал на каждой площадке — <strong>уведомление придёт во все три сразу</strong>.
+                Добавьте бота админом в свой канал/беседу и впишите ID. Узнать ID — команда
+                <strong> /getmyid</strong> прямо в этом канале/беседе (бот ответит числом).
               </p>
             </div>
           </div>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={form.notifications_telegram_chat_id}
-            onChange={set('notifications_telegram_chat_id')}
-            placeholder="-1001234567890"
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
-          />
-          <details className="mt-3 text-sm text-gray-600">
-            <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>
-            <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
-              <li>Создайте <strong>закрытый</strong> Telegram-канал (тип «Частный канал»).</li>
-              <li>Добавьте <a href={`https://t.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
-              <li>Откройте личный чат с @{notifyBotHandle} и перешлите ему любое сообщение из вашего канала.</li>
-              <li>Бот ответит с ID канала — скопируйте число (вместе со знаком минус) и вставьте в поле выше.</li>
-            </ol>
-          </details>
+
+          {/* Вкладки площадок */}
+          <div className="flex gap-1 mb-4 border-b border-gray-200">
+            {([
+              { k: 'telegram', label: 'Telegram' },
+              { k: 'max', label: 'MAX' },
+              { k: 'vk', label: 'VK' },
+            ] as const).map(t => (
+              <button
+                key={t.k}
+                type="button"
+                onClick={() => setNotifyTab(t.k)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  notifyTab === t.k
+                    ? 'border-[#25455D] text-[#25455D]'
+                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {t.label}
+                {((t.k === 'telegram' && form.notifications_telegram_chat_id) ||
+                  (t.k === 'max' && form.notifications_max_chat_id) ||
+                  (t.k === 'vk' && form.notifications_vk_peer_id)) && (
+                  <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 align-middle" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {notifyTab === 'telegram' && (
+            <div>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={form.notifications_telegram_chat_id}
+                onChange={set('notifications_telegram_chat_id')}
+                placeholder="-1001234567890"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+              />
+              <details className="mt-3 text-sm text-gray-600">
+                <summary className="cursor-pointer text-[#25455D] font-medium">Как узнать ID канала</summary>
+                <ol className="list-decimal pl-5 mt-2 space-y-1 text-gray-600">
+                  <li>Создайте <strong>закрытый</strong> Telegram-канал.</li>
+                  <li>Добавьте <a href={`https://t.me/${notifyBotHandle}`} target="_blank" rel="noreferrer" className="underline text-[#25455D]">@{notifyBotHandle}</a> в админы канала — <strong>оставьте все права</strong>.</li>
+                  <li>Откройте личный чат с @{notifyBotHandle} и перешлите ему любое сообщение из канала — бот ответит с ID.</li>
+                </ol>
+              </details>
+            </div>
+          )}
+
+          {notifyTab === 'max' && (
+            <div>
+              <input
+                type="text"
+                value={form.notifications_max_chat_id}
+                onChange={set('notifications_max_chat_id')}
+                placeholder="-76342280100426"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+              />
+              <p className="mt-3 text-sm text-gray-600">
+                Добавьте свой MAX-бот{botHandles?.max ? <> (<strong>{botHandles.max}</strong>)</> : null} админом
+                в нужный MAX-канал/беседу и напишите там <strong>/getmyid</strong> — бот ответит с ID.
+                Вставьте число сюда. Нужен подключённый MAX-бот клиента.
+              </p>
+            </div>
+          )}
+
+          {notifyTab === 'vk' && (
+            <div>
+              <input
+                type="text"
+                value={form.notifications_vk_peer_id}
+                onChange={set('notifications_vk_peer_id')}
+                placeholder="2000000001"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
+              />
+              <p className="mt-3 text-sm text-gray-600">
+                Создайте беседу VK, добавьте туда своё сообщество{botHandles?.vk ? <> (<strong>{botHandles.vk}</strong>)</> : null} и
+                напишите в беседе <strong>/getmyid</strong> — сообщество ответит с peer_id (для бесед это
+                число вида 2000000001). Вставьте сюда. Нужно подключённое VK-сообщество клиента.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Test recipient IDs (TG / VK / MAX) — разворачиваемый блок */}

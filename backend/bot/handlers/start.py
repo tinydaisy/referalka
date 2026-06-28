@@ -1616,38 +1616,29 @@ async def handle_support(message: Message):
         await message.answer("Возникли вопросы? Напишите организатору события.")
 
 
-@router.message(Command(commands=["getchatid"]))
-async def handle_getchatid(message: Message):
-    """Подсказка для клиента: как получить chat_id канала уведомлений.
-    Если бот добавлен админом в канал и клиент пересылает сюда сообщение из канала —
-    бот отвечает chat_id канала (forward_from_chat.id)."""
-    fwd = message.forward_from_chat
-    if fwd:
-        await message.answer(
-            f"<b>ID канала:</b> <code>{fwd.id}</code>\n\n"
-            f"Скопируйте это число и вставьте в поле «Канал уведомлений» в Настройках → Технические.",
-            parse_mode="HTML",
-        )
-        return
-    await message.answer(
-        "Чтобы узнать ID канала:\n\n"
-        "1. Создайте Telegram-канал (или используйте существующий).\n"
-        "2. Добавьте меня (@pluson_bot) в этот канал админом — права не нужны.\n"
-        "3. Перешлите мне сюда любое сообщение из канала.\n\n"
-        "Я отвечу с ID канала, который надо вставить в Настройки → Технические.",
-    )
-
-
 @router.message(Command(commands=["getmyid"]))
 async def handle_getmyid(message: Message):
-    """Узнать свой Telegram ID — для поля тестовых ID в Настройках → Технические."""
+    """ОДНА команда /getmyid — работает в личке, группе и беседе.
+    Возвращает chat_id текущего места + ваш Telegram ID.
+    Для КАНАЛА (бот не ловит команды в канале) — перешлите сообщение из канала
+    в личку боту, ответим id канала (forward_from_chat.id).
+    """
     uid = message.from_user.id if message.from_user else "?"
-    await message.answer(
-        f"<b>Ваш Telegram ID:</b> <code>{uid}</code>\n\n"
-        "Вставьте это число в поле тестовых Telegram-ID в Настройках → Технические, "
-        "чтобы получать тестовые рассылки.",
-        parse_mode="HTML",
+    chat = message.chat
+    fwd = message.forward_from_chat
+
+    lines = []
+    if fwd:
+        # Переслали сообщение из канала/чата — отдаём id источника.
+        lines.append(f"<b>ID канала/чата:</b> <code>{fwd.id}</code>")
+    lines.append(f"<b>ID этого чата:</b> <code>{chat.id}</code>")
+    lines.append(f"<b>Ваш ID:</b> <code>{uid}</code>")
+    lines.append("")
+    lines.append(
+        "Вставьте нужный ID в Настройки → Технические "
+        "(канал уведомлений / тестовые ID). Для канала — перешлите сюда сообщение из него."
     )
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 _MERGE_USAGE_TG = (
@@ -1839,8 +1830,9 @@ async def handle_user_message(message: Message):
                 "SELECT handle FROM channels WHERE id = $1", ch["id"],
             )
 
-        # Уведомление в канал клиента (от @pluson_bot)
-        if notif_chat_id:
+        # Уведомление в каналы клиента (TG+MAX+VK дублирование). Хелпер сам решит,
+        # куда слать (по заполненным полям); строим текст всегда, если есть client_id.
+        if client_id:
             when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
             display_name = (
                 ((user.first_name or "") + " " + (user.last_name or "")).strip()
@@ -1875,21 +1867,11 @@ async def handle_user_message(message: Message):
                 _html.escape(message.text or ""),
             ]
             notif_text = "\n".join(parts)
-            token = settings.telegram_bot_token
-            if token:
-                try:
-                    async with httpx.AsyncClient(timeout=10) as http:
-                        await http.post(
-                            f"https://api.telegram.org/bot{token}/sendMessage",
-                            json={
-                                "chat_id": notif_chat_id,
-                                "text": notif_text,
-                                "parse_mode": "HTML",
-                                "disable_web_page_preview": True,
-                            },
-                        )
-                except Exception as e:
-                    log.warning("user_message notify failed: %s", e)
+            try:
+                from app.services.channels import notify_organizer_all_channels
+                await notify_organizer_all_channels(client_id, notif_text, db)
+            except Exception as e:
+                log.warning("user_message notify failed: %s", e)
 
         # Архив входящего личного сообщения (для раздела «Диалоги» в карточке контакта).
         try:

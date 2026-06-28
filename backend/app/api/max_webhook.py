@@ -371,6 +371,7 @@ async def _forward_max_user_message_to_organizer(
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """SELECT c.notifications_telegram_chat_id,
+                      c.notifications_max_chat_id, c.notifications_vk_peer_id,
                       pu.contact_id, ct.name AS contact_name, ct.utm_source
                  FROM clients c
             LEFT JOIN platform_users pu
@@ -380,7 +381,11 @@ async def _forward_max_user_message_to_organizer(
                 WHERE c.id = $1""",
             client_id, str(user_id),
         )
-    if not row or not row["notifications_telegram_chat_id"]:
+    if not row or not (
+        row["notifications_telegram_chat_id"]
+        or row["notifications_max_chat_id"]
+        or row["notifications_vk_peer_id"]
+    ):
         return
 
     when_str = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
@@ -415,19 +420,11 @@ async def _forward_max_user_message_to_organizer(
     ]
     notif_text = "\n".join(parts)
 
-    token = settings.telegram_bot_token
-    if not token:
-        return
-    async with _httpx.AsyncClient(timeout=10) as http:
-        await http.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={
-                "chat_id": row["notifications_telegram_chat_id"],
-                "text": notif_text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            },
-        )
+    # Дублируем во ВСЕ каналы уведомлений клиента (TG+MAX+VK).
+    from app.services.channels import notify_organizer_all_channels
+    pool2 = await get_pool()
+    async with pool2.acquire() as conn2:
+        await notify_organizer_all_channels(client_id, notif_text, conn2)
 
 
 async def _handle_message_created(update: dict, *, bot_token: str, client_id_override: int | None) -> None:

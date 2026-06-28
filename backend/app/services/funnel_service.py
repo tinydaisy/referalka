@@ -511,12 +511,17 @@ async def check_telegram_channels_subscription(
 
 
 async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
-    """Шлёт уведомление в TG-канал организатора (если настроен) о новом интересе."""
-    chat_id = await db.fetchval(
-        "SELECT notifications_telegram_chat_id FROM clients WHERE id = $1",
-        client_id
+    """Шлёт уведомление организатору о новом интересе во ВСЕ его каналы (TG+MAX+VK)."""
+    _ch = await db.fetchrow(
+        """SELECT notifications_telegram_chat_id, notifications_max_chat_id,
+                  notifications_vk_peer_id FROM clients WHERE id = $1""",
+        client_id,
     )
-    if not chat_id:
+    if not _ch or not (
+        _ch["notifications_telegram_chat_id"]
+        or _ch["notifications_max_chat_id"]
+        or _ch["notifications_vk_peer_id"]
+    ):
         return
 
     run = await db.fetchrow(
@@ -605,8 +610,8 @@ async def _send_organizer_notification(client_id: int, run_id: int, db) -> None:
 
     text = "\n".join(parts)
     # Бот: свой (VIP) бот клиента, если есть; иначе системный @pluson_bot (автофолбэк).
-    from .channels import send_to_notifications_channel
-    await send_to_notifications_channel(client_id, chat_id, text, db)
+    from .channels import notify_organizer_all_channels
+    await notify_organizer_all_channels(client_id, text, db)
 
 
 async def run_started(run_id: int, tg_id: str, username: Optional[str],

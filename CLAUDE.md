@@ -112,6 +112,27 @@
 
 ⚠️ При правках любого клиентского флоу — **никогда не возвращать системный бот как fallback**. Старые упоминания «иначе системный @pluson_bot» в разделах ниже считать неактуальными.
 
+### Каналы уведомлений организатору на 3 площадках TG+MAX+VK (миграция 178 от 2026-06-28)
+
+**Зачем.** Раньше уведомления организатору (`#user_message`, «🆕 Новый интерес») шли только в Telegram (`clients.notifications_telegram_chat_id`). Теперь клиент задаёт канал на каждой площадке — уведомление **ДУБЛИРУЕТСЯ во все три заполненных** (TG + MAX + VK), независимо от площадки человека.
+
+**БД (миграция 178):** `clients.notifications_max_chat_id TEXT`, `clients.notifications_vk_peer_id TEXT`.
+
+**Единая точка отправки** — `notify_organizer_all_channels(client_id, text_html, db)` в [channels.py](backend/app/services/channels.py). Сам читает 3 поля clients и шлёт в каждое заполненное: TG (HTML, бот клиента), MAX (plain, MAX-бот клиента, `get_client_max_token`), VK (plain, сообщество клиента, `get_client_vk_token`, `messages.send` по peer_id). HTML→plain через `_strip_html` (ссылки `<a href=URL>текст</a>` → «текст (URL)»). Нет токена бота на платформе / пустое поле → канал пропущен (graceful). Возвращает `{tg, max, vk}` bool. **Все 5 точек уведомлений переведены на этот хелпер**: `event_welcome`, `funnel_service`, TG/VK/MAX `#user_message`. Гейт «слать или нет» — «есть ХОТЯ БЫ один из 3 каналов».
+
+**API:** `notifications_max_chat_id`/`notifications_vk_peer_id` в `ProfileUpdate` + SELECT `auth.py`. **Фронт:** Настройки → Технические → «Каналы уведомлений» во **вкладки Telegram/MAX/VK** (зелёная точка на заполненной). ID узнаётся командой `/getmyid` в канале/беседе.
+
+### Команда `/getmyid` — одна команда узнать ID, работает ВЕЗДЕ (TG+VK+MAX, 2026-06-28)
+
+Удалены старые `/getchatid`, `/chatid`. Одна `/getmyid` во всех ботах — chat_id текущего места + user_id:
+- **TG** ([start.py](backend/bot/handlers/start.py)) — личка/группа/беседа: `chat.id`+`from_user.id`; для КАНАЛА — переслать сообщение из канала боту → `forward_from_chat.id`.
+- **VK** ([vk_main.py](backend/bot/vk_main.py)) — беседа: peer_id+from_id (прямой `messages.send` по peer_id); личка: VK ID.
+- **MAX** ([max_webhook.py](backend/app/api/max_webhook.py)) — `_is_getmyid_command` ВЫШЕ ветки chat_type, работает в личке/беседе/канале.
+
+### Правило: тариф trial ВСЕГДА = pro по фичам (2026-06-28)
+
+Триал — демо Профи. При привязке фичи к `pro` (admin) — авто-зеркало в `trial`: `_mirror_pro_features_to_trial` в [admin.py](backend/app/api/admin.py) (create/update_tariff). Гейтинг — только по фиче. См. [[feedback_trial_equals_pro]].
+
 ### Личные переписки «Диалоги» — история ЛС + ответы из дашборда (миграция 160 от 2026-06-21, НА ПРОДЕ)
 
 **Зачем.** Раньше личные сообщения людей боту/сообществу клиента нигде не сохранялись — только летело уведомление `#user_message` в TG-канал организатора. Теперь клиент видит ВСЮ историю переписки 1-на-1 (что пишет человек / что отвечает бот / что отвечает он сам) и **отвечает прямо из кабинета** через свои боты TG/VK/MAX, может править и удалять свои сообщения (реально у получателя на платформе).

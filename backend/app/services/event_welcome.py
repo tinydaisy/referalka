@@ -57,11 +57,18 @@ async def _send_event_organizer_notification(
     """Уведомление в notifications_telegram_chat_id организатора о новом интересе на событие.
     Зеркало `funnel_service._send_organizer_notification` для лид-магнитов, формат тот же,
     но первая строка — «Событие: <title>». Всегда шлёт от @pluson_bot."""
-    chat_id = await conn.fetchval(
-        "SELECT notifications_telegram_chat_id FROM clients WHERE id = $1",
+    # Уведомление дублируется во все каналы клиента (TG+MAX+VK). Если ни один
+    # не настроен — выходим.
+    _ch = await conn.fetchrow(
+        """SELECT notifications_telegram_chat_id, notifications_max_chat_id,
+                  notifications_vk_peer_id FROM clients WHERE id = $1""",
         client_id,
     )
-    if not chat_id:
+    if not _ch or not (
+        _ch["notifications_telegram_chat_id"]
+        or _ch["notifications_max_chat_id"]
+        or _ch["notifications_vk_peer_id"]
+    ):
         return
 
     contact = await conn.fetchrow(
@@ -157,10 +164,10 @@ async def _send_event_organizer_notification(
         parts.append("<b>Кто привёл:</b> —")
 
     text = "\n".join(parts)
-    # Бот: свой (VIP) бот клиента, если есть; иначе системный @pluson_bot (автофолбэк).
-    from .channels import send_to_notifications_channel
-    ok = await send_to_notifications_channel(client_id, chat_id, text, conn)
-    if not ok:
+    # Дублируем во ВСЕ каналы уведомлений клиента: TG + MAX + VK.
+    from .channels import notify_organizer_all_channels
+    res = await notify_organizer_all_channels(client_id, text, conn)
+    if not any(res.values()):
         logger.warning(
             f"event organizer notify failed client={client_id} event={event_id}"
         )

@@ -874,7 +874,7 @@ def _vk_attachment_info(message: dict) -> tuple[bool, str | None]:
 async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ctx: GroupCtx) -> None:
     """Слушалка чатов: архивирует сообщение ВК-беседы события (для подсчёта заданий).
 
-    ⚠️ Отдельно от логики лички — ничего не отвечает (кроме команды /chatid),
+    ⚠️ Отдельно от логики лички — ничего не отвечает (кроме команды /getmyid),
     только пишет в event_chat_messages, если беседа привязана к событию.
     chat_id беседы VK = ПОЛНЫЙ peer_id (2000000000 + N), НЕ урезанный N —
     урезанный «1» неуникален между сообществами и ложно матчит чужие события.
@@ -884,16 +884,16 @@ async def _archive_vk_chat_message(message: dict, peer_id: int, from_id: int, ct
     chat_id = str(peer_id)
     text = message.get("text") or ""
 
-    # Команда /chatid — единственный случай отправки в беседу: числовой chat_id
-    # для поля чата ВК у события в дашборде. Только на точное «/chatid».
+    # Команда /getmyid — работает в беседе: отдаём peer_id беседы + ваш VK ID.
     # ⚠️ В беседу шлём через peer_id (НЕ user_id — send_message кладёт в user_id
     # и для беседы ВК отвечает «incorrect user_id»). Поэтому прямой messages.send.
-    if text.strip().lower() == "/chatid":
+    if text.strip().lower().split("@", 1)[0].lstrip("/") == "getmyid":
         try:
             import random as _rnd
+            from_id = message.get("from_id") or "?"
             await vk_call("messages.send", {
                 "peer_id": peer_id,
-                "message": f"ID этого чата: {chat_id}",
+                "message": f"ID этого чата/беседы: {chat_id}\nВаш ID: {from_id}",
                 "random_id": _rnd.randint(1, 2**31 - 1),
             }, token=ctx.token)
         except Exception:  # noqa: BLE001
@@ -1524,6 +1524,7 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
     try:
         row = await db.fetchrow(
             """SELECT c.notifications_telegram_chat_id,
+                      c.notifications_max_chat_id, c.notifications_vk_peer_id,
                       pu.contact_id, ct.name AS contact_name, ct.utm_source
                  FROM clients c
             LEFT JOIN platform_users pu
@@ -1532,7 +1533,11 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
                 WHERE c.id = $1""",
             ctx.client_id, str(from_id),
         )
-        if not row or not row["notifications_telegram_chat_id"]:
+        if not row or not (
+            row["notifications_telegram_chat_id"]
+            or row["notifications_max_chat_id"]
+            or row["notifications_vk_peer_id"]
+        ):
             return
 
         # Имя/ник пользователя VK — через users.get
@@ -1581,19 +1586,9 @@ async def _forward_user_message_to_organizer(db, ctx: "GroupCtx", *, from_id: in
         ]
         notif_text = "\n".join(parts)
 
-        token = _s.telegram_bot_token
-        if not token:
-            return
-        async with _httpx.AsyncClient(timeout=10) as http:
-            await http.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={
-                    "chat_id": row["notifications_telegram_chat_id"],
-                    "text": notif_text,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                },
-            )
+        # Дублируем во ВСЕ каналы уведомлений клиента (TG+MAX+VK).
+        from app.services.channels import notify_organizer_all_channels
+        await notify_organizer_all_channels(ctx.client_id, notif_text, db)
     except Exception as e:
         logger.warning(f"VK user_message notify failed for from_id={from_id}: {e}")
 
