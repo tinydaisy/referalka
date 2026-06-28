@@ -1067,7 +1067,8 @@ async def resolve_max_chat_id(
 
     from app.services.max_api import max_call
     try:
-        resp = await max_call("GET", "/chats", token=token, params={"count": 200})
+        # MAX лимит count ≤ 100 (count=200 → 400 proto.payload).
+        resp = await max_call("GET", "/chats", token=token, params={"count": 100})
     except Exception:
         raise HTTPException(status_code=400, detail="not_found")
     chats = (resp or {}).get("chats") or []
