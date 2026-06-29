@@ -492,8 +492,14 @@ export default function GameTab({ event, participant, tgUser }: Props) {
   }
 
   // ──────────── view: game (главный) ────────────
+  const cabName = (participant?.contact_name || tgUser?.first_name || '').toString().trim()
+
   return (
     <div className="fade-in">
+      {/* Имя того, чей это кабинет */}
+      {cabName && (
+        <div style={{ fontSize: 18, fontWeight: 900, color: DARK, marginBottom: 10 }}>{cabName}</div>
+      )}
       {/* Компактные пиллы статистики */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <div style={{

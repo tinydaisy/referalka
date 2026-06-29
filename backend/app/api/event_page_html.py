@@ -838,8 +838,12 @@ def _cabinet_panel(rc, event, gifts, share_texts, share_images,
     """Вкладка «Кабинет» = копия GameTab."""
     visited = rc.get("visited", 0)
     registered = rc.get("registered", 0)
+    cab_name = (rc.get("name") or "").strip()
 
     out = ""
+    # Имя того, чей это кабинет — над пиллами статистики
+    if cab_name:
+        out += f'<div class="cab-greet">{esc(cab_name)}</div>'
     # Пиллы статистики
     out += (
         '<div class="cab-stats">'
@@ -1481,6 +1485,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     border-radius:50%; background:#FFCFA4; color:#25455D; font-weight:800; font-size:13px; flex-shrink:0; }}
 
   /* Кабинет (GameTab) */
+  .cab-greet {{ font-size:18px; font-weight:900; color:#25455D; margin-bottom:10px; }}
   .cab-stats {{ display:flex; gap:8px; margin-bottom:12px; }}
   .cab-stat {{ flex:1; background:#fff; border-radius:10px; padding:10px 12px; text-align:center;
     box-shadow:0 2px 6px rgba(37,69,93,.05); }}
