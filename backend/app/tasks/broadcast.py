@@ -970,7 +970,7 @@ async def _send_broadcast_vk_part(
     # Какие VK-подписчики клиента в зависимости от аудитории
     if aud_include == "all_client":
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
@@ -983,7 +983,7 @@ async def _send_broadcast_vk_part(
         )
     elif event_id and aud_include == "registered_event":
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -995,7 +995,7 @@ async def _send_broadcast_vk_part(
         )
     elif event_id:
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'vk'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1018,6 +1018,15 @@ async def _send_broadcast_vk_part(
         if not test_vk_set:
             return 0
         rows = [r for r in rows if str(r["platform_user_id"]) in test_vk_set]
+        if not rows:
+            return 0
+
+    # Исключение аудитории (audience_exclude) — кросс-платформенно по contact_id.
+    # Раньше игнорировалось → смерженный зарег. контакт получал письмо и в сегменте
+    # «исключая зарегистрированных» (дубль в VK/MAX/email).
+    _vk_excl = await _excluded_contact_ids(conn, event_id, schedule.get("audience_exclude"))
+    if _vk_excl:
+        rows = [r for r in rows if r["contact_id"] not in _vk_excl]
         if not rows:
             return 0
 
@@ -1246,7 +1255,7 @@ async def _send_broadcast_max_part(
     # Аудитория — те же 3 варианта что у VK
     if aud_include == "all_client":
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
                  FROM platform_users pu
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
                  JOIN client_channels cc ON cc.id = puc.client_channel_id
@@ -1259,7 +1268,7 @@ async def _send_broadcast_max_part(
         )
     elif event_id and aud_include == "registered_event":
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1271,7 +1280,7 @@ async def _send_broadcast_max_part(
         )
     elif event_id:
         rows = await conn.fetch(
-            """SELECT pu.id AS pu_id, pu.platform_user_id
+            """SELECT pu.id AS pu_id, pu.platform_user_id, pu.contact_id
                  FROM event_participants ep
                  JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug = 'max'
                  JOIN platform_user_channels puc ON puc.platform_user_id = pu.id
@@ -1294,6 +1303,13 @@ async def _send_broadcast_max_part(
         if not test_max_set:
             return 0
         rows = [r for r in rows if str(r["platform_user_id"]) in test_max_set]
+        if not rows:
+            return 0
+
+    # Исключение аудитории (audience_exclude) — кросс-платформенно по contact_id.
+    _max_excl = await _excluded_contact_ids(conn, event_id, schedule.get("audience_exclude"))
+    if _max_excl:
+        rows = [r for r in rows if r["contact_id"] not in _max_excl]
         if not rows:
             return 0
 
@@ -1532,6 +1548,13 @@ async def _send_broadcast_email_part(
             r for r in rows
             if r["email"] and str(r["email"]).strip().lower() in test_emails_set
         ]
+        if not rows:
+            return 0
+
+    # Исключение аудитории (audience_exclude) — кросс-платформенно по contact_id.
+    _em_excl = await _excluded_contact_ids(conn, event_id, schedule.get("audience_exclude"))
+    if _em_excl:
+        rows = [r for r in rows if r["contact_id"] not in _em_excl]
         if not rows:
             return 0
 
@@ -2027,6 +2050,31 @@ async def _build_audience(conn, schedule) -> set:
         exclude_ids = {r["platform_user_id"] for r in ex}
 
     return include_ids - exclude_ids
+
+
+async def _excluded_contact_ids(conn, event_id, aud_exclude) -> set:
+    """contact_id, которых надо ИСКЛЮЧИТЬ из аудитории по audience_exclude.
+
+    Возвращает по contact_id (а не platform_user_id), чтобы исключение работало
+    кросс-платформенно для смерженных контактов: если контакт зарегистрирован,
+    он исключается на ВСЕХ платформах (VK/MAX/email/TG), а не только там, где
+    совпал platform_user_id. Используется в VK/MAX/email-частях рассылки.
+    """
+    if not event_id or aud_exclude in (None, "", "none"):
+        return set()
+    if aud_exclude == "registered_event":
+        cond = "ep.is_registered = TRUE"
+    elif aud_exclude == "unregistered_event":
+        cond = "ep.is_registered = FALSE"
+    elif aud_exclude == "all_event":
+        cond = "TRUE"
+    else:
+        return set()
+    ex = await conn.fetch(
+        f"SELECT ep.contact_id FROM event_participants ep WHERE ep.event_id=$1 AND {cond}",
+        event_id,
+    )
+    return {r["contact_id"] for r in ex}
 
 
 # ─────────────────────────────────────────
