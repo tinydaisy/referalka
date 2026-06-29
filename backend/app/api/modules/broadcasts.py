@@ -1643,11 +1643,17 @@ class BulkItem(BaseModel):
     video_url: Optional[str] = None
     media_type: Optional[str] = None
     buttons: List[ButtonItem] = []
+    # Аудитория на КОНКРЕТНУЮ рассылку (сегмент). None = взять общие из запроса.
+    audience_include: Optional[str] = None
+    audience_exclude: Optional[str] = None
+    send_to_event_chats: Optional[bool] = None
+    send_to_client_chats: Optional[bool] = None
 
 
 class BulkAddRequest(BaseModel):
     items: List[BulkItem]
     is_test: bool = False
+    # Общая аудитория по умолчанию (если у item не задана своя).
     audience_include: str = "all_event"
     audience_exclude: str = "none"
     dry_run: bool = False   # только валидация без записи
@@ -1690,6 +1696,11 @@ async def bulk_add_schedules(
             "video_url": sv,
             "media_type": smt,
             "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in it.buttons if b.text.strip() and b.url.strip()],
+            # Аудитория/чаты сегмента: своё у item → иначе общие из запроса.
+            "audience_include": it.audience_include or data.audience_include,
+            "audience_exclude": it.audience_exclude or data.audience_exclude,
+            "send_to_event_chats": bool(it.send_to_event_chats),
+            "send_to_client_chats": bool(it.send_to_client_chats),
         })
 
     if errors_by_idx:
@@ -1697,7 +1708,21 @@ async def bulk_add_schedules(
     if data.dry_run:
         return {"ok": True, "errors": [], "total": len(data.items), "dry_run": True}
 
-    # 2) Вставка (всё или ничего — транзакция)
+    # 2) Импорт фото по внешним ссылкам в R2 (Google Drive / облака → наш URL).
+    #    Сбой фото НЕ роняет всю партию: рассылка создаётся без фото, проблема — в отчёт.
+    from app.services.remote_media import import_remote_image_to_r2
+    warnings = []
+    for p in parsed:
+        if p.get("photo_url"):
+            try:
+                p["photo_url"] = await import_remote_image_to_r2(client_id, p["photo_url"])
+            except Exception as e:
+                warnings.append({"index": p["index"], "message": f"фото не загрузилось — {e}. Рассылка создана без фото."})
+                p["photo_url"] = None
+                if p.get("media_type") == "photo":
+                    p["media_type"] = None
+
+    # 3) Вставка (всё или ничего — транзакция)
     import json as _json
     created_ids = []
     async with db.transaction():
@@ -1708,16 +1733,18 @@ async def bulk_add_schedules(
                   (event_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
                    snapshot_text, snapshot_photo, snapshot_buttons,
-                   snapshot_video, snapshot_media_type)
-                VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+                   snapshot_video, snapshot_media_type,
+                   send_to_event_chats, send_to_client_chats)
+                VALUES ($1, NULL, 'custom', NULL, $2, 'draft', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
                 RETURNING id
                 """,
-                event_id, p["dt_utc"], data.is_test, data.audience_include, data.audience_exclude,
+                event_id, p["dt_utc"], data.is_test, p["audience_include"], p["audience_exclude"],
                 p["text"], p["photo_url"], _json.dumps(p["buttons"]),
-                p["video_url"], p["media_type"]
+                p["video_url"], p["media_type"],
+                p["send_to_event_chats"], p["send_to_client_chats"]
             )
             created_ids.append(row["id"])
-    return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids}
+    return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids, "warnings": warnings}
 
 
 @router.post("/schedules/run-all", summary="Запустить всю очередь (активировать Celery)")

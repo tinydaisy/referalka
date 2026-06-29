@@ -1,9 +1,10 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Plus, Save, Trash2, Pencil, X, Users, FileText, ChevronUp, ChevronDown, Search, Check } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useUrlTab } from '@/hooks/useUrlTab'
+import { MultiSelectDropdown } from '@/components/MultiSelectDropdown'
 
 // Тарифы мероприятия (миграция 157). Раздел показывается только клиентам
 // тарифа vip — гейтинг в page.tsx, на бэке write-операции тоже 403 для остальных.
@@ -739,7 +740,8 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
   const [orders, setOrders] = useState<OrderRow[]>([])
   const [tariffs, setTariffs] = useState<Tariff[]>([])
   const [loading, setLoading] = useState(true)
-  const [fTariff, setFTariff] = useState<number | 'all'>('all')
+  const [fTariffs, setFTariffs] = useState<number[]>([])      // мульти-выбор тарифов (пусто = все)
+  const [fPartners, setFPartners] = useState<string[]>([])    // мульти-выбор партнёров (пусто = все)
   const [fStatus, setFStatus] = useState<'all' | 'paid' | 'unpaid'>('all')
   const [q, setQ] = useState('')
 
@@ -780,8 +782,29 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
     await load(); onChanged()
   }
 
+  // Уникальные партнёры (рефоводы) для фильтра. «__none__» — заказы без партнёра.
+  const NO_PARTNER = '__none__'
+  const partnerOptions = useMemo(() => {
+    const names = new Set<string>()
+    let hasNone = false
+    for (const o of orders) {
+      const n = (o.referrer_name || '').trim()
+      if (n) names.add(n)
+      else hasNone = true
+    }
+    const opts = Array.from(names).sort((a, b) => a.localeCompare(b, 'ru'))
+      .map(n => ({ value: n, label: n }))
+    if (hasNone) opts.push({ value: NO_PARTNER, label: 'Без партнёра' })
+    return opts
+  }, [orders])
+
   const filtered = orders.filter(o => {
-    if (fTariff !== 'all' && o.tariff_id !== fTariff) return false
+    if (fTariffs.length > 0 && !fTariffs.includes(o.tariff_id)) return false
+    if (fPartners.length > 0) {
+      const n = (o.referrer_name || '').trim()
+      const key = n || NO_PARTNER
+      if (!fPartners.includes(key)) return false
+    }
     if (fStatus !== 'all' && o.status !== fStatus) return false
     if (q.trim()) {
       const s = q.toLowerCase()
@@ -803,11 +826,20 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
     <div className="space-y-3">
       {/* Фильтры */}
       <div className="flex flex-wrap gap-2 items-center">
-        <select value={fTariff} onChange={e => setFTariff(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-          className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
-          <option value="all">Все тарифы</option>
-          {tariffs.map(t => <option key={t.id} value={t.id}>{t.title}{t.price != null ? ` (${t.price}₽)` : ''}</option>)}
-        </select>
+        <MultiSelectDropdown
+          label="Тарифы"
+          placeholder="Все тарифы"
+          options={tariffs.map(t => ({ value: t.id, label: `${t.title}${t.price != null ? ` (${t.price}₽)` : ''}` }))}
+          values={fTariffs}
+          onChange={setFTariffs}
+        />
+        <MultiSelectDropdown
+          label="Партнёры"
+          placeholder="Все партнёры"
+          options={partnerOptions}
+          values={fPartners}
+          onChange={setFPartners}
+        />
         <select value={fStatus} onChange={e => setFStatus(e.target.value as any)}
           className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm bg-white">
           <option value="all">Все статусы</option>

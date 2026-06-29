@@ -52,6 +52,10 @@ class BulkItem(BaseModel):
     media_type: Optional[str] = None
     buttons: List[ButtonItem] = []
     target_channel_ids: Optional[List[int]] = None
+    # Аудитория на конкретную рассылку (для общих по умолчанию all_client).
+    audience_include: Optional[str] = None
+    audience_exclude: Optional[str] = None
+    send_to_client_chats: Optional[bool] = None
 
 
 class BulkAddRequest(BaseModel):
@@ -337,11 +341,29 @@ async def bulk_add(
             "media_type": smt,
             "buttons": [{"text": b.text.strip(), "url": b.url.strip()} for b in it.buttons if b.text.strip() and b.url.strip()],
             "target_channel_ids": it.target_channel_ids,
+            "audience_include": it.audience_include or "all_client",
+            "audience_exclude": it.audience_exclude or "none",
+            "send_to_client_chats": bool(it.send_to_client_chats),
         })
     if errors_by_idx:
         return {"ok": False, "errors": errors_by_idx, "total": len(data.items)}
     if data.dry_run:
         return {"ok": True, "errors": [], "total": len(data.items), "dry_run": True}
+
+    # Импорт фото по внешним ссылкам в R2 (Google Drive / облака → наш URL).
+    # Сбой фото не роняет партию: рассылка создаётся без фото, проблема — в отчёт.
+    from app.services.remote_media import import_remote_image_to_r2
+    warnings = []
+    for i, p in enumerate(parsed, 1):
+        if p.get("photo_url"):
+            try:
+                p["photo_url"] = await import_remote_image_to_r2(client_id, p["photo_url"])
+            except Exception as e:
+                warnings.append({"index": i, "message": f"фото не загрузилось — {e}. Рассылка создана без фото."})
+                p["photo_url"] = None
+                if p.get("media_type") == "photo":
+                    p["media_type"] = None
+
     created_ids = []
     async with db.transaction():
         for p in parsed:
@@ -351,18 +373,19 @@ async def bulk_add(
                   (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
                    snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
-                   snapshot_video, snapshot_media_type)
-                VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                        $4, $5, $6, $7::jsonb, $8, $9, $10)
+                   snapshot_video, snapshot_media_type, send_to_client_chats)
+                VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'draft', $3, $11, $12,
+                        $4, $5, $6, $7::jsonb, $8, $9, $10, $13)
                 RETURNING id
                 """,
                 client_id, p["dt_utc"], data.is_test, p["text"],
                 (p["subject"] or None), p["photo_url"],
                 _json.dumps(p["buttons"]), p["target_channel_ids"],
                 p["video_url"], p["media_type"],
+                p["audience_include"], p["audience_exclude"], p["send_to_client_chats"],
             )
             created_ids.append(row["id"])
-    return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids}
+    return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids, "warnings": warnings}
 
 
 @router.get("/schedules/{schedule_id}/preview")

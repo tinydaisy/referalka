@@ -96,7 +96,16 @@ export default function GeneralBroadcastsPage() {
   const load = useCallback(async () => {
     try {
       const res = await api.broadcasts.list()
-      setSchedules(res.schedules || [])
+      // Сортировка по убыванию даты (новые сверху). Без даты — в конец.
+      const sorted = [...(res.schedules || [])].sort((a: any, b: any) => {
+        const av = a.fire_at_iso || a.fire_at || ''
+        const bv = b.fire_at_iso || b.fire_at || ''
+        if (!av && !bv) return 0
+        if (!av) return 1
+        if (!bv) return -1
+        return av < bv ? 1 : av > bv ? -1 : 0
+      })
+      setSchedules(sorted)
       const tz = res.timezone || 'Europe/Moscow'
       setTzLabel(tz === 'Europe/Moscow' ? 'МСК (UTC+3)' : tz)
       setSelectedIds(new Set())
@@ -994,11 +1003,12 @@ function BulkBroadcastModal(props: {
   onError: (m: string) => void
 }) {
   const [raw, setRaw] = useState('')
-  const [isTest, setIsTest] = useState(false)
+  const isTest = false   // тест убран из UI — создаём черновики, тест клиент делает сам
   const [validating, setValidating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<{ index: number; errors: string[] }[]>([])
   const [preview, setPreview] = useState<any[] | null>(null)
+  const [report, setReport] = useState<{ created: number; warnings: { index: number; message: string }[] } | null>(null)
 
   function convertDateToIso(s: string): string {
     s = s.trim()
@@ -1016,6 +1026,9 @@ function BulkBroadcastModal(props: {
       const lines = chunk.split('\n')
       let fire_at = ''
       let photo_url = ''
+      let aud_in: string | null = null
+      let aud_ex: string | null = null
+      let chat_client = false
       const text_lines: string[] = []
       const buttons: { text: string; url: string }[] = []
       let section: 'none' | 'text' | 'buttons' = 'none'
@@ -1024,6 +1037,28 @@ function BulkBroadcastModal(props: {
         if (/^ВРЕМЯ:/i.test(trimmed)) {
           section = 'none'
           fire_at = convertDateToIso(trimmed.replace(/^ВРЕМЯ:\s*/i, ''))
+          continue
+        }
+        if (/^(ВКЛЮЧИТЬ|БАЗА|АУДИТОРИЯ):/i.test(trimmed)) {
+          section = 'none'
+          const v = trimmed.replace(/^(ВКЛЮЧИТЬ|БАЗА|АУДИТОРИЯ):\s*/i, '').trim().toLowerCase()
+          // У общих рассылок основа всегда «вся база клиента». Спец-варианты на будущее.
+          if (/зарег/.test(v) && !/незарег/.test(v)) aud_in = 'registered_event'
+          else aud_in = 'all_client'
+          continue
+        }
+        if (/^(ИСКЛЮЧИТЬ|КРОМЕ):/i.test(trimmed)) {
+          section = 'none'
+          const v = trimmed.replace(/^(ИСКЛЮЧИТЬ|КРОМЕ):\s*/i, '').trim().toLowerCase()
+          if (/незарег/.test(v)) aud_ex = 'unregistered_event'
+          else if (/зарег/.test(v)) aud_ex = 'registered_event'
+          else aud_ex = 'none'
+          continue
+        }
+        if (/^ЧАТЫ:/i.test(trimmed)) {
+          section = 'none'
+          const v = trimmed.replace(/^ЧАТЫ:\s*/i, '').trim().toLowerCase()
+          chat_client = /да|yes|вкл|on|чат|рассыл|клиент|общ/.test(v)
           continue
         }
         if (/^ФОТО:/i.test(trimmed)) {
@@ -1035,6 +1070,7 @@ function BulkBroadcastModal(props: {
         if (/^КНОПКИ:\s*$/i.test(trimmed)) { section = 'buttons'; continue }
         if (section === 'text') text_lines.push(line)
         else if (section === 'buttons' && trimmed) {
+          if (/^(нет|—|-|none)\s*$/i.test(trimmed)) continue
           const parts = trimmed.split('|').map(x => x.trim())
           if (parts.length >= 2) buttons.push({ text: parts[0], url: parts[1] })
           else buttons.push({ text: parts[0] || '', url: '' })
@@ -1045,6 +1081,9 @@ function BulkBroadcastModal(props: {
         photo_url: photo_url || null,
         text: text_lines.join('\n').trim(),
         buttons,
+        audience_include: aud_in,
+        audience_exclude: aud_ex,
+        send_to_client_chats: chat_client,
       })
     }
     return items
@@ -1105,7 +1144,9 @@ function BulkBroadcastModal(props: {
         setErrors(res.errors || [])
         props.onError(`Ошибки в ${res.errors.length} задачах — исправьте`)
       } else {
-        props.onSaved(res.created || 0)
+        const warnings = res.warnings || []
+        if (warnings.length > 0) setReport({ created: res.created || 0, warnings })
+        else props.onSaved(res.created || 0)
       }
     } catch (e: any) {
       props.onError(e.message || 'Ошибка')
@@ -1114,6 +1155,7 @@ function BulkBroadcastModal(props: {
 
   const SAMPLE = `---
 ВРЕМЯ: 29.04.2026 09:30
+ЧАТЫ: чаты для рассылок
 ФОТО: https://example.com/photo.jpg
 ТЕКСТ:
 Привет, {first_name}!
@@ -1124,8 +1166,7 @@ function BulkBroadcastModal(props: {
 ВРЕМЯ: 29.04.2026 18:00
 ТЕКСТ:
 Сегодня вечером эфир — приходи!
-КНОПКИ:
-Эфир | https://stream.example.com
+КНОПКИ: нет
 ---`
 
   return (
@@ -1141,19 +1182,20 @@ function BulkBroadcastModal(props: {
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
             <p className="font-semibold mb-1">Формат (разделитель — строка <code className="bg-white px-1 rounded">---</code>):</p>
+            <p className="mb-1">1 блок = 1 рассылка. Необязательные строки в блоке:
+              <br/>• <b>ЧАТЫ:</b> «чаты для рассылок» — слать также в общую базу чатов
+              <br/>• <b>КНОПКИ:</b> «нет» либо до 3 строк «Название | ссылка»
+              <br/>Создаётся как <b>черновики</b> — отправятся только после запуска очереди.</p>
             <pre className="whitespace-pre-wrap text-[11px] leading-tight">{SAMPLE}</pre>
             <button onClick={() => setRaw(SAMPLE)} className="mt-2 text-indigo-600 hover:text-indigo-800">Вставить пример</button>
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Содержимое ({props.tzLabel})</label>
-            <textarea value={raw} onChange={e => { setRaw(e.target.value); setErrors([]); setPreview(null) }}
+            <textarea value={raw} onChange={e => { setRaw(e.target.value); setErrors([]); setPreview(null); setReport(null) }}
               rows={12}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono" />
           </div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
-            <span className="text-sm text-gray-600">Тестовая рассылка</span>
-          </label>
+          <div className="text-xs text-gray-500">Все рассылки создаются <b>черновиками</b> — отметите и протестируете сами перед запуском.</div>
 
           {errors.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
@@ -1166,14 +1208,30 @@ function BulkBroadcastModal(props: {
             </div>
           )}
 
-          {preview && preview.length > 0 && errors.length === 0 && (
+          {preview && preview.length > 0 && errors.length === 0 && !report && (
             <div className="bg-green-50 border border-green-200 rounded-xl p-3 space-y-1">
               <p className="text-sm font-semibold text-green-700">✓ Распарсено {preview.length} задач — всё валидно</p>
               <div className="max-h-40 overflow-y-auto space-y-1 mt-2">
                 {preview.map((p, i) => (
                   <div key={i} className="text-xs text-green-900 bg-white/50 rounded px-2 py-1">
                     <b>#{i+1}</b> {p.fire_at} — {p.text.slice(0, 60)}{p.text.length > 60 ? '…' : ''}
+                    {p.send_to_client_chats && <span className="text-gray-500"> +чаты</span>}
                     {p.buttons.length > 0 && <span className="text-gray-500"> · кнопок: {p.buttons.length}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {report && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 space-y-1">
+              <p className="text-sm font-semibold text-amber-800">
+                Создано черновиков: {report.created}. Но были проблемы ({report.warnings.length}):
+              </p>
+              <div className="max-h-48 overflow-y-auto space-y-1 mt-1">
+                {report.warnings.map((w, i) => (
+                  <div key={i} className="text-xs text-amber-900 bg-white/60 rounded px-2 py-1">
+                    <b>Рассылка #{w.index}:</b> {w.message}
                   </div>
                 ))}
               </div>
@@ -1181,17 +1239,27 @@ function BulkBroadcastModal(props: {
           )}
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={validate} disabled={validating || saving || !raw.trim()}
-            className="px-4 py-2 border border-gray-300 rounded-xl text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-            {validating ? 'Проверяю...' : 'Проверить'}
-          </button>
-          <button onClick={save} disabled={saving || validating || !raw.trim()}
-            className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
-            style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
-            {saving ? 'Создаю...' : 'Поставить в очередь'}
-          </button>
-          <button onClick={props.onClose}
-            className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">Отмена</button>
+          {report ? (
+            <button onClick={() => props.onSaved(report.created)}
+              className="flex-1 py-2 rounded-xl text-sm font-medium text-white"
+              style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+              Готово
+            </button>
+          ) : (
+            <>
+              <button onClick={validate} disabled={validating || saving || !raw.trim()}
+                className="px-4 py-2 border border-gray-300 rounded-xl text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                {validating ? 'Проверяю...' : 'Проверить'}
+              </button>
+              <button onClick={save} disabled={saving || validating || !raw.trim()}
+                className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
+                style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                {saving ? 'Создаю...' : 'Поставить в очередь'}
+              </button>
+              <button onClick={props.onClose}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500">Отмена</button>
+            </>
+          )}
         </div>
       </div>
     </div>
