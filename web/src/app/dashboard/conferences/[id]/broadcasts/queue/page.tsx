@@ -1046,7 +1046,9 @@ export default function QueuePage() {
                         onChange={e => setManualForm({ ...manualForm, session_id: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                         <option value="">— выберите спикера —</option>
-                        {confSpeakers.map(s => (
+                        {[...confSpeakers]
+                          .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'))
+                          .map(s => (
                           <option key={s.id} value={s.id}>{s.name}</option>
                         ))}
                       </select>
@@ -1058,11 +1060,7 @@ export default function QueuePage() {
                   const RU_M: Record<string,string> = {'01':'янв','02':'фев','03':'мар','04':'апр','05':'май','06':'июн','07':'июл','08':'авг','09':'сен','10':'окт','11':'ноя','12':'дек'}
                   const sessionsWithSpeaker = confSessions
                     .filter(s => s.speaker_id && s.speaker_name)
-                    .sort((a, b) => {
-                      const ax = `${a.day || 0}-${a.start_time || ''}-${a.sort_order || 0}`
-                      const bx = `${b.day || 0}-${b.start_time || ''}-${b.sort_order || 0}`
-                      return ax.localeCompare(bx)
-                    })
+                    .sort((a, b) => (a.speaker_name || '').localeCompare(b.speaker_name || '', 'ru'))
                   return (
                     <div>
                       <label className="text-xs text-gray-500 mb-1 block">Спикер (выступление)</label>
