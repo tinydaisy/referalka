@@ -116,8 +116,8 @@ async def list_counts(
               pkg.id,
               COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('landed','started','subscribed','delivered')), 0) AS landed,
               COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.contact_id IS NOT NULL), 0) AS known,
-              COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage IN ('started','subscribed','delivered')), 0) AS started,
-              COALESCE(COUNT(fr.id) FILTER (WHERE fr.stage = 'delivered'), 0) AS delivered
+              COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.stage IN ('started','subscribed','delivered') AND fr.contact_id IS NOT NULL), 0) AS started,
+              COALESCE(COUNT(DISTINCT fr.contact_id) FILTER (WHERE fr.stage = 'delivered' AND fr.contact_id IS NOT NULL), 0) AS delivered
              FROM lead_magnet_packages pkg
         LEFT JOIN funnel_runs fr ON fr.package_id = pkg.id
             WHERE pkg.client_id = $1
