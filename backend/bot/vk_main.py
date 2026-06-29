@@ -307,6 +307,45 @@ async def _vk_direct_start_welcome(user_id: int, db, ctx: "GroupCtx") -> None:
              "owner_label": "🌐 Об основателе",
              "owner_url": f"https://pluson.ru/o/{ctx.client_id}?tab=ecosystem"}
 
+    # Режим «лид-магнит»: создаём funnel_run и запускаем VK-воронку (Текст 1).
+    if g.get("kind") == "lead_magnet":
+        try:
+            lm_kind = g.get("lm_kind")  # 'm' | 'p'
+            slug = g.get("slug")
+            if lm_kind == "m":
+                row = await db.fetchrow("SELECT id FROM lead_magnets WHERE slug=$1 AND client_id=$2", slug, ctx.client_id)
+                lm_id, pkg_id = (row["id"] if row else None), None
+            else:
+                row = await db.fetchrow("SELECT id FROM lead_magnet_packages WHERE slug=$1 AND client_id=$2", slug, ctx.client_id)
+                lm_id, pkg_id = None, (row["id"] if row else None)
+            if row:
+                run_id = await db.fetchval(
+                    """INSERT INTO funnel_runs
+                          (client_id, type, lead_magnet_id, package_id, contact_id,
+                           referrer_contact_id, utm, stage, landed_at, platform_slug)
+                       VALUES ($1,'lead_magnet',$2,$3,NULL,NULL,'{}'::jsonb,'landed',NOW(),'vk')
+                       RETURNING id""",
+                    ctx.client_id, lm_id, pkg_id,
+                )
+                user_info = await get_user_info(int(user_id))
+                from app.services.funnel_service import run_started_vk
+                await run_started_vk(
+                    run_id, str(user_id),
+                    username=(user_info or {}).get("screen_name", "") if user_info else "",
+                    first_name=(user_info or {}).get("first_name", "") if user_info else "",
+                    last_name=(user_info or {}).get("last_name", "") if user_info else "",
+                    db=db, channel_id=ctx.channel_id, token=ctx.token,
+                )
+                return
+        except Exception as e:  # noqa: BLE001
+            logger.warning("vk_direct_start(lead_magnet) failed: %s", e)
+        # не вышло — общее приветствие ниже
+        g = {**g, "kind": "greeting", "text": "",
+             "events_label": "📅 Все события",
+             "events_url": f"https://pluson.ru/o/{ctx.client_id}",
+             "owner_label": "🌐 Об основателе",
+             "owner_url": f"https://pluson.ru/o/{ctx.client_id}?tab=ecosystem"}
+
     txt = greeting_text_plain(g.get("text") or "")
     kb = tg_inline_to_vk_keyboard([
         [{"text": g["events_label"], "url": g["events_url"]}],

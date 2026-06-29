@@ -238,51 +238,9 @@ async def handle_start(message: Message, command: CommandObject):
                 utm_source = chunk[3:] or None
         if slug:
             try:
-                pool = await get_pool()
-                bot_id = message.bot.id if message.bot else None
-                async with pool.acquire() as db:
-                    if kind == "m":
-                        row = await db.fetchrow(
-                            "SELECT id, client_id FROM lead_magnets WHERE slug = $1", slug
-                        )
-                        client_id = row["client_id"] if row else None
-                        lm_id = row["id"] if row else None
-                        pkg_id = None
-                    else:
-                        row = await db.fetchrow(
-                            "SELECT id, client_id FROM lead_magnet_packages WHERE slug = $1", slug
-                        )
-                        client_id = row["client_id"] if row else None
-                        lm_id = None
-                        pkg_id = row["id"] if row else None
-                    if client_id:
-                        referrer_id = None
-                        if pid:
-                            referrer_id = await db.fetchval(
-                                "SELECT id FROM contacts WHERE client_id = $1 AND ref_code = $2",
-                                client_id, pid,
-                            )
-                        utm_json = {"utm_source": utm_source} if utm_source else {}
-                        run_id = await db.fetchval(
-                            """INSERT INTO funnel_runs
-                                  (client_id, type, lead_magnet_id, package_id,
-                                   contact_id, referrer_contact_id, utm, stage, landed_at,
-                                   platform_slug)
-                               VALUES ($1, 'lead_magnet', $2, $3, NULL, $4, $5::jsonb, 'landed', NOW(), 'telegram')
-                               RETURNING id""",
-                            client_id, lm_id, pkg_id, referrer_id, json.dumps(utm_json),
-                        )
-                        from app.services.funnel_service import run_started
-                        await run_started(
-                            run_id,
-                            str(user.id),
-                            user.username or "",
-                            user.first_name or "",
-                            user.last_name or "",
-                            db,
-                            bot_id=bot_id,
-                        )
-                        return
+                started = await _start_lead_magnet_funnel(message, kind, slug, pid, utm_source)
+                if started:
+                    return
                 # Не нашли воронку — молча падаем дальше на приветствие
             except Exception as e:
                 log.exception("funnel m_/p_ handler failed: %s", e)
@@ -1266,6 +1224,66 @@ async def send_event_menu(message: Message, event_id: int, contact_id: int | Non
                          disable_web_page_preview=True)
 
 
+async def _start_lead_magnet_funnel(message: Message, kind: str, slug: str,
+                                    pid: str | None = None,
+                                    utm_source: str | None = None) -> bool:
+    """Запускает воронку лид-магнита (kind='m') или пакета (kind='p') по slug.
+
+    Создаёт funnel_run + вызывает run_started (Текст 1 с кнопкой «ГОТОВО»).
+    Возвращает True если воронка запущена, False — если slug не найден.
+    Переиспользуется из /start m_/p_ и из режима /start='lead_magnet'.
+    """
+    user = message.from_user
+    if not user:
+        return False
+    pool = await get_pool()
+    bot_id = message.bot.id if message.bot else None
+    async with pool.acquire() as db:
+        if kind == "m":
+            row = await db.fetchrow(
+                "SELECT id, client_id FROM lead_magnets WHERE slug = $1", slug
+            )
+            client_id = row["client_id"] if row else None
+            lm_id = row["id"] if row else None
+            pkg_id = None
+        else:
+            row = await db.fetchrow(
+                "SELECT id, client_id FROM lead_magnet_packages WHERE slug = $1", slug
+            )
+            client_id = row["client_id"] if row else None
+            lm_id = None
+            pkg_id = row["id"] if row else None
+        if not client_id:
+            return False
+        referrer_id = None
+        if pid:
+            referrer_id = await db.fetchval(
+                "SELECT id FROM contacts WHERE client_id = $1 AND ref_code = $2",
+                client_id, pid,
+            )
+        utm_json = {"utm_source": utm_source} if utm_source else {}
+        run_id = await db.fetchval(
+            """INSERT INTO funnel_runs
+                  (client_id, type, lead_magnet_id, package_id,
+                   contact_id, referrer_contact_id, utm, stage, landed_at,
+                   platform_slug)
+               VALUES ($1, 'lead_magnet', $2, $3, NULL, $4, $5::jsonb, 'landed', NOW(), 'telegram')
+               RETURNING id""",
+            client_id, lm_id, pkg_id, referrer_id, json.dumps(utm_json),
+        )
+        from app.services.funnel_service import run_started
+        await run_started(
+            run_id,
+            str(user.id),
+            user.username or "",
+            user.first_name or "",
+            user.last_name or "",
+            db,
+            bot_id=bot_id,
+        )
+        return True
+
+
 async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
     """Прямой /start на VIP-боте клиента — приветствие с фото основателя
     и списком ближайших событий клиента.
@@ -1301,7 +1319,8 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                           profile_photo_url, owner_photo_url,
                           default_link_mode, start_greeting_text,
                           start_btn_events_label, start_btn_owner_label,
-                          start_mode, start_event_id
+                          start_mode, start_event_id,
+                          start_lead_magnet_id, start_package_id
                      FROM clients WHERE id = $1""",
                 client_id,
             )
@@ -1322,6 +1341,26 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
                     client["start_event_id"], client_id,
                 )
 
+            # Режим «открывать воронку лид-магнита при /start»: резолвим slug
+            # выбранного лид-магнита/пакета — запустим штатную воронку ниже.
+            lm_start_kind = None  # 'm' | 'p'
+            lm_start_slug = None
+            if client["start_mode"] == "lead_magnet":
+                if client["start_lead_magnet_id"]:
+                    lm_start_slug = await db.fetchval(
+                        "SELECT slug FROM lead_magnets WHERE id=$1 AND client_id=$2",
+                        client["start_lead_magnet_id"], client_id,
+                    )
+                    if lm_start_slug:
+                        lm_start_kind = "m"
+                if not lm_start_slug and client["start_package_id"]:
+                    lm_start_slug = await db.fetchval(
+                        "SELECT slug FROM lead_magnet_packages WHERE id=$1 AND client_id=$2",
+                        client["start_package_id"], client_id,
+                    )
+                    if lm_start_slug:
+                        lm_start_kind = "p"
+
         brand_name = (client["brand_name"] or client["name"] or "").strip()
         greet_name = (user.first_name or "").strip()
         web_mode = (client["default_link_mode"] or "miniapp") == "bot"
@@ -1338,6 +1377,16 @@ async def _handle_vip_direct_start(message: Message, bot_id: int) -> bool:
             except Exception as e:  # noqa: BLE001
                 log.warning("vip_start(event) ref-flow failed: %s", e)
             # если стандартный флоу не отработал — падаем в общее приветствие ниже
+
+        # ── Режим «лид-магнит»: запускаем штатную воронку выбранного
+        # лид-магнита/пакета (Текст 1 с кнопкой «ГОТОВО»), как по ссылке m_/p_. ──
+        if lm_start_kind and lm_start_slug:
+            try:
+                if await _start_lead_magnet_funnel(message, lm_start_kind, lm_start_slug):
+                    return True
+            except Exception as e:  # noqa: BLE001
+                log.warning("vip_start(lead_magnet) funnel failed: %s", e)
+            # если воронка не запустилась — падаем в общее приветствие ниже
 
         # Текст приветствия. Если клиент задал свой — используем его
         # (плейсхолдеры {имя} и {бренд}); иначе — дефолт.

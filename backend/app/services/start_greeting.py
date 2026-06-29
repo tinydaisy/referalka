@@ -42,7 +42,8 @@ async def resolve_start_greeting(
                   profile_photo_url, owner_photo_url,
                   start_greeting_text,
                   start_btn_events_label, start_btn_owner_label,
-                  start_mode, start_event_id
+                  start_mode, start_event_id,
+                  start_lead_magnet_id, start_package_id
              FROM clients WHERE id = $1""",
         client_id,
     )
@@ -66,6 +67,25 @@ async def resolve_start_greeting(
         )
         if slug:
             return {"kind": "event", "event_slug": slug}
+
+    # Режим «открывать воронку лид-магнита» — отдаём kind+slug, адаптер запустит
+    # тот же путь, что и /start m_<slug> / p_<slug> (см. bot/handlers/start.py).
+    if client["start_mode"] == "lead_magnet":
+        if client["start_lead_magnet_id"]:
+            lm_slug = await conn.fetchval(
+                "SELECT slug FROM lead_magnets WHERE id=$1 AND client_id=$2",
+                client["start_lead_magnet_id"], client_id,
+            )
+            if lm_slug:
+                return {"kind": "lead_magnet", "lm_kind": "m", "slug": lm_slug}
+        if client["start_package_id"]:
+            pkg_slug = await conn.fetchval(
+                "SELECT slug FROM lead_magnet_packages WHERE id=$1 AND client_id=$2",
+                client["start_package_id"], client_id,
+            )
+            if pkg_slug:
+                return {"kind": "lead_magnet", "lm_kind": "p", "slug": pkg_slug}
+        # лид-магнит выбран, но не нашёлся → падаем на приветствие ниже
 
     brand_name = (client["brand_name"] or client["name"] or "").strip()
     custom_greeting = (client["start_greeting_text"] or "").strip()

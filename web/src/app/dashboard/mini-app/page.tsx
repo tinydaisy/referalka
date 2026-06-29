@@ -45,8 +45,10 @@ interface Profile {
   start_greeting_text?: string | null
   start_btn_events_label?: string | null
   start_btn_owner_label?: string | null
-  start_mode?: 'greeting' | 'event' | null
+  start_mode?: 'greeting' | 'event' | 'lead_magnet' | null
   start_event_id?: number | null
+  start_lead_magnet_id?: number | null
+  start_package_id?: number | null
 }
 interface Offering {
   id: number
@@ -86,6 +88,8 @@ export default function MiniAppSettingsPage() {
   const [editing, setEditing] = useState<Offering | null>(null)
   const [creating, setCreating] = useState(false)
   const [eventList, setEventList] = useState<{ id: number; title: string; status?: string }[]>([])
+  const [leadMagnets, setLeadMagnets] = useState<{ id: number; name: string }[]>([])
+  const [leadPackages, setLeadPackages] = useState<{ id: number; name: string }[]>([])
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'brand'
     const t = new URLSearchParams(window.location.search).get('tab')
@@ -111,6 +115,14 @@ export default function MiniAppSettingsPage() {
     api.events.list().then((r: any) => {
       const arr = Array.isArray(r) ? r : (r?.events || r?.items || [])
       setEventList(arr.map((e: any) => ({ id: e.id, title: e.title, status: e.status })))
+    }).catch(() => {})
+    api.leadMagnets.list().then((r: any) => {
+      const arr = Array.isArray(r) ? r : (r?.lead_magnets || r?.items || [])
+      setLeadMagnets(arr.map((m: any) => ({ id: m.id, name: m.name })))
+    }).catch(() => {})
+    api.leadMagnetPackages.list().then((r: any) => {
+      const arr = Array.isArray(r) ? r : (r?.packages || r?.lead_magnet_packages || r?.items || [])
+      setLeadPackages(arr.map((p: any) => ({ id: p.id, name: p.name })))
     }).catch(() => {})
   }, [])
 
@@ -187,6 +199,8 @@ export default function MiniAppSettingsPage() {
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
         start_mode:             profile.start_mode || 'greeting',
         start_event_id:         profile.start_mode === 'event' ? (profile.start_event_id || null) : null,
+        start_lead_magnet_id:   profile.start_mode === 'lead_magnet' ? (profile.start_lead_magnet_id || null) : null,
+        start_package_id:       profile.start_mode === 'lead_magnet' ? (profile.start_package_id || null) : null,
       })
       setProfile(p => p ? { ...p, ...updated } : updated)
       setSavedAt(Date.now()); setTimeout(() => setSavedAt(null), 2000)
@@ -498,12 +512,13 @@ export default function MiniAppSettingsPage() {
           <Section
             step={2}
             title="Что открывать при /start"
-            hint="Когда человек впервые пишет вашему боту: показать общее приветствие с кнопками или сразу вход в одно конкретное событие."
+            hint="Когда человек впервые пишет вашему боту: показать общее приветствие, сразу открыть конкретное событие или запустить воронку лид-магнита."
           >
             <div className="space-y-2 mb-4">
               {([
                 { v: 'greeting', t: 'Общее приветствие', d: 'Текст-приветствие + 2 кнопки (все события / об основателе).' },
                 { v: 'event',    t: 'Конкретное событие', d: 'Сразу открывается выбранное событие — его вход/регистрация/меню.' },
+                { v: 'lead_magnet', t: 'Лид-магнит', d: 'Сразу запускается воронка выбранного лид-магнита (Telegram, ВКонтакте).' },
               ] as const).map(opt => {
                 const active = (profile.start_mode || 'greeting') === opt.v
                 return (
@@ -537,6 +552,35 @@ export default function MiniAppSettingsPage() {
                 </select>
                 <p className="text-xs text-gray-400 mt-1">
                   Опубликуйте событие, чтобы оно открывалось у людей. Черновик/завершённое — не откроется.
+                </p>
+              </div>
+            ) : (profile.start_mode || 'greeting') === 'lead_magnet' ? (
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">Лид-магнит, воронка которого запустится при /start</label>
+                <select
+                  value={profile.start_lead_magnet_id ? `m${profile.start_lead_magnet_id}` : profile.start_package_id ? `p${profile.start_package_id}` : ''}
+                  onChange={e => {
+                    const v = e.target.value
+                    if (!v) { update('start_lead_magnet_id', null); update('start_package_id', null) }
+                    else if (v.startsWith('m')) { update('start_lead_magnet_id', Number(v.slice(1))); update('start_package_id', null) }
+                    else { update('start_package_id', Number(v.slice(1))); update('start_lead_magnet_id', null) }
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400 bg-white"
+                >
+                  <option value="">— выберите лид-магнит —</option>
+                  {leadMagnets.length > 0 && (
+                    <optgroup label="Лид-магниты">
+                      {leadMagnets.map(lm => <option key={`m${lm.id}`} value={`m${lm.id}`}>{lm.name}</option>)}
+                    </optgroup>
+                  )}
+                  {leadPackages.length > 0 && (
+                    <optgroup label="Пакеты">
+                      {leadPackages.map(p => <option key={`p${p.id}`} value={`p${p.id}`}>{p.name}</option>)}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  При /start у бота человек сразу попадёт в воронку: приветствие → проверка подписки → выдача материалов.
                 </p>
               </div>
             ) : (

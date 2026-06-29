@@ -1311,6 +1311,8 @@ async def _process_start(
                     bot_token=bot_token, client_id_override=client_id_override,
                 )
                 return
+            # Режим «лид-магнит»: MAX-воронок лид-магнитов пока нет (нет run_started_max),
+            # поэтому graceful — показываем обычное приветствие (ниже), не падаем.
             _txt = greeting_text_plain(g.get("text") or "")
             _btn = tg_inline_to_max_keyboard([
                 [{"text": g["events_label"], "url": g["events_url"]}],

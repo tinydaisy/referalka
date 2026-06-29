@@ -821,9 +821,11 @@ class ProfileUpdate(BaseModel):
     start_greeting_text:    Optional[str] = None
     start_btn_events_label: Optional[str] = None
     start_btn_owner_label:  Optional[str] = None
-    # Что открывать при /start: 'greeting' | 'event'
+    # Что открывать при /start: 'greeting' | 'event' | 'lead_magnet'
     start_mode:     Optional[str] = None
     start_event_id: Optional[int] = None
+    start_lead_magnet_id: Optional[int] = None
+    start_package_id:     Optional[int] = None
 
 
 @profile_router.get("/profile", summary="Получить свою визитку")
@@ -838,7 +840,8 @@ async def get_my_profile(
                   bio, social_links,
                   default_link_mode, start_greeting_text,
                   start_btn_events_label, start_btn_owner_label,
-                  start_mode, start_event_id
+                  start_mode, start_event_id,
+                  start_lead_magnet_id, start_package_id
              FROM clients WHERE id = $1""",
         int(client["sub"])
     )
@@ -885,8 +888,8 @@ async def update_my_profile(
     if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)
 
     if data.start_mode is not None:
-        if data.start_mode not in ("greeting", "event"):
-            raise HTTPException(status_code=400, detail="start_mode должен быть 'greeting' или 'event'")
+        if data.start_mode not in ("greeting", "event", "lead_magnet"):
+            raise HTTPException(status_code=400, detail="start_mode должен быть 'greeting', 'event' или 'lead_magnet'")
         add("start_mode", data.start_mode)
     if data.start_event_id is not None:
         # 0 / отрицательное → сбросить выбор. Иначе — событие ОБЯЗАНО принадлежать
@@ -902,6 +905,31 @@ async def update_my_profile(
             add("start_event_id", data.start_event_id)
         else:
             add("start_event_id", None)
+    if data.start_lead_magnet_id is not None:
+        # 0 → сброс. Иначе лид-магнит ОБЯЗАН принадлежать клиенту.
+        if data.start_lead_magnet_id and data.start_lead_magnet_id > 0:
+            owns = await db.fetchval(
+                "SELECT 1 FROM lead_magnets WHERE id=$1 AND client_id=$2",
+                data.start_lead_magnet_id, int(client["sub"]),
+            )
+            if not owns:
+                raise HTTPException(status_code=403, detail="Этот лид-магнит вам не принадлежит")
+            add("start_lead_magnet_id", data.start_lead_magnet_id)
+            add("start_package_id", None)  # взаимоисключение: магнит ИЛИ пакет
+        else:
+            add("start_lead_magnet_id", None)
+    if data.start_package_id is not None:
+        if data.start_package_id and data.start_package_id > 0:
+            owns = await db.fetchval(
+                "SELECT 1 FROM lead_magnet_packages WHERE id=$1 AND client_id=$2",
+                data.start_package_id, int(client["sub"]),
+            )
+            if not owns:
+                raise HTTPException(status_code=403, detail="Этот пакет вам не принадлежит")
+            add("start_package_id", data.start_package_id)
+            add("start_lead_magnet_id", None)
+        else:
+            add("start_package_id", None)
 
     if data.social_links is not None:
         # Приводим TG/VK ссылки к https-формату — для воронки лид-магнитов и согласованности.
