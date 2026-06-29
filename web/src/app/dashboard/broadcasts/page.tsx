@@ -1020,7 +1020,8 @@ function BulkBroadcastModal(props: {
   }
 
   function parse(): any[] {
-    const chunks = raw.split(/^---\s*$/m).map(c => c.trim()).filter(Boolean)
+    // Разделитель блоков — строка из звёздочек (***). Тире (---) можно использовать в тексте.
+    const chunks = raw.split(/^\s*\*\*\*+\s*$/m).map(c => c.trim()).filter(Boolean)
     const items: any[] = []
     for (const chunk of chunks) {
       const lines = chunk.split('\n')
@@ -1111,7 +1112,7 @@ function BulkBroadcastModal(props: {
     try {
       const items = parse()
       if (items.length === 0) {
-        props.onError('Не найдено ни одной задачи (разделитель — строка ---)')
+        props.onError('Не найдено ни одной задачи (разделитель — строка ***)')
         return
       }
       const localErrors = validateLocally(items)
@@ -1153,7 +1154,7 @@ function BulkBroadcastModal(props: {
     } finally { setSaving(false) }
   }
 
-  const SAMPLE = `---
+  const SAMPLE = `***
 ВРЕМЯ: 29.04.2026 09:30
 ЧАТЫ: чаты для рассылок
 ФОТО: https://example.com/photo.jpg
@@ -1162,12 +1163,12 @@ function BulkBroadcastModal(props: {
 Скоро запуск нового продукта.
 КНОПКИ:
 Подробнее | https://example.com/launch
----
+***
 ВРЕМЯ: 29.04.2026 18:00
 ТЕКСТ:
 Сегодня вечером эфир — приходи!
 КНОПКИ: нет
----`
+***`
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -1181,7 +1182,7 @@ function BulkBroadcastModal(props: {
             Получатели: вся ваша база контактов (Telegram + VK + MAX — каждый получит через ту платформу, на которую подписан, не отписавшиеся).
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
-            <p className="font-semibold mb-1">Формат (разделитель — строка <code className="bg-white px-1 rounded">---</code>):</p>
+            <p className="font-semibold mb-1">Формат (разделитель — строка <code className="bg-white px-1 rounded">***</code>):</p>
             <p className="mb-1">1 блок = 1 рассылка. Необязательные строки в блоке:
               <br/>• <b>ЧАТЫ:</b> «чаты для рассылок» — слать также в общую базу чатов
               <br/>• <b>КНОПКИ:</b> «нет» либо до 3 строк «Название | ссылка»

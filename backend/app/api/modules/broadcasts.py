@@ -800,8 +800,17 @@ async def list_schedules(
 
     now_utc = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
     result = []
+    import json as _json_list
     for r in rows:
         d = dict(r)
+        # snapshot_buttons приходит из jsonb строкой — парсим в список, чтобы
+        # форма правки видела кнопки (Array.isArray на фронте).
+        sb = d.get("snapshot_buttons")
+        if isinstance(sb, str):
+            try:
+                d["snapshot_buttons"] = _json_list.loads(sb)
+            except Exception:
+                d["snapshot_buttons"] = []
         # «Дошло» в плитке = реальные доставки из broadcast_log (как в модалке
         # «Получатели»). recipients_sent оставляем только как fallback, если лога
         # ещё нет (log_sent=0, но счётчик что-то писал — старые/тестовые записи).

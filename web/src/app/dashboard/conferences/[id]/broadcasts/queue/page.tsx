@@ -660,7 +660,7 @@ export default function QueuePage() {
                   <div className="flex-1 min-w-0">
                     {/* Строка 1: номер + статус + тип */}
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="text-xs text-gray-400 font-mono">#{idx + 1}</span>
+                      <span className="text-xs text-gray-400 font-mono" title="Номер рассылки в системе">#{s.id}</span>
                       <span className="flex items-center gap-1 text-xs font-medium text-gray-700">
                         {STATUS_ICON[s.status]}
                         {STATUS_LABEL[s.status] || s.status}
@@ -1630,7 +1630,9 @@ function BulkBroadcastModal(props: {
   // Текст | https://...
   // ---
   function parse(): any[] {
-    const chunks = raw.split(/^---\s*$/m).map(c => c.trim()).filter(Boolean)
+    // Разделитель блоков — строка из звёздочек (***). Тире (---) можно свободно
+    // использовать внутри текста как стиль.
+    const chunks = raw.split(/^\s*\*\*\*+\s*$/m).map(c => c.trim()).filter(Boolean)
     const items: any[] = []
     for (const chunk of chunks) {
       const lines = chunk.split('\n')
@@ -1751,7 +1753,7 @@ function BulkBroadcastModal(props: {
     try {
       const items = parse()
       if (items.length === 0) {
-        props.onError('Не найдено ни одной задачи (разделитель — строка ---)')
+        props.onError('Не найдено ни одной задачи (разделитель — строка ***)')
         return
       }
       const localErrors = validateLocally(items)
@@ -1811,7 +1813,7 @@ function BulkBroadcastModal(props: {
     }
   }
 
-  const SAMPLE = `---
+  const SAMPLE = `***
 ВРЕМЯ: 29.04.2026 09:30
 ВКЛЮЧИТЬ: Вся база клиента
 ИСКЛЮЧИТЬ: Зарегистрированные
@@ -1820,7 +1822,7 @@ function BulkBroadcastModal(props: {
 Привет, {first_name}!
 Сегодня стартует День 1 — эфир через 30 минут.
 КНОПКИ: нет
----
+***
 ВРЕМЯ: 29.04.2026 09:30
 ВКЛЮЧИТЬ: Зарег. участники
 ЧАТЫ: чаты для рассылок
@@ -1829,7 +1831,7 @@ function BulkBroadcastModal(props: {
 КНОПКИ:
 Смотреть эфир | https://stream.example.com
 Программа | https://example.com/program
----`
+***`
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -1840,7 +1842,7 @@ function BulkBroadcastModal(props: {
         </div>
         <div className="space-y-3">
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
-            <p className="font-semibold mb-1">Формат (разделитель — строка <code className="bg-white px-1 rounded">---</code>):</p>
+            <p className="font-semibold mb-1">Формат (разделитель — строка <code className="bg-white px-1 rounded">***</code>):</p>
             <p className="mb-1">1 блок = 1 рассылка. Базу можно задать прямо в блоке:
               <br/>• <b>ВКЛЮЧИТЬ:</b> кому слать — «Вся база клиента» / «Зарег. участники» / «Все участники конфы»
               <br/>• <b>ИСКЛЮЧИТЬ:</b> кого убрать (необязательно) — «Зарегистрированные» / «Незарегистрированные»
