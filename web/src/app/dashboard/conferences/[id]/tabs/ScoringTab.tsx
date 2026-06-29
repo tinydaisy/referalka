@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
-import { Plus, Trash2, ChevronDown, ChevronRight, Camera, Pencil, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, Camera, Pencil, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react'
 
 // Подвкладки раздела «Турнир» — каждая отдельная вкладка 2-го уровня
 // (навигация рисуется в page.tsx, своего ряда табов здесь больше нет).
@@ -500,7 +500,6 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
   const [stages, setStages] = useState<any[]>([])
   const [board, setBoard] = useState<any>(null)
   const [feedback, setFeedback] = useState<any[]>([])
-  const [expanded, setExpanded] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
@@ -627,7 +626,6 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
             <tr className="bg-gray-50 text-gray-600">
               <th rowSpan={2} className="px-3 py-2 text-left sticky top-0 left-0 z-40 bg-gray-50" style={{ width: 56, minWidth: 56 }}>Место</th>
               <th rowSpan={2} className="px-2 py-2 text-left sticky top-0 z-40 bg-gray-50 border-r whitespace-normal break-words" style={{ left: 56, width: 180, minWidth: 180, maxWidth: 180 }}>Участник</th>
-              <th rowSpan={2} className="px-3 py-2 sticky top-0 z-30 bg-gray-50">Готово</th>
               <th rowSpan={2} className="px-3 py-2 font-semibold text-[#25455D] border-l sticky top-0 z-30 bg-gray-50">ИТОГ</th>
               {/* итоговые баллы пакетов */}
               <th colSpan={board.packages.length} className="px-3 py-1.5 text-center border-l sticky top-0 z-30 bg-gray-50">Баллы по пакетам</th>
@@ -638,7 +636,6 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                   <div className="text-[10px] font-normal text-gray-400 normal-case">{pkgMode(g)}</div>
                 </th>
               ))}
-              <th rowSpan={2} className="px-3 py-2 border-l sticky top-0 z-30 bg-gray-50">Детализация</th>
             </tr>
             <tr className="bg-gray-50 text-gray-500 text-xs">
               {board.packages.map((p: any, i: number) => (
@@ -673,7 +670,6 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
               <tr className="bg-amber-50 text-[11px] text-[#25455D] border-t">
                 <td className="px-3 py-2 sticky left-0 z-20 bg-amber-50 align-top" style={{ width: 56, minWidth: 56 }}>🏆</td>
                 <td className="px-2 py-2 sticky z-20 bg-amber-50 border-r font-semibold align-top" style={{ left: 56, width: 180, minWidth: 180, maxWidth: 180 }}>Лидеры<div className="text-[10px] font-normal text-gray-500">на кого делят</div></td>
-                <td className="bg-amber-50"></td>
                 <td className="border-l bg-amber-50"></td>
                 {/* под колонками пакетов — лидер пакета (схема 1) */}
                 {board.packages.map((p: any, i: number) => (
@@ -691,18 +687,14 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                     ) : <span className="text-gray-300">—</span>}
                   </td>
                 ))}
-                <td className="border-l bg-amber-50"></td>
               </tr>
             )}
             {board.table.map((row: any) => {
-              const fbs = feedback.filter((f: any) => f.key === row.key)
-              const isOpen = expanded === row.key
               return (
                 <>
                   <tr key={row.key} className="border-t hover:bg-gray-50 group">
                     <td className="px-3 py-2 sticky left-0 z-20 bg-white group-hover:bg-gray-50 border-t" style={{ width: 56, minWidth: 56 }}>{row.place <= 3 ? ['🥇','🥈','🥉'][row.place-1] : row.place}</td>
                     <td className="px-2 py-2 whitespace-normal break-words sticky z-20 bg-white group-hover:bg-gray-50 border-t border-r" style={{ left: 56, width: 180, minWidth: 180, maxWidth: 180 }}>{row.name}{!row.is_speaker && <span className="ml-1 text-[10px] text-gray-400">участник</span>}{row.username && <div className="text-[10px] text-gray-400 leading-tight">@{row.username}</div>}</td>
-                    <td className="px-3 py-2 text-center text-xs">{row.assigned_jury ? `${row.done_jury}/${row.assigned_jury}${row.done_jury < row.assigned_jury ? ' ⚠' : ' ✓'}` : '—'}</td>
                     <td className="px-3 py-2 text-center font-semibold text-[#25455D] border-l">{row.total}</td>
                     {/* баллы пакетов */}
                     {board.packages.map((p: any, i: number) => (
@@ -721,36 +713,7 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
                         </td>
                       )
                     })}
-                    <td className="px-3 py-2 text-center border-l">
-                      {(Object.keys(row.jury_detail).length > 0 || fbs.length > 0) ? (
-                        <button onClick={() => setExpanded(isOpen ? null : row.key)} className="flex items-center gap-1 text-xs text-[#25455D] mx-auto">
-                          {isOpen ? <ChevronDown size={14}/> : <ChevronRight size={14}/>} подробно
-                        </button>
-                      ) : <span className="text-gray-300">—</span>}
-                    </td>
                   </tr>
-                  {isOpen && (
-                    <tr className="bg-gray-50">
-                      <td colSpan={4 + board.packages.length + cols.length + 1} className="px-4 py-3">
-                        <div className="space-y-2 text-sm">
-                          {cols.filter(c => row.jury_detail[String(c.criterion_id)]).map(c => (
-                            <div key={c.criterion_id}>
-                              <b className="text-[#25455D]">{c.title}:</b>{' '}
-                              {row.jury_detail[String(c.criterion_id)].map((d: any, i: number) => (
-                                <span key={i} className="text-gray-600">{d.juror_name} = {d.value}{i < row.jury_detail[String(c.criterion_id)].length-1 ? ', ' : ''}</span>
-                              ))}
-                            </div>
-                          ))}
-                          {fbs.length > 0 && (
-                            <div className="pt-2 border-t">
-                              <div className="text-xs text-gray-400 mb-1">Обратная связь жюри:</div>
-                              {fbs.map((f: any, i: number) => <div key={i}><b className="text-[#25455D]">{f.juror_name}:</b> {f.body}</div>)}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
                 </>
               )
             })}
