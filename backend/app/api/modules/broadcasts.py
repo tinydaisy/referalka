@@ -777,7 +777,7 @@ async def list_schedules(
                bs.session_id,
                bs.error_log,
                -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
-               bs.snapshot_text, bs.snapshot_photo, bs.snapshot_video,
+               bs.snapshot_text, bs.snapshot_subject, bs.snapshot_photo, bs.snapshot_video,
                bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats,
                bs.send_to_client_chats
         FROM broadcast_schedules bs

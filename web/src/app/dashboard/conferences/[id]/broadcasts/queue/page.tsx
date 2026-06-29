@@ -693,6 +693,17 @@ export default function QueuePage() {
                       </div>
                     )}
 
+                    {/* Заголовок + превью текста (как в общих рассылках) */}
+                    {s.snapshot_subject && (
+                      <p className="text-sm font-semibold text-gray-900 mb-0.5 truncate">{s.snapshot_subject}</p>
+                    )}
+                    {(() => {
+                      const preview = (s.snapshot_text || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+                      return preview ? (
+                        <p className="text-sm text-gray-700 mb-1 truncate">{preview}{(s.snapshot_text || '').length > 80 ? '…' : ''}</p>
+                      ) : null
+                    })()}
+
                     {/* Строка 3: время */}
                     <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                       {s.fire_at_local ? (
