@@ -55,10 +55,16 @@ def _normalize_media_assets(value: Any) -> Optional[List[dict]]:
         if platform not in ALLOWED_MEDIA_PLATFORMS:
             continue
         raw = item.get("subscribers")
+        # Пустое число при выбранной площадке — НЕ сохраняем молча: просим
+        # заполнить или удалить актив (а не записывать 0).
+        if raw in (None, "") or str(raw) in ("0", "0.0"):
+            raise HTTPException(status_code=400,
+                detail=f"У медийного актива «{platform}» не указано число подписчиков. Впишите значение или удалите этот актив.")
         try:
-            subs = float(raw) if raw not in (None, "") else 0.0
+            subs = float(raw)
         except (TypeError, ValueError):
-            continue
+            raise HTTPException(status_code=400,
+                detail=f"У медийного актива «{platform}» число подписчиков указано неверно. Впишите число или удалите актив.")
         if subs < 0:
             subs = 0.0
         subs = round(subs, 1)

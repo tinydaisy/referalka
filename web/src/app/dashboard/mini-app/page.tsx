@@ -114,11 +114,11 @@ export default function MiniAppSettingsPage() {
         achievements:       Array.isArray(p.achievements)       ? p.achievements       : [],
         owner_achievements: Array.isArray(p.owner_achievements) ? p.owner_achievements : [],
         social_links:       p.social_links || {},
-        // Предзаполняем приветствие дефолтным шаблоном, если поле пустое —
-        // клиент видит готовый текст и правит его.
-        start_greeting_text:    p.start_greeting_text    || DEFAULT_GREETING,
-        start_btn_events_label: p.start_btn_events_label || DEFAULT_BTN_EVENTS,
-        start_btn_owner_label:  p.start_btn_owner_label  || DEFAULT_BTN_OWNER,
+        // НЕ автозаполняем дефолтами — пустые поля остаются пустыми (с placeholder),
+        // чтобы клиент видел, что реально заполнено, а что нет.
+        start_greeting_text:    p.start_greeting_text    || '',
+        start_btn_events_label: p.start_btn_events_label || '',
+        start_btn_owner_label:  p.start_btn_owner_label  || '',
       })
     }).catch(() => {})
     loadOfferings()
@@ -635,6 +635,7 @@ export default function MiniAppSettingsPage() {
                     value={profile.start_greeting_text || ''}
                     onChange={e => update('start_greeting_text', e.target.value)}
                     rows={4}
+                    placeholder={`Пусто — будет показан стандартный текст:\n${DEFAULT_GREETING}`}
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
                   />
                   <p className="text-xs text-gray-400 mt-1">

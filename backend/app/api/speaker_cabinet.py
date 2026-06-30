@@ -331,6 +331,18 @@ async def patch_me(
     # Ник ассистента — нормализуем (срезаем @ и пробелы); пустая строка → NULL.
     if data.assistant_tg_username is not None:
         upd["assistant_tg_username"] = (data.assistant_tg_username or "").lstrip("@").strip() or None
+    # Понятные ограничения длины (вместо падения БД varchar(N)).
+    _LIMITS = {"name": (255, "Имя"), "title": (500, "Регалии / должность"),
+               "tg_channel_url": (500, "Ссылка Telegram"), "vk_url": (500, "Ссылка ВКонтакте"),
+               "max_url": (500, "Ссылка MAX"), "instagram_url": (500, "Ссылка Instagram"),
+               "website_url": (500, "Ссылка на сайт")}
+    for f, (limit, label) in _LIMITS.items():
+        v = upd.get(f)
+        if isinstance(v, str) and len(v) > limit:
+            raise HTTPException(status_code=400,
+                detail=f"Поле «{label}» слишком длинное ({len(v)} символов, максимум {limit}). Сократите текст.")
+
+    # Медийные активы: _normalize_media_assets сам кинет 400 на пустое число.
     media_assets_in = _normalize_media_assets(data.media_assets)
     if upd or media_assets_in is not None:
         parts = [f"{k} = ${i+2}" for i, k in enumerate(upd.keys())]
@@ -339,10 +351,13 @@ async def patch_me(
             parts.append(f"media_assets = ${len(vals)+2}::jsonb")
             vals.append(_json.dumps(media_assets_in))
         parts.append("updated_at = NOW()")
-        await db.execute(
-            f"UPDATE collaborators SET {', '.join(parts)} WHERE id = $1",
-            c_id, *vals
-        )
+        try:
+            await db.execute(
+                f"UPDATE collaborators SET {', '.join(parts)} WHERE id = $1",
+                c_id, *vals
+            )
+        except asyncpg.exceptions.StringDataRightTruncationError:
+            raise HTTPException(status_code=400, detail="Одно из полей слишком длинное. Сократите текст и сохраните снова.")
 
     # 2. Контакт (contacts) — только phone. Email живёт как идентичность
     #    (platform_users), синхронизируется ниже, в contacts.email НЕ пишем.
