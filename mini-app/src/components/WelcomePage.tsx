@@ -116,7 +116,7 @@ export default function WelcomePage({ event, participantId, raffleEnabled, refer
           )}
           <Tile
             icon="🌐"
-            title="Экосистема"
+            title="О проекте"
             text="Продукты и материалы от организатора — платно и бесплатно."
           />
         </div>
