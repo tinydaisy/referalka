@@ -1553,17 +1553,7 @@ function CustomBroadcastModal(props: {
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым Telegram ID)</span>
           </label>
-          <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
-            <input type="checkbox" checked={sendToChats} onChange={e => setSendToChats(e.target.checked)}
-              className="w-4 h-4 mt-0.5 accent-[#25455D]" />
-            <span>
-              <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
-              <span className="block text-[11px] text-gray-500 mt-0.5">
-                В дополнение к базе — ещё и в групповые чаты события (Telegram / VK / MAX).
-                При тестовой рассылке в чаты не уходит.
-              </span>
-            </span>
-          </label>
+          {/* Галочка «чаты события» убрана — теперь только общие чаты. */}
           {hasChatsFeature && (
             <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
               <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
