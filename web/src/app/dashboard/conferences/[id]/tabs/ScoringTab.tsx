@@ -51,6 +51,26 @@ function CriteriaSub({ eventId }: { eventId: number }) {
     (p: any) => p.stage_id === stageFilter || p.stage_id == null
   )
 
+  // Кого включать в этап (listen_audiences) — ОДНА настройка на этап, действует
+  // на турнирную таблицу, распределение жюри и кабинет спикера. all/registered
+  // взаимоисключающи; speakers/jury — отдельные галочки.
+  const curStage = stages.find((s: any) => s.id === stageFilter)
+  const setStageAudience = async (role: string) => {
+    if (stageFilter == null) return
+    const cur: string[] = curStage?.listen_audiences || []
+    let next: string[]
+    if (role === 'none') next = []
+    else if (role === 'all' || role === 'registered') {
+      const other = role === 'all' ? 'registered' : 'all'
+      const base = cur.filter(r => r !== other)
+      next = base.includes(role) ? base.filter(r => r !== role) : [...base, role]
+    } else {
+      next = cur.includes(role) ? cur.filter(r => r !== role) : [...cur, role]
+    }
+    setStages(stages.map((s: any) => s.id === stageFilter ? { ...s, listen_audiences: next } : s))
+    await api.tournament.setStageAudience(eventId, stageFilter, next)
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">
@@ -70,6 +90,19 @@ function CriteriaSub({ eventId }: { eventId: number }) {
               📋 Регламент подсчёта (публичная страница)
             </a>
           )}
+        </div>
+      )}
+      {stageFilter != null && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-gray-800">Кого включать в этап</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Одна настройка на этап — действует на турнирную таблицу, распределение жюри и кабинет спикера.
+              </div>
+            </div>
+            <AudienceDropdown value={curStage?.listen_audiences || []} onToggle={setStageAudience} />
+          </div>
         </div>
       )}
       {visiblePackages.map(pkg => <PackageCard key={pkg.id} eventId={eventId} pkg={pkg} stages={stages} defaultStage={stageFilter} onChange={load} />)}

@@ -705,7 +705,20 @@ async def delete_criterion(event_id: int, criterion_id: int, client=Depends(get_
 @router.get("/assignments", summary="Матрица распределения участников по жюри (по этапу)")
 async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
-    subjects = await _subjects(event_id, db)
+    # Кого показывать в строках — по настройке этапа listen_audiences (та же, что
+    # в турнирной таблице и кабинете спикера). Пусто/не задан этап → показываем всех.
+    show_ep, show_ec, include_unreg = True, True, False
+    if stage_id is not None:
+        st_aud = await db.fetchval(
+            "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
+            stage_id, event_id)
+        aud = set(st_aud or [])
+        if aud:
+            show_ep = bool(aud & {"all", "registered"})
+            show_ec = "speakers" in aud
+            include_unreg = "all" in aud
+    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
+                               include_unregistered=include_unreg)
     jurors = await _jurors(event_id, db)
     if stage_id is None:
         rows = await db.fetch(

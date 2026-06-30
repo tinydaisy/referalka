@@ -1799,6 +1799,7 @@ function InvitedTab({ token }: { token: string }) {
 function SlotTab({ token, myName }: { token: string; myName: string }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
+  const [activeStage, setActiveStage] = useState<number | null>(null)
   const [activeDay, setActiveDay] = useState<number | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
@@ -1810,11 +1811,6 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.json()).then((d) => {
       setData(d)
-      // активный день = день моего слота, иначе первый день со слотами
-      const sessions: any[] = d.sessions || []
-      const mine = sessions.find(s => s.is_mine)
-      const daysWithSlots: number[] = Array.from(new Set(sessions.map(s => s.day)))
-      setActiveDay(prev => (prev != null ? prev : (mine ? mine.day : (daysWithSlots[0] ?? null))))
       setSelectedId(null)
     }).finally(() => setLoading(false))
   }, [token])
@@ -1826,14 +1822,32 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
 
   const sessions: any[] = data.sessions || []
   const days: any[] = data.days || []
-  const myEcId: number = data.my_ec_id
+  const allStages: any[] = data.stages || []
   const mySlot = sessions.find(s => s.is_mine) || null
 
-  // дни, в которых есть слоты — только их показываем вкладками
-  const dayNumsWithSlots: number[] = Array.from(new Set(sessions.map(s => s.day)))
-  const dayTabs = days
-    .filter(d => dayNumsWithSlots.includes(d.day_number))
-    .sort((a, b) => a.day_number - b.day_number)
+  // дни, где спикеру есть что занять: есть свободный слот ИЛИ его слот.
+  // Так этапы без свободных мест (орг-встречи и т.п.) не показываются.
+  const relevantDayNums: number[] = Array.from(new Set(
+    sessions.filter(s => s.is_free || s.is_mine).map(s => s.day)
+  ))
+  const daysWithSlots = days.filter(d => relevantDayNums.includes(d.day_number))
+
+  // этапы-вкладки = только те этапы, у которых есть дни со слотами.
+  // Дни без этапа (stage_id=null) собираем в псевдо-этап «Без этапа».
+  const stageHasSlots = (sid: number | null) =>
+    daysWithSlots.some(d => (d.stage_id ?? null) === sid)
+  const stageTabs = allStages
+    .filter(st => stageHasSlots(st.id))
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  const hasOrphanDays = daysWithSlots.some(d => (d.stage_id ?? null) === null)
+
+  // активный этап = этап моего слота, иначе первый этап со слотами
+  const myDay = mySlot ? days.find(d => d.day_number === mySlot.day) : null
+  const myStageId = myDay ? (myDay.stage_id ?? null) : undefined
+  const ORPHAN = -1
+  const effStage = activeStage != null ? activeStage
+    : (myStageId !== undefined ? (myStageId ?? ORPHAN)
+      : (stageTabs[0] ? stageTabs[0].id : (hasOrphanDays ? ORPHAN : null)))
 
   const fmtDate = (iso: string | null) => {
     if (!iso) return ''
@@ -1843,8 +1857,19 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
   }
   const dayLabel = (d: any) => d.title || `День ${d.day_number}`
 
+  // дни активного этапа (со слотами)
+  const stageDays = daysWithSlots
+    .filter(d => (effStage === ORPHAN ? (d.stage_id ?? null) === null : (d.stage_id ?? null) === effStage))
+    .sort((a, b) => a.day_number - b.day_number)
+
+  // активный день в рамках этапа
+  const effDay = (activeDay != null && stageDays.some(d => d.day_number === activeDay))
+    ? activeDay
+    : (myDay && stageDays.some(d => d.day_number === myDay.day_number) ? myDay.day_number
+      : (stageDays[0] ? stageDays[0].day_number : null))
+
   const daySlots = sessions
-    .filter(s => s.day === activeDay)
+    .filter(s => s.day === effDay)
     .sort((a, b) => (a.sort_order - b.sort_order) || String(a.start_time || '').localeCompare(String(b.start_time || '')))
 
   async function save() {
@@ -1958,16 +1983,47 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
         </div>
       )}
 
-      {/* Вкладки дней */}
+      {/* Вкладки этапов (как в программе) */}
+      {(stageTabs.length > 0 || hasOrphanDays) && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap',
+          borderBottom: '1px solid #e1e8ee', paddingBottom: 10 }}>
+          {stageTabs.map(st => (
+            <button key={st.id} type="button"
+              onClick={() => { setActiveStage(st.id); setActiveDay(null); setSelectedId(null) }}
+              style={{
+                padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
+                border: `1px solid ${effStage === st.id ? DARK : '#d4dee5'}`,
+                background: effStage === st.id ? DARK : '#fff',
+                color: effStage === st.id ? '#fff' : DARK, fontWeight: effStage === st.id ? 700 : 500,
+              }}>
+              {st.title}
+            </button>
+          ))}
+          {hasOrphanDays && (
+            <button type="button"
+              onClick={() => { setActiveStage(ORPHAN); setActiveDay(null); setSelectedId(null) }}
+              style={{
+                padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
+                border: `1px solid ${effStage === ORPHAN ? DARK : '#d4dee5'}`,
+                background: effStage === ORPHAN ? DARK : '#fff',
+                color: effStage === ORPHAN ? '#fff' : DARK, fontWeight: effStage === ORPHAN ? 700 : 500,
+              }}>
+              Без этапа
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Вкладки дней внутри этапа */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {dayTabs.map(d => (
+        {stageDays.map(d => (
           <button key={d.day_number} type="button"
             onClick={() => { setActiveDay(d.day_number); setSelectedId(null) }}
             style={{
               padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
-              border: `1px solid ${activeDay === d.day_number ? PEACH : '#d4dee5'}`,
-              background: activeDay === d.day_number ? PEACH : '#fff',
-              color: DARK, fontWeight: activeDay === d.day_number ? 700 : 500,
+              border: `1px solid ${effDay === d.day_number ? PEACH : '#d4dee5'}`,
+              background: effDay === d.day_number ? PEACH : '#fff',
+              color: DARK, fontWeight: effDay === d.day_number ? 700 : 500,
             }}>
             {dayLabel(d)} <span style={{ color: '#7a8c9c', fontWeight: 400 }}>{fmtDate(d.day_date)}</span>
           </button>
