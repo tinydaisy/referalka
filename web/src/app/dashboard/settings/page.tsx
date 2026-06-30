@@ -501,6 +501,7 @@ export default function SettingsPage() {
 
           {notifyTab === 'vk' && (
             <div>
+              <label className="block text-sm text-gray-600 mb-1">ID беседы VK (peer_id)</label>
               <input
                 type="text"
                 value={form.notifications_vk_peer_id}
@@ -509,10 +510,14 @@ export default function SettingsPage() {
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 text-sm font-mono"
               />
               <p className="mt-3 text-sm text-gray-600">
-                Создайте беседу VK, добавьте туда своё сообщество{botHandles?.vk ? <> (<strong>{botHandles.vk}</strong>)</> : null} и
-                напишите в беседе <strong>/getmyid</strong> — сообщество ответит с peer_id (для бесед это
-                число вида 2000000001). Вставьте сюда. Нужно подключённое VK-сообщество клиента.
+                Уведомления придут в <strong>беседу VK</strong> — её видите и вы, и ваша команда
+                (как канал). Слать будет ваше сообщество{botHandles?.vk ? <> (<strong>{botHandles.vk}</strong>)</> : null}.
               </p>
+              <ol className="mt-2 text-sm text-gray-600 list-decimal pl-5 space-y-1">
+                <li>В сообществе VK: <strong>Управление → Сообщения → Настройки для бота</strong> → включите <strong>«Разрешать добавлять сообщество в чаты»</strong> (без этого VK не даст добавить сообщество в беседу).</li>
+                <li>Создайте беседу VK (добавьте туда нужных людей), затем добавьте в неё <strong>своё сообщество</strong> и назначьте его <strong>администратором</strong> беседы.</li>
+                <li>Напишите в беседе <strong>/getmyid</strong> — сообщество ответит peer_id (число вида 2000000001). Вставьте сюда и нажмите <strong>«Сохранить визитку»</strong>.</li>
+              </ol>
             </div>
           )}
         </div>
