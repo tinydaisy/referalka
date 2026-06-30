@@ -110,7 +110,8 @@ def _skey(kind: str, sid: int) -> str:
 
 async def _subjects(event_id: int, db: asyncpg.Connection, *,
                     show_ep: bool = True, show_ec: bool = True,
-                    include_unregistered: bool = False) -> List[dict]:
+                    include_unregistered: bool = False,
+                    stage_id: Optional[int] = None) -> List[dict]:
     """Оцениваемые = спикеры-коллабораторы (ec) + участники (ep).
     Сортировка: спикеры (по фамилии-имени) → участники (по имени).
 
@@ -158,6 +159,8 @@ async def _subjects(event_id: int, db: asyncpg.Connection, *,
     # ── Спикеры/хедлайнеры (ec). При показе обеих аудиторий добавляем ТОЛЬКО тех,
     #    кого ещё нет среди участников (иначе человек-и-спикер-и-участник задвоится).
     #    Если ep не показываем (этап = только спикеры) — добавляем всех спикеров.
+    # При заданном этапе — только спикеры, ПОИМЁННО привязанные к нему
+    # (event_collaborator_stages). Без этапа — все спикеры события.
     ec_rows = [] if not show_ec else await db.fetch(
         """SELECT cse.id AS sid, c.name, ct.ref_code, ct.id AS contact_id,
                   c.video_url, c.video_folder_url,
@@ -169,8 +172,11 @@ async def _subjects(event_id: int, db: asyncpg.Connection, *,
              JOIN collaborators c ON c.id = cse.speaker_id
              LEFT JOIN contacts ct ON ct.id = c.contact_id
             WHERE cse.event_id = $1 AND cse.role IN ('speaker', 'headliner')
+              AND ($2::int IS NULL OR EXISTS (
+                    SELECT 1 FROM event_collaborator_stages ecs
+                     WHERE ecs.ec_id = cse.id AND ecs.stage_id = $2))
             ORDER BY split_part(c.name, ' ', 1), c.name, cse.id""",
-        event_id,
+        event_id, stage_id,
     )
     for r in ec_rows:
         d = dict(r)
@@ -183,16 +189,22 @@ async def _subjects(event_id: int, db: asyncpg.Connection, *,
     return out
 
 
-async def _jurors(event_id: int, db: asyncpg.Connection) -> List[dict]:
+async def _jurors(event_id: int, db: asyncpg.Connection, *,
+                  stage_id: Optional[int] = None) -> List[dict]:
     # Оценщики = жюри И организаторы (организатор тоже выставляет баллы).
+    # При заданном этапе — только жюри, ПОИМЁННО привязанные к нему.
+    # Организаторов от привязки не отсекаем (они судят везде).
     rows = await db.fetch(
         """SELECT cse.id AS juror_ec_id, c.name, ct.ref_code, cse.role
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
              LEFT JOIN contacts ct ON ct.id = c.contact_id
             WHERE cse.event_id = $1 AND cse.role IN ('jury', 'organizer')
+              AND ($2::int IS NULL OR cse.role = 'organizer' OR EXISTS (
+                    SELECT 1 FROM event_collaborator_stages ecs
+                     WHERE ecs.ec_id = cse.id AND ecs.stage_id = $2))
             ORDER BY split_part(c.name, ' ', 1), c.name, cse.id""",
-        event_id,
+        event_id, stage_id,
     )
     return [dict(r) for r in rows]
 
@@ -278,24 +290,13 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
     for c in crits:
         crits_by_pkg.setdefault(c["package_id"], []).append(c)
 
-    # ── Кого отображать в таблице — по настройке этапа listen_audiences ──
-    #   speakers → спикеры (ec); all/registered → участники (ep). Пусто/не задан этап
-    #   → показываем всех. Передаём в _subjects, чтобы дедуп спикер/участник учитывал
-    #   аудиторию (иначе на этапе «только спикеры» спикеры-участники пропадали).
-    show_ep, show_ec = True, True
-    include_unreg = False  # 'all' в аудитории → показываем и незарегистрированных ep
-    if stage_id is not None:
-        st_aud = await db.fetchval(
-            "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
-            stage_id, event_id)
-        aud = set(st_aud or [])
-        if aud:  # пустой массив = «показывать всех» (обратная совместимость)
-            show_ep = bool(aud & {"all", "registered"})
-            show_ec = "speakers" in aud
-            include_unreg = "all" in aud
-    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
-                               include_unregistered=include_unreg)
-    jurors = await _jurors(event_id, db)
+    # ── Кого отображать в таблице — ПОИМЁННАЯ привязка к этапу ──
+    #   При заданном этапе показываем только спикеров (ec), привязанных к нему
+    #   (event_collaborator_stages). Без этапа — все спикеры + участники.
+    show_ep = stage_id is None
+    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=True,
+                               stage_id=stage_id)
+    jurors = await _jurors(event_id, db, stage_id=stage_id)
 
     # сырые баллы (по subject_kind+subject_id)
     score_rows = await db.fetch(
@@ -705,21 +706,13 @@ async def delete_criterion(event_id: int, criterion_id: int, client=Depends(get_
 @router.get("/assignments", summary="Матрица распределения участников по жюри (по этапу)")
 async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
-    # Кого показывать в строках — по настройке этапа listen_audiences (та же, что
-    # в турнирной таблице и кабинете спикера). Пусто/не задан этап → показываем всех.
-    show_ep, show_ec, include_unreg = True, True, False
-    if stage_id is not None:
-        st_aud = await db.fetchval(
-            "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
-            stage_id, event_id)
-        aud = set(st_aud or [])
-        if aud:
-            show_ep = bool(aud & {"all", "registered"})
-            show_ec = "speakers" in aud
-            include_unreg = "all" in aud
-    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
-                               include_unregistered=include_unreg)
-    jurors = await _jurors(event_id, db)
+    # В строках — спикеры (ec), ПОИМЁННО привязанные к выбранному этапу
+    # (event_collaborator_stages). На этапе показываем только спикеров — участники-
+    # конкурсанты заведены как ec. Без этапа — все спикеры + участники (как раньше).
+    show_ep = stage_id is None
+    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=True,
+                               stage_id=stage_id)
+    jurors = await _jurors(event_id, db, stage_id=stage_id)
     if stage_id is None:
         rows = await db.fetch(
             "SELECT juror_ec_id, subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id IS NULL", event_id)
@@ -772,12 +765,15 @@ async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=
                     item["referrer_juror_ec_ids"] = [jec]
         subjects_out.append(item)
 
-    # В выпадашке выбора этапа — только этапы С турниром (listen_audiences непуст).
-    # Этапы «Без турнира» (пустой набор) здесь не предлагаем.
+    # В выпадашке — этапы, к которым ПРИВЯЗАН хотя бы один спикер или жюри
+    # (event_collaborator_stages). Пустые этапы не предлагаем.
     stages = await db.fetch(
-        "SELECT id, title FROM conf_stages WHERE event_id=$1 "
-        "AND listen_audiences IS NOT NULL AND array_length(listen_audiences, 1) > 0 "
-        "ORDER BY sort_order, id", event_id)
+        """SELECT s.id, s.title FROM conf_stages s
+            WHERE s.event_id=$1
+              AND EXISTS (SELECT 1 FROM event_collaborator_stages ecs
+                            JOIN event_collaborators ec ON ec.id = ecs.ec_id
+                           WHERE ecs.stage_id = s.id AND ec.event_id = $1)
+            ORDER BY s.sort_order, s.id""", event_id)
     return {
         "subjects": subjects_out,
         "jurors": [{"juror_ec_id": j["juror_ec_id"], "name": j["name"]} for j in jurors],
@@ -1568,11 +1564,12 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
         return {"is_tournament": False}
     mykey = _skey("ec", se_id)
 
-    # этапы С турниром (listen_audiences непуст) + виртуальный «весь турнир» если их нет
+    # только этапы, к которым привязан ЭТОТ спикер (event_collaborator_stages)
     stages = await db.fetch(
-        "SELECT id, title FROM conf_stages WHERE event_id=$1 "
-        "AND listen_audiences IS NOT NULL AND array_length(listen_audiences, 1) > 0 "
-        "ORDER BY sort_order, id", event_id)
+        """SELECT s.id, s.title FROM conf_stages s
+            JOIN event_collaborator_stages ecs ON ecs.stage_id = s.id
+           WHERE s.event_id=$1 AND ecs.ec_id=$2
+           ORDER BY s.sort_order, s.id""", event_id, se_id)
     stage_list = [{"id": s["id"], "title": s["title"]} for s in stages] or [{"id": None, "title": "Турнир"}]
 
     # комментарии жюри (с привязкой к этапу)

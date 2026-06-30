@@ -550,6 +550,9 @@ class SpeakerEventUpdate(BaseModel):
     role: Optional[str] = None
     speaker_topic: Optional[str] = None  # устаревшее, оставлено для совместимости
     topics: Optional[List[str]] = None
+    # В каких этапах турнира участвует (поимённая привязка к conf_stages).
+    # Управляет видимостью в кабинете, распределении и турнирной таблице.
+    stage_ids: Optional[List[int]] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
@@ -677,6 +680,8 @@ async def list_event_speakers(
                   cse.show_partner_registration_link,
                   cse.poster_id,
                   cse.announcement_poster_ids,
+                  (SELECT COALESCE(array_agg(ecs.stage_id), ARRAY[]::int[])
+                     FROM event_collaborator_stages ecs WHERE ecs.ec_id = cse.id) AS stage_ids,
                   cp_cse.url AS cse_poster_url,
                   cse.partner_url, cse.extra_info, cse.notes,
                   c.ref_code, cse.is_visible, cse.sort_order, cse.is_commercial,
@@ -1043,6 +1048,7 @@ async def update_speaker_event(
     await check_conference_access(event_id, int(client["sub"]), db)
     raw = data.model_dump()
     topics_list = raw.pop("topics", None)
+    stage_ids = raw.pop("stage_ids", None)  # этапы участия — отдельной таблицей
     # Не обновляем speaker_topic через общий механизм — управляем темами отдельно
     raw.pop("speaker_topic", None)
     # Валидация poster_id и announcement_poster_ids: все должны принадлежать
@@ -1083,6 +1089,17 @@ async def update_speaker_event(
             "UPDATE event_collaborators SET speaker_topic=$1 WHERE id=$2",
             first_topic, speaker_event_id
         )
+    if stage_ids is not None:
+        # перезаписываем набор этапов участия: только этапы ЭТОГО события
+        await db.execute("DELETE FROM event_collaborator_stages WHERE ec_id=$1", speaker_event_id)
+        if stage_ids:
+            await db.execute(
+                """INSERT INTO event_collaborator_stages (ec_id, stage_id)
+                   SELECT $1, s.id FROM conf_stages s
+                   WHERE s.id = ANY($2::int[]) AND s.event_id = $3
+                   ON CONFLICT DO NOTHING""",
+                speaker_event_id, [int(x) for x in stage_ids], event_id,
+            )
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
                   sp.photo_url,

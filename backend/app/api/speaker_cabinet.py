@@ -1087,16 +1087,31 @@ async def speaker_program(
     se_id = int(session["se_id"])
     e_id = int(session["e_id"])
 
-    stages = await db.fetch(
-        "SELECT id, sort_order, title, subtitle, start_date, end_date "
-        "FROM conf_stages WHERE event_id = $1 ORDER BY sort_order, id",
-        e_id,
-    )
-    days = await db.fetch(
+    # Этапы участия спикера. Есть привязки (event_collaborator_stages) → только они.
+    # Нет привязок → все этапы события (организатор ещё не настроил — не прячем всё).
+    my_stage_ids = [r["stage_id"] for r in await db.fetch(
+        "SELECT stage_id FROM event_collaborator_stages WHERE ec_id=$1", se_id)]
+    if my_stage_ids:
+        stages = await db.fetch(
+            "SELECT id, sort_order, title, subtitle, start_date, end_date "
+            "FROM conf_stages WHERE event_id = $1 AND id = ANY($2::int[]) ORDER BY sort_order, id",
+            e_id, my_stage_ids,
+        )
+    else:
+        stages = await db.fetch(
+            "SELECT id, sort_order, title, subtitle, start_date, end_date "
+            "FROM conf_stages WHERE event_id = $1 ORDER BY sort_order, id",
+            e_id,
+        )
+    visible_stage_ids = {s["id"] for s in stages}
+    # дни только видимых этапов (дни без этапа показываем всегда)
+    all_days = await db.fetch(
         "SELECT id, day_number, day_date, stage_id, title "
         "FROM conf_days WHERE event_id = $1 ORDER BY day_number",
         e_id,
     )
+    days = [d for d in all_days if d["stage_id"] is None or d["stage_id"] in visible_stage_ids]
+    visible_day_nums = {d["day_number"] for d in days}
     # слот: имя занявшего + его актуальная тема (live по topic_id, fallback title)
     sessions = await db.fetch(
         """
@@ -1120,11 +1135,14 @@ async def speaker_program(
         d["is_free"] = (d.get("occupant_ec_id") is None)
         return d
 
+    # слоты только видимых дней
+    vis_sessions = [_ser(s) for s in sessions if s["day"] in visible_day_nums]
+
     return {
         "my_ec_id": se_id,
         "stages": [dict(s) for s in stages],
         "days": [dict(d) for d in days],
-        "sessions": [_ser(s) for s in sessions],
+        "sessions": vis_sessions,
     }
 
 

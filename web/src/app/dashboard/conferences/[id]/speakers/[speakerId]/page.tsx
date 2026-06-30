@@ -169,6 +169,9 @@ export default function ConferenceSpeakerPage() {
   const [eventSlug, setEventSlug] = useState<string | null>(null)
   const [eventStatus, setEventStatus] = useState<'draft' | 'published' | 'ended' | null>(null)
   const [refCode, setRefCode] = useState<string | null>(null)
+  // Этапы турнира + в каких участвует этот спикер/жюри (event_collaborator_stages)
+  const [stages, setStages] = useState<Array<{ id: number; title: string }>>([])
+  const [stageIds, setStageIds] = useState<number[]>([])
 
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -193,6 +196,10 @@ export default function ConferenceSpeakerPage() {
       setEventSlug(r?.conference?.event_slug || null)
       setEventStatus((r?.conference?.event_status as any) || null)
     }).catch(() => {})
+    // этапы турнира — для мультиселекта «в каких этапах участвует»
+    api.conference.stages.list(confId).then((r: any) => {
+      setStages((r.stages || []).map((s: any) => ({ id: s.id, title: s.title })))
+    }).catch(() => {})
   }, [confId])
 
   useEffect(() => {
@@ -202,6 +209,7 @@ export default function ConferenceSpeakerPage() {
         const sp = speakers.find((s: any) => s.id === speakerEventId)
         if (!sp) { router.push(`${basePath}/${confId}?tab=speakers`); return }
         setRefCode(sp.ref_code || null)
+        setStageIds(Array.isArray(sp.stage_ids) ? sp.stage_ids : [])
 
         const rawTopics = sp.topics && sp.topics.length > 0
           ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
@@ -386,6 +394,7 @@ export default function ConferenceSpeakerPage() {
       await api.conference.speakers.update(confId, speakerEventId, {
         role: eventForm.role,
         topics,
+        stage_ids: stageIds,
         gift_after_speech_title: eventForm.gift_after_speech_title,
         gift_after_speech_url: eventForm.gift_after_speech_url,
         gift_raffle_title: eventForm.gift_raffle_title,
@@ -584,6 +593,30 @@ export default function ConferenceSpeakerPage() {
             <span className="text-sm text-gray-700">Коммерческое выступление</span>
           </label>
         </div>
+
+        {/* В каких этапах участвует — только при наличии этапов (турнир) */}
+        {stages.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
+            <h3 className="font-semibold text-gray-900 text-sm">В каких этапах участвует</h3>
+            <p className="text-xs text-gray-500 -mt-1">
+              Отметьте этапы. Влияет на распределение жюри, турнирную таблицу и кабинет спикера —
+              человек виден только в выбранных этапах. Ничего не отмечено — не участвует ни в одном.
+            </p>
+            <div className="space-y-2">
+              {stages.map(st => {
+                const checked = stageIds.includes(st.id)
+                return (
+                  <label key={st.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                    <input type="checkbox" checked={checked}
+                      onChange={e => setStageIds(prev => e.target.checked ? [...prev, st.id] : prev.filter(x => x !== st.id))}
+                      className="w-4 h-4 rounded border-gray-300 text-brand" />
+                    <span>{st.title}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Что спикер видит в своей форме — сразу после галочки «Коммерческое» */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-3">
