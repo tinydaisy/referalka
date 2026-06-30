@@ -2099,7 +2099,7 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
                         key={s.id}
                         type="button"
                         disabled={!free && !mine}
-                        onClick={() => { if (free) { setSelectedId(prev => prev === s.id ? null : s.id); setSelectedTopicId(null) } }}
+                        onClick={() => { if (free) setSelectedId(prev => prev === s.id ? null : s.id) }}
                         style={{
                           textAlign: 'left', width: '100%',
                           display: 'flex', alignItems: 'center', gap: 12,
