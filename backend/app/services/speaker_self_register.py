@@ -122,13 +122,20 @@ async def complete_speaker_self_register(
     # speaker → topic + gift включены, kb выключен.
     # show_partner_registration_link=FALSE — самозаписавшимся партнёрку
     # не агитируем до явной активации клиентом (миграция 123).
-    await db.execute(
+    new_ec_id = await db.fetchval(
         """INSERT INTO event_collaborators
              (speaker_id, event_id, role,
               is_commercial, is_visible, sort_order,
               show_topic_field, show_gift_after_speech_field, show_knowledge_base_field,
               show_partner_registration_link)
-           VALUES ($1, $2, 'speaker', FALSE, TRUE, 0, TRUE, TRUE, FALSE, FALSE)""",
+           VALUES ($1, $2, 'speaker', FALSE, TRUE, 0, TRUE, TRUE, FALSE, FALSE)
+           RETURNING id""",
         collaborator_id, event_id,
     )
+    # Привязываем к этапам «по умолчанию» (conf_conferences.default_speaker_stage_ids)
+    try:
+        from app.api.modules.conference import apply_default_speaker_stages
+        await apply_default_speaker_stages(new_ec_id, event_id, db)
+    except Exception:
+        pass
     return collaborator_id, access_code, event_slug, False

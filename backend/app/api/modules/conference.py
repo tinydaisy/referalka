@@ -271,6 +271,8 @@ class ConferenceUpdate(BaseModel):
     chat_greeting_enabled: Optional[bool] = None  # приветствие в чатах (миграция 163)
     chat_greeting_keyword: Optional[str] = None   # кодовое слово приветствия
     chat_greeting_exact: Optional[bool] = None    # точное / любое вхождение
+    # Этапы по умолчанию для новых спикеров турнира (миграция 184)
+    default_speaker_stage_ids: Optional[List[int]] = None
 
 
 @router.get("/", summary="Данные конференции")
@@ -618,6 +620,25 @@ async def _save_topics(cse_id: int, topics: list, db) -> None:
             )
 
 
+async def apply_default_speaker_stages(ec_id: int, event_id: int, db) -> None:
+    """Привязывает нового спикера к этапам «по умолчанию» (conf_conferences.
+    default_speaker_stage_ids). Используется при саморегистрации и добавлении из
+    дашборда. Только этапы этого события. Безопасно при пустом списке."""
+    stage_ids = await db.fetchval(
+        "SELECT default_speaker_stage_ids FROM conf_conferences WHERE event_id = $1",
+        event_id,
+    )
+    if not stage_ids:
+        return
+    await db.execute(
+        """INSERT INTO event_collaborator_stages (ec_id, stage_id)
+           SELECT $1, s.id FROM conf_stages s
+           WHERE s.id = ANY($2::int[]) AND s.event_id = $3
+           ON CONFLICT DO NOTHING""",
+        ec_id, list(stage_ids), event_id,
+    )
+
+
 @router.get("/speakers/self-register-links", summary="Прямые ссылки саморегистрации спикером (TG/VK/MAX)")
 async def speaker_self_register_links(
     event_id: int,
@@ -873,6 +894,7 @@ async def add_speaker_from_base(
         show_topic_default, show_gift_default, show_kb_default,
     )
     await _save_topics(cse["id"], topics_list, db)
+    await apply_default_speaker_stages(cse["id"], event_id, db)
     # Возвращаем с данными из глобальной базы
     row = await db.fetchrow(
         """SELECT cse.*, sp.name, sp.title, sp.achievements,
@@ -1030,6 +1052,7 @@ async def create_and_add_speaker(
             show_topic_default, show_gift_default, show_kb_default,
         )
         await _save_topics(cse["id"], topics_list, db)
+        await apply_default_speaker_stages(cse["id"], event_id, db)
 
     topics_map = await _load_topics([cse["id"]], db)
     result = {**dict(sp), **dict(cse), "speaker_id": sp["id"], "topics": topics_map.get(cse["id"], [])}

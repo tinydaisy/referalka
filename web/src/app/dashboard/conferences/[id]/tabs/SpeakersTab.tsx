@@ -151,6 +151,11 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
   // Только в турнире — сворачивание групп жюри / партнёры / спикеры
   const isTournament = moduleSlug === 'turnir'
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+  // Этапы по умолчанию для новых спикеров (conf_conferences.default_speaker_stage_ids)
+  const [stages, setStages] = useState<Array<{ id: number; title: string }>>([])
+  const [defaultStageIds, setDefaultStageIds] = useState<number[]>([])
+  const [savingDefaultStages, setSavingDefaultStages] = useState(false)
+  const [defaultStagesSaved, setDefaultStagesSaved] = useState(false)
 
   function load() {
     setLoading(true)
@@ -179,6 +184,26 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
       .then((r: any) => setSelfEditLinks(r.links || {}))
       .catch(() => setSelfEditLinks({}))
   }, [eventId])
+
+  // Этапы события + текущие этапы по умолчанию для новых спикеров
+  useEffect(() => {
+    api.conference.stages.list(eventId)
+      .then((r: any) => setStages((r.stages || []).map((s: any) => ({ id: s.id, title: s.title }))))
+      .catch(() => setStages([]))
+    api.conference.get(eventId)
+      .then((r: any) => setDefaultStageIds(r?.conference?.default_speaker_stage_ids || []))
+      .catch(() => setDefaultStageIds([]))
+  }, [eventId])
+
+  async function saveDefaultStages() {
+    setSavingDefaultStages(true); setDefaultStagesSaved(false)
+    try {
+      await api.conference.update(eventId, { default_speaker_stage_ids: defaultStageIds })
+      setDefaultStagesSaved(true); setTimeout(() => setDefaultStagesSaved(false), 2000)
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сохранить')
+    } finally { setSavingDefaultStages(false) }
+  }
 
   async function copyLink(platform: string, url: string) {
     try {
@@ -433,6 +458,32 @@ export default function SpeakersTab({ eventId, moduleSlug, subTab: subTabProp, h
                 доступ в кабинет, чтобы заполнить данные о себе.
               </p>
               {renderLinkRows(regLinks, 'reg')}
+
+              {/* Этапы по умолчанию — только если у события есть этапы (турнир/конф) */}
+              {stages.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="text-sm font-medium text-gray-800 mb-1">По умолчанию добавлять в этапы</div>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Новый спикер (по ссылке выше или добавленный из дашборда) автоматически попадёт в выбранные этапы —
+                    будет виден в распределении, турнирной таблице и своём кабинете.
+                  </p>
+                  <div className="space-y-1.5">
+                    {stages.map(st => (
+                      <label key={st.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                        <input type="checkbox"
+                          checked={defaultStageIds.includes(st.id)}
+                          onChange={e => setDefaultStageIds(prev => e.target.checked ? [...prev, st.id] : prev.filter(x => x !== st.id))}
+                          className="w-4 h-4 rounded border-gray-300" />
+                        <span>{st.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button onClick={saveDefaultStages} disabled={savingDefaultStages}
+                    className="mt-3 px-4 py-1.5 rounded-lg text-sm font-medium bg-[#25455D] text-[#FFCFA4] hover:opacity-90 disabled:opacity-60">
+                    {savingDefaultStages ? 'Сохраняю…' : defaultStagesSaved ? '✓ Сохранено' : 'Сохранить этапы'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
