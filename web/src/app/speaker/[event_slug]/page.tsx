@@ -2070,10 +2070,10 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
                           textAlign: 'left', width: '100%',
                           display: 'flex', alignItems: 'center', gap: 12,
                           padding: '12px 14px', borderRadius: 12,
-                          border: `2px solid ${selected ? PEACH : mine ? '#9ec6f0' : free ? '#d4dee5' : '#e7ecf0'}`,
-                          background: mine ? '#eef6ff' : selected ? '#fff7ef' : '#fff',
+                          // занят чужим → светло-красный полупрозрачный; мой → голубой; свободный/выбранный → как было
+                          border: `2px solid ${selected ? PEACH : mine ? '#9ec6f0' : free ? '#d4dee5' : 'rgba(220,53,69,0.25)'}`,
+                          background: mine ? '#eef6ff' : selected ? '#fff7ef' : free ? '#fff' : 'rgba(255,80,80,0.10)',
                           cursor: (!free && !mine) ? 'default' : 'pointer',
-                          opacity: (!free && !mine) ? 0.85 : 1,
                         }}
                       >
                         <div style={{
