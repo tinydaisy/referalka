@@ -988,15 +988,19 @@ async def update_my_profile(
         raise HTTPException(status_code=400, detail="Нечего обновлять")
 
     args.append(int(client["sub"]))
-    row = await db.fetchrow(
-        f"""UPDATE clients SET {', '.join(sets)}
-            WHERE id = ${len(args)}
-            RETURNING id,
-                      brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
-                      owner_photo_url, owner_positioning, owner_achievements,
-                      bio, social_links""",
-        *args
-    )
+    try:
+        row = await db.fetchrow(
+            f"""UPDATE clients SET {', '.join(sets)}
+                WHERE id = ${len(args)}
+                RETURNING id,
+                          brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
+                          owner_photo_url, owner_positioning, owner_achievements,
+                          bio, social_links""",
+            *args
+        )
+    except asyncpg.exceptions.CheckViolationError:
+        # Невалидное значение (напр. неизвестный режим) — понятная ошибка, не 500.
+        raise HTTPException(status_code=400, detail="Не получилось сохранить: одно из значений недопустимо. Проверьте поля и попробуйте снова.")
     d = dict(row)
     d["achievements"]       = _parse_jsonb(d.get("achievements"), [])
     d["owner_achievements"] = _parse_jsonb(d.get("owner_achievements"), [])
