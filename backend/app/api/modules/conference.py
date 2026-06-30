@@ -1733,6 +1733,62 @@ async def generate_schedule(
     return {"sessions": created, "message": f"Создано {len(created)} сессий"}
 
 
+class DayTimingRequest(BaseModel):
+    day: int                      # day_number
+    start_time: str               # "10:00" — время начала первого слота
+    speaker_count: int            # сколько слотов сгенерировать
+    talk_duration: int = 20       # минут на выступление
+    break_duration: int = 10      # минут перерыв между выступлениями
+
+
+@router.post("/sessions/generate-timing", summary="Сгенерировать пустые слоты дня по таймингу (добавить к существующим)")
+async def generate_day_timing(
+    event_id: int,
+    data: DayTimingRequest,
+    client=Depends(get_current_client),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    """Генерит N ПУСТЫХ слотов дня (без спикеров — их займут сами) и ДОБАВЛЯЕТ к
+    уже существующим слотам этого дня. Слот = выступление + перерыв. Тема пустая —
+    «Тема будет уточнена позже». Для конференций и турниров."""
+    await check_conference_access(event_id, int(client["sub"]), db)
+
+    if data.speaker_count < 1 or data.speaker_count > 100:
+        raise HTTPException(status_code=400, detail="Количество спикеров должно быть от 1 до 100")
+    if data.talk_duration < 1:
+        raise HTTPException(status_code=400, detail="Длительность выступления должна быть больше 0")
+
+    h, m = map(int, _normalize_hhmm(data.start_time).split(":"))
+    cursor_min = h * 60 + m
+
+    def _mm_to_hhmm(mm: int) -> str:
+        mm = mm % (24 * 60)
+        return f"{mm // 60:02d}:{mm % 60:02d}"
+
+    # следующий sort_order после уже имеющихся слотов дня
+    base_sort = await db.fetchval(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM conf_sessions WHERE event_id=$1 AND day=$2",
+        event_id, data.day,
+    ) or 0
+
+    created = []
+    for i in range(data.speaker_count):
+        slot_start = _mm_to_hhmm(cursor_min)
+        slot_end = _mm_to_hhmm(cursor_min + data.talk_duration)
+        session = await db.fetchrow(
+            """INSERT INTO conf_sessions
+               (event_id, speaker_id, day, start_time, end_time, title, sort_order)
+               VALUES ($1, NULL, $2, $3, $4, $5, $6) RETURNING *""",
+            event_id, data.day, slot_start, slot_end,
+            "Тема будет уточнена позже", base_sort + i,
+        )
+        created.append(dict(session))
+        cursor_min += data.talk_duration + data.break_duration
+
+    await regenerate_landing_data(event_id, db)
+    return {"sessions": created, "message": f"Добавлено {len(created)} слотов"}
+
+
 # ─── Рассылки ─────────────────────────────────────────────────────────────────
 
 class BroadcastCreate(BaseModel):

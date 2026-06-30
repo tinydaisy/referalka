@@ -81,6 +81,34 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   const [speakerTopics, setSpeakerTopics] = useState<{ id: number; topic: string }[]>([])
   const [customTitle, setCustomTitle] = useState(false)
   const [savingSession, setSavingSession] = useState(false)
+  // Тайминг дня — авто-генерация N пустых слотов
+  const [timingModal, setTimingModal] = useState<{ day: number } | null>(null)
+  const [timingForm, setTimingForm] = useState({ start_time: '10:00', speaker_count: '10', talk_duration: '20', break_duration: '10' })
+  const [savingTiming, setSavingTiming] = useState(false)
+
+  async function saveTiming() {
+    if (!timingModal) return
+    const count = parseInt(timingForm.speaker_count, 10)
+    const talk = parseInt(timingForm.talk_duration, 10)
+    const brk = parseInt(timingForm.break_duration, 10)
+    if (!count || count < 1) { alert('Укажите количество спикеров'); return }
+    if (!talk || talk < 1) { alert('Укажите длительность выступления'); return }
+    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(timingForm.start_time)) { alert('Укажите время начала в формате ЧЧ:ММ'); return }
+    setSavingTiming(true)
+    try {
+      await api.conference.sessions.generateTiming(eventId, {
+        day: timingModal.day,
+        start_time: timingForm.start_time,
+        speaker_count: count,
+        talk_duration: talk,
+        break_duration: isNaN(brk) ? 0 : brk,
+      })
+      setTimingModal(null)
+      load()
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось сгенерировать слоты')
+    } finally { setSavingTiming(false) }
+  }
 
   // Обёртка для любого фонового запроса: ставит busy, ловит ошибку алертом.
   async function run<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -610,6 +638,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                     onAddSession={() => setSessionModal({ day: day.day_number, editId: null })}
                     onEditSession={openSessionEdit}
                     onDeleteSession={deleteSession}
+                    onTiming={() => setTimingModal({ day: day.day_number })}
                   />
                 ))}
               </div>
@@ -657,6 +686,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                   onAddSession={() => setSessionModal({ day: day.day_number, editId: null })}
                   onEditSession={openSessionEdit}
                   onDeleteSession={deleteSession}
+                  onTiming={() => setTimingModal({ day: day.day_number })}
                 />
               ))}
             </div>
@@ -754,6 +784,60 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
           </div>
         </Modal>
       )}
+
+      {timingModal && (
+        <Modal title="Задать тайминг дня" onClose={() => setTimingModal(null)}>
+          <p className="text-xs text-gray-500 mb-4">
+            Сгенерируем пустые слоты по порядку — спикеры сами займут их в своём кабинете.
+            Слоты <b>добавятся</b> к уже существующим в этом дне.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="label">Время начала (МСК)</label>
+              <input type="time" value={timingForm.start_time}
+                onChange={e => setTimingForm(f => ({ ...f, start_time: e.target.value }))}
+                className="input" />
+            </div>
+            <div>
+              <label className="label">Количество спикеров (слотов)</label>
+              <input type="number" min={1} max={100} value={timingForm.speaker_count}
+                onChange={e => setTimingForm(f => ({ ...f, speaker_count: e.target.value }))}
+                className="input" placeholder="10" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Выступление (мин)</label>
+                <input type="number" min={1} value={timingForm.talk_duration}
+                  onChange={e => setTimingForm(f => ({ ...f, talk_duration: e.target.value }))}
+                  className="input" placeholder="20" />
+              </div>
+              <div>
+                <label className="label">Перерыв (мин)</label>
+                <input type="number" min={0} value={timingForm.break_duration}
+                  onChange={e => setTimingForm(f => ({ ...f, break_duration: e.target.value }))}
+                  className="input" placeholder="10" />
+              </div>
+            </div>
+            {(() => {
+              const c = parseInt(timingForm.speaker_count, 10), t = parseInt(timingForm.talk_duration, 10), b = parseInt(timingForm.break_duration, 10)
+              if (!c || !t) return null
+              const total = c * t + Math.max(0, c - 1) * (isNaN(b) ? 0 : b)
+              const [hh, mm] = timingForm.start_time.split(':').map(Number)
+              const endMin = (hh * 60 + mm + total) % (24 * 60)
+              const endStr = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`
+              return <p className="text-xs text-gray-500">Итого: {c} слот(ов), с {timingForm.start_time} до ~{endStr} МСК.</p>
+            })()}
+          </div>
+          <div className="flex gap-3 mt-5">
+            <button onClick={saveTiming} disabled={savingTiming}
+              className="btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+              {savingTiming ? <Spinner /> : null}
+              Сгенерировать слоты
+            </button>
+            <button onClick={() => setTimingModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Отмена</button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -762,7 +846,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
 
 function DayAccordion({
   day, indexInStage, open, onToggle, sessions, stages, busy,
-  onPatchLocal, onCommit, onDelete, onAddSession, onEditSession, onDeleteSession,
+  onPatchLocal, onCommit, onDelete, onAddSession, onEditSession, onDeleteSession, onTiming,
 }: {
   day: Day
   indexInStage: number
@@ -777,6 +861,7 @@ function DayAccordion({
   onAddSession: () => void
   onEditSession: (s: Sess) => void
   onDeleteSession: (id: number) => void
+  onTiming: () => void
 }) {
   const dateLabel = day.day_date
     ? new Date(day.day_date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', timeZone: 'Europe/Moscow' })
@@ -875,10 +960,16 @@ function DayAccordion({
                 ))}
               </div>
             )}
-            <button onClick={onAddSession}
-              className="text-xs text-brand hover:text-brand/80 flex items-center gap-1.5 transition-colors">
-              <Plus size={13} /> Добавить слот
-            </button>
+            <div className="flex items-center gap-4">
+              <button onClick={onAddSession}
+                className="text-xs text-brand hover:text-brand/80 flex items-center gap-1.5 transition-colors">
+                <Plus size={13} /> Добавить слот
+              </button>
+              <button onClick={onTiming}
+                className="text-xs text-[#25455D] hover:opacity-80 flex items-center gap-1.5 transition-colors font-medium">
+                ⏱ Задать тайминг
+              </button>
+            </div>
           </div>
         </div>
       )}
