@@ -1201,8 +1201,21 @@ async def claim_slot(
             raise HTTPException(status_code=404, detail="Слот не найден")
 
         if target["speaker_id"] == se_id:
-            # уже мой — ничего не делаем (идемпотентно)
-            return {"ok": True, "session_id": data.session_id, "already": True}
+            # уже мой слот — обновляем только тему (спикер сменил тему выступления)
+            topic_rows = await db.fetch(
+                "SELECT id FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id", se_id)
+            my_topic_ids = [r["id"] for r in topic_rows]
+            new_topic = data.topic_id if (data.topic_id and data.topic_id in my_topic_ids) else (
+                my_topic_ids[0] if len(my_topic_ids) == 1 else None)
+            await db.execute(
+                "UPDATE conf_sessions SET topic_id = $1 WHERE id = $2 AND event_id = $3",
+                new_topic, data.session_id, e_id)
+            try:
+                from app.api.modules.conference import regenerate_landing_data
+                await regenerate_landing_data(e_id, db)
+            except Exception:
+                pass
+            return {"ok": True, "session_id": data.session_id, "topic_updated": True}
 
         if target["speaker_id"] is not None:
             raise HTTPException(status_code=409, detail="Этот слот уже занят другим спикером")

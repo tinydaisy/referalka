@@ -1815,6 +1815,9 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
     }).then(r => r.json()).then((d) => {
       setData(d)
       setSelectedId(null)
+      // предзаполняем выбор темы текущей темой моего слота (если занят)
+      const mine = (d.sessions || []).find((s: any) => s.is_mine)
+      setSelectedTopicId(mine?.topic_id ?? null)
     }).finally(() => setLoading(false))
   }, [token])
 
@@ -1885,17 +1888,20 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
   const myTopics: Array<{ id: number; topic: string }> = data.my_topics || []
 
   async function save() {
-    if (selectedId == null) return
+    // занимаем выбранный слот; если ничего не выбрано, но слот уже мой —
+    // сохраняем смену темы для текущего слота.
+    const targetId = selectedId ?? (mySlot ? mySlot.id : null)
+    if (targetId == null) return
     setSaving(true); setMsg(null)
     try {
       const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/claim-slot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ session_id: selectedId, topic_id: selectedTopicId }),
+        body: JSON.stringify({ session_id: targetId, topic_id: selectedTopicId }),
       })
       const d = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(d.detail || 'Не удалось занять слот')
-      setMsg({ ok: true, text: 'Готово! Слот закреплён за вами.' })
+      if (!r.ok) throw new Error(d.detail || 'Не удалось сохранить')
+      setMsg({ ok: true, text: 'Готово! Слот и тема сохранены.' })
       load()
     } catch (e: any) {
       setMsg({ ok: false, text: String(e.message || e) })
@@ -1938,24 +1944,30 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
         padding: '10px 0', marginBottom: 8,
       }}>
-        <button
-          type="button"
-          onClick={save}
-          disabled={selectedId == null || saving}
-          style={{
-            background: selectedId == null ? '#cfd9e0' : PEACH,
-            color: DARK, border: 'none', borderRadius: 12,
-            padding: '11px 22px', fontWeight: 800, fontSize: 14,
-            cursor: selectedId == null ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {saving ? 'Сохраняю…' : 'Сохранить'}
-        </button>
+        {(() => {
+          const canSave = selectedId != null || mySlot != null
+          return (
+            <button
+              type="button"
+              onClick={save}
+              disabled={!canSave || saving}
+              style={{
+                background: !canSave ? '#cfd9e0' : PEACH,
+                color: DARK, border: 'none', borderRadius: 12,
+                padding: '11px 22px', fontWeight: 800, fontSize: 14,
+                cursor: !canSave ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {saving ? 'Сохраняю…' : 'Сохранить'}
+            </button>
+          )
+        })()}
         <span style={{ fontSize: 13, color: '#7a8c9c' }}>
           Выберите день и свободный слот, затем нажмите «Сохранить».
         </span>
-        {/* Если у спикера несколько тем — выбор, с какой выступает в этом слоте */}
-        {selectedId != null && myTopics.length > 1 && (
+        {/* Если у спикера несколько тем — выбор темы. Виден всегда: можно сменить
+            тему даже у уже занятого своего слота. */}
+        {myTopics.length > 1 && (selectedId != null || mySlot) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', marginTop: 4 }}>
             <span style={{ fontSize: 13, color: DARK, fontWeight: 600 }}>Тема выступления:</span>
             <select
@@ -1989,15 +2001,19 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
         «Тема будет уточнена позже».
       </div>
 
-      {/* Текущий слот */}
+      {/* Текущий слот: дата 13.07.2026 · время · Тема */}
       {mySlot ? (
         <div style={{
           padding: '10px 12px', borderRadius: 10, marginBottom: 12, fontSize: 13,
           background: '#eef6ff', border: '1px solid #cfe2f7', color: DARK,
         }}>
-          Ваш слот: <b>{timeStr(mySlot)}</b>{(() => {
-            const d = days.find(x => x.day_number === mySlot.day); return d ? ` · ${dayLabel(d)} ${fmtDate(d.day_date)}` : ''
-          })()}.{' '}
+          {(() => {
+            const d = days.find(x => x.day_number === mySlot.day)
+            const dateStr = d?.day_date
+              ? (() => { try { return new Date(d.day_date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Moscow' }) } catch { return '' } })()
+              : ''
+            return <>Ваш слот: <b>{dateStr}</b> · <b>{timeStr(mySlot)}</b> · {mySlot.topic || 'Тема будет уточнена позже'}.{' '}</>
+          })()}
           <button type="button" onClick={release} disabled={saving}
             style={{ background: 'none', border: 'none', color: '#b3261e', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>
             освободить
