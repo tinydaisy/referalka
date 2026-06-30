@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import BottomNav, { NavItem } from '../components/BottomNav'
 import CalendarTab from '../tabs/CalendarTab'
 import EcosystemTab from '../tabs/EcosystemTab'
-import { getClientProfile } from '../api'
+import { getClientProfile, getClientEvents } from '../api'
 
 interface Props {
   clientId: number
@@ -15,23 +15,42 @@ interface Props {
 // на корень Mini App без cid-префикса — там App.tsx покажет HubSelector.
 const APP_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 
-const NAV: NavItem[] = [
-  { id: 'calendar',  label: 'Календарь',   icon: 'calendar'  },
-  { id: 'ecosystem', label: 'Экосистема',  icon: 'ecosystem' },
-]
-
-const VALID_TABS = new Set(NAV.map(n => n.id))
+const CALENDAR_TAB: NavItem = { id: 'calendar',  label: 'Календарь',   icon: 'calendar'  }
+const ECOSYSTEM_TAB: NavItem = { id: 'ecosystem', label: 'Экосистема',  icon: 'ecosystem' }
 
 const PEACH = '#FFCFA4'
 
 export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props) {
-  const [tab, setTab] = useState(initialTab && VALID_TABS.has(initialTab) ? initialTab : 'calendar')
   const [profile, setProfile] = useState<any>(null)
+  // null — ещё считаем (есть активные / есть любые события); решает видимость «Календаря»
+  const [eventsState, setEventsState] = useState<{ hasActive: boolean; hasAny: boolean } | null>(null)
   const tgId = tgUser?.id ? Number(tgUser.id) : undefined
 
   useEffect(() => {
     getClientProfile(clientId).then(setProfile).catch(() => {})
-  }, [clientId])
+    // считаем, есть ли активные (now/upcoming) и любые события — для видимости вкладки
+    getClientEvents(clientId, undefined, tgId).then((r: any) => {
+      const now = r?.now || [], up = r?.upcoming || [], past = r?.past || []
+      setEventsState({ hasActive: now.length + up.length > 0, hasAny: now.length + up.length + past.length > 0 })
+    }).catch(() => setEventsState({ hasActive: true, hasAny: true }))  // ошибка — не прячем
+  }, [clientId, tgId])
+
+  // Видимость вкладки «Календарь» по настройке клиента + наличию событий.
+  // Пока события не посчитаны — показываем (не мигаем скрытием).
+  const vis = profile?.events_tab_visibility || 'always'
+  const showCalendar = vis === 'always' || eventsState == null
+    || (vis === 'active' && eventsState.hasActive)
+    || (vis === 'any' && eventsState.hasAny)
+
+  const NAV: NavItem[] = showCalendar ? [CALENDAR_TAB, ECOSYSTEM_TAB] : [ECOSYSTEM_TAB]
+  const VALID_TABS = new Set(NAV.map(n => n.id))
+  const defaultTab = showCalendar ? 'calendar' : 'ecosystem'
+
+  const [tab, setTab] = useState(initialTab && (initialTab === 'calendar' || initialTab === 'ecosystem') ? initialTab : 'calendar')
+  // если активная вкладка стала недоступной (скрыли календарь) — переключаемся
+  useEffect(() => {
+    if (!VALID_TABS.has(tab)) setTab(defaultTab)
+  }, [showCalendar])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const brand = profile?.brand_name || profile?.name || 'Организатор'
   const tagline = profile?.positioning || ''

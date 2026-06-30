@@ -50,6 +50,7 @@ interface Profile {
   start_event_id?: number | null
   start_lead_magnet_id?: number | null
   start_package_id?: number | null
+  events_tab_visibility?: 'always' | 'active' | 'any' | null
 }
 interface Offering {
   id: number
@@ -204,6 +205,7 @@ export default function MiniAppSettingsPage() {
         social_links:       profile.social_links,
         // бот и ссылки
         default_link_mode:      profile.default_link_mode || 'miniapp',
+        events_tab_visibility:  profile.events_tab_visibility || 'always',
         start_greeting_text:    profile.start_greeting_text    || null,
         start_btn_events_label: profile.start_btn_events_label || null,
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
@@ -526,6 +528,33 @@ export default function MiniAppSettingsPage() {
 
           <Section
             step={2}
+            title="Когда показывать вкладку «События»"
+            hint="Вкладка «События» (Календарь) в хабе — и в Mini App, и в веб-версии. Можно скрывать, когда событий нет."
+          >
+            <div className="space-y-2 max-w-2xl">
+              {([
+                { v: 'always', t: 'Всегда', d: 'Вкладка видна всегда, даже если событий нет.' },
+                { v: 'active', t: 'Только при активных', d: 'Видна, если есть текущие или предстоящие события. Скрыта, если все завершены или событий нет.' },
+                { v: 'any',    t: 'При любых событиях', d: 'Видна, если есть хоть какие-то события (в т.ч. завершённые). Скрыта только если событий нет совсем.' },
+              ] as const).map(opt => {
+                const active = (profile.events_tab_visibility || 'always') === opt.v
+                return (
+                  <button key={opt.v} type="button"
+                          onClick={() => update('events_tab_visibility', opt.v)}
+                          className={`w-full text-left rounded-xl border p-3 transition ${active ? 'border-amber-300 bg-amber-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${active ? 'border-amber-400 bg-amber-400' : 'border-gray-300'}`} />
+                      <span className="font-semibold text-gray-900 text-sm">{opt.t}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1 ml-6">{opt.d}</p>
+                  </button>
+                )
+              })}
+            </div>
+          </Section>
+
+          <Section
+            step={3}
             title="Что открывать при /start"
             hint="Когда человек впервые пишет вашему боту: показать общее приветствие, сразу открыть конкретное событие или запустить воронку лид-магнита."
           >
