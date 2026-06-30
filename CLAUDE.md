@@ -521,6 +521,8 @@ GET `/api/v1/lead-magnets/{id}/analytics` и `/api/v1/lead-magnet-packages/{id}/
 - `get_contact_landing_params(db, contact_id)` — асинх. подтягивает name/email/phone/tg_id/vk_id/tg_nickname/external_ref_param контакта.
 - `build_external_landing_url(...)` — обратная совместимость для events landing.
 
+**⚠️ Очистка полей визитки (фото/регалии/тексты) — через `model_fields_set` (2026-06-30, коммит 36e2f2c).** `PATCH /clients/me/profile` ([client_profile.py](backend/app/api/client_profile.py)) раньше использовал `if data.X is not None` — Pydantic не различает «прислали null» и «не прислали», поэтому очистить фото/регалии было нельзя (старое значение оставалось). Теперь смотрим `data.model_fields_set`: ключ есть в JSON (хоть `null`) → применяем (очищаем на None / `[]`); ключа нет → не трогаем. Файл из R2 удаляет сам `FileUploader` (DELETE `/uploads/by-url`) при снятии фото в форме. ⚠️ При новых полях визитки в PATCH — использовать тот же паттерн `if "field" in fs`, не `is not None`.
+
 **Endpoints для Mini App:**
 - `GET /api/v1/public/events/{slug}/landing-redirect?tg_id=&vk_id=&pid=&utm_source=` → `{redirect_url}`. Используется для events.landing_url.
 - `GET /api/v1/public/events/{slug}/vip-redirect?tg_id=&vk_id=&pid=&utm_source=` → `{redirect_url}`. Используется для events.vip_url.
@@ -972,7 +974,7 @@ TS-копия группировки — `roleOrder` в [`broadcasts/templates/p
 | **Шаги nurture (приветствия)** | **Полный доступ включая DELETE.** |
 | **Программа конференции (этапы, дни, сессии, треки)** | **Полный доступ включая DELETE.** |
 | **Розыгрыш (призы, кодовые слова, билеты, победители)** | **Полный доступ включая DELETE.** |
-| **Mini App: визитка бренда, основатель, продукты** | **Полный доступ включая DELETE продуктов.** |
+| **Mini App: визитка бренда, основатель, продукты** | Визитка (бренд/основатель/бот) — НЕТ (PATCH /auth/me → 403). **Продукты — полный доступ включая DELETE.** Ассистенту в сайдбаре («База») показывается ссылка «Mini App: Продукты» (`/dashboard/mini-app?tab=products`); страница форсит вкладку «Продукты», переключатель табов скрыт (2026-06-30). |
 | **Лид-магниты + пакеты** | Только GET + копирование ссылок (create/update/delete — 403). |
 | **Каналы (боты)** | **Нет доступа** (UI скрыт, бэк 403 на любой метод). |
 | **Настройки клиента + Подписка + Юр.данные** | **Нет доступа** (UI скрыт, бэк 403 на PATCH/POST). |
