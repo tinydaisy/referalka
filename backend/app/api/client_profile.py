@@ -867,17 +867,23 @@ async def update_my_profile(
         sets.append(f"{field} = ${len(args)+1}" + ("::jsonb" if jsonb else ""))
         args.append(json.dumps(value) if jsonb else value)
 
-    if data.brand_name        is not None: add("brand_name",        data.brand_name or None)
-    if data.brand_logo_url    is not None: add("brand_logo_url",    data.brand_logo_url or None)
-    if data.profile_photo_url is not None: add("profile_photo_url", data.profile_photo_url or None)
-    if data.positioning       is not None: add("positioning",       data.positioning or None)
-    if data.achievements      is not None: add("achievements",      data.achievements, jsonb=True)
+    # ⚠️ Очистка полей (удалить фото/регалии/текст) работает через ПРИСУТСТВИЕ
+    #   ключа в запросе, а не значение. Pydantic не различает «прислали null»
+    #   и «не прислали» по `is None`, поэтому смотрим model_fields_set: поле
+    #   есть в JSON (хоть null, хоть "") → применяем (очищаем на None); нет → не трогаем.
+    fs = data.model_fields_set
 
-    if data.owner_photo_url    is not None: add("owner_photo_url",    data.owner_photo_url or None)
-    if data.owner_positioning  is not None: add("owner_positioning",  data.owner_positioning or None)
-    if data.owner_achievements is not None: add("owner_achievements", data.owner_achievements, jsonb=True)
+    if "brand_name"        in fs: add("brand_name",        data.brand_name or None)
+    if "brand_logo_url"    in fs: add("brand_logo_url",    data.brand_logo_url or None)
+    if "profile_photo_url" in fs: add("profile_photo_url", data.profile_photo_url or None)
+    if "positioning"       in fs: add("positioning",       data.positioning or None)
+    if "achievements"      in fs: add("achievements",      data.achievements or [], jsonb=True)
 
-    if data.bio          is not None: add("bio",          data.bio or None)
+    if "owner_photo_url"    in fs: add("owner_photo_url",    data.owner_photo_url or None)
+    if "owner_positioning"  in fs: add("owner_positioning",  data.owner_positioning or None)
+    if "owner_achievements" in fs: add("owner_achievements", data.owner_achievements or [], jsonb=True)
+
+    if "bio"          in fs: add("bio",          data.bio or None)
 
     if data.default_link_mode is not None:
         if data.default_link_mode not in ("miniapp", "bot"):
