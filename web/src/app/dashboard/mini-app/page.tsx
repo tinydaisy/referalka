@@ -18,6 +18,7 @@ import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTg
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
 import { FounderVkChannelsField, FounderVkChannel } from '@/components/FounderVkChannelsField'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 
 const BRAND = '#25455D'
 const GRADIENT = 'linear-gradient(45deg, #25455D, #0a1520)'
@@ -80,6 +81,9 @@ const DEFAULT_BTN_EVENTS = '📅 Все события'
 const DEFAULT_BTN_OWNER  = '🌐 Об основателе'
 
 export default function MiniAppSettingsPage() {
+  // Ассистенту доступна ТОЛЬКО вкладка «Продукты» (client_offerings) — визитка
+  // бренда/основателя/бот шлются через PATCH /auth/me, который ассистенту → 403.
+  const { isAssistant } = useMe()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [offerings, setOfferings] = useState<Offering[]>([])
   const [loadingOff, setLoadingOff] = useState(true)
@@ -95,6 +99,11 @@ export default function MiniAppSettingsPage() {
     const t = new URLSearchParams(window.location.search).get('tab')
     return (t === 'owner' || t === 'products' || t === 'bot') ? t as Tab : 'brand'
   })
+
+  // Ассистент видит только «Продукты» — форсим вкладку, как только роль известна.
+  useEffect(() => {
+    if (isAssistant) setTab('products')
+  }, [isAssistant])
 
   useEffect(() => {
     api.miniApp.profile.get().then((p: any) => {
@@ -182,10 +191,11 @@ export default function MiniAppSettingsPage() {
       const cleanAch = (a: Achievement[]) => a.filter(x => x.label.trim() && x.value.trim())
       const updated = await api.miniApp.profile.update({
         // бренд
-        brand_name:     profile.brand_name     || null,
-        brand_logo_url: profile.brand_logo_url || null,
-        positioning:    profile.positioning    || null,
-        achievements:   cleanAch(profile.achievements),
+        brand_name:        profile.brand_name        || null,
+        brand_logo_url:    profile.brand_logo_url    || null,
+        profile_photo_url: profile.profile_photo_url || null,
+        positioning:       profile.positioning       || null,
+        achievements:      cleanAch(profile.achievements),
         // основатель
         owner_photo_url:    profile.owner_photo_url   || null,
         owner_positioning:  profile.owner_positioning || null,
@@ -255,22 +265,27 @@ export default function MiniAppSettingsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold" style={{ color: BRAND }}>
-              Настройка Mini App
+              {isAssistant ? 'Mini App: Продукты' : 'Настройка Mini App'}
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              Что видят участники в Telegram — на всех страницах.
+              {isAssistant
+                ? 'Платные и бесплатные продукты в блоках «Платно / Бесплатно».'
+                : 'Что видят участники в Telegram — на всех страницах.'}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Табы */}
-      <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl max-w-2xl">
-        <TabBtn active={tab === 'brand'}    onClick={() => setTab('brand')}    icon={<Building2 size={15} />} label="Бренд" />
-        <TabBtn active={tab === 'owner'}    onClick={() => setTab('owner')}    icon={<User size={15} />}      label="Основатель" />
-        <TabBtn active={tab === 'products'} onClick={() => setTab('products')} icon={<Globe size={15} />}     label="Продукты" />
-        <TabBtn active={tab === 'bot'}      onClick={() => setTab('bot')}      icon={<Smartphone size={15} />} label="Бот и ссылки" />
-      </div>
+      {/* Табы — ассистенту доступна только вкладка «Продукты», остальные требуют
+          PATCH /auth/me (403), поэтому переключатель ему не показываем. */}
+      {!isAssistant && (
+        <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl max-w-2xl">
+          <TabBtn active={tab === 'brand'}    onClick={() => setTab('brand')}    icon={<Building2 size={15} />} label="Бренд" />
+          <TabBtn active={tab === 'owner'}    onClick={() => setTab('owner')}    icon={<User size={15} />}      label="Основатель" />
+          <TabBtn active={tab === 'products'} onClick={() => setTab('products')} icon={<Globe size={15} />}     label="Продукты" />
+          <TabBtn active={tab === 'bot'}      onClick={() => setTab('bot')}      icon={<Smartphone size={15} />} label="Бот и ссылки" />
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════
            ВКЛАДКА: БРЕНД

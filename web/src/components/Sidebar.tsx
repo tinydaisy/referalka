@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star } from 'lucide-react'
+import { LayoutDashboard, Link2, Mic, Users, UserCircle, Settings, LogOut, Menu, X, Trophy, Award, Send, Calendar, Gift, LifeBuoy, Radio, ChevronDown, BookOpen, MessageCircle, Vote, Wallet, CreditCard, Handshake, Search, Inbox, Sparkles, Star, Smartphone } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLang } from '@/contexts/LangContext'
 import { api } from '@/lib/api'
@@ -68,6 +68,11 @@ export default function Sidebar() {
         { href: '/dashboard/lead-magnets', label: t.nav.leadMagnets, icon: Gift },
         // Каналы — у ассистента нет доступа даже на чтение (миграция 106)
         ...(isAssistant ? [] : [{ href: '/dashboard/channels', label: t.nav.channels, icon: Radio }]),
+        // Mini App: Продукты — отдельная ссылка ТОЛЬКО для ассистента. Владелец
+        // попадает в Mini App через Настройки → вкладка «Mini App» (ему Настройки
+        // доступны). У ассистента Настройки скрыты, но продукты (client_offerings)
+        // ему разрешены полностью — даём прямой вход на вкладку «Продукты».
+        ...(isAssistant ? [{ href: '/dashboard/mini-app?tab=products', label: 'Mini App: Продукты', icon: Smartphone }] : []),
         // «Подписка» и «Партнёрская» перенесены в меню пользователя (внизу сайдбара).
       ],
     },
