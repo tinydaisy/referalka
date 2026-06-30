@@ -316,11 +316,12 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
     const sp = speakers.find((x: any) => String(x.id) === String(s.speaker_id ?? ''))
     const topics: { id: number; topic: string }[] = sp?.topics && sp.topics.length > 0 ? sp.topics : []
     setSpeakerTopics(topics)
-    const matchesTopic = topics.some(t => t.topic === s.title)
-    setCustomTitle(topics.length > 1 && !matchesTopic)
+    // если у слота есть тема, совпадающая с темой спикера — выставляем topic_id (для селекта при 2+ темах)
+    const matched = topics.find(t => t.topic === s.title)
+    setCustomTitle(false)
     setSessionForm({
       title: s.title || '',
-      topic_id: '',
+      topic_id: matched ? String(matched.id) : (topics.length === 1 ? String(topics[0].id) : ''),
       speaker_id: s.speaker_id != null ? String(s.speaker_id) : '',
       start_time: s.start_time || '',
       end_time: s.end_time || '',
@@ -336,15 +337,20 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
   }
 
   async function saveSession() {
-    if (!sessionModal || !sessionForm.title.trim()) return
+    if (!sessionModal) return
     const speakerId = sessionForm.speaker_id ? Number(sessionForm.speaker_id) : null
+    // Без спикера тема обязательна. Со спикером — тема живёт по topic_id;
+    // если её нет, ставим заглушку «Тема будет уточнена позже».
+    if (!speakerId && !sessionForm.title.trim()) return
     const speakerName = speakerId != null ? (speakers.find((s: any) => s.id === speakerId)?.name || null) : null
+    const topicId = sessionForm.topic_id ? Number(sessionForm.topic_id) : null
     const start_time = sessionForm.start_time || null
     const end_time = sessionForm.end_time || null
-    const title = sessionForm.title.trim()
+    const title = sessionForm.title.trim() || (speakerId ? 'Тема будет уточнена позже' : '')
     const payload = {
       day: sessionModal.day,
       title,
+      topic_id: topicId,
       speaker_id: speakerId,
       start_time,
       end_time,
@@ -683,40 +689,46 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
                 {speakers.map((sp: any) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="label">Тема выступления</label>
-              {speakerTopics.length > 1 && !customTitle ? (
+            {/* Тема: поле вписывается ТОЛЬКО когда спикер не выбран.
+                Со спикером — тема живёт в его карточке (live по topic_id):
+                0 тем → подсказка, 1 тема → показываем её, 2+ → выбор. */}
+            {!sessionForm.speaker_id ? (
+              <div>
+                <label className="label">Тема выступления</label>
+                <input type="text" value={sessionForm.title}
+                  onChange={e => setSessionForm(f => ({ ...f, title: e.target.value, topic_id: '' }))}
+                  className="input" placeholder="Например: Тема будет уточнена позже" />
+              </div>
+            ) : speakerTopics.length > 1 ? (
+              <div>
+                <label className="label">Тема выступления спикера</label>
                 <select
                   onChange={e => {
-                    if (e.target.value === '__custom__') {
-                      setCustomTitle(true)
-                      setSessionForm(f => ({ ...f, topic_id: '', title: '' }))
-                    } else {
-                      const t = speakerTopics.find(x => String(x.id) === e.target.value)
-                      setSessionForm(f => ({ ...f, topic_id: e.target.value, title: t?.topic || '' }))
-                    }
+                    const t = speakerTopics.find(x => String(x.id) === e.target.value)
+                    setSessionForm(f => ({ ...f, topic_id: e.target.value, title: t?.topic || '' }))
                   }}
                   value={sessionForm.topic_id}
                   className="input bg-white"
                 >
                   <option value="">— выберите тему —</option>
                   {speakerTopics.map(t => <option key={t.id} value={t.id}>{t.topic}</option>)}
-                  <option value="__custom__">Другая тема...</option>
                 </select>
-              ) : (
-                <div>
-                  <input type="text" value={sessionForm.title}
-                    onChange={e => setSessionForm(f => ({ ...f, title: e.target.value, topic_id: '' }))}
-                    className="input" placeholder="Название слота" />
-                  {speakerTopics.length > 1 && (
-                    <button type="button" onClick={() => { setCustomTitle(false); setSessionForm(f => ({ ...f, topic_id: '', title: '' })) }}
-                      className="text-xs text-gray-400 hover:text-brand mt-1 transition-colors">
-                      ← выбрать из тем спикера
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+                <p className="text-xs text-gray-400 mt-1">У спикера несколько тем — выберите для этого слота.</p>
+              </div>
+            ) : speakerTopics.length === 1 ? (
+              <div>
+                <label className="label">Тема выступления</label>
+                <div className="input bg-gray-50 text-gray-700">{speakerTopics[0].topic}</div>
+                <p className="text-xs text-gray-400 mt-1">Тема берётся из карточки спикера и обновится автоматически, если он её изменит.</p>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5">
+                <p className="text-xs text-amber-800">
+                  У спикера пока не задана тема — в программе будет «Тема будет уточнена позже».
+                  Как только спикер впишет тему в своей карточке, она подставится сюда автоматически.
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">Начало (МСК)</label>
@@ -733,7 +745,7 @@ export default function TournamentProgramTab({ eventId }: { eventId: number }) {
             </div>
           </div>
           <div className="flex gap-3 mt-5">
-            <button onClick={saveSession} disabled={!sessionForm.title.trim() || savingSession}
+            <button onClick={saveSession} disabled={(!sessionForm.speaker_id && !sessionForm.title.trim()) || savingSession}
               className="btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
               {savingSession ? <Spinner /> : null}
               {sessionModal.editId != null ? 'Сохранить слот' : 'Добавить слот'}

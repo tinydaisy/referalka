@@ -128,7 +128,7 @@ type SpeakerMaterials = {
   placeholders: { link: string; event: string; date: string; brand: string }
 }
 
-type CabinetTab = 'profile' | 'materials' | 'judging' | 'myresults' | 'invited'
+type CabinetTab = 'profile' | 'materials' | 'judging' | 'myresults' | 'invited' | 'slot'
 
 export default function SpeakerCabinetPage() {
   const params = useParams<{ event_slug: string }>()
@@ -690,6 +690,7 @@ export default function SpeakerCabinetPage() {
           {([
             { key: 'profile'   as CabinetTab, label: 'Профиль' },
             { key: 'materials' as CabinetTab, label: 'Материалы' },
+            ...((me.role !== 'jury' && me.role !== 'organizer') ? [{ key: 'slot' as CabinetTab, label: 'Мой слот' }] : []),
             { key: 'invited'   as CabinetTab, label: 'Приглашённые' },
             ...((me.role === 'jury' || me.role === 'organizer') ? [{ key: 'judging' as CabinetTab, label: 'Оценка участников' }] : []),
             ...((me.role !== 'jury' && me.role !== 'organizer') ? [{ key: 'myresults' as CabinetTab, label: 'Мои результаты' }] : []),
@@ -727,6 +728,7 @@ export default function SpeakerCabinetPage() {
         {activeTab === 'judging' && token && <JudgingTab token={token} />}
         {activeTab === 'myresults' && token && <MyResultsTab token={token} />}
         {activeTab === 'invited' && token && <InvitedTab token={token} />}
+        {activeTab === 'slot' && token && <SlotTab token={token} myName={me.name || ''} />}
 
         {activeTab === 'profile' && <>
         <Section title="Профиль">
@@ -1790,6 +1792,238 @@ function InvitedTab({ token }: { token: string }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function SlotTab({ token, myName }: { token: string; myName: string }) {
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any>(null)
+  const [activeDay, setActiveDay] = useState<number | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch(`${API}/api/v1/public/speaker-cabinet/me/program`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(r => r.json()).then((d) => {
+      setData(d)
+      // активный день = день моего слота, иначе первый день со слотами
+      const sessions: any[] = d.sessions || []
+      const mine = sessions.find(s => s.is_mine)
+      const daysWithSlots: number[] = Array.from(new Set(sessions.map(s => s.day)))
+      setActiveDay(prev => (prev != null ? prev : (mine ? mine.day : (daysWithSlots[0] ?? null))))
+      setSelectedId(null)
+    }).finally(() => setLoading(false))
+  }, [token])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <div style={{ padding: 20, color: '#7a8c9c' }}>Загрузка…</div>
+  if (!data) return <div style={{ padding: 20, color: '#7a8c9c' }}>Не удалось загрузить программу.</div>
+
+  const sessions: any[] = data.sessions || []
+  const days: any[] = data.days || []
+  const myEcId: number = data.my_ec_id
+  const mySlot = sessions.find(s => s.is_mine) || null
+
+  // дни, в которых есть слоты — только их показываем вкладками
+  const dayNumsWithSlots: number[] = Array.from(new Set(sessions.map(s => s.day)))
+  const dayTabs = days
+    .filter(d => dayNumsWithSlots.includes(d.day_number))
+    .sort((a, b) => a.day_number - b.day_number)
+
+  const fmtDate = (iso: string | null) => {
+    if (!iso) return ''
+    try {
+      return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', timeZone: 'Europe/Moscow' })
+    } catch { return '' }
+  }
+  const dayLabel = (d: any) => d.title || `День ${d.day_number}`
+
+  const daySlots = sessions
+    .filter(s => s.day === activeDay)
+    .sort((a, b) => (a.sort_order - b.sort_order) || String(a.start_time || '').localeCompare(String(b.start_time || '')))
+
+  async function save() {
+    if (selectedId == null) return
+    setSaving(true); setMsg(null)
+    try {
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/claim-slot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ session_id: selectedId }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.detail || 'Не удалось занять слот')
+      setMsg({ ok: true, text: 'Готово! Слот закреплён за вами.' })
+      load()
+    } catch (e: any) {
+      setMsg({ ok: false, text: String(e.message || e) })
+      load()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function release() {
+    if (!confirm('Освободить ваш слот? Он станет доступен другим спикерам.')) return
+    setSaving(true); setMsg(null)
+    try {
+      const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/release-slot`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || 'Ошибка') }
+      setMsg({ ok: true, text: 'Слот освобождён.' })
+      load()
+    } catch (e: any) {
+      setMsg({ ok: false, text: String(e.message || e) })
+    } finally { setSaving(false) }
+  }
+
+  const timeStr = (s: any) => {
+    const a = s.start_time ? String(s.start_time).slice(0, 5) : ''
+    const b = s.end_time ? String(s.end_time).slice(0, 5) : ''
+    if (a && b) return `${a}–${b} МСК`
+    if (a) return `${a} МСК`
+    return ''
+  }
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '4px 0 6px' }}>Мой слот в программе</h2>
+
+      {/* Шапка с кнопкой Сохранить + подсказкой */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 5, background: '#f4f7f9',
+        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        padding: '10px 0', marginBottom: 8,
+      }}>
+        <button
+          type="button"
+          onClick={save}
+          disabled={selectedId == null || saving}
+          style={{
+            background: selectedId == null ? '#cfd9e0' : PEACH,
+            color: DARK, border: 'none', borderRadius: 12,
+            padding: '11px 22px', fontWeight: 800, fontSize: 14,
+            cursor: selectedId == null ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {saving ? 'Сохраняю…' : 'Сохранить'}
+        </button>
+        <span style={{ fontSize: 13, color: '#7a8c9c' }}>
+          Выберите день и свободный слот, затем нажмите «Сохранить».
+        </span>
+      </div>
+
+      {msg && (
+        <div style={{
+          padding: '10px 12px', borderRadius: 10, marginBottom: 12, fontSize: 13,
+          background: msg.ok ? '#e9f7ee' : '#fdecec',
+          color: msg.ok ? '#1f7a44' : '#b3261e',
+          border: `1px solid ${msg.ok ? '#bfe6cd' : '#f3c2bd'}`,
+        }}>{msg.text}</div>
+      )}
+
+      {/* Предупреждение про живую тему */}
+      <div style={{
+        padding: '10px 12px', borderRadius: 10, marginBottom: 12, fontSize: 12.5,
+        background: '#fff7ed', border: '1px solid #fcd9b6', color: '#9a5b1a',
+      }}>
+        Тему вашего выступления вы задаёте в «Профиле». В программе она появится автоматически
+        и обновится сама, если вы её измените. Пока тема не задана — у слота будет
+        «Тема будет уточнена позже».
+      </div>
+
+      {/* Текущий слот */}
+      {mySlot ? (
+        <div style={{
+          padding: '10px 12px', borderRadius: 10, marginBottom: 12, fontSize: 13,
+          background: '#eef6ff', border: '1px solid #cfe2f7', color: DARK,
+        }}>
+          Ваш слот: <b>{timeStr(mySlot)}</b>{(() => {
+            const d = days.find(x => x.day_number === mySlot.day); return d ? ` · ${dayLabel(d)} ${fmtDate(d.day_date)}` : ''
+          })()}.{' '}
+          <button type="button" onClick={release} disabled={saving}
+            style={{ background: 'none', border: 'none', color: '#b3261e', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0 }}>
+            освободить
+          </button>
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 12 }}>
+          Вы ещё не заняли слот. Выберите свободный ниже.
+        </div>
+      )}
+
+      {/* Вкладки дней */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {dayTabs.map(d => (
+          <button key={d.day_number} type="button"
+            onClick={() => { setActiveDay(d.day_number); setSelectedId(null) }}
+            style={{
+              padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
+              border: `1px solid ${activeDay === d.day_number ? PEACH : '#d4dee5'}`,
+              background: activeDay === d.day_number ? PEACH : '#fff',
+              color: DARK, fontWeight: activeDay === d.day_number ? 700 : 500,
+            }}>
+            {dayLabel(d)} <span style={{ color: '#7a8c9c', fontWeight: 400 }}>{fmtDate(d.day_date)}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Слоты дня */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {daySlots.length === 0 && (
+          <div style={{ fontSize: 13, color: '#7a8c9c' }}>В этом дне пока нет слотов.</div>
+        )}
+        {daySlots.map(s => {
+          const free = s.is_free
+          const mine = s.is_mine
+          const selected = selectedId === s.id
+          return (
+            <button
+              key={s.id}
+              type="button"
+              disabled={!free && !mine}
+              onClick={() => { if (free) setSelectedId(prev => prev === s.id ? null : s.id) }}
+              style={{
+                textAlign: 'left', width: '100%',
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '12px 14px', borderRadius: 12,
+                border: `2px solid ${selected ? PEACH : mine ? '#9ec6f0' : free ? '#d4dee5' : '#e7ecf0'}`,
+                background: mine ? '#eef6ff' : selected ? '#fff7ef' : '#fff',
+                cursor: (!free && !mine) ? 'default' : 'pointer',
+                opacity: (!free && !mine) ? 0.85 : 1,
+              }}
+            >
+              <div style={{
+                width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+                border: `2px solid ${selected ? PEACH : '#c3cfd8'}`,
+                background: selected ? PEACH : (mine ? '#9ec6f0' : 'transparent'),
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {(selected || mine) && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
+              </div>
+              <div style={{ minWidth: 96, fontWeight: 700, color: DARK, fontSize: 14 }}>{timeStr(s)}</div>
+              <div style={{ flex: 1 }}>
+                {free ? (
+                  <span style={{ color: '#1f7a44', fontWeight: 600, fontSize: 13 }}>Свободно</span>
+                ) : (
+                  <div>
+                    <div style={{ fontWeight: 700, color: DARK, fontSize: 13.5 }}>
+                      {s.occupant_name || 'Занято'}{mine ? ' (вы)' : ''}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: '#7a8c9c', marginTop: 1 }}>{s.topic}</div>
+                  </div>
+                )}
+              </div>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

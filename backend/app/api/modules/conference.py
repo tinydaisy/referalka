@@ -135,11 +135,13 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
     )
     sessions = await db.fetch(
-        """SELECT s.*, sp.name AS speaker_name, cse.role AS speaker_role,
+        """SELECT s.*, COALESCE(cst.topic, s.title) AS title,
+                  sp.name AS speaker_name, cse.role AS speaker_role,
                   sp.title AS speaker_title, sp.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
            WHERE s.event_id = $1 ORDER BY s.day, s.sort_order, s.start_time""",
         event_id
     )
@@ -1350,7 +1352,8 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
         event_id,
     )
     sessions = await db.fetch(
-        """SELECT s.id, s.day, s.start_time, s.end_time, s.title, s.gift_description,
+        """SELECT s.id, s.day, s.start_time, s.end_time,
+                  COALESCE(cst.topic, s.title) AS title, s.gift_description,
                   s.track_label, s.track_color, s.track_id, s.sort_order,
                   s.speaker_id AS speaker_event_id,
                   col.name AS speaker_name, col.title AS speaker_title,
@@ -1358,6 +1361,7 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
+           LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
            WHERE s.event_id = $1
            ORDER BY s.day, s.sort_order, s.start_time""",
         event_id,
@@ -1515,7 +1519,9 @@ async def list_sessions(
 ):
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
-        """SELECT s.*, col.name as speaker_name, col.title as speaker_title,
+        """SELECT s.*,
+                  COALESCE(cst.topic, s.title) AS title,
+                  col.name as speaker_name, col.title as speaker_title,
                   col.photo_url,
                   pu_tg.username AS personal_tg_username,
                   cse.role as speaker_role, cse.is_commercial,
@@ -1524,6 +1530,7 @@ async def list_sessions(
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
+           LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
            LEFT JOIN platform_users pu_tg
              ON pu_tg.contact_id = col.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE s.event_id = $1
@@ -1537,7 +1544,8 @@ async def list_sessions(
 @router.get("/sessions/day/{day}", summary="Сессии по дню (для Mini App)")
 async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = Depends(get_db)):
     sessions = await db.fetch(
-        """SELECT s.id, s.day, s.start_time, s.end_time, s.title,
+        """SELECT s.id, s.day, s.start_time, s.end_time,
+                  COALESCE(cst.topic, s.title) AS title,
                   s.gift_description, s.stream_url, s.track_label, s.track_color, s.track_id,
                   s.speaker_id AS speaker_event_id,
                   col.name as speaker_name, col.title as speaker_title,
@@ -1546,6 +1554,7 @@ async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = 
            FROM conf_sessions s
            LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
            LEFT JOIN collaborators col ON col.id = cse.speaker_id
+           LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
            WHERE s.event_id = $1 AND s.day = $2
            ORDER BY s.sort_order, s.start_time""",
         event_id, day

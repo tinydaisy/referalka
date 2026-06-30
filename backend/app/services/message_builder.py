@@ -399,11 +399,13 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         # Программа дня — у событий с программой (конференция/турнир). У мероприятий conf_sessions пуст.
         day_sessions = await conn.fetch(
             """
-            SELECT cs.start_time, cs.end_time, cs.title as session_title,
+            SELECT cs.start_time, cs.end_time,
+                   COALESCE(cst.topic, cs.title) as session_title,
                    c.name as speaker_name, cse.role
             FROM conf_sessions cs
             LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
             LEFT JOIN collaborators c ON c.id = cse.speaker_id
+            LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
             WHERE cs.event_id=$1 AND cs.day=$2
             ORDER BY cs.sort_order, cs.start_time
             """,
@@ -711,11 +713,13 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         if target_day_num:
             day_sessions = await conn.fetch(
                 """
-                SELECT cs.start_time, cs.end_time, cs.title as session_title,
+                SELECT cs.start_time, cs.end_time,
+                       COALESCE(cst.topic, cs.title) as session_title,
                        c.name as speaker_name, cse.role
                 FROM conf_sessions cs
                 LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
                 LEFT JOIN collaborators c ON c.id = cse.speaker_id
+                LEFT JOIN conf_speaker_topics cst ON cst.id = cs.topic_id
                 WHERE cs.event_id=$1 AND cs.day=$2
                 ORDER BY cs.sort_order, cs.start_time
                 """,

@@ -1068,3 +1068,145 @@ async def my_lead_magnets(
         "magnets": [{"id": m["id"], "name": m["name"], "slug": m["slug"]} for m in magnets],
         "packages": [{"id": p["id"], "name": p["name"], "slug": p["slug"]} for p in packages],
     }
+
+
+# ─── Самозапись в слот программы ──────────────────────────────────────────────
+#
+# Спикер видит программу события по дням, занимает свободный слот кнопкой.
+# Защита: один слот на спикера; чужой занятый слот трогать нельзя;
+# перезапись на другой свободный слот разрешена (старый освобождается).
+# Тема в программе живёт по карточке спикера (conf_speaker_topics) — здесь
+# слот хранит только speaker_id; topic_id проставляется автоматически, если
+# у спикера ровно одна тема.
+
+@router.get("/me/program", summary="Программа события для спикера (слоты по дням)")
+async def speaker_program(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    se_id = int(session["se_id"])
+    e_id = int(session["e_id"])
+
+    stages = await db.fetch(
+        "SELECT id, sort_order, title, subtitle, start_date, end_date "
+        "FROM conf_stages WHERE event_id = $1 ORDER BY sort_order, id",
+        e_id,
+    )
+    days = await db.fetch(
+        "SELECT id, day_number, day_date, stage_id, title "
+        "FROM conf_days WHERE event_id = $1 ORDER BY day_number",
+        e_id,
+    )
+    # слот: имя занявшего + его актуальная тема (live по topic_id, fallback title)
+    sessions = await db.fetch(
+        """
+        SELECT s.id, s.day, s.start_time, s.end_time, s.sort_order,
+               s.speaker_id AS occupant_ec_id,
+               col.name AS occupant_name,
+               COALESCE(cst.topic, s.title) AS topic
+        FROM conf_sessions s
+        LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
+        LEFT JOIN collaborators col ON col.id = cse.speaker_id
+        LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id
+        WHERE s.event_id = $1
+        ORDER BY s.day, s.sort_order, s.start_time
+        """,
+        e_id,
+    )
+
+    def _ser(s):
+        d = dict(s)
+        d["is_mine"] = (d.get("occupant_ec_id") == se_id)
+        d["is_free"] = (d.get("occupant_ec_id") is None)
+        return d
+
+    return {
+        "my_ec_id": se_id,
+        "stages": [dict(s) for s in stages],
+        "days": [dict(d) for d in days],
+        "sessions": [_ser(s) for s in sessions],
+    }
+
+
+class ClaimSlotIn(BaseModel):
+    session_id: int
+
+
+@router.post("/me/claim-slot", summary="Занять слот программы (один на спикера, с пересадкой)")
+async def claim_slot(
+    data: ClaimSlotIn,
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    se_id = int(session["se_id"])
+    c_id = int(session["c_id"])
+    e_id = int(session["e_id"])
+
+    async with db.transaction():
+        # целевой слот должен принадлежать этому событию
+        target = await db.fetchrow(
+            "SELECT id, day, speaker_id FROM conf_sessions WHERE id = $1 AND event_id = $2 FOR UPDATE",
+            data.session_id, e_id,
+        )
+        if not target:
+            raise HTTPException(status_code=404, detail="Слот не найден")
+
+        if target["speaker_id"] == se_id:
+            # уже мой — ничего не делаем (идемпотентно)
+            return {"ok": True, "session_id": data.session_id, "already": True}
+
+        if target["speaker_id"] is not None:
+            raise HTTPException(status_code=409, detail="Этот слот уже занят другим спикером")
+
+        # тема: если у спикера ровно одна тема — проставим её topic_id
+        topic_rows = await db.fetch(
+            "SELECT id FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
+            se_id,
+        )
+        topic_id = topic_rows[0]["id"] if len(topic_rows) == 1 else None
+        title_default = "Тема будет уточнена позже"
+
+        # освобождаем мой прежний слот в этом событии (пересадка)
+        await db.execute(
+            "UPDATE conf_sessions SET speaker_id = NULL, topic_id = NULL, title = $1 "
+            "WHERE event_id = $2 AND speaker_id = $3",
+            title_default, e_id, se_id,
+        )
+
+        # занимаем целевой слот атомарно (на случай гонки — проверяем что он всё ещё свободен)
+        claimed = await db.fetchrow(
+            "UPDATE conf_sessions SET speaker_id = $1, topic_id = $2 "
+            "WHERE id = $3 AND event_id = $4 AND speaker_id IS NULL RETURNING id",
+            se_id, topic_id, data.session_id, e_id,
+        )
+        if not claimed:
+            raise HTTPException(status_code=409, detail="Слот только что заняли — обновите страницу")
+
+    # пересчёт JSON лендинга вне транзакции
+    try:
+        from app.api.modules.conference import regenerate_landing_data
+        await regenerate_landing_data(e_id, db)
+    except Exception:
+        pass
+
+    return {"ok": True, "session_id": data.session_id}
+
+
+@router.post("/me/release-slot", summary="Освободить свой слот")
+async def release_slot(
+    session: dict = Depends(_auth_session),
+    db: asyncpg.Connection = Depends(get_db),
+):
+    se_id = int(session["se_id"])
+    e_id = int(session["e_id"])
+    await db.execute(
+        "UPDATE conf_sessions SET speaker_id = NULL, topic_id = NULL, title = $1 "
+        "WHERE event_id = $2 AND speaker_id = $3",
+        "Тема будет уточнена позже", e_id, se_id,
+    )
+    try:
+        from app.api.modules.conference import regenerate_landing_data
+        await regenerate_landing_data(e_id, db)
+    except Exception:
+        pass
+    return {"ok": True}

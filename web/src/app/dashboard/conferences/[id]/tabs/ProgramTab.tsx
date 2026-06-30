@@ -117,14 +117,18 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
   }
 
   async function addSession() {
-    if (!sessionModal || !sessionForm.title.trim()) return
+    if (!sessionModal) return
+    const speakerId = sessionForm.speaker_id ? Number(sessionForm.speaker_id) : null
+    // Без спикера тема обязательна; со спикером — тема живёт по topic_id, иначе заглушка.
+    if (!speakerId && !sessionForm.title.trim()) return
+    const title = sessionForm.title.trim() || (speakerId ? 'Тема будет уточнена позже' : '')
     setSavingSession(true)
     try {
       await api.conference.sessions.create(eventId, {
         day: sessionModal.day,
-        title: sessionForm.title || undefined,
+        title: title || undefined,
         topic_id: sessionForm.topic_id ? Number(sessionForm.topic_id) : undefined,
-        speaker_id: sessionForm.speaker_id ? Number(sessionForm.speaker_id) : null,
+        speaker_id: speakerId,
         start_time: sessionForm.start_time || null,
         end_time: sessionForm.end_time || null,
       })
@@ -277,18 +281,21 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                 {speakers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="label">{tp.sessionModal.topicLabel}</label>
-              {speakerTopics.length > 1 && !customTitle ? (
+            {/* Тема вписывается ТОЛЬКО без спикера. Со спикером тема живёт в его карточке (live). */}
+            {!sessionForm.speaker_id ? (
+              <div>
+                <label className="label">{tp.sessionModal.topicLabel}</label>
+                <input type="text" value={sessionForm.title}
+                  onChange={e => setSessionForm(f => ({ ...f, title: e.target.value, topic_id: '' }))}
+                  className="input" placeholder={tp.sessionModal.topicPlaceholder} />
+              </div>
+            ) : speakerTopics.length > 1 ? (
+              <div>
+                <label className="label">{tp.sessionModal.topicLabel}</label>
                 <select
                   onChange={e => {
-                    if (e.target.value === '__custom__') {
-                      setCustomTitle(true)
-                      setSessionForm(f => ({ ...f, topic_id: '', title: '' }))
-                    } else {
-                      const t = speakerTopics.find(t => String(t.id) === e.target.value)
-                      setSessionForm(f => ({ ...f, topic_id: e.target.value, title: t?.topic || '' }))
-                    }
+                    const t = speakerTopics.find(t => String(t.id) === e.target.value)
+                    setSessionForm(f => ({ ...f, topic_id: e.target.value, title: t?.topic || '' }))
                   }}
                   value={sessionForm.topic_id}
                   className="input bg-white">
@@ -296,22 +303,23 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
                   {speakerTopics.map(t => (
                     <option key={t.id} value={t.id}>{t.topic}</option>
                   ))}
-                  <option value="__custom__">Другая тема...</option>
                 </select>
-              ) : (
-                <div>
-                  <input type="text" value={sessionForm.title}
-                    onChange={e => setSessionForm(f => ({ ...f, title: e.target.value, topic_id: '' }))}
-                    className="input" placeholder={tp.sessionModal.topicPlaceholder} />
-                  {speakerTopics.length > 1 && (
-                    <button type="button" onClick={() => { setCustomTitle(false); setSessionForm(f => ({ ...f, topic_id: '', title: '' })) }}
-                      className="text-xs text-gray-400 hover:text-brand mt-1 transition-colors">
-                      ← выбрать из тем спикера
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+                <p className="text-xs text-gray-400 mt-1">У спикера несколько тем — выберите для этого слота.</p>
+              </div>
+            ) : speakerTopics.length === 1 ? (
+              <div>
+                <label className="label">{tp.sessionModal.topicLabel}</label>
+                <div className="input bg-gray-50 text-gray-700">{speakerTopics[0].topic}</div>
+                <p className="text-xs text-gray-400 mt-1">Тема берётся из карточки спикера и обновится автоматически, если он её изменит.</p>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5">
+                <p className="text-xs text-amber-800">
+                  У спикера пока не задана тема — в программе будет «Тема будет уточнена позже».
+                  Как только спикер впишет тему в своей карточке, она подставится сюда автоматически.
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">{tp.sessionModal.start}</label>
@@ -328,7 +336,7 @@ export default function ProgramTab({ eventId }: { eventId: number }) {
             </div>
           </div>
           <div className="flex gap-3 mt-5">
-            <button onClick={addSession} disabled={!sessionForm.title.trim() || savingSession}
+            <button onClick={addSession} disabled={(!sessionForm.speaker_id && !sessionForm.title.trim()) || savingSession}
               className={`btn-gold flex-1 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 ${savingSession ? 'btn-loading' : ''}`}>
               {savingSession ? <><Spinner /> {t.common.saving}</> : tp.sessionModal.addBtn}
             </button>
