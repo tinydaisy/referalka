@@ -90,6 +90,20 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Самозапись спикеров в слот программы + тема программы LIVE по topic_id (2026-06-30, коммит 604d5aa, ПРОД)
+
+**Зачем.** Спикер сам занимает свой слот в программе турнира/конференции из своего кабинета, не дёргая организатора. И тема выступления в программе берётся **live** из карточки спикера — изменил тему → обновилось везде.
+
+**Тема в программе живёт по `conf_sessions.topic_id`, не по замороженному `title`.** Везде, где показывается название слота, теперь `COALESCE(cst.topic, s.title)` через `LEFT JOIN conf_speaker_topics cst ON cst.id = s.topic_id` (`title` — fallback для слотов без спикера/темы). Поправлены ВСЕ точки: `program-public`, `sessions`, `sessions/day`, `regenerate_landing_data`, `landing_widget /program` ([conference.py](backend/app/api/modules/conference.py), [landing_widget.py](backend/app/api/landing_widget.py)) + рассылки `message_builder.py` (программа дня + custom-шаблон; `5min_before`/`speaker_intro` уже брали `cst.topic`). ⚠️ Паттерн `s.*, COALESCE(...) AS title` работает: asyncpg при дубле имени колонки берёт ПОСЛЕДНЕЕ значение. ⚠️ После того как спикеры разберут слоты — организатору нажать «Перегенерировать рассылки», чтобы `5min_before`/`speaker_intro` (per-session) подхватили новых спикеров.
+
+**Модалка слота в дашборде** ([TournamentProgramTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/TournamentProgramTab.tsx), [ProgramTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ProgramTab.tsx)): поле «Тема» вписывается руками ТОЛЬКО когда спикер НЕ выбран. Со спикером: 1 тема — подставляется сама (read-only превью), 2+ тем — селект выбора, 0 тем — жёлтая плашка «Тема будет уточнена позже, подставится автоматически когда спикер впишет». `saveSession`/`addSession` шлют `topic_id`; при пустой теме у выбранного спикера title = «Тема будет уточнена позже».
+
+**Кабинет спикера → вкладка «Мой слот»** ([/speaker/<slug>](web/src/app/speaker/%5Bevent_slug%5D/page.tsx), компонент `SlotTab`, видна для role НЕ jury/organizer). Дни-вкладки (только дни со слотами), список слотов: занятые — имя + тема (мой подсвечен), свободные — radio-выбор. Кнопка «Сохранить» сверху (sticky) + надпись «Выберите день и свободный слот…». Предупреждение про live-тему. Защита: один слот на спикера, чужой занятый не тронуть, **пересадка** на другой свободный (старый освобождается), кнопка «освободить».
+
+**Бэкенд** ([speaker_cabinet.py](backend/app/api/speaker_cabinet.py)): `GET /me/program` (этапы+дни+слоты, по каждому `is_mine`/`is_free`/`occupant_name`/`topic`), `POST /me/claim-slot {session_id}` (в транзакции `FOR UPDATE`: 409 если занят другим, иначе освобождает мой прежний слот в событии + занимает целевой `WHERE speaker_id IS NULL`), `POST /me/release-slot`. `session.se_id` = `event_collaborators.id` = `conf_sessions.speaker_id`. При claim, если у спикера ровно 1 тема (`conf_speaker_topics`) — проставляется её `topic_id`.
+
+
+
 ### ⚠️ Системный бот — только email (с 2026-06-27, коммиты 745eb1f, 143e6f2)
 
 **Главное правило.** Системный `@pluson_bot` (и системное VK-сообщество, и системный MAX-бот) **больше НЕ используется ни в одном клиентском флоу**. Каждый клиент работает только **своим VIP-ботом** на платформе. Нет своего бота на платформе → флоу на этой платформе просто **не работает (graceful)** — токен None, ссылка пустая, шаг пропускается, без падений. Это **отменяет** все старые формулировки в этом файле вида «fallback на @pluson_bot / иначе системный канал».
