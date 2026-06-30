@@ -1825,9 +1825,12 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
   const allStages: any[] = data.stages || []
   const mySlot = sessions.find(s => s.is_mine) || null
 
-  // Бэк уже отдаёт только этапы/дни участия спикера. Показываем дни, в которых
-  // есть хоть один слот (вся программа дня, включая занятые — для контекста).
-  const dayNumsWithSlots: number[] = Array.from(new Set(sessions.map(s => s.day)))
+  // Спикеру показываем только дни, где ему есть что занять: есть свободный слот
+  // ИЛИ его собственный слот. Дни без свободных мест (орг-встречи, где всё занято)
+  // в кабинете спикера не нужны.
+  const dayNumsWithSlots: number[] = Array.from(new Set(
+    sessions.filter(s => s.is_free || s.is_mine).map(s => s.day)
+  ))
   const daysWithSlots = days.filter(d => dayNumsWithSlots.includes(d.day_number))
 
   // этапы-вкладки = этапы из бэка, у которых есть дни со слотами.
