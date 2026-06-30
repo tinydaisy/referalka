@@ -1165,20 +1165,8 @@ export default function TemplatesPage() {
                 onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
               />
 
-              {/* Галочка: слать ещё и в групповые чаты события (TG/VK/MAX) */}
-              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
-                <input type="checkbox"
-                  checked={!!(form as any).send_to_event_chats}
-                  onChange={e => setForm({ ...form, send_to_event_chats: e.target.checked } as any)}
-                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
-                <span>
-                  <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
-                  <span className="block text-[11px] text-gray-500 mt-0.5">
-                    В дополнение к базе — ещё и в групповые чаты события (Telegram / VK / MAX),
-                    которые заданы в настройках события. Если выключено — в чаты не уходит.
-                  </span>
-                </span>
-              </label>
+              {/* Галочка «чаты события» убрана — эти чаты добавляются через общую базу
+                  чатов (Каналы → «Чаты для рассылок»), отдельная галочка теряла смысл. */}
 
               {/* Галочка: слать ещё и в общую базу чатов клиента */}
               {hasChatsFeature && (
@@ -1411,19 +1399,7 @@ export default function TemplatesPage() {
                 onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
               />
 
-              {/* Галочка: слать ещё и в чаты события */}
-              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
-                <input type="checkbox"
-                  checked={!!(form as any).send_to_event_chats}
-                  onChange={e => setForm({ ...form, send_to_event_chats: e.target.checked } as any)}
-                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
-                <span>
-                  <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
-                  <span className="block text-[11px] text-gray-500 mt-0.5">
-                    Ещё и в групповые чаты события (Telegram / VK / MAX) из настроек события.
-                  </span>
-                </span>
-              </label>
+              {/* Галочка «чаты события» убрана — теперь только общие чаты. */}
 
               {/* Галочка: слать ещё и в общую базу чатов клиента */}
               {hasChatsFeature && (
