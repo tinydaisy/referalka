@@ -772,7 +772,12 @@ async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=
                     item["referrer_juror_ec_ids"] = [jec]
         subjects_out.append(item)
 
-    stages = await db.fetch("SELECT id, title FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
+    # В выпадашке выбора этапа — только этапы С турниром (listen_audiences непуст).
+    # Этапы «Без турнира» (пустой набор) здесь не предлагаем.
+    stages = await db.fetch(
+        "SELECT id, title FROM conf_stages WHERE event_id=$1 "
+        "AND listen_audiences IS NOT NULL AND array_length(listen_audiences, 1) > 0 "
+        "ORDER BY sort_order, id", event_id)
     return {
         "subjects": subjects_out,
         "jurors": [{"juror_ec_id": j["juror_ec_id"], "name": j["name"]} for j in jurors],
@@ -1563,8 +1568,11 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
         return {"is_tournament": False}
     mykey = _skey("ec", se_id)
 
-    # все этапы события (+ виртуальный «весь турнир» если этапов нет)
-    stages = await db.fetch("SELECT id, title FROM conf_stages WHERE event_id=$1 ORDER BY sort_order, id", event_id)
+    # этапы С турниром (listen_audiences непуст) + виртуальный «весь турнир» если их нет
+    stages = await db.fetch(
+        "SELECT id, title FROM conf_stages WHERE event_id=$1 "
+        "AND listen_audiences IS NOT NULL AND array_length(listen_audiences, 1) > 0 "
+        "ORDER BY sort_order, id", event_id)
     stage_list = [{"id": s["id"], "title": s["title"]} for s in stages] or [{"id": None, "title": "Турнир"}]
 
     # комментарии жюри (с привязкой к этапу)

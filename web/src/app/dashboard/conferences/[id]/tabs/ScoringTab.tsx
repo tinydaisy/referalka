@@ -543,7 +543,8 @@ function LeaderboardSub({ eventId }: { eventId: number }) {
         api.tournament.criteria(eventId),
         api.tournament.feedback(eventId),
       ])
-      const st = c.stages || []
+      // только этапы С турниром (listen_audiences непуст). Этапы «Без турнира» не показываем.
+      const st = (c.stages || []).filter((s: any) => (s.listen_audiences || []).length > 0)
       setBoard(b); setStages(st); setFeedback(f.feedback || [])
       // по умолчанию выбираем первый этап (без варианта «Все этапы»)
       if (!stagesInit) {
@@ -1099,7 +1100,7 @@ const AUDIENCE_OPTS: { v: string; label: string }[] = [
   { v: 'registered', label: 'Зарегистрированные участники' },  // только зарег
   { v: 'speakers', label: 'Спикеры' },
   { v: 'jury', label: 'Жюри' },
-  { v: 'none', label: 'Не слушать' },
+  { v: 'none', label: 'Без турнира' },
 ]
 
 function AudienceDropdown({ value, onToggle }: { value: string[]; onToggle: (role: string) => void }) {
@@ -1117,7 +1118,7 @@ function AudienceDropdown({ value, onToggle }: { value: string[]; onToggle: (rol
 
   // подпись на кнопке — выбранные варианты через запятую (в порядке опций)
   const summary = value.length === 0
-    ? 'Не слушать'
+    ? 'Без турнира'
     : AUDIENCE_OPTS.filter(o => o.v !== 'none' && value.includes(o.v)).map(o => o.label).join(', ')
 
   const isChecked = (v: string) =>
