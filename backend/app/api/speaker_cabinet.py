@@ -1134,7 +1134,7 @@ async def speaker_program(
     sessions = await db.fetch(
         """
         SELECT s.id, s.day, s.start_time, s.end_time, s.sort_order,
-               s.speaker_id AS occupant_ec_id,
+               s.speaker_id AS occupant_ec_id, s.topic_id,
                col.name AS occupant_name,
                COALESCE(
                  cst.topic,
@@ -1161,16 +1161,24 @@ async def speaker_program(
     # слоты только видимых дней
     vis_sessions = [_ser(s) for s in sessions if s["day"] in visible_day_nums]
 
+    # темы спикера — чтобы при занятии слота он выбрал, с какой выступает
+    my_topics = await db.fetch(
+        "SELECT id, topic FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
+        se_id,
+    )
+
     return {
         "my_ec_id": se_id,
         "stages": [dict(s) for s in stages],
         "days": [dict(d) for d in days],
         "sessions": vis_sessions,
+        "my_topics": [dict(t) for t in my_topics],
     }
 
 
 class ClaimSlotIn(BaseModel):
     session_id: int
+    topic_id: Optional[int] = None  # какую из своих тем привязать к слоту
 
 
 @router.post("/me/claim-slot", summary="Занять слот программы (один на спикера, с пересадкой)")
@@ -1199,12 +1207,20 @@ async def claim_slot(
         if target["speaker_id"] is not None:
             raise HTTPException(status_code=409, detail="Этот слот уже занят другим спикером")
 
-        # тема: если у спикера ровно одна тема — проставим её topic_id
+        # тема: спикер мог выбрать конкретную (topic_id) — проверяем что она его.
+        # Не выбрал, а тема одна — берём её. Несколько и не выбрал — NULL
+        # (в программе покажется первая тема live).
         topic_rows = await db.fetch(
             "SELECT id FROM conf_speaker_topics WHERE cse_id = $1 ORDER BY sort_order, id",
             se_id,
         )
-        topic_id = topic_rows[0]["id"] if len(topic_rows) == 1 else None
+        my_topic_ids = [r["id"] for r in topic_rows]
+        if data.topic_id and data.topic_id in my_topic_ids:
+            topic_id = data.topic_id
+        elif len(my_topic_ids) == 1:
+            topic_id = my_topic_ids[0]
+        else:
+            topic_id = None
         title_default = "Тема будет уточнена позже"
 
         # освобождаем мой прежний слот в этом событии (пересадка)

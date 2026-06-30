@@ -1803,6 +1803,8 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
   // раскрытые дни-аккордеоны (day_number). null = ещё не трогали → откроется первый
   const [openDays, setOpenDays] = useState<Set<number> | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  // если у спикера несколько тем — выбранная тема для занимаемого слота
+  const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -1880,6 +1882,8 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
     .filter(s => s.day === dn)
     .sort((a, b) => (a.sort_order - b.sort_order) || String(a.start_time || '').localeCompare(String(b.start_time || '')))
 
+  const myTopics: Array<{ id: number; topic: string }> = data.my_topics || []
+
   async function save() {
     if (selectedId == null) return
     setSaving(true); setMsg(null)
@@ -1887,7 +1891,7 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
       const r = await fetch(`${API}/api/v1/public/speaker-cabinet/me/claim-slot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ session_id: selectedId }),
+        body: JSON.stringify({ session_id: selectedId, topic_id: selectedTopicId }),
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.detail || 'Не удалось занять слот')
@@ -1950,6 +1954,20 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
         <span style={{ fontSize: 13, color: '#7a8c9c' }}>
           Выберите день и свободный слот, затем нажмите «Сохранить».
         </span>
+        {/* Если у спикера несколько тем — выбор, с какой выступает в этом слоте */}
+        {selectedId != null && myTopics.length > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', marginTop: 4 }}>
+            <span style={{ fontSize: 13, color: DARK, fontWeight: 600 }}>Тема выступления:</span>
+            <select
+              value={selectedTopicId ?? ''}
+              onChange={e => setSelectedTopicId(e.target.value ? Number(e.target.value) : null)}
+              style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 10, border: '1px solid #d4dee5', fontSize: 13, background: '#fff' }}
+            >
+              <option value="">— по умолчанию (первая тема) —</option>
+              {myTopics.map(t => <option key={t.id} value={t.id}>{t.topic}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       {msg && (
@@ -2065,7 +2083,7 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
                         key={s.id}
                         type="button"
                         disabled={!free && !mine}
-                        onClick={() => { if (free) setSelectedId(prev => prev === s.id ? null : s.id) }}
+                        onClick={() => { if (free) { setSelectedId(prev => prev === s.id ? null : s.id); setSelectedTopicId(null) } }}
                         style={{
                           textAlign: 'left', width: '100%',
                           display: 'flex', alignItems: 'center', gap: 12,
