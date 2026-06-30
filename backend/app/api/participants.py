@@ -925,22 +925,27 @@ async def get_participant_in_event(
             "prefill": prefill_dict,
         }
 
-    # Сколько людей пришло по моей ссылке (включая «интересовавшихся»)
+    # Сколько людей пришло по моей ссылке (включая «интересовавшихся»).
+    # Считаем по referrer_ref_code (личный код участника), а НЕ по
+    # referrer_participant_id — последний заполняется не во всех флоу входа
+    # (лендинг/webhook/бот), из-за чего Mini App недосчитывал рефералов.
+    # Так совпадает с веб-кабинетом, кабинетом спикера и отчётом дашборда.
+    my_ref_code = row["ref_code"]
     visited_count = await db.fetchval(
-        "SELECT COUNT(*) FROM event_participants WHERE referrer_participant_id = $1",
-        row["id"]
+        "SELECT COUNT(*) FROM event_participants WHERE event_id = $1 AND referrer_ref_code = $2",
+        row["event_id"], my_ref_code
     )
     # Сколько из них зарегистрировались
     registered_count = await db.fetchval(
         """SELECT COUNT(*) FROM event_participants
-            WHERE referrer_participant_id = $1 AND is_registered = TRUE""",
-        row["id"]
+            WHERE event_id = $1 AND referrer_ref_code = $2 AND is_registered = TRUE""",
+        row["event_id"], my_ref_code
     )
     # Сколько из них нажали главную CTA-ссылку (стрим/голосование)
     clicked_count = await db.fetchval(
         """SELECT COUNT(*) FROM event_participants
-            WHERE referrer_participant_id = $1 AND link_clicked_at IS NOT NULL""",
-        row["id"]
+            WHERE event_id = $1 AND referrer_ref_code = $2 AND link_clicked_at IS NOT NULL""",
+        row["event_id"], my_ref_code
     )
 
     # Выбираем «зачёт» по которому считаются подарки: registered / visited / clicked_link.
@@ -984,9 +989,9 @@ async def get_participant_in_event(
                   ep.link_clicked_at
              FROM event_participants ep
              JOIN contacts c ON c.id = ep.contact_id
-            WHERE ep.referrer_participant_id = $1
+            WHERE ep.event_id = $1 AND ep.referrer_ref_code = $2
             ORDER BY (ep.link_clicked_at IS NOT NULL) DESC, ep.is_registered DESC, ep.registered_at DESC""",
-        row["id"]
+        row["event_id"], my_ref_code
     )
     my_people = [
         {
