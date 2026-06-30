@@ -400,7 +400,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
         day_sessions = await conn.fetch(
             """
             SELECT cs.start_time, cs.end_time,
-                   COALESCE(cst.topic, cs.title) as session_title,
+                   COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
                    c.name as speaker_name, cse.role
             FROM conf_sessions cs
             LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id
@@ -714,7 +714,7 @@ async def build_message_content(conn, tpl_type: str, tmpl_text: str, photo_url, 
             day_sessions = await conn.fetch(
                 """
                 SELECT cs.start_time, cs.end_time,
-                       COALESCE(cst.topic, cs.title) as session_title,
+                       COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = cs.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), cs.title) as session_title,
                        c.name as speaker_name, cse.role
                 FROM conf_sessions cs
                 LEFT JOIN event_collaborators cse ON cse.id = cs.speaker_id

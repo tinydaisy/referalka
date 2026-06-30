@@ -135,7 +135,7 @@ async def regenerate_landing_data(event_id: int, db: asyncpg.Connection):
         "SELECT * FROM conf_days WHERE event_id = $1 ORDER BY day_number", event_id
     )
     sessions = await db.fetch(
-        """SELECT s.*, COALESCE(cst.topic, s.title) AS title,
+        """SELECT s.*, COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   sp.name AS speaker_name, cse.role AS speaker_role,
                   sp.title AS speaker_title, sp.photo_url, cse.gift_after_speech_title, cse.gift_after_speech_url
            FROM conf_sessions s
@@ -1370,7 +1370,7 @@ async def get_program_public(event_id: int, db: asyncpg.Connection = Depends(get
     )
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.start_time, s.end_time,
-                  COALESCE(cst.topic, s.title) AS title, s.gift_description,
+                  COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title, s.gift_description,
                   s.track_label, s.track_color, s.track_id, s.sort_order,
                   s.speaker_id AS speaker_event_id,
                   col.name AS speaker_name, col.title AS speaker_title,
@@ -1537,7 +1537,7 @@ async def list_sessions(
     await check_conference_access(event_id, int(client["sub"]), db)
     sessions = await db.fetch(
         """SELECT s.*,
-                  COALESCE(cst.topic, s.title) AS title,
+                  COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   col.name as speaker_name, col.title as speaker_title,
                   col.photo_url,
                   pu_tg.username AS personal_tg_username,
@@ -1562,7 +1562,7 @@ async def list_sessions(
 async def get_sessions_by_day(event_id: int, day: int, db: asyncpg.Connection = Depends(get_db)):
     sessions = await db.fetch(
         """SELECT s.id, s.day, s.start_time, s.end_time,
-                  COALESCE(cst.topic, s.title) AS title,
+                  COALESCE(cst.topic, (SELECT t.topic FROM conf_speaker_topics t WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1), s.title) AS title,
                   s.gift_description, s.stream_url, s.track_label, s.track_color, s.track_id,
                   s.speaker_id AS speaker_event_id,
                   col.name as speaker_name, col.title as speaker_title,

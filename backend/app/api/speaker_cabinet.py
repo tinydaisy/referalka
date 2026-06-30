@@ -1113,12 +1113,20 @@ async def speaker_program(
     days = [d for d in all_days if d["stage_id"] is None or d["stage_id"] in visible_stage_ids]
     visible_day_nums = {d["day_number"] for d in days}
     # слот: имя занявшего + его актуальная тема (live по topic_id, fallback title)
+    # Тема слота — live: выбранная topic_id, иначе ПЕРВАЯ тема занявшего спикера
+    # (conf_speaker_topics), иначе замороженный title. Так тема подтягивается,
+    # даже если спикер добавил её уже после занятия слота.
     sessions = await db.fetch(
         """
         SELECT s.id, s.day, s.start_time, s.end_time, s.sort_order,
                s.speaker_id AS occupant_ec_id,
                col.name AS occupant_name,
-               COALESCE(cst.topic, s.title) AS topic
+               COALESCE(
+                 cst.topic,
+                 (SELECT t.topic FROM conf_speaker_topics t
+                    WHERE t.cse_id = s.speaker_id ORDER BY t.sort_order, t.id LIMIT 1),
+                 s.title
+               ) AS topic
         FROM conf_sessions s
         LEFT JOIN event_collaborators cse ON cse.id = s.speaker_id
         LEFT JOIN collaborators col ON col.id = cse.speaker_id
