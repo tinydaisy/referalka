@@ -920,15 +920,16 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
         <div className="text-center text-gray-400 text-sm py-10">Заказов нет.</div>
       ) : (
         <div className="overflow-x-auto border border-gray-100 rounded-xl">
-          <table className="w-full text-sm table-fixed min-w-[920px]">
+          <table className="w-full text-sm table-fixed min-w-[1040px]">
             <colgroup>
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '9%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '17%' }} />
               <col style={{ width: '12%' }} />
-              <col style={{ width: '18%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '15%' }} />
               <col style={{ width: '4%' }} />
             </colgroup>
             <thead>
@@ -939,6 +940,7 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
                 <th className="text-left px-2 py-2 font-medium">Сумма</th>
                 <th className="text-left px-2 py-2 font-medium">Статус</th>
                 <th className="text-left px-2 py-2 font-medium">Партнёр</th>
+                <th className="text-left px-2 py-2 font-medium">Дата и время</th>
                 <th className="text-left px-2 py-2 font-medium">Заметка</th>
                 <th className="px-1 py-2"></th>
               </tr>
@@ -975,6 +977,7 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
                     </button>
                   </td>
                   <td className="px-2 py-2 text-xs text-gray-500 break-words">{o.referrer_name || '—'}</td>
+                  <td className="px-2 py-2 text-xs text-gray-500 break-words">{fmtDate(o.paid_at || o.ordered_at) || '—'}</td>
                   <td className="px-2 py-2">
                     <OrderNote note={o.note} onSave={(n) => patch(o, { note: n })} />
                   </td>
