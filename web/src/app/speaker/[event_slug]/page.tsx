@@ -1800,7 +1800,8 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [activeStage, setActiveStage] = useState<number | null>(null)
-  const [activeDay, setActiveDay] = useState<number | null>(null)
+  // раскрытые дни-аккордеоны (day_number). null = ещё не трогали → откроется первый
+  const [openDays, setOpenDays] = useState<Set<number> | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -1858,19 +1859,25 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
   }
   const dayLabel = (d: any) => d.title || `День ${d.day_number}`
 
-  // дни активного этапа (со слотами)
+  // дни активного этапа (со слотами) — рисуем аккордеоном друг под другом
   const stageDays = daysWithSlots
     .filter(d => (effStage === ORPHAN ? (d.stage_id ?? null) === null : (d.stage_id ?? null) === effStage))
     .sort((a, b) => a.day_number - b.day_number)
 
-  // активный день в рамках этапа
-  const effDay = (activeDay != null && stageDays.some(d => d.day_number === activeDay))
-    ? activeDay
-    : (myDay && stageDays.some(d => d.day_number === myDay.day_number) ? myDay.day_number
-      : (stageDays[0] ? stageDays[0].day_number : null))
-
-  const daySlots = sessions
-    .filter(s => s.day === effDay)
+  // какие дни раскрыты: трогали → openDays; не трогали → день моего слота, иначе первый
+  const defaultOpenDay = (myDay && stageDays.some(d => d.day_number === myDay.day_number))
+    ? myDay.day_number
+    : (stageDays[0]?.day_number ?? null)
+  const isDayOpen = (dn: number) => openDays != null ? openDays.has(dn) : dn === defaultOpenDay
+  const toggleDay = (dn: number) => {
+    setOpenDays(prev => {
+      const base = prev != null ? new Set(prev) : (defaultOpenDay != null ? new Set([defaultOpenDay]) : new Set<number>())
+      base.has(dn) ? base.delete(dn) : base.add(dn)
+      return base
+    })
+  }
+  const slotsOfDay = (dn: number) => sessions
+    .filter(s => s.day === dn)
     .sort((a, b) => (a.sort_order - b.sort_order) || String(a.start_time || '').localeCompare(String(b.start_time || '')))
 
   async function save() {
@@ -1990,7 +1997,7 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
           borderBottom: '1px solid #e1e8ee', paddingBottom: 10 }}>
           {stageTabs.map(st => (
             <button key={st.id} type="button"
-              onClick={() => { setActiveStage(st.id); setActiveDay(null); setSelectedId(null) }}
+              onClick={() => { setActiveStage(st.id); setOpenDays(null); setSelectedId(null) }}
               style={{
                 padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
                 border: `1px solid ${effStage === st.id ? DARK : '#d4dee5'}`,
@@ -2002,7 +2009,7 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
           ))}
           {hasOrphanDays && (
             <button type="button"
-              onClick={() => { setActiveStage(ORPHAN); setActiveDay(null); setSelectedId(null) }}
+              onClick={() => { setActiveStage(ORPHAN); setOpenDays(null); setSelectedId(null) }}
               style={{
                 padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
                 border: `1px solid ${effStage === ORPHAN ? DARK : '#d4dee5'}`,
@@ -2015,69 +2022,87 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
         </div>
       )}
 
-      {/* Вкладки дней внутри этапа */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {stageDays.map(d => (
-          <button key={d.day_number} type="button"
-            onClick={() => { setActiveDay(d.day_number); setSelectedId(null) }}
-            style={{
-              padding: '8px 14px', borderRadius: 10, fontSize: 13, cursor: 'pointer',
-              border: `1px solid ${effDay === d.day_number ? PEACH : '#d4dee5'}`,
-              background: effDay === d.day_number ? PEACH : '#fff',
-              color: DARK, fontWeight: effDay === d.day_number ? 700 : 500,
-            }}>
-            {dayLabel(d)} <span style={{ color: '#7a8c9c', fontWeight: 400 }}>{fmtDate(d.day_date)}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Слоты дня */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {daySlots.length === 0 && (
-          <div style={{ fontSize: 13, color: '#7a8c9c' }}>В этом дне пока нет слотов.</div>
+      {/* Дни аккордеоном друг под другом: дата · название → стрелка → слоты внутри */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {stageDays.length === 0 && (
+          <div style={{ fontSize: 13, color: '#7a8c9c' }}>В этом этапе пока нет дней со слотами.</div>
         )}
-        {daySlots.map(s => {
-          const free = s.is_free
-          const mine = s.is_mine
-          const selected = selectedId === s.id
+        {stageDays.map(d => {
+          const opened = isDayOpen(d.day_number)
+          const slots = slotsOfDay(d.day_number)
+          const freeCount = slots.filter(s => s.is_free).length
           return (
-            <button
-              key={s.id}
-              type="button"
-              disabled={!free && !mine}
-              onClick={() => { if (free) setSelectedId(prev => prev === s.id ? null : s.id) }}
-              style={{
-                textAlign: 'left', width: '100%',
-                display: 'flex', alignItems: 'center', gap: 12,
-                padding: '12px 14px', borderRadius: 12,
-                border: `2px solid ${selected ? PEACH : mine ? '#9ec6f0' : free ? '#d4dee5' : '#e7ecf0'}`,
-                background: mine ? '#eef6ff' : selected ? '#fff7ef' : '#fff',
-                cursor: (!free && !mine) ? 'default' : 'pointer',
-                opacity: (!free && !mine) ? 0.85 : 1,
-              }}
-            >
-              <div style={{
-                width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
-                border: `2px solid ${selected ? PEACH : '#c3cfd8'}`,
-                background: selected ? PEACH : (mine ? '#9ec6f0' : 'transparent'),
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {(selected || mine) && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
-              </div>
-              <div style={{ minWidth: 96, fontWeight: 700, color: DARK, fontSize: 14 }}>{timeStr(s)}</div>
-              <div style={{ flex: 1 }}>
-                {free ? (
-                  <span style={{ color: '#1f7a44', fontWeight: 600, fontSize: 13 }}>Свободно</span>
-                ) : (
-                  <div>
-                    <div style={{ fontWeight: 700, color: DARK, fontSize: 13.5 }}>
-                      {s.occupant_name || 'Занято'}{mine ? ' (вы)' : ''}
-                    </div>
-                    <div style={{ fontSize: 12.5, color: '#7a8c9c', marginTop: 1 }}>{s.topic}</div>
-                  </div>
-                )}
-              </div>
-            </button>
+            <div key={d.day_number} style={{ border: '1px solid #e1e8ee', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
+              {/* шапка дня */}
+              <button type="button" onClick={() => toggleDay(d.day_number)}
+                style={{
+                  width: '100%', textAlign: 'left', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '13px 14px', background: opened ? '#f4f7f9' : '#fff', border: 'none',
+                }}>
+                <span style={{
+                  display: 'inline-block', transition: 'transform .15s',
+                  transform: opened ? 'rotate(90deg)' : 'none', color: '#7a8c9c', fontSize: 14,
+                }}>▶</span>
+                <span style={{ color: '#7a8c9c', fontWeight: 600, fontSize: 13, minWidth: 70 }}>{fmtDate(d.day_date)}</span>
+                <span style={{ flex: 1, fontWeight: 700, color: DARK, fontSize: 13.5 }}>{dayLabel(d)}</span>
+                <span style={{ fontSize: 12, color: freeCount > 0 ? '#1f7a44' : '#9aa9b7', fontWeight: 600 }}>
+                  {freeCount > 0 ? `свободно ${freeCount}` : 'нет мест'}
+                </span>
+              </button>
+              {/* слоты дня */}
+              {opened && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 12px 12px' }}>
+                  {slots.length === 0 && (
+                    <div style={{ fontSize: 13, color: '#7a8c9c' }}>В этом дне пока нет слотов.</div>
+                  )}
+                  {slots.map(s => {
+                    const free = s.is_free
+                    const mine = s.is_mine
+                    const selected = selectedId === s.id
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        disabled={!free && !mine}
+                        onClick={() => { if (free) setSelectedId(prev => prev === s.id ? null : s.id) }}
+                        style={{
+                          textAlign: 'left', width: '100%',
+                          display: 'flex', alignItems: 'center', gap: 12,
+                          padding: '12px 14px', borderRadius: 12,
+                          border: `2px solid ${selected ? PEACH : mine ? '#9ec6f0' : free ? '#d4dee5' : '#e7ecf0'}`,
+                          background: mine ? '#eef6ff' : selected ? '#fff7ef' : '#fff',
+                          cursor: (!free && !mine) ? 'default' : 'pointer',
+                          opacity: (!free && !mine) ? 0.85 : 1,
+                        }}
+                      >
+                        <div style={{
+                          width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+                          border: `2px solid ${selected ? PEACH : '#c3cfd8'}`,
+                          background: selected ? PEACH : (mine ? '#9ec6f0' : 'transparent'),
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          {(selected || mine) && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
+                        </div>
+                        <div style={{ minWidth: 96, fontWeight: 700, color: DARK, fontSize: 14 }}>{timeStr(s)}</div>
+                        <div style={{ flex: 1 }}>
+                          {free ? (
+                            <span style={{ color: '#1f7a44', fontWeight: 600, fontSize: 13 }}>Свободно</span>
+                          ) : (
+                            <div>
+                              <div style={{ fontWeight: 700, color: DARK, fontSize: 13.5 }}>
+                                {s.occupant_name || 'Занято'}{mine ? ' (вы)' : ''}
+                              </div>
+                              <div style={{ fontSize: 12.5, color: '#7a8c9c', marginTop: 1 }}>{s.topic}</div>
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )
         })}
       </div>
