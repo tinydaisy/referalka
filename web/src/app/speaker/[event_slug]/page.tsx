@@ -13,6 +13,7 @@
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
+import QrLinkButton from '@/components/QrLinkButton'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'https://pluson.ru'
 const PEACH = '#FFCFA4'
@@ -1131,6 +1132,7 @@ export default function SpeakerCabinetPage() {
                         >
                           {refCopied === k ? '✓' : '📋'}
                         </button>
+                        <QrLinkButton url={url} name={label} className="p-1.5 rounded flex items-center" iconSize={16} iconClass="text-[#25455D]" />
                       </div>
                     )
                   })}
@@ -1445,6 +1447,7 @@ function MaterialsTab({
                 <button onClick={() => copy(k, url)} style={copyBtnCss}>
                   {refCopied === k ? '✓' : '📋'}
                 </button>
+                <QrLinkButton url={url} name={label} className="p-1.5 rounded flex items-center" iconSize={16} iconClass="text-[#25455D]" />
               </div>
             )
           })}

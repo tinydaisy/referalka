@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Copy, Check, Link2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import QrLinkButton from '@/components/QrLinkButton'
 
 /**
  * Блок «Партнёрская ссылка» для карточки спикера/организатора.
@@ -82,6 +83,9 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
           title={isDraft ? 'Сначала опубликуйте событие' : 'Скопировать'}>
           {copied === tg.key ? <Check size={12} className="text-green-600" /> : <Copy size={12} />}
         </button>
+        {!isDraft && (
+          <QrLinkButton url={tg.url} name={tg.label} className="p-1 rounded shrink-0 text-gray-400 hover:text-[#25455D] hover:bg-gray-100 flex items-center" iconSize={12} iconClass="" />
+        )}
       </div>
     )
   }
@@ -116,6 +120,9 @@ export default function RefLinkInline({ slug, refCode, compact = false, eventSta
               title={isDraft ? 'Сначала опубликуйте событие' : 'Скопировать'}>
               {copied === l.key ? <><Check size={13} /> Скопировано</> : <><Copy size={13} /> Копировать</>}
             </button>
+            {!isDraft && (
+              <QrLinkButton url={l.url} name={l.label} className="p-1 rounded shrink-0 text-amber-900 hover:text-amber-700 hover:bg-amber-100 flex items-center" iconSize={14} iconClass="" />
+            )}
           </div>
         ))}
       </div>

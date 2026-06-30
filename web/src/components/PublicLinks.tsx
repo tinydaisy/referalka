@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Copy, Check, Globe, Save } from 'lucide-react'
 import { api } from '@/lib/api'
+import QrLinkButton from '@/components/QrLinkButton'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://pluson.ru'
 
@@ -182,6 +183,9 @@ export default function PublicLinks({
         >
           {copied === l.key ? <Check size={15} className="text-green-600" /> : <Copy size={15} />}
         </button>
+        {!isDraft && (
+          <QrLinkButton url={l.url} name={l.label} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 flex items-center" iconSize={15} iconClass="" />
+        )}
       </div>
       {l.hint && <p className="text-xs text-gray-400 mt-1.5 ml-12">{l.hint}</p>}
     </div>
