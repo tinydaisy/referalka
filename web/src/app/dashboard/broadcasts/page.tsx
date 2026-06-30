@@ -1027,6 +1027,7 @@ function BulkBroadcastModal(props: {
       const lines = chunk.split('\n')
       let fire_at = ''
       let photo_url = ''
+      let subject = ''
       let aud_in: string | null = null
       let aud_ex: string | null = null
       let chat_client = false
@@ -1067,6 +1068,11 @@ function BulkBroadcastModal(props: {
           photo_url = trimmed.replace(/^ФОТО:\s*/i, '').trim()
           continue
         }
+        if (/^(ЗАГОЛОВОК|ТЕМА):/i.test(trimmed)) {
+          section = 'none'
+          subject = trimmed.replace(/^(ЗАГОЛОВОК|ТЕМА):\s*/i, '').trim()
+          continue
+        }
         if (/^ТЕКСТ:\s*$/i.test(trimmed)) { section = 'text'; continue }
         if (/^КНОПКИ:\s*$/i.test(trimmed)) { section = 'buttons'; continue }
         if (section === 'text') text_lines.push(line)
@@ -1080,6 +1086,7 @@ function BulkBroadcastModal(props: {
       items.push({
         fire_at,
         photo_url: photo_url || null,
+        subject: subject || null,
         text: text_lines.join('\n').trim(),
         buttons,
         audience_include: aud_in,
@@ -1158,6 +1165,7 @@ function BulkBroadcastModal(props: {
 ВРЕМЯ: 29.04.2026 09:30
 ЧАТЫ: чаты для рассылок
 ФОТО: https://example.com/photo.jpg
+ЗАГОЛОВОК: Скоро запуск нового продукта
 ТЕКСТ:
 Привет, {first_name}!
 Скоро запуск нового продукта.
@@ -1184,6 +1192,7 @@ function BulkBroadcastModal(props: {
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
             <p className="font-semibold mb-1">Формат (разделитель — строка <code className="bg-white px-1 rounded">***</code>):</p>
             <p className="mb-1">1 блок = 1 рассылка. Необязательные строки в блоке:
+              <br/>• <b>ЗАГОЛОВОК:</b> (или ТЕМА:) — тема для email + жирная первая строка для TG/VK/MAX
               <br/>• <b>ЧАТЫ:</b> «чаты для рассылок» — слать также в общую базу чатов
               <br/>• <b>КНОПКИ:</b> «нет» либо до 3 строк «Название | ссылка»
               <br/>Создаётся как <b>черновики</b> — отправятся только после запуска очереди.</p>
@@ -1215,7 +1224,7 @@ function BulkBroadcastModal(props: {
               <div className="max-h-40 overflow-y-auto space-y-1 mt-2">
                 {preview.map((p, i) => (
                   <div key={i} className="text-xs text-green-900 bg-white/50 rounded px-2 py-1">
-                    <b>#{i+1}</b> {p.fire_at} — {p.text.slice(0, 60)}{p.text.length > 60 ? '…' : ''}
+                    <b>#{i+1}</b> {p.fire_at} — {p.subject ? <span className="font-semibold">«{p.subject.slice(0, 40)}» </span> : null}{p.text.slice(0, 60)}{p.text.length > 60 ? '…' : ''}
                     {p.send_to_client_chats && <span className="text-gray-500"> +чаты</span>}
                     {p.buttons.length > 0 && <span className="text-gray-500"> · кнопок: {p.buttons.length}</span>}
                   </div>
