@@ -40,8 +40,26 @@ export default function BroadcastMediaPicker({ value, onChange }: Props) {
   const [tab, setTab] = useState<'photo' | 'video'>(value.media_type === 'video' ? 'video' : 'photo')
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState(false)
   const photoRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLInputElement>(null)
+
+  // Драг-н-дроп: по типу брошенного файла сами решаем — фото или видео,
+  // переключаем вкладку и шлём в нужный обработчик. Не зависит от текущей вкладки.
+  function handleDrop(files: FileList | null) {
+    if (!files || !files[0]) return
+    const f = files[0]
+    const isVideo = (f.type || '').startsWith('video/') || /\.(mp4|webm|mov|m4v|ogg)$/i.test(f.name)
+    if (isVideo) {
+      if (value.media_type === 'photo') clearMedia()
+      setTab('video')
+      handleVideo(files)
+    } else {
+      if (value.media_type === 'video') clearMedia()
+      setTab('photo')
+      handlePhoto(files)
+    }
+  }
 
   function clearMedia() {
     if (value.photo_url) deleteByUrl(value.photo_url)
@@ -185,11 +203,16 @@ export default function BroadcastMediaPicker({ value, onChange }: Props) {
       )}
 
       {/* Зона загрузки */}
-      <div className="rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/50 p-3 flex items-center justify-between gap-3">
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); handleDrop(e.dataTransfer.files) }}
+        className={`rounded-xl border-2 border-dashed p-3 flex items-center justify-between gap-3 transition-colors ${dragOver ? 'border-brand bg-brand/5' : 'border-gray-200 bg-gray-50/50'}`}
+      >
         <span className="text-sm text-gray-500">
           {tab === 'photo'
-            ? (hasPhoto ? 'Фото загружено' : 'Загрузите фото (до 50 МБ)')
-            : (hasVideo ? 'Видео загружено' : 'Загрузите видео (MP4 до 50 МБ — встроенный плеер)')}
+            ? (hasPhoto ? 'Фото загружено' : 'Перетащите файл или загрузите фото (до 50 МБ)')
+            : (hasVideo ? 'Видео загружено' : 'Перетащите файл или загрузите видео (MP4 до 50 МБ — встроенный плеер)')}
         </span>
         <button type="button"
           onClick={() => (tab === 'photo' ? photoRef.current : videoRef.current)?.click()}
