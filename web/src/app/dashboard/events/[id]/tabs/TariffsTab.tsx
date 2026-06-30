@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { Plus, Save, Trash2, Pencil, X, Users, FileText, ChevronUp, ChevronDown, Search, Check } from 'lucide-react'
+import { Plus, Save, Trash2, Pencil, X, Users, FileText, ChevronUp, ChevronDown, Search, Check, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { useUrlTab } from '@/hooks/useUrlTab'
@@ -820,6 +820,52 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
   const paidSum = paidRows.reduce((s, o) => s + sumOf(o), 0)
   const unpaidSum = unpaidRows.reduce((s, o) => s + sumOf(o), 0)
 
+  // Экспорт CSV — ровно тех заказов, что видны после фильтра (массив filtered).
+  // UTF-8 с BOM + ;-разделитель — открывается в Excel без танцев с кодировкой.
+  function exportCsv() {
+    const esc = (v: any) => {
+      const s = v == null ? '' : String(v)
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const tgLink = (o: OrderRow) =>
+      o.tg_username ? `https://t.me/${o.tg_username.replace(/^@+/, '')}` : (o.tg_id ? `tg://user?id=${o.tg_id}` : '')
+    const vkLink = (o: OrderRow) =>
+      o.vk_username ? `https://vk.com/${o.vk_username.replace(/^@+/, '')}` : (o.vk_id ? `https://vk.com/id${o.vk_id}` : '')
+    const maxLink = (o: OrderRow) =>
+      o.max_username ? `https://max.ru/${o.max_username}` : ''
+    const headers = [
+      'Имя', 'Email', 'Телефон', 'Telegram', 'VK', 'MAX',
+      'Тариф', 'Код тарифа', 'Сумма, ₽', 'Статус', 'Партнёр', 'Источник', 'Заметка', 'Дата',
+    ]
+    const rows = filtered.map(o => [
+      o.contact_name || `#${o.contact_id}`,
+      o.email || '',
+      o.phone || '',
+      tgLink(o),
+      vkLink(o),
+      maxLink(o),
+      o.tariff_title || '',
+      o.tariff_code || '',
+      sumOf(o),
+      o.status === 'paid' ? 'Завершён (оплатил)' : 'Новый (не оплачен)',
+      o.referrer_name || '',
+      o.source || '',
+      o.note || '',
+      fmtDate(o.paid_at || o.ordered_at),
+    ])
+    const csv = [headers, ...rows].map(r => r.map(esc).join(';')).join('\r\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const stamp = new Date().toISOString().slice(0, 10)
+    a.download = `orders-event-${eventId}-${stamp}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   if (loading) return <div className="py-12 flex justify-center"><Spinner /></div>
 
   return (
@@ -851,6 +897,14 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Поиск…"
             className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-brand" />
         </div>
+        <button
+          onClick={exportCsv}
+          disabled={filtered.length === 0}
+          title="Скачать показанные заказы в CSV (для Excel)"
+          className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-medium flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+        >
+          <Download size={15} /> Экспорт CSV
+        </button>
       </div>
       <div className="text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
         <span>Показано: {filtered.length}</span>
