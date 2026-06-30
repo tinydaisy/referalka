@@ -157,13 +157,119 @@ def _card_html(e: dict) -> str:
 </a>"""
 
 
+def _jsonb_list(val):
+    """JSONB-поле → список (achievements/owner_achievements)."""
+    import json as _json
+    if val is None:
+        return []
+    if isinstance(val, str):
+        try:
+            val = _json.loads(val)
+        except Exception:
+            return []
+    return val if isinstance(val, list) else []
+
+
+def _jsonb_dict(val):
+    import json as _json
+    if val is None:
+        return {}
+    if isinstance(val, str):
+        try:
+            val = _json.loads(val)
+        except Exception:
+            return {}
+    return val if isinstance(val, dict) else {}
+
+
+def _facts_html(items) -> str:
+    """Блок «Факты в цифрах»: [{label, value}]."""
+    cells = ""
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        value = esc(it.get("value") or "")
+        label = esc(it.get("label") or "")
+        if not value and not label:
+            continue
+        cells += (f'<div class="fact"><div class="fact-v">{value}</div>'
+                  f'<div class="fact-l">{label}</div></div>')
+    return f'<div class="facts">{cells}</div>' if cells else ""
+
+
+_SOCIAL_LABELS = {
+    "telegram": "Telegram", "vk": "ВКонтакте", "max": "MAX",
+    "instagram": "Instagram", "youtube": "YouTube", "website": "Сайт", "site": "Сайт",
+}
+
+
+def _socials_html(social: dict) -> str:
+    links = ""
+    for key, url in (social or {}).items():
+        if not url or not isinstance(url, str) or not url.startswith("http"):
+            continue
+        label = _SOCIAL_LABELS.get(key, key.capitalize())
+        links += f'<a class="soc" href="{esc(url)}" target="_blank" rel="noopener noreferrer">{esc(label)}</a>'
+    return f'<div class="socs">{links}</div>' if links else ""
+
+
+def _about_html(client, brand: str) -> str:
+    """Вкладка «О проекте»: визитка бренда + блок основателя."""
+    positioning = esc(client["positioning"] or "")
+    brand_photo = client["profile_photo_url"] or client["brand_logo_url"]
+    brand_facts = _facts_html(_jsonb_list(client.get("achievements")))
+
+    owner_name = esc(client["name"] or "")
+    owner_pos = esc(client["owner_positioning"] or "")
+    owner_photo = client["owner_photo_url"]
+    owner_facts = _facts_html(_jsonb_list(client.get("owner_achievements")))
+    bio = esc(client["bio"] or "")
+    socials = _socials_html(_jsonb_dict(client.get("social_links")))
+
+    brand_photo_html = (f'<img class="ab-photo" src="{esc(brand_photo)}" alt="" '
+                        f'onerror="this.style.display=\'none\'">' if brand_photo else "")
+    pos_html = f'<p class="ab-pos">{positioning}</p>' if positioning else ""
+
+    owner_block = ""
+    if owner_name or owner_photo or bio or owner_pos or owner_facts or socials:
+        owner_photo_html = (f'<img class="ow-photo" src="{esc(owner_photo)}" alt="" '
+                            f'onerror="this.style.display=\'none\'">' if owner_photo else "")
+        owner_pos_html = f'<p class="ow-pos">{owner_pos}</p>' if owner_pos else ""
+        bio_html = f'<p class="ow-bio">{bio}</p>' if bio else ""
+        owner_block = f"""
+        <div class="ab-card ow-card">
+          <div class="ow-head">
+            {owner_photo_html}
+            <div>
+              <div class="ow-lbl">ОБ ОСНОВАТЕЛЕ</div>
+              <div class="ow-name">{owner_name}</div>
+              {owner_pos_html}
+            </div>
+          </div>
+          {owner_facts}
+          {bio_html}
+          {socials}
+        </div>"""
+
+    return f"""
+    <div class="ab-card">
+      {brand_photo_html}
+      <div class="ab-name">{esc(brand)}</div>
+      {pos_html}
+      {brand_facts}
+    </div>
+    {owner_block}"""
+
+
 @router.get("/o/{client_id}", include_in_schema=False)
 async def events_list_page(
     client_id: int,
     db: asyncpg.Connection = Depends(get_db),
 ):
     client = await db.fetchrow(
-        """SELECT brand_name, name, positioning, profile_photo_url, brand_logo_url
+        """SELECT brand_name, name, positioning, profile_photo_url, brand_logo_url,
+                  achievements, owner_photo_url, owner_positioning, owner_achievements,
+                  bio, social_links
              FROM clients WHERE id = $1""",
         client_id,
     )
@@ -222,6 +328,9 @@ async def events_list_page(
         <p class="lead">Выберите событие, которое вас интересует:</p>
         <div class="cards">{active_html}{archive_html}</div>"""
 
+    # ── Вкладка «О проекте» (визитка бренда + основатель) ──
+    about_html = _about_html(client, brand)
+
     return HTMLResponse(content=f"""<!DOCTYPE html>
 <html lang="ru"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -268,6 +377,37 @@ async def events_list_page(
   .empty .e-sub {{ color:#6b7c8e; font-size:13px; margin-top:8px; line-height:1.5; }}
   .foot {{ font-size:11.5px; color:#9aa7b4; text-align:center; padding:18px 12px 30px; }}
   .foot a {{ color:#25455D; font-weight:600; text-decoration:none; }}
+  /* Вкладка «О проекте» */
+  .ab-card {{ background:#fff; border:1px solid #e6eaee; border-radius:16px; padding:18px 16px;
+    margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.05); }}
+  .ab-photo {{ width:88px; height:88px; border-radius:16px; object-fit:cover; display:block;
+    margin:0 auto 12px; }}
+  .ab-name {{ font-size:19px; font-weight:800; color:#25455D; text-align:center; }}
+  .ab-pos {{ font-size:14px; color:#5a6b7d; text-align:center; margin:6px 0 0; line-height:1.4; }}
+  .facts {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; justify-content:center; }}
+  .fact {{ flex:1; min-width:90px; background:#f4f7f9; border-radius:12px; padding:12px 8px; text-align:center; }}
+  .fact-v {{ font-size:20px; font-weight:800; color:#25455D; }}
+  .fact-l {{ font-size:11px; color:#7a8a99; margin-top:2px; line-height:1.25; }}
+  .ow-head {{ display:flex; align-items:center; gap:12px; }}
+  .ow-photo {{ width:60px; height:60px; border-radius:50%; object-fit:cover; border:2px solid #FFCFA4; flex-shrink:0; }}
+  .ow-lbl {{ font-size:11px; font-weight:800; color:#25455D; letter-spacing:1px; }}
+  .ow-name {{ font-size:17px; font-weight:700; color:#25455D; margin-top:2px; }}
+  .ow-pos {{ font-size:13px; color:#5a6b7d; margin:3px 0 0; }}
+  .ow-bio {{ font-size:14px; color:#41566a; line-height:1.55; margin:14px 0 0; white-space:pre-wrap; }}
+  .socs {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }}
+  .soc {{ font-size:13px; font-weight:600; color:#25455D; background:#f4f7f9; border:1px solid #e6eaee;
+    border-radius:999px; padding:7px 14px; text-decoration:none; }}
+  /* Нижняя навигация */
+  .tabpane {{ display:none; }}
+  .tabpane.on {{ display:block; }}
+  .bnav {{ position:sticky; bottom:0; display:flex; background:#fff; border-top:1px solid #e6eaee; }}
+  .bnav button {{ flex:1; background:none; border:none; padding:11px 4px 9px; cursor:pointer;
+    font-family:inherit; font-size:12px; font-weight:600; color:#9aa7b4; display:flex;
+    flex-direction:column; align-items:center; gap:3px; }}
+  .bnav button.on {{ color:#25455D; }}
+  .bnav button.on .bn-ic {{ background:#25455D; }}
+  .bn-ic {{ width:22px; height:22px; border-radius:7px; background:#c3cfd8; -webkit-mask-size:contain;
+    mask-size:contain; -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat; -webkit-mask-position:center; mask-position:center; }}
 </style></head>
 <body><div class="wrap">
   <div class="hero">
@@ -276,8 +416,36 @@ async def events_list_page(
     {tagline_html}
   </div>
   <div class="content">
-    {body_html}
+    <div class="tabpane on" id="pane-calendar">
+      {body_html}
+    </div>
+    <div class="tabpane" id="pane-about">
+      {about_html}
+    </div>
   </div>
   <div class="foot">Сделано на <a href="https://pluson.ru/" target="_blank" rel="noopener noreferrer">Платформе ПЛЮСОН</a> — для экспертов и организаторов</div>
-</div></body></html>""",
+  <nav class="bnav">
+    <button id="tab-calendar" class="on" onclick="showTab('calendar')">
+      <span class="bn-ic" style="-webkit-mask-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22black%22%3E%3Cpath d=%22M7 2v2H5a2 2 0 00-2 2v13a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2H7zm12 7v10H5V9h14z%22/%3E%3C/svg%3E');mask-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22black%22%3E%3Cpath d=%22M7 2v2H5a2 2 0 00-2 2v13a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2H7zm12 7v10H5V9h14z%22/%3E%3C/svg%3E')"></span>
+      Календарь
+    </button>
+    <button id="tab-about" onclick="showTab('about')">
+      <span class="bn-ic" style="-webkit-mask-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22black%22%3E%3Cpath d=%22M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z%22/%3E%3C/svg%3E');mask-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22black%22%3E%3Cpath d=%22M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z%22/%3E%3C/svg%3E')"></span>
+      О проекте
+    </button>
+  </nav>
+</div>
+<script>
+  function showTab(t) {{
+    document.getElementById('pane-calendar').classList.toggle('on', t==='calendar');
+    document.getElementById('pane-about').classList.toggle('on', t==='about');
+    document.getElementById('tab-calendar').classList.toggle('on', t==='calendar');
+    document.getElementById('tab-about').classList.toggle('on', t==='about');
+    location.hash = t;
+  }}
+  var _q = new URLSearchParams(location.search);
+  if (location.hash === '#about' || location.hash === '#ecosystem'
+      || _q.get('tab') === 'ecosystem' || _q.get('tab') === 'about') showTab('about');
+</script>
+</body></html>""",
         headers={"Cache-Control": "no-cache, must-revalidate"})

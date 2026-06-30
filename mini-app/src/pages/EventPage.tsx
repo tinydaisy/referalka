@@ -36,7 +36,7 @@ const NAV_NOT_REG: NavItem[] = [
   { id: 'program',   label: 'Программа',  icon: 'program',   locked: true },
   { id: 'game',      label: 'Подарки',       icon: 'game',      locked: true },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
-  { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem', locked: true },
+  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem', locked: true },
 ]
 const NAV_REGISTERED: NavItem[] = [
   { id: 'welcome',   label: 'Интро',      icon: 'welcome'   },
@@ -44,13 +44,13 @@ const NAV_REGISTERED: NavItem[] = [
   { id: 'speakers',  label: 'Спикеры',    icon: 'speakers'  },
   { id: 'game',      label: 'Подарки',       icon: 'game'      },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle'    },
-  { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
+  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
 ]
 const NAV_ENDED: NavItem[] = [
   { id: 'results',   label: 'Итоги',      icon: 'results'   },
   { id: 'game',      label: 'Подарки',       icon: 'game'      },
   { id: 'calendar',  label: 'Календарь',  icon: 'calendar'  },
-  { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
+  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
 ]
 // Веб-витрина (pluson.ru/event/{slug}) для незарегистрированного гостя:
 // публичные вкладки открыты (Программа/Спикеры/Экосистема), а персональные
@@ -61,7 +61,7 @@ const NAV_WEB_PUBLIC: NavItem[] = [
   { id: 'speakers',  label: 'Спикеры',    icon: 'speakers'  },
   { id: 'game',      label: 'Подарки',    icon: 'game',      locked: true },
   { id: 'raffle',    label: 'Розыгрыш',   icon: 'raffle',    locked: true },
-  { id: 'ecosystem', label: 'Экосистема', icon: 'ecosystem' },
+  { id: 'ecosystem', label: 'О проекте', icon: 'ecosystem' },
 ]
 
 function isEnded(event: any): boolean {
