@@ -312,7 +312,11 @@
 - **`use_for_broadcasts` (миграция 172, default TRUE)** — галочка «использовать чат для рассылок анонсов», отдельно от `is_active` (чат в базе). Рассылки по базе чатов идут **только** по чатам с этой галочкой.
 - Флаги рассылки `broadcast_templates.send_to_client_chats` + `broadcast_schedules.send_to_client_chats` (BOOL DEFAULT FALSE) — «слать также в общую базу чатов клиента». Наследуются так же, как `target_channel_ids` / `send_to_event_chats` (приоритет schedule → template).
 
-**Гейт по фиче `broadcast_chats`** — только тариф **Экстра (vip, 2990)** + admin.
+**Гейт по фиче `broadcast_chats`** — раздел **Каналы → «Чаты для рассылок»** (CRUD базы чатов): `broadcast_chats` = безлимит (Экстра vip), `broadcast_chats_one` = по 1 чату на площадку (Профи).
+
+⚠️ **Опция «Отправлять в общие чаты» (галочка `send_to_client_chats`) в формах рассылок — доступна ВСЕМ тарифам (2026-06-30).** Гейт по фиче с галочки снят и в произвольных (`/dashboard/broadcasts`), и в событийных/шаблонных (templates) рассылках — любой клиент может отметить «слать также в общую базу чатов». Бэкенд (сохранение в `broadcasts_general.py` / `modules/broadcasts.py` + таска `tasks/broadcast.py`) по фиче `send_to_client_chats` НЕ гейтит — шлёт по флагу в чаты из `client_broadcast_chats` с `use_for_broadcasts=TRUE`. Гейт остаётся только на самой базе чатов (кто сколько чатов может добавить).
+
+**Галочка «Сразу поставить в очередь» в пакетной загрузке (2026-06-30).** Пакетная загрузка (формат с `***`) в обеих формах — произвольной (`/dashboard/broadcasts`) и событийной (`/dashboard/conferences/[id]/broadcasts/queue`) — получила чекбокс «Сразу поставить в очередь». Выкл (по умолчанию) → `status='draft'` (черновики, как было). Вкл → `status='pending'` (сразу в очередь, Celery отправит по `fire_at`). Флаг `enqueue` в `BulkAddRequest` обоих эндпоинтов `/schedules/bulk-add`.
 
 **Фронт:** в разделе **Каналы** новая вкладка **«Чаты для рассылок»** — CRUD чатов + галочки `use_for_broadcasts`. В формах рассылок (произвольной и шаблонной) — чекбокс `send_to_client_chats`.
 

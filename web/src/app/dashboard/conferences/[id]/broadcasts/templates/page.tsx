@@ -5,7 +5,6 @@ import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Load
 import { api } from '@/lib/api'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker from '@/components/BroadcastMediaPicker'
-import { useMe } from '@/hooks/useMe'
 
 type TypeDef = {
   type: string
@@ -235,8 +234,6 @@ function customDayRefLabel(ref: string, confDays: number[]): string {
 export default function TemplatesPage() {
   const { id } = useParams()
   const eventId = Number(id)
-  const { me } = useMe()
-  const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
 
   const [templates, setTemplates] = useState<any[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
@@ -384,7 +381,7 @@ export default function TemplatesPage() {
         custom_day_ref: f.custom_day_ref,
         custom_time: f.custom_time,
         send_to_event_chats: !!f.send_to_event_chats,
-        send_to_client_chats: hasChatsFeature ? !!f.send_to_client_chats : false,
+        send_to_client_chats: !!f.send_to_client_chats,
       }
       if (f.target_channel_ids !== null && f.target_channel_ids !== undefined) {
         payload.target_channel_ids = f.target_channel_ids
@@ -1169,20 +1166,18 @@ export default function TemplatesPage() {
                   чатов (Каналы → «Чаты для рассылок»), отдельная галочка теряла смысл. */}
 
               {/* Галочка: слать ещё и в общую базу чатов клиента */}
-              {hasChatsFeature && (
-                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
-                  <input type="checkbox"
-                    checked={!!(form as any).send_to_client_chats}
-                    onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
-                    className="w-4 h-4 mt-0.5 accent-[#25455D]" />
-                  <span>
-                    <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
-                    <span className="block text-[11px] text-gray-500 mt-0.5">
-                      Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
-                    </span>
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_client_chats}
+                  onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
                   </span>
-                </label>
-              )}
+                </span>
+              </label>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={save}
@@ -1402,20 +1397,18 @@ export default function TemplatesPage() {
               {/* Галочка «чаты события» убрана — теперь только общие чаты. */}
 
               {/* Галочка: слать ещё и в общую базу чатов клиента */}
-              {hasChatsFeature && (
-                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
-                  <input type="checkbox"
-                    checked={!!(form as any).send_to_client_chats}
-                    onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
-                    className="w-4 h-4 mt-0.5 accent-[#25455D]" />
-                  <span>
-                    <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
-                    <span className="block text-[11px] text-gray-500 mt-0.5">
-                      Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
-                    </span>
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_client_chats}
+                  onChange={e => setForm({ ...form, send_to_client_chats: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
                   </span>
-                </label>
-              )}
+                </span>
+              </label>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={createCustom}

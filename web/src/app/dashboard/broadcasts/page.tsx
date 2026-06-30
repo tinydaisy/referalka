@@ -9,7 +9,6 @@ import { validateTelegramHtml, validateButton } from '@/lib/validateTelegramHtml
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker, { type BroadcastMedia } from '@/components/BroadcastMediaPicker'
 import RichTextEditor, { type RichTextEditorHandle } from '@/components/RichTextEditor'
-import { useMe } from '@/hooks/useMe'
 
 const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-50 border-gray-100',
@@ -755,8 +754,6 @@ function CustomBroadcastModal(props: {
     send_to_client_chats?: boolean
   }
 }) {
-  const { me } = useMe()
-  const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
   const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
   const [subject, setSubject] = useState(props.initial?.subject || '')
   const [text, setText] = useState(props.initial?.text || '')
@@ -827,7 +824,7 @@ function CustomBroadcastModal(props: {
         media_type: media.media_type,
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
-        send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
+        send_to_client_chats: sendToClientChats,
       }
       // target_channel_ids передаём только когда picker уже отрисовался
       // (после useEffect он точно перешёл из null в массив).
@@ -946,19 +943,17 @@ function CustomBroadcastModal(props: {
             </div>
           </div>
           <BroadcastChannelPicker value={targetChannels} onChange={setTargetChannels} />
-          {hasChatsFeature && (
-            <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
-              <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
-                className="w-4 h-4 mt-0.5 accent-[#25455D]" />
-              <span>
-                <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
-                <span className="block text-[11px] text-gray-500 mt-0.5">
-                  В дополнение к базе подписчиков — ещё и в группы/каналы из вашей базы чатов
-                  (Каналы → «Чаты для рассылок»).
-                </span>
+          <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+            <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+            <span>
+              <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">
+                В дополнение к базе подписчиков — ещё и в группы/каналы из вашей базы чатов
+                (Каналы → «Чаты для рассылок»).
               </span>
-            </label>
-          )}
+            </span>
+          </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым TG / VK / MAX / Email из настроек)</span>
@@ -1004,6 +999,8 @@ function BulkBroadcastModal(props: {
 }) {
   const [raw, setRaw] = useState('')
   const isTest = false   // тест убран из UI — создаём черновики, тест клиент делает сам
+  // enqueue=false → черновики (по умолчанию), true → сразу в очередь (отправятся по времени).
+  const [enqueue, setEnqueue] = useState(false)
   const [validating, setValidating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<{ index: number; errors: string[] }[]>([])
@@ -1147,7 +1144,7 @@ function BulkBroadcastModal(props: {
         props.onError(`HTML-ошибки в ${localErrors.length} задачах — исправьте перед отправкой`)
         return
       }
-      const res = await api.broadcasts.bulkAdd({ items, is_test: isTest, dry_run: false })
+      const res = await api.broadcasts.bulkAdd({ items, is_test: isTest, dry_run: false, enqueue })
       if (!res.ok) {
         setErrors(res.errors || [])
         props.onError(`Ошибки в ${res.errors.length} задачах — исправьте`)
@@ -1205,7 +1202,18 @@ function BulkBroadcastModal(props: {
               rows={12}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono" />
           </div>
-          <div className="text-xs text-gray-500">Все рассылки создаются <b>черновиками</b> — отметите и протестируете сами перед запуском.</div>
+          <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+            <input type="checkbox" checked={enqueue} onChange={e => setEnqueue(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+            <span>
+              <span className="block text-sm text-gray-800 font-medium">Сразу поставить в очередь</span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">
+                {enqueue
+                  ? 'Рассылки сразу встанут в очередь и отправятся в указанное время — без ручного запуска.'
+                  : 'Сейчас рассылки создаются черновиками — отметите и запустите сами. Включите, чтобы они сразу встали в очередь.'}
+              </span>
+            </span>
+          </label>
 
           {errors.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">

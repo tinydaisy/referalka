@@ -1666,6 +1666,8 @@ class BulkAddRequest(BaseModel):
     audience_include: str = "all_event"
     audience_exclude: str = "none"
     dry_run: bool = False   # только валидация без записи
+    # enqueue=True → создать сразу в очередь (status='pending'), иначе черновики (draft).
+    enqueue: bool = False
 
 
 @router.post("/schedules/bulk-add", summary="Пакетное добавление произвольных рассылок")
@@ -1732,7 +1734,9 @@ async def bulk_add_schedules(
                     p["media_type"] = None
 
     # 3) Вставка (всё или ничего — транзакция)
+    #    enqueue=True → сразу в очередь (pending), иначе черновик (draft).
     import json as _json
+    new_status = "pending" if data.enqueue else "draft"
     created_ids = []
     async with db.transaction():
         for p in parsed:
@@ -1744,13 +1748,13 @@ async def bulk_add_schedules(
                    snapshot_text, snapshot_photo, snapshot_buttons,
                    snapshot_video, snapshot_media_type,
                    send_to_event_chats, send_to_client_chats)
-                VALUES ($1, NULL, 'custom', NULL, $2, 'draft', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
+                VALUES ($1, NULL, 'custom', NULL, $2, $13, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
                 RETURNING id
                 """,
                 event_id, p["dt_utc"], data.is_test, p["audience_include"], p["audience_exclude"],
                 p["text"], p["photo_url"], _json.dumps(p["buttons"]),
                 p["video_url"], p["media_type"],
-                p["send_to_event_chats"], p["send_to_client_chats"]
+                p["send_to_event_chats"], p["send_to_client_chats"], new_status
             )
             created_ids.append(row["id"])
     return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids, "warnings": warnings}

@@ -62,6 +62,8 @@ class BulkAddRequest(BaseModel):
     items: List[BulkItem]
     is_test: bool = False
     dry_run: bool = False
+    # enqueue=True → создать сразу в очередь (status='pending'), иначе черновики (draft).
+    enqueue: bool = False
 
 
 # ─── Хелперы ─────────────────────────────────────────────────────────────
@@ -364,6 +366,8 @@ async def bulk_add(
                 if p.get("media_type") == "photo":
                     p["media_type"] = None
 
+    # enqueue=True → сразу в очередь (pending), иначе черновик (draft).
+    new_status = "pending" if data.enqueue else "draft"
     created_ids = []
     async with db.transaction():
         for p in parsed:
@@ -374,7 +378,7 @@ async def bulk_add(
                    audience_include, audience_exclude,
                    snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
                    snapshot_video, snapshot_media_type, send_to_client_chats)
-                VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'draft', $3, $11, $12,
+                VALUES (NULL, $1, NULL, 'custom', NULL, $2, $14, $3, $11, $12,
                         $4, $5, $6, $7::jsonb, $8, $9, $10, $13)
                 RETURNING id
                 """,
@@ -383,6 +387,7 @@ async def bulk_add(
                 _json.dumps(p["buttons"]), p["target_channel_ids"],
                 p["video_url"], p["media_type"],
                 p["audience_include"], p["audience_exclude"], p["send_to_client_chats"],
+                new_status,
             )
             created_ids.append(row["id"])
     return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids, "warnings": warnings}

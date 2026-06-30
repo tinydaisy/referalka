@@ -1599,6 +1599,8 @@ function BulkBroadcastModal(props: {
   const isTest = false
   const audIn = 'all_event'
   const audEx = 'none'
+  // enqueue=false → черновики (по умолчанию), true → сразу в очередь.
+  const [enqueue, setEnqueue] = useState(false)
   const [validating, setValidating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<{ index: number; errors: string[] }[]>([])
@@ -1781,6 +1783,7 @@ function BulkBroadcastModal(props: {
         audience_include: audIn,
         audience_exclude: audEx,
         dry_run: false,
+        enqueue,
       })
       if (!res.ok) {
         setErrors(res.errors || [])
@@ -1848,8 +1851,20 @@ function BulkBroadcastModal(props: {
           </div>
           <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 text-xs text-gray-600">
             Аудиторию задавайте прямо в блоке строками <b>ВКЛЮЧИТЬ:</b> / <b>ИСКЛЮЧИТЬ:</b> / <b>ЧАТЫ:</b>.
-            Если в блоке не указать — уйдёт всем участникам события. Все рассылки создаются <b>черновиками</b> — отметите и запустите сами.
+            Если в блоке не указать — уйдёт всем участникам события.
           </div>
+          <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+            <input type="checkbox" checked={enqueue} onChange={e => setEnqueue(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+            <span>
+              <span className="block text-sm text-gray-800 font-medium">Сразу поставить в очередь</span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">
+                {enqueue
+                  ? 'Рассылки сразу встанут в очередь и отправятся в указанное время — без ручного запуска.'
+                  : 'Сейчас рассылки создаются черновиками — отметите и запустите сами. Включите, чтобы они сразу встали в очередь.'}
+              </span>
+            </span>
+          </label>
 
           {errors.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">
