@@ -658,34 +658,49 @@ async def public_event_bot_handle(slug: str, db: asyncpg.Connection = Depends(ge
 async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_db)):
     row = await db.fetchrow(
         """WITH cd AS (
-              -- start = первый день: open_time дня 1, иначе MIN(start_time) сессий дня 1
-              -- end   = последний день: close_time, иначе MAX(end_time) сессий посл. дня
-              SELECT d.event_id,
-                     (SELECT (d2.day_date + COALESCE(
-                                NULLIF(d2.open_time,'')::time,
-                                (SELECT MIN(NULLIF(s.start_time,'')::time)
-                                   FROM conf_sessions s
-                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
-                                '00:00'::time
-                              )) AT TIME ZONE 'Europe/Moscow'
-                        FROM conf_days d2
-                        WHERE d2.event_id = d.event_id AND d2.day_date IS NOT NULL
-                        ORDER BY d2.day_date ASC LIMIT 1) AS start_at,
-                     (SELECT (d2.day_date + COALESCE(
-                                NULLIF(d2.close_time,'')::time,
-                                (SELECT MAX(NULLIF(s.end_time,'')::time)
-                                   FROM conf_sessions s
-                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
-                                (SELECT MAX(NULLIF(s.start_time,'')::time)
-                                   FROM conf_sessions s
-                                  WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
-                                '23:59'::time
-                              )) AT TIME ZONE 'Europe/Moscow'
-                        FROM conf_days d2
-                        WHERE d2.event_id = d.event_id AND d2.day_date IS NOT NULL
-                        ORDER BY d2.day_date DESC LIMIT 1) AS end_at
-                FROM conf_days d
-               GROUP BY d.event_id
+              -- start/end события = MIN/MAX между датами программы (conf_days)
+              -- И датами этапов (conf_stages). Этап может быть «анонсом» без
+              -- детальных дней (напр. ПОДГОТОВКА 30.06–05.07 без слотов) — его
+              -- start_date/end_date тоже должны учитываться, иначе старт события
+              -- уезжает на первый conf_day. LEAST/GREATEST игнорируют NULL.
+              -- FROM events (а не conf_days), чтобы событие с этапами-анонсами,
+              -- но без дней, тоже попало в CTE.
+              SELECT e.id AS event_id,
+                     LEAST(
+                       (SELECT (d2.day_date + COALESCE(
+                                  NULLIF(d2.open_time,'')::time,
+                                  (SELECT MIN(NULLIF(s.start_time,'')::time)
+                                     FROM conf_sessions s
+                                    WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                  '00:00'::time
+                                )) AT TIME ZONE 'Europe/Moscow'
+                          FROM conf_days d2
+                          WHERE d2.event_id = e.id AND d2.day_date IS NOT NULL
+                          ORDER BY d2.day_date ASC LIMIT 1),
+                       (SELECT MIN(st.start_date::timestamp AT TIME ZONE 'Europe/Moscow')
+                          FROM conf_stages st
+                          WHERE st.event_id = e.id AND st.start_date IS NOT NULL)
+                     ) AS start_at,
+                     GREATEST(
+                       (SELECT (d2.day_date + COALESCE(
+                                  NULLIF(d2.close_time,'')::time,
+                                  (SELECT MAX(NULLIF(s.end_time,'')::time)
+                                     FROM conf_sessions s
+                                    WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                  (SELECT MAX(NULLIF(s.start_time,'')::time)
+                                     FROM conf_sessions s
+                                    WHERE s.event_id = d2.event_id AND s.day = d2.day_number),
+                                  '23:59'::time
+                                )) AT TIME ZONE 'Europe/Moscow'
+                          FROM conf_days d2
+                          WHERE d2.event_id = e.id AND d2.day_date IS NOT NULL
+                          ORDER BY d2.day_date DESC LIMIT 1),
+                       (SELECT MAX((st.end_date + '23:59'::time) AT TIME ZONE 'Europe/Moscow')
+                          FROM conf_stages st
+                          WHERE st.event_id = e.id AND st.end_date IS NOT NULL)
+                     ) AS end_at
+                FROM events e
+               WHERE e.module_slug IN ('conference', 'turnir')
             )
             SELECT e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.description,
                    e.description_post_register, e.module_slug,

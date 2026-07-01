@@ -516,19 +516,20 @@ def _speaker_card(p, slot=None) -> str:
     # Если нет ни темы, ни подарка — блок не рендерим (черты тоже нет).
     topic_block = ""
     if topic or gift_html:
-        slot_prefix = ""
+        # Слот (дата+время) — отдельной строкой СВЕРХУ, тема — с новой строки под ней.
+        slot_line = ""
         if slot:
             sdate, stime = slot
             parts = " ".join(x for x in (sdate, stime) if x)
             if parts:
-                slot_prefix = f'<span class="topic-slot">{esc(parts)}: </span>'
+                slot_line = f'<div class="topic-slot">{esc(parts)}</div>'
         topic_line = ""
         if topic:
             topic_line = (f'<div class="topic-wrap"><div class="topic-lbl">Тема</div>'
-                          f'<div class="topic">{slot_prefix}{esc(topic)}</div></div>')
-        elif slot_prefix:
-            # Слот есть, темы нет — покажем хотя бы дату/время слота как строку.
-            topic_line = f'<div class="topic-wrap"><div class="topic">{slot_prefix.rstrip(": ")}</div></div>'
+                          f'{slot_line}<div class="topic">{esc(topic)}</div></div>')
+        elif slot_line:
+            # Слот есть, темы нет — показываем только дату/время.
+            topic_line = f'<div class="topic-wrap">{slot_line}</div>'
         topic_block = f'<div class="topic-sep"></div>{topic_line}{gift_html}'
 
     # соцсети 2×2 (только непустые)
@@ -1540,7 +1541,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .topic-wrap {{ margin-bottom:8px; }}
   .topic-lbl {{ font-size:10px; color:#8593a1; text-transform:uppercase; letter-spacing:.4px; font-weight:700; margin-bottom:4px; }}
   .topic {{ font-size:13px; color:#1a2a3a; font-weight:600; line-height:1.35; }}
-  .topic-slot {{ color:#25455D; font-weight:800; }}
+  .topic-slot {{ color:#25455D; font-weight:800; font-size:12px; margin-bottom:3px; }}
   .ach {{ margin:0 0 8px; padding:0; list-style:none; }}
   .ach li {{ font-size:12px; color:#3a4a5a; line-height:1.4; padding-left:14px; position:relative; margin-bottom:3px; }}
   .ach li:before {{ content:'•'; position:absolute; left:0; top:-1px; color:#25455D; font-weight:700; font-size:14px; }}
