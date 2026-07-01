@@ -309,7 +309,7 @@ export default function MiniAppSettingsPage() {
           <Section
             step={1}
             title="Логотип бренда"
-            hint="Маленькая иконка в правом верхнем углу всех страниц Mini App. Тап → открывает Экосистему. Лучше квадратная картинка на прозрачном/белом фоне."
+            hint="Маленькая иконка в правом верхнем углу всех страниц Mini App. Тап → открывает вкладку «О проекте». Лучше квадратная картинка на прозрачном/белом фоне."
           >
             <div className="max-w-2xl">
               <FileUploader
@@ -326,8 +326,8 @@ export default function MiniAppSettingsPage() {
 
           <Section
             step={2}
-            title="Шапка Экосистемы"
-            hint="Верх вкладки «Экосистема» в Mini App — название и позиционирование. Картинка слева в шапке — это тот же логотип бренда из шага 1."
+            title="Шапка вкладки «О проекте»"
+            hint="Верх вкладки «О проекте» в Mini App — название и позиционирование. Картинка слева в шапке — это тот же логотип бренда из шага 1."
           >
             <div className="space-y-4 max-w-2xl">
               <Field label="Название бренда"
@@ -675,7 +675,7 @@ export default function MiniAppSettingsPage() {
                       placeholder="🌐 Об основателе"
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
                     />
-                    <p className="text-xs text-gray-400 mt-1">Ведёт в раздел «Экосистема» (об основателе).</p>
+                    <p className="text-xs text-gray-400 mt-1">Ведёт в раздел «О проекте» (об основателе).</p>
                   </div>
                 </div>
               </div>
@@ -724,6 +724,61 @@ export default function MiniAppSettingsPage() {
               )}
             </div>
           )}
+        </Section>
+      )}
+
+      {/* ════════════════════════════════════════════════
+           ВКЛАДКА: ВКЛАДКИ (названия вкладок Mini App)
+         ════════════════════════════════════════════════ */}
+      {tab === 'tabs' && profile && (
+        <Section
+          step={1}
+          title="Названия вкладок Mini App"
+          hint="Свои названия для вкладок внизу Mini App. Оставьте пустым — будет стандартное название (показано серым). Действует во всех ваших событиях."
+        >
+          <div className="space-y-4 max-w-xl">
+            <Field label="Программа" hint="Расписание выступлений события.">
+              <input
+                value={profile.tab_label_program || ''}
+                onChange={e => update('tab_label_program', e.target.value)}
+                placeholder="Программа"
+                maxLength={20}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+              />
+            </Field>
+
+            {hasConference && (
+              <Field label="Спикеры" hint="Карточки спикеров. Вкладка есть только у конференций и турниров.">
+                <input
+                  value={profile.tab_label_speakers || ''}
+                  onChange={e => update('tab_label_speakers', e.target.value)}
+                  placeholder="Спикеры"
+                  maxLength={20}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+                />
+              </Field>
+            )}
+
+            <Field label="Подарки" hint="Реферальная игра — приглашай друзей за подарки.">
+              <input
+                value={profile.tab_label_game || ''}
+                onChange={e => update('tab_label_game', e.target.value)}
+                placeholder="Подарки"
+                maxLength={20}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+              />
+            </Field>
+
+            <Field label="О проекте" hint="Визитка бренда, основатель и продукты (раньше называлась «Экосистема»).">
+              <input
+                value={profile.tab_label_ecosystem || ''}
+                onChange={e => update('tab_label_ecosystem', e.target.value)}
+                placeholder="О проекте"
+                maxLength={20}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-amber-400"
+              />
+            </Field>
+          </div>
         </Section>
       )}
 
