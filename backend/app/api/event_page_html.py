@@ -313,7 +313,7 @@ async def _load_venue(db, client_id):
     """Профиль клиента (бренд + основатель) + продукты — для вкладки «О площадке»
     (повторяет EcosystemTab + OwnerPage Mini App)."""
     profile = await db.fetchrow(
-        """SELECT brand_name, name, profile_photo_url, positioning, achievements,
+        """SELECT brand_name, name, brand_logo_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements, bio,
                   social_links
              FROM clients WHERE id = $1""",
@@ -1224,9 +1224,13 @@ def _venue_panel(profile, offerings) -> str:
     bio = profile["bio"] or ""
     social = _parse_jsonb_obj(profile["social_links"])
 
-    # Шапка бренда
+    # Шапка бренда. Приоритет как в Mini App EcosystemTab:
+    # логотип бренда (brand_logo_url) → фото бренда (profile_photo_url) → инициалы.
+    blogo = esc(profile["brand_logo_url"] or "")
     photo = esc(profile["profile_photo_url"] or "")
-    if photo:
+    if blogo:
+        avatar = f'<img class="venue-ava venue-ava-logo" src="{blogo}" alt="{brand}">'
+    elif photo:
         avatar = (f'<div class="venue-ava" style="background:center/cover '
                   f'url(\'{photo}\')"></div>')
     else:
@@ -1681,6 +1685,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .venue-head {{ display:flex; gap:14px; align-items:center; padding:18px 16px;
     background:linear-gradient(45deg,#25455D,#0a1520); color:#fff; border-radius:14px; margin-bottom:14px; }}
   .venue-ava {{ flex:0 0 72px; width:72px; height:72px; border-radius:14px; border:2px solid #FFCFA4; }}
+  .venue-ava-logo {{ object-fit:contain; background:transparent; border:none; }}
   .venue-ava-empty {{ display:flex; align-items:center; justify-content:center;
     background:linear-gradient(135deg,#d4789a,#8b4561); color:#fff; font-weight:700; font-size:24px; }}
   .venue-head-body {{ flex:1; min-width:0; }}
