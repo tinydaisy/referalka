@@ -288,7 +288,7 @@ async def _load_ref_cabinet(db, event, contact_id):
 
 async def _load_client(db, client_id):
     return await db.fetchrow(
-        "SELECT name, brand_name, work_tg_username, work_vk, work_max, "
+        "SELECT name, brand_name, brand_logo_url, work_tg_username, work_vk, work_max, "
         "tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem "
         "FROM clients WHERE id = $1", client_id)
 
@@ -1388,7 +1388,15 @@ def render_page(event, collabs, days, stages, sessions, gifts,
         panels += f'<div class="panel" id="cabinet">{cabinet_html}</div>'
     panels += f'<div class="panel" id="venue">{venue_html}</div>'
 
-    brand_block = f'<div class="brand">{brand}</div>' if brand else ""
+    # Логотип бренда (как в углу Mini App) + название. Логотип показываем, если задан.
+    brand_logo = (client["brand_logo_url"] if client and "brand_logo_url" in client else None) or ""
+    brand_logo_img = (f'<img class="brand-logo-hero" src="{esc(brand_logo)}" alt="{brand}">'
+                      if brand_logo else "")
+    if brand_logo_img or brand:
+        brand_block = (f'<div class="brand">{brand_logo_img}'
+                       f'{f"<span>{brand}</span>" if brand else ""}</div>')
+    else:
+        brand_block = ""
 
     return f"""<!DOCTYPE html>
 <html lang="ru">
@@ -1404,7 +1412,8 @@ def render_page(event, collabs, days, stages, sessions, gifts,
   .wrap {{ max-width: 480px; margin: 0 auto; min-height: 100vh; background: #f7f8fa;
     box-shadow: 0 0 40px rgba(0,0,0,.35); display:flex; flex-direction:column; }}
   .hero {{ background: linear-gradient(45deg, #25455D, #0a1520); color:#fff; padding: 22px 18px 16px; }}
-  .hero .brand {{ font-size: 12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:6px; }}
+  .hero .brand {{ font-size: 12px; letter-spacing:.5px; color:#FFCFA4; text-transform:uppercase; margin-bottom:6px; display:flex; align-items:center; gap:10px; }}
+  .brand-logo-hero {{ height:40px; width:auto; max-width:130px; object-fit:contain; flex:0 0 auto; }}
   .hero h1 {{ font-size: 21px; margin: 0; line-height:1.25; }}
   .tabs {{ display:flex; gap:4px; padding: 10px 12px; background:#fff; position: sticky; top:0; z-index:5;
     overflow-x:auto; border-bottom:1px solid #eef1f4; }}
