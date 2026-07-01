@@ -919,7 +919,7 @@ function OrdersTable({ eventId, onChanged }: { eventId: number; onChanged: () =>
       {filtered.length === 0 ? (
         <div className="text-center text-gray-400 text-sm py-10">Заказов нет.</div>
       ) : (
-        <div className="overflow-x-auto border border-gray-100 rounded-xl">
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 border-y sm:border border-gray-100 sm:rounded-xl [-webkit-overflow-scrolling:touch]">
           <table className="w-full text-sm table-fixed min-w-[1040px]">
             <colgroup>
               <col style={{ width: '13%' }} />

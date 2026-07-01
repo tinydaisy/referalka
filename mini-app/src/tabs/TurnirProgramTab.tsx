@@ -159,6 +159,23 @@ function dayState(day: Day): 'past' | 'today' | 'future' {
   if (day.day_date > t) return 'future'
   return 'today'
 }
+// Состояние этапа по его датам (start_date/end_date), с фолбэком на дни этапа.
+// Нужно чтобы раскрывать текущий этап и бледнить прошедшие.
+function stageStateFrom(start?: string | null, end?: string | null, stageDays?: Day[]): 'past' | 'today' | 'future' {
+  const t = todayIso()
+  let s = start || null
+  let e = end || start || null
+  // Нет дат у этапа — берём диапазон из его дней.
+  if (!s && stageDays && stageDays.length) {
+    const dates = stageDays.map(d => d.day_date).filter(Boolean).sort()
+    if (dates.length) { s = dates[0]; e = dates[dates.length - 1] }
+  }
+  if (!s) return 'future'
+  if (!e) e = s
+  if (t < s) return 'future'
+  if (t > e) return 'past'
+  return 'today'
+}
 function initials(name?: string) {
   if (!name) return '?'
   const parts = name.trim().split(/\s+/)
@@ -335,12 +352,20 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
         if (prev != null && d.some(x => x.day_number === prev)) return prev
         return activeDay?.day_number || null
       })
-      // По умолчанию раскрываем этап, в котором лежит активный день —
-      // чтобы карточка идущего/ближайшего дня была сразу видна (а не спрятана
-      // внутри свёрнутого этапа). Если клиент уже сам раскрывал этап — не трогаем.
+      // По умолчанию раскрываем ТЕКУЩИЙ этап (по датам этапа): today → ближайший
+      // будущий → тот, где лежит активный день → первый. Прошедшие этапы свёрнуты.
+      // Если клиент уже сам раскрывал этап — не трогаем.
       setOpenStageId(prev => {
         if (prev != null && st.some((s: Stage) => s.id === prev)) return prev
-        return activeDay?.stage_id ?? null
+        const stg = (st || []) as Stage[]
+        const daysOf = (sid: number) => d.filter((x: Day) => (x.stage_id ?? null) === sid)
+        const withState = stg.map(s => ({ s, state: stageStateFrom(s.start_date, s.end_date, daysOf(s.id)) }))
+        const todayStage = withState.find(x => x.state === 'today')?.s
+        const futureStage = withState
+          .filter(x => x.state === 'future')
+          .sort((a, b) => (a.s.start_date || '').localeCompare(b.s.start_date || ''))[0]?.s
+        const byActiveDay = activeDay?.stage_id != null ? stg.find(s => s.id === activeDay.stage_id) : undefined
+        return (todayStage || futureStage || byActiveDay || stg[0])?.id ?? null
       })
     })
   }, [event?.id, isTurnir, refreshKey])
@@ -870,11 +895,16 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
                     const isStageOpen = openStageId === stage.id
                     const hasDesc = !!stage.description?.trim()
                     const expandable = hasDesc || sd.length > 0
+                    const sState = stageStateFrom(stage.start_date, stage.end_date, sd)
+                    // Прошедший свёрнутый этап — бледнее (текущий/будущий и любой раскрытый — полной яркости).
+                    const stagePast = sState === 'past' && !isStageOpen
                     return (
                       <div key={stage.id} style={{
                         borderRadius: 12,
                         overflow: 'hidden',
                         marginTop: sIdx === 0 ? 0 : 4,
+                        opacity: stagePast ? 0.55 : 1,
+                        transition: 'opacity 0.2s',
                       }}>
                         {/* Шапка этапа — один блок. Название — PEACH (бренд),
                             подпись и даты — белым. Стрелочка справа раскрывает

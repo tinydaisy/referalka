@@ -284,7 +284,8 @@ async def _load_ref_cabinet(db, event, contact_id):
 
 async def _load_client(db, client_id):
     return await db.fetchrow(
-        "SELECT name, brand_name, work_tg_username, work_vk, work_max "
+        "SELECT name, brand_name, work_tg_username, work_vk, work_max, "
+        "tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem "
         "FROM clients WHERE id = $1", client_id)
 
 
@@ -1297,16 +1298,26 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     venue_html = _venue_panel(venue_profile, venue_offerings or [])
 
     # ── Вкладки ──
+    # Кастомные названия из настроек клиента (пусто → дефолт). Веб-вкладки
+    # маппятся на те же id, что и в Mini App: cabinet≈game (Подарки), venue≈ecosystem.
+    def _cl(key):
+        v = (client[key] if client and key in client else None) or ""
+        return v.strip() if isinstance(v, str) else ""
+    lbl_program   = _cl("tab_label_program")   or "Программа"
+    lbl_speakers  = _cl("tab_label_speakers")  or "Спикеры"
+    lbl_game      = _cl("tab_label_game")      or "Подарки"
+    lbl_ecosystem = _cl("tab_label_ecosystem") or "О проекте"
+
     tabs = []
     show_program = is_program_event or bool(days) or has_people
     if show_program:
-        tabs.append(("program", "Программа"))
+        tabs.append(("program", lbl_program))
     if has_people:
-        tabs.append(("speakers", "Спикеры"))
+        tabs.append(("speakers", lbl_speakers))
     if cabinet_html:
-        tabs.append(("cabinet", "Подарки"))
-    # Вкладка «Экосистема» (раньше «О площадке») — всегда (последней)
-    tabs.append(("venue", "🌐 Экосистема"))
+        tabs.append(("cabinet", lbl_game))
+    # Вкладка «О проекте» (id venue, ≈ ecosystem в Mini App) — всегда последней
+    tabs.append(("venue", f"🌐 {lbl_ecosystem}"))
     if not tabs:
         # совсем пустое событие — хотя бы программа-заглушка
         tabs.append(("program", "Программа"))

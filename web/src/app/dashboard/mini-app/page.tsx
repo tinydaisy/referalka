@@ -86,6 +86,15 @@ const DEFAULT_GREETING =
 const DEFAULT_BTN_EVENTS = '📅 Все события'
 const DEFAULT_BTN_OWNER  = '🌐 Об основателе'
 
+// Дефолтные названия вкладок Mini App — те же, что фронт Mini App показывает
+// при пустом поле. Предзаполняем в форме, чтобы клиент видел реальные названия.
+const DEFAULT_TAB_LABELS = {
+  tab_label_program:   'Программа',
+  tab_label_speakers:  'Спикеры',
+  tab_label_game:      'Подарки',
+  tab_label_ecosystem: 'О проекте',
+} as const
+
 export default function MiniAppSettingsPage() {
   // Ассистенту доступна ТОЛЬКО вкладка «Продукты» (client_offerings) — визитка
   // бренда/основателя/бот шлются через PATCH /auth/me, который ассистенту → 403.
@@ -125,6 +134,12 @@ export default function MiniAppSettingsPage() {
         start_greeting_text:    p.start_greeting_text    || '',
         start_btn_events_label: p.start_btn_events_label || '',
         start_btn_owner_label:  p.start_btn_owner_label  || '',
+        // Названия вкладок — предзаполняем дефолтами, чтобы клиент видел реальные
+        // названия и мог их просто отредактировать (пустое поле путало).
+        tab_label_program:   p.tab_label_program   || DEFAULT_TAB_LABELS.tab_label_program,
+        tab_label_speakers:  p.tab_label_speakers  || DEFAULT_TAB_LABELS.tab_label_speakers,
+        tab_label_game:      p.tab_label_game      || DEFAULT_TAB_LABELS.tab_label_game,
+        tab_label_ecosystem: p.tab_label_ecosystem || DEFAULT_TAB_LABELS.tab_label_ecosystem,
       })
     }).catch(() => {})
     loadOfferings()
@@ -292,7 +307,7 @@ export default function MiniAppSettingsPage() {
       {/* Табы — ассистенту доступна только вкладка «Продукты», остальные требуют
           PATCH /auth/me (403), поэтому переключатель ему не показываем. */}
       {!isAssistant && (
-        <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl max-w-2xl">
+        <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl max-w-4xl overflow-x-auto">
           <TabBtn active={tab === 'brand'}    onClick={() => setTab('brand')}    icon={<Building2 size={15} />} label="Бренд" />
           <TabBtn active={tab === 'owner'}    onClick={() => setTab('owner')}    icon={<User size={15} />}      label="Основатель" />
           <TabBtn active={tab === 'products'} onClick={() => setTab('products')} icon={<Globe size={15} />}     label="Продукты" />
@@ -734,7 +749,7 @@ export default function MiniAppSettingsPage() {
         <Section
           step={1}
           title="Названия вкладок Mini App"
-          hint="Свои названия для вкладок внизу Mini App. Оставьте пустым — будет стандартное название (показано серым). Действует во всех ваших событиях."
+          hint="Это названия вкладок внизу Mini App. Здесь стоят стандартные — измените под себя. Действует во всех ваших событиях."
         >
           <div className="space-y-4 max-w-xl">
             <Field label="Программа" hint="Расписание выступлений события.">
@@ -819,7 +834,7 @@ function TabBtn({ active, onClick, icon, label }: { active: boolean; onClick: ()
   return (
     <button
       onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
         active
           ? 'bg-white text-[#25455D] shadow-sm'
           : 'text-gray-500 hover:text-gray-700'
