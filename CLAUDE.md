@@ -90,6 +90,18 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Кастомные названия вкладок Mini App + «Экосистема» → «О проекте» (миграция 185 от 2026-07-01, коммиты b2e0d9e/fbc526d)
+
+**Клиент сам задаёт названия 4 вкладок Mini App** (одни на весь кабинет, действуют во всех событиях). Вкладка **«Экосистема» переименована в «О проекте»** везде (`EventPage.tsx`, `Hub.tsx` — видимый label). ⚠️ Внутренний `id` вкладки остаётся `ecosystem` (deeplink `_tabecosystem`, `EcosystemTab.tsx`, БД, иконка) — **не трогать**, меняется только человекочитаемый `label`.
+
+**БД (миграция 185):** `clients.tab_label_program`, `tab_label_speakers`, `tab_label_game`, `tab_label_ecosystem` (все TEXT NULL). Пусто → дефолт из фронта («Программа»/«Спикеры»/«Подарки»/«О проекте»).
+
+**Бэкенд** ([client_profile.py](backend/app/api/client_profile.py)): поля отдаются в GET `/clients/me/profile` (дашборд), public `GET /clients/{id}/profile` (Hub), `GET /events/{slug}/landing` (EventPage), принимаются в `ProfileUpdate` (PATCH профиля через `model_fields_set` — пустая строка очищает до NULL/дефолта).
+
+**Mini App:** `EventPage.tsx` — `applyLabel`/`tabLabels` в `filterByEnabled` подставляют кастомный label из `event.tab_label_*` в массивы `NAV_*`. `Hub.tsx` — `ecoTab` берёт `profile.tab_label_ecosystem`.
+
+**Дашборд** ([mini-app/page.tsx](web/src/app/dashboard/mini-app/page.tsx)): новая вкладка **«Вкладки»** (иконка `LayoutGrid`) в настройках Mini App — 4 поля (maxLength 20, placeholder = дефолт). **Поле «Спикеры» показывается только при фиче `conference`** (`me.features.includes('conference')`) — вкладка «Спикеры» есть лишь у конференций/турниров. Сохраняется общим Save страницы (тот же PATCH профиля).
+
 ### Настройка этапа `listen_audiences` — одна точка для таблицы, распределения и кабинета (2026-06-30, коммит 070091c, ПРОД)
 
 **Одна настройка «Кого включать в этап» на этап (`conf_stages.listen_audiences`, массив `all|registered|speakers|jury`) действует ВЕЗДЕ.** Раньше применялась только в турнирной таблице (`_compute`). Теперь та же логика (`show_ep/show_ec/include_unreg`) добавлена в **распределение жюри** (`get_assignments` в [tournament.py](backend/app/api/tournament.py)) — строки-субъекты фильтруются по аудитории этапа. UI настройки **продублирован на подвкладку «Критерии»** (`CriteriaSub` в [ScoringTab.tsx](web/src/app/dashboard/conferences/%5Bid%5D/tabs/ScoringTab.tsx)) под селектором этапа — блок «Кого включать в этап» с `AudienceDropdown` + `api.tournament.setStageAudience`. Та же настройка остаётся и в «Контроле заданий».
