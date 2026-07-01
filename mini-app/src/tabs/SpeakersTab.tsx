@@ -1,5 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
-import { getSpeakers } from '../api'
+import { getSpeakers, getProgramPublic } from '../api'
+
+// «ДД.ММ.ГГГГ HH:MM–HH:MM МСК» из даты дня и времён сессии.
+function fmtSlot(dayDate?: string | null, t1?: string | null, t2?: string | null): string {
+  let d = ''
+  if (dayDate) {
+    const s = String(dayDate).slice(0, 10).split('-')
+    if (s.length === 3) d = `${s[2]}.${s[1]}.${s[0]}`
+  }
+  const a = t1 ? String(t1).slice(0, 5) : ''
+  const b = t2 ? String(t2).slice(0, 5) : ''
+  const time = a && b ? `${a}–${b} МСК` : a ? `${a} МСК` : ''
+  return [d, time].filter(Boolean).join(' ')
+}
 
 interface Props {
   event: any
@@ -111,7 +124,29 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
   const [loading, setLoading] = useState(true)
   const [highlightId, setHighlightId] = useState<number | null>(null)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  // Слот спикера в программе: ec_id (event_collaborators.id) → «дата время».
+  const [slotByEc, setSlotByEc] = useState<Record<number, string>>({})
   const cardRefs = useRef<Record<number, HTMLDivElement | null>>({})
+
+  // Программа → мапа слотов. Берём ПЕРВЫЙ слот спикера (sessions отсортированы).
+  useEffect(() => {
+    if (!event?.id) return
+    let cancelled = false
+    getProgramPublic(event.id).then((r: any) => {
+      if (cancelled) return
+      const dayDate: Record<number, string> = {}
+      for (const d of (r?.days || [])) if (d.day_number != null) dayDate[d.day_number] = d.day_date
+      const map: Record<number, string> = {}
+      for (const s of (r?.sessions || [])) {
+        const ec = s.speaker_event_id
+        if (!ec || map[ec]) continue
+        const slot = fmtSlot(dayDate[s.day], s.start_time, s.end_time)
+        if (slot) map[ec] = slot
+      }
+      setSlotByEc(map)
+    }).catch(() => { if (!cancelled) setSlotByEc({}) })
+    return () => { cancelled = true }
+  }, [event?.id])
 
   // Если родитель попросил подсветить конкретного спикера (deeplink из
   // карусели/слота программы) — после загрузки скроллим к карточке.
@@ -274,11 +309,17 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                 </div>
               </div>
 
-              {topicsList.length > 0 && (
+              {(topicsList.length > 0 || slotByEc[sp.id]) && (
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700, marginBottom: 4 }}>
                     {topicsList.length > 1 ? 'Темы' : 'Тема'}
                   </div>
+                  {/* Дата и время выступления — отдельной строкой, тема с новой строки под ней */}
+                  {slotByEc[sp.id] && (
+                    <div style={{ fontSize: 12, color: DARK, fontWeight: 800, marginBottom: 3 }}>
+                      {slotByEc[sp.id]}
+                    </div>
+                  )}
                   {topicsList.map((t, ti) => (
                     <div key={ti} style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600, lineHeight: 1.35, marginBottom: ti < topicsList.length - 1 ? 6 : 0 }}>
                       {t}

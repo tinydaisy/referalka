@@ -111,6 +111,9 @@ export const getDays = (eventId: number) =>
 export const getStages = (eventId: number) =>
   req(`/api/v1/events/${eventId}/conference/stages/public`)
 
+export const getProgramPublic = (eventId: number) =>
+  req(`/api/v1/events/${eventId}/conference/program-public`)
+
 export const getSessions = (eventId: number, day: number) =>
   req(`/api/v1/events/${eventId}/conference/sessions/day/${day}`)
 
