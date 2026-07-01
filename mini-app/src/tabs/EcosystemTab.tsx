@@ -50,6 +50,10 @@ function initials(name: string): string {
 }
 
 function OfferingCard({ o }: { o: Offering }) {
+  // Описание свёрнуто — раскрывается по клику на заголовок/стрелку (синяя стрелка
+  // в жёлтом круге). Слово «Бесплатно» не пишем — уже понятно из вкладки.
+  const [open, setOpen] = useState(false)
+  const hasDesc = !!(o.description && o.description.trim())
   return (
     <div style={{
       background: 'white', borderRadius: 14, padding: 14, marginBottom: 10,
@@ -67,16 +71,33 @@ function OfferingCard({ o }: { o: Offering }) {
           }}>{o.is_paid ? '💼' : '📄'}</div>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#1a2a3a', marginBottom: 3 }}>{o.title}</div>
-          {o.description && (
+          <div
+            onClick={() => hasDesc && setOpen(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+              cursor: hasDesc ? 'pointer' : 'default',
+            }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: '#1a2a3a' }}>{o.title}</div>
+            {hasDesc && (
+              <span style={{
+                flexShrink: 0, width: 26, height: 26, borderRadius: '50%',
+                background: '#FFCFA4', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', marginTop: 1,
+                transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s',
+              }}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                     stroke="#25455D" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </span>
+            )}
+          </div>
+          {hasDesc && open && (
             <EventDescription
-              text={o.description}
-              style={{ fontSize: 12, color: '#6b7c8e', lineHeight: 1.4, marginBottom: 6 }}
+              text={o.description!}
+              style={{ fontSize: 12, color: '#6b7c8e', lineHeight: 1.4, marginTop: 6 }}
               renderPlain={(t) => linkify(t)}
             />
-          )}
-          {!o.is_paid && (
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#2e7d32' }}>Бесплатно</div>
           )}
         </div>
       </div>

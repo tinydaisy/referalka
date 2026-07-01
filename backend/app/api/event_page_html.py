@@ -473,8 +473,10 @@ def _avatar_html(photo, name, size=56):
             f'{esc(_initials(name))}</div>')
 
 
-def _speaker_card(p) -> str:
-    """Карточка спикера для вкладки «Спикеры». id=speaker-{ec_id} (для якорей)."""
+def _speaker_card(p, slot=None) -> str:
+    """Карточка спикера для вкладки «Спикеры». id=speaker-{ec_id} (для якорей).
+    slot: (date_str, time_str) слота спикера в программе, либо None.
+    Порядок блоков: регалии → (черта + тема со слотом + подарок под темой) → соцсети → база знаний."""
     ec_id = p.get("ec_id")
     name = esc(p.get("name") or "")
     title = esc(p.get("title") or "")
@@ -486,16 +488,13 @@ def _speaker_card(p) -> str:
     badge = (f'<span class="role-badge">{esc(role_label)}</span>'
              if role_label else "")
     title_html = f'<div class="ptitle">{title}</div>' if title else ""
-    topic_html = ""
-    if topic:
-        topic_html = (f'<div class="topic-wrap"><div class="topic-lbl">Тема</div>'
-                      f'<div class="topic">{esc(topic)}</div></div>')
+
     ach_html = ""
     if ach:
         items = "".join(f'<li>{esc(a)}</li>' for a in ach)
         ach_html = f'<ul class="ach">{items}</ul>'
 
-    # Подарок на эфире / в розыгрыше
+    # Подарок на эфире / в розыгрыше — идёт ПОД темой, внутри блока темы.
     gift_html = ""
     gas = p.get("gift_after_speech_title")
     if gas:
@@ -511,6 +510,26 @@ def _speaker_card(p) -> str:
             '<div class="gift-tag-lbl">🎟 Подарок в розыгрыше</div>'
             f'<div class="gift-tag-val">{esc(graf)}</div></div>'
         )
+
+    # Блок «Тема + слот + подарок» — ПОСЛЕ регалий, отделён чертой.
+    # Есть слот → «ДД.ММ.ГГГГ HH:MM МСК: тема». Нет слота → просто тема.
+    # Если нет ни темы, ни подарка — блок не рендерим (черты тоже нет).
+    topic_block = ""
+    if topic or gift_html:
+        slot_prefix = ""
+        if slot:
+            sdate, stime = slot
+            parts = " ".join(x for x in (sdate, stime) if x)
+            if parts:
+                slot_prefix = f'<span class="topic-slot">{esc(parts)}: </span>'
+        topic_line = ""
+        if topic:
+            topic_line = (f'<div class="topic-wrap"><div class="topic-lbl">Тема</div>'
+                          f'<div class="topic">{slot_prefix}{esc(topic)}</div></div>')
+        elif slot_prefix:
+            # Слот есть, темы нет — покажем хотя бы дату/время слота как строку.
+            topic_line = f'<div class="topic-wrap"><div class="topic">{slot_prefix.rstrip(": ")}</div></div>'
+        topic_block = f'<div class="topic-sep"></div>{topic_line}{gift_html}'
 
     # соцсети 2×2 (только непустые)
     socials = []
@@ -554,13 +573,15 @@ def _speaker_card(p) -> str:
         f'<div class="sp-meta">{badge}'
         f'<div class="pname">{name}</div>{title_html}</div>'
         f'</div>'
-        f'{topic_html}{ach_html}{gift_html}{soc_html}{kb_html}'
+        f'{ach_html}{topic_block}{soc_html}{kb_html}'
         f'</div>'
     )
 
 
-def _speakers_panel(collabs) -> str:
-    """Аккордеон по группам. Порядок внутри группы = как пришёл из SQL."""
+def _speakers_panel(collabs, slot_by_ec=None) -> str:
+    """Аккордеон по группам. Порядок внутри группы = как пришёл из SQL.
+    slot_by_ec: {ec_id: (date_str, time_str)} — слот спикера в программе."""
+    slot_by_ec = slot_by_ec or {}
     segments = [
         ("organizer", "Организаторы", {"organizer"}),
         ("jury", "Жюри", {"jury"}),
@@ -579,7 +600,7 @@ def _speakers_panel(collabs) -> str:
         people = buckets[key]
         if not people:
             continue
-        cards = "".join(_speaker_card(p) for p in people)
+        cards = "".join(_speaker_card(p, slot_by_ec.get(p.get("ec_id"))) for p in people)
         out += (
             f'<div class="acc">'
             f'<button class="acc-h" data-acc="{key}" type="button">'
@@ -1162,8 +1183,22 @@ def _offering_card(o) -> str:
     else:
         emoji = "💼" if is_paid else "📄"
         ico_html = f'<div class="off-cover off-cover-empty">{emoji}</div>'
-    desc_html = f'<div class="off-desc">{desc}</div>' if desc else ""
-    free_html = '<div class="off-free">Бесплатно</div>' if not is_paid else ""
+    # Описание СВЁРНУТО — раскрывается по клику на стрелку (синяя стрелка в жёлтом
+    # круге). Слово «Бесплатно» не пишем — уже понятно из вкладки «Бесплатно».
+    title_html = f'<div class="off-title">{title}</div>'
+    if desc:
+        title_row = (
+            '<summary class="off-title-row">'
+            f'{title_html}'
+            '<span class="off-toggle" aria-hidden="true">'
+            '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" '
+            'stroke="#25455D" stroke-width="2.5" stroke-linecap="round" '
+            'stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
+            '</span></summary>'
+        )
+        body = f'<details class="off-details">{title_row}<div class="off-desc">{desc}</div></details>'
+    else:
+        body = title_html
     btn_html = ""
     if action:
         btn_cls = "off-btn off-btn-paid" if is_paid else "off-btn off-btn-free"
@@ -1172,8 +1207,7 @@ def _offering_card(o) -> str:
     return (
         '<div class="off-card">'
         f'<div class="off-top">{ico_html}'
-        f'<div class="off-body"><div class="off-title">{title}</div>'
-        f'{desc_html}{free_html}</div></div>{btn_html}</div>'
+        f'<div class="off-body">{body}</div></div>{btn_html}</div>'
     )
 
 
@@ -1288,7 +1322,19 @@ def render_page(event, collabs, days, stages, sessions, gifts,
 
     # ── Панели ──
     program_html = _program_panel(event, collabs, days, stages, sessions, chat_bot_links)
-    speakers_html = _speakers_panel(collabs) if has_people else ""
+    # Слот спикера в программе (ec_id → (дата, время)) — для карточки во вкладке «Спикеры».
+    # Берём ПЕРВЫЙ слот спикера (sessions уже отсортированы по day/sort_order/start_time).
+    _day_date_by_num = {d.get("day_number"): d.get("day_date") for d in (days or [])}
+    slot_by_ec = {}
+    for s in (sessions or []):
+        ec = s.get("sp_ec_id")
+        if not ec or ec in slot_by_ec:
+            continue
+        sdate = _fmt_date_eu(_day_date_by_num.get(s.get("day")))
+        stime = _fmt_time_range(s.get("start_time"), s.get("end_time"))
+        if sdate or stime:
+            slot_by_ec[ec] = (sdate, stime)
+    speakers_html = _speakers_panel(collabs, slot_by_ec) if has_people else ""
     cabinet_html = ""
     if ref_cabinet:
         cabinet_html = _cabinet_panel(
@@ -1477,9 +1523,11 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     padding:2px 8px; border-radius:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; margin-bottom:4px; }}
   .pname {{ font-weight:700; font-size:15px; color:#1a2a3a; line-height:1.2; }}
   .ptitle {{ font-size:12px; color:#6b7c8e; margin-top:2px; line-height:1.3; }}
+  .topic-sep {{ height:1px; background:#e6ebf0; margin:12px 0; }}
   .topic-wrap {{ margin-bottom:8px; }}
   .topic-lbl {{ font-size:10px; color:#8593a1; text-transform:uppercase; letter-spacing:.4px; font-weight:700; margin-bottom:4px; }}
   .topic {{ font-size:13px; color:#1a2a3a; font-weight:600; line-height:1.35; }}
+  .topic-slot {{ color:#25455D; font-weight:800; }}
   .ach {{ margin:0 0 8px; padding:0; list-style:none; }}
   .ach li {{ font-size:12px; color:#3a4a5a; line-height:1.4; padding-left:14px; position:relative; margin-bottom:3px; }}
   .ach li:before {{ content:'•'; position:absolute; left:0; top:-1px; color:#25455D; font-weight:700; font-size:14px; }}
@@ -1675,8 +1723,16 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     background:linear-gradient(135deg,#fff4e0,#FFCFA4); }}
   .off-body {{ flex:1; min-width:0; }}
   .off-title {{ font-size:14px; font-weight:700; color:#1a2a3a; margin-bottom:3px; }}
-  .off-desc {{ font-size:12px; color:#6b7c8e; line-height:1.4; margin-bottom:6px; }}
+  .off-desc {{ font-size:12px; color:#6b7c8e; line-height:1.4; margin:6px 0; }}
   .off-free {{ font-size:13px; font-weight:700; color:#2e7d32; }}
+  /* Сворачиваемое описание продукта: заголовок + стрелка (синяя в жёлтом круге) */
+  .off-details {{ }}
+  .off-details > summary {{ list-style:none; cursor:pointer; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }}
+  .off-details > summary::-webkit-details-marker {{ display:none; }}
+  .off-title-row .off-title {{ margin-bottom:0; flex:1; min-width:0; }}
+  .off-toggle {{ flex-shrink:0; width:26px; height:26px; border-radius:50%; background:#FFCFA4;
+    display:flex; align-items:center; justify-content:center; transition:transform .2s; margin-top:1px; }}
+  .off-details[open] > summary .off-toggle {{ transform:rotate(180deg); }}
   .off-btn {{ display:block; margin-top:10px; padding:10px; border-radius:10px; text-align:center;
     font-weight:700; font-size:13px; text-decoration:none; }}
   .off-btn-paid {{ background:linear-gradient(135deg,#FFCFA4,#f5b97e); color:#25455D;
