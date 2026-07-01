@@ -12,7 +12,7 @@
  *   • offerings — каждый сохраняется автоматом при создании/редактировании.
  */
 import { useEffect, useState } from 'react'
-import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown } from 'lucide-react'
+import { Smartphone, Plus, Pencil, Trash2, X, Save, ExternalLink, Globe, Building2, User, ChevronUp, ChevronDown, LayoutGrid } from 'lucide-react'
 import FileUploader from '@/components/FileUploader'
 import { FounderTgChannelsField, FounderTgChannel } from '@/components/FounderTgChannelsField'
 import { FounderMaxChannelsField, FounderMaxChannel } from '@/components/FounderMaxChannelsField'
@@ -51,6 +51,11 @@ interface Profile {
   start_lead_magnet_id?: number | null
   start_package_id?: number | null
   events_tab_visibility?: 'always' | 'active' | 'any' | null
+  // Кастомные названия вкладок Mini App (пусто = дефолт)
+  tab_label_program?: string | null
+  tab_label_speakers?: string | null
+  tab_label_game?: string | null
+  tab_label_ecosystem?: string | null
 }
 interface Offering {
   id: number
@@ -72,7 +77,7 @@ const SOCIAL_FIELDS: { key: string; label: string; placeholder: string; hint?: s
   { key: 'website',   label: 'Сайт',      placeholder: 'https://yourwebsite.ru' },
 ]
 
-type Tab = 'brand' | 'owner' | 'products' | 'bot'
+type Tab = 'brand' | 'owner' | 'products' | 'bot' | 'tabs'
 
 // Дефолтные значения приветствия /start — те же, что бот ставит, если поля
 // пустые. Показываем их предзаполненными, чтобы клиент видел готовый шаблон.
@@ -84,7 +89,8 @@ const DEFAULT_BTN_OWNER  = '🌐 Об основателе'
 export default function MiniAppSettingsPage() {
   // Ассистенту доступна ТОЛЬКО вкладка «Продукты» (client_offerings) — визитка
   // бренда/основателя/бот шлются через PATCH /auth/me, который ассистенту → 403.
-  const { isAssistant } = useMe()
+  const { isAssistant, me } = useMe()
+  const hasConference = !!me?.features?.includes('conference')
   const [profile, setProfile] = useState<Profile | null>(null)
   const [offerings, setOfferings] = useState<Offering[]>([])
   const [loadingOff, setLoadingOff] = useState(true)
@@ -98,7 +104,7 @@ export default function MiniAppSettingsPage() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'brand'
     const t = new URLSearchParams(window.location.search).get('tab')
-    return (t === 'owner' || t === 'products' || t === 'bot') ? t as Tab : 'brand'
+    return (t === 'owner' || t === 'products' || t === 'bot' || t === 'tabs') ? t as Tab : 'brand'
   })
 
   // Ассистент видит только «Продукты» — форсим вкладку, как только роль известна.
@@ -206,6 +212,11 @@ export default function MiniAppSettingsPage() {
         // бот и ссылки
         default_link_mode:      profile.default_link_mode || 'miniapp',
         events_tab_visibility:  profile.events_tab_visibility || 'always',
+        // Названия вкладок Mini App — пусто → дефолт (бэк применяет model_fields_set)
+        tab_label_program:      profile.tab_label_program   || '',
+        tab_label_speakers:     profile.tab_label_speakers  || '',
+        tab_label_game:         profile.tab_label_game      || '',
+        tab_label_ecosystem:    profile.tab_label_ecosystem || '',
         start_greeting_text:    profile.start_greeting_text    || null,
         start_btn_events_label: profile.start_btn_events_label || null,
         start_btn_owner_label:  profile.start_btn_owner_label  || null,
@@ -285,6 +296,7 @@ export default function MiniAppSettingsPage() {
           <TabBtn active={tab === 'brand'}    onClick={() => setTab('brand')}    icon={<Building2 size={15} />} label="Бренд" />
           <TabBtn active={tab === 'owner'}    onClick={() => setTab('owner')}    icon={<User size={15} />}      label="Основатель" />
           <TabBtn active={tab === 'products'} onClick={() => setTab('products')} icon={<Globe size={15} />}     label="Продукты" />
+          <TabBtn active={tab === 'tabs'}     onClick={() => setTab('tabs')}     icon={<LayoutGrid size={15} />} label="Вкладки" />
           <TabBtn active={tab === 'bot'}      onClick={() => setTab('bot')}      icon={<Smartphone size={15} />} label="Бот и ссылки" />
         </div>
       )}

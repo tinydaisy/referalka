@@ -80,6 +80,20 @@ function formatDuration(sec: number): string {
   return `${sec}сек`
 }
 
+// Текущее МОСКОВСКОЕ время минус 1 минута в формате "YYYY-MM-DDTHH:MM".
+// Бэк трактует fire_at как локальное время в tz клиента (МСК). Минус минута —
+// чтобы fire_at был ≤ NOW() и планировщик (тик раз в минуту) взял рассылку сразу.
+function nowMoscowMinus1MinLocal(): string {
+  const d = new Date(Date.now() - 60_000)
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d)
+  const g = (t: string) => parts.find(p => p.type === t)?.value || ''
+  return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`
+}
+
 // Человекочитаемая причина ошибки доставки
 function humanReason(err: string): string {
   const low = (err || '').toLowerCase()
@@ -141,6 +155,8 @@ export default function QueuePage() {
     session_id: '',   // для speaker_intro, gift, pre_start
     day: '',          // для day_*, day_start_30min_*
   })
+  // Режим: 'schedule' — по дате (календарь), 'now' — отправить немедленно.
+  const [manualSendMode, setManualSendMode] = useState<'schedule' | 'now'>('schedule')
   const [confSpeakers, setConfSpeakers] = useState<any[]>([])
   const [confSessions, setConfSessions] = useState<any[]>([])
   const [confDays, setConfDays] = useState<any[]>([])
@@ -349,10 +365,13 @@ export default function QueuePage() {
   }
 
   async function addManual() {
-    if (!manualForm.template_id || !manualForm.fire_at) {
+    // «Немедленно» — дату не требуем, подставим текущее московское время (−1 мин).
+    const isNow = manualSendMode === 'now'
+    if (!manualForm.template_id || (!isNow && !manualForm.fire_at)) {
       showMsg('Выберите шаблон и укажите время', 'err')
       return
     }
+    const fireAtToSend = isNow ? nowMoscowMinus1MinLocal() : manualForm.fire_at
     const tpl = templates.find(t => String(t.id) === manualForm.template_id)
     const tplType = tpl?.type || ''
     const isSpeakerType = ['speaker_intro', 'gift', '5min_before'].includes(tplType)
@@ -368,7 +387,8 @@ export default function QueuePage() {
     try {
       await api.conference.schedules.addManual(eventId, {
         template_id: Number(manualForm.template_id),
-        fire_at: manualForm.fire_at,
+        fire_at: fireAtToSend,
+        enqueue: isNow,
         is_test: manualForm.is_test,
         audience_include: manualForm.audience_include,
         audience_exclude: manualForm.audience_exclude,
@@ -1118,11 +1138,27 @@ export default function QueuePage() {
               })()}
 
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">Дата и время ({tzLabel})</label>
-                <input type="datetime-local"
-                  value={manualForm.fire_at}
-                  onChange={e => setManualForm({ ...manualForm, fire_at: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                <label className="text-xs text-gray-500 mb-1 block">Когда отправить</label>
+                <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm mb-2">
+                  <button type="button" onClick={() => setManualSendMode('schedule')}
+                    className={`px-3 py-1.5 ${manualSendMode === 'schedule' ? 'bg-brand text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    Запланировать
+                  </button>
+                  <button type="button" onClick={() => setManualSendMode('now')}
+                    className={`px-3 py-1.5 border-l border-gray-200 ${manualSendMode === 'now' ? 'bg-brand text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    Отправить немедленно
+                  </button>
+                </div>
+                {manualSendMode === 'schedule' ? (
+                  <input type="datetime-local"
+                    value={manualForm.fire_at}
+                    onChange={e => setManualForm({ ...manualForm, fire_at: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
+                ) : (
+                  <p className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                    Рассылка встанет в очередь и уйдёт в течение минуты после сохранения.
+                  </p>
+                )}
               </div>
               <div className="border border-gray-100 rounded-xl p-3 bg-gray-50 space-y-2">
                 <p className="text-xs font-medium text-gray-600">👥 Аудитория</p>

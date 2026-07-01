@@ -289,13 +289,25 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   // Для обычных мероприятий, конкурсов и др. — не показываем.
   const hasSpeakersTab = ['conference', 'turnir'].includes(event?.module_slug)
 
+  // Кастомные названия вкладок из настроек клиента (пусто → дефолт из константы NAV_*).
+  const tabLabels: Record<string, string | undefined> = {
+    program:   event?.tab_label_program,
+    speakers:  event?.tab_label_speakers,
+    game:      event?.tab_label_game,
+    ecosystem: event?.tab_label_ecosystem,
+  }
+  const applyLabel = (n: NavItem): NavItem => {
+    const custom = tabLabels[n.id]
+    return custom ? { ...n, label: custom } : n
+  }
+
   // Если событие завершено и участника нет — Игру тоже не показываем.
   const filterByEnabled = (items: NavItem[]) => items.filter(n =>
     (n.id !== 'welcome'  || showWelcomeTab) &&
     (n.id !== 'speakers' || hasSpeakersTab) &&
     (n.id !== 'game'     || refOn)          &&
     (n.id !== 'raffle'   || raffleOn)
-  )
+  ).map(applyLabel)
 
   const isWeb = getPlatformName() === 'web'
   const navItemsEnded = participant

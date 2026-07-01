@@ -164,7 +164,8 @@ async def public_client_profile(client_id: int, db: asyncpg.Connection = Depends
         """SELECT id, name, telegram_username,
                   brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
                   owner_photo_url, owner_positioning, owner_achievements,
-                  bio, social_links, events_tab_visibility
+                  bio, social_links, events_tab_visibility,
+                  tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem
              FROM clients
             WHERE id = $1 AND is_active = TRUE""",
         client_id
@@ -718,6 +719,8 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
                    c.name AS client_name, c.brand_name AS client_brand,
                    c.profile_photo_url AS client_photo,
                    c.brand_logo_url AS client_brand_logo,
+                   c.tab_label_program, c.tab_label_speakers,
+                   c.tab_label_game, c.tab_label_ecosystem,
                    (SELECT REGEXP_REPLACE(ch.handle, '^@', '')
                       FROM channels ch
                       JOIN client_channels cc ON cc.channel_id = ch.id
@@ -828,6 +831,11 @@ class ProfileUpdate(BaseModel):
     start_package_id:     Optional[int] = None
     # Видимость вкладки «События»: 'always' | 'active' | 'any'
     events_tab_visibility: Optional[str] = None
+    # Кастомные названия вкладок Mini App (пусто = дефолт из фронта)
+    tab_label_program:   Optional[str] = None
+    tab_label_speakers:  Optional[str] = None
+    tab_label_game:      Optional[str] = None
+    tab_label_ecosystem: Optional[str] = None
 
 
 @profile_router.get("/profile", summary="Получить свою визитку")
@@ -844,7 +852,8 @@ async def get_my_profile(
                   start_btn_events_label, start_btn_owner_label,
                   start_mode, start_event_id,
                   start_lead_magnet_id, start_package_id,
-                  events_tab_visibility
+                  events_tab_visibility,
+                  tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem
              FROM clients WHERE id = $1""",
         int(client["sub"])
     )
@@ -896,6 +905,13 @@ async def update_my_profile(
         if data.events_tab_visibility not in ("always", "active", "any"):
             raise HTTPException(status_code=400, detail="events_tab_visibility должен быть 'always', 'active' или 'any'")
         add("events_tab_visibility", data.events_tab_visibility)
+    # Названия вкладок Mini App — пустая строка очищает до дефолта (None).
+    # Паттерн model_fields_set: ключ есть в JSON (даже null/"") → применяем; нет → не трогаем.
+    _fs = data.model_fields_set
+    for _lbl in ("tab_label_program", "tab_label_speakers", "tab_label_game", "tab_label_ecosystem"):
+        if _lbl in _fs:
+            _val = (getattr(data, _lbl) or "").strip()
+            add(_lbl, _val or None)
     if data.start_greeting_text    is not None: add("start_greeting_text",    data.start_greeting_text or None)
     if data.start_btn_events_label is not None: add("start_btn_events_label", data.start_btn_events_label or None)
     if data.start_btn_owner_label  is not None: add("start_btn_owner_label",  data.start_btn_owner_label or None)
@@ -995,7 +1011,8 @@ async def update_my_profile(
                 RETURNING id,
                           brand_name, brand_logo_url, profile_photo_url, positioning, achievements,
                           owner_photo_url, owner_positioning, owner_achievements,
-                          bio, social_links""",
+                          bio, social_links,
+                          tab_label_program, tab_label_speakers, tab_label_game, tab_label_ecosystem""",
             *args
         )
     except asyncpg.exceptions.CheckViolationError:

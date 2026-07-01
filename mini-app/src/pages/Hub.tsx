@@ -42,7 +42,11 @@ export default function Hub({ clientId, tgUser, onOpenEvent, initialTab }: Props
     || (vis === 'active' && eventsState.hasActive)
     || (vis === 'any' && eventsState.hasAny)
 
-  const NAV: NavItem[] = showCalendar ? [CALENDAR_TAB, ECOSYSTEM_TAB] : [ECOSYSTEM_TAB]
+  // Кастомное название вкладки «О проекте» из настроек клиента.
+  const ecoTab: NavItem = profile?.tab_label_ecosystem
+    ? { ...ECOSYSTEM_TAB, label: profile.tab_label_ecosystem }
+    : ECOSYSTEM_TAB
+  const NAV: NavItem[] = showCalendar ? [CALENDAR_TAB, ecoTab] : [ecoTab]
   const VALID_TABS = new Set(NAV.map(n => n.id))
   const defaultTab = showCalendar ? 'calendar' : 'ecosystem'
 

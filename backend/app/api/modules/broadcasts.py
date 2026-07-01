@@ -1425,6 +1425,8 @@ class AddManualRequest(BaseModel):
     session_id: Optional[int] = None
     day: Optional[int] = None
     note: Optional[str] = None
+    # enqueue=True → сразу в очередь (status='pending'), иначе черновик (draft).
+    enqueue: bool = False
 
 
 @router.post("/schedules/add-manual", summary="Добавить рассылку вручную")
@@ -1460,16 +1462,18 @@ async def add_manual_schedule(
 
     aud_include = data.audience_include or tpl["audience_include"]
     aud_exclude = data.audience_exclude if data.audience_exclude is not None else tpl["audience_exclude"]
+    # enqueue=True → сразу в очередь (pending, отправится по fire_at), иначе черновик (draft).
+    new_status = "pending" if data.enqueue else "draft"
     row = await db.fetchrow(
         """
         INSERT INTO broadcast_schedules
           (event_id, template_id, type, session_id, fire_at, status, is_test, audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-        VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $13, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude
         """,
         event_id, tpl["id"], tpl["type"], data.session_id, dt_utc, data.is_test, aud_include, aud_exclude,
-        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"]
+        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"], new_status
     )
     return dict(row)
 

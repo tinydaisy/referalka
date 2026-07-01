@@ -60,6 +60,21 @@ function humanReason(err: string): string {
   return err.slice(0, 100)
 }
 
+// Текущее МОСКОВСКОЕ время минус 1 минута в формате "YYYY-MM-DDTHH:MM".
+// Бэк (_parse_fire_at) трактует fire_at как локальное время в tz клиента (МСК),
+// поэтому отдаём именно московское время, независимо от tz браузера. Минус минута —
+// чтобы fire_at точно был ≤ NOW() и планировщик (тик раз в минуту) взял рассылку сразу.
+function nowMoscowMinus1MinLocal(): string {
+  const d = new Date(Date.now() - 60_000)
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d)
+  const g = (t: string) => parts.find(p => p.type === t)?.value || ''
+  return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`
+}
+
 export default function GeneralBroadcastsPage() {
   const [schedules, setSchedules] = useState<any[]>([])
   const [tzLabel, setTzLabel] = useState('МСК (UTC+3)')
@@ -755,6 +770,8 @@ function CustomBroadcastModal(props: {
   }
 }) {
   const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
+  // Режим отправки: 'schedule' — по дате/времени (календарь), 'now' — немедленно.
+  const [sendMode, setSendMode] = useState<'schedule' | 'now'>('schedule')
   const [subject, setSubject] = useState(props.initial?.subject || '')
   const [text, setText] = useState(props.initial?.text || '')
   const [media, setMedia] = useState<BroadcastMedia>({
@@ -788,7 +805,8 @@ function CustomBroadcastModal(props: {
 
     // Собираем все ошибки списком (показываем над кнопкой красным блоком).
     const errs: string[] = []
-    if (!fireAt) errs.push('Не указана дата и время рассылки')
+    // Дата нужна только в режиме «Запланировать». «Немедленно» — fire_at подставим now().
+    if (sendMode === 'schedule' && !fireAt) errs.push('Не указана дата и время рассылки')
     // Проверка «пусто» по plain-text (без тегов и &nbsp;)
     const plain = liveText.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
     // Диагностика: пишем в Console сколько символов в каждом поле.
@@ -813,10 +831,14 @@ function CustomBroadcastModal(props: {
     }
     setFormErrors(errs)
     if (errs.length > 0) return
+    // «Немедленно» = текущее московское время минус минуту (чтобы fire_at точно
+    // был ≤ NOW() и планировщик взял рассылку на ближайшем тике, тикает раз в минуту).
+    const fireAtToSend = sendMode === 'now' ? nowMoscowMinus1MinLocal() : fireAt
+
     setSaving(true)
     try {
       const payload: any = {
-        fire_at: fireAt,
+        fire_at: fireAtToSend,
         text: liveText,
         subject: subject || null,
         photo_url: media.media_type === 'photo' ? media.photo_url : null,
@@ -856,9 +878,25 @@ function CustomBroadcastModal(props: {
             Получатели: вся ваша база контактов (Telegram + VK + MAX — каждый получит через ту платформу, на которую подписан, не отписавшиеся).
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Дата и время ({props.tzLabel})</label>
-            <input type="datetime-local" value={fireAt} onChange={e => setFireAt(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            <label className="text-xs text-gray-500 mb-1 block">Когда отправить</label>
+            <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm mb-2">
+              <button type="button" onClick={() => setSendMode('schedule')}
+                className={`px-3 py-1.5 ${sendMode === 'schedule' ? 'bg-brand text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                Запланировать
+              </button>
+              <button type="button" onClick={() => setSendMode('now')}
+                className={`px-3 py-1.5 border-l border-gray-200 ${sendMode === 'now' ? 'bg-brand text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                Отправить немедленно
+              </button>
+            </div>
+            {sendMode === 'schedule' ? (
+              <input type="datetime-local" value={fireAt} onChange={e => setFireAt(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            ) : (
+              <p className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                Рассылка встанет в очередь и уйдёт в течение минуты после сохранения.
+              </p>
+            )}
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Медиа (опционально) — фото или видео</label>
