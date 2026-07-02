@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
+import { FEATURE_LABELS } from './labels'
 
 interface Tariff {
   id: number
@@ -18,16 +19,6 @@ interface Tariff {
   leadpay_product_id: string | null
   promo_banner_text: string | null
   promo_old_price: number | null
-}
-
-export const FEATURE_LABELS: Record<string, string> = {
-  lead_magnets:    'Лид-магниты',
-  conference:      'Конференции',
-  awards:          'Премии',
-  channels:        'Свой бот',
-  export_contacts: 'Экспорт контактов',
-  collab_hub:      'Коллабораторная (Хаб)',
-  contests:        'Участие в конкурсах',
 }
 
 export default function AdminTariffsPage() {

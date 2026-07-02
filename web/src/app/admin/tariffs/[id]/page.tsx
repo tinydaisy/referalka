@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { ArrowLeft, Save } from 'lucide-react'
 import { api } from '@/lib/api'
-import { FEATURE_LABELS } from '../page'
+import { FEATURE_LABELS } from '../labels'
 
 interface Feature { id: number; slug: string; name: string }
 
