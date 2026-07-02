@@ -24,6 +24,8 @@ interface Contact {
   tags: string[] | null
   ref_code: string | null
   external_ref_param: string | null
+  linked_client_id?: number | null
+  linked_client_email?: string | null
   is_staff?: boolean
   is_unsubscribed: boolean
   last_contact_at: string | null
@@ -671,6 +673,20 @@ export default function ContactsPage() {
                   <p className="text-sm text-gray-800 font-mono break-all">{selected.ref_code || '—'}</p>
                 </div>
               </div>
+
+              {/* Привязка к ПЛЮСОН-аккаунту (только отображение) */}
+              {selected.linked_client_email && (
+                <div className="flex items-start gap-2">
+                  <Link2 size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-400">ПЛЮСОН-аккаунт</p>
+                    <p className="text-sm text-gray-800 break-all">
+                      <span className="inline-block px-1.5 py-0.5 bg-green-50 text-green-700 rounded text-xs mr-1">связан</span>
+                      {selected.linked_client_email}
+                    </p>
+                  </div>
+                </div>
+              )}
               <ContactFieldEditor
                 contactId={selected.id}
                 field="external_ref_param"

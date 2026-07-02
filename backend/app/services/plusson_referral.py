@@ -70,15 +70,17 @@ async def resolve_plusson_referrer(
         return client_id
 
     # 2) Код-контакт (глобально уникален) → его привязка к клиенту ПЛЮСОНа.
-    #    Прямое совпадение по ref_code, затем fallback на merged_ref_codes
-    #    (старые коды после ручного мерджа контактов — чтобы старые ссылки жили).
+    #    Приоритет: contacts.linked_client_id (любой участник связал свой ПЛЮСОН,
+    #    миграция 191), затем fallback на collaborators.linked_client_id (спикер).
+    #    Прямое совпадение по ref_code + fallback на merged_ref_codes (старые коды
+    #    после ручного мерджа контактов — чтобы старые ссылки жили).
     linked = await db.fetchval(
         """
-        SELECT col.linked_client_id
+        SELECT COALESCE(c.linked_client_id, col.linked_client_id)
           FROM contacts c
-          JOIN collaborators col ON col.contact_id = c.id
+          LEFT JOIN collaborators col ON col.contact_id = c.id
          WHERE (c.ref_code = $1 OR c.merged_ref_codes ? $1)
-           AND col.linked_client_id IS NOT NULL
+           AND COALESCE(c.linked_client_id, col.linked_client_id) IS NOT NULL
          LIMIT 1
         """,
         code,

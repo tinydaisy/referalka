@@ -210,11 +210,15 @@ async def _jurors(event_id: int, db: asyncpg.Connection, *,
 
 
 async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
-                      db: asyncpg.Connection, subj: dict | None = None) -> float:
+                      db: asyncpg.Connection, subj: dict | None = None,
+                      lead_since=None) -> float:
     # 'lead_magnet' — считаем переходы (funnel_runs) в лид-магнит/пакет,
     # который спикер выбрал «подарком после эфира» (event_collaborators).
     # Привязка живёт на ec → считаем только для субъектов-спикеров (kind='ec').
     # «Просто зашло» = любой funnel_run (без фильтра по stage и по рефереру).
+    # lead_since (tournament_criteria.lead_count_since) — если задана, считаем
+    # только funnel_runs.landed_at >= этой даты (чтобы старый лид-магнит с уже
+    # накопленными лидами не давал фору). NULL → считаем все, как раньше.
     if auto_kind == "lead_magnet":
         if not subj or subj.get("kind") != "ec":
             return 0.0
@@ -224,16 +228,19 @@ async def _auto_value(event_id: int, contact_id, ref_code, auto_kind: str,
         )
         if not link:
             return 0.0
+        since_cond = " AND landed_at >= $2" if lead_since else ""
         if link["gift_lead_magnet_id"]:
+            args = [link["gift_lead_magnet_id"]] + ([lead_since] if lead_since else [])
             v = await db.fetchval(
-                "SELECT COUNT(*) FROM funnel_runs WHERE lead_magnet_id = $1",
-                link["gift_lead_magnet_id"],
+                f"SELECT COUNT(*) FROM funnel_runs WHERE lead_magnet_id = $1{since_cond}",
+                *args,
             )
             return float(v or 0)
         if link["gift_package_id"]:
+            args = [link["gift_package_id"]] + ([lead_since] if lead_since else [])
             v = await db.fetchval(
-                "SELECT COUNT(*) FROM funnel_runs WHERE package_id = $1",
-                link["gift_package_id"],
+                f"SELECT COUNT(*) FROM funnel_runs WHERE package_id = $1{since_cond}",
+                *args,
             )
             return float(v or 0)
         return 0.0
@@ -329,7 +336,8 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
             return None
         if crit["scorer"] == "auto":
             return await _auto_value(event_id, subj["contact_id"], subj["ref_code"],
-                                     crit["auto_kind"] or "", db, subj=subj)
+                                     crit["auto_kind"] or "", db, subj=subj,
+                                     lead_since=crit.get("lead_count_since"))
         return cell["single"] if cell and cell["single"] is not None else None
 
     # сырые значения критерия по всем участникам (для нормализации + колонок)
@@ -637,6 +645,24 @@ async def delete_package(event_id: int, package_id: int, client=Depends(get_curr
     return {"ok": True}
 
 
+def _parse_lead_since(val):
+    """Строка даты (datetime-local 'YYYY-MM-DDTHH:MM' или ISO) → aware datetime
+    в МСК. Пусто/None → None (считать все лиды). Мусор → None (не роняем)."""
+    if not val or not str(val).strip():
+        return None
+    from datetime import datetime, timezone, timedelta
+    s = str(val).strip()
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    # datetime-local приходит без tz — трактуем как МСК (UTC+3), как остальные
+    # даты программы в проекте.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone(timedelta(hours=3)))
+    return dt
+
+
 class CriterionIn(BaseModel):
     package_id: int
     title: str
@@ -648,6 +674,7 @@ class CriterionIn(BaseModel):
     weight: float = 1
     sort_order: int = 0
     code_phrase: Optional[str] = None  # для manual: кодовая фраза авто-зачёта по чату
+    lead_count_since: Optional[str] = None  # дата отсчёта лидов (auto_kind='lead_magnet')
 
 
 @router.post("/criteria", summary="Создать критерий")
@@ -669,11 +696,12 @@ async def create_criterion(event_id: int, data: CriterionIn, client=Depends(get_
         auto_kind = None
     # code_phrase нужен и manual, и auto_number (по фразе ищем сдачу в чате)
     code_phrase = (data.code_phrase.strip() if (data.code_phrase and data.scorer in ("manual", "auto_number")) else None)
+    lead_since = _parse_lead_since(data.lead_count_since)
     c = await db.fetchrow(
-        """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, weight, sort_order, code_phrase)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *""",
+        """INSERT INTO tournament_criteria (package_id, event_id, title, description, scorer, auto_kind, stage_id, scale_max, weight, sort_order, code_phrase, lead_count_since)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *""",
         data.package_id, event_id, data.title.strip(), data.description, data.scorer,
-        auto_kind, data.stage_id, data.scale_max, data.weight, data.sort_order, code_phrase)
+        auto_kind, data.stage_id, data.scale_max, data.weight, data.sort_order, code_phrase, lead_since)
     return {"criterion": dict(c)}
 
 
@@ -687,12 +715,16 @@ class CriterionUpdate(BaseModel):
     weight: Optional[float] = None
     sort_order: Optional[int] = None
     code_phrase: Optional[str] = None
+    lead_count_since: Optional[str] = None  # дата отсчёта лидов (auto_kind='lead_magnet'); '' → сброс
 
 
 @router.patch("/criteria/{criterion_id}", summary="Обновить критерий")
 async def update_criterion(event_id: int, criterion_id: int, data: CriterionUpdate, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
     payload = data.model_dump(exclude_unset=True)
+    # lead_count_since приходит строкой (datetime-local) — парсим в datetime/None.
+    if "lead_count_since" in payload:
+        payload["lead_count_since"] = _parse_lead_since(payload["lead_count_since"])
     if payload:
         cols = list(payload.keys())
         sets = ", ".join(f"{c} = ${i+3}" for i, c in enumerate(cols))

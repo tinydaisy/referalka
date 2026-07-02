@@ -1036,3 +1036,4 @@ async def get_participant_in_event(
         "hide_rating": hide_rating,
         "prefill": prefill_dict,
     }
+

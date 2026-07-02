@@ -1152,6 +1152,29 @@ async def handle_message_new(event_obj: dict, db, ctx: GroupCtx) -> None:
             logger.warning(f"VK /getmyid failed: {e}")
         return
 
+    # /pluson_connect — связать свой ПЛЮСОН-аккаунт (ссылка на форму pluson.ru).
+    if (message.get("text") or "").strip().lower().startswith("/pluson_connect"):
+        try:
+            from app.services.vk_api import send_message as _vk_send, tg_inline_to_vk_keyboard
+            from app.services.pluson_connect_token import make_pluson_connect_token
+            from app.config import settings as _s
+            if ctx.is_system:
+                await _vk_send(int(from_id), "Эта команда доступна только в сообществе организатора.", token=ctx.token)
+                return
+            token = make_pluson_connect_token(
+                client_id=int(ctx.client_id), platform="vk", user_id=str(from_id))
+            url = f"{_s.frontend_url.rstrip('/')}/link-pluson?token={token}"
+            kb = tg_inline_to_vk_keyboard([[{"text": "Связать ПЛЮСОН-аккаунт", "url": url}]])
+            await _vk_send(
+                int(from_id),
+                "Свяжите свой аккаунт ПЛЮСОН — тогда приведённые вами смогут "
+                "закрепляться за вами. Откройте форму на pluson.ru (ссылка на 1 час).",
+                keyboard=kb, token=ctx.token,
+            )
+        except Exception as e:
+            logger.warning(f"VK /pluson_connect failed: {e}")
+        return
+
     # /merge <платформа> <id> — объединить аккаунты с другой площадки.
     if (message.get("text") or "").strip().lower().startswith("/merge"):
         await _handle_vk_merge(message.get("text") or "", int(from_id), db, ctx)

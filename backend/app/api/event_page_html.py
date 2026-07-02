@@ -75,10 +75,14 @@ async def _load_collaborators(db, event_id):
         f"""SELECT cse.id AS ec_id, cse.role, cse.speaker_topic,
                    cse.knowledge_base_title, cse.knowledge_base_url,
                    cse.gift_after_speech_title, cse.gift_raffle_title,
+                   cse.gift_lead_magnet_id, cse.gift_package_id,
+                   lm.name AS gift_lm_name, lp.name AS gift_lp_name,
                    c.name, c.title, c.achievements, c.photo_url,
                    c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url
               FROM event_collaborators cse
               JOIN collaborators c ON c.id = cse.speaker_id
+              LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
+              LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
              WHERE cse.event_id = $1
              ORDER BY {order_by_sql('cse')}""",
         event_id,
@@ -539,7 +543,9 @@ def _speaker_card(p, slot=None) -> str:
 
     # Подарок на эфире / в розыгрыше — идёт ПОД темой, внутри блока темы.
     gift_html = ""
-    gas = p.get("gift_after_speech_title")
+    # Подарок на эфире: ручной (gift_after_speech_title) ИЛИ из ПЛЮСОНа
+    # (лид-магнит/пакет спикера — показываем его название). Взаимоисключающие.
+    gas = p.get("gift_after_speech_title") or p.get("gift_lm_name") or p.get("gift_lp_name")
     if gas:
         gift_html += (
             '<div class="gift-tag gift-tag-air">'

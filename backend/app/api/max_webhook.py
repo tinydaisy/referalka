@@ -465,6 +465,38 @@ async def _handle_message_created(update: dict, *, bot_token: str, client_id_ove
             logger.warning(f"MAX /getmyid reply failed chat={chat_id}: {e}")
         return
 
+    # /pluson_connect — связать свой ПЛЮСОН-аккаунт (ссылка на форму pluson.ru).
+    if (text or "").strip().lower().split("@", 1)[0].lstrip("/") == "pluson_connect":
+        try:
+            from app.services.pluson_connect_token import make_pluson_connect_token
+            from app.config import settings as _s
+            cid = client_id_override
+            if not cid:
+                _p = await get_pool()
+                async with _p.acquire() as _c:
+                    cid = await _c.fetchval(
+                        """SELECT cc.client_id FROM channels ch
+                             JOIN client_channels cc ON cc.channel_id = ch.id
+                            WHERE ch.platform_slug='max' AND ch.bot_token=$1
+                            ORDER BY cc.is_active DESC, cc.id LIMIT 1""",
+                        bot_token,
+                    )
+            if not cid:
+                await max_send_message(chat_id, "Эта команда доступна только в боте организатора.", token=bot_token)
+                return
+            token = make_pluson_connect_token(
+                client_id=int(cid), platform="max", user_id=str(user_id))
+            url = f"{_s.frontend_url.rstrip('/')}/link-pluson?token={token}"
+            await max_send_message(
+                chat_id,
+                "Свяжите свой аккаунт ПЛЮСОН — тогда приведённые вами смогут "
+                f"закрепляться за вами. Откройте форму (ссылка на 1 час):\n{url}",
+                token=bot_token,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"MAX /pluson_connect failed chat={chat_id}: {e}")
+        return
+
     # Команда /menu24 (со слешем) в личке — открыть меню события по id.
     # Резолвим slug по event_id и делегируем _process_start как ref_pg{slug}
     # (зеркало TG /menu{id} и VK «menu24»).

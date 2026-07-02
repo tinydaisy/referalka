@@ -219,6 +219,12 @@ async def handle_start(message: Message, command: CommandObject):
     # Дорастить пустышки `@username` -> реальный tg_id (любой вход в бот, до ветвления)
     await _upgrade_pseudo_identities(user)
 
+    # Возврат с формы связки ПЛЮСОН (/pluson_connect → форма → сюда). Просто
+    # подтверждаем — привязка уже записана на форме по подписанному токену.
+    if args == "pluson_connected":
+        await message.answer("✅ Ваш аккаунт ПЛЮСОН привязан. Приведённые вами люди будут закрепляться за вами.")
+        return
+
     # Воронка лид-магнита: прямой формат `/start m_<slug>` (для лид-магнита) или
     # `/start p_<slug>` (для пакета). Опционально с UTM/pid: `m_<slug>_pid<ref>_src<utm>`.
     # Бот сам создаёт funnel_run и запускает run_started. Это заменяет старый
@@ -1491,6 +1497,52 @@ async def handle_event_word_command(message: Message):
         return
     # Делегируем общему флоу — он сам отправит приглашение или меню.
     await _handle_ref_event_bot_flow(message, f"ref_pg{slug}")
+
+
+@router.message(Command("pluson_connect"))
+async def handle_pluson_connect_command(message: Message):
+    """Команда /pluson_connect — связать свой ПЛЮСОН-аккаунт с контактом.
+
+    Бот генерит подписанный токен (telegram + user.id из апдейта + client_id
+    владельца бота) и отдаёт ссылку на форму pluson.ru/link-pluson?token=…, где
+    человек безопасно (на РФ-сервере, с согласием ПД) вводит email/пароль ПЛЮСОНа.
+    Ввод в самом боте/мессенджере НЕ делаем. Личность гарантирует токен."""
+    user = message.from_user
+    bot_id = message.bot.id if message.bot else None
+    if not user or not bot_id:
+        return
+    try:
+        from app.services.channels import find_channel_by_bot_id
+        from app.services.pluson_connect_token import make_pluson_connect_token
+        pool = await get_pool()
+        async with pool.acquire() as db:
+            ch = await find_channel_by_bot_id(bot_id, db)
+            if not ch or ch["is_system"]:
+                # Только VIP-бот клиента: у системного @pluson_bot контекст клиента
+                # не определён — связка не делается.
+                await message.answer("Эта команда доступна только в боте организатора.")
+                return
+            client_id = await db.fetchval(
+                """SELECT client_id FROM client_channels
+                    WHERE channel_id = $1 ORDER BY is_active DESC, id ASC LIMIT 1""",
+                ch["id"],
+            )
+            if not client_id:
+                return
+        token = make_pluson_connect_token(
+            client_id=int(client_id), platform="telegram", user_id=str(user.id))
+        url = f"{settings.frontend_url.rstrip('/')}/link-pluson?token={token}"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔗 Связать ПЛЮСОН-аккаунт", url=url)
+        ]])
+        await message.answer(
+            "Свяжите свой аккаунт ПЛЮСОН с этим профилем — тогда приведённые вами "
+            "смогут закрепляться за вами.\n\nНажмите кнопку ниже — откроется форма "
+            "на pluson.ru (ссылка действует 1 час).",
+            reply_markup=kb,
+        )
+    except Exception as e:
+        logging.warning(f"/pluson_connect failed: {e!r}")
 
 
 @router.message(F.text.regexp(r"^/menu\d+"))

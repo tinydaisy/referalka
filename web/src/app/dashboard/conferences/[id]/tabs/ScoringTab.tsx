@@ -262,6 +262,25 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
         )}
       </div>
     )}
+    {crit.scorer === 'auto' && crit.auto_kind === 'lead_magnet' && (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-gray-500 shrink-0">Считать лиды с</span>
+          <input type="datetime-local"
+            className="flex-1 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
+            defaultValue={crit.lead_count_since ? String(crit.lead_count_since).slice(0, 16) : ''}
+            onBlur={(e) => {
+              const v = e.target.value
+              const cur = crit.lead_count_since ? String(crit.lead_count_since).slice(0, 16) : ''
+              if (v !== cur) save({ lead_count_since: v || '' })
+            }} />
+        </div>
+        <div className="text-[10px] text-gray-400 leading-tight">
+          Считаются только переходы в лид-магнит с этой даты (МСК). Пусто — считаются все.
+          Защищает от старого лид-магнита с уже накопленными лидами.
+        </div>
+      </div>
+    )}
    </div>
   )
 }

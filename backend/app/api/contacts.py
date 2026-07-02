@@ -598,6 +598,8 @@ async def get_contact(
           c.tags,
           c.ref_code,
           c.external_ref_param,
+          c.linked_client_id,
+          (SELECT lc.email FROM clients lc WHERE lc.id = c.linked_client_id) AS linked_client_email,
           c.is_staff,
           c.salebot_id,
           c.last_contact_at,
