@@ -2,6 +2,7 @@ import Sidebar from './Sidebar'
 import NavigationProgress from './NavigationProgress'
 import SubscriptionBadge from './SubscriptionBadge'
 import SubscriptionBanner from './SubscriptionBanner'
+import EmailVerifyBanner from './EmailVerifyBanner'
 import { LangProvider } from '@/contexts/LangContext'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -16,6 +17,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <SubscriptionBadge />
             </div>
             <SubscriptionBanner />
+            <EmailVerifyBanner />
             {children}
           </div>
         </main>

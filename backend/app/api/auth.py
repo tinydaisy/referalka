@@ -167,6 +167,14 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
 
     token = create_token({"sub": str(client["id"]), "email": client["email"], "role": "client"})
 
+    # Письмо с подтверждением email (от «iViSiON: ПЛЮСОН»). Не критично для
+    # регистрации — если SMTP недоступен, регистрация всё равно проходит.
+    try:
+        from app.services.email_verification import send_verification_email
+        await send_verification_email(db, client["id"])
+    except Exception:
+        pass
+
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -277,7 +285,7 @@ async def get_me(db: asyncpg.Connection = Depends(get_db), credentials=Depends(_
     client_id = int(payload["sub"])
     client = await db.fetchrow(
         """SELECT c.id, c.name, c.email, c.phone, c.telegram_username,
-                c.created_at, c.timezone,
+                c.created_at, c.timezone, c.email_verified,
                 c.test_telegram_ids, c.test_vk_ids, c.test_max_ids, c.test_email_ids, c.work_tg_username, c.work_vk, c.work_max, c.broadcast_concurrency,
                 c.notifications_telegram_chat_id, c.notifications_max_chat_id, c.notifications_vk_peer_id, c.notifications_max_url,
                 c.partner_landing_url, c.partner_dashboard_url, c.partner_visible_roles,
@@ -584,6 +592,50 @@ async def password_reset_request(
             pass
 
     return {"ok": True}
+
+
+# ─── Подтверждение email клиента ────────────────────────────────────────
+
+
+class EmailVerifyConfirm(BaseModel):
+    token: str
+
+
+@router.post("/verify-email/confirm", summary="Подтвердить email по токену")
+async def verify_email_confirm(
+    data: EmailVerifyConfirm,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    from app.services.email_verification import confirm_verify_token
+    ok = await confirm_verify_token(db, data.token)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Ссылка недействительна или устарела")
+    return {"ok": True}
+
+
+@router.post("/verify-email/resend", summary="Отправить письмо подтверждения email заново")
+async def verify_email_resend(
+    db: asyncpg.Connection = Depends(get_db),
+    credentials=Depends(__import__("app.auth", fromlist=["security"]).security),
+):
+    from app.auth import decode_token
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+    payload = decode_token(credentials.credentials)
+    # Ассистент не управляет email владельца
+    if payload.get("role") == "assistant":
+        raise HTTPException(status_code=403, detail="Недоступно для ассистента")
+    client_id = int(payload["sub"])
+
+    row = await db.fetchrow("SELECT email_verified FROM clients WHERE id = $1", client_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    if row["email_verified"]:
+        return {"ok": True, "already_verified": True}
+
+    from app.services.email_verification import send_verification_email
+    sent = await send_verification_email(db, client_id)
+    return {"ok": True, "sent": sent}
 
 
 @router.post("/password-reset/confirm", summary="Подтвердить новый пароль")

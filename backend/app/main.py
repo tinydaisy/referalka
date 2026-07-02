@@ -6,6 +6,7 @@ from app.config import settings
 from app.database import get_pool, close_pool
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.assistant_permission_guard import assistant_permission_guard_middleware
+from app.middleware.email_verification_guard import email_verification_guard_middleware
 from app.api import auth, events, gifts, participants, referral, admin, event, collaborators, collaborator_posters, integrations, subscription_check, contacts, lead_magnets, lead_magnet_packages, funnels, referral_program, platforms, channels, uploads, client_profile, event_raffle, event_raffle_public, tg_utils, vk_event, max_event, max_webhook, event_nurture, event_nurture_reg, email_unsubscribe, legal, email_tracking, assistants, partner, speaker_cabinet, landing_widget, client_chat_gates, announcement_tracker, pricing_public, subscriptions, referrals, participants_export, contacts_export, event_page_html, events_list_page, tournament, collab_hub, collab_events, event_tariffs, dialogs, event_chat_greetings, addons, client_broadcast_chats
 from app.api.gifts import router_compat as gifts_compat
 from app.api.modules import conference, broadcasts
@@ -49,6 +50,9 @@ app.add_middleware(
 # сначала отработает права (быстрее, без БД), потом подписка.
 app.add_middleware(BaseHTTPMiddleware, dispatch=subscription_guard_middleware)
 app.add_middleware(BaseHTTPMiddleware, dispatch=assistant_permission_guard_middleware)
+# Гейт по подтверждению email — блокирует только write по рассылкам.
+# Добавлен последним → исполняется первым (быстрый выход для не-broadcast путей).
+app.add_middleware(BaseHTTPMiddleware, dispatch=email_verification_guard_middleware)
 
 # Подключаем роутеры
 app.include_router(auth.router,         prefix="/api/v1")

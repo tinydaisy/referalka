@@ -102,6 +102,10 @@ export const api = {
       request('/api/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
     regenerateIntegrationToken: () =>
       request('/api/v1/auth/me/regenerate-integration-token', { method: 'POST' }),
+    verifyEmailConfirm: (token: string) =>
+      request('/api/v1/auth/verify-email/confirm', { method: 'POST', body: JSON.stringify({ token }) }),
+    resendVerifyEmail: () =>
+      request('/api/v1/auth/verify-email/resend', { method: 'POST' }),
   },
   events: {
     list: (moduleSlug?: string) => request(`/api/v1/events/${moduleSlug ? `?module_slug=${moduleSlug}` : ''}`),

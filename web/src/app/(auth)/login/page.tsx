@@ -107,6 +107,12 @@ export default function LoginPage() {
               </div>
             </div>
 
+            <div className="text-right">
+              <Link href="/password-reset" className="text-sm hover:underline" style={{ color: '#25455D' }}>
+                Забыли пароль?
+              </Link>
+            </div>
+
             <button
               type="submit" disabled={loading}
               className="btn-gold w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2"
