@@ -94,6 +94,8 @@
 
 **Восстановление пароля** — бэк (`/auth/password-reset/request` + `/confirm`, таблица `password_reset_tokens`, письмо от «iViSiON: ПЛЮСОН») и фронт (`/password-reset`, `/password-reset/confirm`) уже были в коде; не хватало только **ссылки «Забыли пароль?» на `/login`** — добавлена (`(auth)/login/page.tsx`). Токен живёт 1 час, шлётся через системный email-канал, ссылка `pluson.ru/password-reset/confirm?token=`.
 
+**Восстановление пароля для админов (миграция 187 от 2026-07-02):** `password_reset_tokens.admin_id` (NULL, FK admins) + `client_id` стал nullable + CHECK «ровно один из client_id/admin_id». `/auth/password-reset/request` ищет email сначала в `clients`, затем в `admins`; для админа письмо шлётся через системный email-канал напрямую (без client_channel). `/confirm` обновляет `admins.password_hash` для admin-токена. Ссылка «Забыли пароль?» добавлена и на `/admin/login` (ведёт на ту же `/password-reset`). ⚠️ У текущего админа email = `admin@plusson.app` — домен НЕ существует, письма bounce'ятся (`Host not found`). Механизм рабочий, но письмо дойдёт только после смены email админа на реальный (`UPDATE admins SET email=...`).
+
 **Подтверждение email:**
 - **БД (миграция 186):** `clients.email_verified BOOL NOT NULL DEFAULT FALSE` + `email_verified_at` + таблица `email_verify_tokens` (sha256-хеш, живёт 7 дней). Существующим клиентам проставлен FALSE — **плашка показывается всем**, пока не подтвердят (решение пользователя).
 - **Welcome-письмо** при регистрации ([email_verification.py](backend/app/services/email_verification.py) `send_verification_email`) — от «iViSiON: ПЛЮСОН», ссылка `pluson.ru/verify-email?token=`, с просьбой отметить «не спам». Не критично для регистрации (SMTP-ошибка не роняет register).
