@@ -36,6 +36,8 @@ interface Speaker {
   instagram_url?: string | null
   speaker_topic?: string | null
   gift_after_speech_title?: string | null
+  gift_lm_name?: string | null
+  gift_lp_name?: string | null
   gift_raffle_title?: string | null
   knowledge_base_title?: string | null
   knowledge_base_url?: string | null
@@ -187,6 +189,8 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
           instagram_url: c.instagram_url,
           speaker_topic: c.speaker_topic,
           gift_after_speech_title: c.gift_after_speech_title,
+          gift_lm_name: c.gift_lm_name,
+          gift_lp_name: c.gift_lp_name,
           gift_raffle_title: c.gift_raffle_title,
           knowledge_base_title: c.knowledge_base_title,
           knowledge_base_url: c.knowledge_base_url,
@@ -309,25 +313,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                 </div>
               </div>
 
-              {(topicsList.length > 0 || slotByEc[sp.id]) && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700, marginBottom: 4 }}>
-                    {topicsList.length > 1 ? 'Темы' : 'Тема'}
-                  </div>
-                  {/* Дата и время выступления — отдельной строкой, тема с новой строки под ней */}
-                  {slotByEc[sp.id] && (
-                    <div style={{ fontSize: 12, color: DARK, fontWeight: 800, marginBottom: 3 }}>
-                      {slotByEc[sp.id]}
-                    </div>
-                  )}
-                  {topicsList.map((t, ti) => (
-                    <div key={ti} style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600, lineHeight: 1.35, marginBottom: ti < topicsList.length - 1 ? 6 : 0 }}>
-                      {t}
-                    </div>
-                  ))}
-                </div>
-              )}
-
+              {/* Регалии — СВЕРХУ (как в веб-версии карточки спикера) */}
               {ach.length > 0 && (
                 <ul style={{ margin: '0 0 8px', padding: 0, listStyle: 'none' }}>
                   {ach.map((a, i) => (
@@ -337,6 +323,38 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
                     </li>
                   ))}
                 </ul>
+              )}
+
+              {/* Тема + слот + подарок — ПОД регалиями (как в веб-версии) */}
+              {(topicsList.length > 0 || slotByEc[sp.id] || sp.gift_after_speech_title || sp.gift_lm_name || sp.gift_lp_name) && (
+                <div style={{ marginBottom: 8, borderTop: ach.length > 0 ? '1px solid #eef1f4' : 'none', paddingTop: ach.length > 0 ? 8 : 0 }}>
+                  {(topicsList.length > 0 || slotByEc[sp.id]) && (
+                    <>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 700, marginBottom: 4 }}>
+                        {topicsList.length > 1 ? 'Темы' : 'Тема'}
+                      </div>
+                      {slotByEc[sp.id] && (
+                        <div style={{ fontSize: 12, color: DARK, fontWeight: 800, marginBottom: 3 }}>
+                          {slotByEc[sp.id]}
+                        </div>
+                      )}
+                      {topicsList.map((t, ti) => (
+                        <div key={ti} style={{ fontSize: 13, color: '#1a2a3a', fontWeight: 600, lineHeight: 1.35, marginBottom: ti < topicsList.length - 1 ? 6 : 0 }}>
+                          {t}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {/* Подарок на эфире: ручной ИЛИ из ПЛЮСОНа (лид-магнит/пакет) */}
+                  {(sp.gift_after_speech_title || sp.gift_lm_name || sp.gift_lp_name) && (
+                    <div style={{ marginTop: (topicsList.length > 0 || slotByEc[sp.id]) ? 8 : 0, background: '#fff7ef', border: '1px solid #ffe0c2', borderRadius: 8, padding: '6px 10px' }}>
+                      <div style={{ fontSize: 10, color: '#b26a1f', fontWeight: 700, marginBottom: 2 }}>🎁 Подарок на эфире</div>
+                      <div style={{ fontSize: 12, color: '#1a2a3a', fontWeight: 600, lineHeight: 1.3 }}>
+                        {sp.gift_after_speech_title || sp.gift_lm_name || sp.gift_lp_name}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {socials.length > 0 && (

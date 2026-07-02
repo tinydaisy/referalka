@@ -766,6 +766,8 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
     rows = await db.fetch(
         """SELECT cse.id, cse.speaker_id, cse.role, cse.speaker_topic,
                   cse.gift_after_speech_title, cse.gift_after_speech_url,
+                  cse.gift_lead_magnet_id, cse.gift_package_id,
+                  lm.name AS gift_lm_name, lp.name AS gift_lp_name,
                   cse.gift_raffle_title, cse.gift_raffle_url, cse.sort_order,
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   sp.name, sp.title, sp.photo_url,
@@ -774,6 +776,8 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   pu_tg.username AS personal_tg_username
            FROM event_collaborators cse
            JOIN collaborators sp ON sp.id = cse.speaker_id
+           LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
+           LEFT JOIN lead_magnet_packages lp ON lp.id = cse.gift_package_id
            LEFT JOIN platform_users pu_tg
              ON pu_tg.contact_id = sp.contact_id AND pu_tg.platform_slug = 'telegram'
            WHERE cse.event_id = $1 AND cse.is_visible = TRUE
