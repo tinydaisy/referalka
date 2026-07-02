@@ -90,6 +90,17 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Подтверждение email клиента + восстановление пароля (миграция 186 от 2026-07-02, ПРОД 58b2c9c)
+
+**Восстановление пароля** — бэк (`/auth/password-reset/request` + `/confirm`, таблица `password_reset_tokens`, письмо от «iViSiON: ПЛЮСОН») и фронт (`/password-reset`, `/password-reset/confirm`) уже были в коде; не хватало только **ссылки «Забыли пароль?» на `/login`** — добавлена (`(auth)/login/page.tsx`). Токен живёт 1 час, шлётся через системный email-канал, ссылка `pluson.ru/password-reset/confirm?token=`.
+
+**Подтверждение email:**
+- **БД (миграция 186):** `clients.email_verified BOOL NOT NULL DEFAULT FALSE` + `email_verified_at` + таблица `email_verify_tokens` (sha256-хеш, живёт 7 дней). Существующим клиентам проставлен FALSE — **плашка показывается всем**, пока не подтвердят (решение пользователя).
+- **Welcome-письмо** при регистрации ([email_verification.py](backend/app/services/email_verification.py) `send_verification_email`) — от «iViSiON: ПЛЮСОН», ссылка `pluson.ru/verify-email?token=`, с просьбой отметить «не спам». Не критично для регистрации (SMTP-ошибка не роняет register).
+- **Эндпоинты** ([auth.py](backend/app/api/auth.py)): `POST /auth/verify-email/confirm {token}` (публичный), `POST /auth/verify-email/resend` (клиент, ассистенту 403). `email_verified` проброшен в `GET /auth/me`.
+- **Гейт рассылок** — middleware [email_verification_guard.py](backend/app/middleware/email_verification_guard.py): без подтверждения email заблокирована постановка рассылок в очередь (write по пути с сегментом `/broadcasts/schedules` — и общие, и событийные). **Настройка шаблонов** (`/broadcasts/templates`) и **воронки лид-магнитов НЕ блокируются** (решение пользователя: «запрети только рассылки, чтобы воронки работали»). Ассистент/админ — пропускаются.
+- **Фронт:** плашка «Email не подтверждён» сверху в кабинете ([EmailVerifyBanner.tsx](web/src/components/EmailVerifyBanner.tsx), в [DashboardLayout.tsx](web/src/components/DashboardLayout.tsx)) с кнопкой «Отправить письмо заново»; ассистенту не показывается. Страница `/verify-email` ([`(auth)/verify-email/page.tsx`](web/src/app/%28auth%29/verify-email/page.tsx)) — обрабатывает `?token=` (была статичная заглушка → переписана в рабочую; дубля в корне быть не должно — Next.js route-group конфликт).
+
 ### Кастомные названия вкладок Mini App + «Экосистема» → «О проекте» (миграция 185 от 2026-07-01, коммиты b2e0d9e/fbc526d)
 
 **Клиент сам задаёт названия 4 вкладок Mini App** (одни на весь кабинет, действуют во всех событиях). Вкладка **«Экосистема» переименована в «О проекте»** везде (`EventPage.tsx`, `Hub.tsx` — видимый label). ⚠️ Внутренний `id` вкладки остаётся `ecosystem` (deeplink `_tabecosystem`, `EcosystemTab.tsx`, БД, иконка) — **не трогать**, меняется только человекочитаемый `label`.
