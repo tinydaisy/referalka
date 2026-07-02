@@ -64,6 +64,7 @@ export default function AdminTariffsPage() {
   function startCreate() {
     setForm(EMPTY_FORM)
     setEditingId('new')
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   function startEdit(t: Tariff) {
@@ -81,6 +82,7 @@ export default function AdminTariffsPage() {
       is_active: !!t.is_active,
     })
     setEditingId(t.id)
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   function cancel() {
