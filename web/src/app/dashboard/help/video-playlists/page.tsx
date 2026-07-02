@@ -7,11 +7,14 @@ const PEACH = '#FFCFA4'
 
 // Плейлисты видео-инструкций по первичной настройке ПЛЮСОН.
 const YT_PLAYLIST = 'PLYceogy52n7c'
-const YT_EMBED = `https://www.youtube.com/embed/videoseries?list=${YT_PLAYLIST}`
+// listType=playlist + list — надёжно грузит ВЕСЬ плейлист с боковой навигацией.
+// (videoseries?list= у Google часто показывает только первое видео.)
+const YT_EMBED = `https://www.youtube-nocookie.com/embed/?listType=playlist&list=${YT_PLAYLIST}`
 const YT_LINK = `https://youtube.com/playlist?list=${YT_PLAYLIST}`
 
 // VK: видео 456239050 из плейлиста -212804884_2 сообщества 212804884.
-const VK_EMBED = 'https://vkvideo.ru/video_ext.php?oid=-212804884&id=456239050&hd=2'
+// &list=… подключает плейлист (навигация по видео внутри плеера).
+const VK_EMBED = 'https://vkvideo.ru/video_ext.php?oid=-212804884&id=456239050&hd=2&list=-212804884_2'
 const VK_LINK = 'https://vkvideo.ru/video-212804884_456239050?pl=-212804884_2'
 
 const STEPS = [
