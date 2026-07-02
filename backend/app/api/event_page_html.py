@@ -121,8 +121,13 @@ async def _load_program(db, event_id):
     return days, stages, sessions
 
 
-async def _load_gifts(db, event_id):
-    """Пороги-подарки события (как getGifts в Mini App)."""
+async def _load_gifts(db, event_id, viewer_contact_id=None):
+    """Пороги-подарки события (как getGifts в Mini App).
+
+    В link_url/certificate_url раскрываются плейсхолдеры {plsn_ref}/{ext_ref} —
+    реф-коды рефовода зрителя (по его event_participants.referrer_ref_code).
+    Единый синтаксис с Mini App (gifts.py) и воронками (funnel_service).
+    Нет зрителя / нет рефовода → плейсхолдеры пустые."""
     rows = await db.fetch(
         """SELECT t.threshold_count AS points_cost,
                   COALESCE(lm.name, 'Подарок') AS title,
@@ -135,7 +140,34 @@ async def _load_gifts(db, event_id):
             ORDER BY t.threshold_count""",
         event_id,
     )
-    return [dict(r) for r in rows]
+    gifts = [dict(r) for r in rows]
+
+    def _has_ph(s):
+        return "{plsn_ref}" in (s or "") or "{ext_ref}" in (s or "")
+
+    if viewer_contact_id and any(
+        _has_ph(g.get("link_url")) or _has_ph(g.get("certificate_url")) for g in gifts
+    ):
+        row = await db.fetchrow(
+            """SELECT rc.ref_code, rc.external_ref_param
+                 FROM event_participants ep
+                 JOIN contacts rc ON (rc.ref_code = ep.referrer_ref_code
+                                      OR rc.merged_ref_codes ? ep.referrer_ref_code)
+                WHERE ep.event_id = $1 AND ep.contact_id = $2
+                  AND ep.referrer_ref_code IS NOT NULL
+                LIMIT 1""",
+            event_id, int(viewer_contact_id),
+        )
+        params = {
+            "plsn_ref": (row["ref_code"] if row else "") or "",
+            "ext_ref": (row["external_ref_param"] if row else "") or "",
+        }
+        for g in gifts:
+            for field in ("link_url", "certificate_url"):
+                if g.get(field):
+                    for k, v in params.items():
+                        g[field] = g[field].replace("{" + k + "}", v or "")
+    return gifts
 
 
 async def _load_share_materials(db, event_id):
@@ -1988,7 +2020,6 @@ async def event_page(slug: str, c: str = "", email: str = "",
 
     collabs = await _load_collaborators(db, event_id)
     days, stages, sessions = await _load_program(db, event_id)
-    gifts = await _load_gifts(db, event_id)
     share_texts, share_images, share_videos = await _load_share_materials(db, event_id)
     ref_enabled = await _referral_enabled(db, event_id)
     client = await _load_client(db, ev["client_id"]) if ev.get("client_id") else None
@@ -2015,6 +2046,9 @@ async def event_page(slug: str, c: str = "", email: str = "",
                 ev["client_id"], email_norm,
             )
     ref_cabinet = await _load_ref_cabinet(db, ev, contact_id) if contact_id else None
+    # Подарки грузим ПОСЛЕ резолва contact_id зрителя — чтобы подставить его
+    # рефовода в {plsn_ref}/{ext_ref} в ссылках подарков.
+    gifts = await _load_gifts(db, event_id, contact_id)
 
     # Deeplink'и в бот площадок для кнопки чата (только если у события включена
     # обязательная подписка — тогда площадка ведёт в бот, который её проверит).
