@@ -21,6 +21,7 @@ function Inner() {
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showPassword2, setShowPassword2] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
@@ -90,12 +91,22 @@ function Inner() {
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-            <input
-              type={showPassword ? 'text' : 'password'} value={password2}
-              onChange={e => setPassword2(e.target.value)}
-              placeholder="Повторите пароль"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFCFA4]/40 text-sm"
-            />
+            <div className="relative">
+              <input
+                type={showPassword2 ? 'text' : 'password'} value={password2}
+                onChange={e => setPassword2(e.target.value)}
+                placeholder="Повторите пароль"
+                className="w-full px-4 py-3 pr-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFCFA4]/40 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword2(!showPassword2)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                aria-label={showPassword2 ? 'Скрыть пароль' : 'Показать пароль'}
+              >
+                {showPassword2 ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <button type="submit" disabled={submitting}
               className="w-full px-4 py-3 bg-[#FFCFA4] text-[#25455D] rounded-xl font-bold disabled:opacity-50">

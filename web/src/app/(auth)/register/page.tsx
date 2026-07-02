@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle, ArrowRight } from 'lucide-react'
+import { CheckCircle, ArrowRight, Eye, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export default function RegisterPage() {
@@ -10,6 +10,8 @@ export default function RegisterPage() {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [referrerPid, setReferrerPid] = useState<string | null>(null)
 
   useEffect(() => {
@@ -138,20 +140,34 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Пароль *</label>
-              <input
-                type="password" value={form.password} onChange={set('password')} required
-                placeholder="Минимум 8 символов"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'} value={form.password} onChange={set('password')} required
+                  placeholder="Минимум 8 символов"
+                  className="w-full px-4 py-3 pr-11 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
+                />
+                <button type="button" onClick={() => setShowPassword(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  tabIndex={-1} aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}>
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Повторите пароль *</label>
-              <input
-                type="password" value={form.confirm} onChange={set('confirm')} required
-                placeholder="Повторите пароль"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
-              />
+              <div className="relative">
+                <input
+                  type={showConfirm ? 'text' : 'password'} value={form.confirm} onChange={set('confirm')} required
+                  placeholder="Повторите пароль"
+                  className="w-full px-4 py-3 pr-11 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-sm"
+                />
+                <button type="button" onClick={() => setShowConfirm(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  tabIndex={-1} aria-label={showConfirm ? 'Скрыть пароль' : 'Показать пароль'}>
+                  {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <button

@@ -172,13 +172,26 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
 
     token = create_token({"sub": str(client["id"]), "email": client["email"], "role": "client"})
 
-    # Письмо с подтверждением email (от «iViSiON: ПЛЮСОН»). Не критично для
-    # регистрации — если SMTP недоступен, регистрация всё равно проходит.
-    try:
-        from app.services.email_verification import send_verification_email
-        await send_verification_email(db, client["id"])
-    except Exception:
-        pass
+    # Письмо с подтверждением email (от «iViSiON: ПЛЮСОН»). Отправляем В ФОНЕ —
+    # send() внутри делает СИНХРОННЫЙ блокирующий SMTP-вызов, и если сервер
+    # тормозит, register висел до 5 мин (кнопка «Регистрируем…» не отпускала).
+    # Фоновая задача берёт СВОЁ соединение из пула (текущее db освободится сразу
+    # после return). Ошибки/таймауты SMTP на регистрацию не влияют.
+    import asyncio as _asyncio
+
+    async def _send_welcome_email_bg(client_id: int):
+        try:
+            from app.database import get_pool
+            from app.services.email_verification import send_verification_email
+            pool = await get_pool()
+            if pool is None:
+                return
+            async with pool.acquire() as conn:
+                await send_verification_email(conn, client_id)
+        except Exception:
+            pass
+
+    _asyncio.create_task(_send_welcome_email_bg(client["id"]))
 
     return {
         "access_token": token,
@@ -206,14 +219,31 @@ async def referrer_info(
     client_id = await resolve_plusson_referrer(db, pid)
     if not client_id:
         return {"valid": False}
+    # Имя ОСНОВАТЕЛЯ (clients.name), не бренд — «Вас пригласил Марго Форбс»,
+    # а не «Вас пригласил ВИДЕНИЕ / iViSiON».
     name = await db.fetchval(
-        "SELECT COALESCE(NULLIF(brand_name, ''), name) FROM clients WHERE id = $1",
-        client_id,
+        "SELECT name FROM clients WHERE id = $1", client_id,
     )
+    # Итоговое число дней триала = база тарифа trial + реф-бонус (+ активная промо,
+    # если есть). Чтобы на лендинге писать конкретно «37 дней», а не «на 7 больше».
+    base_days = await db.fetchval(
+        "SELECT default_duration_days FROM tariffs WHERE slug = 'trial'"
+    ) or 14
+    promo_bonus = await db.fetchval(
+        """SELECT value FROM promotions
+            WHERE is_active = TRUE AND type = 'trial_bonus_days'
+              AND (target_tariff_slug IS NULL OR target_tariff_slug = 'trial')
+              AND (starts_at IS NULL OR starts_at <= NOW())
+              AND (ends_at   IS NULL OR ends_at   >  NOW())
+              AND (max_uses  IS NULL OR used_count < max_uses)
+            ORDER BY id LIMIT 1"""
+    ) or 0
+    total_days = int(base_days) + int(promo_bonus) + REFERRAL_TRIAL_BONUS_DAYS
     return {
         "valid": True,
         "referrer_name": name or "",
         "bonus_days": REFERRAL_TRIAL_BONUS_DAYS,
+        "total_days": total_days,
     }
 
 

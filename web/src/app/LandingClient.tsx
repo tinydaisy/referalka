@@ -57,7 +57,7 @@ export default function LandingClient() {
   const [addonModules, setAddonModules] = useState<Feature[]>([])
   const [pid, setPid] = useState<string | null>(null)
   // Инфо о пригласившем — заполняется только если pid ВАЛИДНЫЙ (реальный код).
-  const [referrer, setReferrer] = useState<{ referrer_name: string; bonus_days: number } | null>(null)
+  const [referrer, setReferrer] = useState<{ referrer_name: string; bonus_days: number; total_days: number } | null>(null)
 
   useEffect(() => {
     // Парсим pid из URL и сохраняем в localStorage — пригодится при регистрации
@@ -73,7 +73,7 @@ export default function LandingClient() {
             if (r?.valid) {
               localStorage.setItem('pluson_referrer_pid', effective)
               setPid(effective)
-              setReferrer({ referrer_name: r.referrer_name, bonus_days: r.bonus_days })
+              setReferrer({ referrer_name: r.referrer_name, bonus_days: r.bonus_days, total_days: r.total_days })
             } else {
               localStorage.removeItem('pluson_referrer_pid')
               setPid(null)
@@ -154,7 +154,7 @@ export default function LandingClient() {
           {referrer && (
             <div className="mt-5 inline-flex flex-col items-center gap-1 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3">
               <span className="text-amber-900 font-semibold text-sm sm:text-base">
-                🎁 Вам доступен продлённый триал — на {referrer.bonus_days} дней больше
+                🎁 Вам доступен продлённый триал — {referrer.total_days} дней
               </span>
               {referrer.referrer_name && (
                 <span className="text-xs sm:text-sm text-amber-700">
