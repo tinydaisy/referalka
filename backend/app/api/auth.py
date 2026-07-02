@@ -522,63 +522,94 @@ async def password_reset_request(
         # Не раскрываем подробностей — отвечаем как успешный запрос
         return {"ok": True}
 
-    row = await db.fetchrow(
+    ip = (request.client.host if request and request.client else "") or ""
+
+    # Ищем сначала среди клиентов, затем среди админов.
+    client_row = await db.fetchrow(
         "SELECT id, email FROM clients WHERE LOWER(email) = $1",
         email_norm,
     )
+    admin_row = None
+    if not client_row:
+        admin_row = await db.fetchrow(
+            "SELECT id, email FROM admins WHERE LOWER(email) = $1",
+            email_norm,
+        )
 
-    if row:
+    if client_row or admin_row:
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         expires_at = datetime.utcnow() + timedelta(hours=1)
-        ip = (request.client.host if request and request.client else "") or ""
-        await db.execute(
-            """INSERT INTO password_reset_tokens
-                   (client_id, token_hash, expires_at, ip_address)
-                VALUES ($1, $2, $3, $4)""",
-            row["id"], token_hash, expires_at, ip[:64],
-        )
+        to_email = (client_row or admin_row)["email"]
 
-        # Шлём письмо с ссылкой через системный email-канал ПЛЮСОНа
-        try:
-            from app.services.email_sender import EmailSender, EmailSendError
-            from app.services.unsubscribe_token import make_email_unsubscribe_token
-
-            # Системный email-канал ПЛЮСОНа (is_system=TRUE) для клиента row["id"]
-            ch = await db.fetchrow(
-                """SELECT ch.id AS channel_id, cc.id AS client_channel_id,
-                          ch.email_subdomain, ch.email_from_local
-                     FROM client_channels cc
-                     JOIN channels ch ON ch.id = cc.channel_id
-                    WHERE cc.client_id = $1
-                      AND ch.platform_slug = 'email'
-                      AND ch.is_system = TRUE
-                    LIMIT 1""",
-                row["id"],
+        if client_row:
+            await db.execute(
+                """INSERT INTO password_reset_tokens
+                       (client_id, token_hash, expires_at, ip_address)
+                    VALUES ($1, $2, $3, $4)""",
+                client_row["id"], token_hash, expires_at, ip[:64],
             )
+        else:
+            await db.execute(
+                """INSERT INTO password_reset_tokens
+                       (admin_id, token_hash, expires_at, ip_address)
+                    VALUES ($1, $2, $3, $4)""",
+                admin_row["id"], token_hash, expires_at, ip[:64],
+            )
+
+        # Шлём письмо со ссылкой через системный email-канал ПЛЮСОНа.
+        try:
+            from app.services.email_sender import EmailSender
+            from app.services.unsubscribe_token import make_email_unsubscribe_token
+            from app.config import settings as _s
+
+            # Системный email-канал ПЛЮСОНа (is_system=TRUE). Для клиента берём
+            # через client_channels (чтобы был client_channel_id для unsub-токена);
+            # для админа — сам системный канал напрямую (client_channel_id нет).
+            if client_row:
+                ch = await db.fetchrow(
+                    """SELECT ch.id AS channel_id, cc.id AS client_channel_id,
+                              ch.email_subdomain, ch.email_from_local
+                         FROM client_channels cc
+                         JOIN channels ch ON ch.id = cc.channel_id
+                        WHERE cc.client_id = $1
+                          AND ch.platform_slug = 'email'
+                          AND ch.is_system = TRUE
+                        LIMIT 1""",
+                    client_row["id"],
+                )
+                unsub_client_id = client_row["id"]
+                unsub_channel_id = ch["client_channel_id"] if ch else 0
+            else:
+                ch = await db.fetchrow(
+                    """SELECT ch.id AS channel_id, NULL::int AS client_channel_id,
+                              ch.email_subdomain, ch.email_from_local
+                         FROM channels ch
+                        WHERE ch.platform_slug = 'email' AND ch.is_system = TRUE
+                        LIMIT 1"""
+                )
+                unsub_client_id = 0
+                unsub_channel_id = 0
+
             if ch:
-                from app.config import settings as _s
                 reset_url = f"{_s.frontend_url.rstrip('/')}/password-reset/confirm?token={token}"
                 channel_dict = dict(ch)
                 channel_dict["email_from_name"] = "iViSiON: ПЛЮСОН"
 
-                # Заглушка для unsub-токена — для транзакционных писем
-                # отписка не предполагается (это системные уведомления).
-                # Но подвал отписки всё равно вставится — пусть будет.
                 fake_unsub = make_email_unsubscribe_token(
-                    client_id=row["id"], contact_id=0,
-                    client_channel_id=ch["client_channel_id"],
+                    client_id=unsub_client_id, contact_id=0,
+                    client_channel_id=unsub_channel_id,
                 )
 
                 sender = EmailSender()
                 sender.send(
                     channel=channel_dict,
                     client_brand_name="iViSiON: ПЛЮСОН",
-                    to_email=row["email"],
+                    to_email=to_email,
                     subject="Восстановление пароля — ПЛЮСОН",
                     body_text=(
                         f"Здравствуйте!\n\n"
-                        f"Вы запросили восстановление пароля в личном кабинете ПЛЮСОНа.\n\n"
+                        f"Вы запросили восстановление пароля в ПЛЮСОНе.\n\n"
                         f"Перейдите по ссылке, чтобы задать новый пароль:\n"
                         f"{reset_url}\n\n"
                         f"Ссылка действует 1 час. Если вы не запрашивали восстановление — "
@@ -650,7 +681,7 @@ async def password_reset_confirm(
 
     token_hash = hashlib.sha256(data.token.encode()).hexdigest()
     row = await db.fetchrow(
-        """SELECT id, client_id FROM password_reset_tokens
+        """SELECT id, client_id, admin_id FROM password_reset_tokens
             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
             LIMIT 1""",
         token_hash,
@@ -660,10 +691,16 @@ async def password_reset_confirm(
 
     new_hash = hash_password(data.new_password)
     async with db.transaction():
-        await db.execute(
-            "UPDATE clients SET password_hash = $1 WHERE id = $2",
-            new_hash, row["client_id"],
-        )
+        if row["admin_id"] is not None:
+            await db.execute(
+                "UPDATE admins SET password_hash = $1 WHERE id = $2",
+                new_hash, row["admin_id"],
+            )
+        else:
+            await db.execute(
+                "UPDATE clients SET password_hash = $1 WHERE id = $2",
+                new_hash, row["client_id"],
+            )
         await db.execute(
             "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1",
             row["id"],
