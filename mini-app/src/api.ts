@@ -99,8 +99,10 @@ export const markParticipantWelcomed = (id: number) =>
   req(`/api/v1/participants/${id}/welcomed`, { method: 'POST' })
 
 // ── Подарки и программа ──
-export const getGifts = (slug: string) =>
-  req(`/api/v1/events/slug/${slug}/gifts/`)
+// tgId нужен, чтобы бэк подставил {ref} в ссылках подарков — реф-код рефовода
+// участника (например, для ссылки регистрации в ПЛЮСОН ?pid={ref}).
+export const getGifts = (slug: string, tgId?: number | string | null) =>
+  req(`/api/v1/events/slug/${slug}/gifts/${tgId ? `?tg_id=${tgId}` : ''}`)
 
 export const getSpeakers = (eventId: number) =>
   req(`/api/v1/events/${eventId}/conference/speakers/public`)

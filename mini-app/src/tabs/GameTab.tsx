@@ -112,14 +112,16 @@ export default function GameTab({ event, participant, tgUser }: Props) {
     || shareLinks.max
     || `${APP_URL}/l/${slug}?app=tg&pid=${refCode}`
 
-  // Загружаем подарки → понимаем «следующий» по порогу
+  // Загружаем подарки → понимаем «следующий» по порогу.
+  // tgId прокидываем, чтобы бэк подставил {ref} (реф-код рефовода) в ссылках.
   useEffect(() => {
     if (event?.slug) {
-      getGifts(event.slug)
+      const tgId = tgUser?.id ?? tgUser?.tg_id
+      getGifts(event.slug, tgId)
         .then(r => setGifts(r.gifts || []))
         .catch(() => setGifts([]))
     }
-  }, [event?.slug])
+  }, [event?.slug, tgUser])
 
   // Материалы для шеринга — тексты и картинки
   useEffect(() => {
