@@ -90,6 +90,29 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Реф-программа ПЛЮСОНа: закрепление приведённых за рефоводом + плейсхолдеры ссылок (миграция 189 от 2026-07-02)
+
+**Зачем.** Спикер (напр. Маша) рекламит событие клиента → человек (Вася) приходит по её реф-ссылке события → берёт «ПЛЮСОН» как подарок за регистрацию → регистрируется клиентом ПЛЮСОНа → должен закрепиться за Машей в реф-программе ПЛЮСОНа (`clients.referred_by_client_id`).
+
+**Два разных реф-кода у одного человека (НЕ путать):**
+- `contacts.ref_code` — код человека как КОНТАКТА в базе клиента (реф-программа события). Глобально уникален.
+- `clients.referral_code` — код человека как КЛИЕНТА ПЛЮСОНа (реф-программа ПЛЮСОНа).
+- Связь между ними = `collaborators.linked_client_id` (спикер привязал свой ПЛЮСОН-аккаунт попапом-логином).
+
+**Резолвер** [plusson_referral.py](backend/app/services/plusson_referral.py) `resolve_plusson_referrer(db, code)` — единая точка: по коду вернуть `client_id` рефовода. Порядок: (1) `clients.referral_code` → сразу клиент; (2) `contacts.ref_code` (или `merged_ref_codes`) → его `collaborators.linked_client_id`; (3) иначе None. `/register` ([auth.py](backend/app/api/auth.py)) зовёт его вместо прямого SELECT — понимает ОБА типа кодов. Мусорный/несуществующий код → None (регистрация без реферала).
+
+**+7 дней триала по реф-коду** — `REFERRAL_TRIAL_BONUS_DAYS=7` в [auth.py](backend/app/api/auth.py), поверх базы (30) и промо. Только при валидном коде. Публичный `GET /auth/referrer-info?pid=` — валидация кода для лендинга, возвращает `{valid, referrer_name, bonus_days}`. Лендинг ([LandingClient.tsx](web/src/app/LandingClient.tsx)) валидирует pid перед показом плашки «продлённый триал», мусор ({plsn_ref} и т.п.) не сохраняет. `/login` тоже не теряет pid при переходе на регистрацию.
+
+**Два плейсхолдера в ссылках лид-магнитов/подарков** (раскрываются реф-кодами РЕФОВОДА того, кто получает):
+- `{plsn_ref}` — плюсоновский реф-код рефовода (`contacts.ref_code`). Для `pluson.ru/?pid={plsn_ref}` или `pluson.ru/register?pid={plsn_ref}` (лендинг сам пробрасывает pid в register через localStorage).
+- `{ext_ref}` — сторонний партнёрский код рефовода (`contacts.external_ref_param`, напр. `gcpc=fdd97`). Для внешних лендингов.
+
+**Клиент вписывает плейсхолдер вручную** в поле «Ссылка» лид-магнита — только если ссылка ведёт в ПЛЮСОН/партнёрскую систему (к обычным файлам не нужно). Раскрытие — **в 3 точках выдачи ссылок подарков** (единый синтаксис): Mini App ([gifts.py](backend/app/api/gifts.py), рефовод по tg_id участника), веб-страница события ([event_page_html.py](backend/app/api/event_page_html.py) `_load_gifts`, рефовод по `?c={contact_id}` зрителя), воронки `/m/` ([funnel_service.py](backend/app/services/funnel_service.py) `_materials_for_run`, рефовод по `funnel_runs.referrer_contact_id`). Подстановка только если плейсхолдер реально есть в url.
+
+**Галочка «выдавать подарки через воронку» (миграция 189)** — `event_referral_settings.gift_via_funnel BOOL DEFAULT FALSE`, одна на событие. FALSE (default) = подарок = прямая ссылка на файл (как было). TRUE = `link_url` подарка ведёт на воронку `pluson.ru/m/{slug}` лид-магнита (проверка подписки + follow-up), а не сразу на файл; плейсхолдеры тогда раскрывает сама воронка. Применяется в обеих точках подарков (gifts.py + event_page_html.py). API — поле в GET/PUT `/events/{id}/referral/settings` ([referral_program.py](backend/app/api/referral_program.py)). UI — галочка в блоке «За что выдаются подарки» подвкладки «Подарки» ([ReferralProgramTab.tsx](web/src/app/dashboard/events/%5Bid%5D/tabs/ReferralProgramTab.tsx)).
+
+**⚠️ Работает только если рефовод — спикер с привязанным ПЛЮСОНом** (`linked_client_id`). Обычный участник-рефовод без ПЛЮСОН-аккаунта → `{plsn_ref}` подставится, но `/register` его не найдёт среди клиентов → регистрация без реферала (by design).
+
 ### Подтверждение email клиента + восстановление пароля (миграция 186 от 2026-07-02, ПРОД 58b2c9c)
 
 **Восстановление пароля** — бэк (`/auth/password-reset/request` + `/confirm`, таблица `password_reset_tokens`, письмо от «iViSiON: ПЛЮСОН») и фронт (`/password-reset`, `/password-reset/confirm`) уже были в коде; не хватало только **ссылки «Забыли пароль?» на `/login`** — добавлена (`(auth)/login/page.tsx`). Токен живёт 1 час, шлётся через системный email-канал, ссылка `pluson.ru/password-reset/confirm?token=`.

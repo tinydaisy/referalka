@@ -133,6 +133,7 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
                   COALESCE(lm.name, 'Подарок') AS title,
                   t.gift_template_text AS description,
                   lm.url AS link_url,
+                  lm.slug AS lm_slug,
                   t.certificate_url
              FROM event_referral_thresholds t
              LEFT JOIN lead_magnets lm ON lm.id = t.lead_magnet_id
@@ -141,6 +142,16 @@ async def _load_gifts(db, event_id, viewer_contact_id=None):
         event_id,
     )
     gifts = [dict(r) for r in rows]
+
+    # Галочка «выдавать через воронку»: link_url → pluson.ru/m/{slug} вместо файла.
+    via_funnel = await db.fetchval(
+        "SELECT gift_via_funnel FROM event_referral_settings WHERE event_id = $1",
+        event_id,
+    )
+    if via_funnel:
+        for g in gifts:
+            if g.get("lm_slug"):
+                g["link_url"] = f"https://pluson.ru/m/{g['lm_slug']}"
 
     def _has_ph(s):
         return "{plsn_ref}" in (s or "") or "{ext_ref}" in (s or "")

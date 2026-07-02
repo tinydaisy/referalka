@@ -157,6 +157,7 @@ async def _fetch_gifts_for_event(
                lm.description                          AS description,
                t.threshold_count                       AS points_cost,
                lm.url                                  AS link_url,
+               lm.slug                                 AS lm_slug,
                t.certificate_url                       AS certificate_url,
                t.sort                                  AS sort_order
           FROM event_referral_thresholds t
@@ -168,8 +169,22 @@ async def _fetch_gifts_for_event(
     )
     gifts = [dict(r) for r in rows]
 
+    # Галочка «выдавать подарки через воронку» (event_referral_settings.
+    # gift_via_funnel). Вкл → link_url подарка ведёт на воронку pluson.ru/m/{slug}
+    # (проверка подписки + follow-up), а не сразу на файл. Плейсхолдеры {plsn_ref}/
+    # {ext_ref} тогда раскрывает сама воронка (funnel_service).
+    via_funnel = await db.fetchval(
+        "SELECT gift_via_funnel FROM event_referral_settings WHERE event_id = $1",
+        event_id,
+    )
+    if via_funnel:
+        for g in gifts:
+            if g.get("lm_slug"):
+                g["link_url"] = f"https://pluson.ru/m/{g['lm_slug']}"
+
     # Подставляем плейсхолдеры только если они реально встречаются — иначе не
-    # трогаем БД лишним запросом рефовода.
+    # трогаем БД лишним запросом рефовода. (При via_funnel прямые url заменены на
+    # воронку, где плейсхолдеров нет — подстановка тут просто не сработает.)
     def _has_ph(s):
         return "{plsn_ref}" in (s or "") or "{ext_ref}" in (s or "")
 
@@ -180,6 +195,9 @@ async def _fetch_gifts_for_event(
                 if g.get(field):
                     for k, v in params.items():
                         g[field] = g[field].replace("{" + k + "}", v or "")
+
+    for g in gifts:
+        g.pop("lm_slug", None)
     return gifts
 
 

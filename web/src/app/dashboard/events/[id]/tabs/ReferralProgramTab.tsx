@@ -378,6 +378,7 @@ type GiftMode = 'registered' | 'visited' | 'clicked_link'
 function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string }) {
   const [mode, setMode] = useState<GiftMode | null>(null)
   const [enabled, setEnabled] = useState<boolean>(false)
+  const [viaFunnel, setViaFunnel] = useState<boolean>(false)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -402,9 +403,20 @@ function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSl
         if (m === 'clicked_link' && moduleSlug !== 'contest') m = 'registered'
         setMode(m)
         setEnabled(!!d.is_enabled)
+        setViaFunnel(!!d.gift_via_funnel)
       })
       .catch(() => setMode('registered'))
   }, [eventId, moduleSlug])
+
+  async function saveViaFunnel(next: boolean) {
+    setSaving(true); setErr(null)
+    try {
+      await api.referralProgram.settings.save(eventId, { gift_via_funnel: next })
+      setViaFunnel(next)
+      setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500)
+    } catch (e: any) { setErr(e.message || 'Ошибка сохранения') }
+    finally { setSaving(false) }
+  }
 
   async function save(next: GiftMode) {
     setSaving(true); setErr(null)
@@ -473,6 +485,24 @@ function GiftCountModeBlock({ eventId, moduleSlug }: { eventId: number; moduleSl
           </div>
         </label>
       </div>
+
+      {/* Галочка «выдавать подарки через воронку лид-магнита» — одна на событие */}
+      <div className="mt-4 pt-3 border-t border-amber-200">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input type="checkbox" className="mt-1" disabled={saving}
+                 checked={viaFunnel}
+                 onChange={e => saveViaFunnel(e.target.checked)} />
+          <div>
+            <div className="text-sm font-medium">Выдавать подарки через воронку</div>
+            <div className="text-xs text-gray-500">
+              Выкл — при получении подарка человек сразу получает ссылку на материал.
+              Вкл — подарок ведёт на воронку лид-магнита (проверка подписки на канал
+              + напоминание), а не сразу на файл.
+            </div>
+          </div>
+        </label>
+      </div>
+
       {err && <div className="text-xs text-red-600 mt-2">{err}</div>}
     </div>
   )
