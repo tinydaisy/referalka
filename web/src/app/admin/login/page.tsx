@@ -19,6 +19,8 @@ export default function AdminLoginPage() {
       const res = await api.auth.adminLogin({ email, password })
       localStorage.setItem('plusson_token', res.access_token)
       localStorage.setItem('admin_role', 'admin')
+      // Cookie нужен для Next.js middleware (он проверяет доступ к /admin по cookie).
+      document.cookie = `plusson_token=${res.access_token}; path=/; max-age=604800; SameSite=Lax`
       window.location.href = '/admin'
     } catch (err: any) {
       setError(err.message)

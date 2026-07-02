@@ -5,9 +5,14 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('plusson_token')?.value
   const { pathname } = request.nextUrl
 
-  if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
+  // Страница входа админа не требует токена — иначе неавторизованного
+  // перебрасывало бы на /login (клиентский вход).
+  const isAdminLogin = pathname === '/admin/login' || pathname.startsWith('/admin/login/')
+
+  if ((pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) && !isAdminLogin) {
     if (!token) {
-      return NextResponse.redirect(new URL('/login', request.url))
+      const target = pathname.startsWith('/admin') ? '/admin/login' : '/login'
+      return NextResponse.redirect(new URL(target, request.url))
     }
   }
 

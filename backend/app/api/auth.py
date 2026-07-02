@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from app.auth import hash_password, verify_password, create_token
 from app.database import get_db
+from app.services.plusson_referral import resolve_plusson_referrer
 import asyncpg
 import secrets
 from datetime import timedelta
@@ -48,16 +49,11 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         if not partner:
             data.partner_code = None  # Неверный код — просто игнорируем
 
-    # Разрешаем pid → referred_by_client_id (миграция 125)
-    referred_by_client_id = None
-    if data.pid:
-        ref_row = await db.fetchrow(
-            "SELECT id FROM clients WHERE referral_code = $1",
-            data.pid.strip(),
-        )
-        if ref_row:
-            referred_by_client_id = ref_row["id"]
-        # если код невалиден — молча игнорируем (просто без связи)
+    # Разрешаем pid → referred_by_client_id (миграция 125).
+    # pid может быть ЛИБО клиентским кодом (clients.referral_code), ЛИБО
+    # кодом-контактом рефовода-спикера с привязанным ПЛЮСОНом — общий резолвер
+    # понимает оба и возвращает нужного клиента. Невалидный код → None (без связи).
+    referred_by_client_id = await resolve_plusson_referrer(db, data.pid)
 
     # Генерим реф-код для нового клиента
     import random

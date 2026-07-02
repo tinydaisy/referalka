@@ -97,11 +97,47 @@ async def delete_gift(
     return {"message": "Подарок удалён"}
 
 
-async def _fetch_gifts_for_event(event_id: int, db: asyncpg.Connection):
+async def _referrer_ref_for_participant(
+    event_id: int, tg_id: Optional[int], db: asyncpg.Connection
+) -> str:
+    """Реф-код рефовода запрашивающего участника в этом событии (или '').
+
+    Ищем участника по tg_id → его event_participants.referrer_ref_code. Это
+    код-КОНТАКТ того, кто привёл человека в событие. Подставляется в плейсхолдер
+    {ref} ссылок подарков — например, ссылка регистрации в ПЛЮСОН
+    `pluson.ru/register?pid={ref}`: /register сам резолвит код-контакт спикера в
+    его клиентский аккаунт (см. services/plusson_referral.py). Нет tg_id / нет
+    рефовода → '' (ссылка без pid, человек регается ни от кого)."""
+    if not tg_id:
+        return ""
+    ref = await db.fetchval(
+        """
+        SELECT ep.referrer_ref_code
+          FROM event_participants ep
+          JOIN contacts c ON c.id = ep.contact_id
+          JOIN platform_users pu ON pu.contact_id = c.id
+         WHERE ep.event_id = $1
+           AND pu.platform_slug = 'telegram'
+           AND pu.platform_user_id = $2
+           AND ep.referrer_ref_code IS NOT NULL
+         LIMIT 1
+        """,
+        event_id, str(tg_id),
+    )
+    return ref or ""
+
+
+async def _fetch_gifts_for_event(
+    event_id: int, db: asyncpg.Connection, tg_id: Optional[int] = None
+):
     """
     Подарки реф-программы из event_referral_thresholds + JOIN lead_magnets.
     Возвращает список в формате, который ждёт Mini App (id, title, description,
     points_cost, link_url, sort_order).
+
+    В link_url/certificate_url раскрывается плейсхолдер {ref} → реф-код рефовода
+    запрашивающего участника (по tg_id). Общий плейсхолдер, не завязан на ПЛЮСОН:
+    клиент сам решает, в какой подарок его вписать.
     """
     rows = await db.fetch(
         """
@@ -119,20 +155,43 @@ async def _fetch_gifts_for_event(event_id: int, db: asyncpg.Connection):
         """,
         event_id,
     )
-    return [dict(r) for r in rows]
+    gifts = [dict(r) for r in rows]
+
+    # Подстановка {ref} только если он вообще встречается в ссылках — иначе не
+    # трогаем БД лишним запросом рефовода.
+    needs_ref = any(
+        "{ref}" in (g.get("link_url") or "") or "{ref}" in (g.get("certificate_url") or "")
+        for g in gifts
+    )
+    if needs_ref:
+        ref = await _referrer_ref_for_participant(event_id, tg_id, db)
+        for g in gifts:
+            if g.get("link_url"):
+                g["link_url"] = g["link_url"].replace("{ref}", ref)
+            if g.get("certificate_url"):
+                g["certificate_url"] = g["certificate_url"].replace("{ref}", ref)
+    return gifts
 
 
 @router.get("/public/{event_slug}", summary="Подарки для Mini App (публично)")
-async def list_gifts_public(event_slug: str, db: asyncpg.Connection = Depends(get_db)):
+async def list_gifts_public(
+    event_slug: str,
+    tg_id: Optional[int] = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
     event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", event_slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
-    return {"gifts": await _fetch_gifts_for_event(event["id"], db)}
+    return {"gifts": await _fetch_gifts_for_event(event["id"], db, tg_id)}
 
 
 @router_compat.get("/{event_slug}/gifts/", summary="Подарки для Mini App — совместимый URL")
-async def list_gifts_by_slug(event_slug: str, db: asyncpg.Connection = Depends(get_db)):
+async def list_gifts_by_slug(
+    event_slug: str,
+    tg_id: Optional[int] = None,
+    db: asyncpg.Connection = Depends(get_db),
+):
     event = await db.fetchrow("SELECT id FROM events WHERE slug = $1", event_slug)
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
-    return {"gifts": await _fetch_gifts_for_event(event["id"], db)}
+    return {"gifts": await _fetch_gifts_for_event(event["id"], db, tg_id)}
