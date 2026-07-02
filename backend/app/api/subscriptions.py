@@ -42,6 +42,7 @@ router = APIRouter(prefix="/subscriptions", tags=["Подписка клиент
 
 class CreateOrderRequest(BaseModel):
     tariff_slug: str  # 'start' | 'pro' | 'vip'
+    provider: str = "prodamus"  # 'prodamus' | 'leadpay'
 
 
 @router.post("/order", summary="Создать заказ на оплату подписки")
@@ -50,18 +51,24 @@ async def create_order(
     user=Depends(get_current_user),
     db: asyncpg.Connection = Depends(get_db),
 ):
-    """Создаёт subscription_order и возвращает ссылку на Prodamus.
+    """Создаёт subscription_order и возвращает ссылку оплаты.
 
+    provider='prodamus' — приклеиваем order_id к готовой Prodamus-ссылке.
+    provider='leadpay'  — создаём ссылку через LeadPay getLink (product_id из tariffs).
     Цена и duration берутся из tariffs в момент создания заказа.
-    Реальная сумма оплаты придёт в webhook (Prodamus её может округлить).
     """
     if user.get("role") == "assistant":
         raise HTTPException(status_code=403, detail="Оплата подписки доступна только владельцу кабинета")
 
+    provider = (data.provider or "prodamus").strip().lower()
+    if provider not in ("prodamus", "leadpay"):
+        raise HTTPException(status_code=400, detail="Неизвестный способ оплаты")
+
     client_id = int(user["sub"])
 
     tariff = await db.fetchrow(
-        """SELECT id, slug, name, price, default_duration_days, prodamus_payment_url, is_active
+        """SELECT id, slug, name, price, default_duration_days,
+                  prodamus_payment_url, leadpay_product_id, is_active
              FROM tariffs WHERE slug = $1""",
         data.tariff_slug,
     )
@@ -69,10 +76,12 @@ async def create_order(
         raise HTTPException(status_code=404, detail="Тариф не найден")
     if not tariff["is_active"]:
         raise HTTPException(status_code=400, detail="Тариф неактивен")
-    if not tariff["prodamus_payment_url"]:
-        raise HTTPException(status_code=400, detail="Для этого тарифа не настроена ссылка оплаты Prodamus")
     if float(tariff["price"]) <= 0:
         raise HTTPException(status_code=400, detail="Бесплатный тариф не оплачивается")
+    if provider == "prodamus" and not tariff["prodamus_payment_url"]:
+        raise HTTPException(status_code=400, detail="Для этого тарифа не настроена ссылка оплаты Prodamus")
+    if provider == "leadpay" and not tariff["leadpay_product_id"]:
+        raise HTTPException(status_code=400, detail="Для этого тарифа не настроена карточка LeadPay (product_id)")
 
     amount_kopecks = int(round(float(tariff["price"]) * 100))
 
@@ -83,32 +92,50 @@ async def create_order(
 
     order_id = await db.fetchval(
         """INSERT INTO subscription_orders
-             (client_id, tariff_id, amount_total_kopecks, status)
-           VALUES ($1, $2, $3, 'created')
+             (client_id, tariff_id, amount_total_kopecks, status, payment_provider)
+           VALUES ($1, $2, $3, 'created', $4)
            RETURNING id""",
-        client_id, tariff["id"], amount_kopecks,
+        client_id, tariff["id"], amount_kopecks, provider,
     )
 
-    # Собираем финальную ссылку оплаты. Цена в Prodamus уже зашита внутри
-    # короткой ссылки — мы только приклеиваем order_id и контактные данные
-    # для предзаполнения формы (телефон/email).
-    params = {
-        "order_id": str(order_id),
-        "customer_email": client["email"] or "",
-    }
-    if client["phone"]:
-        params["customer_phone"] = client["phone"]
-    if client["name"]:
-        params["customer_extra"] = f"client:{client_id};tariff:{tariff['slug']}"
-
-    base_url = tariff["prodamus_payment_url"].rstrip("/")
-    payment_url = f"{base_url}/?{urlencode(params)}"
+    if provider == "leadpay":
+        from app.services import leadpay
+        from app.config import settings
+        base = (settings.app_url or "https://pluson.ru").rstrip("/")
+        try:
+            payment_url = await leadpay.create_payment_link(
+                order_id=order_id,
+                product_id=tariff["leadpay_product_id"],
+                notification_url=f"{base}/api/v1/integrations/leadpay/webhook",
+                email=client["email"] or None,
+                phone=client["phone"] or None,
+                fio=client["name"] or None,
+                redirect_url_ok="https://pluson.ru/dashboard/settings?tab=subscription&paid=1",
+                redirect_url_error="https://pluson.ru/dashboard/settings?tab=subscription&paid=0",
+            )
+        except RuntimeError as e:
+            # Заказ создан, но ссылку получить не удалось — помечаем failed.
+            await db.execute("UPDATE subscription_orders SET status='failed', updated_at=NOW() WHERE id=$1", order_id)
+            raise HTTPException(status_code=502, detail=f"Не удалось создать ссылку оплаты LeadPay: {e}")
+    else:
+        # Prodamus: цена зашита внутри короткой ссылки, приклеиваем order_id + контакты.
+        params = {
+            "order_id": str(order_id),
+            "customer_email": client["email"] or "",
+        }
+        if client["phone"]:
+            params["customer_phone"] = client["phone"]
+        if client["name"]:
+            params["customer_extra"] = f"client:{client_id};tariff:{tariff['slug']}"
+        base_url = tariff["prodamus_payment_url"].rstrip("/")
+        payment_url = f"{base_url}/?{urlencode(params)}"
 
     return {
         "order_id": order_id,
         "payment_url": payment_url,
         "amount_rub": float(tariff["price"]),
         "tariff_name": tariff["name"],
+        "provider": provider,
     }
 
 
@@ -241,6 +268,93 @@ async def list_all_orders(
     }
 
 
+# ─── Общая выдача подписки по оплаченному заказу ──────────────────────────────
+# Переиспользуется вебхуками ОБЕИХ платёжек (Prodamus и LeadPay). Вся логика
+# «пометить оплаченным + продлить/создать client_subscriptions + уведомить +
+# начислить кэшбэк реферу» — здесь, чтобы не дублировать между провайдерами.
+
+
+async def _apply_paid_subscription_order(
+    db: asyncpg.Connection,
+    *,
+    order: asyncpg.Record,
+    amount_paid_kopecks: int,
+    raw: dict,
+    order_num: Optional[str] = None,
+    payment_type: Optional[str] = None,
+) -> dict:
+    """order — строка subscription_orders + join tariffs (id, client_id, tariff_id,
+    status, default_duration_days, tariff_slug). Идемпотентность: если уже paid —
+    возвращает already_paid. Иначе помечает оплаченным и выдаёт подписку."""
+    order_id = order["id"]
+    if order["status"] == "paid":
+        return {"ok": True, "already_paid": True}
+
+    duration_days = int(order["default_duration_days"] or 30)
+
+    async with db.transaction():
+        await db.execute(
+            """UPDATE subscription_orders
+                  SET status = 'paid',
+                      amount_paid_card_kopecks = $2,
+                      prodamus_order_num       = $3,
+                      prodamus_payment_type    = $4,
+                      prodamus_raw             = $5::jsonb,
+                      paid_at                  = NOW(),
+                      updated_at               = NOW()
+                WHERE id = $1""",
+            order_id, amount_paid_kopecks, order_num, payment_type,
+            json.dumps(raw, ensure_ascii=False),
+        )
+
+        # Если у клиента уже активна подписка того же тарифа — продлеваем от её
+        # expires_at; иначе считаем с NOW().
+        existing = await db.fetchrow(
+            """SELECT id, expires_at FROM client_subscriptions
+                WHERE client_id = $1 AND tariff_id = $2
+                  AND status = 'active' AND expires_at > NOW()
+                ORDER BY expires_at DESC LIMIT 1""",
+            order["client_id"], order["tariff_id"],
+        )
+        if existing:
+            new_expires = existing["expires_at"] + timedelta(days=duration_days)
+            await db.execute(
+                "UPDATE client_subscriptions SET expires_at = $2, subscription_order_id = $3 WHERE id = $1",
+                existing["id"], new_expires, order_id,
+            )
+            sub_id = existing["id"]
+        else:
+            sub_id = await db.fetchval(
+                """INSERT INTO client_subscriptions
+                     (client_id, tariff_id, started_at, expires_at, status, source, subscription_order_id)
+                   VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval, 'active', 'paid', $4)
+                   RETURNING id""",
+                order["client_id"], order["tariff_id"], str(duration_days), order_id,
+            )
+            await db.execute(
+                "UPDATE clients SET current_subscription_id = $1 WHERE id = $2",
+                sub_id, order["client_id"],
+            )
+
+    try:
+        await _send_subscription_extended_notification(db, order["client_id"], order["tariff_slug"], duration_days)
+    except Exception as e:
+        logger.exception("Failed to send TG notification about subscription: %s", e)
+
+    try:
+        await _credit_referral_cashback(
+            db,
+            payer_client_id=order["client_id"],
+            order_id=order_id,
+            amount_paid_card_kopecks=amount_paid_kopecks,
+            tariff_name=order["tariff_slug"],
+        )
+    except Exception as e:
+        logger.exception("Failed to credit referral cashback: %s", e)
+
+    return {"ok": True, "status": "paid", "subscription_id": sub_id}
+
+
 # ─── Webhook от Prodamus ──────────────────────────────────────────────────────
 
 webhook_router = APIRouter(prefix="/integrations/prodamus", tags=["Webhook Prodamus"])
@@ -328,84 +442,89 @@ async def prodamus_webhook(
         )
         return {"ok": True, "status": "failed"}
 
-    # Успех: помечаем оплачен, продлеваем подписку.
-    duration_days = int(order["default_duration_days"] or 30)
+    # Успех: общая выдача подписки (переиспользуется LeadPay-вебхуком).
+    return await _apply_paid_subscription_order(
+        db,
+        order=order,
+        amount_paid_kopecks=amount_paid_kopecks,
+        raw=data,
+        order_num=data.get("order_num"),
+        payment_type=data.get("payment_type"),
+    )
 
-    async with db.transaction():
+
+# ─── Webhook от LeadPay ───────────────────────────────────────────────────────
+# Отдельная платёжка РЯДОМ с Prodamus. Способ — API getLink (см. services/leadpay.py).
+# LeadPay при оплате шлёт POST на notification_url:
+#   {status, summa, commission_sum, payable, order_id, hash [, card_id]}
+# Проверка подлинности — hash (HMAC-SHA256 по ksort значений с токеном LeadPay).
+
+leadpay_webhook_router = APIRouter(prefix="/integrations/leadpay", tags=["Webhook LeadPay"])
+
+
+@leadpay_webhook_router.post("/webhook", summary="Webhook оплаты подписки LeadPay")
+async def leadpay_webhook(
+    request: Request,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    from app.services import leadpay
+
+    form = await request.form()
+    data = {k: str(v) for k, v in form.items()}
+
+    order_id_raw = data.get("order_id")
+    status = (data.get("status") or "").strip().lower()
+    sum_str = data.get("summa") or data.get("sum") or "0"
+
+    logger.info("LeadPay webhook: order_id=%s status=%s summa=%s", order_id_raw, status, sum_str)
+
+    # Проверка подписи
+    if not leadpay.verify_webhook(data):
+        logger.warning("LeadPay webhook: invalid hash (order_id=%s)", order_id_raw)
+        raise HTTPException(status_code=401, detail="Invalid hash")
+
+    if not order_id_raw:
+        return {"ok": True, "ignored": "no order_id"}
+    try:
+        order_id = int(order_id_raw)
+    except (ValueError, TypeError):
+        return {"ok": True, "ignored": "order_id is not an integer"}
+
+    order = await db.fetchrow(
+        """SELECT so.id, so.client_id, so.tariff_id, so.status,
+                  t.default_duration_days, t.slug AS tariff_slug
+             FROM subscription_orders so
+             JOIN tariffs t ON t.id = so.tariff_id
+            WHERE so.id = $1""",
+        order_id,
+    )
+    if not order:
+        logger.warning("LeadPay webhook: order %s not found", order_id)
+        return {"ok": True, "ignored": "order not found"}
+
+    is_success = status in ("success", "ok", "paid", "completed")
+    try:
+        amount_paid_kopecks = int(round(float(sum_str) * 100))
+    except (ValueError, TypeError):
+        amount_paid_kopecks = 0
+
+    if not is_success:
         await db.execute(
             """UPDATE subscription_orders
-                  SET status = 'paid',
-                      amount_paid_card_kopecks = $2,
-                      prodamus_order_num       = $3,
-                      prodamus_payment_type    = $4,
-                      prodamus_raw             = $5::jsonb,
-                      paid_at                  = NOW(),
-                      updated_at               = NOW()
+                  SET status = 'failed', prodamus_raw = $2::jsonb, updated_at = NOW()
                 WHERE id = $1""",
-            order_id,
-            amount_paid_kopecks,
-            data.get("order_num"),
-            data.get("payment_type"),
-            json.dumps(data, ensure_ascii=False),
+            order_id, json.dumps(data, ensure_ascii=False),
         )
+        return {"ok": True, "status": "failed"}
 
-        # Определяем точку отсчёта: если у клиента уже активна подписка того же
-        # тарифа — продлеваем от её expires_at; иначе считаем с NOW().
-        existing = await db.fetchrow(
-            """SELECT id, expires_at FROM client_subscriptions
-                WHERE client_id = $1
-                  AND tariff_id = $2
-                  AND status = 'active'
-                  AND expires_at > NOW()
-                ORDER BY expires_at DESC
-                LIMIT 1""",
-            order["client_id"], order["tariff_id"],
-        )
-
-        if existing:
-            new_expires = existing["expires_at"] + timedelta(days=duration_days)
-            await db.execute(
-                """UPDATE client_subscriptions
-                      SET expires_at = $2, subscription_order_id = $3
-                    WHERE id = $1""",
-                existing["id"], new_expires, order_id,
-            )
-            sub_id = existing["id"]
-        else:
-            sub_id = await db.fetchval(
-                """INSERT INTO client_subscriptions
-                     (client_id, tariff_id, started_at, expires_at, status, source, subscription_order_id)
-                   VALUES ($1, $2, NOW(), NOW() + ($3 || ' days')::interval, 'active', 'paid', $4)
-                   RETURNING id""",
-                order["client_id"], order["tariff_id"], str(duration_days), order_id,
-            )
-            # Снимаем флаг с других подписок и делаем эту current
-            await db.execute(
-                "UPDATE clients SET current_subscription_id = $1 WHERE id = $2",
-                sub_id, order["client_id"],
-            )
-
-    # Уведомление в TG-канал клиента (notifications_telegram_chat_id) — без него тихо.
-    try:
-        await _send_subscription_extended_notification(db, order["client_id"], order["tariff_slug"], duration_days)
-    except Exception as e:
-        logger.exception("Failed to send TG notification about subscription: %s", e)
-
-    # Реф-программа (миграции 125-126): начисление 10% реферу от карточной части,
-    # если у плательщика заполнен referred_by_client_id. Trial не идёт через
-    # webhook вообще (source='trial', тариф бесплатный) — отдельная проверка не нужна.
-    try:
-        await _credit_referral_cashback(
-            db,
-            payer_client_id=order["client_id"],
-            order_id=order_id,
-            amount_paid_card_kopecks=amount_paid_kopecks,
-            tariff_name=order["tariff_slug"],
-        )
-    except Exception as e:
-        logger.exception("Failed to credit referral cashback: %s", e)
-
-    return {"ok": True, "status": "paid", "subscription_id": sub_id}
+    return await _apply_paid_subscription_order(
+        db,
+        order=order,
+        amount_paid_kopecks=amount_paid_kopecks,
+        raw=data,
+        order_num=data.get("card_id"),   # для подписки LeadPay шлёт card_id
+        payment_type="leadpay",
+    )
 
 
 async def _credit_referral_cashback(

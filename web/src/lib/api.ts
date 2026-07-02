@@ -896,8 +896,8 @@ export const api = {
     features: () => request('/api/v1/public/features'),
   },
   subscriptions: {
-    createOrder: (tariff_slug: string) =>
-      request('/api/v1/subscriptions/order', { method: 'POST', body: JSON.stringify({ tariff_slug }) }),
+    createOrder: (tariff_slug: string, provider: 'prodamus' | 'leadpay' = 'prodamus') =>
+      request('/api/v1/subscriptions/order', { method: 'POST', body: JSON.stringify({ tariff_slug, provider }) }),
     getOrder: (id: number) => request(`/api/v1/subscriptions/orders/${id}`),
     listOrders: () => request('/api/v1/subscriptions/orders'),
     payWithBonus: (tariff_slug: string) =>
@@ -905,8 +905,8 @@ export const api = {
   },
   addons: {
     list: () => request('/api/v1/addons'),
-    createOrder: (feature_slug: string, months: number) =>
-      request('/api/v1/addons/order', { method: 'POST', body: JSON.stringify({ feature_slug, months }) }),
+    createOrder: (feature_slug: string, months: number, provider: 'prodamus' | 'leadpay' = 'prodamus') =>
+      request('/api/v1/addons/order', { method: 'POST', body: JSON.stringify({ feature_slug, months, provider }) }),
     getOrder: (id: number) => request(`/api/v1/addons/orders/${id}`),
   },
   referrals: {

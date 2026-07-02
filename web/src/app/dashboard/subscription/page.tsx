@@ -19,7 +19,9 @@ export default function SubscriptionPage() {
   useEffect(() => {
     api.auth.me().then((d: any) => setMe(d)).catch(() => {})
     api.publicData.tariffs().then((r: any) => {
-      const paid = (r.tariffs || []).filter((t: any) => t.slug !== 'trial' && Number(t.price) > 0 && t.prodamus_payment_url)
+      // Показываем платный тариф, если настроена хотя бы одна платёжка (Prodamus или LeadPay).
+      const paid = (r.tariffs || []).filter((t: any) =>
+        t.slug !== 'trial' && Number(t.price) > 0 && (t.prodamus_payment_url || t.leadpay_product_id))
       setTariffs(paid)
     }).catch(() => {})
     api.publicData.activePromotions().then((r: any) => setPromotions(r.promotions || [])).catch(() => {})
@@ -67,7 +69,9 @@ export default function SubscriptionPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await api.subscriptions.createOrder(selectedSlug)
+      // Провайдер: LeadPay если у тарифа настроена карточка, иначе Prodamus.
+      const provider = selectedTariff?.leadpay_product_id ? 'leadpay' : 'prodamus'
+      const res = await api.subscriptions.createOrder(selectedSlug, provider)
       if (res?.payment_url) window.location.href = res.payment_url
       else { setError('Не удалось создать заказ'); setLoading(false) }
     } catch (e: any) {

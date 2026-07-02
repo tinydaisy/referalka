@@ -21,6 +21,7 @@ interface Tariff {
   feature_slugs: string[]
   is_active: boolean
   prodamus_payment_url: string | null
+  leadpay_product_id: string | null
   promo_banner_text: string | null
   promo_old_price: number | null
 }
@@ -38,7 +39,7 @@ const FEATURE_LABELS: Record<string, string> = {
 const EMPTY_FORM = {
   slug: '', name: '', price: '0', contact_limit: '1000',
   broadcasts_daily_limit: '10000', default_duration_days: '30',
-  prodamus_payment_url: '', promo_banner_text: '', promo_old_price: '',
+  prodamus_payment_url: '', leadpay_product_id: '', promo_banner_text: '', promo_old_price: '',
   feature_slugs: [] as string[],
   is_active: true,
 }
@@ -76,6 +77,7 @@ export default function AdminTariffsPage() {
       broadcasts_daily_limit: t.broadcasts_daily_limit == null ? '' : String(t.broadcasts_daily_limit),
       default_duration_days: String(t.default_duration_days ?? 30),
       prodamus_payment_url: t.prodamus_payment_url ?? '',
+      leadpay_product_id: t.leadpay_product_id ?? '',
       promo_banner_text: t.promo_banner_text ?? '',
       promo_old_price: t.promo_old_price == null ? '' : String(t.promo_old_price),
       feature_slugs: t.feature_slugs || [],
@@ -99,6 +101,7 @@ export default function AdminTariffsPage() {
       broadcasts_daily_limit: form.broadcasts_daily_limit ? parseInt(form.broadcasts_daily_limit) : 0,
       default_duration_days: parseInt(form.default_duration_days || '30') || 30,
       prodamus_payment_url: form.prodamus_payment_url,
+      leadpay_product_id: form.leadpay_product_id,
       promo_banner_text: form.promo_banner_text,
       promo_old_price: form.promo_old_price ? parseFloat(form.promo_old_price) : 0,
       feature_slugs: form.feature_slugs,
@@ -213,6 +216,21 @@ export default function AdminTariffsPage() {
                   placeholder="2490"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
               </div>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-100 pt-4 mb-4">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">Оплата через LeadPay</h4>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Product ID карточки LeadPay</label>
+              <input type="text" value={form.leadpay_product_id}
+                onChange={e => setForm(f => ({ ...f, leadpay_product_id: e.target.value }))}
+                placeholder="напр. 1276"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              <p className="text-xs text-gray-400 mt-1">
+                ID карточки продукта из личного кабинета LeadPay (число из ссылки карточки,
+                напр. checkout/<b>1276</b>/). Ссылку оплаты система создаёт сама через API.
+              </p>
             </div>
           </div>
 

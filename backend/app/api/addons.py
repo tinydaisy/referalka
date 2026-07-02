@@ -115,6 +115,7 @@ async def list_addons(
 class AddonOrderRequest(BaseModel):
     feature_slug: str
     months: int = 1            # 1 или 6 (6 = цена со скидкой)
+    provider: str = "prodamus"  # 'prodamus' | 'leadpay'
 
 
 @router.post("/order", summary="Создать заказ на оплату модуля")
@@ -126,12 +127,17 @@ async def create_addon_order(
     if user.get("role") == "assistant":
         raise HTTPException(status_code=403, detail="Покупка модулей доступна только владельцу кабинета")
 
+    provider = (data.provider or "prodamus").strip().lower()
+    if provider not in ("prodamus", "leadpay"):
+        raise HTTPException(status_code=400, detail="Неизвестный способ оплаты")
+
     client_id = int(user["sub"])
     months = 6 if data.months >= 6 else 1
 
     feat = await db.fetchrow(
         """SELECT id, slug, name, is_addon, price_monthly, price_6mo, min_tariff_slug,
-                  prodamus_payment_url, prodamus_payment_url_6mo
+                  prodamus_payment_url, prodamus_payment_url_6mo,
+                  leadpay_product_id, leadpay_product_id_6mo
              FROM features WHERE slug = $1""",
         data.feature_slug,
     )
@@ -148,14 +154,18 @@ async def create_addon_order(
     if months == 6:
         price_month = feat["price_6mo"] or feat["price_monthly"]
         pay_url = feat["prodamus_payment_url_6mo"] or feat["prodamus_payment_url"]
+        leadpay_pid = feat["leadpay_product_id_6mo"] or feat["leadpay_product_id"]
     else:
         price_month = feat["price_monthly"]
         pay_url = feat["prodamus_payment_url"]
+        leadpay_pid = feat["leadpay_product_id"]
 
     if not price_month or price_month <= 0:
         raise HTTPException(status_code=400, detail="У модуля не задана цена")
-    if not pay_url:
+    if provider == "prodamus" and not pay_url:
         raise HTTPException(status_code=400, detail="Для модуля не настроена ссылка оплаты Prodamus")
+    if provider == "leadpay" and not leadpay_pid:
+        raise HTTPException(status_code=400, detail="Для модуля не настроена карточка LeadPay (product_id)")
 
     amount_rub = int(price_month) * months
     amount_kopecks = amount_rub * 100
@@ -163,18 +173,37 @@ async def create_addon_order(
     client = await db.fetchrow("SELECT email, phone, name FROM clients WHERE id = $1", client_id)
 
     order_id = await db.fetchval(
-        """INSERT INTO addon_orders (client_id, feature_id, months, amount_total_kopecks, status)
-           VALUES ($1, $2, $3, $4, 'created') RETURNING id""",
-        client_id, feat["id"], months, amount_kopecks,
+        """INSERT INTO addon_orders (client_id, feature_id, months, amount_total_kopecks, status, payment_provider)
+           VALUES ($1, $2, $3, $4, 'created', $5) RETURNING id""",
+        client_id, feat["id"], months, amount_kopecks, provider,
     )
 
-    params = {"order_id": f"addon-{order_id}", "customer_email": client["email"] or ""}
-    if client["phone"]:
-        params["customer_phone"] = client["phone"]
-    params["customer_extra"] = f"client:{client_id};addon:{feat['slug']};months:{months}"
-
-    base_url = pay_url.rstrip("/")
-    payment_url = f"{base_url}/?{urlencode(params)}"
+    if provider == "leadpay":
+        from app.services import leadpay
+        from app.config import settings
+        base = (settings.app_url or "https://pluson.ru").rstrip("/")
+        try:
+            payment_url = await leadpay.create_payment_link(
+                order_id=order_id,
+                product_id=leadpay_pid,
+                notification_url=f"{base}/api/v1/integrations/leadpay/addon-webhook",
+                order_id_prefix="addon-",
+                email=client["email"] or None,
+                phone=client["phone"] or None,
+                fio=client["name"] or None,
+                redirect_url_ok="https://pluson.ru/dashboard/settings?tab=subscription&paid=1",
+                redirect_url_error="https://pluson.ru/dashboard/settings?tab=subscription&paid=0",
+            )
+        except RuntimeError as e:
+            await db.execute("UPDATE addon_orders SET status='failed', updated_at=NOW() WHERE id=$1", order_id)
+            raise HTTPException(status_code=502, detail=f"Не удалось создать ссылку оплаты LeadPay: {e}")
+    else:
+        params = {"order_id": f"addon-{order_id}", "customer_email": client["email"] or ""}
+        if client["phone"]:
+            params["customer_phone"] = client["phone"]
+        params["customer_extra"] = f"client:{client_id};addon:{feat['slug']};months:{months}"
+        base_url = pay_url.rstrip("/")
+        payment_url = f"{base_url}/?{urlencode(params)}"
 
     return {
         "order_id": order_id,
@@ -182,6 +211,7 @@ async def create_addon_order(
         "amount_rub": amount_rub,
         "months": months,
         "feature_name": feat["name"],
+        "provider": provider,
     }
 
 
@@ -255,6 +285,26 @@ async def prodamus_addon_webhook(
         )
         return {"ok": True, "status": "failed"}
 
+    return await _apply_paid_addon_order(
+        db, order=order, raw=data,
+        order_num=data.get("order_num"), payment_type=data.get("payment_type"),
+    )
+
+
+async def _apply_paid_addon_order(
+    db: asyncpg.Connection,
+    *,
+    order: asyncpg.Record,
+    raw: dict,
+    order_num: Optional[str] = None,
+    payment_type: Optional[str] = None,
+) -> dict:
+    """Помечает addon_order оплаченным + продлевает/создаёт client_addons.
+
+    Переиспользуется вебхуками Prodamus и LeadPay. order — строка addon_orders
+    (id, client_id, feature_id, months, status). Идемпотентность на статусе paid
+    проверяется вызывающим (в вебхуке до вызова)."""
+    order_id = order["id"]
     months = int(order["months"] or 1)
     add_days = 30 * months
 
@@ -264,10 +314,8 @@ async def prodamus_addon_webhook(
                   SET status='paid', prodamus_order_num=$2, prodamus_payment_type=$3,
                       prodamus_raw=$4::jsonb, paid_at=NOW(), updated_at=NOW()
                 WHERE id=$1""",
-            order_id, data.get("order_num"), data.get("payment_type"),
-            json.dumps(data, ensure_ascii=False),
+            order_id, order_num, payment_type, json.dumps(raw, ensure_ascii=False),
         )
-        # Продлеваем существующий активный аддон или создаём новый.
         existing = await db.fetchrow(
             """SELECT id, expires_at FROM client_addons
                 WHERE client_id=$1 AND feature_id=$2 AND status='active' AND expires_at > NOW()
@@ -291,3 +339,57 @@ async def prodamus_addon_webhook(
             )
 
     return {"ok": True, "status": "paid", "addon_id": addon_id}
+
+
+# ─── Webhook LeadPay для аддонов ──────────────────────────────────────────────
+# order_id приходит как `addon-{id}` (тот же id, что мы передали в getLink).
+
+leadpay_webhook_router = APIRouter(prefix="/integrations/leadpay", tags=["Webhook LeadPay (модули)"])
+
+
+@leadpay_webhook_router.post("/addon-webhook", summary="Webhook оплаты модуля LeadPay")
+async def leadpay_addon_webhook(
+    request: Request,
+    db: asyncpg.Connection = Depends(get_db),
+):
+    from app.services import leadpay
+
+    form = await request.form()
+    data = {k: str(v) for k, v in form.items()}
+    order_id_raw = (data.get("order_id") or "").strip()
+    status = (data.get("status") or "").strip().lower()
+
+    logger.info("LeadPay addon webhook: order_id=%s status=%s", order_id_raw, status)
+
+    if not leadpay.verify_webhook(data):
+        logger.warning("LeadPay addon webhook: invalid hash (order_id=%s)", order_id_raw)
+        raise HTTPException(status_code=401, detail="Invalid hash")
+
+    if not order_id_raw.startswith("addon-"):
+        return {"ok": True, "ignored": "not an addon order"}
+    try:
+        order_id = int(order_id_raw[len("addon-"):])
+    except (ValueError, TypeError):
+        return {"ok": True, "ignored": "bad order_id"}
+
+    order = await db.fetchrow(
+        "SELECT id, client_id, feature_id, months, status FROM addon_orders WHERE id = $1",
+        order_id,
+    )
+    if not order:
+        return {"ok": True, "ignored": "order not found"}
+    if order["status"] == "paid":
+        return {"ok": True, "already_paid": True}
+
+    is_success = status in ("success", "ok", "paid", "completed")
+    if not is_success:
+        await db.execute(
+            "UPDATE addon_orders SET status='failed', prodamus_raw=$2::jsonb, updated_at=NOW() WHERE id=$1",
+            order_id, json.dumps(data, ensure_ascii=False),
+        )
+        return {"ok": True, "status": "failed"}
+
+    return await _apply_paid_addon_order(
+        db, order=order, raw=data,
+        order_num=data.get("card_id"), payment_type="leadpay",
+    )

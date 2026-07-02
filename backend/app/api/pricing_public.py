@@ -25,7 +25,9 @@ async def public_tariffs(db: asyncpg.Connection = Depends(get_db)):
     rows = await db.fetch(
         """SELECT t.id, t.slug, t.name, t.price, t.default_duration_days,
                   t.contact_limit, t.broadcasts_daily_limit,
-                  t.prodamus_payment_url, t.promo_banner_text, t.promo_old_price,
+                  t.prodamus_payment_url,
+                  (t.leadpay_product_id IS NOT NULL AND t.leadpay_product_id <> '') AS leadpay_product_id,
+                  t.promo_banner_text, t.promo_old_price,
                   t.is_active, t.bullet_points,
                   ARRAY(SELECT f.slug FROM tariff_features tf
                           JOIN features f ON f.id = tf.feature_id

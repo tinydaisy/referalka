@@ -239,6 +239,7 @@ class TariffCreate(BaseModel):
     default_duration_days: int = 30
     feature_slugs: list[str] = []
     prodamus_payment_url: Optional[str] = None
+    leadpay_product_id: Optional[str] = None
     promo_banner_text: Optional[str] = None
     promo_old_price: Optional[float] = None
 
@@ -252,6 +253,7 @@ class TariffUpdate(BaseModel):
     feature_slugs: Optional[list[str]] = None
     is_active: Optional[bool] = None
     prodamus_payment_url: Optional[str] = None
+    leadpay_product_id: Optional[str] = None
     promo_banner_text: Optional[str] = None
     promo_old_price: Optional[float] = None
 
@@ -301,13 +303,13 @@ async def create_tariff(
         """
         INSERT INTO tariffs (
             slug, name, price, contact_limit, broadcasts_daily_limit, default_duration_days,
-            prodamus_payment_url, promo_banner_text, promo_old_price
+            prodamus_payment_url, leadpay_product_id, promo_banner_text, promo_old_price
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
         """,
         data.slug, data.name, data.price,
         data.contact_limit, data.broadcasts_daily_limit, data.default_duration_days,
-        data.prodamus_payment_url, data.promo_banner_text, data.promo_old_price,
+        data.prodamus_payment_url, data.leadpay_product_id, data.promo_banner_text, data.promo_old_price,
     )
     if data.feature_slugs:
         await db.execute(
@@ -342,6 +344,8 @@ async def update_tariff(
     if data.is_active is not None: add("is_active", data.is_active)
     if data.prodamus_payment_url is not None:
         add("prodamus_payment_url", data.prodamus_payment_url.strip() or None)
+    if data.leadpay_product_id is not None:
+        add("leadpay_product_id", data.leadpay_product_id.strip() or None)
     if data.promo_banner_text is not None:
         add("promo_banner_text", data.promo_banner_text.strip() or None)
     if data.promo_old_price is not None:
