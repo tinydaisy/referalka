@@ -9,6 +9,11 @@ import secrets
 from datetime import timedelta
 
 
+# Сколько дополнительных дней триала получает клиент, пришедший по реф-коду
+# (реф-программа ПЛЮСОНа). Плюсуется ПОВЕРХ базового триала и активной промо.
+REFERRAL_TRIAL_BONUS_DAYS = 7
+
+
 def _new_integration_token() -> str:
     """64 hex-символа (256 бит энтропии) — для интеграции с Salebot и др. чат-ботами."""
     return secrets.token_hex(32)
@@ -104,7 +109,11 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
                 promo["id"],
             )
             applied_promo = {"id": promo["id"], "name": promo["name"], "bonus_days": bonus_days}
-        trial_days = base_trial_days + bonus_days
+        # Реф-бонус: пришёл по валидному реф-коду → +7 дней триала поверх базы и
+        # промо-акции. referred_by_client_id уже отрезолвлен выше (None если код
+        # невалидный/мусорный — тогда бонуса нет).
+        referral_bonus_days = REFERRAL_TRIAL_BONUS_DAYS if referred_by_client_id else 0
+        trial_days = base_trial_days + bonus_days + referral_bonus_days
 
         client = await db.fetchrow(
             """
@@ -178,6 +187,33 @@ async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_d
         "trial_days": trial_days,
         "promo_applied": applied_promo,
         "message": "Регистрация прошла успешно! Добро пожаловать в ПЛЮСОН."
+    }
+
+
+@router.get("/referrer-info", summary="Проверить реф-код (pid) для лендинга")
+async def referrer_info(
+    pid: str | None = None, db: asyncpg.Connection = Depends(get_db)
+):
+    """Публичная валидация реф-кода с лендинга.
+
+    Возвращает {valid, referrer_name, bonus_days} — лендинг по этому показывает
+    персональную плашку «вас пригласил X, вам +7 дней триала». Невалидный/
+    мусорный/несуществующий pid → {valid: false} (плашка не показывается,
+    бонуса не будет). Резолв — тот же, что в /register (понимает и клиентский
+    код, и код-контакт спикера с привязанным ПЛЮСОНом)."""
+    if not pid:
+        return {"valid": False}
+    client_id = await resolve_plusson_referrer(db, pid)
+    if not client_id:
+        return {"valid": False}
+    name = await db.fetchval(
+        "SELECT COALESCE(NULLIF(brand_name, ''), name) FROM clients WHERE id = $1",
+        client_id,
+    )
+    return {
+        "valid": True,
+        "referrer_name": name or "",
+        "bonus_days": REFERRAL_TRIAL_BONUS_DAYS,
     }
 
 

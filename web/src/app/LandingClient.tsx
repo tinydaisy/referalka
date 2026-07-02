@@ -56,17 +56,30 @@ export default function LandingClient() {
   const [featureLabels, setFeatureLabels] = useState<Record<string, string>>({})
   const [addonModules, setAddonModules] = useState<Feature[]>([])
   const [pid, setPid] = useState<string | null>(null)
+  // Инфо о пригласившем — заполняется только если pid ВАЛИДНЫЙ (реальный код).
+  const [referrer, setReferrer] = useState<{ referrer_name: string; bonus_days: number } | null>(null)
 
   useEffect(() => {
     // Парсим pid из URL и сохраняем в localStorage — пригодится при регистрации
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
       const pidParam = params.get('pid')
-      if (pidParam) {
-        localStorage.setItem('pluson_referrer_pid', pidParam)
-        setPid(pidParam)
-      } else {
-        setPid(localStorage.getItem('pluson_referrer_pid'))
+      const effective = pidParam || localStorage.getItem('pluson_referrer_pid')
+      if (effective) {
+        // Валидируем код на бэке: мусорный/несуществующий pid не сохраняем и не
+        // показываем плашку (напр. если открыли ссылку с сырым {plsn_ref}).
+        api.auth.referrerInfo(effective)
+          .then((r: any) => {
+            if (r?.valid) {
+              localStorage.setItem('pluson_referrer_pid', effective)
+              setPid(effective)
+              setReferrer({ referrer_name: r.referrer_name, bonus_days: r.bonus_days })
+            } else {
+              localStorage.removeItem('pluson_referrer_pid')
+              setPid(null)
+            }
+          })
+          .catch(() => {})
       }
     }
 
@@ -138,10 +151,17 @@ export default function LandingClient() {
             </Link>
           </div>
 
-          {pid && (
-            <p className="mt-4 text-xs text-gray-400">
-              Вас пригласили — реф-код <code className="bg-gray-100 px-2 py-0.5 rounded">{pid}</code> сохранён
-            </p>
+          {referrer && (
+            <div className="mt-5 inline-flex flex-col items-center gap-1 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3">
+              <span className="text-amber-900 font-semibold text-sm sm:text-base">
+                🎁 Вам доступен продлённый триал — на {referrer.bonus_days} дней больше
+              </span>
+              {referrer.referrer_name && (
+                <span className="text-xs sm:text-sm text-amber-700">
+                  Вас пригласил {referrer.referrer_name}
+                </span>
+              )}
+            </div>
           )}
         </div>
       </section>
