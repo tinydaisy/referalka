@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { Eye, EyeOff } from 'lucide-react'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -19,6 +20,7 @@ function Inner() {
   const token = sp.get('token') || ''
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
@@ -72,14 +74,24 @@ function Inner() {
         <h1 className="text-2xl font-bold text-[#25455D] mb-4">Новый пароль</h1>
         {!done ? (
           <form onSubmit={submit} className="space-y-4">
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'} value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Новый пароль (минимум 8 символов)"
+                className="w-full px-4 py-3 pr-10 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFCFA4]/40 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
             <input
-              type="password" value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Новый пароль (минимум 8 символов)"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFCFA4]/40 text-sm"
-            />
-            <input
-              type="password" value={password2}
+              type={showPassword ? 'text' : 'password'} value={password2}
               onChange={e => setPassword2(e.target.value)}
               placeholder="Повторите пароль"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFCFA4]/40 text-sm"
