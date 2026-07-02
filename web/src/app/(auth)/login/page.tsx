@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Eye, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -10,6 +10,21 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Реф-код пригласившего. Если человек попал на /login?pid=… и нажал
+  // «Зарегистрироваться» — код не должен потеряться: сохраняем в localStorage
+  // и подставляем в ссылку регистрации. Пробрасываем как есть (валидация —
+  // на лендинге/register); тут только не теряем.
+  const [referrerPid, setReferrerPid] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('pid')
+    if (fromUrl) localStorage.setItem('pluson_referrer_pid', fromUrl)
+    setReferrerPid(fromUrl || localStorage.getItem('pluson_referrer_pid'))
+  }, [])
+
+  const registerHref = referrerPid
+    ? `/register?pid=${encodeURIComponent(referrerPid)}`
+    : '/register'
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -123,7 +138,7 @@ export default function LoginPage() {
 
           <p className="mt-6 text-center text-sm text-gray-500">
             Нет аккаунта?{' '}
-            <Link href="/register" className="font-medium hover:underline" style={{ color: '#25455D' }}>
+            <Link href={registerHref} className="font-medium hover:underline" style={{ color: '#25455D' }}>
               Зарегистрироваться
             </Link>
           </p>
