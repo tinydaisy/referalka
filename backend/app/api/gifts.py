@@ -97,25 +97,31 @@ async def delete_gift(
     return {"message": "Подарок удалён"}
 
 
-async def _referrer_ref_for_participant(
+async def _referrer_link_params(
     event_id: int, tg_id: Optional[int], db: asyncpg.Connection
-) -> str:
-    """Реф-код рефовода запрашивающего участника в этом событии (или '').
+) -> dict:
+    """Значения плейсхолдеров реф-кодов рефовода запрашивающего участника:
 
-    Ищем участника по tg_id → его event_participants.referrer_ref_code. Это
-    код-КОНТАКТ того, кто привёл человека в событие. Подставляется в плейсхолдер
-    {ref} ссылок подарков — например, ссылка регистрации в ПЛЮСОН
-    `pluson.ru/register?pid={ref}`: /register сам резолвит код-контакт спикера в
-    его клиентский аккаунт (см. services/plusson_referral.py). Нет tg_id / нет
-    рефовода → '' (ссылка без pid, человек регается ни от кого)."""
+      {plsn_ref} — плюсоновский реф-код рефовода (contacts.ref_code). Для ссылки
+                   регистрации в ПЛЮСОН: pluson.ru/register?pid={plsn_ref}.
+                   /register сам резолвит код-контакт спикера в его клиентский
+                   аккаунт (services/plusson_referral.py).
+      {ext_ref}  — сторонний партнёрский код рефовода (contacts.external_ref_param,
+                   напр. gcpc=fdd97). Для внешних систем: landing.ru/?{ext_ref}.
+
+    Рефовод берётся из event_participants.referrer_ref_code участника (по tg_id).
+    Нет tg_id / нет рефовода → пустые строки (плейсхолдеры исчезают)."""
+    empty = {"plsn_ref": "", "ext_ref": ""}
     if not tg_id:
-        return ""
-    ref = await db.fetchval(
+        return empty
+    row = await db.fetchrow(
         """
-        SELECT ep.referrer_ref_code
+        SELECT rc.ref_code, rc.external_ref_param
           FROM event_participants ep
           JOIN contacts c ON c.id = ep.contact_id
           JOIN platform_users pu ON pu.contact_id = c.id
+          JOIN contacts rc ON (rc.ref_code = ep.referrer_ref_code
+                               OR rc.merged_ref_codes ? ep.referrer_ref_code)
          WHERE ep.event_id = $1
            AND pu.platform_slug = 'telegram'
            AND pu.platform_user_id = $2
@@ -124,7 +130,12 @@ async def _referrer_ref_for_participant(
         """,
         event_id, str(tg_id),
     )
-    return ref or ""
+    if not row:
+        return empty
+    return {
+        "plsn_ref": row["ref_code"] or "",
+        "ext_ref": row["external_ref_param"] or "",
+    }
 
 
 async def _fetch_gifts_for_event(
@@ -135,9 +146,9 @@ async def _fetch_gifts_for_event(
     Возвращает список в формате, который ждёт Mini App (id, title, description,
     points_cost, link_url, sort_order).
 
-    В link_url/certificate_url раскрывается плейсхолдер {ref} → реф-код рефовода
-    запрашивающего участника (по tg_id). Общий плейсхолдер, не завязан на ПЛЮСОН:
-    клиент сам решает, в какой подарок его вписать.
+    В link_url/certificate_url раскрываются плейсхолдеры {plsn_ref}/{ext_ref} —
+    реф-коды рефовода участника (по tg_id). Единый синтаксис с воронками
+    лид-магнитов (funnel_service). Клиент сам решает, в какой подарок вписать.
     """
     rows = await db.fetch(
         """
@@ -157,19 +168,18 @@ async def _fetch_gifts_for_event(
     )
     gifts = [dict(r) for r in rows]
 
-    # Подстановка {ref} только если он вообще встречается в ссылках — иначе не
+    # Подставляем плейсхолдеры только если они реально встречаются — иначе не
     # трогаем БД лишним запросом рефовода.
-    needs_ref = any(
-        "{ref}" in (g.get("link_url") or "") or "{ref}" in (g.get("certificate_url") or "")
-        for g in gifts
-    )
-    if needs_ref:
-        ref = await _referrer_ref_for_participant(event_id, tg_id, db)
+    def _has_ph(s):
+        return "{plsn_ref}" in (s or "") or "{ext_ref}" in (s or "")
+
+    if any(_has_ph(g.get("link_url")) or _has_ph(g.get("certificate_url")) for g in gifts):
+        params = await _referrer_link_params(event_id, tg_id, db)
         for g in gifts:
-            if g.get("link_url"):
-                g["link_url"] = g["link_url"].replace("{ref}", ref)
-            if g.get("certificate_url"):
-                g["certificate_url"] = g["certificate_url"].replace("{ref}", ref)
+            for field in ("link_url", "certificate_url"):
+                if g.get(field):
+                    for k, v in params.items():
+                        g[field] = g[field].replace("{" + k + "}", v or "")
     return gifts
 
 

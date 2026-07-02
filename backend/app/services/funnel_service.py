@@ -140,9 +140,47 @@ async def _get_brand_context(client_id: int, db, platform: str = "telegram") -> 
     }
 
 
+async def _referrer_link_params(run: dict, db) -> dict:
+    """Значения плейсхолдеров реф-кодов для ссылок лид-магнитов, взятые у
+    рефовода этого run (кто привёл человека в воронку — fr.referrer_contact_id):
+
+      {plsn_ref} — плюсоновский реф-код рефовода (contacts.ref_code). Для ссылки
+                   регистрации в ПЛЮСОН: pluson.ru/register?pid={plsn_ref}.
+                   /register сам резолвит код-контакт спикера в его клиентский
+                   аккаунт (services/plusson_referral.py).
+      {ext_ref}  — сторонний партнёрский код рефовода (contacts.external_ref_param,
+                   напр. gcpc=fdd97). Для внешних систем: landing.ru/?{ext_ref}.
+
+    Нет рефовода / поле пустое → пустая строка (плейсхолдер исчезает)."""
+    rid = run.get("referrer_contact_id")
+    if not rid:
+        return {"plsn_ref": "", "ext_ref": ""}
+    row = await db.fetchrow(
+        "SELECT ref_code, external_ref_param FROM contacts WHERE id = $1", rid
+    )
+    if not row:
+        return {"plsn_ref": "", "ext_ref": ""}
+    return {
+        "plsn_ref": row["ref_code"] or "",
+        "ext_ref": row["external_ref_param"] or "",
+    }
+
+
+def _apply_link_params(url: str, params: dict) -> str:
+    """Раскрыть {plsn_ref}/{ext_ref} внутри URL материала."""
+    if not url:
+        return url
+    for k, v in params.items():
+        url = url.replace("{" + k + "}", v or "")
+    return url
+
+
 async def _materials_for_run(run: dict, db) -> list[dict]:
     """Возвращает список материалов воронки: [{name, url}, ...].
-    Для одиночного лид-магнита — список из одного. Для пакета — все вложенные."""
+    Для одиночного лид-магнита — список из одного. Для пакета — все вложенные.
+
+    В url каждого материала раскрываются плейсхолдеры {plsn_ref}/{ext_ref}
+    (реф-коды рефовода) — см. _referrer_link_params."""
     if run["lead_magnet_id"]:
         rows = await db.fetch(
             "SELECT name, url FROM lead_magnets WHERE id = $1",
@@ -157,7 +195,17 @@ async def _materials_for_run(run: dict, db) -> list[dict]:
              ORDER BY pi.sort_order, lm.name""",
             run["package_id"]
         )
-    return [dict(r) for r in rows]
+    materials = [dict(r) for r in rows]
+
+    # Раскрываем плейсхолдеры реф-кодов ({plsn_ref}/{ext_ref}) в url материалов,
+    # только если они реально встречаются — иначе не дёргаем БД за рефоводом.
+    # Плейсхолдеры живут в самой ссылке лид-магнита (lead_magnets.url), поэтому
+    # раскрываются здесь, а не в тексте шаблона.
+    if any("{plsn_ref}" in (m["url"] or "") or "{ext_ref}" in (m["url"] or "") for m in materials):
+        params = await _referrer_link_params(run, db)
+        for m in materials:
+            m["url"] = _apply_link_params(m["url"], params)
+    return materials
 
 
 def _format_text(template: str, ctx: dict, materials: list[dict]) -> str:
