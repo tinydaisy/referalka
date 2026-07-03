@@ -43,8 +43,13 @@ class AdminLoginRequest(BaseModel):
 
 @router.post("/register", summary="Регистрация нового клиента")
 async def register(data: RegisterRequest, db: asyncpg.Connection = Depends(get_db)):
-    # Проверяем, не занят ли email
-    existing = await db.fetchrow("SELECT id FROM clients WHERE email = $1", data.email)
+    # Email всегда храним в нижнем регистре — иначе регистр развёл бы один и тот
+    # же адрес на несколько аккаунтов (Gmail и почти все почтовики регистр
+    # игнорируют, а точечное сравнение при входе — нет).
+    data.email = (data.email or "").strip().lower()
+
+    # Проверяем, не занят ли email (регистронезависимо)
+    existing = await db.fetchrow("SELECT id FROM clients WHERE LOWER(email) = $1", data.email)
     if existing:
         raise HTTPException(status_code=409, detail="Этот email уже зарегистрирован")
 
@@ -249,9 +254,12 @@ async def referrer_info(
 
 @router.post("/login", summary="Вход клиента или администратора")
 async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
+    # Email регистронезависимо: вход по адресу в любом регистре.
+    data.email = (data.email or "").strip().lower()
+
     # Пробуем залогинить как клиента
     client = await db.fetchrow(
-        "SELECT id, name, email, password_hash, is_active FROM clients WHERE email = $1",
+        "SELECT id, name, email, password_hash, is_active FROM clients WHERE LOWER(email) = $1",
         data.email
     )
     if client and verify_password(data.password, client["password_hash"]):
@@ -305,7 +313,7 @@ async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
 
     # Пробуем залогинить как администратора
     admin = await db.fetchrow(
-        "SELECT id, name, email, password_hash, is_superadmin FROM admins WHERE email = $1",
+        "SELECT id, name, email, password_hash, is_superadmin FROM admins WHERE LOWER(email) = $1",
         data.email
     )
     if admin and verify_password(data.password, admin["password_hash"]):
@@ -322,9 +330,10 @@ async def login(data: LoginRequest, db: asyncpg.Connection = Depends(get_db)):
 
 @router.post("/admin/login", summary="Вход администратора")
 async def admin_login(data: AdminLoginRequest, db: asyncpg.Connection = Depends(get_db)):
+    email_norm = (data.email or "").strip().lower()
     admin = await db.fetchrow(
-        "SELECT id, name, email, password_hash, is_superadmin FROM admins WHERE email = $1",
-        data.email
+        "SELECT id, name, email, password_hash, is_superadmin FROM admins WHERE LOWER(email) = $1",
+        email_norm
     )
     if not admin or not verify_password(data.password, admin["password_hash"]):
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
