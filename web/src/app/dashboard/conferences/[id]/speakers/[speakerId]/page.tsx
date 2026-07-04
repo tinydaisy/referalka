@@ -390,7 +390,11 @@ export default function ConferenceSpeakerPage() {
     setSavingEvent(true); setError(''); setEventSaved(false)
     try {
       const topics = eventForm.topics.filter(t => t.trim())
-      const priority = calcPriority(eventForm.role, eventForm.is_commercial)
+      // Приоритет берём ИЗ ПОЛЯ (то, что клиент ввёл вручную), а не пересчитываем
+      // по роли — иначе ручное значение затиралось. Пусто → дефолт по роли.
+      const priority = ((eventForm as any).priority ?? null) !== null
+        ? Number((eventForm as any).priority)
+        : calcPriority(eventForm.role, eventForm.is_commercial)
       await api.conference.speakers.update(confId, speakerEventId, {
         role: eventForm.role,
         topics,

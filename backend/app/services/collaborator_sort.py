@@ -65,33 +65,42 @@ def referrals_count_sql(tbl: str = "cse") -> str:
     return _REFERRALS_COUNT.format(tbl=tbl)
 
 
+# Жёсткий порядок ГРУПП (2026-07-04): организатор → жюри → партнёры → спикеры.
+# Меньше = выше. Внутри группы — referrals DESC → priority ASC → id ASC.
+_ROLE_GROUP: Final[str] = """CASE
+  WHEN {tbl}.role = 'organizer'                          THEN 1
+  WHEN {tbl}.role = 'jury'                               THEN 2
+  WHEN {tbl}.role IN ('general_partner', 'partner')      THEN 3
+  WHEN {tbl}.role IN ('headliner', 'speaker')            THEN 4
+  ELSE 5
+END"""
+
+
 def order_by_sql(tbl: str = "cse") -> str:
     """Строка для ORDER BY (без слова ORDER BY).
 
     tbl — алиас таблицы event_collaborators в запросе. Таблица должна иметь
     колонки role, is_commercial, priority, speaker_id, event_id, id.
 
-    Текущая логика (2026-05-29): организаторы всегда первыми, потом
-    остальные **в одном пуле** (без разделения jury / speaker / partner)
-    сортируются по `referrals DESC` (кто привёл больше — выше). Среди
-    равных по referrals — старая логика group_rank → priority → id.
+    Логика (2026-07-04): жёсткий порядок ГРУПП по роли —
+    организатор → жюри → партнёры (general_partner+partner) → спикеры
+    (headliner+speaker). Внутри группы: кто больше привёл, тот выше
+    (referrals DESC), потом priority ASC (меньше число = выше), потом id.
 
     Логика применяется везде где SELECT с этим ORDER BY: Mini App
     (ProgramTab лента вверху + SpeakersTab список) — кроме случаев когда
     Mini App дополнительно ГРУППИРУЕТ визуально по сегментам, тогда
     порядок внутри сегмента такой же. Рассылки speaker_intro / day_end.
-    Дашборд list_event_speakers. Виджет для сторонних лендингов
-    (landing_widget.py) — НЕ использует эту функцию, у него своя сортировка
-    по медийности.
+    Дашборд list_event_speakers. Веб-страница события (event_page_html.py).
+    Виджет для сторонних лендингов (landing_widget.py) — НЕ использует эту
+    функцию, у него своя копия сортировки.
     """
-    is_organizer = f"(CASE WHEN {tbl}.role = 'organizer' THEN 0 ELSE 1 END)"
     return (
-        # 0. Организаторы первыми всегда.
-        f"{is_organizer} ASC, "
-        # 1. Среди остальных — кто больше привёл, тот выше.
+        # 0. Жёсткий порядок групп по роли.
+        f"{_ROLE_GROUP.format(tbl=tbl)} ASC, "
+        # 1. Внутри группы — кто больше привёл, тот выше.
         f"{referrals_count_sql(tbl)} DESC, "
-        # 2. Старая логика как tie-breaker среди равных по referrals.
-        f"{group_rank_sql(tbl)} ASC, "
+        # 2. Приоритет (меньше = выше) как tie-breaker среди равных по referrals.
         f"COALESCE({tbl}.priority, 60) ASC, "
         f"{tbl}.id ASC"
     )

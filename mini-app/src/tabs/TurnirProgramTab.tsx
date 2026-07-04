@@ -51,6 +51,7 @@ interface Speaker {
   vk_url?: string | null
   max_url?: string | null
   instagram_url?: string | null
+  website_url?: string | null
   personal_tg_username?: string | null
   speaker_topic?: string | null
   gift_after_speech_title?: string | null
@@ -1232,11 +1233,15 @@ export default function TurnirProgramTab({ event, tgUser, refreshKey, onVipClick
 
                   {/* Соцсети — 4 кнопки 2×2 */}
                   {(() => {
-                    const socials: Array<{ label: string, url: string, primary: boolean, kind: 'tg_channel' | 'vk' | 'max' | 'instagram' }> = []
+                    const site = (sp.website_url || '').trim()
+                      ? ((sp.website_url || '').trim().startsWith('http') ? (sp.website_url || '').trim() : `https://${(sp.website_url || '').trim()}`)
+                      : null
+                    const socials: Array<{ label: string, url: string, primary: boolean, kind: 'tg_channel' | 'vk' | 'max' | 'instagram' | 'website' }> = []
                     if (tg) socials.push({ label: 'Тг-канал', url: tg, primary: true, kind: 'tg_channel' })
                     if (sp.vk_url) socials.push({ label: 'ВКонтакте', url: sp.vk_url, primary: false, kind: 'vk' })
                     if (sp.max_url) socials.push({ label: 'MAX', url: sp.max_url, primary: false, kind: 'max' })
                     if (insta) socials.push({ label: 'Нельзяграм', url: insta, primary: false, kind: 'instagram' })
+                    if (site) socials.push({ label: 'Сайт', url: site, primary: false, kind: 'website' })
                     if (socials.length === 0) return null
                     return (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>

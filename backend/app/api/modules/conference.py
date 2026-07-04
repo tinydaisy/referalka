@@ -772,6 +772,7 @@ async def list_event_speakers_public(event_id: int, db: asyncpg.Connection = Dep
                   cse.knowledge_base_title, cse.knowledge_base_url,
                   sp.name, sp.title, sp.photo_url,
                   sp.tg_channel_url, sp.vk_url, sp.max_url, sp.instagram_url,
+                  sp.website_url,
                   sp.achievements,
                   pu_tg.username AS personal_tg_username
            FROM event_collaborators cse

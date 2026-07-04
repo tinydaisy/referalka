@@ -46,15 +46,14 @@ def _set_cors(response: Response) -> None:
 
 
 # Sort коллабораторов для лендинга — БЕЗ приоритета is_commercial.
-# Внутри группы — старый порядок (referrals DESC, priority ASC, id ASC).
+# Жёсткий порядок групп (2026-07-04): организатор → жюри → партнёры → спикеры.
+# Внутри группы — referrals DESC, priority ASC, id ASC.
 _GROUP_RANK_FLAT = """CASE
-    WHEN cse.role = 'organizer'       THEN 1
-    WHEN cse.role = 'jury'            THEN 2
-    WHEN cse.role = 'headliner'       THEN 3
-    WHEN cse.role = 'speaker'         THEN 4
-    WHEN cse.role = 'general_partner' THEN 5
-    WHEN cse.role = 'partner'         THEN 6
-    ELSE 7
+    WHEN cse.role = 'organizer'                      THEN 1
+    WHEN cse.role = 'jury'                           THEN 2
+    WHEN cse.role IN ('general_partner', 'partner')  THEN 3
+    WHEN cse.role IN ('headliner', 'speaker')        THEN 4
+    ELSE 5
   END"""
 
 _REFERRALS_COUNT = """COALESCE((

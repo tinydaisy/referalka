@@ -34,6 +34,7 @@ interface Speaker {
   vk_url?: string | null
   max_url?: string | null
   instagram_url?: string | null
+  website_url?: string | null
   speaker_topic?: string | null
   gift_after_speech_title?: string | null
   gift_lm_name?: string | null
@@ -187,6 +188,7 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
           vk_url: c.vk_url,
           max_url: c.max_url,
           instagram_url: c.instagram_url,
+          website_url: c.website_url,
           speaker_topic: c.speaker_topic,
           gift_after_speech_title: c.gift_after_speech_title,
           gift_lm_name: c.gift_lm_name,
@@ -269,11 +271,16 @@ export default function SpeakersTab({ event, tgUser, highlightSpeakerEventId, on
             : null
           const ach = (sp.achievements || []).filter(a => a && a.trim())
 
-          const socials: Array<{ label: string; url: string; primary: boolean; kind: 'tg_channel' | 'vk' | 'max' | 'instagram' }> = []
+          const site = (sp.website_url || '').trim()
+            ? ((sp.website_url || '').trim().startsWith('http') ? (sp.website_url || '').trim() : `https://${(sp.website_url || '').trim()}`)
+            : null
+
+          const socials: Array<{ label: string; url: string; primary: boolean; kind: 'tg_channel' | 'vk' | 'max' | 'instagram' | 'website' }> = []
           if (tg) socials.push({ label: 'Тг-канал', url: tg, primary: true, kind: 'tg_channel' })
           if (sp.vk_url) socials.push({ label: 'ВКонтакте', url: sp.vk_url, primary: false, kind: 'vk' })
           if (sp.max_url) socials.push({ label: 'MAX', url: sp.max_url, primary: false, kind: 'max' })
           if (insta) socials.push({ label: 'Нельзяграм', url: insta, primary: false, kind: 'instagram' })
+          if (site) socials.push({ label: 'Сайт', url: site, primary: false, kind: 'website' })
 
           return (
             <div

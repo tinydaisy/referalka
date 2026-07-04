@@ -78,7 +78,7 @@ async def _load_collaborators(db, event_id):
                    cse.gift_lead_magnet_id, cse.gift_package_id,
                    lm.name AS gift_lm_name, lp.name AS gift_lp_name,
                    c.name, c.title, c.achievements, c.photo_url,
-                   c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url
+                   c.tg_channel_url, c.vk_url, c.max_url, c.instagram_url, c.website_url
               FROM event_collaborators cse
               JOIN collaborators c ON c.id = cse.speaker_id
               LEFT JOIN lead_magnets lm ON lm.id = cse.gift_lead_magnet_id
@@ -593,6 +593,11 @@ def _speaker_card(p, slot=None) -> str:
     insta = _instagram_url(p.get("instagram_url"))
     if insta:
         socials.append(("Нельзяграм", insta, False))
+    site = (p.get("website_url") or "").strip()
+    if site:
+        if not site.startswith(("http://", "https://")):
+            site = "https://" + site
+        socials.append(("Сайт", site, False))
     soc_html = ""
     if socials:
         btns = "".join(
