@@ -1618,12 +1618,13 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
         return {"is_tournament": False}
     mykey = _skey("ec", se_id)
 
-    # только этапы, к которым привязан ЭТОТ спикер (event_collaborator_stages)
+    # только этапы, к которым привязан ЭТОТ спикер (event_collaborator_stages).
+    # Порядок — последний тур сверху (DESC): свежий этап показываем первым.
     stages = await db.fetch(
         """SELECT s.id, s.title FROM conf_stages s
             JOIN event_collaborator_stages ecs ON ecs.stage_id = s.id
            WHERE s.event_id=$1 AND ecs.ec_id=$2
-           ORDER BY s.sort_order, s.id""", event_id, se_id)
+           ORDER BY s.sort_order DESC, s.id DESC""", event_id, se_id)
     stage_list = [{"id": s["id"], "title": s["title"]} for s in stages] or [{"id": None, "title": "Турнир"}]
 
     # комментарии жюри (с привязкой к этапу)

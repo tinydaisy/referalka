@@ -2300,6 +2300,9 @@ function JudgingTab({ token }: { token: string }) {
 function MyResultsTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
+  // Свёрнутые пакеты (ключ = `${stage_id}:${pkg.id}`). По умолчанию раскрыты.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const toggle = (key: string) => setCollapsed(p => ({ ...p, [key]: !p[key] }))
 
   useEffect(() => {
     fetch(`${API}/api/v1/public/tournament-jury/my-results`, { headers: { Authorization: `Bearer ${token}` } })
@@ -2316,12 +2319,18 @@ function MyResultsTab({ token }: { token: string }) {
     <div>
       <div style={{ fontSize: 13, color: '#7a8c9c', marginBottom: 14 }}>Ваши оценки по всем этапам — полная прозрачность, с комментариями жюри.</div>
 
-      {(data.stages || []).map((st: any) => (
+      {(data.stages || []).map((st: any) => {
+        const stKey = `stage:${st.stage_id}`
+        const stCollapsed = collapsed[stKey]
+        return (
         <div key={String(st.stage_id)} style={{ marginBottom: 22 }}>
-          {/* заголовок этапа */}
-          <div style={{ fontSize: 15, fontWeight: 800, color: PEACH, background: 'linear-gradient(45deg, #25455D, #0a1520)', marginBottom: 8, padding: '10px 14px', borderRadius: 10 }}>
-            {st.stage_title}
+          {/* заголовок этапа — кликабельный, сворачивает весь тур */}
+          <div onClick={() => toggle(stKey)}
+            style={{ fontSize: 15, fontWeight: 800, color: PEACH, background: 'linear-gradient(45deg, #25455D, #0a1520)', marginBottom: 8, padding: '10px 14px', borderRadius: 10, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <span>{st.stage_title}</span>
+            <span style={{ fontSize: 14, transform: stCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}>▾</span>
           </div>
+          {!stCollapsed && (<>
           {st.stage_id && data.event_id && (
             <a href={`/t/${data.event_id}/${st.stage_id}/reglament`} target="_blank" rel="noreferrer"
               style={{ display: 'inline-block', marginBottom: 12, fontSize: 13, color: DARK, textDecoration: 'underline' }}>
@@ -2351,10 +2360,14 @@ function MyResultsTab({ token }: { token: string }) {
                 const pkgCols = (st.columns || []).filter((c: any) => c.package_id === pkg.id)
                 if (pkgCols.length === 0) return null
                 const pkgScore = st.package_scores?.[String(pkg.id)]
+                const pkgKey = `pkg:${st.stage_id}:${pkg.id}`
+                const pkgCollapsed = collapsed[pkgKey]
                 return (
                   <div key={pkg.id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 10 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <div onClick={() => toggle(pkgKey)}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: pkgCollapsed ? 0 : 8, cursor: 'pointer', gap: 10 }}>
                       <div style={{ fontWeight: 700, color: DARK }}>
+                        <span style={{ fontSize: 12, marginRight: 6, display: 'inline-block', transform: pkgCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .15s' }}>▾</span>
                         {pkg.title}
                         <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>вес {pkg.weight}</span>
                         {pkg.normalize && (
@@ -2367,7 +2380,7 @@ function MyResultsTab({ token }: { token: string }) {
                         <b style={{ color: DARK }}>{pkgScore ?? '—'}</b>
                       </div>
                     </div>
-                    {pkgCols.map((c: any) => (
+                    {!pkgCollapsed && pkgCols.map((c: any) => (
                       <div key={c.criterion_id} style={{ padding: '4px 0', borderTop: '1px solid #f1f5f9' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
                           <span>{c.title}</span>
@@ -2392,8 +2405,10 @@ function MyResultsTab({ token }: { token: string }) {
               )}
             </>
           )}
+          </>)}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
