@@ -169,6 +169,10 @@ export default function ConferenceSpeakerPage() {
   const [eventSlug, setEventSlug] = useState<string | null>(null)
   const [eventStatus, setEventStatus] = useState<'draft' | 'published' | 'ended' | null>(null)
   const [refCode, setRefCode] = useState<string | null>(null)
+  // Подарок из ПЛЮСОНа (лид-магнит/пакет), если спикер выбрал его в своём
+  // кабинете. Показываем отдельной read-only плашкой — иначе выглядит будто
+  // подарка нет, хотя он есть.
+  const [giftPluson, setGiftPluson] = useState<{ name: string; url: string | null } | null>(null)
   // Этапы турнира + в каких участвует этот спикер/жюри (event_collaborator_stages)
   const [stages, setStages] = useState<Array<{ id: number; title: string }>>([])
   const [stageIds, setStageIds] = useState<number[]>([])
@@ -211,6 +215,16 @@ export default function ConferenceSpeakerPage() {
         setRefCode(sp.ref_code || null)
         setStageIds(Array.isArray(sp.stage_ids) ? sp.stage_ids : [])
 
+        // Подарок из ПЛЮСОНа: спикер привязал свой кабинет и выбрал лид-магнит/пакет.
+        // Бэк для рассылок подставляет имя магнита в gift_after_speech_title —
+        // но здесь это НЕ ручной ввод, поэтому показываем отдельной плашкой и НЕ
+        // кладём в редактируемое поле (иначе при сохранении перезапишет привязку).
+        const fromPluson = !!(sp.gift_lead_magnet_id || sp.gift_package_id)
+        setGiftPluson(fromPluson
+          ? { name: sp.gift_lm_name || sp.gift_lp_name || sp.gift_after_speech_title || 'Лид-магнит из ПЛЮСОН',
+              url: sp.gift_lm_url || sp.gift_after_speech_url || null }
+          : null)
+
         const rawTopics = sp.topics && sp.topics.length > 0
           ? sp.topics.map((t: any) => typeof t === 'string' ? t : t.topic)
           : (sp.speaker_topic ? [sp.speaker_topic] : [''])
@@ -218,8 +232,10 @@ export default function ConferenceSpeakerPage() {
         setEventForm({
           role: sp.role || 'speaker',
           topics: rawTopics.length > 0 ? rawTopics : [''],
-          gift_after_speech_title: sp.gift_after_speech_title || '',
-          gift_after_speech_url: sp.gift_after_speech_url || '',
+          // Если подарок из ПЛЮСОНа — ручные поля пустые (бэк подставил туда имя
+          // магнита для рассылок, но это не ручной ввод — показываем плашкой ниже).
+          gift_after_speech_title: fromPluson ? '' : (sp.gift_after_speech_title || ''),
+          gift_after_speech_url: fromPluson ? '' : (sp.gift_after_speech_url || ''),
           gift_raffle_title: sp.gift_raffle_title || '',
           gift_raffle_url: sp.gift_raffle_url || '',
           knowledge_base_title: sp.knowledge_base_title || '',
@@ -662,8 +678,21 @@ export default function ConferenceSpeakerPage() {
         {/* Подарок после эфира */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
           <h3 className="font-semibold text-gray-900 text-sm">Подарок после эфира</h3>
+          {giftPluson && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm">
+              <div className="font-semibold text-emerald-800">🎁 Подарок из ПЛЮСОНа</div>
+              <div className="text-emerald-900 mt-0.5">{giftPluson.name}</div>
+              {giftPluson.url && (
+                <a href={giftPluson.url} target="_blank" rel="noreferrer"
+                  className="text-emerald-700 underline break-all text-xs">{giftPluson.url}</a>
+              )}
+              <div className="text-emerald-700 text-xs mt-1">
+                Спикер выбрал этот лид-магнит в своём кабинете. Ручные поля ниже можно оставить пустыми.
+              </div>
+            </div>
+          )}
           <div>
-            <FieldLabel label="Название" empty={!eventForm.gift_after_speech_title.trim()} />
+            <FieldLabel label="Название" empty={!giftPluson && !eventForm.gift_after_speech_title.trim()} />
             <textarea value={eventForm.gift_after_speech_title} onChange={setEF('gift_after_speech_title')}
               rows={3} placeholder="Например: Чек-лист по нутрициологии"
               className="input resize-y text-sm" />
