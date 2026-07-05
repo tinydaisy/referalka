@@ -788,9 +788,13 @@ async def list_schedules(
         LEFT JOIN event_collaborators cse_intro ON cse_intro.id = bs.session_id AND bs.type = 'speaker_intro'
         LEFT JOIN collaborators ci ON ci.id = cse_intro.speaker_id
         WHERE bs.event_id = $1
+          -- Коллаб-событие: каждый организатор видит рассылки ПО СВОЕЙ базе —
+          -- свои (client_id=я), общие авто-сгенерированные (client_id IS NULL),
+          -- и адресованные мне копии на подтверждение. Чужие копии — скрыты.
+          AND (bs.client_id IS NULL OR bs.client_id = $2)
         ORDER BY bs.fire_at NULLS LAST
         """,
-        event_id
+        event_id, client_id
     )
 
     # Часовой пояс клиента для отображения
@@ -1427,6 +1431,8 @@ class AddManualRequest(BaseModel):
     note: Optional[str] = None
     # enqueue=True → сразу в очередь (status='pending'), иначе черновик (draft).
     enqueue: bool = False
+    # Коллаб-событие: попросить соорганизаторов подтвердить рассылку по их базам.
+    request_owner_confirm: bool = False
 
 
 @router.post("/schedules/add-manual", summary="Добавить рассылку вручную")
@@ -1468,14 +1474,18 @@ async def add_manual_schedule(
         """
         INSERT INTO broadcast_schedules
           (event_id, template_id, type, session_id, fire_at, status, is_test, audience_include, audience_exclude,
-           snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url)
-        VALUES ($1, $2, $3, $4, $5, $13, $6, $7, $8, $9, $10, $11, $12)
+           snapshot_text, snapshot_photo, snapshot_btn_text, snapshot_btn_url, client_id)
+        VALUES ($1, $2, $3, $4, $5, $13, $6, $7, $8, $9, $10, $11, $12, $14)
         RETURNING id, type, fire_at, status, is_test, audience_include, audience_exclude
         """,
         event_id, tpl["id"], tpl["type"], data.session_id, dt_utc, data.is_test, aud_include, aud_exclude,
-        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"], new_status
+        tpl["text"], tpl["photo_url"], tpl["button_text"], tpl["button_url"], new_status, client_id
     )
-    return dict(row)
+    result = dict(row)
+    if data.request_owner_confirm:
+        from app.services.collab_broadcast import fanout_confirmations
+        result["confirm_batch_id"] = await fanout_confirmations(db, event_id, client_id, [row["id"]])
+    return result
 
 
 # ─── Произвольная рассылка (без шаблона) ─────────────────────────────────
@@ -1497,6 +1507,8 @@ class AddCustomRequest(BaseModel):
     audience_exclude: str = "none"
     send_to_event_chats: bool = False
     send_to_client_chats: bool = False
+    # Коллаб-событие: попросить соорганизаторов подтвердить рассылку по их базам.
+    request_owner_confirm: bool = False
 
 
 def _resolve_snapshot_media(photo_url: Optional[str], video_url: Optional[str],
@@ -1582,15 +1594,21 @@ async def add_custom_schedule(
           (event_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_buttons,
-           snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats)
-        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
+           snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats, client_id)
+        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
-        data.send_to_event_chats, data.send_to_client_chats
+        data.send_to_event_chats, data.send_to_client_chats, client_id
     )
-    return dict(row)
+    result = dict(row)
+    # Коллаб-событие + галочка → копии соорганизаторам на подтверждение (по их базам).
+    if data.request_owner_confirm:
+        from app.services.collab_broadcast import fanout_confirmations
+        batch = await fanout_confirmations(db, event_id, client_id, [row["id"]])
+        result["confirm_batch_id"] = batch
+    return result
 
 
 @router.put("/schedules/{schedule_id}/custom", summary="Редактировать произвольную рассылку")
@@ -1672,6 +1690,8 @@ class BulkAddRequest(BaseModel):
     dry_run: bool = False   # только валидация без записи
     # enqueue=True → создать сразу в очередь (status='pending'), иначе черновики (draft).
     enqueue: bool = False
+    # Коллаб-событие: попросить соорганизаторов подтвердить весь пакет (1 подтверждение).
+    request_owner_confirm: bool = False
 
 
 @router.post("/schedules/bulk-add", summary="Пакетное добавление произвольных рассылок")
@@ -1742,6 +1762,7 @@ async def bulk_add_schedules(
     import json as _json
     new_status = "pending" if data.enqueue else "draft"
     created_ids = []
+    confirm_batch = None
     async with db.transaction():
         for p in parsed:
             row = await db.fetchrow(
@@ -1751,17 +1772,22 @@ async def bulk_add_schedules(
                    audience_include, audience_exclude,
                    snapshot_text, snapshot_photo, snapshot_buttons,
                    snapshot_video, snapshot_media_type,
-                   send_to_event_chats, send_to_client_chats)
-                VALUES ($1, NULL, 'custom', NULL, $2, $13, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
+                   send_to_event_chats, send_to_client_chats, client_id)
+                VALUES ($1, NULL, 'custom', NULL, $2, $13, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $14)
                 RETURNING id
                 """,
                 event_id, p["dt_utc"], data.is_test, p["audience_include"], p["audience_exclude"],
                 p["text"], p["photo_url"], _json.dumps(p["buttons"]),
                 p["video_url"], p["media_type"],
-                p["send_to_event_chats"], p["send_to_client_chats"], new_status
+                p["send_to_event_chats"], p["send_to_client_chats"], new_status, client_id
             )
             created_ids.append(row["id"])
-    return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids, "warnings": warnings}
+        # Коллаб-событие + галочка → ОДИН пакет-подтверждение на весь bulk соорганизаторам.
+        if data.request_owner_confirm and created_ids:
+            from app.services.collab_broadcast import fanout_confirmations
+            confirm_batch = await fanout_confirmations(db, event_id, client_id, created_ids)
+    return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids,
+            "warnings": warnings, "confirm_batch_id": confirm_batch}
 
 
 @router.post("/schedules/run-all", summary="Запустить всю очередь (активировать Celery)")

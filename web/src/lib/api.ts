@@ -614,6 +614,11 @@ export const api = {
       request(`/api/v1/collab/events/${eventId}/leave`, { method: 'POST' }),
     addReview: (data: any) =>
       request('/api/v1/collab/reviews', { method: 'POST', body: JSON.stringify(data) }),
+    // Рассылки коллаб-события — подтверждение постановки по моей базе
+    broadcastConfirmations: () => request('/api/v1/collab/broadcast-confirmations'),
+    broadcastConfirmationsCount: () => request('/api/v1/collab/broadcast-confirmations/count'),
+    respondBroadcastConfirmation: (batchId: string, accept: boolean) =>
+      request(`/api/v1/collab/broadcast-confirmations/${batchId}`, { method: 'POST', body: JSON.stringify({ accept }) }),
   },
   leadMagnetPackages: {
     list: () => request('/api/v1/lead-magnet-packages'),

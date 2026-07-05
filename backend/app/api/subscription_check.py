@@ -95,12 +95,55 @@ async def _check_one_channel(
     return "not_subscribed"
 
 
+async def _check_collab_owners(event_id: int, tg_id: int, db: asyncpg.Connection):
+    """Коллаб-событие с рычагом require_subscribe_all_owners: участник должен быть
+    подписан на TG-каналы каналов-основателей ВСЕХ организаторов (event_owners).
+
+    ⚠️ У каждого организатора СВОЙ VIP-бот и СВОЙ канал — getChatMember канала
+    надо звать ЕГО ботом (который админ его канала), не одним общим токеном.
+    Возвращает {not_subscribed[], subscribed[]} (формат как у спикеров)."""
+    from app.services.channels import get_client_telegram_token
+    owners = await db.fetch(
+        """SELECT eo.client_id,
+                  COALESCE(cl.brand_name, cl.name) AS name,
+                  col.tg_channel_id, col.tg_channel_url,
+                  pu.platform_user_id AS personal_tg_id
+             FROM event_owners eo
+             JOIN clients cl ON cl.id = eo.client_id
+             LEFT JOIN collaborators col ON col.id = cl.self_collaborator_id
+             LEFT JOIN platform_users pu
+               ON pu.contact_id = col.contact_id AND pu.platform_slug = 'telegram'
+            WHERE eo.event_id = $1 AND eo.status = 'accepted'
+              AND col.tg_channel_id IS NOT NULL AND col.tg_channel_id <> ''""",
+        event_id)
+    not_subscribed, subscribed = [], []
+    async with httpx.AsyncClient() as http:
+        for o in owners:
+            token = await get_client_telegram_token(o["client_id"], db)
+            item = {"speaker_id": None, "name": o["name"],
+                    "tg_channel_id": o["tg_channel_id"], "tg_channel_url": o["tg_channel_url"]}
+            if not token:
+                # нет своего бота у организатора → проверить нельзя, не блокируем
+                subscribed.append(item)
+                continue
+            verdict = await _check_one_channel(
+                http, token, o["tg_channel_id"], o.get("personal_tg_id"), tg_id)
+            (not_subscribed if verdict == "not_subscribed" else subscribed).append(item)
+    return not_subscribed, subscribed
+
+
 async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     event = await db.fetchrow(
-        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, require_subscription FROM events WHERE id = $1", event_id
+        "SELECT id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=events.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, require_subscription, is_collab, require_subscribe_all_owners FROM events WHERE id = $1", event_id
     )
     if not event:
         return {"status": 0, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
+
+    # Коллаб-событие + рычаг «подписка на всех организаторов» — отдельная проверка
+    # (каналы основателей всех совладельцев, каждый через свой бот).
+    collab_ns, collab_ok = [], []
+    if event["is_collab"] and event["require_subscribe_all_owners"]:
+        collab_ns, collab_ok = await _check_collab_owners(event_id, tg_id, db)
 
     # Режим подписки задаётся в настройках:
     #   Конференция (есть запись в conf_conferences):
@@ -115,8 +158,20 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     else:
         mode = "organizer" if event["require_subscription"] else "none"
 
+    def _finish(spk_ns, spk_ok):
+        """Слить проверку спикеров с проверкой коллаб-организаторов в единый ответ."""
+        ns = collab_ns + spk_ns
+        ok = collab_ok + spk_ok
+        return {
+            "status": 0 if ns else 1,
+            "not_subscribed": ns,
+            "subscribed": ok,
+            "not_subscribed_text": "\n".join(
+                f"{sp['name']}: {sp['tg_channel_url'] or sp['tg_channel_id']}" for sp in ns),
+        }
+
     if mode == "none":
-        return {"status": 1, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
+        return _finish([], [])
 
     role_filter = "AND cse.role = 'organizer'" if mode == "organizer" else ""
 
@@ -140,12 +195,13 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
     )
 
     if not rows:
-        return {"status": 1, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
+        return _finish([], [])
 
     from app.services.channels import get_client_telegram_token
     token = await get_client_telegram_token(event["client_id"], db)
     if not token:
-        return {"status": 0, "not_subscribed": [], "subscribed": [], "not_subscribed_text": ""}
+        # нет бота у основного владельца — спикеров не проверить, но коллаб-часть уже посчитана
+        return _finish([], [])
 
     speakers = [dict(r) for r in rows]
 
@@ -172,17 +228,7 @@ async def _do_check(event_id: int, tg_id: int, db: asyncpg.Connection):
             # subscribed | fake_pass — оба идут вниз с галочкой
             subscribed.append(item)
 
-    not_subscribed_text = "\n".join(
-        f"{sp['name']}: {sp['tg_channel_url'] or sp['tg_channel_id']}"
-        for sp in not_subscribed
-    )
-
-    return {
-        "status": 0 if not_subscribed else 1,
-        "not_subscribed": not_subscribed,
-        "subscribed": subscribed,
-        "not_subscribed_text": not_subscribed_text,
-    }
+    return _finish(not_subscribed, subscribed)
 
 
 @router.get(

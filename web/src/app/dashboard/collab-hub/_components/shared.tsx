@@ -314,6 +314,48 @@ function DeclineModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (r
 }
 
 
+// Запросы соорганизаторов на рассылку по МОЕЙ базе (коллаб-события).
+export function BroadcastConfirmationsView() {
+  const [rows, setRows] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const load = () => {
+    api.collabHub.broadcastConfirmations()
+      .then((r: any) => { setRows(r.confirmations || []); setLoading(false) })
+      .catch(() => { setRows([]); setLoading(false) })
+  }
+  useEffect(() => { load() }, [])
+  const respond = async (batchId: string, accept: boolean) => {
+    try { await api.collabHub.respondBroadcastConfirmation(batchId, accept); load() }
+    catch (e: any) { alert(e?.message || 'Не удалось') }
+  }
+  if (loading || rows.length === 0) return null
+  return (
+    <div className="mb-8">
+      <h2 className="text-lg font-semibold mb-1" style={{ color: DARK }}>Рассылки на подтверждение</h2>
+      <p className="text-sm text-gray-500 mb-3">Соорганизаторы просят разослать это по вашей базе. Подтвердите — уйдёт через вашего бота.</p>
+      <div className="space-y-3">
+        {rows.map(c => (
+          <div key={c.confirm_batch_id} className="rounded-xl border-2 p-4 bg-white" style={{ borderColor: PEACH }}>
+            <p className="text-sm text-gray-800">
+              <b>{c.origin_name || 'Организатор'}</b> — {c.msg_count > 1 ? `пакет из ${c.msg_count} сообщений` : 'сообщение'} по событию «{c.event_title}».
+            </p>
+            {c.sample_text && <p className="text-xs text-gray-500 mt-1 whitespace-pre-wrap line-clamp-3">{c.sample_text}</p>}
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => respond(c.confirm_batch_id, true)}
+                className="px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ background: DARK }}>
+                Подтвердить {c.msg_count > 1 ? 'пакет' : ''}
+              </button>
+              <button onClick={() => respond(c.confirm_batch_id, false)}
+                className="px-4 py-2 rounded-lg border text-sm text-gray-500">Отклонить</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+
 export function MatchmakerView() {
   const [data, setData] = useState<any>(null)
   const [reqTarget, setReqTarget] = useState<any | null>(null)

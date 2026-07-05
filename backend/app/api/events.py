@@ -94,6 +94,9 @@ class UpdateEventRequest(BaseModel):
     points_free: Optional[int] = None
     points_paid: Optional[int] = None
     require_subscription: Optional[bool] = None
+    # Коллаб-событие: рычаг «подписка на каналы ВСЕХ организаторов-совладельцев»
+    # (Коллабораторная, миграция 134). Работает только для is_collab-события.
+    require_subscribe_all_owners: Optional[bool] = None
     # VIP / Чат
     vip_url: Optional[str] = None
     vip_button_label: Optional[str] = None
@@ -380,7 +383,7 @@ async def update_event(
 ):
     client_id = int(client["sub"])
     event = await db.fetchrow(
-        "SELECT id FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')", event_id, client_id
+        "SELECT id, status, is_collab FROM events WHERE id = $1 AND EXISTS(SELECT 1 FROM event_owners eo WHERE eo.event_id = events.id AND eo.client_id = $2 AND eo.status=\'accepted\')", event_id, client_id
     )
     if not event:
         raise HTTPException(status_code=404, detail="Событие не найдено")
@@ -436,6 +439,14 @@ async def update_event(
         f"UPDATE events SET {', '.join(set_parts)} WHERE id = $1",
         event_id, *values
     )
+
+    # Коллабораторная: при ЗАВЕРШЕНИИ коллаб-события (status → ended) пишем
+    # вклад каждого организатора в hub_collab_history (питает рейтинг в Хабе).
+    # Только на ПЕРЕХОДЕ в ended (был не ended) и только для коллаб-события.
+    if (updates.get("status") == "ended" and event["status"] != "ended"
+            and event["is_collab"]):
+        from app.services.collab_history import record_collab_history
+        await record_collab_history(db, event_id)
 
     updated = await db.fetchrow(f"SELECT e.*, {_POSTER_SUBQ}, {_CHAT_SUBQ} FROM events e WHERE e.id = $1", event_id)
     return {"event": dict(updated)}

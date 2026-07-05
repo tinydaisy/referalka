@@ -317,6 +317,60 @@ class ReviewIn(BaseModel):
     text: Optional[str] = None
 
 
+# ═══════════════════════════════════════════════════════════════
+# Рассылки коллаб-события — подтверждение постановки по МОЕЙ базе
+# ═══════════════════════════════════════════════════════════════
+@router.get("/broadcast-confirmations")
+async def broadcast_confirmations(client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Мои рассылки коллаб-событий, ожидающие подтверждения (сгруппированы по пакетам).
+    Инициатор (origin) попросил разослать это по МОЕЙ базе — я решаю."""
+    me = int(client["sub"])
+    rows = await db.fetch(
+        """SELECT bs.confirm_batch_id, bs.event_id, e.title AS event_title,
+                  bs.origin_client_id, COALESCE(oc.brand_name, oc.name) AS origin_name,
+                  count(*) AS msg_count, min(bs.fire_at) AS first_fire_at,
+                  (array_agg(bs.snapshot_text ORDER BY bs.fire_at))[1] AS sample_text,
+                  min(bs.created_at) AS created_at
+             FROM broadcast_schedules bs
+             LEFT JOIN events e ON e.id = bs.event_id
+             LEFT JOIN clients oc ON oc.id = bs.origin_client_id
+            WHERE bs.client_id = $1 AND bs.status = 'awaiting_confirm'
+              AND bs.confirm_batch_id IS NOT NULL
+            GROUP BY bs.confirm_batch_id, bs.event_id, e.title, bs.origin_client_id, oc.brand_name, oc.name
+            ORDER BY min(bs.created_at) DESC""", me)
+    return {"confirmations": [dict(r) for r in rows]}
+
+
+@router.post("/broadcast-confirmations/{batch_id}")
+async def respond_broadcast_confirmation(batch_id: str, body: dict,
+                                         client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Подтвердить/отклонить весь пакет рассылок по МОЕЙ базе.
+    accept=true → все мои копии пакета → pending (уйдут по моей базе/боту).
+    accept=false → cancelled. Затрагиваются ТОЛЬКО мои строки (client_id=я)."""
+    me = int(client["sub"])
+    accept = bool(body.get("accept"))
+    n = await db.fetchval(
+        "SELECT count(*) FROM broadcast_schedules WHERE confirm_batch_id=$1 AND client_id=$2 AND status='awaiting_confirm'",
+        batch_id, me)
+    if not n:
+        raise HTTPException(404, "Пакет не найден или уже обработан")
+    new_status = "pending" if accept else "cancelled"
+    await db.execute(
+        "UPDATE broadcast_schedules SET status=$3 WHERE confirm_batch_id=$1 AND client_id=$2 AND status='awaiting_confirm'",
+        batch_id, me, new_status)
+    return {"ok": True, "status": new_status, "affected": n}
+
+
+@router.get("/broadcast-confirmations/count")
+async def broadcast_confirmations_count(client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
+    """Число пакетов, ожидающих моего подтверждения — для бейджа в сайдбаре/разделе."""
+    me = int(client["sub"])
+    n = await db.fetchval(
+        """SELECT count(DISTINCT confirm_batch_id) FROM broadcast_schedules
+            WHERE client_id=$1 AND status='awaiting_confirm' AND confirm_batch_id IS NOT NULL""", me)
+    return {"count": n or 0}
+
+
 @router.post("/reviews")
 async def add_review(data: ReviewIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     me = int(client["sub"])

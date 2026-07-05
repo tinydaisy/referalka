@@ -90,6 +90,18 @@
 
 ## Ключевые архитектурные решения (зафиксированы, не менять)
 
+### Коллабораторная: автозапись рейтинга + подписка на всех организаторов + рассылки v1 (миграции 193, 194 от 2026-07-03)
+
+**Организаторы коллаб-события РАВНОПРАВНЫ** — «главного создателя» нет. Владелец = любая запись `event_owners(status='accepted')`. Раньше рассылки коллаб-события ошибочно шли по базе owner-а; исправлено.
+
+**1. Автозапись истории/рейтинга.** Рейтинг, Win-Win-коэффициент и число коллабов на карточке в Хабе считаются из `hub_collab_history` (только SELECT в collab_hub.py / collab_events.py). Раньше туда НИКТО не писал → у реальных клиентов всегда «0 коллабов». Теперь [collab_history.py](backend/app/services/collab_history.py) `record_collab_history(db, event_id)` вызывается из `update_event` ([events.py](backend/app/api/events.py)) при переходе `status→ended` у `is_collab`-события: на каждого организатора пишет `participants_total` (все участники) + `brought_live` (кого он привёл: `referrer_ref_code → contacts.client_id = его id` И `link_clicked_at IS NOT NULL`). **Миграция 193** — UNIQUE(client_id, event_id) WHERE event_id IS NOT NULL → идемпотентный UPSERT (повторный ended не плодит дубли). Демо-строки (event_id NULL) не конфликтуют.
+
+**2. Рычаг `require_subscribe_all_owners`** — обычная галочка «требовать подписку», но показывается ТОЛЬКО у коллаб-события ([OverviewTab.tsx](web/src/app/dashboard/events/%5Bid%5D/tabs/OverviewTab.tsx), под блоком подписки). Включена → участник должен быть подписан на TG-каналы self-коллабов ВСЕХ организаторов (`clients.self_collaborator_id → collaborators.tg_channel_id`). ⚠️ **Каждый организатор проверяется ЕГО ботом** (у каждого свой VIP-бот, админ своего канала) — `_check_collab_owners` в [subscription_check.py](backend/app/api/subscription_check.py), слито со спикер-проверкой через `_finish()`. Поле в `UpdateEventRequest` ([events.py](backend/app/api/events.py)).
+
+**3. Рассылки v1** (миграция 194). Каждый организатор ставит рассылку → по СВОЕЙ базе (schedule.client_id = создатель → движок [tasks/broadcast.py](backend/app/tasks/broadcast.py) сам подставит его VIP-бот; строка ~95 = `COALESCE(bs.client_id, owner)`, авто-сгенерированные с NULL падают на owner) — сразу в очередь. Галочка **«запросить рассылку по базам соорганизаторов»** (`request_owner_confirm`, только у коллаб-события, в 3 формах queue-страницы) → для каждого ДРУГОГО организатора создаётся копия schedule в статусе **`awaiting_confirm`** (Celery берёт строго `pending` — не трогает) под общим `confirm_batch_id` (пакет = ОДНО подтверждение). Соорганизатор подтверждает → его копии → `pending` (уходят по его базе/боту), отклоняет → `cancelled`. **Статистику каждый видит по своей базе** — `list_schedules` фильтрует `AND (bs.client_id IS NULL OR bs.client_id=$me)`. Fanout — [collab_broadcast.py](backend/app/services/collab_broadcast.py) `fanout_confirmations`. Endpoints — `/collab/broadcast-confirmations` (список по batch) + `POST /{batch_id}` {accept} + `/count` ([collab_events.py](backend/app/api/collab_events.py)). UI подтверждений — баннер вверху queue-страницы + `BroadcastConfirmationsView` на `/dashboard/collab-hub/requests`.
+
+**⚠️ Концепция «общая аудитория» отвергнута** — каждый шлёт в СВОЮ базу через СВОЙ VIP-бот (свой токен → свой лимит Telegram, базы не смешиваются). Обмен аудиторией — добровольный.
+
 ### Реф-программа ПЛЮСОНа: закрепление приведённых за рефоводом + плейсхолдеры ссылок (миграция 189 от 2026-07-02)
 
 **Зачем.** Спикер (напр. Маша) рекламит событие клиента → человек (Вася) приходит по её реф-ссылке события → берёт «ПЛЮСОН» как подарок за регистрацию → регистрируется клиентом ПЛЮСОНа → должен закрепиться за Машей в реф-программе ПЛЮСОНа (`clients.referred_by_client_id`).

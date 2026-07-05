@@ -160,6 +160,11 @@ export default function QueuePage() {
   const [confSpeakers, setConfSpeakers] = useState<any[]>([])
   const [confSessions, setConfSessions] = useState<any[]>([])
   const [confDays, setConfDays] = useState<any[]>([])
+  const [isCollab, setIsCollab] = useState(false)
+  // Коллаб-событие: попросить соорганизаторов подтвердить рассылку по их базам.
+  const [requestOwnerConfirm, setRequestOwnerConfirm] = useState(false)
+  // Пакеты рассылок, ожидающие МОЕГО подтверждения (я — соорганизатор).
+  const [pendingConfirms, setPendingConfirms] = useState<any[]>([])
   const [running, setRunning] = useState(false)
 
   // Выделение чекбоксами
@@ -168,13 +173,20 @@ export default function QueuePage() {
   const [runningSelected, setRunningSelected] = useState(false)
 
   const load = useCallback(async () => {
-    const [tmpl, sched, spk, sess, days] = await Promise.all([
+    const [tmpl, sched, spk, sess, days, ev] = await Promise.all([
       api.conference.templates.list(eventId),
       api.conference.schedules.list(eventId),
       api.conference.speakers.list(eventId),
       api.conference.sessions.list(eventId),
       api.conference.days.list(eventId),
+      api.events.get(eventId).catch(() => null),
     ])
+    setIsCollab(!!ev?.event?.is_collab)
+    // Рассылки коллаб-событий, ожидающие МОЕГО подтверждения (по всем моим коллабам).
+    try {
+      const cf = await api.collabHub.broadcastConfirmations()
+      setPendingConfirms((cf.confirmations || []).filter((c: any) => c.event_id === eventId))
+    } catch { setPendingConfirms([]) }
     setTemplates(tmpl.templates || [])
     // Сортировка по убыванию даты (новые сверху). Без даты (draft) — в конец.
     const sortedSched = [...(sched.schedules || [])].sort((a: any, b: any) => {
@@ -364,6 +376,16 @@ export default function QueuePage() {
     }
   }
 
+  async function respondConfirm(batchId: string, accept: boolean) {
+    try {
+      await api.collabHub.respondBroadcastConfirmation(batchId, accept)
+      await load()
+      showMsg(accept ? 'Рассылка подтверждена — встала в очередь по вашей базе' : 'Рассылка отклонена')
+    } catch (e: any) {
+      showMsg(e.message, 'err')
+    }
+  }
+
   async function addManual() {
     // «Немедленно» — дату не требуем, подставим текущее московское время (−1 мин).
     const isNow = manualSendMode === 'now'
@@ -394,10 +416,13 @@ export default function QueuePage() {
         audience_exclude: manualForm.audience_exclude,
         ...(isSpeakerType && manualForm.session_id ? { session_id: Number(manualForm.session_id) } : {}),
         ...(isDayType && manualForm.day ? { day: Number(manualForm.day) } : {}),
+        ...(isCollab && requestOwnerConfirm ? { request_owner_confirm: true } : {}),
       })
       setManualModal(false)
       await load()
-      showMsg('Рассылка добавлена в очередь')
+      showMsg(isCollab && requestOwnerConfirm
+        ? 'Рассылка добавлена. Соорганизаторам отправлен запрос на подтверждение по их базам.'
+        : 'Рассылка добавлена в очередь')
     } catch (e: any) {
       showMsg(e.message, 'err')
     }
@@ -502,6 +527,37 @@ export default function QueuePage() {
 
   return (
     <div>
+      {/* ── Запросы на подтверждение рассылки от соорганизаторов (коллаб) ── */}
+      {pendingConfirms.length > 0 && (
+        <div className="mb-4 rounded-2xl border-2 border-[#FFCFA4] bg-[#FFCFA4]/10 p-4 space-y-3">
+          <p className="text-sm font-semibold text-gray-900">
+            Соорганизаторы просят подтвердить рассылку по вашей базе
+          </p>
+          {pendingConfirms.map(c => (
+            <div key={c.confirm_batch_id} className="rounded-xl bg-white border border-gray-100 p-3">
+              <p className="text-sm text-gray-800">
+                <b>{c.origin_name || 'Организатор'}</b> предлагает разослать{' '}
+                {c.msg_count > 1 ? `пакет из ${c.msg_count} сообщений` : 'сообщение'} по вашей базе события «{c.event_title}».
+              </p>
+              {c.sample_text && (
+                <p className="text-xs text-gray-500 mt-1 line-clamp-2 whitespace-pre-wrap">{c.sample_text}</p>
+              )}
+              <div className="flex gap-2 mt-2.5">
+                <button onClick={() => respondConfirm(c.confirm_batch_id, true)}
+                  className="px-3.5 py-1.5 rounded-lg text-sm font-medium text-white"
+                  style={{ background: 'linear-gradient(45deg,#25455D,#0a1520)' }}>
+                  Подтвердить {c.msg_count > 1 ? 'пакет' : ''}
+                </button>
+                <button onClick={() => respondConfirm(c.confirm_batch_id, false)}
+                  className="px-3.5 py-1.5 rounded-lg text-sm text-gray-500 border border-gray-200">
+                  Отклонить
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── Статусная плашка наверху ── */}
       <div className="mb-4 rounded-2xl border border-gray-100 bg-white p-4">
         <div className="flex flex-wrap items-center gap-4 text-sm">
@@ -1205,6 +1261,9 @@ export default function QueuePage() {
                 </div>
               </div>
             </div>
+            {isCollab && (
+              <OwnerConfirmCheckbox checked={requestOwnerConfirm} onChange={setRequestOwnerConfirm} />
+            )}
             <div className="flex gap-2 mt-5">
               <button onClick={addManual}
                 className="flex-1 py-2 rounded-xl text-sm font-medium text-white"
@@ -1228,6 +1287,7 @@ export default function QueuePage() {
           onError={(m) => showMsg(m, 'err')}
           eventId={eventId}
           tzLabel={tzLabel}
+          isCollab={isCollab}
         />
       )}
 
@@ -1251,6 +1311,7 @@ export default function QueuePage() {
           onError={(m) => showMsg(m, 'err')}
           eventId={eventId}
           tzLabel={tzLabel}
+          isCollab={isCollab}
         />
       )}
 
@@ -1406,6 +1467,28 @@ export default function QueuePage() {
 }
 
 
+// ─── Галочка «запросить подтверждение по базам соорганизаторов» (коллаб-событие) ──
+function OwnerConfirmCheckbox({ checked, onChange, batch }: {
+  checked: boolean; onChange: (v: boolean) => void; batch?: boolean
+}) {
+  return (
+    <label className="flex items-start gap-2.5 p-3 mt-3 rounded-xl border-2 border-[#FFCFA4] bg-[#FFCFA4]/10 cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)}
+        className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+      <span>
+        <span className="block text-sm font-medium text-gray-900">
+          Запросить рассылку по базам соорганизаторов
+        </span>
+        <span className="block text-[11px] text-gray-500 mt-0.5">
+          Это совместное событие. По вашей базе рассылка встанет в очередь сразу.
+          Каждому соорганизатору прилетит запрос — подтвердит, и {batch ? 'весь пакет уйдёт' : 'рассылка уйдёт'} по его базе через его бот.
+        </span>
+      </span>
+    </label>
+  )
+}
+
+
 // ─── Модалка: произвольное сообщение ─────────────────────────────────────────
 
 function CustomBroadcastModal(props: {
@@ -1415,6 +1498,7 @@ function CustomBroadcastModal(props: {
   eventId: number
   tzLabel: string
   editSchedule?: any   // если задан — режим правки существующей произвольной рассылки
+  isCollab?: boolean
 }) {
   const ed = props.editSchedule
   // datetime-local ждёт "YYYY-MM-DDTHH:mm" по локали клиента (МСК).
@@ -1442,6 +1526,8 @@ function CustomBroadcastModal(props: {
   const { me } = useMe()
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
   const [saving, setSaving] = useState(false)
+  // Коллаб-событие (только при создании) — запрос подтверждения соорганизаторам.
+  const [reqConfirm, setReqConfirm] = useState(false)
 
   const htmlErrors = validateTelegramHtml(text)
   const buttonErrors = buttons.map(b => validateButton(b.text, b.url))
@@ -1465,6 +1551,7 @@ function CustomBroadcastModal(props: {
         audience_exclude: audEx,
         send_to_event_chats: sendToChats,
         send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
+        ...(props.isCollab && !ed?.id && reqConfirm ? { request_owner_confirm: true } : {}),
       }
       if (ed?.id) {
         await api.conference.schedules.editCustom(props.eventId, ed.id, payload)
@@ -1603,6 +1690,9 @@ function CustomBroadcastModal(props: {
             </label>
           )}
         </div>
+        {props.isCollab && !ed?.id && (
+          <OwnerConfirmCheckbox checked={reqConfirm} onChange={setReqConfirm} />
+        )}
         <div className="flex gap-2 mt-5">
           <button onClick={save} disabled={saving || htmlErrors.length > 0 || hasButtonErrors}
             className="flex-1 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-60"
@@ -1628,8 +1718,11 @@ function BulkBroadcastModal(props: {
   onError: (m: string) => void
   eventId: number
   tzLabel: string
+  isCollab?: boolean
 }) {
   const [raw, setRaw] = useState('')
+  // Коллаб-событие: 1 запрос подтверждения на весь пакет соорганизаторам.
+  const [reqConfirm, setReqConfirm] = useState(false)
   // Аудитория/тест больше не редактируются в UI: всё задаётся в тексте блока,
   // создаётся черновиками. Дефолты — fallback, если в блоке базу не указали.
   const isTest = false
@@ -1820,6 +1913,7 @@ function BulkBroadcastModal(props: {
         audience_exclude: audEx,
         dry_run: false,
         enqueue,
+        ...(props.isCollab && reqConfirm ? { request_owner_confirm: true } : {}),
       })
       if (!res.ok) {
         setErrors(res.errors || [])
@@ -1901,6 +1995,10 @@ function BulkBroadcastModal(props: {
               </span>
             </span>
           </label>
+
+          {props.isCollab && (
+            <OwnerConfirmCheckbox checked={reqConfirm} onChange={setReqConfirm} batch />
+          )}
 
           {errors.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-1">

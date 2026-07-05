@@ -36,6 +36,7 @@ export default function OverviewTab({
   const [startAt, setStartAt] = useState(toLocalInput(event.start_at))
   const [endAt, setEndAt] = useState(toLocalInput(event.end_at))
   const [requireSubscription, setRequireSubscription] = useState<boolean>(!!event.require_subscription)
+  const [requireAllOwners, setRequireAllOwners] = useState<boolean>(!!event.require_subscribe_all_owners)
   const [skipContactForm, setSkipContactForm] = useState<boolean>(!!event.skip_contact_form)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
@@ -88,6 +89,7 @@ export default function OverviewTab({
       const eventEndIso = event.end_at ? new Date(event.end_at).toISOString() : null
       if (endIso !== eventEndIso)                               payload.end_at = endIso
       if (requireSubscription !== !!event.require_subscription) payload.require_subscription = requireSubscription
+      if (requireAllOwners !== !!event.require_subscribe_all_owners) payload.require_subscribe_all_owners = requireAllOwners
       if (skipContactForm !== !!event.skip_contact_form)        payload.skip_contact_form = skipContactForm
 
       if (Object.keys(payload).length === 0) {
@@ -218,6 +220,29 @@ export default function OverviewTab({
             </label>
           ))}
         </div>
+
+        {/* Коллаб-событие: рычаг «подписка на всех организаторов-совладельцев» */}
+        {event.is_collab && (
+          <label
+            className={`mt-3 flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+              requireAllOwners
+                ? 'border-[#25455D] bg-[#25455D]/5'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}>
+            <input type="checkbox" checked={requireAllOwners}
+              onChange={(e) => setRequireAllOwners(e.target.checked)}
+              className="mt-0.5 accent-[#25455D]" />
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                Требовать подписку на каналы всех организаторов коллаборации
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Это совместное событие. Участник должен подписаться на Telegram-каналы
+                каждого организатора-совладельца (проверяется ботом каждого) перед входом в чат.
+              </p>
+            </div>
+          </label>
+        )}
       </div>
 
       {/* 4) НАСТРОЙКИ СТРАНИЦЫ РЕГИСТРАЦИИ */}
