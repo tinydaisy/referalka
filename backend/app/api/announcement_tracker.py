@@ -78,12 +78,20 @@ async def get_tracker(
         "WHERE event_id = $1 ORDER BY sort_order, id", event_id
     )
 
+    # Для турниров в трекере анонсов показываем только жюри, партнёров и
+    # организаторов — без спикеров/хедлайнеров. Для конференций — всех.
+    module_slug = await db.fetchval("SELECT module_slug FROM events WHERE id = $1", event_id)
+    role_filter = ""
+    if module_slug == "turnir":
+        role_filter = "AND ec.role NOT IN ('speaker', 'headliner')"
+
     # Все коллабораторы события, организаторы — внизу.
     speakers = await db.fetch(f"""
         SELECT co.id AS collaborator_id, co.name, ec.role, co.title, co.photo_url
           FROM event_collaborators ec
           JOIN collaborators co ON co.id = ec.speaker_id
          WHERE ec.event_id = $1
+           {role_filter}
          ORDER BY (CASE WHEN ec.role = 'organizer' THEN 1 ELSE 0 END) ASC,
                   {referrals_count_sql('ec')} DESC,
                   {group_rank_sql('ec')} ASC,
