@@ -241,7 +241,7 @@ function SpeakerRow({ row, i, eventId, totalEntered, totalRegistered }: {
     <tr className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
       <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
       <td className="px-4 py-1.5">
-        <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
+        <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_event_id}`}
           className="font-medium text-[#25455D] hover:underline text-sm">
           {row.name || row.username || '—'}
         </Link>
@@ -567,7 +567,7 @@ export default function ReportTab({ eventId, moduleSlug }: { eventId: number; mo
                     className={`border-b border-gray-50 last:border-0 hover:bg-blue-50/40 ${row.is_commercial ? 'bg-blue-50/30' : ''}`}>
                     <td className="px-4 py-1.5 text-gray-400 tabular-nums text-sm">{i + 1}</td>
                     <td className="px-4 py-1.5">
-                      <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_id}`}
+                      <Link href={`/dashboard/conferences/${eventId}/speakers/${row.speaker_event_id}`}
                         className="font-medium text-[#25455D] hover:underline text-sm">
                         {row.name || row.username || '—'}
                       </Link>
