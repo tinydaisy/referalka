@@ -134,7 +134,8 @@ function formatDate(iso: string) {
 
 // Сворачиваемая группа
 function CollapsibleGroup({
-  label, entered, registered, totalEntered, totalRegistered, color, children, count, hasCommercialCol
+  label, entered, registered, totalEntered, totalRegistered, color, children, count, hasCommercialCol,
+  sortBy, onSortChange,
 }: {
   label: string
   entered: number
@@ -145,6 +146,8 @@ function CollapsibleGroup({
   children: React.ReactNode
   count: number
   hasCommercialCol?: boolean
+  sortBy?: 'entered' | 'registered'
+  onSortChange?: (v: 'entered' | 'registered') => void
 }) {
   const [open, setOpen] = useState(true)
   const cls = {
@@ -195,7 +198,29 @@ function CollapsibleGroup({
             <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
               <th className="text-left px-4 py-1.5 font-medium">№</th>
               <th className="text-left px-4 py-1.5 font-medium">Имя</th>
-              <th className="text-center px-3 py-1.5 font-medium">Зашло / Зарег.</th>
+              <th className="text-center px-3 py-1.5 font-medium whitespace-nowrap">
+                {onSortChange ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onSortChange('entered')}
+                      title="Сортировать по приглашённым"
+                      className={`hover:text-[#25455D] transition-colors ${sortBy === 'entered' ? 'text-[#25455D] font-bold underline' : ''}`}
+                    >
+                      Зашло{sortBy === 'entered' ? ' ↓' : ''}
+                    </button>
+                    <span className="text-gray-300 mx-1">/</span>
+                    <button
+                      type="button"
+                      onClick={() => onSortChange('registered')}
+                      title="Сортировать по зарегистрированным"
+                      className={`hover:text-[#25455D] transition-colors ${sortBy === 'registered' ? 'text-[#25455D] font-bold underline' : ''}`}
+                    >
+                      Зарег.{sortBy === 'registered' ? ' ↓' : ''}
+                    </button>
+                  </>
+                ) : 'Зашло / Зарег.'}
+              </th>
               <th className="text-center px-3 py-1.5 font-medium hidden sm:table-cell">Конв.</th>
               <th className="text-center px-3 py-1.5 font-medium hidden md:table-cell">Доля</th>
               {hasCommercialCol && <th className="text-center px-3 py-1.5 font-medium">Ком.</th>}
@@ -335,6 +360,8 @@ function generateReportText(detail: ReportDetail, reportDate: string, announceme
 export default function ReportTab({ eventId, moduleSlug }: { eventId: number; moduleSlug?: string | null }) {
   // Только в турнире спикерская секция разбивается на Жюри / Партнёры / Спикеры.
   const isTournament = moduleSlug === 'turnir'
+  // Сортировка людей внутри каждой категории: по приглашённым (entered) или по зарегистрированным (registered).
+  const [sortBy, setSortBy] = useState<'entered' | 'registered'>('entered')
   const [reports, setReports] = useState<ReportMeta[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<ReportDetail | null>(null)
@@ -426,16 +453,20 @@ export default function ReportTab({ eventId, moduleSlug }: { eventId: number; mo
     } finally { setDeletingId(null) }
   }
 
-  const byEntered = (a: { entered: number }, b: { entered: number }) => b.entered - a.entered
+  // Компаратор зависит от выбранной колонки сортировки; при равенстве — тай-брейк по второй метрике.
+  const sortRows = (a: { entered: number; registered: number }, b: { entered: number; registered: number }) =>
+    sortBy === 'registered'
+      ? (b.registered - a.registered) || (b.entered - a.entered)
+      : (b.entered - a.entered) || (b.registered - a.registered)
 
   // Разбивка спикеров по группам
-  const organizers   = (detail?.speakers_data.filter(s => s.role === 'organizer') ?? []).sort(byEntered)
-  const regularSpk   = (detail?.speakers_data.filter(s => s.role !== 'organizer' && !s.is_commercial) ?? []).sort(byEntered)
-  const commercialSpk = (detail?.speakers_data.filter(s => s.role !== 'organizer' && s.is_commercial) ?? []).sort(byEntered)
+  const organizers   = (detail?.speakers_data.filter(s => s.role === 'organizer') ?? []).sort(sortRows)
+  const regularSpk   = (detail?.speakers_data.filter(s => s.role !== 'organizer' && !s.is_commercial) ?? []).sort(sortRows)
+  const commercialSpk = (detail?.speakers_data.filter(s => s.role !== 'organizer' && s.is_commercial) ?? []).sort(sortRows)
   const baseData     = detail?.base_data ?? []
-  const referrals    = (detail?.referrals_data ?? []).sort(byEntered)
+  const referrals    = (detail?.referrals_data ?? []).sort(sortRows)
   const errorsData   = detail?.errors_data ?? []
-  const staffData    = (detail?.staff_data ?? []).sort(byEntered)
+  const staffData    = (detail?.staff_data ?? []).sort(sortRows)
 
   const T = detail?.total_entered ?? 0
   const TR = detail?.total_registered ?? 0
@@ -566,16 +597,16 @@ export default function ReportTab({ eventId, moduleSlug }: { eventId: number; mo
                   const e = rows.reduce((s, r) => s + r.entered, 0)
                   const reg = rows.reduce((s, r) => s + r.registered, 0)
                   return (
-                    <CollapsibleGroup label={label} entered={e} registered={reg} totalEntered={T} totalRegistered={TR} color={color} count={rows.length} hasCommercialCol>
+                    <CollapsibleGroup label={label} entered={e} registered={reg} totalEntered={T} totalRegistered={TR} color={color} count={rows.length} hasCommercialCol sortBy={sortBy} onSortChange={setSortBy}>
                       {rows.map((row, i) => renderSpkRow(row, i))}
                     </CollapsibleGroup>
                   )
                 }
 
                 if (isTournament) {
-                  const juryRows     = detail.speakers_data.filter(s => s.role === 'jury').sort(byEntered)
-                  const partnerRows  = detail.speakers_data.filter(s => s.role === 'partner' || s.role === 'general_partner').sort(byEntered)
-                  const speakerRows  = detail.speakers_data.filter(s => s.role !== 'organizer' && s.role !== 'jury' && s.role !== 'partner' && s.role !== 'general_partner').sort(byEntered)
+                  const juryRows     = detail.speakers_data.filter(s => s.role === 'jury').sort(sortRows)
+                  const partnerRows  = detail.speakers_data.filter(s => s.role === 'partner' || s.role === 'general_partner').sort(sortRows)
+                  const speakerRows  = detail.speakers_data.filter(s => s.role !== 'organizer' && s.role !== 'jury' && s.role !== 'partner' && s.role !== 'general_partner').sort(sortRows)
                   return (
                     <>
                       {renderSpkGroup('ЖЮРИ', juryRows, 'dark')}
@@ -586,7 +617,7 @@ export default function ReportTab({ eventId, moduleSlug }: { eventId: number; mo
                 }
 
                 // конференция/прочее — одна общая группа
-                const allSpk = detail.speakers_data.filter(s => s.role !== 'organizer').sort(byEntered)
+                const allSpk = detail.speakers_data.filter(s => s.role !== 'organizer').sort(sortRows)
                 return renderSpkGroup('СПИКЕРЫ', allSpk, 'dark')
               })()}
 
@@ -598,7 +629,7 @@ export default function ReportTab({ eventId, moduleSlug }: { eventId: number; mo
                 const errRegistered = errorsData.reduce((s, r) => s + r.registered, 0)
                 const extraRows = staffData.length + (baseData.length > 0 ? 1 : 0) + (errorsData.length > 0 ? 1 : 0)
                 return (
-                  <CollapsibleGroup label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" count={organizers.length + extraRows}>
+                  <CollapsibleGroup label="ОРГАНИЗАТОР" entered={orgEntered} registered={orgRegistered} totalEntered={T} totalRegistered={TR} color="gray" count={organizers.length + extraRows} sortBy={sortBy} onSortChange={setSortBy}>
                     {organizers.map((row, i) => (
                       <SpeakerRow key={row.speaker_event_id} row={row} i={i} eventId={eventId} totalEntered={T} totalRegistered={TR} />
                     ))}
@@ -663,7 +694,7 @@ export default function ReportTab({ eventId, moduleSlug }: { eventId: number; mo
 
               {/* РЕФЕРАЛЫ */}
               {referrals.length > 0 && (
-                <CollapsibleGroup label="РЕФОВОДЫ" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} color="amber" count={referrals.length}>
+                <CollapsibleGroup label="РЕФОВОДЫ" entered={refEntered} registered={refRegistered} totalEntered={T} totalRegistered={TR} color="amber" count={referrals.length} sortBy={sortBy} onSortChange={setSortBy}>
                   {referrals.map((row, i) => (
                     <PersonRowEl key={row.participant_id} row={row} i={i} totalEntered={T} totalRegistered={TR} />
                   ))}

@@ -29,6 +29,8 @@ export default function ContestReportTab({ eventId }: { eventId: number }) {
   const [participants, setParticipants] = useState<Participant[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  // Сортировка ТОПа партнёров: по переходам / регистрациям / голосам.
+  const [sortBy, setSortBy] = useState<'clicked' | 'registered' | 'count'>('clicked')
 
   useEffect(() => {
     setLoading(true); setErr(null)
@@ -63,10 +65,16 @@ export default function ContestReportTab({ eventId }: { eventId: number }) {
       if (p.link_clicked_at)  cur.clicked++
       map.set(code, cur)
     }
+    const order: Record<typeof sortBy, (r: TopRow) => number> = {
+      clicked: r => r.clicked,
+      registered: r => r.registered,
+      count: r => r.count,
+    }
+    const primary = order[sortBy]
     return Array.from(map.values())
-      .sort((a, b) => b.clicked - a.clicked || b.registered - a.registered || b.count - a.count)
+      .sort((a, b) => primary(b) - primary(a) || b.clicked - a.clicked || b.registered - a.registered || b.count - a.count)
       .slice(0, 20)
-  }, [participants])
+  }, [participants, sortBy])
 
   if (loading) {
     return <div className="flex justify-center py-12"><Spinner className="text-brand text-2xl" /></div>
@@ -99,7 +107,7 @@ export default function ContestReportTab({ eventId }: { eventId: number }) {
             🏆 ТОП партнёров — кто привёл голосующих
           </div>
           <div className="text-xs text-gray-400 mt-0.5">
-            Сортировка: проголосовавшие → зарегистрированные → переходы.
+            Нажмите на заголовок колонки, чтобы отсортировать.
           </div>
         </div>
         {top.length === 0 ? (
@@ -111,9 +119,18 @@ export default function ContestReportTab({ eventId }: { eventId: number }) {
             <div className="hidden sm:flex items-center gap-3 px-5 py-2 text-[11px] uppercase tracking-wider text-gray-400 font-medium bg-gray-50/40">
               <div className="w-8 text-center">№</div>
               <div className="flex-1 min-w-0">Партнёр</div>
-              <div className="w-24 text-right">Перешли</div>
-              <div className="w-24 text-right">Зарегистр.</div>
-              <div className="w-24 text-right">Проголосовали</div>
+              <button type="button" onClick={() => setSortBy('count')}
+                className={`w-24 text-right hover:text-[#25455D] ${sortBy === 'count' ? 'text-[#25455D] font-bold underline' : ''}`}>
+                Перешли{sortBy === 'count' ? ' ↓' : ''}
+              </button>
+              <button type="button" onClick={() => setSortBy('registered')}
+                className={`w-24 text-right hover:text-[#25455D] ${sortBy === 'registered' ? 'text-[#25455D] font-bold underline' : ''}`}>
+                Зарегистр.{sortBy === 'registered' ? ' ↓' : ''}
+              </button>
+              <button type="button" onClick={() => setSortBy('clicked')}
+                className={`w-24 text-right hover:text-[#25455D] ${sortBy === 'clicked' ? 'text-[#25455D] font-bold underline' : ''}`}>
+                Проголосовали{sortBy === 'clicked' ? ' ↓' : ''}
+              </button>
             </div>
             {top.map((t, i) => (
               <div key={t.refCode} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
