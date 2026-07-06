@@ -2351,9 +2351,9 @@ function MyResultsTab({ token }: { token: string }) {
                 const jOpen = !collapsed[jKey]   // по умолчанию раскрыт если оценил
                 const canOpen = j.has_scored
                 return (
-                  <div key={i} style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 8, overflow: 'hidden' }}>
+                  <div key={i} style={{ border: `2px solid ${PEACH}`, borderRadius: 12, marginBottom: 8, overflow: 'hidden', boxShadow: '0 1px 4px rgba(255,207,164,0.4)' }}>
                     <div onClick={() => canOpen && toggle(jKey)}
-                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: canOpen ? 'pointer' : 'default', background: '#f8fafc' }}>
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: canOpen ? 'pointer' : 'default', background: 'linear-gradient(135deg, #fff3e6, #ffe8d1)' }}>
                       <span style={{ fontWeight: 700, color: DARK, fontSize: 14 }}>{j.juror_name}</span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         {j.has_scored ? (
@@ -2362,7 +2362,7 @@ function MyResultsTab({ token }: { token: string }) {
                           <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>оценка не проставлена</span>
                         )}
                         {canOpen && (
-                          <span style={{ fontSize: 12, color: '#94a3b8', transform: jOpen ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }}>▾</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', background: DARK, color: PEACH, fontSize: 14, fontWeight: 800, transform: jOpen ? 'none' : 'rotate(-90deg)', transition: 'transform .15s', flexShrink: 0 }}>▾</span>
                         )}
                       </span>
                     </div>
