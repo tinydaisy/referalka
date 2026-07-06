@@ -1600,18 +1600,8 @@ async def jury_score(data: JuryScoreIn, session: dict = Depends(_cab_session), d
         _sm_str = str(int(_sm)) if _sm == int(_sm) else str(_sm)
         raise HTTPException(status_code=422, detail=f"Балл не может быть выше {_sm_str}")
     kind, sid = data.key.split(":", 1)
-    cr_stage = crit["stage_id"]
-    # если жюри уже зафиксировал ЭТОГО участника на этом этапе — править нельзя
-    if cr_stage is None:
-        locked = await db.fetchval(
-            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id IS NULL",
-            event_id, juror_ec_id, kind, int(sid))
-    else:
-        locked = await db.fetchval(
-            "SELECT 1 FROM tournament_jury_locks WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id=$5",
-            event_id, juror_ec_id, kind, int(sid), cr_stage)
-    if locked:
-        raise HTTPException(status_code=403, detail="Вы уже зафиксировали оценку этому участнику — править нельзя")
+    # Правку оценок разрешаем всегда, даже после фиксации (по требованию:
+    # жюри может менять баллы; фиксация — лишь отметка «готово»).
     ok = await db.fetchval(
         "SELECT 1 FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4",
         event_id, juror_ec_id, kind, int(sid))
@@ -1636,6 +1626,18 @@ async def jury_lock(data: JuryLockIn, session: dict = Depends(_cab_session), db:
     juror = await _ensure_juror(session, db)
     event_id = juror["event_id"]; juror_ec_id = juror["id"]
     kind, sid = data.key.split(":", 1)
+    # Требуем развёрнутую обратную связь (≥10 слов) — зеркалит фронт-валидацию.
+    if data.stage_id is None:
+        fb_body = await db.fetchval(
+            "SELECT body FROM tournament_feedback WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id IS NULL",
+            event_id, juror_ec_id, kind, int(sid))
+    else:
+        fb_body = await db.fetchval(
+            "SELECT body FROM tournament_feedback WHERE event_id=$1 AND juror_ec_id=$2 AND subject_kind=$3 AND subject_id=$4 AND stage_id=$5",
+            event_id, juror_ec_id, kind, int(sid), data.stage_id)
+    words = len((fb_body or "").split())
+    if words < 10:
+        raise HTTPException(status_code=422, detail="Нужна развёрнутая обратная связь — минимум 10 слов.")
     await db.execute(
         """INSERT INTO tournament_jury_locks (event_id, juror_ec_id, stage_id, subject_kind, subject_id)
            VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING""",

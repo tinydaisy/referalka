@@ -2151,6 +2151,9 @@ function JudgingTab({ token }: { token: string }) {
   const [data, setData] = useState<any>(null)
   const [stageId, setStageId] = useState<number | null>(null)
   const [open, setOpen] = useState<string | null>(null)
+  // Ссылки на textarea обратной связи по каждому участнику — чтобы при фиксации
+  // читать актуальный введённый текст (а не только сохранённый onBlur).
+  const fbRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
 
   const load = useCallback(() => {
     setLoading(true)
@@ -2199,9 +2202,22 @@ function JudgingTab({ token }: { token: string }) {
     const v = data?.my_avg_by_key?.[key]
     return v == null ? '—' : String(v)
   }
-  // Фиксация оценки ОДНОГО участника (можно одного утром, другого вечером).
+  // Фиксация оценки ОДНОГО участника. Требуем развёрнутую обратную связь (≥10 слов).
   const lockSubject = async (key: string, name: string) => {
-    if (!confirm(`Зафиксировать оценку участнику «${name}»? После фиксации править её будет НЕЛЬЗЯ.`)) return
+    // Актуальный текст берём из поля (может быть ещё не сохранён onBlur).
+    const fb = ((fbRefs.current[key]?.value ?? fbVal(key)) || '').trim()
+    const words = fb ? fb.split(/\s+/).filter(Boolean).length : 0
+    if (words === 0) {
+      alert('Сначала напишите обратную связь участнику — без неё зафиксировать нельзя.')
+      return
+    }
+    if (words < 10) {
+      alert(`Обратная связь слишком короткая (${words} сл.). Дайте развёрнутый комментарий — минимум 10 слов: что было хорошо и что развивать.`)
+      return
+    }
+    if (!confirm(`Зафиксировать оценку участнику «${name}»?`)) return
+    // Сохраняем фидбек перед фиксацией (на случай если onBlur не сработал).
+    await saveFb(key, fb)
     await fetch(`${API}/api/v1/public/tournament-jury/lock`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ key, stage_id: stageId }),
@@ -2221,8 +2237,9 @@ function JudgingTab({ token }: { token: string }) {
       {data.stages?.length > 0 && (
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
           <select value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}
-            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14 }}>
-            {data.stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
+            style={{ padding: '10px 14px', borderRadius: 10, border: 'none', fontSize: 15, fontWeight: 800,
+                     color: PEACH, background: 'linear-gradient(45deg, #25455D, #0a1520)', cursor: 'pointer' }}>
+            {data.stages.map((s: any) => <option key={s.id} value={s.id} style={{ color: '#1a2a3a', background: '#fff', fontWeight: 400 }}>{s.title}</option>)}
           </select>
           {stageId && eventSlug && (
             <a href={`/t/${eventSlug}/${stageId}`} target="_blank" rel="noreferrer"
@@ -2273,27 +2290,28 @@ function JudgingTab({ token }: { token: string }) {
                         <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.4, whiteSpace: 'pre-line', marginTop: 2 }}>{c.description}</div>
                       )}
                     </div>
-                    <input type="number" min={0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)} disabled={locked}
+                    <input type="number" min={0} max={c.scale_max} step="0.1" defaultValue={scoreVal(c.id, s.key)}
                       onBlur={(e) => saveScore(c.id, s.key, e.target.value, Number(c.scale_max), e.target)}
-                      style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0, background: locked ? '#f1f5f9' : '#fff' }} />
+                      style={{ width: 70, padding: '6px 8px', borderRadius: 8, border: '1px solid #d4dee5', textAlign: 'center', flexShrink: 0, background: '#fff' }} />
                     <span style={{ color: '#94a3b8', fontSize: 13, flexShrink: 0, paddingTop: 8 }}>/ {c.scale_max}</span>
                   </div>
                 ))}
                 <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 4 }}>💬 Обратная связь участнику</div>
-                  <textarea defaultValue={fbVal(s.key)} placeholder="Почему такие оценки и что рекомендую развивать…" disabled={locked}
+                  <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 4 }}>💬 Обратная связь участнику <span style={{ color: '#dc2626', fontWeight: 400 }}>— обязательна, минимум 10 слов</span></div>
+                  <textarea defaultValue={fbVal(s.key)} placeholder="Почему такие оценки и что рекомендую развивать (развёрнуто, минимум 10 слов)…"
+                    ref={(el) => { fbRefs.current[s.key] = el }}
                     onBlur={(e) => saveFb(s.key, e.target.value)}
-                    style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit', background: locked ? '#f1f5f9' : '#fff' }} />
+                    style={{ width: '100%', minHeight: 70, padding: 10, borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14, fontFamily: 'inherit', background: '#fff' }} />
                 </div>
-                {/* фиксация ОТДЕЛЬНО по этому участнику */}
-                {locked ? (
-                  <div style={{ marginTop: 10, fontSize: 13, color: '#047857', fontWeight: 600 }}>🔒 Оценка зафиксирована — править нельзя.</div>
-                ) : (
-                  <button onClick={() => lockSubject(s.key, s.name)}
-                    style={{ marginTop: 10, width: '100%', padding: '10px 16px', borderRadius: 10, border: 'none', background: DARK, color: PEACH, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                    🔒 Зафиксировать оценку этого участника
-                  </button>
+                {/* Фиксация по участнику. Оценки можно менять всегда — фиксация лишь
+                    отмечает «готово» (участник видит, что жюри завершило). */}
+                {locked && (
+                  <div style={{ marginTop: 10, fontSize: 13, color: '#047857', fontWeight: 600 }}>🔒 Оценка зафиксирована. Можно поправить и зафиксировать заново.</div>
                 )}
+                <button onClick={() => lockSubject(s.key, s.name)}
+                  style={{ marginTop: 10, width: '100%', padding: '10px 16px', borderRadius: 10, border: 'none', background: DARK, color: PEACH, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                  🔒 {locked ? 'Обновить фиксацию' : 'Зафиксировать оценку этого участника'}
+                </button>
               </div>
             )}
           </div>
