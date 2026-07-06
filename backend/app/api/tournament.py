@@ -208,16 +208,18 @@ async def _subjects(event_id: int, db: asyncpg.Connection, *,
 
 async def _jurors(event_id: int, db: asyncpg.Connection, *,
                   stage_id: Optional[int] = None) -> List[dict]:
-    # Оценщики = жюри И организаторы (организатор тоже выставляет баллы).
-    # При заданном этапе — только жюри, ПОИМЁННО привязанные к нему.
-    # Организаторов от привязки не отсекаем (они судят везде).
+    # Оценщики = жюри И организаторы (организатор тоже может выставлять баллы).
+    # При заданном этапе — показываем ТОЛЬКО тех (и жюри, и организаторов),
+    # кто ПОИМЁННО привязан к этому этапу (event_collaborator_stages). Организатор
+    # больше не лезет колонкой на каждый тур автоматически — хочет судить, пусть
+    # его привяжут к этапу, как обычное жюри. Без этапа (stage_id IS NULL) — все.
     rows = await db.fetch(
         """SELECT cse.id AS juror_ec_id, c.name, ct.ref_code, cse.role
              FROM event_collaborators cse
              JOIN collaborators c ON c.id = cse.speaker_id
              LEFT JOIN contacts ct ON ct.id = c.contact_id
             WHERE cse.event_id = $1 AND cse.role IN ('jury', 'organizer')
-              AND ($2::int IS NULL OR cse.role = 'organizer' OR EXISTS (
+              AND ($2::int IS NULL OR EXISTS (
                     SELECT 1 FROM event_collaborator_stages ecs
                      WHERE ecs.ec_id = cse.id AND ecs.stage_id = $2))
             ORDER BY split_part(c.name, ' ', 1), c.name, cse.id""",
