@@ -2145,6 +2145,8 @@ function SlotTab({ token, myName }: { token: string; myName: string }) {
 }
 
 function JudgingTab({ token }: { token: string }) {
+  const params = useParams()
+  const eventSlug = String(params?.event_slug || '')
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   const [stageId, setStageId] = useState<number | null>(null)
@@ -2217,10 +2219,18 @@ function JudgingTab({ token }: { token: string }) {
   return (
     <div>
       {data.stages?.length > 0 && (
-        <select value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}
-          style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d4dee5', marginBottom: 12, fontSize: 14 }}>
-          {data.stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
-        </select>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <select value={stageId ?? ''} onChange={(e) => setStageId(e.target.value ? Number(e.target.value) : null)}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d4dee5', fontSize: 14 }}>
+            {data.stages.map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}
+          </select>
+          {stageId && eventSlug && (
+            <a href={`/t/${eventSlug}/${stageId}`} target="_blank" rel="noreferrer"
+              style={{ fontSize: 13, color: DARK, textDecoration: 'underline', fontWeight: 700 }}>
+              🏆 Турнирная таблица этапа
+            </a>
+          )}
+        </div>
       )}
 
       {(data.criteria || []).length === 0 ? (
@@ -2298,6 +2308,8 @@ function JudgingTab({ token }: { token: string }) {
 // ─────────────────────── Вкладка УЧАСТНИКА: мои результаты ───────────────────────
 
 function MyResultsTab({ token }: { token: string }) {
+  const params = useParams()
+  const eventSlug = String(params?.event_slug || '')
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
   // Свёрнутые пакеты (ключ = `${stage_id}:${pkg.id}`). По умолчанию раскрыты.
@@ -2334,11 +2346,17 @@ function MyResultsTab({ token }: { token: string }) {
             <span style={{ fontSize: 14, transform: stCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}>▾</span>
           </div>
           {!stCollapsed && (<>
-          {st.stage_id && data.event_id && (
-            <a href={`/t/${data.event_id}/${st.stage_id}/reglament`} target="_blank" rel="noreferrer"
-              style={{ display: 'inline-block', marginBottom: 12, fontSize: 13, color: DARK, textDecoration: 'underline' }}>
-              📋 Регламент подсчёта баллов
-            </a>
+          {st.stage_id && eventSlug && (
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+              <a href={`/t/${eventSlug}/${st.stage_id}`} target="_blank" rel="noreferrer"
+                style={{ fontSize: 13, color: DARK, textDecoration: 'underline', fontWeight: 700 }}>
+                🏆 Турнирная таблица этапа
+              </a>
+              <a href={`/t/${eventSlug}/${st.stage_id}/reglament`} target="_blank" rel="noreferrer"
+                style={{ fontSize: 13, color: DARK, textDecoration: 'underline' }}>
+                📋 Регламент подсчёта баллов
+              </a>
+            </div>
           )}
 
           {/* Назначенные жюри — раскрывающиеся блоки: оценки по критериям +
@@ -2351,9 +2369,10 @@ function MyResultsTab({ token }: { token: string }) {
                 const jOpen = !collapsed[jKey]   // по умолчанию раскрыт если оценил
                 const canOpen = j.has_scored
                 return (
-                  <div key={i} style={{ border: `2px solid ${PEACH}`, borderRadius: 12, marginBottom: 8, overflow: 'hidden', boxShadow: '0 1px 4px rgba(255,207,164,0.4)' }}>
-                    <div onClick={() => canOpen && toggle(jKey)}
-                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: canOpen ? 'pointer' : 'default', background: 'linear-gradient(135deg, #fff3e6, #ffe8d1)' }}>
+                  <div key={i} onClick={() => canOpen && toggle(jKey)}
+                    style={{ border: `2px solid ${PEACH}`, borderRadius: 12, marginBottom: 8, overflow: 'hidden', boxShadow: '0 1px 4px rgba(255,207,164,0.4)', cursor: canOpen ? 'pointer' : 'default' }}>
+                    <div
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'linear-gradient(135deg, #fff3e6, #ffe8d1)' }}>
                       <span style={{ fontWeight: 700, color: DARK, fontSize: 14 }}>{j.juror_name}</span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         {j.has_scored ? (
