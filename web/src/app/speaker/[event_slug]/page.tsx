@@ -2247,17 +2247,17 @@ function JudgingTab({ token }: { token: string }) {
         const locked = isLocked(s.key)
         const scored = (data.criteria || []).some((c: any) => scoreVal(c.id, s.key) !== '')
         return (
-          <div key={s.key} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12, background: '#fff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setOpen(isOpen ? null : s.key)}>
+          <div key={s.key} style={{ border: `2px solid ${PEACH}`, borderRadius: 12, marginBottom: 12, overflow: 'hidden', boxShadow: '0 1px 4px rgba(255,207,164,0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '12px 14px', background: 'linear-gradient(135deg, #fff3e6, #ffe8d1)' }} onClick={() => setOpen(isOpen ? null : s.key)}>
               <b style={{ color: DARK }}>{s.name}</b>
               {locked
                 ? <span style={{ fontSize: 12, color: '#047857', fontWeight: 700 }}>🔒 зафиксировано</span>
-                : <span style={{ fontSize: 12, color: scored ? '#16a34a' : '#94a3b8' }}>{scored ? '✓ оценено' : '○ не оценен'}</span>}
+                : <span style={{ fontSize: 12, color: scored ? '#16a34a' : '#7a6a55' }}>{scored ? '✓ оценено' : '○ не оценен'}</span>}
               {scored && <span style={{ fontSize: 12, color: DARK, fontWeight: 700 }}>· моя оценка: {myAvg(s.key)}</span>}
-              <span style={{ marginLeft: 'auto', color: '#94a3b8' }}>{isOpen ? '▲' : '▼'}</span>
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', background: DARK, color: PEACH, fontSize: 14, fontWeight: 800, transform: isOpen ? 'none' : 'rotate(-90deg)', transition: 'transform .15s', flexShrink: 0 }}>▾</span>
             </div>
             {isOpen && (
-              <div style={{ marginTop: 12 }}>
+              <div style={{ padding: 14 }}>
                 {material && (
                   <a href={material} target="_blank" rel="noreferrer"
                     style={{ display: 'inline-block', marginBottom: 12, color: DARK, fontWeight: 600, fontSize: 14 }}>
