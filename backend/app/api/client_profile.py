@@ -834,8 +834,12 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
              WHERE s.client_id = $1
                AND s.status = 'published'
                AND s.id <> $2
+               AND s.status <> 'ended'
                AND s.start_at IS NOT NULL
-               AND s.start_at > COALESCE($3::timestamptz, NOW())
+               -- «следующее» должно быть реально предстоящим: не раньше конца
+               -- текущего события И не раньше СЕЙЧАС (иначе у давно завершённого
+               -- события в successor попадало другое уже прошедшее событие).
+               AND s.start_at > GREATEST(COALESCE($3::timestamptz, NOW()), NOW())
              ORDER BY s.start_at ASC
              LIMIT 1""",
         row["client_id"], row["id"], d.get("end_at") or d.get("start_at")

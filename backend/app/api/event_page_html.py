@@ -1953,7 +1953,7 @@ def render_page(event, collabs, days, stages, sessions, gifts,
     }}
   }});
 
-  // Прямая ссылка на карточку спикера: ?spk={ec_id} или #speaker-{ec_id}.
+  // Прямая ссылка на карточку спикера: spk-параметр или speaker-хэш.
   // Открываем вкладку «Спикеры» и скроллим к карточке.
   (function() {{
     var m = (location.search.match(/[?&]spk=(\\d+)/) || []);
