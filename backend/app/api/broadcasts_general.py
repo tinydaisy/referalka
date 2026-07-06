@@ -39,8 +39,10 @@ class AddCustomRequest(BaseModel):
     # Каналы для отправки: NULL/None = все каналы клиента (default),
     # [] = никуда не слать, [N,M] = только эти channel_id.
     target_channel_ids: Optional[List[int]] = None
-    # Слать также в общую базу чатов клиента (client_broadcast_chats).
+    # Слать также в общие чаты клиента (client_broadcast_chats, is_private=FALSE).
     send_to_client_chats: bool = False
+    # Слать также в личные каналы клиента (client_broadcast_chats, is_private=TRUE).
+    send_to_private_chats: bool = False
 
 
 class BulkItem(BaseModel):
@@ -56,6 +58,7 @@ class BulkItem(BaseModel):
     audience_include: Optional[str] = None
     audience_exclude: Optional[str] = None
     send_to_client_chats: Optional[bool] = None
+    send_to_private_chats: Optional[bool] = None
 
 
 class BulkAddRequest(BaseModel):
@@ -300,14 +303,15 @@ async def add_custom(
           (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
-           snapshot_video, snapshot_media_type, send_to_client_chats)
+           snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats)
         VALUES (NULL, $1, NULL, 'custom', NULL, $2, 'pending', $3, 'all_client', 'none',
-                $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
+                $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
         RETURNING id, fire_at, status
         """,
         client_id, dt_utc, data.is_test, data.text,
         (data.subject or None), snap_photo, _json.dumps(buttons),
         data.target_channel_ids, snap_video, snap_mtype, data.send_to_client_chats,
+        data.send_to_private_chats,
     )
     return dict(row)
 
@@ -346,6 +350,7 @@ async def bulk_add(
             "audience_include": it.audience_include or "all_client",
             "audience_exclude": it.audience_exclude or "none",
             "send_to_client_chats": bool(it.send_to_client_chats),
+            "send_to_private_chats": bool(it.send_to_private_chats),
         })
     if errors_by_idx:
         return {"ok": False, "errors": errors_by_idx, "total": len(data.items)}
@@ -377,9 +382,9 @@ async def bulk_add(
                   (event_id, client_id, template_id, type, session_id, fire_at, status, is_test,
                    audience_include, audience_exclude,
                    snapshot_text, snapshot_subject, snapshot_photo, snapshot_buttons, target_channel_ids,
-                   snapshot_video, snapshot_media_type, send_to_client_chats)
+                   snapshot_video, snapshot_media_type, send_to_client_chats, send_to_private_chats)
                 VALUES (NULL, $1, NULL, 'custom', NULL, $2, $14, $3, $11, $12,
-                        $4, $5, $6, $7::jsonb, $8, $9, $10, $13)
+                        $4, $5, $6, $7::jsonb, $8, $9, $10, $13, $15)
                 RETURNING id
                 """,
                 client_id, p["dt_utc"], data.is_test, p["text"],
@@ -387,7 +392,7 @@ async def bulk_add(
                 _json.dumps(p["buttons"]), p["target_channel_ids"],
                 p["video_url"], p["media_type"],
                 p["audience_include"], p["audience_exclude"], p["send_to_client_chats"],
-                new_status,
+                new_status, p["send_to_private_chats"],
             )
             created_ids.append(row["id"])
     return {"ok": True, "errors": [], "created": len(created_ids), "ids": created_ids, "warnings": warnings}

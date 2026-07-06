@@ -49,6 +49,7 @@ export default function EventChatsField({ value, onChange }: Props) {
   const [chats, setChats] = useState<ClientChat[]>([])
   const [loading, setLoading] = useState(true)
   const [picker, setPicker] = useState<ChatPlatform | null>(null)
+  const [activeTab, setActiveTab] = useState<ChatPlatform>('telegram')
 
   useEffect(() => {
     let alive = true
@@ -92,15 +93,36 @@ export default function EventChatsField({ value, onChange }: Props) {
         </p>
       </div>
 
-      {(['telegram', 'vk', 'max'] as const).map(platform => {
+      {/* Вкладки площадок: TG / VK / MAX (зелёная точка на заполненной) */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {(['telegram', 'vk', 'max'] as const).map(platform => {
+          const meta = PLATFORM_META[platform]
+          const filled = !!value[REF_KEY[platform]]
+          const isActive = activeTab === platform
+          return (
+            <button key={platform} type="button" onClick={() => setActiveTab(platform)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                isActive ? 'border-[#25455D] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              <span className="inline-flex items-center justify-center w-7 h-5 rounded text-[9px] font-bold text-white shrink-0"
+                    style={{ background: meta.color }}>{meta.badge}</span>
+              {meta.label}
+              {filled && <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" title="Чат выбран" />}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Контент активной площадки */}
+      {(() => {
+        const platform = activeTab
         const meta = PLATFORM_META[platform]
         const ref = value[REF_KEY[platform]]
         const selected = chatById(ref)
         const isPrimary = value.primary === platform
         const platformChats = chats.filter(c => c.platform === platform)
         return (
-          <div key={platform} className="bg-white border border-gray-200 rounded p-3">
-            <div className="flex items-center gap-3">
+          <div className="bg-white border border-gray-200 rounded p-3">
+            <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
                 name="primary_chat_platform"
@@ -111,16 +133,14 @@ export default function EventChatsField({ value, onChange }: Props) {
                 style={{ accentColor: '#25455D' }}
                 title={ref ? 'Сделать главным чатом' : 'Сначала выберите чат'}
               />
-              <span className="inline-flex items-center justify-center w-9 h-7 rounded text-[10px] font-bold text-white shrink-0"
-                    style={{ background: meta.color }}>{meta.badge}</span>
-              <span className="text-sm font-medium text-gray-800">{meta.label}</span>
+              <span className="text-sm text-gray-700">Главный чат ({meta.label})</span>
               {isPrimary && (
                 <span className="ml-auto text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
                       style={{ background: '#FFCFA4', color: '#25455D' }}>Главный</span>
               )}
-            </div>
+            </label>
 
-            <div className="mt-2 pl-7">
+            <div className="mt-3">
               {selected ? (
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm text-gray-800 font-medium">
@@ -155,7 +175,7 @@ export default function EventChatsField({ value, onChange }: Props) {
             )}
           </div>
         )
-      })}
+      })()}
 
       {!anySelected && (
         <p className="text-xs text-gray-400 italic">

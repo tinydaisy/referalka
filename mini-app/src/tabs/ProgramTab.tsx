@@ -23,6 +23,7 @@ interface Session {
 interface Day {
   day_number: number
   day_date?: string
+  title?: string
   open_time?: string
   close_time?: string
 }
@@ -105,6 +106,14 @@ function fmtDate(d?: string) {
   const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (!m) return d
   return `${parseInt(m[3], 10)} ${MONTHS[parseInt(m[2], 10) - 1]}`
+}
+
+// Числовой формат даты дня программы: ДД.ММ.ГГГГ
+function fmtDateNumeric(d?: string) {
+  if (!d) return ''
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return d
+  return `${m[3]}.${m[2]}.${m[1]}`
 }
 
 // Форматирует дату-вилку события для шапки Программы (мероприятия).
@@ -359,14 +368,13 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
   const activeSpeakerEventId = activeSession?.speaker_event_id || null
 
   // Время старта эфира СЕГОДНЯ (строка "HH:MM" МСК).
-  // - Конференция: время самой ранней сессии сегодняшнего дня (или open_time дня).
+  // - Конференция: время самой ранней сессии сегодняшнего дня. open_time дня НЕ
+  //   используем — в вебе не настраивается и часто неверно.
   // - Мероприятие (нет conf_days): время из events.start_at, если сегодня = дата старта.
   // null = времени нет (показываем LIVE сразу, как раньше).
   const streamStartToday: string | null = useMemo(() => {
     const d = days.find(x => x.day_date === nowTs.date)
     if (d) {
-      const open = (d.open_time || '').slice(0, 5)
-      if (open) return open
       const list = sessionsByDay[d.day_number] || []
       const starts = list
         .map(s => (s.start_time || '').slice(0, 5))
@@ -688,15 +696,16 @@ export default function ProgramTab({ event, tgUser, refreshKey, onVipClick, onOp
             {days.map(d => {
               const state = dayState(d)
               const isOpen = openDay === d.day_number
+              // Формат дня: «ДД.ММ.ГГГГ - Название» (название = кастомное или «День N»).
+              const dayName = d.title?.trim() || `День ${d.day_number}`
               const dayLabel = d.day_date
-                ? `День ${d.day_number} · ${fmtDate(d.day_date)}`
-                : `День ${d.day_number}`
+                ? `${fmtDateNumeric(d.day_date)} - ${dayName}`
+                : dayName
               // Для сегодняшнего дня «идёт сейчас» показываем только если время
               // старта уже наступило. До старта — «начнётся в HH:MM» (или «сегодня»,
-              // если время неизвестно). Старт = open_time дня, fallback на первую сессию.
+              // если время неизвестно). Старт = ТОЛЬКО первая сессия дня — open_time
+              // дня в вебе не настраивается и часто неверно.
               const dayStart = (() => {
-                const open = (d.open_time || '').slice(0, 5)
-                if (open) return open
                 const starts = (sessionsByDay[d.day_number] || [])
                   .map(s => (s.start_time || '').slice(0, 5)).filter(Boolean).sort()
                 return starts[0] || ''

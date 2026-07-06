@@ -14,12 +14,16 @@ import { useMe } from '@/hooks/useMe'
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все уч. конфы',
   registered_event: 'Зарег. уч.',
+  paid_event: 'Оплатившие',
+  unpaid_event: 'Неоплаченный заказ',
   all_client: 'Вся база',
 }
 const EXCLUDE_LABELS: Record<string, string> = {
   none: '',
   registered_event: '− зарег.',
   unregistered_event: '− незарег.',
+  paid_event: '− оплатившие',
+  unpaid_event: '− неоплаченный заказ',
   all_event: '− все уч. конфы',
 }
 function audienceLabel(inc: string, exc: string): string {
@@ -120,6 +124,9 @@ function humanReason(err: string): string {
 export default function QueuePage() {
   const { id } = useParams()
   const eventId = Number(id)
+  const { me } = useMe()
+  // Сегменты по оплате показываем только клиентам с фичей платных тарифов события.
+  const hasPayments = (me?.features || []).includes('event_tariffs')
 
   const [schedules, setSchedules] = useState<any[]>([])
   const [templates, setTemplates] = useState<any[]>([])
@@ -982,6 +989,8 @@ export default function QueuePage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="all_event">Все участники конфы</option>
                     <option value="registered_event">Зарегистрированные участники</option>
+                    {hasPayments && <option value="paid_event">Оплатившие</option>}
+                    {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                     <option value="all_client">Вся база клиента</option>
                   </select>
                 </div>
@@ -992,6 +1001,8 @@ export default function QueuePage() {
                     <option value="none">Никого не исключать</option>
                     <option value="registered_event">Зарегистрированных участников</option>
                     <option value="unregistered_event">Незарегистрированных участников</option>
+                    {hasPayments && <option value="paid_event">Оплативших</option>}
+                    {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                     <option value="all_event">Всех участников конфы</option>
                   </select>
                 </div>
@@ -1226,6 +1237,8 @@ export default function QueuePage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="all_event">Все участники конфы</option>
                     <option value="registered_event">Зарегистрированные участники</option>
+                    {hasPayments && <option value="paid_event">Оплатившие</option>}
+                    {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                     <option value="all_client">Вся база клиента</option>
                   </select>
                 </div>
@@ -1238,6 +1251,8 @@ export default function QueuePage() {
                     <option value="none">Никого не исключать</option>
                     <option value="registered_event">Зарегистрированных участников</option>
                     <option value="unregistered_event">Незарегистрированных участников</option>
+                    {hasPayments && <option value="paid_event">Оплативших</option>}
+                    {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                     <option value="all_event">Всех участников конфы</option>
                   </select>
                 </div>
@@ -1523,6 +1538,7 @@ function CustomBroadcastModal(props: {
   const [audEx, setAudEx] = useState(ed?.audience_exclude || 'none')
   const [sendToChats, setSendToChats] = useState(!!ed?.send_to_event_chats)
   const [sendToClientChats, setSendToClientChats] = useState(!!ed?.send_to_client_chats)
+  const [sendToPrivateChats, setSendToPrivateChats] = useState(!!ed?.send_to_private_chats)
   const { me } = useMe()
   const hasChatsFeature = (me?.features || []).includes('broadcast_chats')
   const [saving, setSaving] = useState(false)
@@ -1551,6 +1567,7 @@ function CustomBroadcastModal(props: {
         audience_exclude: audEx,
         send_to_event_chats: sendToChats,
         send_to_client_chats: hasChatsFeature ? sendToClientChats : false,
+        send_to_private_chats: hasChatsFeature ? sendToPrivateChats : false,
         ...(props.isCollab && !ed?.id && reqConfirm ? { request_owner_confirm: true } : {}),
       }
       if (ed?.id) {
@@ -1676,7 +1693,17 @@ function CustomBroadcastModal(props: {
             <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="rounded" />
             <span className="text-sm text-gray-600">Тестовая рассылка (только тестовым Telegram ID)</span>
           </label>
-          {/* Галочка «чаты события» убрана — теперь только общие чаты. */}
+          {/* Три независимые галочки: чат события / общие чаты / личные каналы. */}
+          <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+            <input type="checkbox" checked={sendToChats} onChange={e => setSendToChats(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+            <span>
+              <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">
+                В групповые чаты этого события (заданы в настройках события).
+              </span>
+            </span>
+          </label>
           {hasChatsFeature && (
             <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
               <input type="checkbox" checked={sendToClientChats} onChange={e => setSendToClientChats(e.target.checked)}
@@ -1684,7 +1711,19 @@ function CustomBroadcastModal(props: {
               <span>
                 <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
                 <span className="block text-[11px] text-gray-500 mt-0.5">
-                  Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
+                  В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок», без галочки «Личный»).
+                </span>
+              </span>
+            </label>
+          )}
+          {hasChatsFeature && (
+            <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              <input type="checkbox" checked={sendToPrivateChats} onChange={e => setSendToPrivateChats(e.target.checked)}
+                className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+              <span>
+                <span className="block text-sm text-gray-800 font-medium">Отправлять в личные каналы</span>
+                <span className="block text-[11px] text-gray-500 mt-0.5">
+                  В каналы из базы чатов, помеченные галочкой «Личный».
                 </span>
               </span>
             </label>
@@ -1761,6 +1800,7 @@ function BulkBroadcastModal(props: {
       let aud_ex: string | null = null
       let chat_event = false
       let chat_client = false
+      let chat_private = false
       const text_lines: string[] = []
       const buttons: { text: string; url: string }[] = []
       let section: 'none' | 'text' | 'buttons' = 'none'
@@ -1785,7 +1825,8 @@ function BulkBroadcastModal(props: {
           section = 'none'
           const v = trimmed.replace(/^ЧАТЫ:\s*/i, '').trim().toLowerCase()
           // «чаты события» → event, «чаты для рассылок/клиента» → client, иначе (да/чаты) → оба
-          if (/событ/.test(v)) { chat_event = true }
+          if (/личн/.test(v)) { chat_private = true }
+          else if (/событ/.test(v)) { chat_event = true }
           else if (/рассыл|клиент|общ/.test(v)) { chat_client = true }
           else if (/^(да|yes|вкл|on|чат)/.test(v)) { chat_event = true; chat_client = true }
           continue
@@ -1815,6 +1856,7 @@ function BulkBroadcastModal(props: {
         audience_exclude: aud_ex,
         send_to_event_chats: chat_event,
         send_to_client_chats: chat_client,
+        send_to_private_chats: chat_private,
       })
     }
     return items

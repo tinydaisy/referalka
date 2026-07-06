@@ -33,7 +33,8 @@ function detectClientIdFromPath(): number | null {
 const FLAG_RE = /^[a-z0-9-]{1,16}$/
 function parseStartParam(raw: string): {
   eventSlug?: string; partnerId?: string; utmSource?: string; clientId?: number; contactId?: number;
-  live?: boolean; regFromLanding?: boolean; noLanding?: boolean; initialTab?: string; flags?: string[]
+  live?: boolean; regFromLanding?: boolean; noLanding?: boolean; initialTab?: string; flags?: string[];
+  speakerEcId?: number
 } {
   const r: any = {}
   const flags: string[] = []
@@ -42,6 +43,9 @@ function parseStartParam(raw: string): {
     else if (p.startsWith('pid')) r.partnerId  = p.slice(3)
     else if (p.startsWith('src')) r.utmSource  = p.slice(3)
     else if (p.startsWith('cid')) r.clientId   = Number(p.slice(3))
+    // `_spk{ec_id}` — прямая ссылка на карточку спикера/жюри: откроет вкладку
+    // «Спикеры» и подсветит эту карточку (event_collaborators.id).
+    else if (p.startsWith('spk')) r.speakerEcId = Number(p.slice(3))
     // `_ct{N}` — наш contact_id (НЕ путать с `cid`=client_id). Бэк привяжет
     // платформенную идентичность к этому контакту, чтобы не плодить дубль.
     else if (p.startsWith('ct')) r.contactId = Number(p.slice(2))
@@ -492,6 +496,7 @@ export default function App() {
   const [regFromLanding, setRegFromLanding] = useState<boolean>(false)
   const [noLanding, setNoLanding] = useState<boolean>(false)
   const [initialTab, setInitialTab] = useState<string | undefined>()
+  const [speakerEcId, setSpeakerEcId] = useState<number | undefined>()
   const [pendingOpen, setPendingOpen] = useState<boolean>(false)
   // VK-only: экран статуса после m_/p_/fnl_/spkinv_/prt_/evl_ landing
   const [funnelStatus, setFunnelStatus] = useState<'ok' | 'fail' | null>(null)
@@ -523,6 +528,8 @@ export default function App() {
         if (parsed.regFromLanding) setRegFromLanding(true)
         if (parsed.noLanding) setNoLanding(true)
         if (parsed.initialTab) setInitialTab(parsed.initialTab)
+        // Прямая ссылка на карточку спикера → открываем вкладку «Спикеры».
+        if (parsed.speakerEcId) { setSpeakerEcId(parsed.speakerEcId); if (!parsed.initialTab) setInitialTab('speakers') }
       }
 
       // VK-only: воронка лид-магнита по startparam (m_/p_/fnl_).
@@ -537,6 +544,9 @@ export default function App() {
       // ?_tab=… — Mini App открыт через web_app inline-кнопку без startapp.
       const qsTab = new URLSearchParams(window.location.search).get('_tab')
       if (qsTab && !parsed.initialTab) setInitialTab(qsTab)
+      // ?_spk=… — прямая ссылка на карточку спикера через query.
+      const qsSpk = new URLSearchParams(window.location.search).get('_spk')
+      if (qsSpk && !parsed.speakerEcId) { setSpeakerEcId(Number(qsSpk)); if (!qsTab && !parsed.initialTab) setInitialTab('speakers') }
 
       // ?c=… — наш contact_id через query (fallback к `_ct{N}` из startapp).
       if (!parsed.contactId) {
@@ -689,6 +699,7 @@ export default function App() {
           regFromLanding={regFromLanding}
           noLanding={noLanding}
           initialTab={initialTab}
+          speakerEcId={speakerEcId}
           onBack={backToHub}
           onOpenEvent={openEvent}
         />

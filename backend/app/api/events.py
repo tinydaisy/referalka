@@ -130,6 +130,11 @@ class UpdateEventRequest(BaseModel):
     # Скрыть кнопку стрима в Mini App (миграция 128). FALSE (default) = кнопка
     # показывается. TRUE = жёстко скрыта, даже если stream_url задан.
     hide_stream_button: Optional[bool] = None
+    # Что показывать на вкладке «Итоги» при завершении события (миграция 195):
+    # 'next_event' (default) — следующее незавершённое событие; 'gift' — подарок.
+    end_action: Optional[str] = None
+    end_gift_lead_magnet_id: Optional[int] = None
+    end_gift_package_id: Optional[int] = None
     # Welcome-письмо при регистрации (миграция 099). См. event_welcome_email.py.
     welcome_enabled: Optional[bool] = None
     welcome_text: Optional[str] = None
@@ -415,6 +420,27 @@ async def update_event(
             del updates["link_mode"]  # null не пишем — оставляем дефолт/текущее
         elif v not in ("miniapp", "bot"):
             raise HTTPException(status_code=400, detail="link_mode должен быть 'miniapp' или 'bot'")
+
+    # end_action (миграция 195): 'next_event' | 'gift'. Подарок взаимоисключающий —
+    # лид-магнит ИЛИ пакет: заполнение одного обнуляет другой. 0 → снять оба.
+    if "end_action" in updates:
+        v = updates["end_action"]
+        if v is None:
+            del updates["end_action"]
+        elif v not in ("next_event", "gift"):
+            raise HTTPException(status_code=400, detail="end_action должен быть 'next_event' или 'gift'")
+    if updates.get("end_gift_lead_magnet_id"):
+        updates["end_gift_lead_magnet_id"] = int(updates["end_gift_lead_magnet_id"])
+        updates["end_gift_package_id"] = None
+    elif updates.get("end_gift_package_id"):
+        updates["end_gift_package_id"] = int(updates["end_gift_package_id"])
+        updates["end_gift_lead_magnet_id"] = None
+    else:
+        # 0 или явный null у любого из полей — трактуем как «снять подарок»
+        if "end_gift_lead_magnet_id" in updates and not updates["end_gift_lead_magnet_id"]:
+            updates["end_gift_lead_magnet_id"] = None
+        if "end_gift_package_id" in updates and not updates["end_gift_package_id"]:
+            updates["end_gift_package_id"] = None
 
     # Slug: валидация формата + проверка уникальности (если меняется)
     if "slug" in updates:

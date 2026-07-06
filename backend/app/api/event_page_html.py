@@ -782,8 +782,6 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
         dn = day.get("day_number")
         dtitle = esc(day.get("title") or (f"День {dn}" if dn else "День"))
         ddate = esc(_fmt_date_eu(day.get("day_date")))
-        # Время работы дня (open_time–close_time, строки "HH:MM" по МСК).
-        dtime = _fmt_time_range(day.get("open_time"), day.get("close_time"))
         day_sessions = [s for s in sessions if s.get("day") == dn]
         rows = ""
         for s in day_sessions:
@@ -813,11 +811,13 @@ def _program_panel(event, collabs, days, stages, sessions, chat_bot_links=None) 
                 f'<div class="s-main"><div class="s-title">{stitle}</div>'
                 f'{spk_html}</div></div>'
             )
-        date_sfx = f' · {ddate}' if ddate else ""
-        time_sfx = f' · {dtime}' if dtime else ""
+        # Заголовок дня: «ДД.ММ.ГГГГ - Название». Время работы дня (open_time/
+        # close_time) НЕ показываем — оно в вебе не настраивается и часто неверно;
+        # ориентир по времени — только у слотов.
+        day_head = f'{ddate} - {dtitle}' if ddate else dtitle
         # Нет слотов → не показываем прочерк, только шапку дня.
         body = rows
-        return (f'<div class="day"><div class="day-h">{dtitle}{date_sfx}{time_sfx}</div>'
+        return (f'<div class="day"><div class="day-h">{day_head}</div>'
                 f'{body}</div>')
 
     def _stage_header(st):
@@ -1952,7 +1952,24 @@ def render_page(event, collabs, days, stages, sessions, gifts,
       scrollToSpeaker(sp);
     }}
   }});
-  showTab(currentTab());
+
+  // Прямая ссылка на карточку спикера: ?spk={ec_id} или #speaker-{ec_id}.
+  // Открываем вкладку «Спикеры» и скроллим к карточке.
+  (function() {{
+    var m = (location.search.match(/[?&]spk=(\\d+)/) || []);
+    var deepSpk = m[1] || null;
+    if (!deepSpk) {{
+      var hm = (location.hash.match(/^#speaker-(\\d+)$/) || []);
+      if (hm[1]) deepSpk = hm[1];
+    }}
+    if (deepSpk && document.getElementById('speaker-' + deepSpk)) {{
+      pendingSpeaker = deepSpk;
+      if (location.hash.replace('#','') !== 'speakers') location.hash = 'speakers';
+      else {{ showTab('speakers'); var sp = pendingSpeaker; pendingSpeaker = null; scrollToSpeaker(sp); }}
+      return;
+    }}
+    showTab(currentTab());
+  }})();
 
   // ── Кабинет подарков по email (когда нет ?c в ссылке) ──
   (function() {{

@@ -17,7 +17,9 @@ function formatEndDate(d: string | Date | null | undefined): string {
 }
 
 export default function ResultsTab({ event, participant, onOpenEvent, onVipClick }: Props) {
-  const successor = event?.successor
+  // При завершении показываем ЛИБО следующее событие, ЛИБО подарок (миграция 195).
+  const endGift = event?.end_action === 'gift' ? event?.end_gift : null
+  const successor = endGift ? null : event?.successor
   const isConference = ['conference','turnir'].includes(event?.module_slug)
   const hasVip = !!event?.vip_url
   const isRegistered = !!participant?.is_registered
@@ -33,6 +35,33 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
     e.preventDefault()
     if (successor?.slug && onOpenEvent) onOpenEvent(successor.slug)
   }
+
+  // Карточка подарка при завершении (когда выбран режим «Подарок»).
+  const giftCard = endGift ? (
+    <div style={{
+      background: 'linear-gradient(135deg, #fff8f0, white)',
+      border: `2px solid ${PEACH}`, borderRadius: 16,
+      padding: 14, marginBottom: 12,
+    }}>
+      <div style={{
+        background: PEACH, color: DARK,
+        fontSize: 15, fontWeight: 900, letterSpacing: 0.5,
+        textAlign: 'center', textTransform: 'uppercase',
+        padding: '12px 10px', borderRadius: 12, marginBottom: 12, lineHeight: 1.25,
+      }}>🎁 Подарок для вас</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: '#1a2a3a', marginBottom: endGift.description ? 6 : 10 }}>{endGift.title}</div>
+      {endGift.description && (
+        <div style={{ fontSize: 13, color: '#6b7c8e', marginBottom: 10, lineHeight: 1.4 }}>{endGift.description}</div>
+      )}
+      {endGift.url && (
+        <a href={endGift.url} target="_blank" rel="noreferrer" style={{
+          display: 'block', background: DARK, color: PEACH,
+          padding: 10, borderRadius: 10, textAlign: 'center',
+          fontWeight: 700, fontSize: 13, textDecoration: 'none',
+        }}>Забрать подарок →</a>
+      )}
+    </div>
+  ) : null
 
   // ─── Вариант для НОВОГО участника (опоздал, не зарегистрирован) ───
   if (!isRegistered) {
@@ -83,6 +112,8 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
             }}>Зарегистрироваться →</a>
           </div>
         )}
+
+        {giftCard}
 
         <div style={{
           background: '#1a2a3a', border: '1px solid var(--border)', borderRadius: 10,
@@ -187,6 +218,8 @@ export default function ResultsTab({ event, participant, onOpenEvent, onVipClick
           }}>Зарегистрироваться →</a>
         </div>
       )}
+
+      {giftCard}
     </div>
   )
 }

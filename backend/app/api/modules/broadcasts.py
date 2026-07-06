@@ -68,8 +68,10 @@ class TemplateCreate(BaseModel):
     target_channel_ids: Optional[List[int]] = None
     # Слать ещё и в групповые чаты события (tg/vk/max_chat_id) — в ДОПОЛНЕНИЕ к базе.
     send_to_event_chats: Optional[bool] = None
-    # Слать ещё и в общую базу чатов клиента (client_broadcast_chats).
+    # Слать ещё и в общую базу чатов клиента (client_broadcast_chats, is_private=FALSE).
     send_to_client_chats: Optional[bool] = None
+    # Слать ещё и в личные каналы клиента (client_broadcast_chats, is_private=TRUE).
+    send_to_private_chats: Optional[bool] = None
 
 
 class TemplateUpdate(BaseModel):
@@ -95,6 +97,7 @@ class TemplateUpdate(BaseModel):
     target_channel_ids: Optional[List[int]] = None
     send_to_event_chats: Optional[bool] = None
     send_to_client_chats: Optional[bool] = None
+    send_to_private_chats: Optional[bool] = None
     # Роли коллабораторов для speaker_intro (NULL = все). Пустой массив [] = никто.
     intro_roles: Optional[List[str]] = None
 
@@ -395,7 +398,7 @@ async def list_templates(
                schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
-               target_channel_ids, send_to_event_chats, send_to_client_chats, intro_roles,
+               target_channel_ids, send_to_event_chats, send_to_client_chats, send_to_private_chats, intro_roles,
                created_at
         FROM broadcast_templates
         WHERE event_id = $1
@@ -503,15 +506,16 @@ async def create_template(
           (client_id, event_id, name, type, subject, text, photo_url, button_text, button_url,
            audience_include, audience_exclude, custom_day_ref, custom_time,
            schedule_mode, allow_custom_datetime, target_channel_ids,
-           video_url, media_type, send_to_event_chats, send_to_client_chats)
+           video_url, media_type, send_to_event_chats, send_to_client_chats, send_to_private_chats)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
                 COALESCE($10, 'all_event'), COALESCE($11, 'none'),
                 $12, $13,
                 COALESCE($14, schedule_mode), COALESCE($15, allow_custom_datetime), $16,
-                $17, $18, COALESCE($19, FALSE), COALESCE($20, FALSE))
+                $17, $18, COALESCE($19, FALSE), COALESCE($20, FALSE), COALESCE($21, FALSE))
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
-                  custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, send_to_client_chats, created_at
+                  custom_day_ref, custom_time, target_channel_ids, send_to_event_chats, send_to_client_chats,
+                  send_to_private_chats, created_at
         """,
         client_id, event_id, data.name, data.type, data.subject,
         data.text, data.photo_url, data.button_text, data.button_url,
@@ -520,7 +524,7 @@ async def create_template(
         schedule_mode, allow_custom_datetime,
         data.target_channel_ids,
         data.video_url, data.media_type,
-        data.send_to_event_chats, data.send_to_client_chats,
+        data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats,
     )
     return dict(row)
 
@@ -684,13 +688,14 @@ async def update_template(
             send_to_event_chats = COALESCE($23, send_to_event_chats),
             intro_roles = COALESCE($24::text[], intro_roles),
             send_to_client_chats = COALESCE($25, send_to_client_chats),
+            send_to_private_chats = COALESCE($26, send_to_private_chats),
             updated_at = NOW()
         WHERE id = $19 AND event_id = $20
         RETURNING id, name, type, subject, text, photo_url, video_url, media_type, button_text, button_url,
                   schedule_mode, offset_minutes, audience_include, audience_exclude, allow_custom_datetime,
                   intro_start_time, intro_interval_min, intro_days_before,
                   custom_day_ref, custom_time, target_channel_ids, send_to_event_chats,
-                  send_to_client_chats, intro_roles
+                  send_to_client_chats, send_to_private_chats, intro_roles
         """,
         data.name, data.type, data.subject, new_text,
         data.photo_url, data.button_text, data.button_url,
@@ -704,6 +709,7 @@ async def update_template(
         data.send_to_event_chats,
         data.intro_roles,
         data.send_to_client_chats,
+        data.send_to_private_chats,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Шаблон не найден")
@@ -779,7 +785,7 @@ async def list_schedules(
                -- snapshot-поля нужны фронту для правки произвольной (custom) рассылки
                bs.snapshot_text, bs.snapshot_subject, bs.snapshot_photo, bs.snapshot_video,
                bs.snapshot_media_type, bs.snapshot_buttons, bs.send_to_event_chats,
-               bs.send_to_client_chats
+               bs.send_to_client_chats, bs.send_to_private_chats
         FROM broadcast_schedules bs
         LEFT JOIN broadcast_templates bt ON bt.id = bs.template_id
         LEFT JOIN conf_sessions cs ON cs.id = bs.session_id AND bs.type != 'speaker_intro'
@@ -910,7 +916,7 @@ async def generate_schedules(
                intro_start_time, intro_interval_min, intro_days_before,
                custom_day_ref, custom_time,
                text, photo_url, button_text, button_url,
-               name, send_to_event_chats, send_to_client_chats, intro_roles
+               name, send_to_event_chats, send_to_client_chats, send_to_private_chats, intro_roles
         FROM broadcast_templates WHERE event_id=$1
         """,
         event_id
@@ -1360,6 +1366,15 @@ async def generate_schedules(
                WHERE event_id = $1 AND template_id = ANY($2::int[])""",
             event_id, client_tpl_ids,
         )
+    # То же для личных каналов.
+    private_tpl_ids = [t["id"] for t in templates if t.get("send_to_private_chats")]
+    if private_tpl_ids:
+        await db.execute(
+            """UPDATE broadcast_schedules
+                 SET send_to_private_chats = TRUE
+               WHERE event_id = $1 AND template_id = ANY($2::int[])""",
+            event_id, private_tpl_ids,
+        )
 
     return {"ok": True, "created": created, "skipped": skipped}
 
@@ -1507,6 +1522,7 @@ class AddCustomRequest(BaseModel):
     audience_exclude: str = "none"
     send_to_event_chats: bool = False
     send_to_client_chats: bool = False
+    send_to_private_chats: bool = False
     # Коллаб-событие: попросить соорганизаторов подтвердить рассылку по их базам.
     request_owner_confirm: bool = False
 
@@ -1594,13 +1610,14 @@ async def add_custom_schedule(
           (event_id, template_id, type, session_id, fire_at, status, is_test,
            audience_include, audience_exclude,
            snapshot_text, snapshot_photo, snapshot_buttons,
-           snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats, client_id)
-        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13)
+           snapshot_video, snapshot_media_type, send_to_event_chats, send_to_client_chats,
+           send_to_private_chats, client_id)
+        VALUES ($1, NULL, 'custom', NULL, $2, 'pending', $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14)
         RETURNING id, type, fire_at, status, is_test
         """,
         event_id, dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
-        data.send_to_event_chats, data.send_to_client_chats, client_id
+        data.send_to_event_chats, data.send_to_client_chats, data.send_to_private_chats, client_id
     )
     result = dict(row)
     # Коллаб-событие + галочка → копии соорганизаторам на подтверждение (по их базам).
@@ -1656,13 +1673,14 @@ async def edit_custom_schedule(
             audience_include = $3, audience_exclude = $4,
             snapshot_text = $5, snapshot_photo = $6, snapshot_buttons = $7::jsonb,
             snapshot_video = $8, snapshot_media_type = $9,
-            send_to_event_chats = $12, send_to_client_chats = $13
+            send_to_event_chats = $12, send_to_client_chats = $13, send_to_private_chats = $14
         WHERE id = $10 AND event_id = $11 AND type = 'custom'
         RETURNING id, type, fire_at, status, is_test
         """,
         dt_utc, data.is_test, data.audience_include, data.audience_exclude,
         data.text, snap_photo, _json.dumps(buttons_json), snap_video, snap_mtype,
         schedule_id, event_id, data.send_to_event_chats, data.send_to_client_chats,
+        data.send_to_private_chats,
     )
     return dict(row)
 
@@ -1679,6 +1697,7 @@ class BulkItem(BaseModel):
     audience_exclude: Optional[str] = None
     send_to_event_chats: Optional[bool] = None
     send_to_client_chats: Optional[bool] = None
+    send_to_private_chats: Optional[bool] = None
 
 
 class BulkAddRequest(BaseModel):
@@ -1736,6 +1755,7 @@ async def bulk_add_schedules(
             "audience_exclude": it.audience_exclude or data.audience_exclude,
             "send_to_event_chats": bool(it.send_to_event_chats),
             "send_to_client_chats": bool(it.send_to_client_chats),
+            "send_to_private_chats": bool(it.send_to_private_chats),
         })
 
     if errors_by_idx:
@@ -1772,14 +1792,15 @@ async def bulk_add_schedules(
                    audience_include, audience_exclude,
                    snapshot_text, snapshot_photo, snapshot_buttons,
                    snapshot_video, snapshot_media_type,
-                   send_to_event_chats, send_to_client_chats, client_id)
-                VALUES ($1, NULL, 'custom', NULL, $2, $13, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $14)
+                   send_to_event_chats, send_to_client_chats, send_to_private_chats, client_id)
+                VALUES ($1, NULL, 'custom', NULL, $2, $13, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $15, $14)
                 RETURNING id
                 """,
                 event_id, p["dt_utc"], data.is_test, p["audience_include"], p["audience_exclude"],
                 p["text"], p["photo_url"], _json.dumps(p["buttons"]),
                 p["video_url"], p["media_type"],
-                p["send_to_event_chats"], p["send_to_client_chats"], new_status, client_id
+                p["send_to_event_chats"], p["send_to_client_chats"], new_status, client_id,
+                p["send_to_private_chats"]
             )
             created_ids.append(row["id"])
         # Коллаб-событие + галочка → ОДИН пакет-подтверждение на весь bulk соорганизаторам.

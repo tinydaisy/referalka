@@ -260,6 +260,9 @@ class ConferenceUpdate(BaseModel):
     chat_button_label: Optional[str] = None        # заголовок кнопки чата (миграция 117)
     accent_button: Optional[str] = None            # 'vip' | 'chat' | 'none' (миграция 117)
     hide_stream_button: Optional[bool] = None      # скрыть кнопку стрима в Mini App (миграция 128)
+    end_action: Optional[str] = None               # 'next_event' | 'gift' (миграция 195)
+    end_gift_lead_magnet_id: Optional[int] = None
+    end_gift_package_id: Optional[int] = None
     link_mode: Optional[str] = None                # 'miniapp' | 'bot' (миграция 131)
     getcourse_form_url: Optional[str] = None
     require_speakers_sub: Optional[bool] = None
@@ -308,6 +311,9 @@ async def get_conference(
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+               e.end_action AS event_end_action,
+               e.end_gift_lead_magnet_id AS event_end_gift_lead_magnet_id,
+               e.end_gift_package_id AS event_end_gift_package_id,
                e.link_mode AS event_link_mode
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
@@ -332,6 +338,9 @@ async def get_conference(
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
+    d["end_action"] = d.pop("event_end_action", None) or "next_event"
+    d["end_gift_lead_magnet_id"] = d.pop("event_end_gift_lead_magnet_id", None)
+    d["end_gift_package_id"] = d.pop("event_end_gift_package_id", None)
     d["tg_chat_id"] = d.pop("event_tg_chat_id", None) or ""
     d["vk_chat_id"] = d.pop("event_vk_chat_id", None) or ""
     d["max_chat_id"] = d.pop("event_max_chat_id", None) or ""
@@ -380,6 +389,8 @@ async def update_conference(
         "stream_url", "vip_url", "vip_button_label", "offer_url",
         "chat_button_label", "accent_button", "hide_stream_button",
         "link_mode",
+        # Что показывать на «Итогах» при завершении (миграция 195)
+        "end_action", "end_gift_lead_magnet_id", "end_gift_package_id",
         # Чаты события — ссылки на client_broadcast_chats (миграция 174)
         "tg_chat_ref", "vk_chat_ref", "max_chat_ref",
         "chat_greeting_enabled", "chat_greeting_keyword", "chat_greeting_exact",
@@ -393,6 +404,25 @@ async def update_conference(
             if f in ("vip_url", "vip_button_label") and isinstance(val, str):
                 val = val.strip() or None
             event_updates[f] = val
+
+    # end_action / подарок при завершении: валидация + взаимоисключение (миграция 195)
+    if "end_action" in event_updates:
+        v = event_updates["end_action"]
+        if v is None:
+            del event_updates["end_action"]
+        elif v not in ("next_event", "gift"):
+            raise HTTPException(status_code=400, detail="end_action должен быть 'next_event' или 'gift'")
+    if event_updates.get("end_gift_lead_magnet_id"):
+        event_updates["end_gift_lead_magnet_id"] = int(event_updates["end_gift_lead_magnet_id"])
+        event_updates["end_gift_package_id"] = None
+    elif event_updates.get("end_gift_package_id"):
+        event_updates["end_gift_package_id"] = int(event_updates["end_gift_package_id"])
+        event_updates["end_gift_lead_magnet_id"] = None
+    else:
+        if "end_gift_lead_magnet_id" in event_updates and not event_updates["end_gift_lead_magnet_id"]:
+            event_updates["end_gift_lead_magnet_id"] = None
+        if "end_gift_package_id" in event_updates and not event_updates["end_gift_package_id"]:
+            event_updates["end_gift_package_id"] = None
 
     if raw:
         set_parts = [f"{k} = ${i+2}" for i, k in enumerate(raw.keys())]
@@ -438,6 +468,9 @@ async def update_conference(
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.vk_chat_ref) AS event_vk_chat_id,
                (SELECT chat_id FROM client_broadcast_chats WHERE id = e.max_chat_ref) AS event_max_chat_id,
                e.tg_chat_ref, e.vk_chat_ref, e.max_chat_ref,
+               e.end_action AS event_end_action,
+               e.end_gift_lead_magnet_id AS event_end_gift_lead_magnet_id,
+               e.end_gift_package_id AS event_end_gift_package_id,
                e.link_mode AS event_link_mode
         FROM conf_conferences cc
         JOIN events e ON e.id = cc.event_id
@@ -458,6 +491,9 @@ async def update_conference(
     d["chat_button_label"] = d.pop("event_chat_button_label") or ""
     d["accent_button"]     = d.pop("event_accent_button") or None
     d["hide_stream_button"] = bool(d.pop("event_hide_stream_button"))
+    d["end_action"] = d.pop("event_end_action", None) or "next_event"
+    d["end_gift_lead_magnet_id"] = d.pop("event_end_gift_lead_magnet_id", None)
+    d["end_gift_package_id"] = d.pop("event_end_gift_package_id", None)
     d["event_landing_url"] = d.pop("event_landing_url") or ""
     d["tg_chat_id"] = d.pop("event_tg_chat_id", None) or ""
     d["vk_chat_id"] = d.pop("event_vk_chat_id", None) or ""

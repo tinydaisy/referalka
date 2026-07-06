@@ -98,6 +98,7 @@ export default function GeneralBroadcastsPage() {
     buttons: { text: string; url: string }[]
     target_channel_ids: number[] | null
     send_to_client_chats: boolean
+    send_to_private_chats: boolean
   }>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
@@ -490,6 +491,7 @@ export default function GeneralBroadcastsPage() {
                               buttons: btns.map(b => ({ text: b.text || '', url: b.url || '' })),
                               target_channel_ids: Array.isArray(s.target_channel_ids) ? s.target_channel_ids : null,
                               send_to_client_chats: !!s.send_to_client_chats,
+                              send_to_private_chats: !!s.send_to_private_chats,
                             })
                           }}
                             className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
@@ -554,6 +556,7 @@ export default function GeneralBroadcastsPage() {
             is_test: editModal.is_test,
             target_channel_ids: editModal.target_channel_ids,
             send_to_client_chats: editModal.send_to_client_chats,
+            send_to_private_chats: editModal.send_to_private_chats,
           }}
           onClose={() => setEditModal(null)}
           onSaved={async () => { setEditModal(null); await load(); showMsg('Сохранено') }}
@@ -767,6 +770,7 @@ function CustomBroadcastModal(props: {
     is_test?: boolean
     target_channel_ids?: number[] | null
     send_to_client_chats?: boolean
+    send_to_private_chats?: boolean
   }
 }) {
   const [fireAt, setFireAt] = useState(props.initial?.fire_at || '')
@@ -782,6 +786,7 @@ function CustomBroadcastModal(props: {
   const [buttons, setButtons] = useState<{text: string; url: string}[]>(props.initial?.buttons || [])
   const [isTest, setIsTest] = useState(!!props.initial?.is_test)
   const [sendToClientChats, setSendToClientChats] = useState(!!props.initial?.send_to_client_chats)
+  const [sendToPrivateChats, setSendToPrivateChats] = useState(!!props.initial?.send_to_private_chats)
   // target_channel_ids: null = «пока не выбрано» (BroadcastChannelPicker
   // проставит все каналы клиента); массив = подмножество.
   const [targetChannels, setTargetChannels] = useState<number[] | null>(
@@ -847,6 +852,7 @@ function CustomBroadcastModal(props: {
         buttons: buttons.filter(b => b.text && b.url),
         is_test: isTest,
         send_to_client_chats: sendToClientChats,
+        send_to_private_chats: sendToPrivateChats,
       }
       // target_channel_ids передаём только когда picker уже отрисовался
       // (после useEffect он точно перешёл из null в массив).
@@ -988,7 +994,17 @@ function CustomBroadcastModal(props: {
               <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
               <span className="block text-[11px] text-gray-500 mt-0.5">
                 В дополнение к базе подписчиков — ещё и в группы/каналы из вашей базы чатов
-                (Каналы → «Чаты для рассылок»).
+                (Каналы → «Чаты для рассылок», без галочки «Личный»).
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+            <input type="checkbox" checked={sendToPrivateChats} onChange={e => setSendToPrivateChats(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+            <span>
+              <span className="block text-sm text-gray-800 font-medium">Отправлять в личные каналы</span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">
+                В каналы из базы чатов, помеченные галочкой «Личный».
               </span>
             </span>
           </label>

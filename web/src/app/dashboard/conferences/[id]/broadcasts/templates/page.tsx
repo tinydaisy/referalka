@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { Edit2, Eye, X, ChevronDown, ChevronUp, Send, CheckCircle, XCircle, Loader2, Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useMe } from '@/hooks/useMe'
 import BroadcastChannelPicker from '@/components/BroadcastChannelPicker'
 import BroadcastMediaPicker from '@/components/BroadcastMediaPicker'
 
@@ -165,6 +166,8 @@ const INTRO_ROLE_OPTIONS: { value: string; label: string }[] = [
 const INCLUDE_LABELS: Record<string, string> = {
   all_event: 'Все участники конфы',
   registered_event: 'Зарегистрированные участники',
+  paid_event: 'Оплатившие',
+  unpaid_event: 'Имеют неоплаченный заказ',
   all_client: 'Вся база клиента',
 }
 
@@ -172,6 +175,8 @@ const EXCLUDE_LABELS: Record<string, string> = {
   none: 'никого не исключать',
   registered_event: 'зарег. участников',
   unregistered_event: 'незарег. участников',
+  paid_event: 'оплативших',
+  unpaid_event: 'имеющих неоплаченный заказ',
   all_event: 'всех участников конфы',
 }
 
@@ -189,6 +194,7 @@ const emptyForm = {
   intro_roles: null as string[] | null,
   send_to_event_chats: false,
   send_to_client_chats: false,
+  send_to_private_chats: false,
   custom_day_ref: '', custom_time: '12:00',
   // target_channel_ids: null = «по всем каналам клиента» (default),
   // [] = никуда не слать, [N,M] = только эти channel_id.
@@ -234,6 +240,9 @@ function customDayRefLabel(ref: string, confDays: number[]): string {
 export default function TemplatesPage() {
   const { id } = useParams()
   const eventId = Number(id)
+  const { me } = useMe()
+  // Сегменты по оплате — только при фиче платных тарифов события.
+  const hasPayments = (me?.features || []).includes('event_tariffs')
 
   const [templates, setTemplates] = useState<any[]>([])
   const [speakers, setSpeakers] = useState<any[]>([])
@@ -382,6 +391,7 @@ export default function TemplatesPage() {
         custom_time: f.custom_time,
         send_to_event_chats: !!f.send_to_event_chats,
         send_to_client_chats: !!f.send_to_client_chats,
+        send_to_private_chats: !!f.send_to_private_chats,
       }
       if (f.target_channel_ids !== null && f.target_channel_ids !== undefined) {
         payload.target_channel_ids = f.target_channel_ids
@@ -424,6 +434,7 @@ export default function TemplatesPage() {
       intro_roles: Array.isArray(t.intro_roles) ? t.intro_roles : null,
       send_to_event_chats: !!t.send_to_event_chats,
       send_to_client_chats: !!t.send_to_client_chats,
+      send_to_private_chats: !!t.send_to_private_chats,
       custom_day_ref: t.custom_day_ref || '',
       custom_time: t.custom_time || '12:00',
       target_channel_ids: Array.isArray(t.target_channel_ids) ? t.target_channel_ids : null,
@@ -1137,6 +1148,8 @@ export default function TemplatesPage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="all_event">Все участники конфы</option>
                     <option value="registered_event">Зарегистрированные участники</option>
+                    {hasPayments && <option value="paid_event">Оплатившие</option>}
+                    {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                     <option value="all_client">Вся база клиента (все события)</option>
                   </select>
                 </div>
@@ -1149,6 +1162,8 @@ export default function TemplatesPage() {
                     <option value="none">Никого не исключать</option>
                     <option value="registered_event">Зарегистрированных участников</option>
                     <option value="unregistered_event">Незарегистрированных участников</option>
+                    {hasPayments && <option value="paid_event">Оплативших</option>}
+                    {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                     <option value="all_event">Всех участников конфы</option>
                   </select>
                 </div>
@@ -1162,10 +1177,19 @@ export default function TemplatesPage() {
                 onChange={(next) => setForm({ ...form, target_channel_ids: next } as any)}
               />
 
-              {/* Галочка «чаты события» убрана — эти чаты добавляются через общую базу
-                  чатов (Каналы → «Чаты для рассылок»), отдельная галочка теряла смысл. */}
-
-              {/* Галочка: слать ещё и в общую базу чатов клиента */}
+              {/* Три независимые галочки: чаты события / общие чаты / личные каналы. */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_event_chats}
+                  onChange={e => setForm({ ...form, send_to_event_chats: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в чаты события</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    В групповые чаты этого события (заданы в настройках события).
+                  </span>
+                </span>
+              </label>
               <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
                 <input type="checkbox"
                   checked={!!(form as any).send_to_client_chats}
@@ -1174,7 +1198,19 @@ export default function TemplatesPage() {
                 <span>
                   <span className="block text-sm text-gray-800 font-medium">Отправлять в общие чаты</span>
                   <span className="block text-[11px] text-gray-500 mt-0.5">
-                    Ещё и в группы/каналы из вашей базы чатов (Каналы → «Чаты для рассылок»).
+                    В общие группы/каналы из базы чатов (Каналы → «Чаты для рассылок», без галочки «Личный»).
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+                <input type="checkbox"
+                  checked={!!(form as any).send_to_private_chats}
+                  onChange={e => setForm({ ...form, send_to_private_chats: e.target.checked } as any)}
+                  className="w-4 h-4 mt-0.5 accent-[#25455D]" />
+                <span>
+                  <span className="block text-sm text-gray-800 font-medium">Отправлять в личные каналы</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">
+                    В каналы из базы чатов, помеченные галочкой «Личный».
                   </span>
                 </span>
               </label>
@@ -1369,6 +1405,8 @@ export default function TemplatesPage() {
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none bg-white">
                     <option value="all_event">Все участники конфы</option>
                     <option value="registered_event">Зарегистрированные участники</option>
+                    {hasPayments && <option value="paid_event">Оплатившие</option>}
+                    {hasPayments && <option value="unpaid_event">Имеют неоплаченный заказ</option>}
                     <option value="all_client">Вся база клиента (все события)</option>
                   </select>
                 </div>
@@ -1381,6 +1419,8 @@ export default function TemplatesPage() {
                     <option value="none">Никого не исключать</option>
                     <option value="registered_event">Зарегистрированных участников</option>
                     <option value="unregistered_event">Незарегистрированных участников</option>
+                    {hasPayments && <option value="paid_event">Оплативших</option>}
+                    {hasPayments && <option value="unpaid_event">Имеющих неоплаченный заказ</option>}
                     <option value="all_event">Всех участников конфы</option>
                   </select>
                 </div>

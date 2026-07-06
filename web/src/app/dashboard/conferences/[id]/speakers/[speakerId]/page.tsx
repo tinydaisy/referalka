@@ -117,6 +117,34 @@ function FieldLabel({ label, empty }: { label: string; empty: boolean }) {
   )
 }
 
+// Прямые ссылки на карточку конкретного спикера: веб-страница события и Mini App.
+function SpeakerCardLink({ slug, ecId, botHandle }: { slug: string; ecId: number; botHandle: string }) {
+  const webUrl = `https://pluson.ru/event/${slug}?spk=${ecId}`
+  const tgUrl = botHandle
+    ? `https://t.me/${botHandle}?startapp=ref_pg${slug}_spk${ecId}`
+    : `https://t.me/pluson_bot/pluson?startapp=ref_pg${slug}_spk${ecId}`
+  const [copied, setCopied] = useState<string | null>(null)
+  const copy = async (url: string, key: string) => {
+    try { await navigator.clipboard.writeText(url); setCopied(key); setTimeout(() => setCopied(null), 2000) } catch {}
+  }
+  const Row = ({ label, url, k }: { label: string; url: string; k: string }) => (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500 w-20 shrink-0">{label}</span>
+      <input readOnly value={url} className="flex-1 text-xs bg-gray-50 px-2 py-1.5 rounded-lg border border-gray-200 font-mono truncate" />
+      <button type="button" onClick={() => copy(url, k)}
+        className="px-2.5 py-1.5 bg-brand text-white rounded-lg text-xs font-semibold hover:opacity-90 shrink-0">
+        {copied === k ? '✓' : 'Копировать'}
+      </button>
+    </div>
+  )
+  return (
+    <div className="space-y-2">
+      <Row label="Веб" url={webUrl} k="web" />
+      <Row label="Mini App" url={tgUrl} k="tg" />
+    </div>
+  )
+}
+
 export default function ConferenceSpeakerPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -527,6 +555,15 @@ export default function ConferenceSpeakerPage() {
       <div className="space-y-6 mb-8">
         {/* Партнёрская ссылка спикера на это событие */}
         <RefLinkInline slug={eventSlug} refCode={refCode} eventStatus={eventStatus} />
+
+        {/* Прямая ссылка на карточку спикера (открывает вкладку «Спикеры» и скроллит к нему) */}
+        {eventSlug && (
+          <div className="bg-white border border-gray-200 rounded-2xl p-4">
+            <div className="font-semibold text-gray-900 text-sm mb-1">Ссылка на карточку этого спикера</div>
+            <div className="text-xs text-gray-600 mb-3">Откроет страницу события сразу на карточке спикера. Работает в вебе и в Mini App.</div>
+            <SpeakerCardLink slug={eventSlug} ecId={speakerEventId} botHandle={mainBotHandle} />
+          </div>
+        )}
 
         {/* Код доступа для самообслуживания спикера + готовое сообщение */}
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">

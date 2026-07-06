@@ -27,6 +27,7 @@ interface Props {
   regFromLanding?: boolean   // флаг `_reg` в startapp — вернулись с лендинга клиента
   noLanding?: boolean        // флаг `_nolend` в startapp — не показывать сторонний лендинг, регать через внутренний
   initialTab?: string        // флаг `_tabXXX` в startapp — открыть на конкретной вкладке (game, raffle, ...)
+  speakerEcId?: number        // `_spk{ec_id}` — открыть вкладку «Спикеры» и подсветить карточку
   onBack: () => void
   onOpenEvent?: (slug: string) => void  // открыть другое событие (для блока «А дальше» в Итогах)
 }
@@ -84,14 +85,14 @@ function eventDateLabel(event: any): string {
   return ''
 }
 
-export default function EventPage({ slug, tgUser, partnerId, utmSource, contactId, flags, regFromLanding, noLanding, initialTab, onBack, onOpenEvent }: Props) {
+export default function EventPage({ slug, tgUser, partnerId, utmSource, contactId, flags, regFromLanding, noLanding, initialTab, speakerEcId, onBack, onOpenEvent }: Props) {
   const [event, setEvent] = useState<any>(null)
   const [participant, setParticipant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const [tab, setTabState] = useState<string>('landing')
-  const [pendingSpeakerHighlight, setPendingSpeakerHighlight] = useState<number | null>(null)
+  const [pendingSpeakerHighlight, setPendingSpeakerHighlight] = useState<number | null>(speakerEcId ?? null)
   const [showReg, setShowReg] = useState(false)
   const [prefill, setPrefill] = useState<{ name?: string; email?: string; phone?: string } | null>(null)
   const [autoRegToast, setAutoRegToast] = useState<{ email: string; phone: string } | null>(null)
@@ -234,6 +235,10 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
           const skipWelcome = ['contest', 'turnir'].includes(landing?.module_slug)
           if (!cancelled) setTabState(skipWelcome ? 'program' : 'welcome')
         } catch (_) { /* fallback на обычный flow — лендинг */ }
+      } else if (speakerEcId && ['conference', 'turnir'].includes(landing?.module_slug)) {
+        // Прямая ссылка на карточку спикера/жюри — вкладка «Спикеры» доступна
+        // всем (витрина), даже до регистрации и после завершения.
+        setTabState('speakers')
       } else if (ended) {
         setTabState('results')
       } else if (alreadyRegistered) {
@@ -313,11 +318,16 @@ export default function EventPage({ slug, tgUser, partnerId, utmSource, contactI
   const navItemsEnded = participant
     ? filterByEnabled(NAV_ENDED)
     : filterByEnabled(NAV_ENDED).filter(n => n.id !== 'game')
-  const navItems = state === 'not_registered'
+  let navItems = state === 'not_registered'
                      // Веб-витрина без регистрации: публичные вкладки открыты.
                      ? (isWeb ? filterByEnabled(NAV_WEB_PUBLIC) : filterByEnabled(NAV_NOT_REG))
                  : state === 'registered'     ? filterByEnabled(NAV_REGISTERED)
                  :                              navItemsEnded
+  // Прямая ссылка на карточку спикера — вкладка «Спикеры» доступна как витрина,
+  // даже если по обычным правилам её нет в навигации (нерег. в TG/VK).
+  if (speakerEcId && hasSpeakersTab && !navItems.some(n => n.id === 'speakers')) {
+    navItems = [...navItems, { id: 'speakers', label: tabLabels.speakers || 'Спикеры', icon: 'speakers' }]
+  }
 
   // Если текущая вкладка пропала из navItems (например клиент выключил
   // рефералку/розыгрыш) — переключаем на первую доступную.

@@ -53,7 +53,15 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
     raffle_url: conf?.raffle_url || '',
     subscription_mode: conf?.subscription_mode || 'none',
     skip_contact_form: !!event?.skip_contact_form,
+    // Что показывать на «Итогах» при завершении события (миграция 195).
+    end_action: (conf?.end_action as 'next_event' | 'gift') || 'next_event',
+    end_gift: conf?.end_gift_package_id
+      ? `p:${conf.end_gift_package_id}`
+      : conf?.end_gift_lead_magnet_id ? `m:${conf.end_gift_lead_magnet_id}` : '',
   })
+  // Список лид-магнитов и пакетов клиента — для выбора подарка при завершении.
+  const [leadMagnets, setLeadMagnets] = useState<Array<{ id: number; name: string }>>([])
+  const [leadPackages, setLeadPackages] = useState<Array<{ id: number; name: string }>>([])
   // Чаты события — ref на записи client_broadcast_chats + radio (primary).
   const [chats, setChats] = useState<EventChatsValue>({
     tgChatRef:  conf?.tg_chat_ref  ?? null,
@@ -63,6 +71,12 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Лид-магниты и пакеты для выбора подарка при завершении события.
+  useEffect(() => {
+    api.leadMagnets.list().then((r: any) => setLeadMagnets(r.items || [])).catch(() => {})
+    api.leadMagnetPackages.list().then((r: any) => setLeadPackages(r.items || [])).catch(() => {})
+  }, [])
 
   useEffect(() => {
     setForm(f => ({
@@ -79,6 +93,10 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       raffle_url: conf?.raffle_url || '',
       subscription_mode: conf?.subscription_mode || 'none',
       skip_contact_form: !!event?.skip_contact_form,
+      end_action: (conf?.end_action as 'next_event' | 'gift') || 'next_event',
+      end_gift: conf?.end_gift_package_id
+        ? `p:${conf.end_gift_package_id}`
+        : conf?.end_gift_lead_magnet_id ? `m:${conf.end_gift_lead_magnet_id}` : '',
     }))
     setChats({
       tgChatRef:  conf?.tg_chat_ref  ?? null,
@@ -121,6 +139,24 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
       if (form.accent_button !== initAccent)                           confPatch.accent_button = form.accent_button
       if (form.raffle_url !== (conf?.raffle_url || ''))                confPatch.raffle_url = form.raffle_url || null
       if (form.subscription_mode !== (conf?.subscription_mode || 'none')) confPatch.subscription_mode = form.subscription_mode
+      // Действие при завершении + подарок (взаимоисключающий m:/p:).
+      const initEndAction = (conf?.end_action as string) || 'next_event'
+      const initEndGift = conf?.end_gift_package_id
+        ? `p:${conf.end_gift_package_id}`
+        : conf?.end_gift_lead_magnet_id ? `m:${conf.end_gift_lead_magnet_id}` : ''
+      if (form.end_action !== initEndAction) confPatch.end_action = form.end_action
+      if (form.end_gift !== initEndGift) {
+        if (form.end_gift.startsWith('m:')) {
+          confPatch.end_gift_lead_magnet_id = Number(form.end_gift.slice(2))
+          confPatch.end_gift_package_id = null
+        } else if (form.end_gift.startsWith('p:')) {
+          confPatch.end_gift_package_id = Number(form.end_gift.slice(2))
+          confPatch.end_gift_lead_magnet_id = null
+        } else {
+          confPatch.end_gift_lead_magnet_id = null
+          confPatch.end_gift_package_id = null
+        }
+      }
       // Чаты события — ref на записи client_broadcast_chats + primary
       const initPrimary = (conf?.primary_chat_platform as ChatPlatform | null) || null
       if (chats.tgChatRef  !== (conf?.tg_chat_ref  ?? null))           confPatch.tg_chat_ref  = chats.tgChatRef
@@ -224,6 +260,61 @@ export default function SettingsTab({ eventId, conf, event, onConfUpdated, onEve
           <input type="url" value={form.raffle_url} onChange={set('raffle_url')}
             placeholder="https://..."
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand" />
+        </div>
+
+        {/* Что показывать на вкладке «Итоги» после завершения события (миграция 195) */}
+        <div className="pt-2 border-t border-gray-100">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            При завершении события показывать
+          </label>
+          <div className="space-y-2">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" name="end_action" checked={form.end_action === 'next_event'}
+                onChange={() => setForm(f => ({ ...f, end_action: 'next_event' }))}
+                className="mt-0.5 accent-[#25455D]" />
+              <span className="text-sm text-gray-700">
+                Следующее событие
+                <span className="block text-xs text-gray-400 mt-0.5">
+                  Ближайшее незавершённое опубликованное событие. Завершённые не показываются.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" name="end_action" checked={form.end_action === 'gift'}
+                onChange={() => setForm(f => ({ ...f, end_action: 'gift' }))}
+                className="mt-0.5 accent-[#25455D]" />
+              <span className="text-sm text-gray-700">
+                Подарок
+                <span className="block text-xs text-gray-400 mt-0.5">
+                  Лид-магнит или пакет из ваших лид-магнитов.
+                </span>
+              </span>
+            </label>
+          </div>
+          {form.end_action === 'gift' && (
+            <div className="mt-2 pl-6">
+              <select value={form.end_gift}
+                onChange={e => setForm(f => ({ ...f, end_gift: e.target.value }))}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-brand bg-white">
+                <option value="">— выберите подарок —</option>
+                {leadMagnets.length > 0 && (
+                  <optgroup label="Лид-магниты">
+                    {leadMagnets.map(m => <option key={`m${m.id}`} value={`m:${m.id}`}>{m.name}</option>)}
+                  </optgroup>
+                )}
+                {leadPackages.length > 0 && (
+                  <optgroup label="Пакеты">
+                    {leadPackages.map(p => <option key={`p${p.id}`} value={`p:${p.id}`}>{p.name}</option>)}
+                  </optgroup>
+                )}
+              </select>
+              {leadMagnets.length === 0 && leadPackages.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Нет лид-магнитов. Создайте их в разделе «Лид-магниты».
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

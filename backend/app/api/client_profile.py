@@ -768,11 +768,42 @@ async def public_event_landing(slug: str, db: asyncpg.Connection = Depends(get_d
     )
     d["posters"] = [dict(p) for p in posters]
 
+    # Что показывать на вкладке «Итоги» при завершении события (миграция 195):
+    # 'next_event' (default) — следующее незавершённое событие; 'gift' — подарок
+    # (лид-магнит/пакет). Отдаём в d, чтобы Mini App выбрал блок.
+    end_row = await db.fetchrow(
+        "SELECT end_action, end_gift_lead_magnet_id, end_gift_package_id FROM events WHERE id=$1",
+        row["id"],
+    )
+    end_action = (end_row and end_row["end_action"]) or "next_event"
+    d["end_action"] = end_action
+    d["end_gift"] = None
+    if end_action == "gift" and end_row:
+        if end_row["end_gift_lead_magnet_id"]:
+            lm = await db.fetchrow(
+                "SELECT id, name, description, url FROM lead_magnets WHERE id=$1",
+                end_row["end_gift_lead_magnet_id"],
+            )
+            if lm:
+                d["end_gift"] = {"kind": "lead_magnet", "id": lm["id"],
+                                 "title": lm["name"], "description": lm["description"],
+                                 "url": lm["url"]}
+        elif end_row["end_gift_package_id"]:
+            lp = await db.fetchrow(
+                "SELECT id, name, slug FROM lead_magnet_packages WHERE id=$1",
+                end_row["end_gift_package_id"],
+            )
+            if lp:
+                d["end_gift"] = {"kind": "package", "id": lp["id"],
+                                 "title": lp["name"], "description": None,
+                                 "url": f"https://pluson.ru/p/{lp['slug']}" if lp["slug"] else None}
+
     # Successor — автоматически: ближайшее опубликованное событие того же
     # клиента, начинающееся ПОСЛЕ конца текущего. Для конференций start_at
     # берём из conf_days (MIN day_date + open_time, Europe/Moscow), для
     # остальных модулей — events.start_at. Текущее событие исключаем.
-    succ = await db.fetchrow(
+    # При end_action='gift' successor не нужен — показываем подарок.
+    succ = None if end_action == "gift" else await db.fetchrow(
         """WITH ev_start AS (
               SELECT e.id, (SELECT eo.client_id FROM event_owners eo WHERE eo.event_id=e.id AND eo.status='accepted' ORDER BY (eo.role='owner') DESC, eo.id LIMIT 1) AS client_id, e.slug, e.title, e.module_slug, e.status,
                      CASE WHEN e.module_slug IN ('conference','turnir') THEN

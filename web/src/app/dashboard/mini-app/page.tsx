@@ -110,6 +110,8 @@ export default function MiniAppSettingsPage() {
   const [eventList, setEventList] = useState<{ id: number; title: string; status?: string }[]>([])
   const [leadMagnets, setLeadMagnets] = useState<{ id: number; name: string }[]>([])
   const [leadPackages, setLeadPackages] = useState<{ id: number; name: string }[]>([])
+  // Активная вкладка блока «Каналы основателя» (TG / VK / MAX)
+  const [founderTab, setFounderTab] = useState<'telegram' | 'vk' | 'max'>('telegram')
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'brand'
     const t = new URLSearchParams(window.location.search).get('tab')
@@ -457,51 +459,45 @@ export default function MiniAppSettingsPage() {
 
           <Section
             step={4}
-            title="Telegram каналы основателя"
-            hint="Список всех ваших TG-каналов. Используются для проверки подписки в воронках лид-магнитов и в гейтах чатов — участник должен быть подписан на ВСЕ каналы из списка. Также отображаются на странице «Об основателе» в Mini App."
+            title="Каналы основателя"
+            hint="Ваши каналы на площадках. Используются для проверки подписки в воронках лид-магнитов и гейтах чатов — участник должен быть подписан на ВСЕ каналы из списка. Также показываются на странице «Об основателе» в Mini App."
           >
             <div className="max-w-2xl">
-              <FounderTgChannelsField
-                value={Array.isArray(profile.social_links.telegram_channels)
-                  ? profile.social_links.telegram_channels as FounderTgChannel[]
-                  : []}
-                onChange={updateTgChannels}
-              />
+              {/* Вкладки площадок: TG / VK / MAX (зелёная точка на заполненной) */}
+              {(() => {
+                const tgList = Array.isArray(profile.social_links.telegram_channels) ? profile.social_links.telegram_channels as FounderTgChannel[] : []
+                const vkList = Array.isArray(profile.social_links.vk_channels) ? profile.social_links.vk_channels as FounderVkChannel[] : []
+                const maxList = Array.isArray(profile.social_links.max_channels) ? profile.social_links.max_channels as FounderMaxChannel[] : []
+                const tabs: { key: 'telegram' | 'vk' | 'max'; label: string; badge: string; color: string; filled: boolean }[] = [
+                  { key: 'telegram', label: 'Telegram',  badge: 'TG',  color: '#229ED9', filled: tgList.length > 0 },
+                  { key: 'vk',       label: 'ВКонтакте', badge: 'VK',  color: '#0077FF', filled: vkList.length > 0 },
+                  { key: 'max',      label: 'MAX',       badge: 'MAX', color: '#F45D22', filled: maxList.length > 0 },
+                ]
+                return (
+                  <>
+                    <div className="flex gap-1 border-b border-gray-200 mb-3">
+                      {tabs.map(t => (
+                        <button key={t.key} type="button" onClick={() => setFounderTab(t.key)}
+                          className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                            founderTab === t.key ? 'border-[#25455D] text-[#25455D]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                          <span className="inline-flex items-center justify-center w-7 h-5 rounded text-[9px] font-bold text-white shrink-0"
+                                style={{ background: t.color }}>{t.badge}</span>
+                          {t.label}
+                          {t.filled && <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" title="Есть каналы" />}
+                        </button>
+                      ))}
+                    </div>
+                    {founderTab === 'telegram' && <FounderTgChannelsField value={tgList} onChange={updateTgChannels} />}
+                    {founderTab === 'vk' && <FounderVkChannelsField value={vkList} onChange={updateVkChannels} />}
+                    {founderTab === 'max' && <FounderMaxChannelsField value={maxList} onChange={updateMaxChannels} />}
+                  </>
+                )
+              })()}
             </div>
           </Section>
 
           <Section
             step={5}
-            title="MAX каналы основателя"
-            hint="Список ваших каналов в MAX. Используются для проверки подписки в воронках лид-магнитов в MAX — участник должен быть подписан на ВСЕ каналы из списка."
-          >
-            <div className="max-w-2xl">
-              <FounderMaxChannelsField
-                value={Array.isArray(profile.social_links.max_channels)
-                  ? profile.social_links.max_channels as FounderMaxChannel[]
-                  : []}
-                onChange={updateMaxChannels}
-              />
-            </div>
-          </Section>
-
-          <Section
-            step={6}
-            title="VK сообщества основателя"
-            hint="Список ваших сообществ в VK. Используются для проверки подписки в воронках лид-магнитов в VK — участник должен быть подписан на ВСЕ сообщества из списка. ID определяется автоматически по ссылке."
-          >
-            <div className="max-w-2xl">
-              <FounderVkChannelsField
-                value={Array.isArray(profile.social_links.vk_channels)
-                  ? profile.social_links.vk_channels as FounderVkChannel[]
-                  : []}
-                onChange={updateVkChannels}
-              />
-            </div>
-          </Section>
-
-          <Section
-            step={7}
             title="Другие соцсети основателя"
             hint="Ряд иконок на странице «Об основателе». Заполняйте только то что хотите показать."
           >

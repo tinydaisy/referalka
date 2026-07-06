@@ -31,6 +31,7 @@ interface BroadcastChat {
   added_via: string | null
   is_active: boolean
   use_for_broadcasts: boolean
+  is_private: boolean
   created_at: string
 }
 
@@ -278,6 +279,15 @@ function ChatCard({ chat, onEdit, onChanged, onDeleted }: {
       alert('Не удалось сохранить: ' + (e.message || ''))
     } finally { setSaving(false) }
   }
+  async function togglePrivate() {
+    setSaving(true)
+    try {
+      await api.miniApp.broadcastChats.update(chat.id, { is_private: !chat.is_private })
+      onChanged()
+    } catch (e: any) {
+      alert('Не удалось сохранить: ' + (e.message || ''))
+    } finally { setSaving(false) }
+  }
   async function remove() {
     if (!confirm(`Удалить чат «${chat.title || chat.chat_id}» из базы рассылок?`)) return
     try {
@@ -316,6 +326,17 @@ function ChatCard({ chat, onEdit, onChanged, onDeleted }: {
             className="accent-[#25455D] w-4 h-4"
           />
           Использовать для рассылок анонсов
+        </label>
+        <label className="flex items-center gap-1.5 mt-1 text-xs text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={chat.is_private}
+            disabled={saving}
+            onChange={togglePrivate}
+            className="accent-[#25455D] w-4 h-4"
+          />
+          Личный канал
+          <span className="text-gray-400">— в рассылке отдельная галочка «в личные каналы»</span>
         </label>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">

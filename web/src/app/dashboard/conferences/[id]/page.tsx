@@ -179,7 +179,7 @@ export default function ConferencePage() {
           ) : (
             <Download size={16} />
           )}
-          Экспорт для Salebot
+          Экспорт данных
         </button>
       </div>
 

@@ -128,7 +128,7 @@ async def _send_broadcast(schedule_id: int):
         tmpl = await conn.fetchrow(
             "SELECT subject, text, photo_url, video_url, media_type, video_file_id, "
             "button_text, button_url, target_channel_ids, "
-            "send_to_event_chats, send_to_client_chats "
+            "send_to_event_chats, send_to_client_chats, send_to_private_chats "
             "FROM broadcast_templates WHERE id=$1",
             schedule["template_id"]
         ) if schedule["template_id"] else None
@@ -141,6 +141,8 @@ async def _send_broadcast(schedule_id: int):
                 schedule = dict(schedule); schedule["send_to_event_chats"] = True
             if not schedule.get("send_to_client_chats") and tmpl["send_to_client_chats"]:
                 schedule = dict(schedule); schedule["send_to_client_chats"] = True
+            if not schedule.get("send_to_private_chats") and tmpl["send_to_private_chats"]:
+                schedule = dict(schedule); schedule["send_to_private_chats"] = True
         tmpl_subject_val  = tmpl["subject"]      if tmpl else None
         tmpl_text_val  = tmpl["text"]         if tmpl else ""
         tmpl_photo_val = tmpl["photo_url"]    if tmpl else None
@@ -515,12 +517,23 @@ async def _send_broadcast(schedule_id: int):
                 if ev_tg and str(ev_tg).strip():
                     tg_chats.append(str(ev_tg).strip())
             if schedule.get("send_to_client_chats"):
+                # ОБЩИЕ чаты: is_private = FALSE
                 rows_cl = await conn.fetch(
                     """SELECT chat_id FROM client_broadcast_chats
-                        WHERE client_id = $1 AND platform = 'telegram' AND is_active = TRUE AND use_for_broadcasts = TRUE""",
+                        WHERE client_id = $1 AND platform = 'telegram' AND is_active = TRUE
+                          AND use_for_broadcasts = TRUE AND is_private = FALSE""",
                     schedule["client_id"],
                 )
                 tg_chats += [str(r["chat_id"]).strip() for r in rows_cl if r["chat_id"]]
+            if schedule.get("send_to_private_chats"):
+                # ЛИЧНЫЕ каналы: is_private = TRUE
+                rows_pr = await conn.fetch(
+                    """SELECT chat_id FROM client_broadcast_chats
+                        WHERE client_id = $1 AND platform = 'telegram' AND is_active = TRUE
+                          AND use_for_broadcasts = TRUE AND is_private = TRUE""",
+                    schedule["client_id"],
+                )
+                tg_chats += [str(r["chat_id"]).strip() for r in rows_pr if r["chat_id"]]
             if tg_chats:
                 async with httpx.AsyncClient(timeout=15) as http_extra:
                     for cid in tg_chats:
@@ -599,19 +612,34 @@ async def _send_broadcast(schedule_id: int):
             except Exception as ex:
                 logger.warning(f"Отправка в чаты события для рассылки {schedule_id} упала: {ex}")
 
-        # === Общая база чатов клиента (доп. слой) — VK/MAX, по флагу send_to_client_chats ===
+        # === Общие чаты клиента (доп. слой) — VK/MAX, по флагу send_to_client_chats ===
         # TG-чаты этой базы уже ушли в общем TG-блоке выше (с дедупом).
+        # is_private=FALSE — общие чаты.
         if schedule.get("send_to_client_chats") and not schedule.get("is_test"):
             try:
                 cl_sent = await _send_broadcast_to_client_chats(
                     conn, schedule, text, photo_url, button_text, button_url,
                     buttons=buttons, video_url=video_url, media_type=media_type,
-                    sent_vk=_sent_vk, sent_max=_sent_max,
+                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=False,
                 )
                 sent += cl_sent
-                logger.info(f"Чаты клиента для рассылки {schedule_id}: отправлено {cl_sent}")
+                logger.info(f"Общие чаты клиента для рассылки {schedule_id}: отправлено {cl_sent}")
             except Exception as ex:
-                logger.warning(f"Отправка в чаты клиента для рассылки {schedule_id} упала: {ex}")
+                logger.warning(f"Отправка в общие чаты клиента для рассылки {schedule_id} упала: {ex}")
+
+        # === Личные каналы клиента (доп. слой) — VK/MAX, по флагу send_to_private_chats ===
+        # is_private=TRUE. Дедуп общий с чатами события и общими чатами (_sent_vk/_sent_max).
+        if schedule.get("send_to_private_chats") and not schedule.get("is_test"):
+            try:
+                pr_sent = await _send_broadcast_to_client_chats(
+                    conn, schedule, text, photo_url, button_text, button_url,
+                    buttons=buttons, video_url=video_url, media_type=media_type,
+                    sent_vk=_sent_vk, sent_max=_sent_max, is_private=True,
+                )
+                sent += pr_sent
+                logger.info(f"Личные каналы клиента для рассылки {schedule_id}: отправлено {pr_sent}")
+            except Exception as ex:
+                logger.warning(f"Отправка в личные каналы клиента для рассылки {schedule_id} упала: {ex}")
 
         await conn.execute(
             "UPDATE broadcast_schedules SET status='done', finished_at=NOW(), recipients_sent=$1 WHERE id=$2",
@@ -767,16 +795,19 @@ async def _send_broadcast_to_client_chats(
     buttons: list | None = None,
     video_url: str | None = None, media_type: str | None = None,
     sent_vk: set | None = None, sent_max: set | None = None,
+    is_private: bool = False,
 ) -> int:
-    """Шлёт рассылку в общую базу чатов клиента (client_broadcast_chats) для VK и MAX.
+    """Шлёт рассылку в базу чатов клиента (client_broadcast_chats) для VK и MAX.
+    is_private=False — общие чаты (is_private=FALSE); True — личные каналы (is_private=TRUE).
     Telegram-чаты этой базы обрабатываются выше (общий TG-блок с дедупом).
-    Дедуп: пропускает chat_id, уже отправленные как чаты события (sent_vk/sent_max).
+    Дедуп: пропускает chat_id, уже отправленные (sent_vk/sent_max) — общий set на все слои.
     Возвращает число успешно отправленных чатов."""
     client_id = schedule["client_id"]
     rows = await conn.fetch(
         """SELECT platform, chat_id FROM client_broadcast_chats
-            WHERE client_id = $1 AND platform IN ('vk','max') AND is_active = TRUE AND use_for_broadcasts = TRUE""",
-        client_id,
+            WHERE client_id = $1 AND platform IN ('vk','max') AND is_active = TRUE
+              AND use_for_broadcasts = TRUE AND is_private = $2""",
+        client_id, is_private,
     )
     if not rows:
         return 0
@@ -1027,6 +1058,12 @@ async def _send_broadcast_vk_part(
     _vk_excl = await _excluded_contact_ids(conn, event_id, schedule.get("audience_exclude"))
     if _vk_excl:
         rows = [r for r in rows if r["contact_id"] not in _vk_excl]
+        if not rows:
+            return 0
+    # Include-сегменты оплаты (paid_event/unpaid_event): оставляем только нужные.
+    _vk_paid_on, _vk_paid_keep = await _paid_filter_contact_ids(conn, event_id, aud_include)
+    if _vk_paid_on:
+        rows = [r for r in rows if r["contact_id"] in _vk_paid_keep]
         if not rows:
             return 0
 
@@ -1312,6 +1349,11 @@ async def _send_broadcast_max_part(
         rows = [r for r in rows if r["contact_id"] not in _max_excl]
         if not rows:
             return 0
+    _max_paid_on, _max_paid_keep = await _paid_filter_contact_ids(conn, event_id, aud_include)
+    if _max_paid_on:
+        rows = [r for r in rows if r["contact_id"] in _max_paid_keep]
+        if not rows:
+            return 0
 
     max_buttons = None
     if buttons:
@@ -1555,6 +1597,11 @@ async def _send_broadcast_email_part(
     _em_excl = await _excluded_contact_ids(conn, event_id, schedule.get("audience_exclude"))
     if _em_excl:
         rows = [r for r in rows if r["contact_id"] not in _em_excl]
+        if not rows:
+            return 0
+    _em_paid_on, _em_paid_keep = await _paid_filter_contact_ids(conn, event_id, aud_include)
+    if _em_paid_on:
+        rows = [r for r in rows if r["contact_id"] in _em_paid_keep]
         if not rows:
             return 0
 
@@ -2012,6 +2059,19 @@ async def _build_audience(conn, schedule) -> set:
             """,
             event_id
         )
+    elif aud_include in ("paid_event", "unpaid_event"):
+        # Оплата по status (миграция 157): 'paid' — оплатил, 'unpaid' — заказ без оплаты.
+        _st = "paid" if aud_include == "paid_event" else "unpaid"
+        _paid_cond = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+                      f"WHERE ept.participant_id = ep.id AND ept.status = '{_st}')")
+        rows = await conn.fetch(
+            f"""
+            SELECT pu.platform_user_id FROM event_participants ep
+            JOIN platform_users pu ON pu.contact_id = ep.contact_id AND pu.platform_slug='telegram'
+            WHERE ep.event_id=$1 AND {_paid_cond} AND {SUBSCRIBED_CLAUSE}
+            """,
+            event_id
+        )
     else:
         rows = await conn.fetch(
             f"""
@@ -2040,6 +2100,17 @@ async def _build_audience(conn, schedule) -> set:
             event_id
         )
         exclude_ids = {r["platform_user_id"] for r in ex}
+    elif aud_exclude in ("paid_event", "unpaid_event"):
+        _st = "paid" if aud_exclude == "paid_event" else "unpaid"
+        _paid_cond = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+                      f"WHERE ept.participant_id = ep.id AND ept.status = '{_st}')")
+        ex = await conn.fetch(
+            f"SELECT pu.platform_user_id FROM event_participants ep "
+            f"JOIN platform_users pu ON pu.contact_id=ep.contact_id AND pu.platform_slug='telegram' "
+            f"WHERE ep.event_id=$1 AND {_paid_cond}",
+            event_id
+        )
+        exclude_ids = {r["platform_user_id"] for r in ex}
     elif aud_exclude == "all_event":
         ex = await conn.fetch(
             "SELECT pu.platform_user_id FROM event_participants ep "
@@ -2062,10 +2133,21 @@ async def _excluded_contact_ids(conn, event_id, aud_exclude) -> set:
     """
     if not event_id or aud_exclude in (None, "", "none"):
         return set()
+    # Оплата: event_participant_tariffs.status (миграция 157). 'paid' — оплатил;
+    # 'unpaid' — создал заказ, но не оплатил.
+    _PAID = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+             "WHERE ept.participant_id = ep.id AND ept.status = 'paid')")
+    _UNPAID = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+               "WHERE ept.participant_id = ep.id AND ept.status = 'unpaid')")
     if aud_exclude == "registered_event":
         cond = "ep.is_registered = TRUE"
     elif aud_exclude == "unregistered_event":
         cond = "ep.is_registered = FALSE"
+    elif aud_exclude == "paid_event":
+        cond = _PAID
+    elif aud_exclude == "unpaid_event":
+        # имеют неоплаченный заказ (status='unpaid')
+        cond = _UNPAID
     elif aud_exclude == "all_event":
         cond = "TRUE"
     else:
@@ -2075,6 +2157,25 @@ async def _excluded_contact_ids(conn, event_id, aud_exclude) -> set:
         event_id,
     )
     return {r["contact_id"] for r in ex}
+
+
+async def _paid_filter_contact_ids(conn, event_id, aud_include) -> "tuple[bool, set]":
+    """Для include-сегментов оплаты возвращает (нужен_фильтр, множество contact_id,
+    которые НАДО ОСТАВИТЬ). Работает поверх базовой аудитории all_event.
+    (False, set()) — фильтр по оплате не нужен."""
+    if not event_id or aud_include not in ("paid_event", "unpaid_event"):
+        return (False, set())
+    if aud_include == "paid_event":
+        cond = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+                "WHERE ept.participant_id = ep.id AND ept.status = 'paid')")
+    else:  # unpaid_event — имеют неоплаченный заказ
+        cond = ("EXISTS (SELECT 1 FROM event_participant_tariffs ept "
+                "WHERE ept.participant_id = ep.id AND ept.status = 'unpaid')")
+    rows = await conn.fetch(
+        f"SELECT ep.contact_id FROM event_participants ep WHERE ep.event_id=$1 AND {cond}",
+        event_id,
+    )
+    return (True, {r["contact_id"] for r in rows})
 
 
 # ─────────────────────────────────────────
