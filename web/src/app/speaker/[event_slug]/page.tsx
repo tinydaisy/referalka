@@ -2341,18 +2341,54 @@ function MyResultsTab({ token }: { token: string }) {
             </a>
           )}
 
-          {/* Назначенные жюри — видны всегда, даже до выставления оценок. */}
+          {/* Назначенные жюри — раскрывающиеся блоки: оценки по критериям +
+              средний балл + обратная связь этого жюри. Видны даже до оценок. */}
           {(st.assigned_jurors || []).length > 0 && (
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+            <div style={{ marginBottom: 12 }}>
               <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>👥 Ваши жюри на этом этапе</div>
-              {st.assigned_jurors.map((j: any, i: number) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 14, padding: '4px 0', borderTop: i ? '1px solid #f1f5f9' : 'none' }}>
-                  <span>{j.juror_name}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: j.has_scored ? '#059669' : '#94a3b8' }}>
-                    {j.has_scored ? '✓ оценил' : 'оценка не проставлена'}
-                  </span>
-                </div>
-              ))}
+              {st.assigned_jurors.map((j: any, i: number) => {
+                const jKey = `juror:${st.stage_id}:${i}`
+                const jOpen = !collapsed[jKey]   // по умолчанию раскрыт если оценил
+                const canOpen = j.has_scored
+                return (
+                  <div key={i} style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 8, overflow: 'hidden' }}>
+                    <div onClick={() => canOpen && toggle(jKey)}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: canOpen ? 'pointer' : 'default', background: '#f8fafc' }}>
+                      <span style={{ fontWeight: 700, color: DARK, fontSize: 14 }}>{j.juror_name}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {j.has_scored ? (
+                          <b style={{ color: DARK, fontSize: 15 }}>{j.avg ?? '—'}</b>
+                        ) : (
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>оценка не проставлена</span>
+                        )}
+                        {canOpen && (
+                          <span style={{ fontSize: 12, color: '#94a3b8', transform: jOpen ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }}>▾</span>
+                        )}
+                      </span>
+                    </div>
+                    {canOpen && jOpen && (
+                      <div style={{ padding: '8px 14px 12px' }}>
+                        {(j.criteria || []).map((c: any, ci: number) => (
+                          <div key={ci} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '4px 0', borderTop: ci ? '1px solid #f1f5f9' : 'none' }}>
+                            <span style={{ color: '#475569' }}>{c.title}</span>
+                            <b>{c.value ?? '—'}</b>
+                          </div>
+                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '6px 0 0', marginTop: 4, borderTop: '2px solid #e2e8f0', fontWeight: 700, color: DARK }}>
+                          <span>Средний балл</span>
+                          <span>{j.avg ?? '—'}</span>
+                        </div>
+                        {j.feedback && (
+                          <div style={{ marginTop: 10, background: '#f8fafc', borderRadius: 8, padding: 10, fontSize: 13, color: '#334155', lineHeight: 1.4 }}>
+                            <div style={{ fontWeight: 700, color: DARK, marginBottom: 4 }}>💬 Обратная связь</div>
+                            {j.feedback}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -2412,15 +2448,8 @@ function MyResultsTab({ token }: { token: string }) {
                   </div>
                 )
               })}
-
-              {st.feedback?.length > 0 && (
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>
-                  <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>💬 Обратная связь жюри</div>
-                  {st.feedback.map((f: any, i: number) => (
-                    <div key={i} style={{ fontSize: 14, marginBottom: 8 }}><b style={{ color: DARK }}>{f.juror_name}:</b> {f.body}</div>
-                  ))}
-                </div>
-              )}
+              {/* Общий блок «Обратная связь жюри» убран — фидбек теперь
+                  внутри раскрывающегося блока каждого жюри выше. */}
             </>
           )}
           </>)}

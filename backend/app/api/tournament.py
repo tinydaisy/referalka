@@ -1722,6 +1722,10 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
     for a in assign_rows:
         jurors_by_stage.setdefault(a["stage_id"], []).append(
             {"juror_name": a["juror_name"], "has_scored": bool(a["has_scored"])})
+    # Фидбек по (этап, имя жюри) — чтобы вложить в блок каждого жюри.
+    fb_by_stage_juror: dict = {}
+    for f in fb_rows:
+        fb_by_stage_juror.setdefault((f["stage_id"], f["juror_name"]), f["body"])
 
     # по каждому этапу считаем мою строку
     stages_out = []
@@ -1736,6 +1740,34 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
         has = me is not None and (me["total"] or any(v for v in (me["cells"] or {}).values()))
         if has:
             any_results = True
+
+        # Детализация по каждому назначенному жюри: его оценки по критериям +
+        # средний балл + обратная связь. jury_detail = {criterion_id: [{juror_name,value}]}.
+        jdetail = (me.get("jury_detail") if me else {}) or {}
+        jury_crit_cols = [c for c in cols]  # все jury-критерии этапа
+        jurors_full = []
+        for jr in jurors_by_stage.get(st["id"], []):
+            jname = jr["juror_name"]
+            crit_scores = []
+            vals = []
+            for c in jury_crit_cols:
+                cid = str(c["criterion_id"])
+                found = None
+                for d in jdetail.get(cid, []):
+                    if d.get("juror_name") == jname:
+                        found = d.get("value"); break
+                if found is not None:
+                    vals.append(float(found))
+                crit_scores.append({"title": c["title"], "value": found})
+            avg = round(sum(vals) / len(vals), 2) if vals else None
+            jurors_full.append({
+                "juror_name": jname,
+                "has_scored": jr["has_scored"],
+                "avg": avg,
+                "criteria": crit_scores,
+                "feedback": fb_by_stage_juror.get((st["id"], jname)),
+            })
+
         stages_out.append({
             "stage_id": st["id"], "stage_title": st["title"],
             "has_results": bool(has),
@@ -1747,7 +1779,7 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
             "columns": cols,
             "packages": result.get("packages", []),
             "feedback": fb_by_stage.get(st["id"], []),
-            "assigned_jurors": jurors_by_stage.get(st["id"], []),
+            "assigned_jurors": jurors_full,
         })
 
     return {"is_tournament": True, "event_id": event_id, "has_results": any_results, "stages": stages_out}
