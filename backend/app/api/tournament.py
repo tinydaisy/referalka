@@ -1512,7 +1512,12 @@ async def jury_me(stage_id: Optional[int] = None, session: dict = Depends(_cab_s
             "SELECT subject_kind, subject_id FROM tournament_jury_assignments WHERE event_id=$1 AND juror_ec_id=$2 AND stage_id=$3",
             event_id, juror_ec_id, stage_id)
     assigned_keys = {_skey(a["subject_kind"], a["subject_id"]) for a in assigns}
-    all_subjects = await _subjects(event_id, db)
+    # ВАЖНО: те же флаги аудитории этапа, что в турнирной таблице/распределении.
+    # Иначе на этапе {speakers} дедуп ec+ep схлопывал назначенных спикеров и жюри
+    # видело только часть (напр. 1 из 4). show_ec/show_ep по listen_audiences этапа.
+    _show_ep, _show_ec, _inc_unreg = await _stage_audience_flags(event_id, stage_id, db)
+    all_subjects = await _subjects(event_id, db, show_ep=_show_ep, show_ec=_show_ec,
+                                   include_unregistered=_inc_unreg)
     subjects = [s for s in all_subjects if s["key"] in assigned_keys]
 
     # jury-критерии: пакеты выбранного этапа (+ общие stage_id IS NULL), затем их jury-критерии
@@ -1700,6 +1705,24 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
     for f in fb_rows:
         fb_by_stage.setdefault(f["stage_id"], []).append({"juror_name": f["juror_name"], "body": f["body"]})
 
+    # Назначенные мне жюри по этапам + проставил ли каждый хоть одну оценку.
+    # Участник видит своих жюри ДАЖЕ без оценок (со статусом «не проставлено»).
+    assign_rows = await db.fetch(
+        """SELECT a.stage_id, a.juror_ec_id, jc.name AS juror_name,
+                  EXISTS (SELECT 1 FROM tournament_scores ts
+                            WHERE ts.event_id=a.event_id AND ts.juror_ec_id=a.juror_ec_id
+                              AND ts.subject_kind='ec' AND ts.subject_id=$2) AS has_scored
+             FROM tournament_jury_assignments a
+             JOIN event_collaborators jec ON jec.id = a.juror_ec_id
+             JOIN collaborators jc ON jc.id = jec.speaker_id
+            WHERE a.event_id=$1 AND a.subject_kind='ec' AND a.subject_id=$2
+            ORDER BY jc.name""",
+        event_id, se_id)
+    jurors_by_stage: dict = {}
+    for a in assign_rows:
+        jurors_by_stage.setdefault(a["stage_id"], []).append(
+            {"juror_name": a["juror_name"], "has_scored": bool(a["has_scored"])})
+
     # по каждому этапу считаем мою строку
     stages_out = []
     any_results = False
@@ -1724,6 +1747,7 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
             "columns": cols,
             "packages": result.get("packages", []),
             "feedback": fb_by_stage.get(st["id"], []),
+            "assigned_jurors": jurors_by_stage.get(st["id"], []),
         })
 
     return {"is_tournament": True, "event_id": event_id, "has_results": any_results, "stages": stages_out}

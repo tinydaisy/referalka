@@ -2311,7 +2311,10 @@ function MyResultsTab({ token }: { token: string }) {
 
   if (loading) return <div style={{ padding: 20, textAlign: 'center', color: '#7a8c9c' }}>Загрузка…</div>
   if (!data?.is_tournament) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Это событие — не турнир.</div>
-  if (!data?.has_results) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Результатов пока нет — жюри ещё не выставило оценки.</div>
+  // Показываем этапы, если есть оценки ИЛИ хотя бы назначенные жюри (участник
+  // видит своих жюри со статусом «оценка не проставлена»).
+  const hasAnyJurors = (data.stages || []).some((s: any) => (s.assigned_jurors || []).length > 0)
+  if (!data?.has_results && !hasAnyJurors) return <div style={{ padding: 16, color: '#7a8c9c', fontSize: 14 }}>Результатов пока нет — жюри ещё не назначены.</div>
 
   const medal = (p: number | null) => p == null ? '' : (p <= 3 ? ['🥇','🥈','🥉'][p-1] : '#'+p)
 
@@ -2336,6 +2339,21 @@ function MyResultsTab({ token }: { token: string }) {
               style={{ display: 'inline-block', marginBottom: 12, fontSize: 13, color: DARK, textDecoration: 'underline' }}>
               📋 Регламент подсчёта баллов
             </a>
+          )}
+
+          {/* Назначенные жюри — видны всегда, даже до выставления оценок. */}
+          {(st.assigned_jurors || []).length > 0 && (
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: DARK, marginBottom: 8 }}>👥 Ваши жюри на этом этапе</div>
+              {st.assigned_jurors.map((j: any, i: number) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 14, padding: '4px 0', borderTop: i ? '1px solid #f1f5f9' : 'none' }}>
+                  <span>{j.juror_name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: j.has_scored ? '#059669' : '#94a3b8' }}>
+                    {j.has_scored ? '✓ оценил' : 'оценка не проставлена'}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
 
           {!st.has_results ? (
