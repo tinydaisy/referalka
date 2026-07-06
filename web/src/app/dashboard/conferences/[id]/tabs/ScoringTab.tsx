@@ -4,6 +4,17 @@ import { api } from '@/lib/api'
 import { Spinner } from '@/components/Spinner'
 import { Plus, Trash2, ChevronDown, Camera, Pencil, ExternalLink, Copy, Check, HelpCircle } from 'lucide-react'
 
+// ISO-строку из БД (с tz, обычно UTC) → строка для <input datetime-local> в МСК.
+// Бэк хранит lead_count_since в TIMESTAMPTZ и трактует ВВОД как МСК, поэтому в
+// поле тоже показываем МСК (иначе введённое «00:01» отображалось как «21:01» UTC).
+function utcToMoscowLocal(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)                     // парсит tz из строки
+  if (isNaN(d.getTime())) return ''
+  const msk = new Date(d.getTime() + 3 * 3600 * 1000)  // сдвиг в МСК
+  return msk.toISOString().slice(0, 16)       // YYYY-MM-DDTHH:MM
+}
+
 // Подвкладки раздела «Турнир» — каждая отдельная вкладка 2-го уровня
 // (навигация рисуется в page.tsx, своего ряда табов здесь больше нет).
 export function CriteriaTab({ eventId }: { eventId: number }) { return <CriteriaSub eventId={eventId} /> }
@@ -268,10 +279,11 @@ function CriterionRow({ eventId, crit, stages, onChange }: any) {
           <span className="text-[11px] text-gray-500 shrink-0">Считать лиды с</span>
           <input type="datetime-local"
             className="flex-1 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs outline-none focus:border-[#FFCFA4] focus:ring-1 focus:ring-[#FFCFA4]"
-            defaultValue={crit.lead_count_since ? String(crit.lead_count_since).slice(0, 16) : ''}
+            defaultValue={utcToMoscowLocal(crit.lead_count_since)}
             onBlur={(e) => {
               const v = e.target.value
-              const cur = crit.lead_count_since ? String(crit.lead_count_since).slice(0, 16) : ''
+              const cur = utcToMoscowLocal(crit.lead_count_since)
+              // Поле показывает МСК; бэк тоже трактует ввод как МСК — шлём как есть.
               if (v !== cur) save({ lead_count_since: v || '' })
             }} />
         </div>
@@ -346,14 +358,14 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
   const openAuto = async () => {
     setAutoOpen(true); setSuggest(null)
     try {
-      const s = await api.tournament.autoAssignSuggest(eventId, autoSpeakers, autoParticipants)
+      const s = await api.tournament.autoAssignSuggest(eventId, autoSpeakers, autoParticipants, stageId)
       setSuggest(s); if (!perJuror) setPerJuror(String(s.recommended_per_juror || ''))
     } catch {}
   }
   // пересчитать рекомендацию при смене типов
   const refreshSuggest = async (sp: boolean, pa: boolean) => {
     try {
-      const s = await api.tournament.autoAssignSuggest(eventId, sp, pa)
+      const s = await api.tournament.autoAssignSuggest(eventId, sp, pa, stageId)
       setSuggest(s); setPerJuror(String(s.recommended_per_juror || ''))
     } catch {}
   }

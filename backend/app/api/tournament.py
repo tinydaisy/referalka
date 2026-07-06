@@ -108,6 +108,23 @@ def _skey(kind: str, sid: int) -> str:
     return f"{kind}:{sid}"
 
 
+async def _stage_audience_flags(event_id: int, stage_id: Optional[int],
+                                db: asyncpg.Connection) -> tuple[bool, bool, bool]:
+    """По аудитории этапа (conf_stages.listen_audiences) → (show_ep, show_ec, include_unreg).
+    Та же логика, что в _compute. Без этапа / пустая аудитория → показываем всех."""
+    show_ep, show_ec, include_unreg = True, True, False
+    if stage_id is not None:
+        st_aud = await db.fetchval(
+            "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
+            stage_id, event_id)
+        aud = set(st_aud or [])
+        if aud:
+            show_ep = bool(aud & {"all", "registered"})
+            show_ec = "speakers" in aud
+            include_unreg = "all" in aud
+    return show_ep, show_ec, include_unreg
+
+
 async def _subjects(event_id: int, db: asyncpg.Connection, *,
                     show_ep: bool = True, show_ec: bool = True,
                     include_unregistered: bool = False,
@@ -301,16 +318,7 @@ async def _compute(event_id: int, stage_id: Optional[int], db: asyncpg.Connectio
     #   Участники (ep) — по настройке этапа listen_audiences (как раньше).
     #   Спикеры (ec) — по ПОИМЁННОЙ привязке к этапу (event_collaborator_stages).
     #   stage_passes_ec — передаём stage_id только для фильтра спикеров.
-    show_ep, show_ec, include_unreg = True, True, False
-    if stage_id is not None:
-        st_aud = await db.fetchval(
-            "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
-            stage_id, event_id)
-        aud = set(st_aud or [])
-        if aud:
-            show_ep = bool(aud & {"all", "registered"})
-            show_ec = "speakers" in aud
-            include_unreg = "all" in aud
+    show_ep, show_ec, include_unreg = await _stage_audience_flags(event_id, stage_id, db)
     subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
                                include_unregistered=include_unreg, stage_id=stage_id)
     jurors = await _jurors(event_id, db, stage_id=stage_id)
@@ -750,16 +758,7 @@ async def get_assignments(event_id: int, stage_id: Optional[int] = None, client=
     await _check_access(event_id, int(client["sub"]), db)
     # В строках: участники (ep) — по listen_audiences этапа (как раньше);
     # спикеры (ec) — по ПОИМЁННОЙ привязке к этапу (event_collaborator_stages).
-    show_ep, show_ec, include_unreg = True, True, False
-    if stage_id is not None:
-        st_aud = await db.fetchval(
-            "SELECT listen_audiences FROM conf_stages WHERE id=$1 AND event_id=$2",
-            stage_id, event_id)
-        aud = set(st_aud or [])
-        if aud:
-            show_ep = bool(aud & {"all", "registered"})
-            show_ec = "speakers" in aud
-            include_unreg = "all" in aud
+    show_ep, show_ec, include_unreg = await _stage_audience_flags(event_id, stage_id, db)
     subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
                                include_unregistered=include_unreg, stage_id=stage_id)
     jurors = await _jurors(event_id, db, stage_id=stage_id)
@@ -891,8 +890,10 @@ async def set_all_assignments(event_id: int, client=Depends(get_current_client),
     else:
         await db.execute("DELETE FROM tournament_jury_assignments WHERE event_id=$1 AND stage_id=$2", event_id, stage_id)
     if not clear:
-        subjects = await _subjects(event_id, db)
-        jurors = await _jurors(event_id, db)
+        show_ep, show_ec, include_unreg = await _stage_audience_flags(event_id, stage_id, db)
+        subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
+                                   include_unregistered=include_unreg, stage_id=stage_id)
+        jurors = await _jurors(event_id, db, stage_id=stage_id)
         for j in jurors:
             for s in subjects:
                 await db.execute(
@@ -911,10 +912,13 @@ class AutoAssignIn(BaseModel):
 @router.get("/assignments/auto-suggest", summary="Рекомендация по распределению")
 async def auto_assign_suggest(event_id: int, include_speakers: bool = False,
                               include_participants: bool = True,
+                              stage_id: Optional[int] = None,
                               client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
-    subjects = await _subjects(event_id, db)
-    jurors = await _jurors(event_id, db)
+    show_ep, show_ec, include_unreg = await _stage_audience_flags(event_id, stage_id, db)
+    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
+                               include_unregistered=include_unreg, stage_id=stage_id)
+    jurors = await _jurors(event_id, db, stage_id=stage_id)
     pool = [s for s in subjects
             if (s["is_speaker"] and include_speakers) or (not s["is_speaker"] and include_participants)]
     n_subj = len(pool)
@@ -933,8 +937,10 @@ async def auto_assign_suggest(event_id: int, include_speakers: bool = False,
 @router.post("/assignments/auto", summary="Автораспределение участников по жюри")
 async def auto_assign(event_id: int, data: AutoAssignIn, client=Depends(get_current_client), db: asyncpg.Connection = Depends(get_db)):
     await _check_access(event_id, int(client["sub"]), db)
-    subjects = await _subjects(event_id, db)
-    jurors = await _jurors(event_id, db)
+    show_ep, show_ec, include_unreg = await _stage_audience_flags(event_id, data.stage_id, db)
+    subjects = await _subjects(event_id, db, show_ep=show_ep, show_ec=show_ec,
+                               include_unregistered=include_unreg, stage_id=data.stage_id)
+    jurors = await _jurors(event_id, db, stage_id=data.stage_id)
     if not jurors:
         raise HTTPException(status_code=400, detail="Нет жюри для распределения")
 

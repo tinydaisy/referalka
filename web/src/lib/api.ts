@@ -796,8 +796,8 @@ export const api = {
       request(`/api/v1/events/${eventId}/tournament/assignments`, { method: 'POST', body: JSON.stringify(data) }),
     setAllAssignments: (eventId: number, clear: boolean, stageId?: number | null) =>
       request(`/api/v1/events/${eventId}/tournament/assignments/all?clear=${clear}${stageId ? `&stage_id=${stageId}` : ''}`, { method: 'POST' }),
-    autoAssignSuggest: (eventId: number, includeSpeakers: boolean, includeParticipants: boolean) =>
-      request(`/api/v1/events/${eventId}/tournament/assignments/auto-suggest?include_speakers=${includeSpeakers}&include_participants=${includeParticipants}`),
+    autoAssignSuggest: (eventId: number, includeSpeakers: boolean, includeParticipants: boolean, stageId?: number | null) =>
+      request(`/api/v1/events/${eventId}/tournament/assignments/auto-suggest?include_speakers=${includeSpeakers}&include_participants=${includeParticipants}${stageId != null ? `&stage_id=${stageId}` : ''}`),
     autoAssign: (eventId: number, data: any) =>
       request(`/api/v1/events/${eventId}/tournament/assignments/auto`, { method: 'POST', body: JSON.stringify(data) }),
     leaderboard: (eventId: number, stageId?: number | null) =>
