@@ -475,7 +475,17 @@ function AssignmentsSub({ eventId }: { eventId: number }) {
             <tr className="bg-gray-50">
               <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-20 w-[220px] min-w-[220px] max-w-[220px]">Участник</th>
               <th className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap text-center sticky left-[220px] bg-gray-50 z-20 border-r">Жюри</th>
-              {data.jurors.map((j: any) => <th key={j.juror_ec_id} className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap">{j.name}</th>)}
+              {data.jurors.map((j: any) => {
+                // Сколько участников отмечено этому жюри (по текущему набору pairs).
+                const cnt = (data.subjects || []).reduce((acc: number, s: any) =>
+                  acc + (pairs.has(`${j.juror_ec_id}|${s.key}`) ? 1 : 0), 0)
+                return (
+                  <th key={j.juror_ec_id} className="px-3 py-2 font-medium text-gray-600 whitespace-nowrap text-center">
+                    <div>{j.name}</div>
+                    <div className="text-[11px] font-semibold text-[#25455D]">отмечено: {cnt}</div>
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
