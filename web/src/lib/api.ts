@@ -39,7 +39,13 @@ async function request(path: string, options?: RequestInit) {
         setTimeout(() => { try { window.alert(d) } catch {} }, 0)
       }
     }
-    throw new Error(err.detail || 'Что-то пошло не так')
+    // detail может быть объектом (напр. предупреждение с кодом при 409) —
+    // прокидываем его в свойство .detail, а message делаем строковым.
+    const detailIsObj = err.detail && typeof err.detail === 'object'
+    const e = new Error(detailIsObj ? (err.detail.message || 'Что-то пошло не так') : (err.detail || 'Что-то пошло не так'))
+    ;(e as any).detail = err.detail
+    ;(e as any).status = res.status
+    throw e
   }
   return res.json()
 }

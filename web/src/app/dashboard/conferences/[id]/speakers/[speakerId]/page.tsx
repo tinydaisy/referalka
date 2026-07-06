@@ -439,7 +439,7 @@ export default function ConferenceSpeakerPage() {
       const priority = ((eventForm as any).priority ?? null) !== null
         ? Number((eventForm as any).priority)
         : calcPriority(eventForm.role, eventForm.is_commercial)
-      await api.conference.speakers.update(confId, speakerEventId, {
+      const payload: any = {
         role: eventForm.role,
         topics,
         stage_ids: stageIds,
@@ -461,7 +461,23 @@ export default function ConferenceSpeakerPage() {
         exclude_channel_from_subscription: eventForm.exclude_channel_from_subscription,
         poster_id: eventForm.poster_id,
         announcement_poster_ids: eventForm.announcement_poster_ids,
-      } as any)
+      }
+      try {
+        await api.conference.speakers.update(confId, speakerEventId, payload)
+      } catch (err: any) {
+        // Снятие этапа с уже проставленными оценками — спрашиваем подтверждение.
+        if (err?.detail?.code === 'stage_has_scores') {
+          const n = err.detail.scores || 0
+          if (confirm(`На снимаемом этапе уже есть оценки (${n}). Если убрать участие — ВСЕ эти оценки, назначения и обратная связь удалятся безвозвратно. Удалить?`)) {
+            await api.conference.speakers.update(confId, speakerEventId, { ...payload, force_remove_stage_data: true })
+          } else {
+            setSavingEvent(false)
+            return  // отменили — не сохраняем
+          }
+        } else {
+          throw err
+        }
+      }
       setEventSaved(true)
       setTimeout(() => setEventSaved(false), 3000)
     } catch (err: any) {

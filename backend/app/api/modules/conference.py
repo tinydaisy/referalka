@@ -591,6 +591,9 @@ class SpeakerEventUpdate(BaseModel):
     # В каких этапах турнира участвует (поимённая привязка к conf_stages).
     # Управляет видимостью в кабинете, распределении и турнирной таблице.
     stage_ids: Optional[List[int]] = None
+    # При снятии этапа с уже проставленными оценками нужно подтверждение —
+    # force=True разрешает удалить оценки+назначения снятых этапов.
+    force_remove_stage_data: Optional[bool] = None
     gift_after_speech_title: Optional[str] = None
     gift_after_speech_url: Optional[str] = None
     gift_raffle_title: Optional[str] = None
@@ -1113,6 +1116,7 @@ async def update_speaker_event(
     raw = data.model_dump()
     topics_list = raw.pop("topics", None)
     stage_ids = raw.pop("stage_ids", None)  # этапы участия — отдельной таблицей
+    force_remove = bool(raw.pop("force_remove_stage_data", None))
     # Не обновляем speaker_topic через общий механизм — управляем темами отдельно
     raw.pop("speaker_topic", None)
     # Валидация poster_id и announcement_poster_ids: все должны принадлежать
@@ -1154,6 +1158,54 @@ async def update_speaker_event(
             first_topic, speaker_event_id
         )
     if stage_ids is not None:
+        new_set = {int(x) for x in stage_ids}
+        old_set = {r["stage_id"] for r in await db.fetch(
+            "SELECT stage_id FROM event_collaborator_stages WHERE ec_id=$1", speaker_event_id)}
+        removed = old_set - new_set   # этапы, с которых спикера СНЯЛИ
+        if removed:
+            # Есть ли оценки на снятых этапах, где этот ec — субъект (его оценивали)
+            # ИЛИ жюри (он оценивал). Оценки привязаны к этапу через критерий/пакет,
+            # поэтому проверяем по назначениям + наличию строк tournament_scores.
+            rlist = list(removed)
+            scores_cnt = await db.fetchval(
+                """SELECT COUNT(*) FROM tournament_scores ts
+                     JOIN tournament_criteria tc ON tc.id = ts.criterion_id
+                     JOIN tournament_packages tp ON tp.id = tc.package_id
+                    WHERE ts.event_id=$1
+                      AND COALESCE(tp.stage_id, -1) = ANY($2::int[])
+                      AND ( (ts.subject_kind='ec' AND ts.subject_id=$3) OR ts.juror_ec_id=$3 )""",
+                event_id, rlist, speaker_event_id)
+            if scores_cnt and not force_remove:
+                raise HTTPException(status_code=409, detail={
+                    "code": "stage_has_scores",
+                    "message": "На снимаемом этапе уже есть оценки. Если убрать участие — все эти оценки и привязки удалятся. Продолжить?",
+                    "scores": int(scores_cnt),
+                })
+            # Чистим привязки турнирной таблицы для снятых этапов: назначения жюри
+            # (как субъект и как жюри) + при force — оценки + фиксации + фидбек.
+            await db.execute(
+                """DELETE FROM tournament_jury_assignments
+                    WHERE event_id=$1 AND stage_id = ANY($2::int[])
+                      AND ( (subject_kind='ec' AND subject_id=$3) OR juror_ec_id=$3 )""",
+                event_id, rlist, speaker_event_id)
+            if scores_cnt and force_remove:
+                await db.execute(
+                    """DELETE FROM tournament_scores ts
+                        USING tournament_criteria tc, tournament_packages tp
+                       WHERE ts.criterion_id=tc.id AND tc.package_id=tp.id
+                         AND ts.event_id=$1 AND COALESCE(tp.stage_id,-1) = ANY($2::int[])
+                         AND ( (ts.subject_kind='ec' AND ts.subject_id=$3) OR ts.juror_ec_id=$3 )""",
+                    event_id, rlist, speaker_event_id)
+                await db.execute(
+                    """DELETE FROM tournament_jury_locks
+                        WHERE event_id=$1 AND stage_id = ANY($2::int[])
+                          AND ( (subject_kind='ec' AND subject_id=$3) OR juror_ec_id=$3 )""",
+                    event_id, rlist, speaker_event_id)
+                await db.execute(
+                    """DELETE FROM tournament_feedback
+                        WHERE event_id=$1 AND stage_id = ANY($2::int[])
+                          AND ( (subject_kind='ec' AND subject_id=$3) OR juror_ec_id=$3 )""",
+                    event_id, rlist, speaker_event_id)
         # перезаписываем набор этапов участия: только этапы ЭТОГО события
         await db.execute("DELETE FROM event_collaborator_stages WHERE ec_id=$1", speaker_event_id)
         if stage_ids:
