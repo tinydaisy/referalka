@@ -1735,6 +1735,7 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
         me = next((r for r in result["table"] if r["key"] == mykey), None)
         cols = [{"criterion_id": c["criterion_id"], "title": c["title"],
                  "package_id": c["package_id"], "package_title": c["package_title"],
+                 "scorer": c.get("scorer"),
                  "description": c.get("description")}
                 for c in result["columns"]]
         has = me is not None and (me["total"] or any(v for v in (me["cells"] or {}).values()))
@@ -1744,7 +1745,9 @@ async def my_results(session: dict = Depends(_cab_session), db: asyncpg.Connecti
         # Детализация по каждому назначенному жюри: его оценки по критериям +
         # средний балл + обратная связь. jury_detail = {criterion_id: [{juror_name,value}]}.
         jdetail = (me.get("jury_detail") if me else {}) or {}
-        jury_crit_cols = [c for c in cols]  # все jury-критерии этапа
+        # ТОЛЬКО критерии, которые ставит жюри (scorer='jury'). Пакеты вовлечения
+        # (auto/vote/manual) — не оценки жюри, в блок жюри не попадают.
+        jury_crit_cols = [c for c in cols if c.get("scorer") == "jury"]
         jurors_full = []
         for jr in jurors_by_stage.get(st["id"], []):
             jname = jr["juror_name"]
